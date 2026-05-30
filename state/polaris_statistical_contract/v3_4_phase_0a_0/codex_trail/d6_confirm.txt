@@ -1,0 +1,20 @@
+codex
+1. ✓ Enforcement: applied in §2.1 and schema; construction-manifest acceptance check is distinct.
+2. ✓ Target-vs-realized bin: fail-closed language is present in §2.3.
+3. ✓ S3: removed from targets/schema; observability-only treatment is clear.
+4. △ Invariants: regex/count/ref/l2 invariants are present, but `version: str # semver or vN` still conflicts with “version integer equals `_v<N>` suffix.” Tighten that field.
+5. △ Stale citation: Parent and `tiebreak_protocol_ref` are corrected, but line 10 still says `0a.-1.A §6 sketched it`, which preserves the stale “§6 template sketch” reference.
+
+Schema JSON parses.
+
+Fix: [state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md](/C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md:10) remove/replace `0a.-1.A §6 sketched it`; also change the pseudo-schema `version` comment at line 36 from `semver or vN` to the locked integer/vN convention used by §2.1.
+24,283
+1. ✓ Enforcement: applied in §2.1 and schema; construction-manifest acceptance check is distinct.
+2. ✓ Target-vs-realized bin: fail-closed language is present in §2.3.
+3. ✓ S3: removed from targets/schema; observability-only treatment is clear.
+4. △ Invariants: regex/count/ref/l2 invariants are present, but `version: str # semver or vN` still conflicts with “version integer equals `_v<N>` suffix.” Tighten that field.
+5. △ Stale citation: Parent and `tiebreak_protocol_ref` are corrected, but line 10 still says `0a.-1.A §6 sketched it`, which preserves the stale “§6 template sketch” reference.
+
+Schema JSON parses.
+
+Fix: [state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md](/C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D6_sme_template_format.md:10) remove/replace `0a.-1.A §6 sketched it`; also change the pseudo-schema `version` comment at line 36 from `semver or vN` to the locked integer/vN convention used by §2.1.

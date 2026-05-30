@@ -1,0 +1,401 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6d13-3a45-75a2-b187-ecb24e6a33f3
+--------
+user
+HARD ITERATION CAP: 5. This is iter 2 of 5. Front-load all findings. APPROVE iff zero P0 AND zero P1.
+
+# Review: 0a.-1.A + 0a.-1.B human-free conversions — ITER 2 (#922)
+
+## Your iter-1 verdict was REQUEST_CHANGES (4 P1, 3 P2). All in-doc findings addressed:
+
+**P1-1 (SUPPORTED-control judged)** — FIXED. 0a.-1.A §6: judged severity domain is strictly {S0,S1,S2} for FABRICATED items only; SUPPORTED matched-controls NOT judged (status mechanical, severity N/A, EXCLUDED from panel + E2); E2 is severity-only over fabricated items.
+**P1-2 (constructor_family != verifier_family not enforced)** — FIXED. 0a.-1.A §1 invariant now includes `constructor_family != verifier_family` (all four lineages mutually distinct); §2.2 validator rejects `constructor_instance.family == verifier_family`.
+**P1-3 (S3 vs {S0,S1,S2,SUPPORTED})** — FIXED. 0a.-1.A §6: S3 is NOT a gold stratum; an item the panel would rate S3 is EXCLUDED → exploratory before any label; judged/labeled domain strictly {S0,S1,S2}.
+**P1-4 (citation_swap/scope_overreach conditional status)** — FIXED. 0a.-1.B new §2.2: confirmatory admission requires controlled source/field mismatch AND E1 packet-level no-accidental-support; causal_clinical_overreach exploratory-only; NO LLM-judged-STATUS path into confirmatory.
+**P2 (§1 "adjudicated CONTRADICTION/UNSUPPORTED")** — FIXED → "mechanically labeled FABRICATED by the oracle".
+**P2 (§54 "miscalibrates SMEs")** — FIXED → "the severity judges".
+
+The 3rd P2 (0a.-1.C / 0a.-1.E still carry SME labels) is the REMAINING conversion work (tracked, #922) — those docs are NOT in this review's scope; I will convert them next. This review is A+B only.
+
+## Your task this iter
+Confirm the 4 P1 + 2 in-doc P2 fixes are real + complete + cross-consistent. APPROVE A+B if zero P0/P1 remain in THESE TWO docs.
+
+## Output schema
+verdict / novel_p0 / continuing_p0 / p1 / p2 / convergence_call / remaining_blockers_for_execution
+
+## DOC 1: 0a.-1.A (converted)
+# 0a.-1.A — Judge-Panel + Oracle Role Governance (human-free)
+
+**Deliverable**: Phase 0a.0 / 0a.-1.A — construction/adjudication role governance.
+**Status**: HUMAN-FREE CONVERSION (I-safety-001c / #922, per amendment §8). Original SME-panel version (Codex APPROVE 2026-05-27, 3 rounds) preserved in git history; this supersedes it under the operator HARD CONSTRAINT (no human SMEs, ever; only API budget).
+**Parent**: contract v3.3 (human-free amended) + `human_free_amendment/AMENDMENT_human_free_validation.md`; depends on D1a (6 validation domains).
+**Codex review**: original SME trail in `.codex/I-safety-001b/codex_0a1A_*`; human-free conversion review in `human_free_amendment/codex_trail/`.
+**Version**: 2 (human-free)
+
+**What changed (SME → machine)**: the former human roles (constructor / adjudicator / tiebreaker / human panel) are replaced. Fabrication STATUS is now a **mechanical oracle** (deterministic mutation; never judged). SEVERITY is adjudicated by a **cross-family LLM judge panel** (≥3 lineages) + a **deterministic hazard scaffold**, with escalation to operator + Codex (NO human SME). There is NO recruitment, NO credentials, NO human COI.
+
+---
+
+## §1. Role taxonomy (machine roles)
+
+| Role | Responsibility | Constraints |
+|---|---|---|
+| **Constructor** (deterministic/LLM pipeline) | Builds a claim+evidence-packet scenario; injects fabrications by **deterministic mutation** per the 0a.-1.B taxonomy; emits the sealed `constructor_intent` (the mechanical STATUS label — what was injected) | Constructor model-family MUST be disjoint from the judge-panel families AND the verifier family (anti-circularity, amendment §4) |
+| **Mechanical oracle** | The fabrication STATUS label itself — KNOWN because the constructor injected it; deterministic, NOT a judgment | NEVER LLM-judged. Status is computed from `constructor_intent` + structured-field/exact-span proof (Gate E1) |
+| **Severity judge panel** (≥3 cross-family LLMs) | Blinded first-pass SEVERITY label per item; produces the agreement object (Gate E2) | ≥3 distinct model lineages (e.g. GPT/Codex + Claude + Qwen); each blind to verifier outputs/rationales/scores and to the others' first-pass labels and to `constructor_intent` |
+| **Deterministic hazard scaffold** | Assigns a presumptive risk band from source-field + mutation-type where rules decide (dose/contraindication/boxed-warning/withdrawal/...) | "dose changed" → S0-CANDIDATE, never auto-S0 (severity-laundering guard, amendment §2/§7) |
+| **Escalation (§-1.1)** | Resolves persistent judge disagreement on severity | operator + Codex line-by-line vs cited evidence + **deterministic rule**. NO human SME. If rules + Codex cannot resolve, the item drops to exploratory (it does not get a human label) |
+
+**Family-disjointness invariant (replaces human role-disjointness; amendment §4)**: across a `blinding_unit_id` (claims sharing construction intent / fabrication pattern / evidence packet / batch),
+`constructor_family ∉ judge_panel_families` AND `verifier_family ∉ judge_panel_families` AND `constructor_family ≠ verifier_family` AND the ≥3 `judge_panel_families` are pairwise distinct. (All four pairwise lineages — constructor, verifier, and the ≥3 judges — are mutually distinct.)
+Rationale: shared lineage = shared blind spot. The disjointness scope is the `blinding_unit_id` (MAY equal a single claim; the manifest declares which).
+
+## §2. Mechanical enforcement (deterministic, blocking — not policy prose)
+
+### §2.1 `assignment_manifest` (hash-pinned, append-only)
+
+```json
+{
+  "claim_id": "<id>",
+  "blinding_unit_id": "<id | == claim_id>",
+  "constructor_instance": {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>"},
+  "judge_instances": [
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"},
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"},
+    {"family": "<lineage>", "model": "<slug>", "version": "<snapshot>", "decoding": "<settings>", "prompt_hash": "<sha256>"}
+  ],
+  "verifier_family": "<lineage>",
+  "assigned_at": "<utc>",
+  "assignment_seed": "<pinned randomization seed ref>",
+  "row_status": "live | superseded"
+}
+```
+
+### §2.2 Family-disjointness + independence validator (deterministic, blocking)
+
+A Python validator (`validate_judge_independence`) runs over `assignment_manifest` + `judge_registry` (§7) + `exposure_log` and REJECTS (non-zero exit, blocks the run) any row where, across the row's `blinding_unit_id`:
+- `constructor_instance.family ∈ judge_panel_families`, OR
+- `verifier_family ∈ judge_panel_families`, OR
+- `constructor_instance.family == verifier_family`, OR
+- `len(distinct judge_panel_families) < 3`, OR
+- duplicate family within `judge_instances`, OR
+- more than one `live` assignment row for the same `claim_id`, OR
+- any judge/constructor instance absent from the locked `judge_registry`, OR
+- any judge instance is `active == false` or version-unfrozen, OR
+- any judge instance is not eligible for the claim's domain (§3), OR
+- the claim's entity/topic IDs are unresolved (fail-closed; see §4), OR
+- a leakage hit: a judge instance's prompt/exemplars/RAG/memory contains gold-set or Phase-0a content (per contract §P3.4 items 32-41), OR
+- exposure-log contamination: a judge's exposure log shows a disqualifying prior read (verifier output/rationale/score, `constructor_intent`, or another judge's first-pass for that blinding unit).
+
+The validator is hash-pinned (per 0a.-1.E custody) alongside the relation-builder/randomizer hashes.
+
+### §2.3 Judge invocation enforcement — POSITIVE authorization
+
+The judge-invocation harness does NOT merely block forbidden inputs; it POSITIVELY AUTHORIZES and constructs each judge call deterministically:
+- **First-pass severity call**: permitted ONLY for an `judge_instance` listed for that claim; the call is constructed from the frozen judge prompt (`prompt_hash`) + the blinded packet; NO verifier output, NO `constructor_intent`, NO sibling-judge label is included in the context.
+- **Escalation**: operator + Codex + the deterministic rule; no human-SME label path exists.
+- Every judge call (input context hash + output) is logged to the exposure log (per 0a.-1.E), reads included.
+
+### §2.4 Controlled artifact / access layer (4th enforcement surface)
+
+UI/prompt-level hiding is insufficient if a judge process can reach packet internals, `constructor_intent`, verifier outputs, or sibling labels OUTSIDE the harness. Binding:
+- Storage/object access to construction-intent, first-pass-judge, consensus, verifier-output, and packet-internal artifacts MUST be role-scoped at the storage layer (object ACLs / tokens), not only at the harness.
+- Any access path is wired to the exposure log (reads + writes).
+- The §2.2 validator excludes any judge instance whose exposure log shows a disqualifying read.
+- 0a.-1.E implements the storage-layer ACLs + exposure-log wiring; 0a.-1.A names it BINDING here.
+
+## §3. Per-domain judge eligibility (replaces human credential floors)
+
+There are NO human credentials. A judge instance is eligible for a domain iff it meets the deterministic eligibility profile. Each profile maps to registry-verifiable, hash-pinned fields (not free-text):
+
+| Domain | Judge eligibility profile | Registry-verifiable fields |
+|---|---|---|
+| `clinical` | ≥3 distinct frontier lineages on the panel; each a current top-tier instruction model; deterministic hazard scaffold MANDATORY for treatment/pharmacotherapy/device items (structured-field rules auto-flag dose/contraindication/boxed-warning); structured clinical source (label/registry) REQUIRED for confirmatory status | `family`, `model_slug`, `version_snapshot`, `decoding`, `prompt_hash`, `hazard_scaffold_pin` |
+| `due_diligence` | ≥3 distinct lineages; entity grounding via 0a.-1.D registry IDs | `family`, `model_slug`, `version_snapshot`, `decoding`, `prompt_hash` |
+| `policy` | ≥3 distinct lineages; source grounding to dated/structured policy artifacts | same |
+| `tech` | ≥3 distinct lineages; standards/spec grounding | same |
+| `ai_sovereignty` | ≥3 distinct lineages; source grounding to governance/standards artifacts | same |
+| `canada_us` | ≥3 distinct lineages; cross-border source grounding | same |
+
+**Clinical adjudication-path rule (human-free)**: for treatment/pharmacotherapy/device claims, the **deterministic hazard scaffold MUST be in the severity path** (it auto-flags dose/contraindication/boxed-warning fields as S0-candidate) AND the confirmatory STATUS label MUST be grounded in a structured clinical source (drug label / trial registry) per Gate E1. There is no MD/PharmD human requirement; the safety comes from mechanical status + structured-field hazard rules + the cross-family panel, with the honest claim-license caveat (NOT clinical/expert validation; amendment §6).
+
+**Panel-size math (human-free)**: the per-claim minimum is **≥3 distinct judge families** (the severity panel). There is no constructor-vs-adjudicator headcount (the constructor is a pipeline, family-disjoint from the panel). The deterministic hazard scaffold + the mechanical oracle do the rest. No roster TARGET of human SMEs — the "roster" is the frozen `judge_registry` (§7).
+
+## §4. Independence / anti-contamination screen (replaces human COI; mechanically enumerable)
+
+Human COI does not exist. The analogue is judge INDEPENDENCE + leakage control:
+
+1. The `judge_registry` records per instance: `{family, model_slug, version_snapshot, decoding, prompt_hash, training_lineage_id, provider_opt_out_ref}`.
+2. Each claim carries resolved `entity_ids[]` + `microtopic_tags[]` (from 0a.-1.C construction_manifest) — used for stratification + leakage checks, not human COI.
+3. The §2.2 validator enforces: family-disjointness (constructor/verifier/judges all distinct lineages); NO shared exemplars/rationales/RAG/memory across constructor, verifier, and judge prompts (contract §P3.4); frozen versions + decoding; provider-side training/retention opt-out documented (`state/provider_opt_outs/`).
+4. **Fails closed** if a judge instance's lineage cannot be established as disjoint, or its leakage status is unresolved.
+5. Entity-ID resolution depends on 0a.-1.D (canonical entity identity) for `entity_ids` and D4 (microtopic ontology) for `microtopic_tags`. Until both exist, stratification/leakage checks run fail-closed.
+
+## §5. Blinding / isolation protocol (label-symmetric construction; judge isolation)
+
+Hiding labels is insufficient if packet CURATION leaks intent. v2 requires **label-symmetric packet construction** AND **judge isolation**:
+
+- Same deterministic packet builder + same source-selection rules for fabricated and non-fabricated (matched-control) claims.
+- Same facet generation (neutral, deterministic, uniform — no spotlighting of the mutated clause).
+- No packet metadata revealing the mutation (no "injected here" markers, no asymmetric annotation).
+- Each judge sees: claim text + neutral facet views + rendered evidence packet + cited spans.
+- Each judge does NOT see: `constructor_intent` (the mechanical status), the deterministic hazard band, verifier outputs/rationales/scores, or sibling judges' first-pass labels.
+- Cross-family judge agreement (Gate E2) is computed on first-pass blinded SEVERITY labels ONLY.
+- Fabrication STATUS is NOT judged — it comes from the mechanical oracle (Gate E1), so judge isolation cannot affect it.
+
+## §6. Severity tiebreak workflow (per-field majority across ≥3 judges; deterministic escalation)
+
+Severity is the only judged field (status is mechanical). The judged object is `severity ∈ {S0,S1,S2}` for **FABRICATED items only**. **SUPPORTED matched-controls are NOT judged**: their status is mechanical and their severity is `N/A` — they are EXCLUDED from the judge panel and from the Gate E2 agreement (E2 is severity-only, over fabricated items). **S3 is NOT a gold-set stratum** (D6 §2.2): an item the panel would rate S3 is EXCLUDED → exploratory-only, before any S3 label reaches the gold severity layers. So the judged/labeled severity domain is strictly `{S0,S1,S2}`.
+
+1. ≥3 cross-family judges label severity first-pass (blinded).
+2. Deterministic hazard scaffold emits its presumptive band (S0-candidate etc.) independently.
+3. **Reconciliation**: per the pre-registered rule — majority of the ≥3 judges sets the panel severity; the hazard scaffold can ESCALATE (e.g. a structured dose mutation forces ≥ S0-candidate review) but never DOWNGRADE below the rule's floor.
+4. If judges lack a majority on an ordinal split (e.g. S1/S2/S0 three-way) → escalation: operator + Codex line-by-line + deterministic rule. **Severity is NOT median/averaged** — ordinal disagreement escalates. If escalation cannot resolve deterministically, the item drops to **exploratory** (no human label is invented).
+5. Consensus severity written to `llm_consensus_severity_labels` (0a.-1.C); first-pass labels retained in `llm_first_pass_severity_labels` for the Gate E2 agreement coefficient.
+
+## §7. Judge registry (frozen; the "roster" analogue — NO recruitment)
+
+```json
+{
+  "judge_instance_id": "<stable id>",
+  "family": "<training lineage>",
+  "model_slug": "<provider model>",
+  "version_snapshot": "<frozen snapshot id>",
+  "decoding": {"temperature": 0, "top_p": 1, "...": "frozen"},
+  "prompt_hash": "<sha256 of the frozen judge prompt>",
+  "domains_eligible": ["<domain>", ...],
+  "training_lineage_id": "<for family-disjointness checks>",
+  "provider_opt_out_ref": "<state/provider_opt_outs/...>",
+  "frozen_by": "<custodian script + code-pin>",
+  "frozen_at": "<utc>",
+  "active": true
+}
+```
+
+The registry is FROZEN (model snapshots + prompts + decoding) before any gold-set judging; provider-side silent model updates invalidate the affected cycle (contract §P3.4). There is NO human recruitment — assembling the registry = selecting + freezing ≥3 cross-family model instances per domain. The framework (this deliverable) governs the registry schema + the validators that consume it.
+
+---
+
+## §8. Dependencies + ordering notes
+
+- Needs D1a (6 domains) — DONE.
+- 0a.-1.B (severity rubric + mechanical fabrication oracle) precedes judge prompt-freezing (the judges apply the rubric) — but this GOVERNANCE framework can lock first.
+- `assignment_manifest` + `judge_registry` schemas feed 0a.-1.C (integrated metadata) and 0a.-1.E (custody/exposure log).
+- The family-disjointness validator + judge-invocation enforcement are hash-pinned in 0a.-1.E.
+
+## §9. Definition of done (0a.-1.A, human-free)
+
+Framework locked: machine role taxonomy (constructor pipeline / mechanical oracle / ≥3 cross-family severity judges / deterministic hazard scaffold / operator+Codex+rule escalation), family-disjointness invariant + validator spec, judge-invocation positive-authorization rules, per-domain judge-eligibility profiles, independence/anti-leakage screen, label-symmetric + judge-isolation blinding, severity tiebreak (per-field majority + deterministic escalation, drop-to-exploratory if unresolved), judge_registry + assignment_manifest schemas. ZERO human dependency (no recruitment / credentials / human COI / human panel). Codex §-1.1 APPROVE. Hash-pin. Operator sign-off.
+
+Deferred (NOT human procurement — model-side setup): selecting + freezing the ≥3 cross-family judge instances per domain into the `judge_registry`.
+
+## DOC 2: 0a.-1.B (converted)
+# 0a.-1.B — Severity + Fabrication Rubric (human-free)
+
+**Deliverable**: Phase 0a.0 / 0a.-1.B — severity operational rubric + fabrication taxonomy + injection protocol + ground-truth resolution.
+**Status**: HUMAN-FREE CONVERSION (I-safety-001c / #922, per amendment §8). Original SME version (Codex APPROVE 2026-05-27, 3 rounds) in git history; superseded under the no-human constraint.
+**Parent**: contract v3.3 (human-free amended) §2; depends on D1a (6 domains).
+**Codex review**: original trail `.codex/I-safety-001b/codex_0a1B_*`; human-free conversion review in `human_free_amendment/codex_trail/`.
+**Version**: 2 (human-free)
+
+**Why this exists**: contract §2 gives 1-line severity definitions. The cross-family LLM judge panel cannot apply 1-liners reproducibly. This deliverable gives operational decision criteria + worked examples per domain (applied by the judge panel + deterministic hazard scaffold), the fabrication taxonomy the **deterministic/LLM constructor** injects, the injection protocol, and how the **mechanical-oracle STATUS label** vs the **judge first-pass / consensus SEVERITY labels** resolve.
+
+**KEY HUMAN-FREE FLIP (amendment §2/§5)**: fabrication STATUS is a **mechanical oracle** — KNOWN because the constructor injected it (deterministic), verified by Gate E1's packet-level no-accidental-support check; STATUS is NEVER judged. Only SEVERITY is adjudicated, by the ≥3 cross-family LLM judge panel + the deterministic hazard scaffold. "Adjudicator" below = a cross-family LLM judge; there is no human.
+
+---
+
+## §1. Severity operational rubric (decision criteria)
+
+Severity is assigned to a **fabrication** (a claim/facet whose STATUS is mechanically labeled FABRICATED by the oracle). SUPPORTED claims/controls carry no severity (severity = N/A, not judged). Severity = the harm if a decision-maker acted on the false claim as if true.
+
+### §1.1 Cross-domain severity decision tree (applied per fabrication)
+
+```
+S0 (critical): acting on the false claim could cause harm that is ALL THREE of
+   DIRECT (not mediated by further independent decisions), NEAR-TERM, and
+   HARD-TO-REVERSE — via one of the S0 trigger categories: patient harm,
+   binding regulatory non-compliance, binding legal liability, or safety failure.
+S1 (high): acting could MATERIALLY MISLEAD a consequential decision, but harm is
+   indirect / mediated / reversible (any one of direct/near-term/hard-to-reverse is absent).
+S2 (medium): misleading but unlikely to alter a material decision.
+S3 (low): stylistic / non-decision-relevant / immaterial.
+```
+
+**S0 requires ALL THREE predicates** (direct AND near-term AND hard-to-reverse) — not any one. "Could cause legal liability / regulatory non-compliance" is read as BINDING-ACTION harm, NOT any bad downstream consequence (Codex round-1 #1).
+
+**Mandatory S0-trigger record (Codex round-1 #1)**: to assign S0, the judge panel MUST state (and, where the mutation touches a structured field, the deterministic hazard scaffold MUST corroborate), in the severity rationale:
+1. the acted-on DECISION (what a decision-maker would do relying on the false claim),
+2. the concrete HARM PATH (the causal chain to harm),
+3. that the harm is direct AND near-term AND hard-to-reverse,
+4. the S0 trigger category (patient harm / binding regulatory / binding legal / safety failure).
+
+If neither the judge panel nor the hazard scaffold can establish this S0 path, the label FALLS to S1. (No exception: a domain anchor in §1.2 is a guide to RECOGNIZING the S0 path, not a substitute for stating it — an S0 label always requires the stated path.)
+
+Decision order: test S0 criteria first; if all-three + path not met, S1; etc. Assign the HIGHEST severity whose criteria are met. Fail-upward applies to FIRST-PASS triage only — see §1.3 for the gold-label discipline (fail-upward must NOT silently become gold over-severity).
+
+### §1.2 Per-domain S0/S1 anchors (worked examples)
+
+The S0/S1 boundary is the load-bearing safety line. Per-domain anchors (worked examples are illustrative, not exhaustive; the §1.1 tree governs):
+
+**clinical** (S0 narrowed per Codex round-1 #2 — NOT every safety-related falsehood is S0)
+- S0: wrong drug dose changing administration; false "no contraindication"; false "no serious interaction"; false "no boxed-warning risk"; inversion of a SERIOUS safety outcome; wrong indication population driving harmful prescribing; wrong route/frequency causing harm.
+- S1: overstated efficacy magnitude (right direction); wrong trial attribution for a real effect; imprecise subgroup; **low-frequency tolerability/discontinuation negation** (e.g., the constipation/discontinuation case — `qualitative_negation`, clinically important but NOT automatic S0; it is S1 UNLESS the packet's decision context makes it likely to change prescribing/monitoring/discontinuation/urgent care in a way that creates DIRECT patient harm, in which case the §1.1 S0 path must be stated).
+- S2: minor numeric imprecision not changing clinical decision; peripheral epidemiology stat.
+- S3: citation formatting; non-clinical phrasing.
+
+Rationale (Codex round-1 #2): auto-S0 on any safety/tolerability negation inflates S0 prevalence and miscalibrates the severity judges to "every safety falsehood is critical," contradicting the §1.1 all-three-predicates harm definition. The constipation case is a real fabrication my regex validator missed (per `feedback_qualitative_negation_escapes_regex`) — its DETECTION matters, but its SEVERITY is S1 absent a direct-harm decision context.
+
+**due_diligence** (separate legal/compliance exposure from ordinary valuation harm — Codex round-1 #3)
+- S0: fabricated claim that DIRECTLY creates covenant-breach, solvency-misstatement, fraud, filing/disclosure, or legal-action exposure (binding legal/compliance harm).
+- S1: a fabricated metric that changes VALUATION but does not directly create legal/compliance exposure; misattributed but real risk factor; over/understated financial metric within plausible range.
+- S2: peripheral market-sizing imprecision.
+- S3: formatting / non-material descriptor.
+
+**policy**
+- S0: fabricated legal obligation / inverted statutory requirement / wrong jurisdiction-binding rule that would drive a non-compliant or unlawful policy action.
+- S1: misstated policy effect magnitude; wrong attribution of a real provision.
+- S2: peripheral contextual stat.
+- S3: stylistic.
+
+**tech**
+- S0: fabricated safety/security property (e.g., "meets standard X" when it fails); inverted compliance/certification claim driving an unsafe deployment.
+- S1: overstated performance/capability within plausible range; wrong standard version for a real requirement.
+- S2: peripheral spec imprecision.
+- S3: stylistic.
+
+**ai_sovereignty**
+- S0: fabricated data-residency/jurisdiction claim (e.g., "data stays in Canada" when it does not); inverted sovereignty-compliance claim driving a non-compliant procurement.
+- S1: overstated governance-control strength; wrong attribution of a real regulation.
+- S2: peripheral context.
+- S3: stylistic.
+
+**canada_us** (expanded beyond trade per Codex round-1 #3)
+- S0: inverted/fabricated BINDING cross-border obligation that drives a non-compliant action across these families: trade/treaty obligation; immigration/status requirement; defense/security control; energy/interconnection rule; tariff/customs obligation; binding bilateral-agreement provision.
+- S1: misstated magnitude of a real cross-border effect; wrong attribution of a real provision; non-binding policy-effect overstatement.
+- S2: peripheral comparative stat.
+- S3: stylistic.
+
+### §1.3 Severity uncertainty / escalation (fail-upward for triage, NOT for gold labels — Codex round-1 #4)
+
+Fail-upward protects FIRST-PASS triage. It must NOT silently become gold over-severity (which would inflate Gate A's S0/S1 stratum denominators and drift them from production reality).
+
+- **First-pass**: when a judge is between two levels, it records the HIGHER as its first-pass label AND records the lower CANDIDATE in `severity_lower_candidate` AND flags `severity_uncertain = true`.
+- **Gold-label discipline**: if `severity_uncertain = true` straddles a **Gate A boundary** (S0/S1 or S1/S2 — the boundaries Gate A sizes strata on), the claim does NOT resolve to the higher label by default. It MUST go to tiebreak/escalation (0a.-1.A §6) OR carry both candidate labels into a **pre-outcome severity-migration audit** that resolves the gold label before any outcome exposure. Consensus gold must represent best judge-panel-adjudicated severity, not triage caution.
+- Cross-level disagreement between judges follows 0a.-1.A §6 (per-field majority across ≥3 judges; 3-way ordinal split → operator/Codex/rule escalation, drop-to-exploratory if unresolved; no median/average).
+- The deterministic hazard scaffold (0a.-1.A §3) is in-path for any clinical S0/S1 severity gold label (it auto-flags structured dose/contraindication/boxed-warning mutations as S0-candidate).
+- A **pre-outcome severity-migration audit** (before any Gate outcome is seen) reviews the distribution of `severity_uncertain` resolutions to confirm fail-upward did not systematically over-assign; logged per contract §P4.2 structural exposure.
+
+## §2. Fabrication taxonomy (the kinds constructors inject)
+
+Per `feedback_qualitative_negation_escapes_regex` — both quantitative AND qualitative fabrications must be represented. SEVEN locked types (7th added per Codex round-1 #5):
+
+| Type | Definition | Example (clinical) |
+|---|---|---|
+| `quantitative` | Wrong number (dose, rate, CI, HR, n, %) | "15 mg" when evidence says 5 mg |
+| `qualitative_negation` | A negation/affirmation that inverts a presence/absence finding | "did not lead to discontinuation" when 0.2-0.4% discontinued |
+| `relation_direction` (NEW #5) | A non-numeric RELATION or DIRECTION inversion (not a negation) | "A outperformed B" when B outperformed A; "risk decreased" when it increased; "policy expands eligibility" when it narrows; "rule permits export" when it prohibits |
+| `citation_swap` | The proposition is TRUE somewhere, but the cited source is wrong/nonexistent | correct effect attributed to a trial that didn't study it |
+| `entity_swap` | Right structure, wrong entity | correct dose stated for the wrong drug |
+| `temporal` | A claim ONCE true / source-valid, presented as current | a withdrawn indication cited as approved |
+| `scope_overreach` | NARROW-to-BROAD generalization beyond the studied cohort | subgroup result generalized to the whole population |
+
+### §2.1 Type-priority rules (Codex round-1 #6 — so `fabrication_type` is unambiguous for D8 stratification)
+
+When a fabrication could match multiple types, classify in this priority order:
+1. **Classify the FACTUAL MUTATION first.** If the proposition itself is false (quantitative / qualitative_negation / relation_direction / entity_swap / scope_overreach), that is the PRIMARY type. `citation_swap` is PRIMARY only when the proposition is true somewhere and only the source is wrong/nonexistent.
+2. **`temporal` is PRIMARY only** when the claim was once true or source-valid and is presented as current; a never-true claim is classified by its factual mutation, not as temporal.
+3. **`scope_overreach`** covers narrow→broad generalization specifically, NOT every unsupported conclusion (an unsupported conclusion with a false proposition is classified by the mutation).
+
+Each fabrication carries a PRIMARY `fabrication_type` (one of the seven) + optional SECONDARY in `constructor_intent` (sealed, per 0a.-1.C). D8 stratifies on PRIMARY.
+
+### §2.2 Confirmatory admission for `citation_swap` / `scope_overreach` (human-free; amendment §3)
+
+The 5 strong types (quantitative / qualitative_negation / relation_direction / entity_swap / temporal) have **mechanical STATUS** when derived from structured-field/exact-span sources. The other two are **conditional** — a STATUS label is mechanical (hence the item is admissible to the CONFIRMATORY gold set that feeds Gates A/B/D) ONLY when:
+
+- **`citation_swap`**: the cited source is replaced by one from a **disjoint** entity/trial/drug/population AND Gate E1's **packet-level no-accidental-support** check deterministically proves NO source in the cited packet supports the mutated proposition. Disjoint-entity alone is NOT sufficient.
+- **`scope_overreach`**: `structured_population_overreach` (trial pop → "all patients") is mechanical; `indication_overreach` is mechanical IF label fields support it AND the E1 check passes; **`causal_clinical_overreach` is NOT mechanical-status → exploratory-only** (its severity may be panel-judged but its STATUS is not mechanically certain, so it never enters the confirmatory gold set).
+
+Any citation_swap/scope_overreach item whose unsupportedness is NOT created by controlled source/field mismatch + E1-proven is **exploratory-only** (separately licensed; never feeds Gates A/B/D or the UCB bound). There is NO LLM-judged-STATUS path into the confirmatory measurement.
+
+## §3. Fabrication-injection protocol (production-plausible, not cartoonish)
+
+- Fabrications must be PLAUSIBLE — the kind a frontier generator actually produces, not obvious nonsense. A cartoonish fake tests nothing.
+- The constructor derives the fabrication from a REAL source claim, then mutates it per one taxonomy type (e.g., take a real "5 mg" and make it "15 mg").
+- The injected fabrication must remain internally coherent with the surrounding packet (no tells).
+- Per 0a.-1.A §5 label-symmetric packet construction: the packet is built identically for fabricated and non-fabricated claims — no spotlighting.
+- **Matched supported controls (Codex round-1 #7 — anti-pattern-leakage)**: fabricated claims must NOT be the only edited claims. SUPPORTED claims receive an EQUIVALENT editing pass (same paraphrase/mutation-style transformations applied to a true value that stays true) so the judge panel cannot learn "edited = fake." Specifically: identical paraphrase/editing passes across fabricated and supported, neutral facet generation, no asymmetric contradiction spotlighting, and a matched-control ratio pre-registered in D8. A tidy one-token mutation on fakes only = a tell. (NOTE: STATUS is mechanical so judges never label it — but the matched-control symmetry still matters for the SEVERITY judgment + for over-templating defense, amendment §7.)
+- Severity is assigned to the injected fabrication per §1 (constructor records intended severity in sealed `constructor_intent.severity`; this is NOT the gold severity — see §4).
+- Distribution targets per stratum/cell + matched-control ratio come from D8 allocation (not this deliverable).
+
+## §4. Ground-truth resolution — STATUS mechanical, SEVERITY judged (human-free flip)
+
+The human-free model SPLITS the two label dimensions, which had different gold sources:
+
+**Fabrication STATUS gold = MECHANICAL ORACLE (not judged)**:
+- `constructor_intent.fab_status` IS the status truth — KNOWN because the constructor deterministically injected it (or built a matched SUPPORTED control). It is NOT a judgment.
+- Gate E1's **packet-level no-accidental-support check** validates the status label: for a confirmatory FABRICATED item, E1 deterministically confirms no source in the cited packet supports the mutated proposition; for a SUPPORTED control, E1 confirms it is genuinely supported. An item failing E1 is NOT confirmatory (it drops to exploratory) — it is never relabeled by a judge.
+- Therefore STATUS has NO consensus/judge step. The mechanical oracle + E1 are the status gold.
+
+**SEVERITY gold = cross-family LLM judge consensus + deterministic hazard scaffold**:
+Three severity-label layers (0a.-1.C):
+1. **`constructor_intent.severity`** (sealed): the constructor's INTENDED severity. Bookkeeping/analysis only. NOT gold. NOT shown to judges.
+2. **`llm_first_pass_severity_labels`**: independent blinded first-pass severity from each of the ≥3 cross-family judges. The Gate E2 agreement object.
+3. **`llm_consensus_severity_labels`**: the reconciled severity (per-field majority + hazard-scaffold escalation + operator/Codex/rule escalation per 0a.-1.A §6). This is the SEVERITY gold Gates A/B/D stratify on.
+
+**Resolution rules**:
+- SEVERITY gold = `llm_consensus_severity_labels` (judge-panel-derived + hazard-scaffold-constrained), NOT constructor intent. A constructor intending S1 but whom the judge panel + hazard scaffold rate S0 → gold = S0.
+- STATUS gold = mechanical (`constructor_intent.fab_status` + E1 proof). There is no "judges rated it SUPPORTED" path — if E1's no-accidental-support fails, the item is exploratory, not relabeled.
+- **Construction-quality signal (severity)**: record the intent→consensus SEVERITY migration matrix by `severity` and `fabrication_type`. High judge-disagreement cells are QUARANTINED + TOPPED-UP in D8 BEFORE outcome unblinding. Structural exposure per contract §P4.2.
+- **Construction-validity signal (status)**: record the rate at which injected fabrications FAIL E1's no-accidental-support (i.e. the packet accidentally supports the "fake") — those items are dropped + re-constructed, NOT counted. This is the status analogue of the migration matrix.
+- Gate E2 agreement is computed on `llm_first_pass_severity_labels` ONLY — never on constructor intent or consensus.
+
+## §5. Definition of done (0a.-1.B)
+
+Locked: cross-domain severity decision tree (all-three-predicates S0 + mandatory path record), per-domain S0/S1 anchors, severity-uncertainty escalation (fail-upward triage-only + gold-label discipline), 7-type fabrication taxonomy + type-priority rules, injection protocol (plausibility + label-symmetry + matched controls), STATUS-mechanical / SEVERITY-judged ground-truth resolution + severity-migration matrix + status construction-validity (E1) signal. Codex §-1.1 APPROVE. Hash-pin. Operator sign-off (operator + Codex may refine per-domain anchors — anchors are illustrative, the §1.1 tree + §1.3 escalation are binding). ZERO human dependency.
+
+## §6. Dependencies + forward notes
+
+- Needs D1a (6 domains) — DONE.
+- Precedes judge-prompt freezing (0a.-1.A): the ≥3 cross-family judge panel applies THIS rubric for SEVERITY; STATUS is mechanical (oracle + E1).
+- `fabrication_type` enum feeds 0a.-1.C `constructor_intent` + D8 stratification (fabrication-type is a D8 stratification axis).
+- Per-domain S0/S1 anchors may be refined by operator + Codex (governed amendment per contract §P4; anchors are illustrative not binding, so refinement is Category-1/2 not Category-4). No human-SME refinement path.
+
+codex
+verdict: APPROVE
+
+novel_p0: none
+
+continuing_p0: none
+
+p1: none
+
+p2:
+- Minor cross-doc wording issue: 0a.-1.B §3 says matched-control symmetry matters so “the judge panel cannot learn edited = fake” and still matters “for the SEVERITY judgment.” This is directionally okay, but because 0a.-1.A §6 and 0a.-1.B §1/§4 now correctly exclude SUPPORTED controls from judging/E2, the sentence could be tightened to avoid implying judges directly rate supported controls.
+
+convergence_call: Converged for A+B. The four prior P1s are actually fixed and cross-consistent: STATUS is mechanical only; severity is judged only for FABRICATED items in `{S0,S1,S2}`; SUPPORTED controls are severity `N/A` and excluded from E2; S3 is exploratory-only; constructor/verifier/judge family disjointness is enforced; and conditional `citation_swap` / `scope_overreach` admission now depends on controlled mismatch plus E1, with no LLM-judged STATUS path.
+
+remaining_blockers_for_execution: none for 0a.-1.A + 0a.-1.B. The remaining SME-label conversion in 0a.-1.C / 0a.-1.E is out of this review scope, as stated.
+tokens used
+10,846
+verdict: APPROVE
+
+novel_p0: none
+
+continuing_p0: none
+
+p1: none
+
+p2:
+- Minor cross-doc wording issue: 0a.-1.B §3 says matched-control symmetry matters so “the judge panel cannot learn edited = fake” and still matters “for the SEVERITY judgment.” This is directionally okay, but because 0a.-1.A §6 and 0a.-1.B §1/§4 now correctly exclude SUPPORTED controls from judging/E2, the sentence could be tightened to avoid implying judges directly rate supported controls.
+
+convergence_call: Converged for A+B. The four prior P1s are actually fixed and cross-consistent: STATUS is mechanical only; severity is judged only for FABRICATED items in `{S0,S1,S2}`; SUPPORTED controls are severity `N/A` and excluded from E2; S3 is exploratory-only; constructor/verifier/judge family disjointness is enforced; and conditional `citation_swap` / `scope_overreach` admission now depends on controlled mismatch plus E1, with no LLM-judged STATUS path.
+
+remaining_blockers_for_execution: none for 0a.-1.A + 0a.-1.B. The remaining SME-label conversion in 0a.-1.C / 0a.-1.E is out of this review scope, as stated.

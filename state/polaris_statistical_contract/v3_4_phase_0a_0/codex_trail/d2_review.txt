@@ -1,0 +1,36 @@
+codex
+§-1.1 audit complete.
+
+D2 is structurally sound: the seven axes are the right composite set, the solo-trigger set matches the prior round-3 fix, and the rubric keeps D2 complexity separate from D3 evidence-pool size. I do not see a blocker that makes it unbuildable or inconsistent with the locked prerequisites.
+
+The only real pressure point is pre-retrieval scoring for A3/A4/A6. Those axes mention “sources,” “evidence base,” and “table/figure,” which can sound corpus-dependent. But the artifact’s rule is acceptable because scoring is from the research question plus intended claim, not from retrieved packet contents. A3 should fire when the intended task is conflict adjudication; A4 when the intended task is temporally unstable or supersession-sensitive; A6 when the intended evidence path requires structured/table/figure interpretation. Unexpected corpus discoveries later should be handled as construction-quality/replacement issues, not as D3 leakage.
+
+The axes are complete enough and non-overlapping enough for this contract. A1 captures claim decomposition; A2 captures span of entities/regimes; A3 captures disagreement; A4 captures time volatility; A5 captures reasoning operation; A6 captures extraction modality plus interpretive burden; A7 captures statistical/measurement interpretation. There is correlation between some axes, especially A2/A5 and A6/A7, but not fatal double-counting: they measure different operator burdens.
+
+The five solo C3 triggers are right. A6 is correctly limited to modality plus interpretive burden, so simple prose or simple structured records do not force C3. A1 and A2 should not be added to the solo set: many facets or many entities can be tedious without being intrinsically high-complexity if the operation is still lookup/simple synthesis.
+
+The additive bands are defensible. They are heuristic, not mathematically derivable, but they behave correctly once the solo triggers remove the dangerous high-complexity cases. C1 ≤2 allows simple lookup claims with one localized burden; C2 3-6 captures accumulated moderate burden; C3 ≥7 catches broad composite burden even without a single axis at 2. I do not see a claim that clearly should be C2/C3 being systematically misplaced under these bands.
+
+Severity/Gate A separation is clean. Complexity is explicitly construction/verification burden, not harm. Nothing in D2 says C3 implies S0/S1, and nothing prevents a C1 claim from carrying S0 severity if the falsehood is clinically critical.
+
+Reproducibility is adequate for lock. A3 “materially disagree” and A4 “actively shifting” will need calibration examples later, but the tier-level rule is concrete enough for constructors if they retain per-axis scores for audit as specified. SME anchor refinement under governed amendment is appropriate.
+
+Lock D2
+24,105
+§-1.1 audit complete.
+
+D2 is structurally sound: the seven axes are the right composite set, the solo-trigger set matches the prior round-3 fix, and the rubric keeps D2 complexity separate from D3 evidence-pool size. I do not see a blocker that makes it unbuildable or inconsistent with the locked prerequisites.
+
+The only real pressure point is pre-retrieval scoring for A3/A4/A6. Those axes mention “sources,” “evidence base,” and “table/figure,” which can sound corpus-dependent. But the artifact’s rule is acceptable because scoring is from the research question plus intended claim, not from retrieved packet contents. A3 should fire when the intended task is conflict adjudication; A4 when the intended task is temporally unstable or supersession-sensitive; A6 when the intended evidence path requires structured/table/figure interpretation. Unexpected corpus discoveries later should be handled as construction-quality/replacement issues, not as D3 leakage.
+
+The axes are complete enough and non-overlapping enough for this contract. A1 captures claim decomposition; A2 captures span of entities/regimes; A3 captures disagreement; A4 captures time volatility; A5 captures reasoning operation; A6 captures extraction modality plus interpretive burden; A7 captures statistical/measurement interpretation. There is correlation between some axes, especially A2/A5 and A6/A7, but not fatal double-counting: they measure different operator burdens.
+
+The five solo C3 triggers are right. A6 is correctly limited to modality plus interpretive burden, so simple prose or simple structured records do not force C3. A1 and A2 should not be added to the solo set: many facets or many entities can be tedious without being intrinsically high-complexity if the operation is still lookup/simple synthesis.
+
+The additive bands are defensible. They are heuristic, not mathematically derivable, but they behave correctly once the solo triggers remove the dangerous high-complexity cases. C1 ≤2 allows simple lookup claims with one localized burden; C2 3-6 captures accumulated moderate burden; C3 ≥7 catches broad composite burden even without a single axis at 2. I do not see a claim that clearly should be C2/C3 being systematically misplaced under these bands.
+
+Severity/Gate A separation is clean. Complexity is explicitly construction/verification burden, not harm. Nothing in D2 says C3 implies S0/S1, and nothing prevents a C1 claim from carrying S0 severity if the falsehood is clinically critical.
+
+Reproducibility is adequate for lock. A3 “materially disagree” and A4 “actively shifting” will need calibration examples later, but the tier-level rule is concrete enough for constructors if they retain per-axis scores for audit as specified. SME anchor refinement under governed amendment is appropriate.
+
+Lock D2

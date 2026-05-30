@@ -1,0 +1,257 @@
+HARD ITERATION CAP: 5 per document. This is iter 1 of the PR-11 DIFF gate.
+- APPROVE iff zero P0 and zero P1.
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+# Codex DIFF-gate — I-meta-002 PR-11 (#937): wire 5 benchmark questions runtime routing to native contracts
+You APPROVED the brief. NO SPEND / NO NETWORK. Verify the diff:
+- drb_72_ai_labor domain "custom" -> "workforce" (only the domain key + comment; question text/amplified set untouched).
+- 4 new SWEEP_QUERIES entries (drb_75/76/78 -> clinical, drb_90 -> policy): slug EXACTLY equals the frozen
+  per_query_report_contract key; LOCKED question text verbatim; NO amplified/seed field (no-network registration stubs).
+- The new test asserts per-slug: SWEEP_QUERIES entry+domain, and load_scope_template(domain)+load_required_entities(
+  template,slug) resolves NON-EMPTY (contract reachable at runtime), AND a wrong slug fails closed (raises).
+- FROZEN PR-10 contracts untouched (no per_query_report_contract content change); claim_audit_scorer.py + runtime lock untouched (lock NOT promoted).
+- Confirm: no field in the 4 new entries triggers a live fetch/spend at import/registration; a routing typo fail-closes (cannot silently skip the 4-role gate).
+## SMOKE
+PR-11 (#937) benchmark-routing SMOKE (Claude main-thread)
+OVERALL: PASS. NO network/spend (registration stubs; routing test loads templates from disk only).
+- import scripts.run_honest_sweep_r3: OK (18 queries: 14 original + drb_72 + 4 new).
+- pytest tests/dr_benchmark tests/roles tests/architecture -q: 413 passed (incl. test_benchmark_routing 12).
+- test_benchmark_routing: 12 passed (5 slug+domain, 5 contract-reachable, 1 registration invariant, 1 wrong-slug fail-closed).
+- verify_lock --consistency: rc0 (lock NOT promoted). gate_a_dry_run: OVERALL PASS.
+- tests/polaris_graph (PYTHONPATH=src, demo_smoke ignored): see counts above — the ~49 failures are PRE-EXISTING baseline; none benchmark-routing-related.
+- Per-slug required_entities resolved at runtime via load_scope_template(domain)+load_required_entities(template,slug): drb_75=6, drb_76=5, drb_78=5 (clinical); drb_72=7 (workforce); drb_90=6 (policy).
+
+===== DIFF =====
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 5c025c26..e43faa1f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -596,12 +596,14 @@ SWEEP_QUERIES: list[dict] = [
+     },
+     # I-safety-002b (#925): DRB-EN #72 — AI labor-market lit review. Operator-authorized
+     # smoke run for the Path-B gate (per scripts/dr_benchmark/smoke.md). Verbatim prompt
+-    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "custom" because the
+-    # workforce completeness_checklist is missing; custom is deliberately permissive on
+-    # tier distribution but still fires corpus_adequacy_gate + strict_verify + evaluator.
++    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "workforce" so the
++    # native per_query_report_contract[drb_72_ai_labor] (workforce.yaml) is reachable at
++    # runtime (I-meta-002 PR-11 #937): the 4-role Gate-B builder keys the frozen contract
++    # by (domain template, slug); domain "custom" left it inert (contract lives in
++    # workforce.yaml). Fires corpus_adequacy_gate + strict_verify + evaluator as before.
+     {
+         "slug": "drb_72_ai_labor",
+-        "domain": "custom",
++        "domain": "workforce",
+         "question": (
+             "Please write a literature review on the restructuring impact of "
+             "Artificial Intelligence (AI) on the labor market. Focus on how AI, "
+@@ -636,6 +638,70 @@ SWEEP_QUERIES: list[dict] = [
+             "generative AI productivity field experiment journal article",
+         ],
+     },
++    # I-meta-002 PR-11 (#937): remaining 4 LOCKED golden DRB-EN benchmark questions
++    # (#75/#76/#78/#90 — #72 above). Verbatim prompts from
++    # .codex/I-safety-002b/golden_questions_locked.md. Each slug EXACTLY equals its frozen
++    # native per_query_report_contract key so load_scope_template(domain) +
++    # load_required_entities(template, slug) resolves the contract at runtime (a routing
++    # typo fail-closes in the M3a builder). These are NO-NETWORK registration stubs: no
++    # `amplified` / seed field, so import + registration trigger no live fetch/spend.
++    {
++        "slug": "drb_75_metal_ions_cvd",
++        "domain": "clinical",
++        "question": (
++            "Could therapeutic interventions aimed at modulating plasma metal "
++            "ion concentrations represent effective preventive or therapeutic "
++            "strategies against cardiovascular diseases? What types of "
++            "interventions—such as supplementation—have been proposed, and is "
++            "there clinical evidence supporting their feasibility and efficacy?"
++        ),
++    },
++    {
++        "slug": "drb_76_gut_microbiota_crc",
++        "domain": "clinical",
++        "question": (
++            "The significance of the gut microbiota in maintaining normal "
++            "intestinal function has emerged as a prominent focus in "
++            "contemporary research, revealing both beneficial and detrimental "
++            "impacts on the equilibrium of gut health. Disruption of microbial "
++            "homeostasis can precipitate intestinal inflammation and has been "
++            "implicated in the pathogenesis of colorectal cancer. Conversely, "
++            "probiotics have demonstrated the capacity to mitigate inflammation "
++            "and retard the progression of colorectal cancer. Within this "
++            "domain, key questions arise: What are the predominant types of gut "
++            "probiotics? What precisely constitutes prebiotics and their "
++            "mechanistic role? Which pathogenic bacteria warrant concern, and "
++            "what toxic metabolites do they produce? How might these findings "
++            "inform and optimize our daily dietary choices?"
++        ),
++    },
++    {
++        "slug": "drb_78_parkinsons_dbs",
++        "domain": "clinical",
++        "question": (
++            "Parkinson's disease has a profound impact on patients. What are "
++            "the potential health warning signs associated with different "
++            "stages of the disease? As family members, which specific signs "
++            "should alert us to intervene or seek medical advice regarding the "
++            "patient's condition? Furthermore, for patients who have undergone "
++            "Deep Brain Stimulation (DBS) surgery, what daily life adjustments "
++            "and support strategies can be implemented to improve their comfort "
++            "and overall well-being?"
++        ),
++    },
++    {
++        "slug": "drb_90_adas_liability",
++        "domain": "policy",
++        "question": (
++            "Analyze the complex issue of liability allocation in accidents "
++            "involving vehicles with advanced driver-assistance systems (ADAS) "
++            "operating in a shared human-machine driving context. Your analysis "
++            "should integrate technical principles of ADAS, existing legal "
++            "frameworks, and relevant case law to systematically examine the "
++            "boundaries of responsibility between the driver and the system. "
++            "Conclude with proposed regulatory guidelines or recommendations."
++        ),
++    },
+ ]
+ 
+ 
+diff --git a/tests/dr_benchmark/test_benchmark_routing.py b/tests/dr_benchmark/test_benchmark_routing.py
+new file mode 100644
+index 00000000..58b3644f
+--- /dev/null
++++ b/tests/dr_benchmark/test_benchmark_routing.py
+@@ -0,0 +1,126 @@
++"""Runtime-routing tests for the 5 LOCKED golden DRB-EN benchmark questions
++(I-meta-002 PR-11 / #937).
++
++NO NETWORK, NO SPEND. These tests prove the wiring landed in PR-11: the 5
++benchmark questions are registered in `scripts.run_honest_sweep_r3.SWEEP_QUERIES`
++with a domain whose scope template carries their frozen native
++`per_query_report_contract` entry, so the 4-role Gate-B builder can reach the
++required-element denominator at runtime.
++
++For each benchmark slug they assert:
++  (a) a SWEEP_QUERIES entry exists with that slug AND the expected domain; and
++  (b) load_scope_template(domain) then
++      native_gate_b_inputs.load_required_entities(template, slug) resolves to a
++      NON-EMPTY required_entities list (the contract is reachable at runtime).
++
++They ALSO assert that a deliberately-wrong slug fails CLOSED
++(`load_required_entities` raises) — proving a routing typo can never silently
++skip the safety gate. All resolution is pure config (YAML read + dict index);
++nothing here performs a live fetch or spends.
++"""
++
++from __future__ import annotations
++
++import importlib
++
++import pytest
++
++from src.polaris_graph.nodes.scope_gate import load_scope_template
++from src.polaris_graph.roles.native_gate_b_inputs import load_required_entities
++
++# The 5 LOCKED golden DRB-EN benchmark slugs -> the domain whose scope template
++# holds each one's frozen per_query_report_contract entry (PR-10 commit bc926b3a).
++# Source of the slug<->domain truth: .codex/I-safety-002b/golden_questions_locked.md
++# (#75/#76/#78 clinical, #72 workforce, #90 policy).
++_EXPECTED_ROUTING: dict[str, str] = {
++    "drb_75_metal_ions_cvd": "clinical",
++    "drb_76_gut_microbiota_crc": "clinical",
++    "drb_78_parkinsons_dbs": "clinical",
++    "drb_72_ai_labor": "workforce",
++    "drb_90_adas_liability": "policy",
++}
++
++
++def _sweep_queries() -> list[dict]:
++    """Import the sweep module fresh and return its SWEEP_QUERIES registry.
++
++    The import itself must be no-network (module-level import is the established
++    pattern across tests/polaris_graph/*); registering a benchmark question must
++    never trigger a live fetch.
++    """
++    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
++    return sweep.SWEEP_QUERIES
++
++
++def _entry_for_slug(slug: str) -> dict:
++    matches = [q for q in _sweep_queries() if q.get("slug") == slug]
++    assert matches, f"no SWEEP_QUERIES entry registered for slug {slug!r}"
++    assert len(matches) == 1, (
++        f"slug {slug!r} is registered {len(matches)} times in SWEEP_QUERIES; "
++        f"each benchmark slug must be registered exactly once"
++    )
++    return matches[0]
++
++
++@pytest.mark.parametrize(
++    ("slug", "expected_domain"), sorted(_EXPECTED_ROUTING.items())
++)
++def test_benchmark_slug_registered_with_expected_domain(
++    slug: str, expected_domain: str
++) -> None:
++    """(a) Each benchmark slug is registered in SWEEP_QUERIES with the right domain."""
++    entry = _entry_for_slug(slug)
++    assert entry["domain"] == expected_domain, (
++        f"slug {slug!r} registered with domain {entry['domain']!r}, "
++        f"expected {expected_domain!r}"
++    )
++
++
++@pytest.mark.parametrize(
++    ("slug", "expected_domain"), sorted(_EXPECTED_ROUTING.items())
++)
++def test_benchmark_contract_reachable_at_runtime(
++    slug: str, expected_domain: str
++) -> None:
++    """(b) The native contract resolves to a NON-EMPTY required_entities list.
++
++    Mirrors the runtime resolution path: load the registered domain's scope
++    template, then key the per_query_report_contract by the question slug. A
++    non-empty list proves the 4-role Gate-B builder can build a real coverage
++    denominator (never a vacuous empty-denominator pass).
++    """
++    template = load_scope_template(expected_domain)
++    entities = load_required_entities(template, slug)
++    assert isinstance(entities, list) and entities, (
++        f"contract for slug {slug!r} in domain {expected_domain!r} resolved to "
++        f"an empty/absent required_entities list"
++    )
++
++
++def test_registration_domain_matches_contract_template_for_every_benchmark() -> None:
++    """End-to-end: the domain each slug is REGISTERED with is the domain whose
++    template actually carries its contract.
++
++    This is the routing invariant that PR-11 fixes — a slug registered under a
++    domain whose template lacks its contract would fail-close at runtime and
++    silently skip the 4-role safety gate.
++    """
++    for slug, expected_domain in _EXPECTED_ROUTING.items():
++        entry = _entry_for_slug(slug)
++        registered_domain = entry["domain"]
++        template = load_scope_template(registered_domain)
++        # Must not raise: the contract is reachable via the REGISTERED domain.
++        entities = load_required_entities(template, slug)
++        assert entities, (
++            f"slug {slug!r} registered under domain {registered_domain!r} but "
++            f"that template carries no usable contract"
++        )
++        assert registered_domain == expected_domain
++
++
++def test_wrong_slug_fails_closed() -> None:
++    """A deliberately-wrong slug raises — proving the M3a builder guard fails
++    CLOSED (a routing typo can never silently skip the safety gate)."""
++    template = load_scope_template("clinical")
++    with pytest.raises(ValueError):
++        load_required_entities(template, "drb_999_definitely_not_a_real_slug")

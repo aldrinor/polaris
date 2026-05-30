@@ -1,0 +1,86 @@
+POLARIS PR-9 / M3a — SMOKE RESULTS (iter-2)
+Agent: SMOKE
+Date (UTC): 2026-05-29T19:45:13Z
+cwd: C:/POLARIS
+Execution mode: serialized, foreground, one at a time (CLAUDE.md §8.4). No parallel runs.
+
+OVERALL: ALL THREE STEPS PASSED.
+
+------------------------------------------------------------------
+STEP 1 — pytest tests/roles tests/architecture tests/dr_benchmark -q
+------------------------------------------------------------------
+Command: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q   (single run)
+Result: PASS
+Counts: 371 passed, 0 failed, 0 skipped, 0 errors
+Duration: 5.17s
+Exit code: 0
+Platform: win32, Python 3.13.13, pytest 8.4.1
+collected 371 items
+
+Per-file (all dots, no F/E):
+  tests/roles/test_judge_adapter.py (9)
+  tests/roles/test_judge_contract.py (26)
+  tests/roles/test_mirror_adapter.py (11)
+  tests/roles/test_mirror_contract.py (14)
+  tests/roles/test_native_gate_b_inputs.py (37)
+  tests/roles/test_openai_compatible_transport.py (22)
+  tests/roles/test_release_policy.py (17)
+  tests/roles/test_role_pipeline.py (10)
+  tests/roles/test_role_transport.py (5)
+  tests/roles/test_sentinel_adapter.py (6)
+  tests/roles/test_sentinel_contract.py (37)
+  tests/roles/test_sweep_integration.py (11)
+  tests/roles/test_verified_claim_graph.py (9)
+  tests/architecture/test_runtime_lock.py (14)
+  tests/dr_benchmark/test_claim_audit_scorer.py (12)
+  tests/dr_benchmark/test_gate_a_dry_run.py (7)
+  tests/dr_benchmark/test_medhallu_adapter.py (12)
+  tests/dr_benchmark/test_pathB_capture.py (15)
+  tests/dr_benchmark/test_pathB_run_gate.py (45)
+  tests/dr_benchmark/test_pathB_runner.py (12)
+  tests/dr_benchmark/test_pr3_pipeline.py (24)
+  tests/dr_benchmark/test_verify_serving_identity.py (16)
+
+Delta vs iter-1: 362 -> 371 passed (+9 tests; iter-2 additions to role/contract suites).
+
+------------------------------------------------------------------
+STEP 2 — verify_lock --consistency
+------------------------------------------------------------------
+Command: python -m scripts.architecture.verify_lock --consistency   (expect 0)
+Result: PASS
+Exit code: 0  (matches expected 0)
+Output: "Consistency: OK — families registered, family_policy holds, code defaults match lock,
+         canonical_pin includes lock file"
+
+------------------------------------------------------------------
+STEP 3 — gate_a_dry_run
+------------------------------------------------------------------
+Command: python -m scripts.dr_benchmark.gate_a_dry_run   (expect OVERALL PASS)
+Result: OVERALL PASS (no-spend, offline)  (matches expected)
+Exit code: 0
+Sub-checks:
+  [PASS] pytest_suites: all 3 suites passed (serialized)
+  [PASS] lock_consistency: Consistency OK
+  [PASS] frozen_lock_coverage: 4 roles pinned + all-distinct families
+         {'generator': 'deepseek', 'mirror': 'cohere', 'sentinel': 'ibm-granite', 'judge': 'qwen'}
+  [PASS] role_contracts: via transport — Sentinel yes=UNGROUNDED, Judge off-enum raises,
+         Mirror two-pass binds
+JSON report: C:/POLARIS/outputs/gate_a/dry_run_report.json
+JSON flags:  live_probes_ran=false | live_probe_results=[] | no_spend=true | overall_pass=true
+Note printed by gate: "Gate-A PASS does NOT authorize spend. Lock promotion to
+  status: locked is the operator's separate spend gate (Gate-B)."
+
+------------------------------------------------------------------
+NETWORK / SPEND CONFIRMATION (no bluffing)
+------------------------------------------------------------------
+NO real network call was made. Confirmed two ways:
+  1. Gate-A JSON report self-reports live_probes_ran=false, live_probe_results=[],
+     no_spend=true.
+  2. M3a tests are pure-function + fixture tests:
+       - Per-role contracts run through an in-process mock transport (canned outputs).
+       - openrouter references are offline only: in-memory family-registry validation +
+         on-disk runtime lock file reads. No live_run, no OpenRouter endpoint call.
+The gate explicitly self-labels "no-spend, offline".
+
+Resource note (§8.4): each step run serialized in foreground and exited cleanly with
+exit code captured. No background/parallel processes spawned by this task.

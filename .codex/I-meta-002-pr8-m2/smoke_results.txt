@@ -1,0 +1,82 @@
+POLARIS PR-8 / M2 SMOKE RESULTS (iter-2)
+========================================
+Run timestamp (UTC approx): 2026-05-29
+Agent: SMOKE agent, cwd C:/POLARIS
+Execution: serialized, NO parallel runs (per CLAUDE.md §8.4). Single pytest run.
+Exit codes captured per step. Pre-run process inventory: no leftover codex/python/node.
+
+OVERALL: ALL THREE STEPS PASSED.
+
+--------------------------------------------------------------------
+STEP 1 - pytest (single run)
+  Command: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+  Result:  PASS
+  Counts:  334 passed, 0 failed, 0 skipped, 0 errors (collected 334 items)
+  Wall:    4.90s
+  Exit code: 0
+  Platform: win32, Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+  Per-file breakdown (from progress dots; authoritative total = 334 passed):
+    tests/roles/test_judge_adapter.py                  9
+    tests/roles/test_judge_contract.py                 26
+    tests/roles/test_mirror_adapter.py                 11
+    tests/roles/test_mirror_contract.py                14
+    tests/roles/test_openai_compatible_transport.py    22
+    tests/roles/test_release_policy.py                 17
+    tests/roles/test_role_pipeline.py                  10
+    tests/roles/test_role_transport.py                 5
+    tests/roles/test_sentinel_adapter.py               6
+    tests/roles/test_sentinel_contract.py              ~35 (spans wrap)
+    tests/roles/test_sweep_integration.py              11
+    tests/roles/test_verified_claim_graph.py           9
+    tests/architecture/test_runtime_lock.py            14
+    tests/dr_benchmark/test_claim_audit_scorer.py      12
+    tests/dr_benchmark/test_gate_a_dry_run.py          7
+    tests/dr_benchmark/test_medhallu_adapter.py        12
+    tests/dr_benchmark/test_pathB_capture.py           15
+    tests/dr_benchmark/test_pathB_run_gate.py          ~45 (spans wrap)
+    tests/dr_benchmark/test_pathB_runner.py            12
+    tests/dr_benchmark/test_pr3_pipeline.py            24
+    tests/dr_benchmark/test_verify_serving_identity.py 16
+  (per-file counts are from progress dots; authoritative total = 334 passed.)
+
+--------------------------------------------------------------------
+STEP 2 - architecture lock consistency
+  Command: python -m scripts.architecture.verify_lock --consistency
+  Result:  PASS (expected exit 0)
+  Output:  "Consistency: OK - families registered, family_policy holds,
+            code defaults match lock, canonical_pin includes lock file"
+  Exit code: 0  (MATCHES expected 0)
+
+--------------------------------------------------------------------
+STEP 3 - DR benchmark Gate-A no-spend dry run
+  Command: python -m scripts.dr_benchmark.gate_a_dry_run
+  Result:  OVERALL: PASS (no-spend, offline)  (MATCHES expected PASS)
+  Exit code: 0
+  Sub-checks:
+    [PASS] pytest_suites      - all 3 suites passed (serialized)
+    [PASS] lock_consistency   - Consistency OK
+    [PASS] frozen_lock_coverage - 4 roles pinned + all-distinct families
+            {generator: deepseek, mirror: cohere, sentinel: ibm-granite, judge: qwen}
+    [PASS] role_contracts     - via transport: Sentinel yes=UNGROUNDED,
+            Judge off-enum raises, Mirror two-pass binds
+  Note printed by script: "Gate-A PASS does NOT authorize spend. Lock promotion
+    to status: locked is the operator's separate spend gate."
+  JSON report: C:/POLARIS/outputs/gate_a/dry_run_report.json
+
+--------------------------------------------------------------------
+NETWORK / SPEND CONFIRMATION (no bluffing)
+  CONFIRMED: NO real network call happened. Evidence:
+  - Gate-A dry run (step 3) routes the 3 role-contract fixtures through the real
+    adapters into an injected in-process mock: _GateAMockTransport (gate_a_dry_run.py
+    line 186; instantiated line 238). Its .complete() returns canned RoleResponse
+    objects only - no httpx, no socket. Docstring: "no network, no spend: the
+    transport is the in-process mock."
+  - The live external probes (Serper, Semantic Scholar, DeepSeek) are documented
+    advisory stubs in the no-spend harness (gate_a_dry_run.py lines 299-316); they
+    are NOT invoked and open no connection.
+  - The serving-identity probe in tests/dr_benchmark/test_verify_serving_identity.py
+    REQUIRES an injected httpx.Client; every test builds it via
+    httpx.Client(transport=httpx.MockTransport(handler)). The MockTransport handler
+    returns canned /v1/models bodies (or raises httpx.ConnectError to simulate
+    unreachable) - no socket is opened. Base URLs are fake *.internal hosts.
+  - M2 deploys nothing.

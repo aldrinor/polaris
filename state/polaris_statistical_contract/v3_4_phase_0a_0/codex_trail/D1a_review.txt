@@ -1,0 +1,61 @@
+codex
+Do not lock as-is. The domain set itself is right, and the repo facts check out, but the frozen artifact has a few text-level defects that matter because this file is meant to prevent reinterpretation.
+
+Repo verification: 8 scope templates exist; 5 checklist files exist; `ai_sovereignty`, `canada_us`, and `workforce` lack checklists. D1a correctly marks only 2 missing checklists inside the validation six. Canonical-8 is enforced by `tests/v6/test_template_canonical_set.py` and `scope_gate.SUPPORTED_DOMAINS`; checklist governance is separate and permissive via `no_checklist_loaded`.
+
+Line audit:
+
+Lines 1-8 are acceptable as candidate-lock metadata, but do not hash-pin a final artifact with stale “pending” status unless that is intentional.
+
+§1 is mostly tight. Lines 14 and 16-19 do the right validation-scope framing. Line 21 is the loophole/imprecision: “locked gold-set construction” is too narrow for gates that use canary eligibility / production-canary holdouts. Fix line 21 to scope pass-sentences to the applicable locked evaluation construction, not only gold-set construction.
+
+§2 has the correct six IDs: `clinical`, `due_diligence`, `policy`, `tech`, `ai_sovereignty`, `canada_us`. Lines 31-32 correctly identify the 2 validation-domain checklist gaps. Line 34 is technically wrong: domain IDs do not match filenames byte-for-byte because filenames include `.yaml`. Say “filename stems byte-for-byte” or “`config/scope_templates/{domain}.yaml`”.
+
+§3 has the right exclusions, but lines 40-41 need tightening. Line 40 contains rationale work: “lower Carney-relevance” and “budget feasible” belong in D1, not D1a. Line 41 says `custom` is “not a domain,” which conflicts with repo reality where `custom` is canonical-8 / supported. Safer wording: `custom` is not a stable substantive validation stratum.
+
+§4 is accurate. Canonical-8 non-interference is correctly stated, and line 49 correctly says checklist governance is separate and currently permissive. No fix needed there.
+
+§5 has the right freeze concept and mostly correct P4 mapping. Lines 55-56 are fine: pre-outcome design-changing changes are Category-3, and post-structural changes require rerunning affected allocation. Line 57 is over-narrow against §P4 Category-4: Category-4 permits fresh sealed holdout, prospectively defined alpha-spending, or conservative bridging validation. If D1a intentionally requires the strictest remedy for domain-set changes, say that explicitly; otherwise map to the full Category-4 remedy.
+
+§6 is sufficient version/hash metadata.
+
+§7 is over-scoped for a frozen lock artifact. Lines 71-82 are a process checklist and will become stale inside the hash-pinned artifact. Delete §7 or move it to a review sidecar. Line 83 can remain as a short deferral note, but not as part of a checklist section.
+
+Suggested fixes:
+- Line 21: replace “locked gold-set construction” with “applicable locked evaluation construction, including gold-set construction and/or canary eligibility as specified by each gate.”
+- Line 34: replace “filenames byte-for-byte” with “filename stems byte-for-byte.”
+- Lines 40-41: remove rationale language; state only validation exclusion + canonical-8/production non-interference.
+- Line 57: map to full §P4 Category-4 remedy or explicitly declare a stricter domain-set-specific fresh-holdout rule.
+- Lines 71-83: remove §7 checklist; keep only a one-sentence “Deferred to D1” note if desired.
+
+Fix lines 21, 34, 40-41, 57, and 71-83 then lock.
+Do not lock as-is. The domain set itself is right, and the repo facts check out, but the frozen artifact has a few text-level defects that matter because this file is meant to prevent reinterpretation.
+
+Repo verification: 8 scope templates exist; 5 checklist files exist; `ai_sovereignty`, `canada_us`, and `workforce` lack checklists. D1a correctly marks only 2 missing checklists inside the validation six. Canonical-8 is enforced by `tests/v6/test_template_canonical_set.py` and `scope_gate.SUPPORTED_DOMAINS`; checklist governance is separate and permissive via `no_checklist_loaded`.
+
+Line audit:
+
+Lines 1-8 are acceptable as candidate-lock metadata, but do not hash-pin a final artifact with stale “pending” status unless that is intentional.
+
+§1 is mostly tight. Lines 14 and 16-19 do the right validation-scope framing. Line 21 is the loophole/imprecision: “locked gold-set construction” is too narrow for gates that use canary eligibility / production-canary holdouts. Fix line 21 to scope pass-sentences to the applicable locked evaluation construction, not only gold-set construction.
+
+§2 has the correct six IDs: `clinical`, `due_diligence`, `policy`, `tech`, `ai_sovereignty`, `canada_us`. Lines 31-32 correctly identify the 2 validation-domain checklist gaps. Line 34 is technically wrong: domain IDs do not match filenames byte-for-byte because filenames include `.yaml`. Say “filename stems byte-for-byte” or “`config/scope_templates/{domain}.yaml`”.
+
+§3 has the right exclusions, but lines 40-41 need tightening. Line 40 contains rationale work: “lower Carney-relevance” and “budget feasible” belong in D1, not D1a. Line 41 says `custom` is “not a domain,” which conflicts with repo reality where `custom` is canonical-8 / supported. Safer wording: `custom` is not a stable substantive validation stratum.
+
+§4 is accurate. Canonical-8 non-interference is correctly stated, and line 49 correctly says checklist governance is separate and currently permissive. No fix needed there.
+
+§5 has the right freeze concept and mostly correct P4 mapping. Lines 55-56 are fine: pre-outcome design-changing changes are Category-3, and post-structural changes require rerunning affected allocation. Line 57 is over-narrow against §P4 Category-4: Category-4 permits fresh sealed holdout, prospectively defined alpha-spending, or conservative bridging validation. If D1a intentionally requires the strictest remedy for domain-set changes, say that explicitly; otherwise map to the full Category-4 remedy.
+
+§6 is sufficient version/hash metadata.
+
+§7 is over-scoped for a frozen lock artifact. Lines 71-82 are a process checklist and will become stale inside the hash-pinned artifact. Delete §7 or move it to a review sidecar. Line 83 can remain as a short deferral note, but not as part of a checklist section.
+
+Suggested fixes:
+- Line 21: replace “locked gold-set construction” with “applicable locked evaluation construction, including gold-set construction and/or canary eligibility as specified by each gate.”
+- Line 34: replace “filenames byte-for-byte” with “filename stems byte-for-byte.”
+- Lines 40-41: remove rationale language; state only validation exclusion + canonical-8/production non-interference.
+- Line 57: map to full §P4 Category-4 remedy or explicitly declare a stricter domain-set-specific fresh-holdout rule.
+- Lines 71-83: remove §7 checklist; keep only a one-sentence “Deferred to D1” note if desired.
+
+Fix lines 21, 34, 40-41, 57, and 71-83 then lock.

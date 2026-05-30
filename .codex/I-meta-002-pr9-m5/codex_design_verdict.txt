@@ -1,0 +1,1083 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7597-97ab-7632-9de3-9258e5ae172b
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of the M5 DESIGN review.
+- Front-load ALL real findings. Reserve P0/P1 for real execution/safety risks.
+- This is a DESIGN review — RULE on the writeback point + scope + safe rule BEFORE any code.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+writeback_point: <your ruling: which path/function + when>
+scope_ruling: <benchmark-path / clinical-generator-path / both>
+safe_rule: <the exact evaluator_agrees rule>
+p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+
+# Codex DESIGN review — I-meta-002 PR-9/M5: evaluator_agrees writeback (VERIFIED->true, else->false)
+
+Your readiness ruling item 6 = M5: "evaluator_agrees writeback at the real VerifiedSentence/report
+assembly point (VERIFIED->true, else->false)." Grounding revealed a path gap; please rule on the exact
+writeback point + scope before I build. NO SPEND / NO NETWORK (M5 is wiring + offline tests).
+
+## HARD CONSTRAINTS (operator-locked)
+- §-1.1 clinical safety: evaluator_agrees drives what the Inspector/audit bundle shows as
+  "evaluator-confirmed." Marking a FABRICATED/UNSUPPORTED claim as evaluator_agrees=True would be
+  LETHAL. The rule must be fail-safe: a non-VERIFIED final verdict must NEVER yield evaluator_agrees=True.
+- Frozen, no drift: claim_audit_scorer.py, runtime lock (NOT promoted). M5 only adds the writeback.
+- D8 remains the single binding gate. M5 does not change release decisions; it populates the
+  per-sentence evaluator_agrees field for audit/inspector fidelity.
+
+## Grounded facts (file:line)
+- `evaluator_agrees_from_verdict(final_verdict)` already exists (`sweep_integration.py:121-129`):
+  VERIFIED->True, every other verdict (PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE)->False.
+- The 4-role evaluation (run in run_one_query's guarded branch, sweep path) produces
+  `final_verdicts: dict[claim_id -> verdict]` and surfaces it in
+  `manifest['four_role_evaluation']['final_verdicts']` (`run_honest_sweep_r3.py:3196-3204`). The
+  run_one_query comment (3190-3195) explicitly says: "The sweep's SectionResult path holds
+  SentenceVerification, NOT VerifiedSentence, so there is no VerifiedSentence object to write here —
+  populating one would be fake wiring."
+- **TWO strict_verify functions / TWO paths:**
+  1. BENCHMARK/SWEEP path: `run_one_query` -> `multi_section_generator.strict_verify`
+     (= `generator/provenance_generator.py:1428`) -> produces `SentenceVerification`
+     (`provenance_generator.py:398-407`: sentence/tokens/is_verified/... — NO evaluator_agrees field).
+     This is the path the DRB-EN benchmark actually runs through.
+  2. CLINICAL-GENERATOR path: `clinical_generator/generator.py` -> `clinical_generator/strict_verify.py:312`
+     -> produces `VerifiedSentence` (`verified_report.py:71`) with `evaluator_agrees`, assembled into
+     `VerifiedReport` (`verified_report.py:410`, generator.py:297). Currently
+     `evaluator_agrees=passed` at strict_verify.py:318 (placeholder that "mirrors verifier_pass"; the
+     field docstring says "future Issue plugs in the real two-family judge to populate this
+     independently").
+- VerifiedSentence validator (`verified_report.py:148-156`): `evaluator_agrees=True` is FORBIDDEN when
+  `verifier_pass=False` (a dropped sentence can never be evaluator-agreed). So the writeback may only
+  set True on a kept (verifier_pass=True) sentence; setting False is always allowed.
+- SEQUENCING: clinical_generator/strict_verify sets evaluator_agrees at sentence-CREATION time, which
+  is BEFORE any 4-role eval. The 4-role final_verdicts only exist AFTER generation, in run_one_query
+  (the sweep path). So a same-call writeback at creation time cannot see the 4-role verdict.
+
+## The design questions (please rule)
+1. `writeback_point` + `scope_ruling`: WHERE does evaluator_agrees writeback belong, given the path gap?
+   Options I see:
+   - (A) CLINICAL-GENERATOR path only: replace the strict_verify.py:318 `evaluator_agrees=passed`
+     placeholder with the 4-role final_verdict — but that path does NOT currently run the 4-role eval,
+     so it would need the 4-role eval wired into clinical_generator first (large; maybe out of M5 scope).
+   - (B) SWEEP/BENCHMARK path: the sweep holds SentenceVerification (no evaluator_agrees field +
+     no VerifiedSentence). The 4-role final_verdicts ARE in the manifest. Should M5 surface a
+     per-claim evaluator_agrees MAP in the manifest (claim_id -> bool via evaluator_agrees_from_verdict)
+     rather than mutating a VerifiedSentence that doesn't exist on this path? (run_one_query's own
+     comment warns that writing a VerifiedSentence here would be "fake wiring".)
+   - (C) A post-4-role writeback pass that, for whichever path carries VerifiedSentence, maps
+     final_verdicts[claim_id] onto VerifiedSentence.evaluator_agrees (only flipping kept sentences;
+     never True on verifier_pass=False).
+   Which path is the "real assembly point" you meant, and is M5 scoped to the benchmark path (manifest
+   map), the clinical-generator path (VerifiedSentence), or both?
+2. `safe_rule`: confirm: evaluator_agrees = (final_verdict == VERIFIED) AND verifier_pass==True; any
+   non-VERIFIED verdict -> False; never True on a dropped/verifier_pass=False sentence (respects the
+   validator). Is mapping via the existing `evaluator_agrees_from_verdict` correct, plus the
+   verifier_pass guard?
+3. Is M5 actually required for the no-spend OFFLINE END-TO-END (roadmap item 9:
+   "report->4-role manifest->evaluator_agrees->pathB PASS->...score_run->aggregate")? i.e., does the
+   e2e need evaluator_agrees as a per-sentence field, or is the manifest final_verdicts map sufficient?
+4. Any contamination / fail-open / double-write risk, or a simpler correct design I've missed?
+
+Please APPROVE a concrete M5 design (writeback point + scope + safe rule) so I can build it, or
+REQUEST_CHANGES with your ruling.
+
+codex
+I’ll verify the named code paths and fields locally, then I’ll give a design ruling only. No edits or network.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "evaluator_agrees_from_verdict|four_role_evaluation|final_verdicts|no VerifiedSentence|populating one would be fake wiring" -S .' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class SentenceVerification|evaluator_agrees=passed|class VerifiedSentence|class VerifiedReport|evaluator_agrees" generator clinical_generator -S' in C:\POLARIS
+2026-05-29T21:15:40.675159Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+rg: generator: The system cannot find the file specified. (os error 2)
+rg: clinical_generator: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 806ms:
+rg: generator: The system cannot find the file specified. (os error 2)
+rg: clinical_generator: The system cannot find the file specified. (os error 2)
+
+2026-05-29T21:15:40.900156Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 1 seconds
+Output:
+.\tmp_full_readiness_codex_brief_final.md:211:`manifest["four_role_evaluation"]` block and the comment is explicit
+.\tmp_full_readiness_codex_brief_final.md:213:NOT VerifiedSentence, so there is no VerifiedSentence object to write here — populating one would
+.\tmp_full_readiness_codex_brief_final.md:216:**Must build:** wire `final_verdicts` → `evaluator_agrees` at the actual report-assembly point.
+.\tmp_full_readiness_codex_brief_final.md:865:    Bundles everything the sweep hands to `run_four_role_evaluation` so the big sweep file's
+.\tmp_full_readiness_codex_brief_final.md:885:    `final_verdicts` maps claim_id -> final composed verdict (the sweep maps VERIFIED -> True
+.\tmp_full_readiness_codex_brief_final.md:894:    final_verdicts: dict[str, str]
+.\tmp_full_readiness_codex_brief_final.md:902:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+.\tmp_full_readiness_codex_brief_final.md:913:def run_four_role_evaluation(
+.\tmp_full_readiness_codex_brief_final.md:943:            "run_four_role_evaluation: no claims supplied; a 4-role evaluation over zero "
+.\tmp_full_readiness_codex_brief_final.md:948:            "run_four_role_evaluation: coverage_ledger.required_element_ids is empty; the "
+.\tmp_full_readiness_codex_brief_final.md:959:            "run_four_role_evaluation: coverage_ledger.covered_element_ids must be EMPTY on "
+.\tmp_full_readiness_codex_brief_final.md:971:            f"run_four_role_evaluation: model_slugs missing required role slug(s) "
+.\tmp_full_readiness_codex_brief_final.md:981:                "run_four_role_evaluation: a claim has a blank claim_id; claim_ids are "
+.\tmp_full_readiness_codex_brief_final.md:986:                f"run_four_role_evaluation: duplicate claim_id {claim_id!r}; ids must be "
+.\tmp_full_readiness_codex_brief_final.md:993:    final_verdicts: dict[str, str] = {}
+.\tmp_full_readiness_codex_brief_final.md:1010:            final_verdicts[claim.claim_id] = result.final_verdict
+.\tmp_full_readiness_codex_brief_final.md:1060:        final_verdicts=final_verdicts,
+.\tmp_full_readiness_codex_brief_final.md:1091:    to ``sweep_integration.run_four_role_evaluation`` (D8 is the single binding gate) and
+.\tmp_full_readiness_codex_brief_final.md:1125:                run_four_role_evaluation,
+.\tmp_full_readiness_codex_brief_final.md:1127:            four_role_result = run_four_role_evaluation(
+.\tmp_full_readiness_codex_brief_final.md:1151:            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+.\tmp_full_readiness_codex_brief_final.md:1153:            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+.\tmp_full_readiness_codex_brief_final.md:1156:            # VerifiedSentence object to write here — populating one would be fake wiring.
+.\tmp_full_readiness_codex_brief_final.md:1157:            manifest["four_role_evaluation"] = {
+.\tmp_full_readiness_codex_brief_final.md:1165:                "final_verdicts": four_role_result.final_verdicts,
+.\scripts\run_honest_sweep_r3.py:3199:            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+.\scripts\run_honest_sweep_r3.py:3201:            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+.\scripts\run_honest_sweep_r3.py:3204:            # VerifiedSentence object to write here — populating one would be fake wiring.
+.\scripts\run_honest_sweep_r3.py:3205:            manifest["four_role_evaluation"] = {
+.\scripts\run_honest_sweep_r3.py:3213:                "final_verdicts": four_role_result.final_verdicts,
+.\src\polaris_graph\roles\sweep_integration.py:86:    Bundles everything the sweep hands to `run_four_role_evaluation` so the big sweep file's
+.\src\polaris_graph\roles\sweep_integration.py:106:    `final_verdicts` maps claim_id -> final composed verdict (the sweep maps VERIFIED -> True
+.\src\polaris_graph\roles\sweep_integration.py:115:    final_verdicts: dict[str, str]
+.\src\polaris_graph\roles\sweep_integration.py:123:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+.\src\polaris_graph\roles\sweep_integration.py:134:def run_four_role_evaluation(
+.\src\polaris_graph\roles\sweep_integration.py:164:            "run_four_role_evaluation: no claims supplied; a 4-role evaluation over zero "
+.\src\polaris_graph\roles\sweep_integration.py:169:            "run_four_role_evaluation: coverage_ledger.required_element_ids is empty; the "
+.\src\polaris_graph\roles\sweep_integration.py:180:            "run_four_role_evaluation: coverage_ledger.covered_element_ids must be EMPTY on "
+.\src\polaris_graph\roles\sweep_integration.py:192:            f"run_four_role_evaluation: model_slugs missing required role slug(s) "
+.\src\polaris_graph\roles\sweep_integration.py:202:                "run_four_role_evaluation: a claim has a blank claim_id; claim_ids are "
+.\src\polaris_graph\roles\sweep_integration.py:207:                f"run_four_role_evaluation: duplicate claim_id {claim_id!r}; ids must be "
+.\src\polaris_graph\roles\sweep_integration.py:214:    final_verdicts: dict[str, str] = {}
+.\src\polaris_graph\roles\sweep_integration.py:231:            final_verdicts[claim.claim_id] = result.final_verdict
+.\src\polaris_graph\roles\sweep_integration.py:281:        final_verdicts=final_verdicts,
+.\src\polaris_graph\roles\sweep_integration.py:349:        result = run_four_role_evaluation(
+.\src\polaris_graph\roles\sweep_integration.py:374:    return run_four_role_evaluation(
+.\src\polaris_graph\roles\native_gate_b_inputs.py:6:`run_four_role_evaluation` (sweep_integration.py). It does NO file I/O: it RETURNS a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:107:    verbatim to `run_four_role_evaluation`.
+.\state\active_issue.json:4:  "current_step": "NO-SPEND WIRING COMPLETE + GREEN, but NOT READY FOR LIVE RUN (readiness double-check 2026-05-29, Claude verify + Codex audit BOTH = NOT_READY). The 4-role LOGIC is built + offline-green (294 tests, Gate-A PASS), but the LIVE serving path is UNBUILT. Remaining before any live Vast+OpenRouter run (Gate-B): M1 real RoleTransport HTTP client (only a Protocol + mocks today); M2 Vast.ai vLLM serving of Cohere/Granite/Qwen (provision script is substrate-only, compose has only old Gemma stub); M3 production caller that constructs+injects four_role_transport+inputs (defaults None, only tests pass non-None); M4 bridge live role records into Path-B served==pinned gate; M5 write VerifiedSentence.evaluator_agrees from 4-role final_verdicts (prod still uses strict_verify bool). M6 (operator/parallel) promote lock status->locked. CORRECTION: earlier 'ready to launch / spend gate next' framing was an OVER-CLAIM — accurate state is no-spend wiring green, live serving integration NOT done. Do NOT deposit yet; deposit becomes useful at M2 (serving test). Evidence: .codex/I-meta-002-readiness/readiness_report.md + codex_readiness_audit.txt.",
+.\state\active_issue.json:23:    "M5_evaluator_agrees_writeback": "PENDING — write evaluator_agrees from 4-role final_verdicts at the clinical_generator assembly point.",
+.\tests\dr_benchmark\test_gate_b_seam.py:365:    assert "static-claim" not in result.final_verdicts
+.\tests\dr_benchmark\test_gate_b_seam.py:367:    assert any(cid.startswith("00-000-") for cid in result.final_verdicts)
+.\tests\dr_benchmark\test_gate_b_seam.py:402:    assert result.final_verdicts == {"s-1": "VERIFIED"}
+.\tests\roles\test_sweep_integration.py:3:Exercises `sweep_integration.run_four_role_evaluation`: the per-claim pipeline feeding the
+.\tests\roles\test_sweep_integration.py:27:    evaluator_agrees_from_verdict,
+.\tests\roles\test_sweep_integration.py:28:    run_four_role_evaluation,
+.\tests\roles\test_sweep_integration.py:88:    return run_four_role_evaluation(
+.\tests\roles\test_sweep_integration.py:106:    assert result.final_verdicts == {"claim-1": "VERIFIED"}
+.\tests\roles\test_sweep_integration.py:115:    assert result.final_verdicts["claim-1"] == "UNSUPPORTED"
+.\tests\roles\test_sweep_integration.py:120:    assert evaluator_agrees_from_verdict(result.final_verdicts["claim-1"]) is False
+.\tests\roles\test_sweep_integration.py:175:        run_four_role_evaluation(
+.\tests\roles\test_sweep_integration.py:229:    assert result.final_verdicts == {"ok": "VERIFIED", "bad": "UNSUPPORTED"}
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+
+ exited 1 in 1028ms:
+.\tmp_full_readiness_codex_brief_final.md:211:`manifest["four_role_evaluation"]` block and the comment is explicit
+.\tmp_full_readiness_codex_brief_final.md:213:NOT VerifiedSentence, so there is no VerifiedSentence object to write here — populating one would
+.\tmp_full_readiness_codex_brief_final.md:216:**Must build:** wire `final_verdicts` → `evaluator_agrees` at the actual report-assembly point.
+.\tmp_full_readiness_codex_brief_final.md:865:    Bundles everything the sweep hands to `run_four_role_evaluation` so the big sweep file's
+.\tmp_full_readiness_codex_brief_final.md:885:    `final_verdicts` maps claim_id -> final composed verdict (the sweep maps VERIFIED -> True
+.\tmp_full_readiness_codex_brief_final.md:894:    final_verdicts: dict[str, str]
+.\tmp_full_readiness_codex_brief_final.md:902:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+.\tmp_full_readiness_codex_brief_final.md:913:def run_four_role_evaluation(
+.\tmp_full_readiness_codex_brief_final.md:943:            "run_four_role_evaluation: no claims supplied; a 4-role evaluation over zero "
+.\tmp_full_readiness_codex_brief_final.md:948:            "run_four_role_evaluation: coverage_ledger.required_element_ids is empty; the "
+.\tmp_full_readiness_codex_brief_final.md:959:            "run_four_role_evaluation: coverage_ledger.covered_element_ids must be EMPTY on "
+.\tmp_full_readiness_codex_brief_final.md:971:            f"run_four_role_evaluation: model_slugs missing required role slug(s) "
+.\tmp_full_readiness_codex_brief_final.md:981:                "run_four_role_evaluation: a claim has a blank claim_id; claim_ids are "
+.\tmp_full_readiness_codex_brief_final.md:986:                f"run_four_role_evaluation: duplicate claim_id {claim_id!r}; ids must be "
+.\tmp_full_readiness_codex_brief_final.md:993:    final_verdicts: dict[str, str] = {}
+.\tmp_full_readiness_codex_brief_final.md:1010:            final_verdicts[claim.claim_id] = result.final_verdict
+.\tmp_full_readiness_codex_brief_final.md:1060:        final_verdicts=final_verdicts,
+.\tmp_full_readiness_codex_brief_final.md:1091:    to ``sweep_integration.run_four_role_evaluation`` (D8 is the single binding gate) and
+.\tmp_full_readiness_codex_brief_final.md:1125:                run_four_role_evaluation,
+.\tmp_full_readiness_codex_brief_final.md:1127:            four_role_result = run_four_role_evaluation(
+.\tmp_full_readiness_codex_brief_final.md:1151:            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+.\tmp_full_readiness_codex_brief_final.md:1153:            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+.\tmp_full_readiness_codex_brief_final.md:1156:            # VerifiedSentence object to write here — populating one would be fake wiring.
+.\tmp_full_readiness_codex_brief_final.md:1157:            manifest["four_role_evaluation"] = {
+.\tmp_full_readiness_codex_brief_final.md:1165:                "final_verdicts": four_role_result.final_verdicts,
+.\scripts\run_honest_sweep_r3.py:3199:            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+.\scripts\run_honest_sweep_r3.py:3201:            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+.\scripts\run_honest_sweep_r3.py:3204:            # VerifiedSentence object to write here — populating one would be fake wiring.
+.\scripts\run_honest_sweep_r3.py:3205:            manifest["four_role_evaluation"] = {
+.\scripts\run_honest_sweep_r3.py:3213:                "final_verdicts": four_role_result.final_verdicts,
+.\src\polaris_graph\roles\sweep_integration.py:86:    Bundles everything the sweep hands to `run_four_role_evaluation` so the big sweep file's
+.\src\polaris_graph\roles\sweep_integration.py:106:    `final_verdicts` maps claim_id -> final composed verdict (the sweep maps VERIFIED -> True
+.\src\polaris_graph\roles\sweep_integration.py:115:    final_verdicts: dict[str, str]
+.\src\polaris_graph\roles\sweep_integration.py:123:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+.\src\polaris_graph\roles\sweep_integration.py:134:def run_four_role_evaluation(
+.\src\polaris_graph\roles\sweep_integration.py:164:            "run_four_role_evaluation: no claims supplied; a 4-role evaluation over zero "
+.\src\polaris_graph\roles\sweep_integration.py:169:            "run_four_role_evaluation: coverage_ledger.required_element_ids is empty; the "
+.\src\polaris_graph\roles\sweep_integration.py:180:            "run_four_role_evaluation: coverage_ledger.covered_element_ids must be EMPTY on "
+.\src\polaris_graph\roles\sweep_integration.py:192:            f"run_four_role_evaluation: model_slugs missing required role slug(s) "
+.\src\polaris_graph\roles\sweep_integration.py:202:                "run_four_role_evaluation: a claim has a blank claim_id; claim_ids are "
+.\src\polaris_graph\roles\sweep_integration.py:207:                f"run_four_role_evaluation: duplicate claim_id {claim_id!r}; ids must be "
+.\src\polaris_graph\roles\sweep_integration.py:214:    final_verdicts: dict[str, str] = {}
+.\src\polaris_graph\roles\sweep_integration.py:231:            final_verdicts[claim.claim_id] = result.final_verdict
+.\src\polaris_graph\roles\sweep_integration.py:281:        final_verdicts=final_verdicts,
+.\src\polaris_graph\roles\sweep_integration.py:349:        result = run_four_role_evaluation(
+.\src\polaris_graph\roles\sweep_integration.py:374:    return run_four_role_evaluation(
+.\src\polaris_graph\roles\native_gate_b_inputs.py:6:`run_four_role_evaluation` (sweep_integration.py). It does NO file I/O: it RETURNS a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:107:    verbatim to `run_four_role_evaluation`.
+.\state\active_issue.json:4:  "current_step": "NO-SPEND WIRING COMPLETE + GREEN, but NOT READY FOR LIVE RUN (readiness double-check 2026-05-29, Claude verify + Codex audit BOTH = NOT_READY). The 4-role LOGIC is built + offline-green (294 tests, Gate-A PASS), but the LIVE serving path is UNBUILT. Remaining before any live Vast+OpenRouter run (Gate-B): M1 real RoleTransport HTTP client (only a Protocol + mocks today); M2 Vast.ai vLLM serving of Cohere/Granite/Qwen (provision script is substrate-only, compose has only old Gemma stub); M3 production caller that constructs+injects four_role_transport+inputs (defaults None, only tests pass non-None); M4 bridge live role records into Path-B served==pinned gate; M5 write VerifiedSentence.evaluator_agrees from 4-role final_verdicts (prod still uses strict_verify bool). M6 (operator/parallel) promote lock status->locked. CORRECTION: earlier 'ready to launch / spend gate next' framing was an OVER-CLAIM — accurate state is no-spend wiring green, live serving integration NOT done. Do NOT deposit yet; deposit becomes useful at M2 (serving test). Evidence: .codex/I-meta-002-readiness/readiness_report.md + codex_readiness_audit.txt.",
+.\state\active_issue.json:23:    "M5_evaluator_agrees_writeback": "PENDING — write evaluator_agrees from 4-role final_verdicts at the clinical_generator assembly point.",
+.\tests\dr_benchmark\test_gate_b_seam.py:365:    assert "static-claim" not in result.final_verdicts
+.\tests\dr_benchmark\test_gate_b_seam.py:367:    assert any(cid.startswith("00-000-") for cid in result.final_verdicts)
+.\tests\dr_benchmark\test_gate_b_seam.py:402:    assert result.final_verdicts == {"s-1": "VERIFIED"}
+.\tests\roles\test_sweep_integration.py:3:Exercises `sweep_integration.run_four_role_evaluation`: the per-claim pipeline feeding the
+.\tests\roles\test_sweep_integration.py:27:    evaluator_agrees_from_verdict,
+.\tests\roles\test_sweep_integration.py:28:    run_four_role_evaluation,
+.\tests\roles\test_sweep_integration.py:88:    return run_four_role_evaluation(
+.\tests\roles\test_sweep_integration.py:106:    assert result.final_verdicts == {"claim-1": "VERIFIED"}
+.\tests\roles\test_sweep_integration.py:115:    assert result.final_verdicts["claim-1"] == "UNSUPPORTED"
+.\tests\roles\test_sweep_integration.py:120:    assert evaluator_agrees_from_verdict(result.final_verdicts["claim-1"]) is False
+.\tests\roles\test_sweep_integration.py:175:        run_four_role_evaluation(
+.\tests\roles\test_sweep_integration.py:229:    assert result.final_verdicts == {"ok": "VERIFIED", "bad": "UNSUPPORTED"}
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+
+codex
+The sweep side matches the supplied facts: `final_verdicts` is manifest-only there, with a comment explicitly warning against synthesizing a `VerifiedSentence`. I’m checking the package paths now because the top-level `generator` names aren’t present from `C:\POLARIS`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "*provenance_generator.py" -g "*strict_verify.py" -g "*verified_report.py" -g "*generator.py"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class SentenceVerification|evaluator_agrees=passed|class VerifiedSentence|class VerifiedReport|evaluator_agrees" src tests -S' in C:\POLARIS
+2026-05-29T21:15:46.710632Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.8 seconds
+Output:
+src\tools\visual_generator.py
+tests\unit\test_visual_generator.py
+src\polaris_graph\synthesis\smart_art_generator.py
+tests\polaris_graph\test_provenance_generator.py
+src\polaris_graph\clinical_generator\verified_report.py
+src\polaris_graph\clinical_generator\strict_verify.py
+src\polaris_graph\clinical_generator\generator.py
+src\polaris_graph\generator\provenance_generator.py
+src\polaris_graph\generator\multi_section_generator.py
+src\polaris_graph\generator\live_deepseek_generator.py
+tests\crown_jewels\test_cj_003_strict_verify.py
+tests\polaris_graph\clinical_generator\test_verified_report.py
+tests\polaris_graph\clinical_generator\test_strict_verify.py
+tests\polaris_graph\clinical_generator\test_generator.py
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 835ms:
+src\tools\visual_generator.py
+tests\unit\test_visual_generator.py
+src\polaris_graph\synthesis\smart_art_generator.py
+tests\polaris_graph\test_provenance_generator.py
+src\polaris_graph\clinical_generator\verified_report.py
+src\polaris_graph\clinical_generator\strict_verify.py
+src\polaris_graph\clinical_generator\generator.py
+src\polaris_graph\generator\provenance_generator.py
+src\polaris_graph\generator\multi_section_generator.py
+src\polaris_graph\generator\live_deepseek_generator.py
+tests\crown_jewels\test_cj_003_strict_verify.py
+tests\polaris_graph\clinical_generator\test_verified_report.py
+tests\polaris_graph\clinical_generator\test_strict_verify.py
+tests\polaris_graph\clinical_generator\test_generator.py
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+
+ succeeded in 952ms:
+tests\crown_jewels\test_cj_008_entailment_correctness.py:300:    assert record.evaluator_agrees is False
+tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:24:          "evaluator_agrees": true,
+tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:38:          "evaluator_agrees": true,
+tests\fixtures\signed_bundle\v1_canonical_success\verified_report.json:60:          "evaluator_agrees": true,
+src\polaris_v6\schemas\evidence_contract.py:37:class VerifiedSentence(BaseModel):
+src\polaris_graph\generator\provenance_generator.py:399:class SentenceVerification:
+src\agents\auditor_agent.py:121:class SentenceVerification(BaseModel):
+src\polaris_graph\clinical_generator\verified_report.py:71:class VerifiedSentence(BaseModel):
+src\polaris_graph\clinical_generator\verified_report.py:87:    evaluator_agrees: bool | None = Field(
+src\polaris_graph\clinical_generator\verified_report.py:110:            "Optional detail when evaluator_agrees=False (I-f9-002). "
+src\polaris_graph\clinical_generator\verified_report.py:150:        if self.verifier_pass is False and self.evaluator_agrees is True:
+src\polaris_graph\clinical_generator\verified_report.py:152:                "evaluator_agrees=True is forbidden when verifier_pass=False "
+src\polaris_graph\clinical_generator\verified_report.py:410:class VerifiedReport(BaseModel):
+src\polaris_graph\clinical_generator\strict_verify.py:318:        evaluator_agrees=passed,
+src\polaris_v6\api\artifact_to_slice_chain.py:13:+ evaluator_agrees=False. Sections with no remaining passing sentences are
+src\polaris_v6\api\artifact_to_slice_chain.py:130:    which bypasses them. Sets evaluator_agrees=False to satisfy the
+src\polaris_v6\api\artifact_to_slice_chain.py:131:    invariant that verifier_pass=False forbids evaluator_agrees=True.
+src\polaris_v6\api\artifact_to_slice_chain.py:136:    fields["evaluator_agrees"] = False
+src\polaris_v6\api\artifact_to_slice_chain.py:353:        evaluator_agrees=bool(air_sent.is_verified),
+src\polaris_graph\roles\sweep_integration.py:9:flat result the sweep maps onto the manifest + `VerifiedSentence.evaluator_agrees`.
+src\polaris_graph\roles\sweep_integration.py:103:    """Flat result the sweep maps onto the manifest + per-sentence evaluator_agrees.
+src\polaris_graph\roles\sweep_integration.py:107:    and everything else -> False to populate `VerifiedSentence.evaluator_agrees`). `records`
+src\polaris_graph\roles\sweep_integration.py:123:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+src\polaris_graph\roles\sweep_integration.py:124:    """Map a composed final verdict to the two-family `evaluator_agrees` boolean.
+src\polaris_graph\roles\sweep_integration.py:129:    `evaluator_agrees=True` on a dropped sentence is never tripped.
+tests\roles\test_sweep_integration.py:27:    evaluator_agrees_from_verdict,
+tests\roles\test_sweep_integration.py:119:    # And evaluator_agrees would be False for that sentence (never True on a non-VERIFIED claim).
+tests\roles\test_sweep_integration.py:120:    assert evaluator_agrees_from_verdict(result.final_verdicts["claim-1"]) is False
+tests\polaris_graph\clinical_generator\test_strict_verify.py:101:    assert record.evaluator_agrees is True
+src\polaris_graph\audit_ir\loader.py:98:class VerifiedReport:
+tests\polaris_graph\clinical_generator\test_strict_verify_entailment.py:341:    assert record.evaluator_agrees is False
+tests\polaris_graph\clinical_generator\test_verified_report.py:81:def test_verified_sentence_evaluator_agrees_default_none():
+tests\polaris_graph\clinical_generator\test_verified_report.py:88:    assert s.evaluator_agrees is None
+tests\polaris_graph\clinical_generator\test_verified_report.py:91:def test_verified_sentence_evaluator_agrees_true_with_pass_true_ok():
+tests\polaris_graph\clinical_generator\test_verified_report.py:97:        evaluator_agrees=True,
+tests\polaris_graph\clinical_generator\test_verified_report.py:99:    assert s.evaluator_agrees is True
+tests\polaris_graph\clinical_generator\test_verified_report.py:102:def test_verified_sentence_evaluator_agrees_false_with_pass_true_ok():
+tests\polaris_graph\clinical_generator\test_verified_report.py:108:        evaluator_agrees=False,
+tests\polaris_graph\clinical_generator\test_verified_report.py:110:    assert s.evaluator_agrees is False
+tests\polaris_graph\clinical_generator\test_verified_report.py:113:def test_verified_sentence_evaluator_agrees_true_with_pass_false_forbidden():
+tests\polaris_graph\clinical_generator\test_verified_report.py:114:    with pytest.raises(ValidationError, match="evaluator_agrees=True is forbidden"):
+tests\polaris_graph\clinical_generator\test_verified_report.py:120:            evaluator_agrees=True,
+tests\polaris_graph\clinical_generator\test_verified_report.py:274:        evaluator_agrees=False,
+tests\polaris_v6\api\test_artifact_to_slice_chain.py:246:    # The redacted sentence should have verifier_pass=False + drop_reason=invalid_token + evaluator_agrees=False
+tests\polaris_v6\api\test_artifact_to_slice_chain.py:250:    assert redacted[0].evaluator_agrees is False
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\roles\\sweep_integration.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 86 -and $i -le 132){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'scripts\\run_honest_sweep_r3.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 3188 -and $i -le 3216){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\clinical_generator\\strict_verify.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 300 -and $i -le 326){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\clinical_generator\\verified_report.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if(($i -ge 68 -and $i -le 158) -or ($i -ge 405 -and $i -le 416)){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 943ms:
+86:    Bundles everything the sweep hands to `run_four_role_evaluation` so the big sweep file's
+87:    edit stays minimal and the contract is explicit: the per-claim `claims` (each with its
+88:    EXISTING id), the canonical-denominator `coverage_ledger`, the per-question
+89:    `required_s0_categories`, and the pinned `model_slugs` (mirror/sentinel/judge). The sweep
+90:    NEVER builds these from the report — the caller (Gate-B) supplies them, so the sweep cannot
+91:    synthesize a claim_id or a coverage denominator.
+92:    """
+93:
+94:    claims: list[FourRoleClaim]
+95:    coverage_ledger: CoverageLedger
+96:    required_s0_categories: list[str]
+97:    model_slugs: dict[str, str]
+98:    rewrite_already_attempted: bool = False
+99:
+100:
+101:@dataclass
+102:class FourRoleEvaluationResult:
+103:    """Flat result the sweep maps onto the manifest + per-sentence evaluator_agrees.
+104:
+105:    `release_allowed` / `held_reasons` / `gaps` come from the SINGLE binding D8 decision.
+106:    `final_verdicts` maps claim_id -> final composed verdict (the sweep maps VERIFIED -> True
+107:    and everything else -> False to populate `VerifiedSentence.evaluator_agrees`). `records`
+108:    is the complete served-identity audit trail across all claims (for the Path-B identity
+109:    gate). `coverage_fraction` is the canonical-denominator coverage actually achieved.
+110:    """
+111:
+112:    release_allowed: bool
+113:    held_reasons: list[str]
+114:    gaps: list[Gap]
+115:    final_verdicts: dict[str, str]
+116:    records: list[RoleCallRecord]
+117:    coverage_fraction: float
+118:    fabricated_occurrence_latched: bool
+119:    needs_rewrite: list[str]
+120:    kg_path: Path
+121:
+122:
+123:def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+124:    """Map a composed final verdict to the two-family `evaluator_agrees` boolean.
+125:
+126:    VERIFIED -> True (the evaluator stack confirms the claim); every other verdict
+127:    (PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE) -> False. The sweep applies this ONLY
+128:    to kept sentences (`verifier_pass=True`), so the `VerifiedSentence` validator that forbids
+129:    `evaluator_agrees=True` on a dropped sentence is never tripped.
+130:    """
+131:    return final_verdict == _VERDICT_VERIFIED
+132:
+
+ succeeded in 1048ms:
+3188:            # Single binding status: released => success; held => release-blocking abort.
+3189:            summary_status = (
+3190:                "four_role_released"
+3191:                if four_role_result.release_allowed
+3192:                else "four_role_held"
+3193:            )
+3194:            # Reassign BOTH the summary label AND the unified local so manifest.json,
+3195:            # sweep_summary.json (summary["status"] at the function tail), and the status log
+3196:            # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+3197:            unified_status = to_unified_status(summary_status)
+3198:            manifest["status"] = unified_status
+3199:            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+3200:            # assembly point (clinical_generator, Gate-B); they are surfaced here so the D8
+3201:            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+3202:            # VERIFIED->True / else->False (the helper lives in sweep_integration). The sweep's
+3203:            # SectionResult path holds SentenceVerification, NOT VerifiedSentence, so there is no
+3204:            # VerifiedSentence object to write here — populating one would be fake wiring.
+3205:            manifest["four_role_evaluation"] = {
+3206:                "release_allowed": four_role_result.release_allowed,
+3207:                "held_reasons": four_role_result.held_reasons,
+3208:                "coverage_fraction": round(four_role_result.coverage_fraction, 3),
+3209:                "fabricated_occurrence_latched": (
+3210:                    four_role_result.fabricated_occurrence_latched
+3211:                ),
+3212:                "needs_rewrite": four_role_result.needs_rewrite,
+3213:                "final_verdicts": four_role_result.final_verdicts,
+3214:                "gaps": [
+3215:                    {
+3216:                        "ref": gap.ref,
+
+ succeeded in 1050ms:
+300:) -> VerifiedSentence:
+301:    """Convenience: wrap verify_sentence into a VerifiedSentence record.
+302:
+303:    Used by the generator orchestrator to build Section.verified_sentences.
+304:    """
+305:    passed, reason = verify_sentence(
+306:        sentence_text,
+307:        pool,
+308:        min_content_overlap=min_content_overlap,
+309:        is_synthesis_claim=is_synthesis_claim,
+310:    )
+311:    tokens = [t.raw for t in extract_tokens(sentence_text)]
+312:    return VerifiedSentence(
+313:        section_id=section_id,
+314:        sentence_text=sentence_text,
+315:        provenance_tokens=tokens,
+316:        verifier_pass=passed,
+317:        drop_reason=reason,
+318:        evaluator_agrees=passed,
+319:        is_synthesis_claim=is_synthesis_claim,
+320:    )
+321:
+322:
+323:# ---------------------------------------------------------------------------
+324:# Section-level rollup
+325:# ---------------------------------------------------------------------------
+326:
+
+ succeeded in 1185ms:
+68:# VerifiedSentence — atomic verified unit
+69:# ---------------------------------------------------------------------------
+70:
+71:class VerifiedSentence(BaseModel):
+72:    """A single sentence emitted by the generator after strict-verify.
+73:
+74:    Sentences that fail strict_verify are still represented here with
+75:    `verifier_pass=False` and a `drop_reason`, so the audit bundle can
+76:    surface "what got proposed and dropped" alongside "what shipped."
+77:    """
+78:
+79:    section_id: str = Field(min_length=1)
+80:    sentence_text: str = Field(min_length=1)
+81:    provenance_tokens: list[str] = Field(
+82:        default_factory=list,
+83:        description="Token strings of form '[#ev:<source_id>:<start>-<end>]'",
+84:    )
+85:    verifier_pass: bool
+86:    drop_reason: DropReason | None = None
+87:    evaluator_agrees: bool | None = Field(
+88:        default=None,
+89:        description=(
+90:            "Two-family evaluator agreement per CLAUDE.md §9.1 invariant 1. "
+91:            "True = evaluator confirms generator claim; False = evaluator "
+92:            "disagrees; None = pending (no evaluator pass yet). At rule-based "
+93:            "stage this mirrors verifier_pass; future Issue plugs in the "
+94:            "real two-family LLM judge to populate this independently."
+95:        ),
+96:    )
+97:    assertion_surface: AssertionSurface = Field(
+98:        default="prose",
+99:        description=(
+100:            "Render-surface kind per I-f5-009. Default 'prose' preserves "
+101:            "back-compat with all existing fixtures. Non-prose values are "
+102:            "populated by future generator wiring (table cells, summary "
+103:            "bullets, limitations, captions, headings); the Inspector gates "
+104:            "all six surfaces equally."
+105:        ),
+106:    )
+107:    evaluator_disagreement: "EvaluatorDisagreement | None" = Field(
+108:        default=None,
+109:        description=(
+110:            "Optional detail when evaluator_agrees=False (I-f9-002). "
+111:            "Carries the evaluator's competing reading of the same evidence "
+112:            "so the EvaluatorPane can render generator-vs-evaluator side-by-side."
+113:        ),
+114:    )
+115:    contradiction: "ContradictionSignal | None" = Field(
+116:        default=None,
+117:        description=(
+118:            "Optional contradiction signal (I-f8-001). When present, "
+119:            "≥2 sources cited for this sentence disagree on the claim. "
+120:            "Default None preserves back-compat. Future Issue (F8-002+) "
+121:            "wires real detection into the generator."
+122:        ),
+123:    )
+124:    is_synthesis_claim: bool = Field(
+125:        default=False,
+126:        description=(
+127:            "True iff sentence is a synthesis claim (e.g., a discussion "
+128:            "paragraph summarizing across sources without quoting any one). "
+129:            "Synthesis claims have no provenance_tokens by definition; "
+130:            "non-synthesis kept sentences MUST have ≥1 provenance token. "
+131:            "Today's generator defaults to False; future Issue may wire the "
+132:            "prompt template to label synthesis sentences explicitly."
+133:        ),
+134:    )
+135:
+136:    @model_validator(mode="after")
+137:    def _drop_reason_consistency(self) -> "VerifiedSentence":
+138:        if self.verifier_pass is False and self.drop_reason is None:
+139:            raise ValueError(
+140:                "drop_reason is required when verifier_pass=False"
+141:            )
+142:        if self.verifier_pass is True and self.drop_reason is not None:
+143:            raise ValueError(
+144:                "drop_reason must be None when verifier_pass=True"
+145:            )
+146:        return self
+147:
+148:    @model_validator(mode="after")
+149:    def _evaluator_agreement_consistency(self) -> "VerifiedSentence":
+150:        if self.verifier_pass is False and self.evaluator_agrees is True:
+151:            raise ValueError(
+152:                "evaluator_agrees=True is forbidden when verifier_pass=False "
+153:                "(rule-based dropped the sentence; evaluator cannot pass it "
+154:                "without contradicting strict-verify)"
+155:            )
+156:        return self
+157:
+158:    @model_validator(mode="after")
+405:
+406:# ---------------------------------------------------------------------------
+407:# VerifiedReport
+408:# ---------------------------------------------------------------------------
+409:
+410:class VerifiedReport(BaseModel):
+411:    """The slice 003 output. Bound to a slice-002 pool via pool_id +
+412:    a slice-001 decision via decision_id. Same pool can produce different
+413:    reports across runs (LLM nondeterminism); report_id distinguishes them.
+414:    """
+415:
+416:    report_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\clinical_generator\\generator.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 270 -and $i -le 310){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\generator\\provenance_generator.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if(($i -ge 392 -and $i -le 410) -or ($i -ge 1418 -and $i -le 1442)){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 758ms:
+270:    ]
+271:
+272:    finished = datetime.now(timezone.utc)
+273:    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+274:
+275:    # Aggregate pass rate over ALL sentences (kept + dropped) across non-dropped sections.
+276:    kept_sections = [s for s in sections if s.section_status != "dropped"]
+277:    if kept_sections:
+278:        total = sum(len(s.verified_sentences) for s in kept_sections)
+279:        passed = sum(
+280:            sum(1 for v in s.verified_sentences if v.verifier_pass)
+281:            for s in kept_sections
+282:        )
+283:        overall_rate = passed / total if total > 0 else 0.0
+284:        pipeline_verdict = "success"
+285:    else:
+286:        # Every section dropped -> abort. For schema validation, we must
+287:        # carry only dropped sections through.
+288:        sections = [s for s in sections if s.section_status == "dropped"]
+289:        overall_rate = 0.0
+290:        pipeline_verdict = "abort_no_verified_sections"
+291:
+292:    # When verdict=success, the schema requires sections list to contain
+293:    # only non-dropped OR the verdict consistency check fails. Filter:
+294:    if pipeline_verdict == "success":
+295:        sections = kept_sections
+296:
+297:    return VerifiedReport(
+298:        pool_id=pool.pool_id,
+299:        decision_id=pool.decision_id,
+300:        sections=sections,
+301:        overall_verify_pass_rate=overall_rate,
+302:        pipeline_verdict=pipeline_verdict,  # type: ignore[arg-type]
+303:        generator_model=effective_model,
+304:        evaluator_model="strict_verify_v1",
+305:        family_segregation_passed=True,
+306:        verifier_pass_threshold=verifier_pass_threshold,
+307:        started_at_utc=started,
+308:        finished_at_utc=finished,
+309:        latency_ms=elapsed_ms,
+310:        cost_usd=0.0,
+
+ succeeded in 831ms:
+392:
+393:    @property
+394:    def span_len(self) -> int:
+395:        return self.end - self.start
+396:
+397:
+398:@dataclass
+399:class SentenceVerification:
+400:    sentence: str
+401:    tokens: list[ProvenanceToken]
+402:    is_verified: bool
+403:    failure_reasons: list[str] = field(default_factory=list)
+404:    resolved_citation_marker: str = ""   # e.g., "[1]"
+405:    # Gap-2: soft warnings that don't trigger a drop but get surfaced
+406:    # to the evaluator (stored as PT13 in external_evaluator).
+407:    soft_warnings: list[str] = field(default_factory=list)
+408:
+409:
+410:def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
+1418:            is_verified=False, failure_reasons=failures,
+1419:            soft_warnings=["limitations_paragraph"],
+1420:        )
+1421:    return SentenceVerification(
+1422:        sentence=sentence, tokens=tokens,
+1423:        is_verified=True, failure_reasons=[],
+1424:        soft_warnings=["limitations_paragraph_verified"],
+1425:    )
+1426:
+1427:
+1428:def strict_verify(
+1429:    draft_text: str,
+1430:    evidence_pool: dict[str, dict[str, Any]],
+1431:    *,
+1432:    require_number_match: bool = True,
+1433:    telemetry_block: str | None = None,
+1434:) -> StrictVerificationReport:
+1435:    """Run strict verification on a draft. Drops failing sentences.
+1436:
+1437:    Gap-3 (original): the Limitations paragraph was pass-through because
+1438:    it discusses pipeline telemetry, not evidence.
+1439:
+1440:    BUG-M-204 fix (deep-dive R10): when `telemetry_block` is supplied,
+1441:    Limitations sentences ARE verified against it — every numeric
+1442:    claim in the sentence must appear verbatim in the telemetry block.
+
+codex
+One more issue is material: `VerifiedSentence` itself does not show a `claim_id`, so a clinical post-pass cannot be specified as “map final_verdicts[claim_id] onto VerifiedSentence” unless there is an existing binding elsewhere. I’m checking whether the report model has that binding before I rule on scope.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\clinical_generator\\verified_report.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 158 -and $i -le 260){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"claim_id|verified_sentences|section_id|VerifiedSentence\\(\" src\\polaris_graph\\clinical_generator tests\\polaris_graph\\clinical_generator -S" in C:\POLARIS
+ succeeded in 803ms:
+src\polaris_graph\clinical_generator\verified_report.py:71:class VerifiedSentence(BaseModel):
+src\polaris_graph\clinical_generator\verified_report.py:79:    section_id: str = Field(min_length=1)
+src\polaris_graph\clinical_generator\verified_report.py:389:    `verified_sentences` includes both passed AND dropped sentences for
+src\polaris_graph\clinical_generator\verified_report.py:395:    section_id: str = Field(min_length=1)
+src\polaris_graph\clinical_generator\verified_report.py:397:    verified_sentences: list[VerifiedSentence] = Field(default_factory=list)
+src\polaris_graph\clinical_generator\verified_report.py:403:        return [s for s in self.verified_sentences if s.verifier_pass]
+src\polaris_graph\clinical_generator\strict_verify.py:296:    section_id: str,
+src\polaris_graph\clinical_generator\strict_verify.py:303:    Used by the generator orchestrator to build Section.verified_sentences.
+src\polaris_graph\clinical_generator\strict_verify.py:312:    return VerifiedSentence(
+src\polaris_graph\clinical_generator\strict_verify.py:313:        section_id=section_id,
+src\polaris_graph\clinical_generator\section_blueprint.py:7:for VerifiedSentence.section_id + UI anchors) and a human-readable title.
+src\polaris_graph\clinical_generator\section_blueprint.py:21:    section_id: str
+tests\polaris_graph\clinical_generator\test_section_blueprint.py:39:def test_efficacy_section_ids_unique():
+tests\polaris_graph\clinical_generator\test_section_blueprint.py:40:    ids = [s.section_id for s in CLINICAL_EFFICACY.sections]
+tests\polaris_graph\clinical_generator\test_section_blueprint.py:54:            assert plan.section_id.startswith("sec_")
+tests\polaris_graph\clinical_generator\test_section_blueprint.py:138:        plan.section_id = "tampered"  # type: ignore[misc]
+src\polaris_graph\clinical_generator\real_completion.py:210:                f"{section_plan.section_id!r}; model={self.config.model!r}; "
+tests\polaris_graph\clinical_generator\test_generator.py:259:    assert result.sections[0].section_id == "sec_only"
+tests\polaris_graph\clinical_generator\test_generator.py:310:    # safety blueprint has 4 sections; section_ids differ from efficacy
+tests\polaris_graph\clinical_generator\test_generator.py:312:    section_ids = {s.section_id for s in result.sections}
+tests\polaris_graph\clinical_generator\test_generator.py:313:    assert "sec_adverse_events" in section_ids
+tests\polaris_graph\clinical_generator\test_generator.py:321:    section_ids = {s.section_id for s in result.sections}
+tests\polaris_graph\clinical_generator\test_generator.py:323:    assert "sec_outcomes" in section_ids
+tests\polaris_graph\clinical_generator\test_generator.py:324:    assert "sec_intervention" in section_ids
+tests\polaris_graph\clinical_generator\test_generator.py:392:        _time.sleep(sleep_by_section.get(section_plan.section_id, 0.0))
+tests\polaris_graph\clinical_generator\test_generator.py:401:    section_ids = [s.section_id for s in result.sections]
+tests\polaris_graph\clinical_generator\test_generator.py:403:    assert section_ids == [
+tests\polaris_graph\clinical_generator\test_strict_verify.py:94:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:289:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:302:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:313:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:324:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_strict_verify.py:325:            section_id="x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:337:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_strict_verify.py:338:            section_id="x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:350:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_strict_verify.py:351:            section_id="x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:356:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_strict_verify.py:357:            section_id="x",
+tests\polaris_graph\clinical_generator\test_strict_verify.py:362:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_strict_verify.py:363:            section_id="x",
+src\polaris_graph\clinical_generator\generator.py:151:            verify_sentence_to_record(s, section_plan.section_id, pool)
+src\polaris_graph\clinical_generator\generator.py:173:        section_id=section_plan.section_id,
+src\polaris_graph\clinical_generator\generator.py:175:        verified_sentences=records,
+src\polaris_graph\clinical_generator\generator.py:278:        total = sum(len(s.verified_sentences) for s in kept_sections)
+src\polaris_graph\clinical_generator\generator.py:280:            sum(1 for v in s.verified_sentences if v.verifier_pass)
+tests\polaris_graph\clinical_generator\test_verified_report.py:41:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:42:        section_id="sec_population",
+tests\polaris_graph\clinical_generator\test_verified_report.py:53:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:54:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:62:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:63:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:71:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:72:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:82:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:83:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:92:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:93:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:103:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:104:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:115:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:116:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:125:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:126:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:135:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:136:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:269:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:270:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:409:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:410:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:420:        s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:421:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:432:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:433:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:442:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:443:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:455:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:456:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:466:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:467:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:478:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:479:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:489:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:490:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:498:    s = VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:499:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:510:        VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:511:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:520:    return VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:521:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:529:    return VerifiedSentence(
+tests\polaris_graph\clinical_generator\test_verified_report.py:530:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:539:        section_id="sec_population",
+tests\polaris_graph\clinical_generator\test_verified_report.py:541:        verified_sentences=[_kept(), _kept(), _dropped()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:545:    assert len(s.verified_sentences) == 3
+tests\polaris_graph\clinical_generator\test_verified_report.py:550:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:552:        verified_sentences=[_kept(), _dropped(), _kept()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:563:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:573:            section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:582:        section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:584:        verified_sentences=[_dropped(), _dropped()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:601:                section_id="sec_population",
+tests\polaris_graph\clinical_generator\test_verified_report.py:603:                verified_sentences=[_kept(), _kept()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:634:                    section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:649:                    section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:651:                    verified_sentences=[_kept()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:664:                section_id="sec_x",
+tests\polaris_graph\clinical_generator\test_verified_report.py:666:                verified_sentences=[_dropped()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:714:                section_id="sec_a",
+tests\polaris_graph\clinical_generator\test_verified_report.py:716:                verified_sentences=[_kept()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:721:                section_id="sec_b",
+tests\polaris_graph\clinical_generator\test_verified_report.py:723:                verified_sentences=[_dropped()],
+tests\polaris_graph\clinical_generator\test_verified_report.py:732:    assert kept[0].section_id == "sec_a"
+
+ succeeded in 890ms:
+158:    @model_validator(mode="after")
+159:    def _synthesis_claim_consistency(self) -> "VerifiedSentence":
+160:        if self.is_synthesis_claim and self.verifier_pass is False:
+161:            raise ValueError(
+162:                "is_synthesis_claim=True requires verifier_pass=True "
+163:                "(synthesis claims either ship or are dropped before reaching "
+164:                "this record)"
+165:            )
+166:        if self.is_synthesis_claim and len(self.provenance_tokens) > 0:
+167:            raise ValueError(
+168:                "is_synthesis_claim=True requires provenance_tokens=[] "
+169:                "(synthesis claims have no specific provenance — that's the "
+170:                "definition)"
+171:            )
+172:        if (
+173:            not self.is_synthesis_claim
+174:            and self.verifier_pass is True
+175:            and len(self.provenance_tokens) == 0
+176:        ):
+177:            raise ValueError(
+178:                "kept non-synthesis sentence requires ≥1 provenance token; "
+179:                "set is_synthesis_claim=True for prose without specific "
+180:                "provenance"
+181:            )
+182:        return self
+183:
+184:
+185:# ---------------------------------------------------------------------------
+186:# FrameCoverage (I-f7-001)
+187:# ---------------------------------------------------------------------------
+188:
+189:Jurisdiction = Literal[
+190:    "canada",
+191:    "us",
+192:    "eu",
+193:    "uk",
+194:    "who",
+195:    "other",
+196:    "unspecified",
+197:]
+198:"""I-f8-006 jurisdiction tag on a contradiction side.
+199:
+200:Surfaces regulator/jurisdiction (FDA-US vs Health-Canada vs EMA-EU vs MHRA-UK
+201:vs WHO) so cross-jurisdiction disagreements render explicitly."""
+202:
+203:
+204:ContradictionEvidenceType = Literal[
+205:    "trial",
+206:    "guideline",
+207:    "meta_analysis",
+208:    "observational",
+209:    "regulatory_label",
+210:    "expert_opinion",
+211:    "unspecified",
+212:]
+213:"""I-f8-005 evidence-type tag on a contradiction side.
+214:
+215:Distinguishes guideline-vs-trial, regulatory-vs-trial, etc. — common
+216:sources of "the trial says X but the guideline says Y" contradictions."""
+217:
+218:
+219:class EvaluatorDisagreement(BaseModel):
+220:    """Two-family evaluator disagreement detail (I-f9-002).
+221:
+222:    Carries both readings of the same evidence so the user can compare
+223:    the generator's claim against the evaluator's competing reading."""
+224:
+225:    generator_reading: str = Field(min_length=1, max_length=1000)
+226:    evaluator_reading: str = Field(min_length=1, max_length=1000)
+227:    cited_sources: list[str] = Field(min_length=1)
+228:    evaluator_model: str = Field(min_length=1, max_length=200)
+229:
+230:
+231:class ContradictionSide(BaseModel):
+232:    """One side of a contradiction (I-f8-002).
+233:
+234:    Each side is a distinct cited source's position on the claim. Tier
+235:    + sample size + hedge language + PT08 flag inform reviewer judgment
+236:    of which side has the stronger evidentiary backing. evidence_type
+237:    (I-f8-005) tags the kind of source (trial, guideline, ...)."""
+238:
+239:    source_id: str = Field(min_length=1, max_length=200)
+240:    source_tier: Literal["T1", "T2", "T3"]
+241:    sample_size: int | None = Field(default=None, ge=0)
+242:    hedge_language: str = Field(min_length=1, max_length=200)
+243:    pt08_flag: str | None = Field(default=None, max_length=50)
+244:    claim_excerpt: str = Field(min_length=1, max_length=500)
+245:    evidence_type: ContradictionEvidenceType = Field(default="unspecified")
+246:    jurisdiction: Jurisdiction = Field(default="unspecified")
+247:
+248:
+249:ContradictionCategory = Literal[
+250:    "numeric",
+251:    "categorical",
+252:    "regulatory",
+253:    "temporal",
+254:    "jurisdictional",
+255:    "other",
+256:]
+257:"""I-f8-004 contradiction-category enum.
+258:
+259:Distinguishes the kind of disagreement: numeric (dose/CI), categorical
+260:(approved/not approved), regulatory (FDA vs EMA), temporal (pre-2020 vs
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src\\polaris_graph\\clinical_generator\\verified_report.py'; "'$i=0; Get-Content $p | ForEach-Object { $i++; if($i -ge 382 -and $i -le 404){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 704ms:
+382:# ---------------------------------------------------------------------------
+383:# Section
+384:# ---------------------------------------------------------------------------
+385:
+386:class Section(BaseModel):
+387:    """A report section (e.g. 'Population', 'Outcomes').
+388:
+389:    `verified_sentences` includes both passed AND dropped sentences for
+390:    audit completeness; UI filters by `verifier_pass` when rendering the
+391:    user-facing report. `section_verify_pass_rate` is over all attempted
+392:    sentences (not just kept ones).
+393:    """
+394:
+395:    section_id: str = Field(min_length=1)
+396:    section_title: str = Field(min_length=1, max_length=200)
+397:    verified_sentences: list[VerifiedSentence] = Field(default_factory=list)
+398:    section_verify_pass_rate: float = Field(ge=0.0, le=1.0)
+399:    section_status: SectionStatus
+400:
+401:    def kept_sentences(self) -> list[VerifiedSentence]:
+402:        """Filter to sentences that passed strict_verify."""
+403:        return [s for s in self.verified_sentences if s.verifier_pass]
+404:
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+writeback_point: "M5 writeback belongs in scripts/run_honest_sweep_r3.py::run_one_query, immediately after run_four_role_evaluation returns, at the existing manifest['four_role_evaluation'] assembly. Write a per-claim manifest map from final_verdicts; do not mutate or synthesize VerifiedSentence on the sweep path."
+scope_ruling: "benchmark-path only for M5. Clinical-generator VerifiedSentence writeback is out of scope until that path has both 4-role final_verdicts and a stable claim_id-to-VerifiedSentence binding."
+safe_rule: "evaluator_agrees = (verifier_pass is True) AND evaluator_agrees_from_verdict(final_verdict), where evaluator_agrees_from_verdict is exactly final_verdict == 'VERIFIED'. Missing, unknown, PARTIAL, UNSUPPORTED, FABRICATED, or UNREACHABLE => False. Never True before final_verdict exists; never True on verifier_pass=False."
+p0: []
+p1:
+  - "Clinical VerifiedSentence writeback cannot be safely approved now: VerifiedSentence/Section have no claim_id, while final_verdicts are claim_id-keyed, so a post-pass has no safe mapping target."
+  - "clinical_generator/strict_verify.py:318 is still fail-open for clinical audit semantics because it sets evaluator_agrees=passed before any 4-role verdict exists. M5 benchmark work must not be described as fixing that clinical path."
+p2:
+  - "Name the manifest field explicitly, e.g. evaluator_agrees_by_claim_id, to avoid implying per-sentence VerifiedSentence mutation on the sweep path."
+  - "For the no-spend offline e2e, final_verdicts is sufficient for D8 gating; the explicit evaluator_agrees_by_claim_id map is sufficient for the roadmap audit hop. A per-sentence field is not required on the benchmark path."
+  - "Avoid double-write: one writer in run_one_query manifest assembly for benchmark; future clinical writeback must be a separate post-4-role report assembly pass, not strict_verify creation-time wiring."
+convergence_call: continue
+```
+tokens used
+27,482
+```yaml
+verdict: REQUEST_CHANGES
+writeback_point: "M5 writeback belongs in scripts/run_honest_sweep_r3.py::run_one_query, immediately after run_four_role_evaluation returns, at the existing manifest['four_role_evaluation'] assembly. Write a per-claim manifest map from final_verdicts; do not mutate or synthesize VerifiedSentence on the sweep path."
+scope_ruling: "benchmark-path only for M5. Clinical-generator VerifiedSentence writeback is out of scope until that path has both 4-role final_verdicts and a stable claim_id-to-VerifiedSentence binding."
+safe_rule: "evaluator_agrees = (verifier_pass is True) AND evaluator_agrees_from_verdict(final_verdict), where evaluator_agrees_from_verdict is exactly final_verdict == 'VERIFIED'. Missing, unknown, PARTIAL, UNSUPPORTED, FABRICATED, or UNREACHABLE => False. Never True before final_verdict exists; never True on verifier_pass=False."
+p0: []
+p1:
+  - "Clinical VerifiedSentence writeback cannot be safely approved now: VerifiedSentence/Section have no claim_id, while final_verdicts are claim_id-keyed, so a post-pass has no safe mapping target."
+  - "clinical_generator/strict_verify.py:318 is still fail-open for clinical audit semantics because it sets evaluator_agrees=passed before any 4-role verdict exists. M5 benchmark work must not be described as fixing that clinical path."
+p2:
+  - "Name the manifest field explicitly, e.g. evaluator_agrees_by_claim_id, to avoid implying per-sentence VerifiedSentence mutation on the sweep path."
+  - "For the no-spend offline e2e, final_verdicts is sufficient for D8 gating; the explicit evaluator_agrees_by_claim_id map is sufficient for the roadmap audit hop. A per-sentence field is not required on the benchmark path."
+  - "Avoid double-write: one writer in run_one_query manifest assembly for benchmark; future clinical writeback must be a separate post-4-role report assembly pass, not strict_verify creation-time wiring."
+convergence_call: continue
+```
