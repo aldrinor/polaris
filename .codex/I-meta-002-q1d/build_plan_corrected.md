@@ -8,6 +8,8 @@ Codex CONFIRMED the gaps and REQUEST_CHANGES'd the ORDER with 3 p0 corrections (
 Each unit = one Codex-gated issue cycle (brief → codex brief gate → build → smoke → codex diff gate),
 ≤200 LOC, 5-artifact triple. NO SPEND / NO unconditional network in the fix itself unless flagged.
 
+## STATUS (live): PR1 #959 · PR2 #960 · PR3 #961 · PR4 #962 · PR5 #963 (deepener) · PR6 #966 (qualitative conflict) — ALL Codex brief+diff APPROVE, queued for operator merge (Option A, no-spend). #940 (verifier reasoning) also queued. NEXT = PR7 (#946 citation-leak scrub). Follow-ups filed: #964 (web qualitative render), #965 (drug-lexicon generalize).
+
 ## Build sequence (depth-first, safety promoted early)
 1. **PR1 — Retrieval foundation: fetch-cap retune (#943) + fetch-time relevance rerank + per-sub-query
    reservation (#951 q1d-b).** Codex step-1. Raise cap (20→40, serper/s2 8→12, env-overridable, bound by

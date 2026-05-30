@@ -105,7 +105,11 @@ preamble, no sign-off, no [#ev:...] tokens anywhere. Do NOT emit ##
 headers — the renderer wraps this prose under a single ## heading."""
 
 
-_EV_TOKEN_RE = re.compile(r"\[#ev:[^\]]*\]")
+# I-meta-002-q1d (#946): match BOTH the prefixed audit token `[#ev:<id>:<start>-<end>]` AND a bare
+# `[ev_012]` / `[ev_012:1-5]` leak. The `[:_]` after `ev` is the guard: it requires `ev:`/`ev_` (optionally
+# `#`-prefixed), so numeric `[N]` citations and ordinary bracketed words (`[event]`, `[evidence]`) are NOT
+# matched. The synthesis layer must cite by bibliography `[N]` only; any ev-token there is a leak to scrub.
+_EV_TOKEN_RE = re.compile(r"\[#?ev[:_][^\]]*\]")
 # I-bug-108 iter-2 P0 fix: extend regex to catch malformed markers
 # (negative numbers, leading zeros, whitespace) that pass through the
 # original positive-integer-only pattern. Downstream PT12 parser may
@@ -322,17 +326,19 @@ def _scrub_invalid_n_markers(text: str, biblio_size: int) -> tuple[str, int]:
 
 
 def _scrub_ev_tokens(text: str) -> str:
-    """Remove any [#ev:...] tokens from synthesis output.
+    """Remove any ev-token ([#ev:...] OR bare [ev_NNN]) from synthesis output.
 
     Codex iter-1 P0: must be a runtime guardrail, not just a test.
-    Synthesis prose MUST NOT carry [#ev:...] tokens. If the LLM emits
-    them anyway, scrub them and log a warning.
+    I-meta-002-q1d (#946): the original pattern matched only the prefixed
+    [#ev:...] token; a bare [ev_012] leaked into a published report.md.
+    Synthesis prose MUST NOT carry any ev-token — it cites by bibliography
+    [N] markers only. If the LLM emits one anyway, scrub it and log a warning.
     """
     cleaned, n = _EV_TOKEN_RE.subn("", text)
     if n > 0:
         logger.warning(
-            "[analyst_synthesis] scrubbed %d [#ev:...] token(s) from "
-            "synthesis output — synthesis MUST cite by [N] only",
+            "[analyst_synthesis] scrubbed %d ev-token(s) ([#ev:...] or bare "
+            "[ev_NNN]) from synthesis output — synthesis MUST cite by [N] only",
             n,
         )
     return cleaned
