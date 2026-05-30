@@ -596,12 +596,14 @@ SWEEP_QUERIES: list[dict] = [
     },
     # I-safety-002b (#925): DRB-EN #72 — AI labor-market lit review. Operator-authorized
     # smoke run for the Path-B gate (per scripts/dr_benchmark/smoke.md). Verbatim prompt
-    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "custom" because the
-    # workforce completeness_checklist is missing; custom is deliberately permissive on
-    # tier distribution but still fires corpus_adequacy_gate + strict_verify + evaluator.
+    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "workforce" so the
+    # native per_query_report_contract[drb_72_ai_labor] (workforce.yaml) is reachable at
+    # runtime (I-meta-002 PR-11 #937): the 4-role Gate-B builder keys the frozen contract
+    # by (domain template, slug); domain "custom" left it inert (contract lives in
+    # workforce.yaml). Fires corpus_adequacy_gate + strict_verify + evaluator as before.
     {
         "slug": "drb_72_ai_labor",
-        "domain": "custom",
+        "domain": "workforce",
         "question": (
             "Please write a literature review on the restructuring impact of "
             "Artificial Intelligence (AI) on the labor market. Focus on how AI, "
@@ -635,6 +637,70 @@ SWEEP_QUERIES: list[dict] = [
             "automation employment effects commuting zones manufacturing peer reviewed",
             "generative AI productivity field experiment journal article",
         ],
+    },
+    # I-meta-002 PR-11 (#937): remaining 4 LOCKED golden DRB-EN benchmark questions
+    # (#75/#76/#78/#90 — #72 above). Verbatim prompts from
+    # .codex/I-safety-002b/golden_questions_locked.md. Each slug EXACTLY equals its frozen
+    # native per_query_report_contract key so load_scope_template(domain) +
+    # load_required_entities(template, slug) resolves the contract at runtime (a routing
+    # typo fail-closes in the M3a builder). These are NO-NETWORK registration stubs: no
+    # `amplified` / seed field, so import + registration trigger no live fetch/spend.
+    {
+        "slug": "drb_75_metal_ions_cvd",
+        "domain": "clinical",
+        "question": (
+            "Could therapeutic interventions aimed at modulating plasma metal "
+            "ion concentrations represent effective preventive or therapeutic "
+            "strategies against cardiovascular diseases? What types of "
+            "interventions—such as supplementation—have been proposed, and is "
+            "there clinical evidence supporting their feasibility and efficacy?"
+        ),
+    },
+    {
+        "slug": "drb_76_gut_microbiota_crc",
+        "domain": "clinical",
+        "question": (
+            "The significance of the gut microbiota in maintaining normal "
+            "intestinal function has emerged as a prominent focus in "
+            "contemporary research, revealing both beneficial and detrimental "
+            "impacts on the equilibrium of gut health. Disruption of microbial "
+            "homeostasis can precipitate intestinal inflammation and has been "
+            "implicated in the pathogenesis of colorectal cancer. Conversely, "
+            "probiotics have demonstrated the capacity to mitigate inflammation "
+            "and retard the progression of colorectal cancer. Within this "
+            "domain, key questions arise: What are the predominant types of gut "
+            "probiotics? What precisely constitutes prebiotics and their "
+            "mechanistic role? Which pathogenic bacteria warrant concern, and "
+            "what toxic metabolites do they produce? How might these findings "
+            "inform and optimize our daily dietary choices?"
+        ),
+    },
+    {
+        "slug": "drb_78_parkinsons_dbs",
+        "domain": "clinical",
+        "question": (
+            "Parkinson's disease has a profound impact on patients. What are "
+            "the potential health warning signs associated with different "
+            "stages of the disease? As family members, which specific signs "
+            "should alert us to intervene or seek medical advice regarding the "
+            "patient's condition? Furthermore, for patients who have undergone "
+            "Deep Brain Stimulation (DBS) surgery, what daily life adjustments "
+            "and support strategies can be implemented to improve their comfort "
+            "and overall well-being?"
+        ),
+    },
+    {
+        "slug": "drb_90_adas_liability",
+        "domain": "policy",
+        "question": (
+            "Analyze the complex issue of liability allocation in accidents "
+            "involving vehicles with advanced driver-assistance systems (ADAS) "
+            "operating in a shared human-machine driving context. Your analysis "
+            "should integrate technical principles of ADAS, existing legal "
+            "frameworks, and relevant case law to systematically examine the "
+            "boundaries of responsibility between the driver and the system. "
+            "Conclude with proposed regulatory guidelines or recommendations."
+        ),
     },
 ]
 
