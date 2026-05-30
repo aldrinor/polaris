@@ -22,6 +22,7 @@ from src.polaris_graph.benchmark import pathB_capture as pc
 from src.polaris_graph.roles.openai_compatible_transport import (
     OpenAICompatibleRoleTransport,
     RoleTransportError,
+    _sanitize_raw_for_capture,
     role_endpoint,
 )
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
@@ -444,3 +445,163 @@ def test_blank_message_content_raises_role_transport_error():
     transport = _make_transport(handler)
     with pytest.raises(RoleTransportError, match="no/blank message content"):
         transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
+
+
+# --------------------------------------------------------------------------------------
+# I-meta-002-q1b (#939): verifier REASONING is separated from the bare verdict/body so the
+# verdict parsers never see "soap", AND the reasoning is captured (on RoleResponse) for the
+# four_role_role_calls.jsonl line-by-line review. Three served-reasoning shapes × all 3 roles,
+# plus the fail-closed cases.
+# --------------------------------------------------------------------------------------
+_ALL_ROLES = (
+    ("mirror", _MIRROR_SLUG),
+    ("sentinel", _SENTINEL_SLUG),
+    ("judge", _JUDGE_SLUG),
+)
+
+
+def _message_handler(*, served_model: str, message: dict):
+    """A MockTransport handler returning a canned `message` object verbatim (no network)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = {
+            "model": served_model,
+            "choices": [{"message": {"role": "assistant", **message}}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+        }
+        return httpx.Response(200, json=payload)
+
+    return handler
+
+
+@pytest.mark.parametrize("role,slug", _ALL_ROLES)
+def test_separate_reasoning_content_field_kept_apart_from_verdict(role, slug):
+    # vLLM reasoning-parser path: reasoning arrives in its OWN `reasoning_content` field and
+    # `content` is already the bare verdict. raw_text = bare verdict; reasoning = the field.
+    handler = _message_handler(
+        served_model=slug,
+        message={"content": "VERIFIED", "reasoning_content": "I weighed the evidence span."},
+    )
+    transport = _make_transport(handler)
+    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
+    assert resp.raw_text == "VERIFIED"
+    assert resp.reasoning == "I weighed the evidence span."
+
+
+@pytest.mark.parametrize("role,slug", _ALL_ROLES)
+def test_inline_leading_think_block_split_from_verdict(role, slug):
+    # Inline path: a LEADING <think>...</think> block is split off `content`; raw_text is the
+    # bare remainder, reasoning is the inner text. The verdict parser never sees the think block.
+    handler = _message_handler(
+        served_model=slug,
+        message={"content": "<think>step one; step two</think>VERIFIED"},
+    )
+    transport = _make_transport(handler)
+    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
+    assert resp.raw_text == "VERIFIED"
+    assert resp.reasoning == "step one; step two"
+
+
+@pytest.mark.parametrize("role,slug", _ALL_ROLES)
+def test_no_reasoning_leaves_verdict_clean(role, slug):
+    # No reasoning of any shape: raw_text is the content unchanged, reasoning is None.
+    handler = _message_handler(served_model=slug, message={"content": "PARTIAL"})
+    transport = _make_transport(handler)
+    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
+    assert resp.raw_text == "PARTIAL"
+    assert resp.reasoning is None
+
+
+def test_unterminated_think_block_fails_closed():
+    # A <think> opened with NO closing </think> is a malformed verifier response — raise rather
+    # than feed a half-emitted reasoning block to a strict verdict parser.
+    handler = _message_handler(
+        served_model=_JUDGE_SLUG, message={"content": "<think>reasoning that never closes"}
+    )
+    transport = _make_transport(handler)
+    with pytest.raises(RoleTransportError, match="no closing </think>"):
+        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
+
+
+def test_think_only_no_verdict_fails_closed():
+    # A think-only message (empty verdict after the block) fails the SAME post-split blank guard
+    # as a blank content — a verifier must return a non-blank bare verdict.
+    handler = _message_handler(
+        served_model=_JUDGE_SLUG, message={"content": "<think>only reasoning here</think>   "}
+    )
+    transport = _make_transport(handler)
+    with pytest.raises(RoleTransportError, match="no/blank message content after reasoning"):
+        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
+
+
+def test_separate_reasoning_field_but_blank_verdict_fails_closed():
+    # Parity (Codex brief note): reasoning_content present but `content` blank must fail the SAME
+    # way as a think-only inline message — never a deliberately-empty verdict.
+    handler = _message_handler(
+        served_model=_JUDGE_SLUG, message={"content": "  ", "reasoning_content": "I reasoned."}
+    )
+    transport = _make_transport(handler)
+    with pytest.raises(RoleTransportError, match="no/blank message content after reasoning"):
+        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
+
+
+def test_sanitize_raw_for_capture_strips_reasoning_keeps_served_identity():
+    # No-leak (Codex diff P1): the response handed to Path-B capture must carry the BARE verdict
+    # and NO reasoning — neither a `reasoning_content` field nor an inline <think> block — while
+    # served-identity fields (model / usage / _pathb_served / system_fingerprint) are preserved.
+    raw = {
+        "model": _JUDGE_SLUG,
+        "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+        "system_fingerprint": "fp_abc",
+        "_pathb_served": {"endpoint": _JUDGE_BASE, "model": _JUDGE_SLUG},
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "<think>chain of thought</think>VERIFIED",
+                    "reasoning_content": "separate-field reasoning",
+                }
+            }
+        ],
+    }
+    sanitized = _sanitize_raw_for_capture(raw, bare_text="VERIFIED")
+    msg = sanitized["choices"][0]["message"]
+    assert msg["content"] == "VERIFIED"
+    assert "reasoning_content" not in msg
+    # No reasoning text survives anywhere in the captured object.
+    blob = json.dumps(sanitized)
+    assert "chain of thought" not in blob
+    assert "separate-field reasoning" not in blob
+    # Served-identity fields preserved (M4 served==pinned must still work).
+    assert sanitized["model"] == _JUDGE_SLUG
+    assert sanitized["usage"] == {"prompt_tokens": 7, "completion_tokens": 3}
+    assert sanitized["system_fingerprint"] == "fp_abc"
+    assert sanitized["_pathb_served"] == {"endpoint": _JUDGE_BASE, "model": _JUDGE_SLUG}
+    # The ORIGINAL raw is not mutated (still carries its reasoning for the record/jsonl path).
+    assert raw["choices"][0]["message"]["reasoning_content"] == "separate-field reasoning"
+    assert raw["choices"][0]["message"]["content"] == "<think>chain of thought</think>VERIFIED"
+
+
+def test_mirror_inline_think_preserves_co_spans_after_split():
+    # Splitting a LEADING <think> block must NOT corrupt Mirror's <co> spans that FOLLOW: the
+    # bare raw_text keeps the tags intact and mirror_adapter aligns offsets over THIS raw_text.
+    handler = _message_handler(
+        served_model=_MIRROR_SLUG,
+        message={
+            "content": "<think>grounding check</think>The drug <co>reduced HbA1c</co:doc_a> in trial."
+        },
+    )
+    transport = _make_transport(handler)
+    resp = transport.complete(
+        RoleRequest(
+            role="mirror",
+            model_slug=_MIRROR_SLUG,
+            prompt="ground it",
+            params={"documents": [{"doc_id": "doc_a", "text": "..."}], "citations": True},
+        )
+    )
+    assert resp.raw_text == "The drug <co>reduced HbA1c</co:doc_a> in trial."
+    assert resp.raw_text.startswith("The drug")
+    assert "<co>" in resp.raw_text
+    assert resp.reasoning == "grounding check"
+    assert resp.citations is None

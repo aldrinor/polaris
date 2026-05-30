@@ -23,6 +23,7 @@ from src.polaris_graph.roles.role_transport import (
     RoleResponse,
 )
 from src.polaris_graph.roles.sweep_integration import (
+    FOUR_ROLE_ROLE_CALLS_FILENAME,
     FourRoleClaim,
     build_evaluator_agrees_map,
     evaluator_agrees_from_verdict,
@@ -293,3 +294,40 @@ def test_evaluator_agrees_map_extra_kept_id_does_not_add_key() -> None:
         {"only-claim": "VERIFIED"}, kept_claim_ids={"only-claim", "ghost-id"}
     )
     assert agrees == {"only-claim": True}
+
+
+# --- I-meta-002-q1b (#939): verifier reasoning persists to four_role_role_calls.jsonl, SEPARATE
+# from the verdict (the verifiers' analogue of the generator's reasoning_trace.jsonl) ----------
+
+
+class _ReasoningMock(MockTransport):
+    """A MockTransport whose every role response carries a per-role `reasoning` string, so the
+    seam's persistence of reasoning-apart-from-verdict can be asserted end-to-end (no network)."""
+
+    def complete(self, request: RoleRequest) -> RoleResponse:
+        response = super().complete(request)
+        response.reasoning = f"{request.role} weighed the evidence"
+        return response
+
+
+def test_four_role_role_calls_jsonl_separates_reasoning_from_verdict(tmp_path) -> None:
+    transport = _ReasoningMock(sentinel_grounded=True, judge_verdict="VERIFIED")
+    _run(transport, [_claim()], run_dir=tmp_path)
+
+    log_path = tmp_path / FOUR_ROLE_ROLE_CALLS_FILENAME
+    assert log_path.exists(), "the per-role-call reasoning log must be written next to the run"
+    lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert lines, "at least one verifier call must be logged for the single claim"
+
+    roles_seen = set()
+    for line in lines:
+        entry = json.loads(line)
+        # reasoning is its OWN field — present and NEVER concatenated into the bare verdict.
+        assert entry["reasoning"] == f"{entry['role']} weighed the evidence"
+        assert entry["reasoning"] not in entry["raw_text"]
+        assert "<think>" not in entry["raw_text"]
+        assert entry["claim_id"] == "claim-1"
+        assert entry["served_model"] == _MODEL_SLUGS[entry["role"]]
+        roles_seen.add(entry["role"])
+    # All three verifier roles ran and were logged for the claim.
+    assert roles_seen == {"mirror", "sentinel", "judge"}

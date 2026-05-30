@@ -90,6 +90,9 @@ class RecordingTransport:
                 served_model=response.served_model,
                 raw_text=response.raw_text,
                 parsed=None,
+                # I-meta-002-q1b (#939): carry the separated reasoning so the seam can persist it
+                # to four_role_role_calls.jsonl apart from the verdict (None if the role had none).
+                reasoning=response.reasoning,
             )
         )
         return response

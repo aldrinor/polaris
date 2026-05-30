@@ -247,6 +247,9 @@ def run_four_role_evaluation(
     d8_rows: list[D8ClaimRow] = []
     all_records: list[RoleCallRecord] = []
     final_verdicts: dict[str, str] = {}
+    # I-meta-002-q1b (#939): per-role-call reasoning log, persisted to four_role_role_calls.jsonl
+    # for line-by-line review. `reasoning` is its OWN field — NEVER concatenated into the verdict.
+    role_call_log: list[dict] = []
 
     kg_store = VerifiedClaimGraphStore(run_dir=run_dir)
     try:
@@ -264,6 +267,20 @@ def run_four_role_evaluation(
             d8_rows.append(result.d8_row)
             all_records.extend(result.records)
             final_verdicts[claim.claim_id] = result.final_verdict
+            # I-meta-002-q1b (#939): record each verifier call for this claim with its reasoning
+            # held SEPARATE from raw_text (the bare verdict/body). This is the verifiers' analogue
+            # of the generator's reasoning_trace.jsonl.
+            for record in result.records:
+                role_call_log.append(
+                    {
+                        "claim_id": claim.claim_id,
+                        "role": record.role,
+                        "model_slug": record.model_slug,
+                        "served_model": record.served_model,
+                        "raw_text": record.raw_text,
+                        "reasoning": record.reasoning,
+                    }
+                )
 
             # Coverage credit ONLY on a VERIFIED final verdict, against the CANONICAL required
             # ids this claim covers — a dropped/UNSUPPORTED claim adds nothing (denominator is
@@ -297,6 +314,17 @@ def run_four_role_evaluation(
         kg_path = Path(kg_store.db_path)
     finally:
         kg_store.close()
+
+    # I-meta-002-q1b (#939): persist the per-role-call reasoning log next to the run — one JSON
+    # object per line, `reasoning` in its own field, NEVER mixed into the verdict. Reviewable
+    # line-by-line alongside the generator's reasoning_trace.jsonl.
+    (run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME).write_text(
+        "".join(
+            json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
+            for entry in role_call_log
+        ),
+        encoding="utf-8",
+    )
 
     # The D8 threshold is loaded from config (LAW VI, pure file read — no network).
     config = load_d8_policy_config(d8_config_path)
@@ -336,6 +364,11 @@ FourRoleBundleBuilder = Callable[..., object]
 # Filename of the per-claim audit map persisted next to the run (Codex M3 P2 #2). The SEAM
 # writes it; the builder does NO file I/O.
 FOUR_ROLE_CLAIM_AUDIT_FILENAME = "four_role_claim_audit.json"
+
+# I-meta-002-q1b (#939): filename of the per-role-call reasoning log (one JSON object per line)
+# `run_four_role_evaluation` writes next to the run — the verifiers' analogue of the generator's
+# reasoning_trace.jsonl, with `reasoning` held SEPARATE from the verdict for line-by-line review.
+FOUR_ROLE_ROLE_CALLS_FILENAME = "four_role_role_calls.jsonl"
 
 
 def run_four_role_seam(

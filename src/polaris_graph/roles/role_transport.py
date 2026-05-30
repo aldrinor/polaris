@@ -69,6 +69,10 @@ class RoleResponse:
     served_model: str | None = None
     usage: dict[str, Any] | None = None
     citations: list[CitationSpan] | None = None
+    # I-meta-002-q1b (#939): the model's verifier REASONING, separated from `raw_text` at the
+    # transport so the verdict parsers only ever see the bare verdict/body (no "soap") AND the
+    # reasoning is captured for line-by-line review. None when the role emitted no reasoning.
+    reasoning: str | None = None
 
 
 @dataclass
@@ -85,6 +89,10 @@ class RoleCallRecord:
     served_model: str | None
     raw_text: str
     parsed: Any
+    # I-meta-002-q1b (#939): the verifier reasoning carried alongside the served-identity record
+    # so `run_four_role_evaluation` can persist it to `four_role_role_calls.jsonl` SEPARATELY from
+    # the verdict. None when the role emitted no reasoning.
+    reasoning: str | None = None
 
 
 @runtime_checkable

@@ -276,12 +276,68 @@ def _build_body(
     return body
 
 
-def _parse_response(raw: dict) -> tuple[str, str | None, dict | None]:
-    """Extract `(raw_text, served_model, usage)` from an OpenAI-compatible response body.
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+def _separate_reasoning(content: object, model_repr: str) -> tuple[object, str | None]:
+    """Split verifier REASONING from the bare verdict/body (I-meta-002-q1b #939).
+
+    Returns `(bare, reasoning)`. A served reasoning-model can deliver its reasoning two ways:
+    a separate `reasoning_content` field (handled by the caller) OR inline as a LEADING
+    `<think>...</think>` block in `content`. Here we handle the inline case: only a LEADING
+    block is split (never a mid-body search/replace) so any Mirror `<co>...</co:doc_id>` spans
+    that FOLLOW are byte-preserved and the adapter's offset alignment over the returned bare
+    text stays internally consistent.
+
+    Fail loud (LAW II): a `<think>` opened with NO closing `</think>` is a malformed verifier
+    response — raise rather than feed a half-emitted reasoning block to a strict verdict parser.
+    """
+    if not (isinstance(content, str) and content.lstrip().startswith(_THINK_OPEN)):
+        return content, None
+    stripped = content.lstrip()
+    close_idx = stripped.find(_THINK_CLOSE)
+    if close_idx == -1:
+        raise RoleTransportError(
+            f"self-host response content opened a <think> block with no closing </think> "
+            f"(model={model_repr}); a half-emitted reasoning block is a malformed verifier "
+            f"response (fail-closed, never parsed as a verdict)."
+        )
+    reasoning = stripped[len(_THINK_OPEN):close_idx].strip() or None
+    bare = stripped[close_idx + len(_THINK_CLOSE):].strip()
+    return bare, reasoning
+
+
+def _sanitize_raw_for_capture(raw: dict, *, bare_text: object) -> dict:
+    """Return a copy of `raw` with verifier REASONING removed, for Path-B capture (I-meta-002-q1b
+    #939, Codex diff P1 no-leak). Drops any `reasoning_content` from the assistant message and
+    replaces its `content` with the separated bare verdict, so reasoning is never persisted
+    outside the dedicated `four_role_role_calls.jsonl`. Served-identity fields (`model`, `usage`,
+    `_pathb_served`, `system_fingerprint`, provider) are preserved so M4 served==pinned is
+    unaffected. The original `raw` is NOT mutated (shallow-copied along the touched path only).
+    """
+    sanitized = dict(raw)
+    choices = raw.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        first_choice = dict(choices[0])
+        message = first_choice.get("message")
+        if isinstance(message, dict):
+            clean_message = dict(message)
+            clean_message.pop("reasoning_content", None)
+            clean_message["content"] = bare_text
+            first_choice["message"] = clean_message
+        sanitized["choices"] = [first_choice, *choices[1:]]
+    return sanitized
+
+
+def _parse_response(raw: dict) -> tuple[object, str | None, dict | None, str | None]:
+    """Extract `(raw_text, served_model, usage, reasoning)` from an OpenAI-compatible body.
 
     Fail loud (LAW II): a missing `choices` array or an absent assistant `content` raises
     `RoleTransportError` rather than returning an empty string a fail-closed parser would
-    mis-read as a (deliberately) empty completion.
+    mis-read as a (deliberately) empty completion. Verifier REASONING is separated from the
+    bare verdict/body here (I-meta-002-q1b #939) so the verdict parsers only ever see the bare
+    answer (no "soap") and the reasoning is captured for line-by-line review.
     """
     choices = raw.get("choices")
     if not choices:
@@ -303,14 +359,27 @@ def _parse_response(raw: dict) -> tuple[str, str | None, dict | None]:
             f"self-host response choice carried no message object (model={raw.get('model')!r})"
         )
     content = message.get("content")
-    if content is None or (isinstance(content, str) and not content.strip()):
+    model_repr = f"{raw.get('model')!r}"
+    # Two served-reasoning shapes. Prefer the explicit separate `reasoning_content` field (vLLM
+    # reasoning-parser path: `content` is already the bare verdict). Otherwise split a leading
+    # inline `<think>` block out of `content`.
+    reasoning_field = message.get("reasoning_content")
+    if isinstance(reasoning_field, str) and reasoning_field.strip():
+        bare: object = content
+        reasoning: str | None = reasoning_field
+    else:
+        bare, reasoning = _separate_reasoning(content, model_repr)
+    # Post-split blank guard (Codex brief note): a verifier role MUST return a non-blank bare
+    # verdict/body across BOTH paths. A reasoning-only / think-only / empty-content response is a
+    # transport failure, never a deliberately-empty answer — fail loud identically either way.
+    if bare is None or (isinstance(bare, str) and not bare.strip()):
         raise RoleTransportError(
-            f"self-host response choice carried no/blank message content "
-            f"(model={raw.get('model')!r})"
+            f"self-host response choice carried no/blank message content after reasoning "
+            f"separation (model={model_repr})"
         )
     served_model = raw.get("model")
     usage = raw.get("usage")
-    return content, served_model, usage
+    return bare, served_model, usage, reasoning
 
 
 class OpenAICompatibleRoleTransport:
@@ -368,23 +437,32 @@ class OpenAICompatibleRoleTransport:
                     f"self-host {request.role!r} returned a non-JSON body at {url}: {exc}"
                 ) from exc
 
-            raw_text, served_model, usage = _parse_response(raw)
+            # I-meta-002-q1b (#939): reasoning is separated from the bare verdict/body HERE so
+            # the verdict parsers only ever see the bare answer (no "soap").
+            raw_text, served_model, usage, reasoning = _parse_response(raw)
 
             # Augment the captured raw with the served block BEFORE capture so M4's
             # served==pinned check can read the endpoint a self-host role was served from
             # (no fabricated provider_name for vLLM).
             raw["_pathb_served"] = {"endpoint": base_url, "model": served_model}
+            # I-meta-002-q1b (#939) no-leak (Codex diff P1): Path-B capture must NEVER carry
+            # verifier reasoning. Sanitize the response for capture — drop `reasoning_content`
+            # and replace the assistant content with the separated BARE verdict — so reasoning
+            # lives ONLY in the RoleCallRecord + four_role_role_calls.jsonl, never in the capture
+            # channel, regardless of what build_response_metadata happens to persist today.
             _pathb_capture.capture_llm_call(
                 role=request.role,
                 messages=normalized_messages,
-                raw_response=raw,
+                raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
             )
 
         # Self-host citation invariant (iter-2): return raw_text AS-IS (<co> tags intact),
-        # citations=None — mirror_adapter owns the parse/strip/offset alignment.
+        # citations=None — mirror_adapter owns the parse/strip/offset alignment. `reasoning`
+        # rides alongside (never concatenated into raw_text) for separate persistence.
         return RoleResponse(
             raw_text=raw_text,
             served_model=served_model,
             usage=usage,
             citations=None,
+            reasoning=reasoning,
         )
