@@ -1,0 +1,572 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7792-886b-7c30-aa68-771ac1195bec
+--------
+user
+RULE NOW — emit the YAML verdict block FIRST. Read the patch at
+`.codex/I-meta-002-q1d-retrieval-foundation/codex_diff.patch` (4 files, +142/-15). Do NOT explore beyond it.
+
+HARD ITERATION CAP: 5. Iter 1 of 5. Front-load all findings; reserve P0/P1 for real execution risks.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]
+convergence_call: accept_remaining
+```
+
+# Codex diff-gate (iter 1) — PR1 retrieval foundation (#943 cap + #951 rerank/reservation). Verify the diff implements the brief-gate iter-1 required-changes. NO SPEND.
+
+The brief-gate (`.codex/I-meta-002-q1d-retrieval-foundation/brief.md`) returned REQUEST_CHANGES with 5
+required-changes; this diff implements them. Verify each was honored AND no regression/leak introduced.
+
+## Required-changes to verify in the diff
+1. **Seed protection (P0):** rerank applies ONLY to non-seeds; seeds (`source == "primary_trial_doi"`,
+   empty title/snippet) are split out and PREPENDED after ranking — never ranked/dropped.
+   `_rerank_and_reserve` in `live_retriever.py`: `seeds = [c ... source == "primary_trial_doi"]`;
+   `non_seeds = [...]`; returns `seeds + selected_non_seeds`. Confirm seeds can never be dropped.
+2. **Lexical-first, no model load (§8.4):** scoring is `_lexical_relevance_score` via
+   `_rerank_content_tokens` (regex + stopword set) — NO embedder, NO sentence-transformers/torch import,
+   NO loader/getter. Confirm nothing in the ranking path can trigger a model load.
+3. **Reservation algorithm:** group non-seeds by `query_origin`; sort each group by `(-score, index)`;
+   Phase-1 reserve ≤1 per origin (origins ranked by best candidate score) bounded by capacity; Phase-2
+   fill remaining by global `(-score, index)`. Confirm the long full-paragraph/anchor query is not
+   starved AND no origin monopolizes.
+4. **query_origin buckets:** assigned for anchor+amplified (`query_origin=q` on serper/s2 appends),
+   domain-backend (`"domain_backend"` fallback), seeds (`"primary_trial_doi_seed"`), with `"_unlabeled"`
+   fallback in the grouper. `SearchCandidate` gained `query_origin: str = ""` (additive, backward-compat).
+5. **Cap raise + comment fix:** `run_honest_sweep_r3.py` defaults `8/8/20 → 12/12/40` (env-overridable),
+   comment fixed from "per query" to "TOTAL after dedup". Cost still bounded by `PG_MAX_COST_PER_RUN`.
+
+## Evidence (verified by Claude main-thread)
+- New tests `tests/polaris_graph/test_live_retriever_rerank.py` (7) PASS: seed retained despite empty
+  text + higher-scoring non-seeds; model loader NOT invoked (blocks sentence_transformers/torch import,
+  still runs); relevance prefers on-topic; reservation no-monopoly (all 3 origins represented at cap=3);
+  fail-open → arrival order with seeds preserved; cap respected + edge cases; lexical scorer edges.
+- Regression PASS: test_prefetch_offtopic_filter (5), test_domain_backends_r6_gap2 (10),
+  test_m_int_5_domain_router_integration (12), test_live_retriever_env_knobs (24),
+  test_post_fetch_loop_timeout (5). SearchCandidate field is additive (positional construction unchanged).
+- Diff +142/-15 net 127 (≤200). strict_verify / provenance_generator / D8 / evidence_selector tier logic
+  / runtime lock UNTOUCHED — only WHICH candidates get fetched changes, not how they're verified.
+
+## Rule on
+1. Can a primary-trial DOI seed EVER be dropped by the rerank? (Must be NO.)
+2. Any path where ranking triggers a model load / network call? (Must be NO.)
+3. Does the reservation ever return MORE than `fetch_cap` non-seeds, or starve the anchor query?
+4. Selected non-seeds are emitted in original arrival order (stable corpus) — any ordering bug vs the
+   `selected_idx` set?
+5. Fail-open: does the `except` truly preserve the prior behavior `candidates[:fetch_cap + n_seed]`?
+
+APPROVE iff the 5 required-changes are correctly implemented, seeds are unconditionally preserved, no
+model-load/network on the ranking path, strict_verify/D8 untouched, and it's test-proven.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-meta-002-q1d-retrieval-foundation/codex_diff.patch' in C:\POLARIS
+ succeeded in 753ms:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index e43faa1f..2e3af1fd 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1581,16 +1581,17 @@ async def run_one_query(
+ 
+         # Live retrieval
+         # Env-controllable retrieval width for full-scale runs:
+-        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
+-        #     queries fanned to Serper
+-        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
+-        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
+-        #     & fetch per query (after pre-filter)
+-        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
+-        # → ~400 pre-filter candidates, 200 classified sources per query.
+-        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
+-        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
+-        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
++        #   PG_SWEEP_MAX_SERPER  (default 12)  — results per query from Serper
++        #   PG_SWEEP_MAX_S2      (default 12)  — same from Semantic Scholar
++        #   PG_SWEEP_FETCH_CAP   (default 40)  — max URLs to classify & fetch
++        #     in TOTAL after dedup (NOT per query — I-meta-002-q1d #943 doc
++        #     fix). Bounded by PG_MAX_COST_PER_RUN.
++        # I-meta-002-q1d (#943): raised 8/8/20 → 12/12/40 to close the
++        # evidence-depth gap vs frontier DR; the fetch-time relevance rerank
++        # (#951) keeps the most relevant candidates within the total cap.
++        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
++        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
++        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
+ 
+         # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+         # the scope template for this domain and — if the template has
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index a43c2430..0b5e4140 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -1156,6 +1156,113 @@ def _build_provenance_quote(
+     return "\n\n[...]\n\n".join(chunks)
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# Fetch-time relevance rerank + per-sub-query reservation (I-meta-002-q1d #951/#943)
++# ─────────────────────────────────────────────────────────────────────────────
++
++# Pure-lexical, no-model relevance: stopword-filtered content-word overlap of a
++# candidate's (title+snippet) against the research question. NO embedder / no model
++# load (§8.4) — sentence-transformers/CUDA are never touched on the ranking path.
++_RERANK_STOPWORDS = frozenset({
++    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "of", "in",
++    "on", "at", "to", "for", "with", "by", "from", "as", "that", "this", "these",
++    "those", "it", "its", "be", "been", "what", "which", "who", "how", "why",
++    "when", "where", "we", "our", "their", "between", "into", "about", "than",
++})
++
++
++def _rerank_content_tokens(text: str) -> set[str]:
++    """Lowercase content-word tokens (3+ chars, stopword-filtered). Pure lexical."""
++    toks = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", (text or "").lower())
++    return {t for t in toks if t not in _RERANK_STOPWORDS}
++
++
++def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[str]) -> float:
++    """Overlap fraction of the candidate's (title+snippet) content tokens with the
++    question tokens. 0.0 when either side is empty. Deterministic, no network/model."""
++    if not question_tokens:
++        return 0.0
++    cand_tokens = _rerank_content_tokens(getattr(candidate, "snippet_text", "") or "")
++    if not cand_tokens:
++        return 0.0
++    return len(cand_tokens & question_tokens) / float(len(question_tokens))
++
++
++def _rerank_and_reserve(
++    candidates: list["SearchCandidate"],
++    *,
++    research_question: str,
++    fetch_cap: int,
++    n_seed_injected: int,
++) -> list["SearchCandidate"]:
++    """Replace arrival-order truncation with a no-spend, no-model-load relevance rerank
++    that reserves at least one slot per sub-query (I-meta-002-q1d #951, Codex brief-gate
++    iter-1 required-changes).
++
++    Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
++    relevance scoring would drop them. They are SPLIT OUT by `source == "primary_trial_doi"`
++    and prepended AFTER ranking — never ranked, never dropped, exactly additive as before.
++
++    Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
++    take at most ONE reserved item per origin while capacity remains (origins with the best
++    candidate score reserved first when origins exceed cap); then fill the remaining slots
++    by global (-score, index). The long full-paragraph/anchor query is not starved.
++
++    Fail-open (never raise): on any error fall back to the previous arrival-order behavior
++    `candidates[:fetch_cap + n_seed_injected]`.
++    """
++    try:
++        seeds = [c for c in candidates if getattr(c, "source", "") == "primary_trial_doi"]
++        non_seeds = [c for c in candidates if getattr(c, "source", "") != "primary_trial_doi"]
++        if fetch_cap <= 0 or not non_seeds:
++            return seeds + non_seeds[:max(fetch_cap, 0)]
++
++        question_tokens = _rerank_content_tokens(research_question)
++        # (score, original_index, candidate) so ties + zero-overlap fall back to arrival order.
++        scored = [
++            (_lexical_relevance_score(c, question_tokens), i, c)
++            for i, c in enumerate(non_seeds)
++        ]
++        # Group by origin, each group sorted by (-score, index).
++        groups: dict[str, list[tuple[float, int, "SearchCandidate"]]] = {}
++        for entry in scored:
++            origin = getattr(entry[2], "query_origin", "") or "_unlabeled"
++            groups.setdefault(origin, []).append(entry)
++        for entries in groups.values():
++            entries.sort(key=lambda e: (-e[0], e[1]))
++
++        selected_idx: set[int] = set()
++        chosen: list[tuple[float, int, "SearchCandidate"]] = []
++        # Phase 1 — reserve >=1 slot per origin (origins ranked by their best candidate score),
++        # bounded by capacity.
++        origins_by_best = sorted(
++            groups.items(), key=lambda kv: (-kv[1][0][0], kv[1][0][1])
++        )
++        for _origin, entries in origins_by_best:
++            if len(chosen) >= fetch_cap:
++                break
++            top = entries[0]
++            chosen.append(top)
++            selected_idx.add(top[1])
++        # Phase 2 — fill remaining slots by global (-score, index).
++        if len(chosen) < fetch_cap:
++            remainder = sorted(
++                (e for e in scored if e[1] not in selected_idx),
++                key=lambda e: (-e[0], e[1]),
++            )
++            for entry in remainder:
++                if len(chosen) >= fetch_cap:
++                    break
++                chosen.append(entry)
++                selected_idx.add(entry[1])
++        # Emit non-seeds in original arrival order among the selected set (stable corpus).
++        selected_non_seeds = [c for i, c in enumerate(non_seeds) if i in selected_idx]
++        return seeds + selected_non_seeds
++    except Exception as exc:  # fail-open: never break retrieval on a ranking error
++        logger.warning("[live_retriever] rerank failed (%s) — arrival-order fallback", exc)
++        return candidates[:fetch_cap + n_seed_injected]
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # Main entry
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -1230,6 +1337,7 @@ def run_live_retrieval(
+             seen_urls.add(_surl)
+             candidates.append(SearchCandidate(
+                 url=_surl, title="", snippet="", source="primary_trial_doi",
++                query_origin="primary_trial_doi_seed",
+             ))
+             _n_seed_injected += 1
+     if _n_seed_injected:
+@@ -1252,6 +1360,7 @@ def run_live_retrieval(
+                 title=hit.get("title", ""),
+                 snippet=hit.get("snippet", ""),
+                 source="serper",
++                query_origin=q,
+             ))
+ 
+         logger.info("[live_retriever] S2 q=%r", q[:80])
+@@ -1268,6 +1377,7 @@ def run_live_retrieval(
+                 snippet=hit.get("snippet", ""),
+                 source="s2",
+                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
++                query_origin=q,
+             ))
+ 
+     # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+@@ -1288,6 +1398,10 @@ def run_live_retrieval(
+                 if not url or url in seen_urls:
+                     continue
+                 seen_urls.add(url)
++                # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
++                # bucket so the per-sub-query rerank reservation handles them consistently.
++                if not getattr(cand, "query_origin", ""):
++                    cand.query_origin = "domain_backend"
+                 candidates.append(cand)
+             if domain_result.backends_used:
+                 notes.append(
+@@ -1317,11 +1431,19 @@ def run_live_retrieval(
+         )
+     kept_by_offtopic = len(candidates)
+ 
+-    # ── Step 4: cap, fetch, enrich, classify ────────────────────────
+-    # I-bug-776 (#817) layer-4: bump the cap by the seed count so the injected
+-    # primary-trial DOIs are additive (they occupy a reserved lane at the front
+-    # and do not displace search/guideline candidates).
+-    candidates = candidates[:fetch_cap + _n_seed_injected]
++    # ── Step 4: fetch-time relevance rerank + per-sub-query reservation, then cap ──
++    # I-meta-002-q1d (#951, #943): replace arrival-order truncation with a no-spend,
++    # no-model-load lexical relevance rerank that reserves >=1 slot per sub-query so a
++    # long full-paragraph query cannot monopolize the cap (the breadth of amplified
++    # queries was previously illusory). I-bug-776 (#817) layer-4 seed lane preserved:
++    # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
++    # ranking so relevance scoring can never drop them — they remain additive.
++    candidates = _rerank_and_reserve(
++        candidates,
++        research_question=research_question,
++        fetch_cap=fetch_cap,
++        n_seed_injected=_n_seed_injected,
++    )
+ 
+     classified_sources: list[CorpusSource] = []
+     evidence_rows: list[dict[str, Any]] = []
+diff --git a/src/polaris_graph/retrieval/prefetch_offtopic_filter.py b/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
+index 2460375c..8b19ff8e 100644
+--- a/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
++++ b/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
+@@ -51,6 +51,10 @@ class SearchCandidate:
+     snippet: str = ""
+     source: str = ""            # "serper" / "openalex" / "s2" / "exa"
+     metadata: dict[str, Any] | None = None
++    # I-meta-002-q1d (#951): the query that surfaced this candidate, so the fetch-time
++    # rerank can reserve at least one slot per sub-query (no single query monopolizes the
++    # cap). Empty for legacy callers / a stable fallback bucket.
++    query_origin: str = ""
+ 
+     @property
+     def snippet_text(self) -> str:
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content .codex/I-meta-002-q1d-retrieval-foundation/codex_diff.patch | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 830ms:
+   1: diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+   2: index e43faa1f..2e3af1fd 100644
+   3: --- a/scripts/run_honest_sweep_r3.py
+   4: +++ b/scripts/run_honest_sweep_r3.py
+   5: @@ -1581,16 +1581,17 @@ async def run_one_query(
+   6:  
+   7:          # Live retrieval
+   8:          # Env-controllable retrieval width for full-scale runs:
+   9: -        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
+  10: -        #     queries fanned to Serper
+  11: -        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
+  12: -        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
+  13: -        #     & fetch per query (after pre-filter)
+  14: -        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
+  15: -        # → ~400 pre-filter candidates, 200 classified sources per query.
+  16: -        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
+  17: -        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
+  18: -        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
+  19: +        #   PG_SWEEP_MAX_SERPER  (default 12)  — results per query from Serper
+  20: +        #   PG_SWEEP_MAX_S2      (default 12)  — same from Semantic Scholar
+  21: +        #   PG_SWEEP_FETCH_CAP   (default 40)  — max URLs to classify & fetch
+  22: +        #     in TOTAL after dedup (NOT per query — I-meta-002-q1d #943 doc
+  23: +        #     fix). Bounded by PG_MAX_COST_PER_RUN.
+  24: +        # I-meta-002-q1d (#943): raised 8/8/20 → 12/12/40 to close the
+  25: +        # evidence-depth gap vs frontier DR; the fetch-time relevance rerank
+  26: +        # (#951) keeps the most relevant candidates within the total cap.
+  27: +        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
+  28: +        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
+  29: +        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
+  30:  
+  31:          # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+  32:          # the scope template for this domain and — if the template has
+  33: diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+  34: index a43c2430..0b5e4140 100644
+  35: --- a/src/polaris_graph/retrieval/live_retriever.py
+  36: +++ b/src/polaris_graph/retrieval/live_retriever.py
+  37: @@ -1156,6 +1156,113 @@ def _build_provenance_quote(
+  38:      return "\n\n[...]\n\n".join(chunks)
+  39:  
+  40:  
+  41: +# ─────────────────────────────────────────────────────────────────────────────
+  42: +# Fetch-time relevance rerank + per-sub-query reservation (I-meta-002-q1d #951/#943)
+  43: +# ─────────────────────────────────────────────────────────────────────────────
+  44: +
+  45: +# Pure-lexical, no-model relevance: stopword-filtered content-word overlap of a
+  46: +# candidate's (title+snippet) against the research question. NO embedder / no model
+  47: +# load (§8.4) — sentence-transformers/CUDA are never touched on the ranking path.
+  48: +_RERANK_STOPWORDS = frozenset({
+  49: +    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "of", "in",
+  50: +    "on", "at", "to", "for", "with", "by", "from", "as", "that", "this", "these",
+  51: +    "those", "it", "its", "be", "been", "what", "which", "who", "how", "why",
+  52: +    "when", "where", "we", "our", "their", "between", "into", "about", "than",
+  53: +})
+  54: +
+  55: +
+  56: +def _rerank_content_tokens(text: str) -> set[str]:
+  57: +    """Lowercase content-word tokens (3+ chars, stopword-filtered). Pure lexical."""
+  58: +    toks = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", (text or "").lower())
+  59: +    return {t for t in toks if t not in _RERANK_STOPWORDS}
+  60: +
+  61: +
+  62: +def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[str]) -> float:
+  63: +    """Overlap fraction of the candidate's (title+snippet) content tokens with the
+  64: +    question tokens. 0.0 when either side is empty. Deterministic, no network/model."""
+  65: +    if not question_tokens:
+  66: +        return 0.0
+  67: +    cand_tokens = _rerank_content_tokens(getattr(candidate, "snippet_text", "") or "")
+  68: +    if not cand_tokens:
+  69: +        return 0.0
+  70: +    return len(cand_tokens & question_tokens) / float(len(question_tokens))
+  71: +
+  72: +
+  73: +def _rerank_and_reserve(
+  74: +    candidates: list["SearchCandidate"],
+  75: +    *,
+  76: +    research_question: str,
+  77: +    fetch_cap: int,
+  78: +    n_seed_injected: int,
+  79: +) -> list["SearchCandidate"]:
+  80: +    """Replace arrival-order truncation with a no-spend, no-model-load relevance rerank
+  81: +    that reserves at least one slot per sub-query (I-meta-002-q1d #951, Codex brief-gate
+  82: +    iter-1 required-changes).
+  83: +
+  84: +    Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
+  85: +    relevance scoring would drop them. They are SPLIT OUT by `source == "primary_trial_doi"`
+  86: +    and prepended AFTER ranking — never ranked, never dropped, exactly additive as before.
+  87: +
+  88: +    Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
+  89: +    take at most ONE reserved item per origin while capacity remains (origins with the best
+  90: +    candidate score reserved first when origins exceed cap); then fill the remaining slots
+  91: +    by global (-score, index). The long full-paragraph/anchor query is not starved.
+  92: +
+  93: +    Fail-open (never raise): on any error fall back to the previous arrival-order behavior
+  94: +    `candidates[:fetch_cap + n_seed_injected]`.
+  95: +    """
+  96: +    try:
+  97: +        seeds = [c for c in candidates if getattr(c, "source", "") == "primary_trial_doi"]
+  98: +        non_seeds = [c for c in candidates if getattr(c, "source", "") != "primary_trial_doi"]
+  99: +        if fetch_cap <= 0 or not non_seeds:
+ 100: +            return seeds + non_seeds[:max(fetch_cap, 0)]
+ 101: +
+ 102: +        question_tokens = _rerank_content_tokens(research_question)
+ 103: +        # (score, original_index, candidate) so ties + zero-overlap fall back to arrival order.
+ 104: +        scored = [
+ 105: +            (_lexical_relevance_score(c, question_tokens), i, c)
+ 106: +            for i, c in enumerate(non_seeds)
+ 107: +        ]
+ 108: +        # Group by origin, each group sorted by (-score, index).
+ 109: +        groups: dict[str, list[tuple[float, int, "SearchCandidate"]]] = {}
+ 110: +        for entry in scored:
+ 111: +            origin = getattr(entry[2], "query_origin", "") or "_unlabeled"
+ 112: +            groups.setdefault(origin, []).append(entry)
+ 113: +        for entries in groups.values():
+ 114: +            entries.sort(key=lambda e: (-e[0], e[1]))
+ 115: +
+ 116: +        selected_idx: set[int] = set()
+ 117: +        chosen: list[tuple[float, int, "SearchCandidate"]] = []
+ 118: +        # Phase 1 — reserve >=1 slot per origin (origins ranked by their best candidate score),
+ 119: +        # bounded by capacity.
+ 120: +        origins_by_best = sorted(
+ 121: +            groups.items(), key=lambda kv: (-kv[1][0][0], kv[1][0][1])
+ 122: +        )
+ 123: +        for _origin, entries in origins_by_best:
+ 124: +            if len(chosen) >= fetch_cap:
+ 125: +                break
+ 126: +            top = entries[0]
+ 127: +            chosen.append(top)
+ 128: +            selected_idx.add(top[1])
+ 129: +        # Phase 2 — fill remaining slots by global (-score, index).
+ 130: +        if len(chosen) < fetch_cap:
+ 131: +            remainder = sorted(
+ 132: +                (e for e in scored if e[1] not in selected_idx),
+ 133: +                key=lambda e: (-e[0], e[1]),
+ 134: +            )
+ 135: +            for entry in remainder:
+ 136: +                if len(chosen) >= fetch_cap:
+ 137: +                    break
+ 138: +                chosen.append(entry)
+ 139: +                selected_idx.add(entry[1])
+ 140: +        # Emit non-seeds in original arrival order among the selected set (stable corpus).
+ 141: +        selected_non_seeds = [c for i, c in enumerate(non_seeds) if i in selected_idx]
+ 142: +        return seeds + selected_non_seeds
+ 143: +    except Exception as exc:  # fail-open: never break retrieval on a ranking error
+ 144: +        logger.warning("[live_retriever] rerank failed (%s) — arrival-order fallback", exc)
+ 145: +        return candidates[:fetch_cap + n_seed_injected]
+ 146: +
+ 147: +
+ 148:  # ─────────────────────────────────────────────────────────────────────────────
+ 149:  # Main entry
+ 150:  # ─────────────────────────────────────────────────────────────────────────────
+ 151: @@ -1230,6 +1337,7 @@ def run_live_retrieval(
+ 152:              seen_urls.add(_surl)
+ 153:              candidates.append(SearchCandidate(
+ 154:                  url=_surl, title="", snippet="", source="primary_trial_doi",
+ 155: +                query_origin="primary_trial_doi_seed",
+ 156:              ))
+ 157:              _n_seed_injected += 1
+ 158:      if _n_seed_injected:
+ 159: @@ -1252,6 +1360,7 @@ def run_live_retrieval(
+ 160:                  title=hit.get("title", ""),
+ 161:                  snippet=hit.get("snippet", ""),
+ 162:                  source="serper",
+ 163: +                query_origin=q,
+ 164:              ))
+ 165:  
+ 166:          logger.info("[live_retriever] S2 q=%r", q[:80])
+ 167: @@ -1268,6 +1377,7 @@ def run_live_retrieval(
+ 168:                  snippet=hit.get("snippet", ""),
+ 169:                  source="s2",
+ 170:                  metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+ 171: +                query_origin=q,
+ 172:              ))
+ 173:  
+ 174:      # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+ 175: @@ -1288,6 +1398,10 @@ def run_live_retrieval(
+ 176:                  if not url or url in seen_urls:
+ 177:                      continue
+ 178:                  seen_urls.add(url)
+ 179: +                # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
+ 180: +                # bucket so the per-sub-query rerank reservation handles them consistently.
+ 181: +                if not getattr(cand, "query_origin", ""):
+ 182: +                    cand.query_origin = "domain_backend"
+ 183:                  candidates.append(cand)
+ 184:              if domain_result.backends_used:
+ 185:                  notes.append(
+ 186: @@ -1317,11 +1431,19 @@ def run_live_retrieval(
+ 187:          )
+ 188:      kept_by_offtopic = len(candidates)
+ 189:  
+ 190: -    # ── Step 4: cap, fetch, enrich, classify ────────────────────────
+ 191: -    # I-bug-776 (#817) layer-4: bump the cap by the seed count so the injected
+ 192: -    # primary-trial DOIs are additive (they occupy a reserved lane at the front
+ 193: -    # and do not displace search/guideline candidates).
+ 194: -    candidates = candidates[:fetch_cap + _n_seed_injected]
+ 195: +    # ── Step 4: fetch-time relevance rerank + per-sub-query reservation, then cap ──
+ 196: +    # I-meta-002-q1d (#951, #943): replace arrival-order truncation with a no-spend,
+ 197: +    # no-model-load lexical relevance rerank that reserves >=1 slot per sub-query so a
+ 198: +    # long full-paragraph query cannot monopolize the cap (the breadth of amplified
+ 199: +    # queries was previously illusory). I-bug-776 (#817) layer-4 seed lane preserved:
+ 200: +    # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
+ 201: +    # ranking so relevance scoring can never drop them — they remain additive.
+ 202: +    candidates = _rerank_and_reserve(
+ 203: +        candidates,
+ 204: +        research_question=research_question,
+ 205: +        fetch_cap=fetch_cap,
+ 206: +        n_seed_injected=_n_seed_injected,
+ 207: +    )
+ 208:  
+ 209:      classified_sources: list[CorpusSource] = []
+ 210:      evidence_rows: list[dict[str, Any]] = []
+ 211: diff --git a/src/polaris_graph/retrieval/prefetch_offtopic_filter.py b/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
+ 212: index 2460375c..8b19ff8e 100644
+ 213: --- a/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
+ 214: +++ b/src/polaris_graph/retrieval/prefetch_offtopic_filter.py
+ 215: @@ -51,6 +51,10 @@ class SearchCandidate:
+ 216:      snippet: str = ""
+ 217:      source: str = ""            # "serper" / "openalex" / "s2" / "exa"
+ 218:      metadata: dict[str, Any] | None = None
+ 219: +    # I-meta-002-q1d (#951): the query that surfaced this candidate, so the fetch-time
+ 220: +    # rerank can reserve at least one slot per sub-query (no single query monopolizes the
+ 221: +    # cap). Empty for legacy callers / a stable fallback bucket.
+ 222: +    query_origin: str = ""
+ 223:  
+ 224:      @property
+ 225:      def snippet_text(self) -> str:
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+No blocking findings in the patch.
+
+Verified against the diff only:
+- Primary-trial DOI seeds are split out by `source == "primary_trial_doi"` and returned as `seeds + selected_non_seeds`; they are not scored, ranked, or part of the cap.
+- Ranking is purely lexical: regex tokenization, stopword filtering, and overlap scoring. No embedder, torch, sentence-transformers, loader, or network path is introduced.
+- Reservation caps non-seeds at `fetch_cap`: phase 1 takes at most one per `query_origin`, phase 2 fills by global score, and final emission uses `selected_idx` against original non-seed arrival order.
+- Fail-open returns `candidates[:fetch_cap + n_seed_injected]`, matching the previous cap behavior.
+- `query_origin` is populated for Serper/S2, domain backend fallback, and seed construction; `_unlabeled` handles legacy candidates.
+- Sweep defaults are raised to `12/12/40`, env overrides remain, and the comment now correctly says total after dedup.
+- The diff only touches retrieval/sweep/candidate plumbing shown here; strict verification/D8/provenance/tier logic are not modified in this patch.
+tokens used
+22,702
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+No blocking findings in the patch.
+
+Verified against the diff only:
+- Primary-trial DOI seeds are split out by `source == "primary_trial_doi"` and returned as `seeds + selected_non_seeds`; they are not scored, ranked, or part of the cap.
+- Ranking is purely lexical: regex tokenization, stopword filtering, and overlap scoring. No embedder, torch, sentence-transformers, loader, or network path is introduced.
+- Reservation caps non-seeds at `fetch_cap`: phase 1 takes at most one per `query_origin`, phase 2 fills by global score, and final emission uses `selected_idx` against original non-seed arrival order.
+- Fail-open returns `candidates[:fetch_cap + n_seed_injected]`, matching the previous cap behavior.
+- `query_origin` is populated for Serper/S2, domain backend fallback, and seed construction; `_unlabeled` handles legacy candidates.
+- Sweep defaults are raised to `12/12/40`, env overrides remain, and the comment now correctly says total after dedup.
+- The diff only touches retrieval/sweep/candidate plumbing shown here; strict verification/D8/provenance/tier logic are not modified in this patch.

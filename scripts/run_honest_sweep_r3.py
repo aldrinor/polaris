@@ -1581,16 +1581,17 @@ async def run_one_query(
 
         # Live retrieval
         # Env-controllable retrieval width for full-scale runs:
-        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
-        #     queries fanned to Serper
-        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
-        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
-        #     & fetch per query (after pre-filter)
-        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
-        # → ~400 pre-filter candidates, 200 classified sources per query.
-        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
-        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
-        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
+        #   PG_SWEEP_MAX_SERPER  (default 12)  — results per query from Serper
+        #   PG_SWEEP_MAX_S2      (default 12)  — same from Semantic Scholar
+        #   PG_SWEEP_FETCH_CAP   (default 40)  — max URLs to classify & fetch
+        #     in TOTAL after dedup (NOT per query — I-meta-002-q1d #943 doc
+        #     fix). Bounded by PG_MAX_COST_PER_RUN.
+        # I-meta-002-q1d (#943): raised 8/8/20 → 12/12/40 to close the
+        # evidence-depth gap vs frontier DR; the fetch-time relevance rerank
+        # (#951) keeps the most relevant candidates within the total cap.
+        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
+        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
+        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
         # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
         # the scope template for this domain and — if the template has
