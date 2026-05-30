@@ -3034,9 +3034,18 @@ async def run_one_query(
                 f"(tier {b['tier']})\n"
             )
 
+        # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
+        # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
+        # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
+        _key_findings = ""
+        try:
+            from src.polaris_graph.generator.key_findings import build_key_findings
+            _key_findings = build_key_findings(getattr(multi, "sections", []))
+        except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
+            _log(f"[key-findings] skipped (fail-open): {_exc}")
         final_report = (
             f"# Research report: {q['question']}\n\n"
-            + sections_concat + methods + biblio_section
+            + _key_findings + sections_concat + methods + biblio_section
         )
         (run_dir / "report.md").write_text(final_report, encoding="utf-8")
         (run_dir / "bibliography.json").write_text(
