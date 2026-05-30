@@ -1,0 +1,1194 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e79eb-1fae-7b12-889b-7d89649b3fd6
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (emit FIRST, then ≤6 sentences)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# BRIEF gate — #955 (S2): within-tier recency tiebreaker in evidence_selector (no-spend)
+
+Reviewing ACCEPTANCE CRITERIA + DESIGN (not a diff). This is a LOWER-PRIORITY S2 refinement; keep the fix
+minimal and conservative. The bar: recency must be a SOFT tiebreaker that NEVER hard-drops a row and NEVER
+displaces a clearly-more-relevant row. Be adversarial about any way recency could demote a more-relevant or
+higher-tier source.
+
+## The finding (issue #955, Codex-area CONFIRMED #950)
+`src/polaris_graph/retrieval/live_retriever.py` fetches Semantic Scholar `year` (L170 fields, L215 hit dict,
+L1508 `metadata={"year": ...}`) but the selector never uses it. `evidence_selector.select_evidence_for_generation`
+ranks within a tier purely by `(-relevance_score, original_index)` (L756 main path; L566-574 short-pool path;
+L1091 final deterministic sort). So a 2014 review and a 2025 pivotal RCT in the same tier compete only on
+tier + lexical relevance. The sweep's FreshnessDetector (run_honest_sweep_r3.py:842-856) is a v1 stub
+returning UNCHANGED and is a SEPARATE Phase-F Crossref *network* probe — OUT OF SCOPE here (the fix is a
+no-network selector tiebreaker, not a freshness probe).
+
+## Proposed design (no network; reads year already on the row)
+1. `_row_year(row) -> int | None`: reads `row.get("year")`, else `row.get("metadata", {}).get("year")`;
+   coerces to int; returns None if absent / non-numeric / outside a sane range (e.g. 1900..2100). No network.
+2. Recency as a within-tier-band SOFT tiebreaker. Relevance stays the PRIMARY key. To make recency actually
+   bite for near-ties (the 2014-vs-2025 case) without overriding real relevance gaps, bucket the relevance
+   score into bands of width `epsilon`: rows in the SAME tier AND SAME relevance band order by higher year
+   first; ties below that fall back to original_index (unchanged determinism).
+   - Sort key becomes `(tier_priority, relevance_band_desc, year_desc, original_index)` where
+     `relevance_band = floor(score / epsilon)` (epsilon>0) or exact score (epsilon==0 → pure exact-tie only).
+   - Missing year (`None`) sorts AFTER any dated row within the same band (treated as year = -inf), so a
+     dated row wins a same-band tie but recency NEVER hard-drops the undated row (it stays selectable, just
+     ordered lower within its band).
+3. Applied consistently to BOTH selection paths: main within-tier sort (L756), the short-pool ordered
+   selection (L566-574), and the final deterministic sort (L1091). The M-42e/M-51/M-42c/M-42d floors are
+   UNCHANGED — recency only orders WITHIN what a tier/floor already admits; it never evicts a reserved
+   primary/mechanism/HC row.
+4. Kill-switch `PG_SELECT_RECENCY_TIEBREAK` (default ON; OFF → byte-identical prior ordering) +
+   `PG_SELECT_RECENCY_EPSILON` (relevance band width). **Open question for you to rule on: the default
+   epsilon.** Options: (a) 0.0 = pure exact-score-tie tiebreaker (safest, rarely fires, may not fix the
+   2014-vs-2025 case); (b) a small band e.g. 0.05 (recency breaks near-ties, still can't override a real
+   relevance gap). I lean (b) with a conservative value; rule on the exact default + whether banding is
+   acceptable given "soft floor, never hard-drop."
+5. Telemetry: a `notes` entry when recency reordered ≥1 row, for sweep audits.
+
+## The real risks to rule on
+1. Can recency EVER hard-drop a row or push a row out of the selected set? (Claim: no — it only reorders
+   within a tier/band; truncation still happens by tier quota which is unchanged. But verify the final-sort
+   reorder can't change WHICH rows survive a `[:quota]` slice. NOTE: in the main path, within-tier picks
+   happen via quota slices BEFORE the final sort — so a within-tier sort change CAN change which rows fill a
+   quota. Is that acceptable as "soft floor"? It reorders by recency only within the same relevance band, so
+   a more-relevant row is never dropped for an older one — but a same-band older row could lose its slot to a
+   same-band newer row. Rule on whether that is within "soft tiebreaker, never hard-drop the MORE-relevant".)
+2. Does banding risk demoting a higher-relevance row that happens to land one band below a newer lower-relevance
+   row? (Claim: no — banding is monotonic in score; a higher band always sorts ahead regardless of year.)
+3. Missing-year handling: does treating None as -inf ever harm an undated authoritative source? (It orders
+   lower within its band but is never dropped if it's in the quota by relevance.)
+4. Determinism preserved (original_index final fallback) and kill-switch gives byte-identical prior order?
+5. Floors (M-42e primary / M-51 / M-42c mechanism / M-42d HC) still reserve their rows unaffected?
+
+## Files I have ALSO checked
+- src/polaris_graph/retrieval/live_retriever.py — year source (L170/215/1508 metadata). No change needed.
+- scripts/run_honest_sweep_r3.py:842-856 — FreshnessDetector stub = separate Phase-F network probe, OUT OF SCOPE.
+- tests/polaris_graph/: test_m201_evidence_selection, test_m42c/d/e, test_m46_selector_no_bypass,
+  test_m51_selector_primary_custody, test_m41_v24_regression, test_m42_preservation, test_pass2_remediation,
+  test_m48_anchor_variants — ALL must stay green (no-regression). New test file for the recency tiebreaker.
+
+## Acceptance criteria
+A. `_row_year` reads year from row or row.metadata, coerces to int, None on absent/invalid/out-of-range; no network.
+B. Recency is a within-tier-band SOFT tiebreaker after relevance; never hard-drops; never demotes a
+   higher-relevance-band row; floors unaffected.
+C. Applied consistently to main within-tier sort, short-pool path, and final sort.
+D. Kill-switch OFF → byte-identical prior ordering. Epsilon configurable; default per your ruling.
+E. Telemetry note when recency reorders. New tests: same-tier same-band newer-wins; relevance gap still wins
+   over recency; missing-year not dropped; kill-switch off = prior order; floors still reserve. All 11
+   existing selector tests stay green.
+
+Is this design correct + safe (recency strictly soft, no hard-drop, floors intact), and what default epsilon?
+
+codex
+I’ll check the selector paths and floor handling against the proposed ordering model, then I’ll give a gate verdict on the design itself rather than a patch review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "year|metadata" src/polaris_graph/retrieval/live_retriever.py src/polaris_graph/retrieval/evidence_selector.py scripts/run_honest_sweep_r3.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "select_evidence_for_generation|relevance_score|original_index|quota|floor|M-42|M-51|notes|short" src/polaris_graph/retrieval/evidence_selector.py' in C:\POLARIS
+ succeeded in 826ms:
+src/polaris_graph/retrieval/live_retriever.py:170:        "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
+src/polaris_graph/retrieval/live_retriever.py:215:            "year": p.get("year"),
+src/polaris_graph/retrieval/live_retriever.py:240:# not lone keywords. Explicit publisher metadata and section headers
+src/polaris_graph/retrieval/live_retriever.py:246:# High-precision metadata patterns — trust these alone.
+src/polaris_graph/retrieval/live_retriever.py:297:    # metadata (Cochrane Library CD-number).
+src/polaris_graph/retrieval/live_retriever.py:309:# OR the X-year-old patient opener together with PATIENT-centered framing.
+src/polaris_graph/retrieval/live_retriever.py:315:    # "we report a X-year-old patient" (opener)
+src/polaris_graph/retrieval/live_retriever.py:316:    r'we\s+report\s+(a|an)\s+\d+[- ]year[- ]old',
+src/polaris_graph/retrieval/live_retriever.py:382:    """Map a captured metadata/header value to a tier signal. Used
+src/polaris_graph/retrieval/live_retriever.py:417:    (P1) explicit publisher-embedded article-type metadata
+src/polaris_graph/retrieval/live_retriever.py:462:    # "X-year-old patient" opener as first significant content in abstract
+src/polaris_graph/retrieval/live_retriever.py:466:        r'^\s*(a|this)\s+\d+[- ]year[- ]old\s+(man|woman|male|female|patient)\s+(presented|was\s+admitted|with)',
+src/polaris_graph/retrieval/live_retriever.py:1135:        reason = (result.metadata or {}).get("reason") if hasattr(result, "metadata") else None
+src/polaris_graph/retrieval/live_retriever.py:1187:    metadata / formatting fragments / empty text — not useful prose.
+src/polaris_graph/retrieval/live_retriever.py:1194:      - PDF metadata markers dominate
+src/polaris_graph/retrieval/live_retriever.py:1200:    # PDF-metadata dominance check
+src/polaris_graph/retrieval/live_retriever.py:1508:                metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+src/polaris_graph/retrieval/live_retriever.py:1652:                task_metadata={"index": idx},
+src/polaris_graph/retrieval/live_retriever.py:1802:            # R-5 Fix D: skip content-starved evidence (PDF metadata,
+scripts/run_honest_sweep_r3.py:1292:    decision, demoting the legacy evaluator_gate to ADVISORY metadata only.
+scripts/run_honest_sweep_r3.py:2393:                    _entity_metadata = _cf.contract.entities_by_id()
+scripts/run_honest_sweep_r3.py:2415:                        _ce = _entity_metadata.get(r.entity_id)
+scripts/run_honest_sweep_r3.py:2444:                            "year": r.year,
+scripts/run_honest_sweep_r3.py:2474:                                contract_entities_by_id=_entity_metadata,
+scripts/run_honest_sweep_r3.py:3430:        # Codex P2 forbids) and DEMOTE the legacy evaluator_gate to advisory metadata only.
+scripts/run_honest_sweep_r3.py:3461:            # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+
+ succeeded in 965ms:
+10:Post-fix, `select_evidence_for_generation()` produces a deterministic,
+45:    """Result of select_evidence_for_generation."""
+51:    notes: list[str] = field(default_factory=list)
+63:            "notes": list(self.notes),
+77:# M-41d (2026-04-21): jurisdictional-diversity floor for T3 regulatory
+80:# prompt rule, but the evidence selector tier-quota gave T3 only 12
+82:# lexical relevance than a Canadian monograph). M-41d adds a floor:
+83:# within the T3 quota, reserve one slot for each present jurisdiction
+98:    # M-42d (2026-04-22): added `hpfb-dgpsa.ca` — Health Products and
+111:# M-42d (2026-04-22): Health Canada quota expansion. V25 baseline had
+115:# quota-bounded 2nd reservation that ONLY fires after every present
+126:def _m42d_hc_quota() -> int:
+127:    """Return the Health Canada quota (1..N) for the T3 selector floor.
+129:    M-42d (2026-04-22): configurable via `PG_M41D_HC_QUOTA` env var.
+177:# M-42e (2026-04-22): named-trial primary-paper floor for T1 tier.
+185:# M-42e adds a T1 named-trial-primary floor: for each anchor trial
+206:# M-42e pass-2 (Codex audit blocker fix): reject titles that
+252:# M-42c (2026-04-22): mechanism-evidence detection for the
+253:# mechanism-section selector floor. Token patterns mirror the M-40
+289:    This broke M-42e primary detection AND M-48 population-scope
+316:# M-42c floor: number of T1/T2 slots to reserve for mechanism rows
+318:# floor fires only when the pool has >=4 mechanism rows (matches the
+320:# then T2; the floor does NOT expand those tier quotas.
+332:    Detection (M-42e pass-2):
+395:def _m46_short_pool_ordered_selection(
+403:    """M-46 (2026-04-22): compute floor detection + deterministic
+404:    priority ordering + telemetry for the short-pool case
+408:    a single `pool_size<=max_rows` note and no floor telemetry. When
+409:    floors were configured, the reservations silently did not fire.
+412:    [M-42e primaries → M-42c mechanism → M-42d HC → rest by tier
+414:    floor-telemetry entries seen on truncating runs so downstream
+422:    notes: list[str] = [
+424:        "m46_short_pool_ordered_selection",
+427:    # --- M-42e primary detection ---
+432:        # (matches M-42e spirit — the primary paper is the priority).
+449:        notes.append(
+450:            f"m42e_primary_floor matched={len(m42e_anchors)} "
+455:    # --- M-51 primary custody (short-pool path) ---
+458:    # pool for anchor-matched primaries that M-42e (T1-only) may
+482:            # Already covered by M-42e for this anchor?
+496:        notes.append(
+504:    # --- M-42c mechanism detection ---
+523:        notes.append(
+524:            f"m42c_mechanism_floor pool_mech_rows={len(mech_pool)} "
+529:    # --- M-42d HC quota expansion detection ---
+533:    hc_quota = _m42d_hc_quota()
+536:    if hc_rows and hc_quota > 1:
+537:        # In short-pool mode, reserve up to `hc_quota` HC rows
+539:        # in the main branch, extras are the M-42d expansion.
+541:        target = min(hc_quota, len(hc_sorted))
+546:            notes.append(
+547:                f"m42d_hc_quota_expand hc_pool={len(hc_rows)} "
+549:                f"extras_added={m42d_hc_extras} quota={hc_quota}"
+553:    # Priority class: 0 = M-42e primary OR M-51 anchor-primary extra,
+554:    # 1 = M-42c mechanism, 2 = M-42d HC, 3 = rest. Within same class:
+584:        notes=notes,
+588:def select_evidence_for_generation(
+604:      4. Sort within each tier by (-relevance, original_index) for
+607:         floors for high-value tiers that are present (each T1-T3 tier
+610:         original_index).
+628:            notes=["no evidence rows or max_rows <= 0"],
+666:    # BUT compute floor-detection + deterministic priority ordering
+671:    # with a single `pool_size<=max_rows` note and no floor telemetry.
+672:    # M-42e primaries, M-42c mechanism rows, and M-42d HC rows were
+675:    # Post-M-46 behavior: selected list ordered as [M-42e primaries →
+676:    # M-42c mechanism → M-42d HC → rest by (tier priority, -relevance,
+678:    # Notes include the m42e_primary_floor / m42c_mechanism_floor /
+679:    # m42d_hc_quota_expand entries seen on truncating runs.
+681:        return _m46_short_pool_ordered_selection(
+694:    quotas: dict[str, int] = {}
+699:        quotas[tier] = share
+702:    # Enforce floors for high-value tiers present.
+704:        if quotas.get(tier, 0) < 1:
+705:            delta = 1 - quotas.get(tier, 0)
+706:            quotas[tier] = quotas.get(tier, 0) + delta
+710:    for tier in list(quotas.keys()):
+711:        quotas[tier] = min(quotas[tier], full_counts[tier])
+714:    allocated = sum(quotas.values())
+717:    # the number of present high-value floors, the old code refused
+718:    # to deduct below floors and overshot max_rows. Now we prefer
+719:    # floors but WILL violate them if necessary to hit max_rows.
+722:            (t for t, q in quotas.items() if q > 0),
+725:        # Prefer deducting from non-floor tiers first.
+726:        if lowest in present_hv and quotas[lowest] <= 1:
+727:            # try next-lowest among non-floored
+729:                t for t, q in quotas.items() if q > 0
+734:            # else: fall through and deduct the floor anyway —
+735:            # honoring max_rows is a hard contract; the floor is a soft
+736:            # preference. Only way this happens is max_rows < floor count.
+737:        quotas[lowest] -= 1
+742:            t for t, q in quotas.items()
+748:        quotas[best] += 1
+758:    # M-42e (2026-04-22): T1 named-trial primary floor. Compute
+763:    # IMPORTANT trade-off (Codex audit medium #3): the floor
+764:    # operates WITHIN T1 quota; it does not expand T1 and does not
+765:    # directly push T2 below its quota. When T1 quota is small (e.g.
+770:    # M-42c (2026-04-22): mechanism-rich T1+T2 floor. When the pool
+773:    # evidence pool deep enough for the M-42c conditional prompt
+775:    # Floor operates WITHIN existing T1+T2 quotas — does NOT expand
+791:        # Only count rows in tiers T1 or T2 — the mechanism floor
+792:        # doesn't touch T3/T4 quotas.
+799:            # Only reserve if the tier has quota slots available.
+800:            if quotas.get(item[2], 0) <= 0:
+806:    m42e_matched_anchors: list[str] = []  # M-42e pass-2: telemetry
+807:    if primary_trial_anchors and quotas.get("T1", 0) > 0:
+821:        # quota. The floor operates WITHIN the T1 quota — if
+822:        # T1 quota is 8 and 6 anchor-matched primaries exist, all
+823:        # 6 primaries + 2 top-scored rows fill the T1 quota.
+824:        # If primary_count > T1 quota, cap reservations at quota.
+825:        if len(m42e_primary_ids) > quotas.get("T1", 0):
+826:            # Reduce reservations to match quota — keep highest-scored
+833:                id(i) for i in t1_items_by_score[:quotas.get("T1", 0)]
+837:    # M-42d: telemetry notes populated inside the T3 block (HC expansion).
+838:    # Collected here and flushed to `notes` after the main tier loop.
+839:    _m42d_pending_notes: list[str] = []
+840:    for tier, quota in quotas.items():
+841:        # M-42e + M-42c: for T1 tier, reserve named-trial primary
+842:        # slots (M-42e) AND mechanism-evidence slots (M-42c) before
+843:        # filling rest by relevance. Both floors are computed above;
+846:        if tier == "T1" and quota > 0 and (m42e_primary_ids or m42c_mech_ids):
+848:            # Priority order: M-42e primary floor, then M-42c mech
+849:            # floor, then fill by relevance. Reserved IDs are union
+853:            # Pass 1: M-42e primaries
+855:                if len(reserved_t1) >= quota:
+860:            # Pass 2: M-42c mechanism T1 rows
+862:                if len(reserved_t1) >= quota:
+869:                if len(reserved_t1) >= quota:
+876:        # M-42c: for T2 tier with mechanism floor, reserve mech T2
+878:        if tier == "T2" and quota > 0 and m42c_mech_ids:
+882:            # Pass 1: M-42c mechanism T2 rows
+884:                if len(reserved_t2) >= quota:
+891:                if len(reserved_t2) >= quota:
+899:        # jurisdictional-diversity floor — reserve one slot per
+901:        # filling the rest of the T3 quota by relevance. Prevents the
+905:        # M-42d (2026-04-22): after the per-jurisdiction first-slot
+906:        # pass, HC gets up to `_m42d_hc_quota()` additional reserved
+913:        if tier == "T3" and quota > 0 and tier_items:
+921:            # T3 quota — we never over-fill). Pick the top-scoring
+925:            slots_left = quota
+935:            # M-42d: HC quota expansion. After every present
+937:            # (hc_quota - 1) additional HC rows from the quota that
+940:            hc_quota = _m42d_hc_quota()
+943:                hc_quota > 1
+950:                extras_remaining = hc_quota - 1
+974:            # M-42d pass-2 (Codex audit MEDIUM): `reserved` now reports
+975:            # actual slots taken by the HC floor (1 from the 1-per-juris
+977:            # bounded by pool. When `hc_quota` exceeds available slots,
+982:                    f"m42d_hc_quota_expand hc_pool="
+986:                    f"quota={hc_quota}"
+988:                _m42d_pending_notes.append(m42d_telemetry_note)
+990:            selected.extend(tier_items[:quota])
+992:    # ─── M-51 (2026-04-23): V29 Strategy β cycle 1 — anchor-matched
+1001:    # The existing M-42e floor only scans `by_tier.get("T1", [])`
+1002:    # within the T1 quota slice; when T1 quota is tight and
+1007:    # M-51 post-process: for each unique anchor, scan the FULL `scored`
+1010:    # min(|unique_anchors|, max_rows). Trim non-M-51 tail rows to
+1017:    #   - Trim protects M-51-inserted rows; pops lowest-priority
+1018:    #     non-M-51 tail rows when overflow.
+1019:    #   - No-anchors path is a no-op (byte-identical to pre-M-51).
+1022:        """Stable identity for M-51 duplicate detection. Prefers
+1062:        # Trim non-reserved tail if M-51 overflowed max_rows. Pop
+1063:        # lowest-priority non-M-51-inserted rows from END of list.
+1069:            # Build eviction candidates: indices of non-M-51 items
+1098:    notes: list[str] = []
+1099:    # M-42e pass-2: surface the primary-floor telemetry so sweep
+1103:    # When matched > T1 quota, quota-trim reduces actual reservations
+1108:        notes.append(
+1109:            f"m42e_primary_floor matched={len(m42e_matched_anchors)} "
+1113:    # M-42c: mechanism-floor telemetry so sweep audits see when the
+1114:    # floor fires and how many slots were reserved.
+1116:        notes.append(
+1117:            f"m42c_mechanism_floor pool_mech_rows={len(m42c_mech_pool_rows)} "
+1121:    # M-42d: flush HC quota expansion telemetry collected inside the T3
+1123:    notes.extend(_m42d_pending_notes)
+1124:    # M-51 (2026-04-23): anchor-custody telemetry for V29 diagnosis.
+1129:        notes.append(
+1137:        notes.append(
+1148:        notes=notes,
+
+codex
+The selector does have three ordering sites in play: the short-pool priority path, the per-tier quota fills, and the final deterministic ordering after M-51 insertion/trim. I’m reading those regions now to check whether a design-only change can satisfy “soft” without weakening the existing floors.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/evidence_selector.py | Select-Object -Skip 520 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/evidence_selector.py | Select-Object -Skip 730 -First 280' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/evidence_selector.py | Select-Object -Skip 1000 -First 160' in C:\POLARIS
+ succeeded in 884ms:
+            m42c_ids.add(id(item))
+            slots_left -= 1
+        notes.append(
+            f"m42c_mechanism_floor pool_mech_rows={len(mech_pool)} "
+            f"reserved={len(m42c_ids)} "
+            f"slots={_M42C_MECHANISM_FLOOR_SLOTS}"
+        )
+
+    # --- M-42d HC quota expansion detection ---
+    hc_rows = [s for s in scored
+               if s[2] == "T3"
+               and _row_jurisdiction(s[3]) == _M42D_HC_JURISDICTION_CODE]
+    hc_quota = _m42d_hc_quota()
+    m42d_hc_ids: set[int] = set()
+    m42d_hc_extras = 0
+    if hc_rows and hc_quota > 1:
+        # In short-pool mode, reserve up to `hc_quota` HC rows
+        # (bounded by pool) — first one mirrors the 1-per-juris pass
+        # in the main branch, extras are the M-42d expansion.
+        hc_sorted = sorted(hc_rows, key=lambda s: (-s[1], s[0]))
+        target = min(hc_quota, len(hc_sorted))
+        for item in hc_sorted[:target]:
+            m42d_hc_ids.add(id(item))
+        m42d_hc_extras = max(0, len(m42d_hc_ids) - 1)
+        if m42d_hc_extras > 0:
+            notes.append(
+                f"m42d_hc_quota_expand hc_pool={len(hc_rows)} "
+                f"reserved={len(m42d_hc_ids)} "
+                f"extras_added={m42d_hc_extras} quota={hc_quota}"
+            )
+
+    # --- Deterministic priority ordering ---
+    # Priority class: 0 = M-42e primary OR M-51 anchor-primary extra,
+    # 1 = M-42c mechanism, 2 = M-42d HC, 3 = rest. Within same class:
+    # by tier priority, then -score, then index.
+    def _priority_class(item: tuple[int, float, str, dict[str, Any]]) -> int:
+        iid = id(item)
+        if iid in m42e_ids or iid in m51_extra_ids:
+            return 0
+        if iid in m42c_ids:
+            return 1
+        if iid in m42d_hc_ids:
+            return 2
+        return 3
+
+    ordered = sorted(
+        scored,
+        key=lambda item: (
+            _priority_class(item),
+            _TIER_PRIORITY.get(item[2], 9),
+            -item[1],
+            item[0],
+        ),
+    )
+    selected_rows = [item[3] for item in ordered]
+    selected_counts = dict(full_counts)
+
+    return EvidenceSelection(
+        selected_rows=selected_rows,
+        full_counts=full_counts,
+        selected_counts=selected_counts,
+        dropped_count=0,
+        selection_strategy="tier_balanced_v1_all_m46_ordered",
+        notes=notes,
+    )
+
+
+def select_evidence_for_generation(
+    *,
+    research_question: str,
+    protocol: dict[str, Any] | None,
+    classified_sources: list[Any],
+    evidence_rows: list[dict[str, Any]],
+    max_rows: int,
+    primary_trial_anchors: list[str] | None = None,
+) -> EvidenceSelection:
+    """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+
+    Strategy (deterministic, stable):
+      1. Join evidence rows to classified sources by URL → tier per row.
+      2. Compute full_tier_counts.
+      3. Score each row by lexical relevance (question+protocol anchors
+         vs statement+direct_quote content words).
+      4. Sort within each tier by (-relevance, original_index) for
+         deterministic top-N per tier.
+      5. Allocate slots proportionally to full_tier_counts but with
+         floors for high-value tiers that are present (each T1-T3 tier
+         present gets at least min(1, available)).
+      6. Fill remaining slots globally by (tier_priority, -relevance,
+         original_index).
+
+ succeeded in 1024ms:
+            ]
+            if candidates:
+                lowest = max(candidates, key=lambda t: (_TIER_PRIORITY.get(t, 9), t))
+            # else: fall through and deduct the floor anyway —
+            # honoring max_rows is a hard contract; the floor is a soft
+            # preference. Only way this happens is max_rows < floor count.
+        quotas[lowest] -= 1
+        allocated -= 1
+    # If under-allocated: add to highest-priority tiers with remaining capacity.
+    while allocated < max_rows:
+        candidates = [
+            t for t, q in quotas.items()
+            if q < full_counts.get(t, 0)
+        ]
+        if not candidates:
+            break
+        best = min(candidates, key=lambda t: (_TIER_PRIORITY.get(t, 9), t))
+        quotas[best] += 1
+        allocated += 1
+
+    # Now pick within each tier by (-score, original_idx).
+    by_tier: dict[str, list[tuple[int, float, str, dict[str, Any]]]] = {}
+    for item in scored:
+        by_tier.setdefault(item[2], []).append(item)
+    for tier in by_tier:
+        by_tier[tier].sort(key=lambda x: (-x[1], x[0]))
+
+    # M-42e (2026-04-22): T1 named-trial primary floor. Compute
+    # anchor-matched primary rows once so we can reserve their
+    # slots before the T1 pick-by-relevance pass. Capped at
+    # `_M42E_PRIMARY_FLOOR_CAP` to avoid displacing T2 allocation.
+    #
+    # IMPORTANT trade-off (Codex audit medium #3): the floor
+    # operates WITHIN T1 quota; it does not expand T1 and does not
+    # directly push T2 below its quota. When T1 quota is small (e.g.
+    # 5) and 6+ primaries match, all T1 slots become primaries with
+    # no T1 review slot remaining. This is accepted behavior —
+    # trading T1 review diversity for named-trial primary coverage —
+    # but future readers should know the mechanism.
+    # M-42c (2026-04-22): mechanism-rich T1+T2 floor. When the pool
+    # has >=4 mechanism-flagged rows, reserve up to 3 T1+T2 slots
+    # for mechanism content so the M-40 Mechanism section has an
+    # evidence pool deep enough for the M-42c conditional prompt
+    # target (20-35 sentences when >=8 mech ev_ids flow through).
+    # Floor operates WITHIN existing T1+T2 quotas — does NOT expand
+    # them. When no mechanism content present, no-op (backwards
+    # compatible).
+    m42c_mech_ids: set[int] = set()
+    m42c_mech_pool_rows = [s for s in scored
+                            if _m42c_row_is_mechanism_rich(s[3])]
+    m42c_mech_fires = (
+        len(m42c_mech_pool_rows) >= _M42C_MECHANISM_FLOOR_MIN_POOL_ROWS
+    )
+    if m42c_mech_fires:
+        # Mechanism rows ordered by (tier_priority, -score) — prefer
+        # T1 mechanism evidence over T2.
+        mech_ranked = sorted(
+            m42c_mech_pool_rows,
+            key=lambda s: (_TIER_PRIORITY.get(s[2], 9), -s[1], s[0]),
+        )
+        # Only count rows in tiers T1 or T2 — the mechanism floor
+        # doesn't touch T3/T4 quotas.
+        slots_left = _M42C_MECHANISM_FLOOR_SLOTS
+        for item in mech_ranked:
+            if slots_left <= 0:
+                break
+            if item[2] not in ("T1", "T2"):
+                continue
+            # Only reserve if the tier has quota slots available.
+            if quotas.get(item[2], 0) <= 0:
+                continue
+            m42c_mech_ids.add(id(item))
+            slots_left -= 1
+
+    m42e_primary_ids: set[int] = set()
+    m42e_matched_anchors: list[str] = []  # M-42e pass-2: telemetry
+    if primary_trial_anchors and quotas.get("T1", 0) > 0:
+        t1_items_for_m42e = by_tier.get("T1", [])
+        for anchor in primary_trial_anchors:
+            if len(m42e_primary_ids) >= _M42E_PRIMARY_FLOOR_CAP:
+                break
+            # Find the highest-scoring T1 row matching this anchor
+            for item in t1_items_for_m42e:
+                if id(item) in m42e_primary_ids:
+                    continue
+                if _m42e_detect_primary_for_anchor(item[3], anchor):
+                    m42e_primary_ids.add(id(item))
+                    m42e_matched_anchors.append(anchor)  # pass-2 telemetry
+                    break
+        # Preservation guard: don't expand T1 usage beyond its
+        # quota. The floor operates WITHIN the T1 quota — if
+        # T1 quota is 8 and 6 anchor-matched primaries exist, all
+        # 6 primaries + 2 top-scored rows fill the T1 quota.
+        # If primary_count > T1 quota, cap reservations at quota.
+        if len(m42e_primary_ids) > quotas.get("T1", 0):
+            # Reduce reservations to match quota — keep highest-scored
+            # primaries.
+            t1_items_by_score = sorted(
+                [i for i in t1_items_for_m42e if id(i) in m42e_primary_ids],
+                key=lambda x: (-x[1], x[0]),
+            )
+            m42e_primary_ids = set(
+                id(i) for i in t1_items_by_score[:quotas.get("T1", 0)]
+            )
+
+    selected: list[tuple[int, float, str, dict[str, Any]]] = []
+    # M-42d: telemetry notes populated inside the T3 block (HC expansion).
+    # Collected here and flushed to `notes` after the main tier loop.
+    _m42d_pending_notes: list[str] = []
+    for tier, quota in quotas.items():
+        # M-42e + M-42c: for T1 tier, reserve named-trial primary
+        # slots (M-42e) AND mechanism-evidence slots (M-42c) before
+        # filling rest by relevance. Both floors are computed above;
+        # a row can satisfy both (e.g. a SURPASS-2 primary paper
+        # that also has mechanism content — counted once).
+        if tier == "T1" and quota > 0 and (m42e_primary_ids or m42c_mech_ids):
+            tier_items = by_tier.get("T1", [])
+            # Priority order: M-42e primary floor, then M-42c mech
+            # floor, then fill by relevance. Reserved IDs are union
+            # of both; deduped so a row satisfies at most one slot.
+            reserved_t1: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_t1_ids: set[int] = set()
+            # Pass 1: M-42e primaries
+            for item in tier_items:
+                if len(reserved_t1) >= quota:
+                    break
+                if id(item) in m42e_primary_ids and id(item) not in reserved_t1_ids:
+                    reserved_t1.append(item)
+                    reserved_t1_ids.add(id(item))
+            # Pass 2: M-42c mechanism T1 rows
+            for item in tier_items:
+                if len(reserved_t1) >= quota:
+                    break
+                if id(item) in m42c_mech_ids and id(item) not in reserved_t1_ids:
+                    reserved_t1.append(item)
+                    reserved_t1_ids.add(id(item))
+            # Pass 3: fill remaining T1 slots by relevance
+            for item in tier_items:
+                if len(reserved_t1) >= quota:
+                    break
+                if id(item) not in reserved_t1_ids:
+                    reserved_t1.append(item)
+                    reserved_t1_ids.add(id(item))
+            selected.extend(reserved_t1)
+            continue
+        # M-42c: for T2 tier with mechanism floor, reserve mech T2
+        # rows before filling rest by relevance.
+        if tier == "T2" and quota > 0 and m42c_mech_ids:
+            tier_items = by_tier.get("T2", [])
+            reserved_t2: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_t2_ids: set[int] = set()
+            # Pass 1: M-42c mechanism T2 rows
+            for item in tier_items:
+                if len(reserved_t2) >= quota:
+                    break
+                if id(item) in m42c_mech_ids and id(item) not in reserved_t2_ids:
+                    reserved_t2.append(item)
+                    reserved_t2_ids.add(id(item))
+            # Pass 2: fill remaining T2 by relevance
+            for item in tier_items:
+                if len(reserved_t2) >= quota:
+                    break
+                if id(item) not in reserved_t2_ids:
+                    reserved_t2.append(item)
+                    reserved_t2_ids.add(id(item))
+            selected.extend(reserved_t2)
+            continue
+        # M-41d: for T3 (regulatory) tier, enforce a
+        # jurisdictional-diversity floor — reserve one slot per
+        # present jurisdiction (FDA, EMA, NICE, HC, ...) before
+        # filling the rest of the T3 quota by relevance. Prevents the
+        # V24 failure mode where Health Canada evidence was in the
+        # corpus but outcompeted within T3 by higher-scoring FDA/EMA.
+        #
+        # M-42d (2026-04-22): after the per-jurisdiction first-slot
+        # pass, HC gets up to `_m42d_hc_quota()` additional reserved
+        # slots (default 2 total). Preservation guard: HC's 2nd..Nth
+        # slots only fire AFTER every present jurisdiction already has
+        # its 1st, so FDA/EMA/NICE/MHRA are never displaced. The
+        # relevance fill that follows still lets high-scoring
+        # FDA/EMA/NICE rows beyond 1 slot be selected naturally.
+        tier_items = by_tier.get(tier, [])
+        if tier == "T3" and quota > 0 and tier_items:
+            # Group T3 items by jurisdiction.
+            juris_groups: dict[str | None, list[tuple[int, float, str, dict[str, Any]]]] = {}
+            for item in tier_items:
+                jur = _row_jurisdiction(item[3])
+                juris_groups.setdefault(jur, []).append(item)
+            present_juris = [j for j in juris_groups if j is not None]
+            # Reserve 1 slot per present jurisdiction (capped at the
+            # T3 quota — we never over-fill). Pick the top-scoring
+            # row per jurisdiction as the reserved slot.
+            reserved: list[tuple[int, float, str, dict[str, Any]]] = []
+            reserved_ids: set[int] = set()
+            slots_left = quota
+            for jur in present_juris:
+                if slots_left <= 0:
+                    break
+                for item in juris_groups[jur]:
+                    if id(item) not in reserved_ids:
+                        reserved.append(item)
+                        reserved_ids.add(id(item))
+                        slots_left -= 1
+                        break
+            # M-42d: HC quota expansion. After every present
+            # jurisdiction has its 1st slot, reserve up to
+            # (hc_quota - 1) additional HC rows from the quota that
+            # remains. This NEVER displaces FDA/EMA/NICE's 1st slots
+            # because those are already allocated above.
+            hc_quota = _m42d_hc_quota()
+            m42d_hc_extras = 0
+            if (
+                hc_quota > 1
+                and _M42D_HC_JURISDICTION_CODE in juris_groups
+                and slots_left > 0
+            ):
+                hc_rows = juris_groups[_M42D_HC_JURISDICTION_CODE]
+                # Rows are already in tier_items' original order (by
+                # score then index). Skip the one already reserved.
+                extras_remaining = hc_quota - 1
+                for item in hc_rows:
+                    if slots_left <= 0 or extras_remaining <= 0:
+                        break
+                    if id(item) not in reserved_ids:
+                        reserved.append(item)
+                        reserved_ids.add(id(item))
+                        slots_left -= 1
+                        extras_remaining -= 1
+                        m42d_hc_extras += 1
+            # Fill remaining slots from the tier's global score order,
+            # skipping already-reserved items.
+            for item in tier_items:
+                if slots_left <= 0:
+                    break
+                if id(item) not in reserved_ids:
+                    reserved.append(item)
+                    reserved_ids.add(id(item))
+                    slots_left -= 1
+            selected.extend(reserved)
+            # Record telemetry for the HC expansion pass. Only emit
+            # when the expansion actually added rows so audits can
+            # distinguish "fired and added" vs "did not fire".
+            #
+            # M-42d pass-2 (Codex audit MEDIUM): `reserved` now reports
+            # actual slots taken by the HC floor (1 from the 1-per-juris
+            # pass + m42d_hc_extras) instead of the desired target
+            # bounded by pool. When `hc_quota` exceeds available slots,
+            # this prevents overstated telemetry.
+            if m42d_hc_extras > 0:
+                m42d_hc_reserved = 1 + m42d_hc_extras
+                m42d_telemetry_note = (
+                    f"m42d_hc_quota_expand hc_pool="
+                    f"{len(juris_groups.get(_M42D_HC_JURISDICTION_CODE, []))} "
+                    f"reserved={m42d_hc_reserved} "
+                    f"extras_added={m42d_hc_extras} "
+                    f"quota={hc_quota}"
+                )
+                _m42d_pending_notes.append(m42d_telemetry_note)
+        else:
+            selected.extend(tier_items[:quota])
+
+    # ─── M-51 (2026-04-23): V29 Strategy β cycle 1 — anchor-matched
+    # primary hard-reservation post-process. Per Codex V29 plan pass-1
+    # review (CONDITIONAL-no-blockers) at
+    # `outputs/codex_findings/v29_fix_plan_review_pass1/findings.md`.
+    #
+    # Prior mechanism gap (verified by V28 cross-review):
+    # `outputs/audits/v28/cross_review.md` shows SURPASS-4 Del Prato
+    # Lancet + SURPASS-CVOT Nicholls were present in V28's
+    # `live_corpus_dump.json` but absent from the final bibliography.
+    # The existing M-42e floor only scans `by_tier.get("T1", [])`
+    # within the T1 quota slice; when T1 quota is tight and
+    # non-primary T1 rows outrank primaries by relevance, primaries
+    # are still dropped. This is the dominant root cause driving 4
+    # of 7 V28 LOSE_BOTH dimensions.
+    #
+    # M-51 post-process: for each unique anchor, scan the FULL `scored`
+    # pool (not just T1); insert any anchor-matched primary not
+    # already in `selected` at position 0 (highest priority). Cap at
+    # min(|unique_anchors|, max_rows). Trim non-M-51 tail rows to
+
+ succeeded in 1087ms:
+    # The existing M-42e floor only scans `by_tier.get("T1", [])`
+    # within the T1 quota slice; when T1 quota is tight and
+    # non-primary T1 rows outrank primaries by relevance, primaries
+    # are still dropped. This is the dominant root cause driving 4
+    # of 7 V28 LOSE_BOTH dimensions.
+    #
+    # M-51 post-process: for each unique anchor, scan the FULL `scored`
+    # pool (not just T1); insert any anchor-matched primary not
+    # already in `selected` at position 0 (highest priority). Cap at
+    # min(|unique_anchors|, max_rows). Trim non-M-51 tail rows to
+    # keep len(selected) <= max_rows.
+    #
+    # Codex review revisions woven in:
+    #   - Canonical identity (not Python `id()`): evidence_id if
+    #     present, else (source_url, title, direct_quote[:200]).
+    #   - Derived cap min(|unique_anchors|, max_rows), not literal 11.
+    #   - Trim protects M-51-inserted rows; pops lowest-priority
+    #     non-M-51 tail rows when overflow.
+    #   - No-anchors path is a no-op (byte-identical to pre-M-51).
+
+    def _m51_canonical_identity(row: dict[str, Any]) -> tuple:
+        """Stable identity for M-51 duplicate detection. Prefers
+        `evidence_id` when present; falls back to normalized
+        (source_url, title, direct_quote[:200]) tuple."""
+        evid = row.get("evidence_id")
+        if isinstance(evid, str) and evid:
+            return ("ev", evid)
+        url = (row.get("source_url") or row.get("url") or "").lower()
+        title = _row_title_text(row).lower()[:200]
+        dq = (row.get("direct_quote") or "")[:200]
+        return ("key", url, title, dq)
+
+    m51_inserted_ids: set[int] = set()  # ids of (tuple) items in `selected`
+    m51_matched_anchors: list[str] = []
+    if primary_trial_anchors:
+        selected_canon = {
+            _m51_canonical_identity(item[3]) for item in selected
+        }
+        unique_anchors = []
+        seen_anchors: set[str] = set()
+        for a in primary_trial_anchors:
+            if a in seen_anchors:
+                continue
+            seen_anchors.add(a)
+            unique_anchors.append(a)
+        m51_cap = min(len(unique_anchors), max_rows)
+        for anchor in unique_anchors:
+            if len(m51_matched_anchors) >= m51_cap:
+                break
+            # Scan full scored pool for first anchor-matched primary
+            # not already in selected.
+            for scored_item in scored:
+                canon = _m51_canonical_identity(scored_item[3])
+                if canon in selected_canon:
+                    continue
+                if _m42e_detect_primary_for_anchor(scored_item[3], anchor):
+                    selected.insert(0, scored_item)
+                    selected_canon.add(canon)
+                    m51_inserted_ids.add(id(scored_item))
+                    m51_matched_anchors.append(anchor)
+                    break
+        # Trim non-reserved tail if M-51 overflowed max_rows. Pop
+        # lowest-priority non-M-51-inserted rows from END of list.
+        # Sort by (tier_priority, -score, idx) so the tail IS the
+        # lowest priority after the main tier loop's sort runs
+        # below — but here we haven't sorted yet. Pop items with
+        # the lowest tier priority first (T7 before T1).
+        if len(selected) > max_rows:
+            # Build eviction candidates: indices of non-M-51 items
+            # sorted by (reverse tier priority, +score, reverse idx).
+            # We want to evict lowest-tier, lowest-score first.
+            eviction_order = sorted(
+                [
+                    i for i, item in enumerate(selected)
+                    if id(item) not in m51_inserted_ids
+                ],
+                key=lambda i: (
+                    -_TIER_PRIORITY.get(selected[i][2], 9),  # lowest tier first
+                    selected[i][1],                           # lowest score first
+                    -selected[i][0],                          # highest idx first
+                ),
+            )
+            to_evict = len(selected) - max_rows
+            evict_ids = set(eviction_order[:to_evict])
+            # Rebuild selected in original order, skipping evicted.
+            selected = [item for i, item in enumerate(selected)
+                        if i not in evict_ids]
+
+    # Sort final selection by (tier_priority, -score, original_idx) for
+    # deterministic output order.
+    selected.sort(key=lambda x: (_TIER_PRIORITY.get(x[2], 9), -x[1], x[0]))
+
+    selected_rows = [item[3] for item in selected]
+    selected_counts: dict[str, int] = {}
+    for _, _, tier, _ in selected:
+        selected_counts[tier] = selected_counts.get(tier, 0) + 1
+
+    notes: list[str] = []
+    # M-42e pass-2: surface the primary-floor telemetry so sweep
+    # audits can see which anchors reserved slots and whether the
+    # cap truncated reservations.
+    # Pass-3 (Codex medium #2): split matched / reserved counts.
+    # When matched > T1 quota, quota-trim reduces actual reservations
+    # below matches. Report both so audits see the true state.
+    if m42e_matched_anchors:
+        cap = _M42E_PRIMARY_FLOOR_CAP
+        actual_reserved = len(m42e_primary_ids)
+        notes.append(
+            f"m42e_primary_floor matched={len(m42e_matched_anchors)} "
+            f"reserved={actual_reserved} cap={cap} "
+            f"anchors={m42e_matched_anchors[:10]}"
+        )
+    # M-42c: mechanism-floor telemetry so sweep audits see when the
+    # floor fires and how many slots were reserved.
+    if m42c_mech_fires:
+        notes.append(
+            f"m42c_mechanism_floor pool_mech_rows={len(m42c_mech_pool_rows)} "
+            f"reserved={len(m42c_mech_ids)} slots="
+            f"{_M42C_MECHANISM_FLOOR_SLOTS}"
+        )
+    # M-42d: flush HC quota expansion telemetry collected inside the T3
+    # block. Empty list = expansion did not fire (legacy behavior).
+    notes.extend(_m42d_pending_notes)
+    # M-51 (2026-04-23): anchor-custody telemetry for V29 diagnosis.
+    if m51_matched_anchors:
+        m51_cap_final = min(
+            len({a for a in primary_trial_anchors or []}), max_rows,
+        )
+        notes.append(
+            f"m51_anchor_primary_custody matched="
+            f"{len(m51_matched_anchors)} "
+            f"inserted={len(m51_matched_anchors)} "
+            f"cap={m51_cap_final} "
+            f"anchors={m51_matched_anchors[:12]}"
+        )
+    if sum(selected_counts.values()) < max_rows:
+        notes.append(
+            f"could not fill max_rows={max_rows}; "
+            f"selected {sum(selected_counts.values())}"
+        )
+
+    return EvidenceSelection(
+        selected_rows=selected_rows,
+        full_counts=full_counts,
+        selected_counts=selected_counts,
+        dropped_count=len(evidence_rows) - len(selected_rows),
+        selection_strategy="tier_balanced_v1",
+        notes=notes,
+    )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/evidence_selector.py | Select-Object -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def _score|score|relevance" src/polaris_graph/retrieval/evidence_selector.py' in C:\POLARIS
+ succeeded in 807ms:
+"""
+Evidence selector — BUG-M-201 fix (deep-dive R6).
+
+Pre-fix, `run_one_query` passed `retrieval.evidence_rows[:PG_LIVE_MAX_EV_TO_GEN]`
+to the generator — raw retrieval order with no tier awareness. Gates
+reasoned over the full pool; generation reasoned over a smaller,
+order-biased subset. Real artifacts showed 20 corpus sources but
+only 4 evidence rows surviving to generation.
+
+Post-fix, `select_evidence_for_generation()` produces a deterministic,
+tier-balanced, relevance-ranked subset. The result is emitted to
+`manifest.json.evidence_selection` so downstream consumers can see
+exactly what the generator saw.
+"""
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+
+# Tier priority for within-pool ranking. Lower tier number = higher priority.
+_TIER_PRIORITY: dict[str, int] = {
+    "T1": 1, "T2": 2, "T3": 3, "T4": 4,
+    "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
+}
+
+_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
+    "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
+    "that", "this", "these", "those", "it", "its", "be", "been",
+    "what", "which", "who", "how", "why", "when", "where",
+})
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Lowercase content-word tokens, stopword-filtered, 3+ chars."""
+    toks = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", text.lower())
+    return {t for t in toks if t not in _STOPWORDS}
+
+
+@dataclass
+class EvidenceSelection:
+    """Result of select_evidence_for_generation."""
+    selected_rows: list[dict[str, Any]]
+    full_counts: dict[str, int]        # tier -> count in FULL pool
+    selected_counts: dict[str, int]    # tier -> count in SELECTED subset
+    dropped_count: int
+    selection_strategy: str            # stable identifier for telemetry
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "evidence_total": (
+                sum(self.full_counts.values())
+            ),
+            "evidence_selected": len(self.selected_rows),
+            "selection_strategy": self.selection_strategy,
+            "full_tier_counts": dict(self.full_counts),
+            "selected_tier_counts": dict(self.selected_counts),
+            "dropped_count": self.dropped_count,
+            "notes": list(self.notes),
+        }
+
+
+def _row_tier(row: dict[str, Any], url_to_tier: dict[str, str]) -> str:
+    """Resolve tier for an evidence row via URL join to classified sources.
+    Falls back to row's own `tier` field, then UNKNOWN."""
+    url = row.get("source_url") or row.get("url") or ""
+    if url in url_to_tier:
+        return url_to_tier[url]
+    tier = row.get("tier") or "UNKNOWN"
+    return str(tier)
+
+
+# M-41d (2026-04-21): jurisdictional-diversity floor for T3 regulatory
+# selection. V24 had 0 Health Canada entries in its bibliography
+# despite 7 HC rows in the corpus (M-37 shipped the tier fix and the
+# prompt rule, but the evidence selector tier-quota gave T3 only 12
+# slots that all went to FDA/EMA/NICE since they scored higher on
+# lexical relevance than a Canadian monograph). M-41d adds a floor:
+# within the T3 quota, reserve one slot for each present jurisdiction
+# whose evidence appears in the pool.
+#
+# Jurisdiction detection is by URL host suffix. A row maps to exactly
+# one jurisdiction or None. No drug-specific tokens; the host list
+# mirrors the regulatory_anchors template schema across domains.
+_M41D_JURISDICTION_HOSTS: list[tuple[str, tuple[str, ...]]] = [
+    # M-41d pass-2 (Codex audit medium #3): removed bare "europa.eu"
+    # from EMA — it was too broad (collapsed any EU-domain source
+    # into EMA). Kept "ema.europa.eu" which is the specific EMA
+    # documents host.
+    ("FDA",  ("fda.gov",)),
+    ("EMA",  ("ema.europa.eu",)),
+    ("NICE", ("nice.org.uk",)),
+    ("MHRA", ("mhra.gov.uk",)),
+    # M-42d (2026-04-22): added `hpfb-dgpsa.ca` — Health Products and
+    # Food Branch / Drug and Health Product Portal host. Existing
+    # *.canada.ca hosts already catch recalls-rappels.canada.ca,
+    # health-products.canada.ca, pdf.hres.ca via suffix match.
+    ("HC",   ("canada.ca", "hres.ca", "hc-sc.gc.ca", "cda-amc.ca",
+              "hpfb-dgpsa.ca")),
+    ("TGA",  ("tga.gov.au",)),
+    ("PMDA", ("pmda.go.jp",)),
+    ("WHO",  ("who.int",)),
+    ("NMPA", ("nmpa.gov.cn",)),
+]
+
+
+# M-42d (2026-04-22): Health Canada quota expansion. V25 baseline had
+# 1 HC entry in the bibliography (M-41d reserved 1 slot per present
+# jurisdiction). V26 aims for >=2 HC entries covering >=2 distinct
+# topics (e.g. monograph + recall/advisory). The expansion is a
+# quota-bounded 2nd reservation that ONLY fires after every present
+# jurisdiction has its 1st reservation, so FDA/EMA/NICE/MHRA each
+# keep their baseline 1 slot regardless of HC's 2nd. Relevance-fill
+# still runs afterwards so FDA/EMA/NICE can exceed 1 slot naturally.
+#
+# Env override `PG_M41D_HC_QUOTA` (default 2). Setting to 1 restores
+# exact M-41d behavior (no HC expansion).
+_M42D_HC_QUOTA_DEFAULT = 2
+_M42D_HC_JURISDICTION_CODE = "HC"
+
+
+def _m42d_hc_quota() -> int:
+    """Return the Health Canada quota (1..N) for the T3 selector floor.
+
+    M-42d (2026-04-22): configurable via `PG_M41D_HC_QUOTA` env var.
+    Defaults to 2. Values <1 clamp to 1 (legacy M-41d behavior).
+    Invalid strings fall back to default.
+    """
+    raw = os.environ.get("PG_M41D_HC_QUOTA", "")
+    if not raw:
+        return _M42D_HC_QUOTA_DEFAULT
+    try:
+        v = int(raw)
+    except (ValueError, TypeError):
+        return _M42D_HC_QUOTA_DEFAULT
+    return max(1, v)
+
+
+def _row_jurisdiction(row: dict[str, Any]) -> str | None:
+    """Return the regulatory jurisdiction code a row belongs to, or
+    None if the URL is not from a recognized regulatory host.
+
+    M-41d pass-2 (Codex audit medium #3): uses proper host-suffix
+    matching instead of substring `in`. Pre-pass-2 `h in url` would
+    classify `https://not-fda.gov.example/path` as FDA because the
+    literal string `fda.gov` appears in the path. Now we extract the
+    actual host component from the URL and require it to either
+    equal one of the listed hosts or end with `.{host}` (proper
+    subdomain). Plain substring-in-path no longer matches.
+    """
+    url = (row.get("source_url") or row.get("url") or "").lower()
+    if not url:
+        return None
+    # Extract host: scheme://host/path → host. Be permissive about
+    # missing schemes; in that case treat the first path segment as
+    # host if it looks like a hostname.
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url if "://" in url else f"http://{url}")
+        host = (parsed.hostname or "").lower()
+    except (ValueError, AttributeError):
+        return None
+    if not host:
+        return None
+    for code, hosts in _M41D_JURISDICTION_HOSTS:
+        for h in hosts:
+            # Proper suffix match: host == h OR host ends with ".h".
+            if host == h or host.endswith("." + h):
+                return code
+    return None
+
+
+# M-42e (2026-04-22): named-trial primary-paper floor for T1 tier.
+# V25 had SURPASS-2 NEJM cited but missed SURPASS-1 Rosenstock,
+# SURPASS-3 Ludvik, SURMOUNT-1 Jastreboff as first-class biblio
+# entries even though M-35 anchor queries surfaced them into the
+
+ succeeded in 797ms:
+11:tier-balanced, relevance-ranked subset. The result is emitted to
+81:# slots that all went to FDA/EMA/NICE since they scored higher on
+82:# lexical relevance than a Canadian monograph). M-41d adds a floor:
+182:# allocated by relevance, letting meta-analyses and review papers
+183:# outscore primary trials on lexical relevance.
+188:# before filling T1 by relevance. Capped at 6 (prevents displacing
+375:def _row_relevance(
+380:    """Deterministic lexical relevance score in [0, 1].
+398:    scored: list[tuple[int, float, str, dict[str, Any]]],
+413:    priority then -relevance then index]. Notes include the same
+423:        f"pool_size<=max_rows ({len(scored)}/{max_rows})",
+433:        t1_scored = [s for s in scored if s[2] == "T1"]
+438:            for item in t1_scored:
+457:    # trim is needed. But we still want to scan the full `scored`
+474:            _m51_canonical_identity_sp(item[3]) for item in scored
+485:            # Scan full scored pool (includes non-T1) for this anchor
+486:            for scored_item in scored:
+487:                if id(scored_item) in m42e_ids:
+489:                if id(scored_item) in m51_extra_ids:
+491:                if _m42e_detect_primary_for_anchor(scored_item[3], anchor):
+492:                    m51_extra_ids.add(id(scored_item))
+505:    mech_pool = [s for s in scored if _m42c_row_is_mechanism_rich(s[3])]
+530:    hc_rows = [s for s in scored
+555:    # by tier priority, then -score, then index.
+567:        scored,
+597:    """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+602:      3. Score each row by lexical relevance (question+protocol anchors
+604:      4. Sort within each tier by (-relevance, original_index) for
+609:      6. Fill remaining slots globally by (tier_priority, -relevance,
+643:    # Compute relevance tokens from research question + protocol anchors.
+654:    scored: list[tuple[int, float, str, dict[str, Any]]] = []
+657:        score = _row_relevance(row, question_tokens, protocol_tokens)
+658:        scored.append((idx, score, tier, row))
+662:    for _, _, tier, _ in scored:
+676:    # M-42c mechanism → M-42d HC → rest by (tier priority, -relevance,
+680:    if len(scored) <= max_rows:
+683:            scored=scored,
+698:        share = int(round(max_rows * n / len(scored)))
+751:    # Now pick within each tier by (-score, original_idx).
+753:    for item in scored:
+760:    # slots before the T1 pick-by-relevance pass. Capped at
+779:    m42c_mech_pool_rows = [s for s in scored
+785:        # Mechanism rows ordered by (tier_priority, -score) — prefer
+823:        # 6 primaries + 2 top-scored rows fill the T1 quota.
+826:            # Reduce reservations to match quota — keep highest-scored
+828:            t1_items_by_score = sorted(
+833:                id(i) for i in t1_items_by_score[:quotas.get("T1", 0)]
+843:        # filling rest by relevance. Both floors are computed above;
+849:            # floor, then fill by relevance. Reserved IDs are union
+867:            # Pass 3: fill remaining T1 slots by relevance
+877:        # rows before filling rest by relevance.
+889:            # Pass 2: fill remaining T2 by relevance
+901:        # filling the rest of the T3 quota by relevance. Prevents the
+910:        # relevance fill that follows still lets high-scoring
+949:                # score then index). Skip the one already reserved.
+960:            # Fill remaining slots from the tier's global score order,
+1003:    # non-primary T1 rows outrank primaries by relevance, primaries
+1007:    # M-51 post-process: for each unique anchor, scan the FULL `scored`
+1050:            # Scan full scored pool for first anchor-matched primary
+1052:            for scored_item in scored:
+1053:                canon = _m51_canonical_identity(scored_item[3])
+1056:                if _m42e_detect_primary_for_anchor(scored_item[3], anchor):
+1057:                    selected.insert(0, scored_item)
+1059:                    m51_inserted_ids.add(id(scored_item))
+1064:        # Sort by (tier_priority, -score, idx) so the tail IS the
+1070:            # sorted by (reverse tier priority, +score, reverse idx).
+1071:            # We want to evict lowest-tier, lowest-score first.
+1079:                    selected[i][1],                           # lowest score first
+1089:    # Sort final selection by (tier_priority, -score, original_idx) for
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/evidence_selector.py | Select-Object -Skip 360 -First 45' in C:\POLARIS
+ succeeded in 770ms:
+    # (2) URL must look like a primary publication — DOI prefix OR
+    # host suggesting peer-reviewed journal.
+    if any(p in url for p in _M42E_PRIMARY_DOI_PREFIXES):
+        return True
+    primary_hosts = (
+        "nejm.org", "thelancet.com", "jamanetwork.com",
+        "nature.com", "diabetesjournals.org",
+    )
+    for h in primary_hosts:
+        if h in url:
+            return True
+    return False
+
+
+def _row_relevance(
+    row: dict[str, Any],
+    question_tokens: set[str],
+    protocol_tokens: set[str],
+) -> float:
+    """Deterministic lexical relevance score in [0, 1].
+
+    Overlap between the union of question+protocol tokens and the
+    evidence's statement+direct_quote content tokens. Jaccard-ish but
+    normalized by the question side so longer evidence doesn't dominate.
+    """
+    text = " ".join(str(row.get(k, "") or "") for k in ("statement", "direct_quote"))
+    ev_toks = _content_tokens(text)
+    anchors = question_tokens | protocol_tokens
+    if not anchors:
+        return 0.0
+    overlap = ev_toks & anchors
+    return len(overlap) / max(1, len(anchors))
+
+
+def _m46_short_pool_ordered_selection(
+    *,
+    evidence_rows: list[dict[str, Any]],
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    full_counts: dict[str, int],
+    max_rows: int,
+    primary_trial_anchors: list[str] | None,
+) -> EvidenceSelection:
+    """M-46 (2026-04-22): compute floor detection + deterministic
+    priority ordering + telemetry for the short-pool case
+    (pool_size <= max_rows).
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Document explicitly that same-tier/same-band recency can change which row fills a quota slot; this is acceptable only because rows in the same relevance band are treated as near-ties."
+  - "Keep floor priority classes ahead of recency in the short-pool path and final ordering; recency must only apply inside the existing class/tier/band ordering."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The design is correct and safe if “soft” is defined as: recency may reorder and therefore select a newer row over an older row only within the same tier and same relevance band, but never across tiers, floor priority classes, or higher relevance bands.  
+Use default `PG_SELECT_RECENCY_EPSILON=0.05`; `0.0` is too weak to address the stated 2014-vs-2025 near-tie failure.  
+Missing years sorting after dated rows within the same band is fine, because it does not exclude undated rows from eligibility.  
+Kill-switch OFF must suppress both ordering changes and recency telemetry to preserve byte-identical prior behavior.  
+Floors remain intact as long as M-42e/M-51/M-42c/M-42d reservation priority is evaluated before recency, with recency only breaking ties inside the already-admitted/fill candidate ordering.
+tokens used
+22,961
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Document explicitly that same-tier/same-band recency can change which row fills a quota slot; this is acceptable only because rows in the same relevance band are treated as near-ties."
+  - "Keep floor priority classes ahead of recency in the short-pool path and final ordering; recency must only apply inside the existing class/tier/band ordering."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+The design is correct and safe if “soft” is defined as: recency may reorder and therefore select a newer row over an older row only within the same tier and same relevance band, but never across tiers, floor priority classes, or higher relevance bands.  
+Use default `PG_SELECT_RECENCY_EPSILON=0.05`; `0.0` is too weak to address the stated 2014-vs-2025 near-tie failure.  
+Missing years sorting after dated rows within the same band is fine, because it does not exclude undated rows from eligibility.  
+Kill-switch OFF must suppress both ordering changes and recency telemetry to preserve byte-identical prior behavior.  
+Floors remain intact as long as M-42e/M-51/M-42c/M-42d reservation priority is evaluated before recency, with recency only breaking ties inside the already-admitted/fill candidate ordering.
