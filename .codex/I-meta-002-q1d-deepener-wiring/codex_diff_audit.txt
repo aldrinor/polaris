@@ -1,0 +1,550 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e77ed-1410-7f81-a31a-5b47db9f5de4
+--------
+user
+RULE NOW — emit the YAML verdict block FIRST. Read the patch at `.codex/I-meta-002-q1d-deepener-wiring/codex_diff.patch` (5 files: 3 production + 2 test files now included inline). Do NOT explore beyond it. TOP SCRUTINY (feeds strict_verify). NOT unconditional no-spend (default OFF; when ON+triggered it spends, bounded).
+
+RE-GATE on the FINAL ship patch. Prior iters (1-4) APPROVE'd the production code. Since then ONE additive change: the brief-gate required a regression test pinning the REAL 2-arg `deepen_evidence(client, state)` call shape — `test_run_deepener_sync_real_path_uses_2arg_signature_and_closes_client` (patches the real `evidence_deepener.deepen_evidence` + `OpenRouterClient`, calls `run_deepener_sync(state)` with no injected `deepen_fn`, asserts client constructed + passed arg1, state arg2, `client.close()` awaited). NO production-code change since iter-4 APPROVE. Confirm the patch still APPROVEs as the final shippable diff.
+
+HARD ITERATION CAP: 5. Iter 5 of 5 (final). Front-load all findings; reserve P0/P1 for real execution risks.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]
+convergence_call: accept_remaining
+```
+
+# Codex diff-gate (iter 1) — PR5 deepener wiring (#942-deepener). Verify the diff implements the brief-gate iter-1 required-changes (Option A confirmed).
+
+## Iter-1 required-changes — verify each in the diff
+1. **Exact Stop-RAG trigger:** `deepener_sweep_adapter.should_trigger_deepener` returns True iff
+   `flag_on AND has_s2_key AND has_seed_evidence AND (adequacy_decision != "proceed" OR total_uncovered
+   > 0)` — does NOT fire on a comfortably-adequate corpus (proceed + 0 uncovered). Wired with
+   `PG_SWEEP_EVIDENCE_DEEPENER` default "0", `SEMANTIC_SCHOLAR_API_KEY` presence, `len(evidence_rows)>0`,
+   and the post-R6 `adequacy.decision`/`completeness.total_uncovered` (adequacy values are Literal
+   "proceed"/"expand"/"abort").
+2. **Event-loop guard:** `run_deepener_sync` checks `asyncio.get_running_loop()`; no loop → `asyncio.run`;
+   loop running → runs `asyncio.run(fn)` in an ISOLATED `ThreadPoolExecutor` thread (never raises
+   RuntimeError mid-sweep). `deepen_fn` is injectable for offline fakes.
+3. **Option A (seed_urls chokepoint):** the sweep feeds `discovered_urls(...)` into
+   `run_live_retrieval(max_serper=0, max_s2=0, fetch_cap=min(len(urls), url_cap), seed_urls=urls)` — every
+   deepened paper is fetched + `classify_source_tier` + `is_content_starved` + `_build_provenance_quote`
+   through the SAME chokepoint; thin/abstract-only → dropped (no laundering). NO new evidence-row build.
+4. **Merge = R-6 pattern:** dedup classified_sources by URL; renumber evidence_ids monotonically
+   `ev_{base+i:03d}`; recompute `compute_tier_distribution` + `check_completeness` + `assess_corpus_adequacy`
+   over the merged corpus. Logs discovered/seeded/accepted counts + deepener stats. Fail-open (any error
+   leaves the post-R6 corpus untouched).
+
+## Evidence (verified by Claude main-thread)
+- 20 tests PASS: trigger predicate (flag/key/seed gates + borderline-only — proceed+0 → no, proceed+
+  uncovered → yes, expand/abort → yes); build_deepener_state (drops blank-url rows); discovered_urls
+  (dedup+cap); run_deepener_sync (no-loop path + inside-running-loop does NOT raise, isolated thread);
+  no-laundering (is_content_starved drops thin deepened content). Plus the existing seed_urls chokepoint
+  test (test_bug776_layer4_doi_seeds) + is_content_starved tests (test_r5_fix_d_content_starved) — the
+  EXACT gate this fix reuses. `verify_lock --consistency` OK.
+- LOC: +282/-2 net 280 — production executable ~100 (adapter ~50 + wiring ~50); rest is docstrings +
+  ~110 test lines. Same shape as PR1 (256) / PR2 (270) which APPROVE'd; the cap's intent (bounded LOGIC
+  blast radius) holds — confirm acceptable or direct a split (note: the brief covered module+wiring+tests
+  as one atomic unit).
+- Frozen/untouched: strict_verify / provenance_generator / D8 / runtime lock / the 5 PR-10 contracts / the
+  verified core. The deepener feeds INPUT evidence ONLY through the existing chokepoint.
+
+## Rule on
+1. NO laundering: can a deepened paper EVER become an evidence row without passing is_content_starved +
+   classify_source_tier over FETCHED content? (Must be NO — it only enters via seed_urls.)
+2. Trigger correctness: does it ever fire on a comfortably-adequate corpus (proceed + 0 uncovered)? Ever
+   stay always-on? (Must be NO / NO.)
+3. Event-loop: any RuntimeError / deadlock path from `run_deepener_sync` in the sync sweep OR an async caller?
+4. Spend bound: default OFF; when ON+triggered, is worst-case bounded (deepener caps+720s timeout, URL cap,
+   `fetch_cap=min(len(urls),cap)`, `max_serper=0/max_s2=0`, PG_MAX_COST_PER_RUN still binds)? Note: the
+   deepener pass still seeds the anchor `[research_question]` to serper/s2 with num=0 — is that a real cost?
+5. Fail-open: a deepener/fetch error leaves the post-R6 corpus + adequacy untouched (try/except)?
+
+APPROVE iff the trigger is exact + borderline-only, the event-loop guard never raises mid-sweep, every
+deepened paper passes the existing chokepoint (no laundering), spend is bounded + default-OFF, and it's
+test-proven offline.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath '.codex/I-meta-002-q1d-deepener-wiring/codex_diff.patch'" in C:\POLARIS
+ succeeded in 1217ms:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 2c827231..1815cbbe 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1919,6 +1919,92 @@ async def run_one_query(
+             except Exception as exc:
+                 _log(f"[expansion]   FAILED: {exc}")
+ 
++        # I-meta-002-q1d (#942-deepener): Stop-RAG-gated citation-snowball deepening. Default OFF (it
++        # SPENDS). Fires only on a BORDERLINE corpus (Codex brief-gate predicate). Every discovered
++        # paper URL is fed back through the SAME run_live_retrieval(seed_urls=...) fetch/tier/strict_
++        # verify chokepoint — a deepened paper earns its tier only from fetched content; a thin/
++        # abstract-only paper is DROPPED fail-closed (no laundering). Fail-open: any error leaves the
++        # post-R6 corpus untouched.
++        from src.polaris_graph.retrieval.deepener_sweep_adapter import (
++            build_deepener_state,
++            discovered_urls,
++            run_deepener_sync,
++            should_trigger_deepener,
++        )
++        if should_trigger_deepener(
++            flag_on=os.getenv("PG_SWEEP_EVIDENCE_DEEPENER", "0").strip() in ("1", "true", "True"),
++            has_s2_key=bool(os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()),
++            has_seed_evidence=len(retrieval.evidence_rows) > 0,
++            adequacy_decision=adequacy.decision,
++            total_uncovered=completeness.total_uncovered,
++        ):
++            try:
++                _deep_state = build_deepener_state(retrieval.evidence_rows, q["question"])
++                _deep_out = run_deepener_sync(_deep_state)
++                _url_cap = max(0, int(os.getenv("PG_SWEEP_DEEPENER_URL_CAP", "20")))
++                _deep_urls = discovered_urls(_deep_out, cap=_url_cap)
++                _log(f"[deepener]    discovered "
++                     f"{len((_deep_out or {}).get('deepened_papers', []))} papers; seeding "
++                     f"{len(_deep_urls)} urls (cap={_url_cap}); "
++                     f"stats={(_deep_out or {}).get('deepener_stats', {})}")
++                if _deep_urls:
++                    deep_retrieval = run_live_retrieval(
++                        research_question=q["question"],
++                        amplified_queries=[],
++                        protocol=protocol,
++                        fetch_cap=min(len(_deep_urls), _url_cap),
++                        enable_openalex_enrich=True,
++                        enable_prefetch_filter=False,
++                        seed_urls=_deep_urls,
++                        seed_only=True,     # ONLY the deepener URLs — no Serper/S2/domain fan-out
++                    )
++                    # ATOMIC merge (Codex diff-gate iter-1 P1): stage everything in LOCAL copies,
++                    # recompute dist/completeness/adequacy over the staged corpus, and COMMIT all
++                    # assignments only after every recompute succeeds — so a recompute error leaves the
++                    # post-R6 corpus untouched (the outer except is fail-open). Dedup by URL with the
++                    # seen-set updated as sources are accepted; only deep evidence rows whose source URL
++                    # was an ACCEPTED non-duplicate source are appended (no evidence_row_count inflation).
++                    _staged_sources = list(retrieval.classified_sources)
++                    _seen_urls = {s.url for s in _staged_sources}
++                    _accepted_src_urls: set[str] = set()
++                    for src in deep_retrieval.classified_sources:
++                        if src.url and src.url not in _seen_urls:
++                            _seen_urls.add(src.url)
++                            _staged_sources.append(src)
++                            _accepted_src_urls.add(src.url)
++                    _staged_rows = list(retrieval.evidence_rows)
++                    _base = len(_staged_rows)
++                    _accepted = 0
++                    for ev in deep_retrieval.evidence_rows:
++                        _ev_url = (ev.get("source_url") or ev.get("url") or "").strip()
++                        if not _ev_url or _ev_url not in _accepted_src_urls:
++                            continue  # duplicate / not an accepted source — skip (no inflation)
++                        ev["evidence_id"] = f"ev_{_base + _accepted:03d}"
++                        _staged_rows.append(ev)
++                        _accepted += 1
++                    _staged_dist = compute_tier_distribution(_staged_sources, protocol)
++                    _staged_completeness = check_completeness(
++                        domain=q["domain"],
++                        research_question=q["question"],
++                        evidence_rows=_staged_rows,
++                    )
++                    _staged_adequacy = assess_corpus_adequacy(
++                        tier_counts=_staged_dist.tier_counts,
++                        evidence_row_count=len(_staged_rows),
++                        domain=q["domain"],
++                        protocol=protocol,
++                    )
++                    # Commit atomically (all recomputes succeeded).
++                    retrieval.classified_sources = _staged_sources
++                    retrieval.evidence_rows = _staged_rows
++                    dist = _staged_dist
++                    completeness = _staged_completeness
++                    adequacy = _staged_adequacy
++                    _log(f"[deepener]    merged +{_accepted} evidence rows (post-chokepoint); "
++                         f"adequacy={adequacy.decision} uncovered={completeness.total_uncovered}")
++            except Exception as exc:
++                _log(f"[deepener]    FAILED (fail-open): {exc}")
++
+         # R-6 Gap-1: if adequacy still says ABORT after optional
+         # expansion, refuse to synthesize — emit a short "corpus
+         # inadequate" manifest and return status=abort_corpus_inadequate.
+diff --git a/src/polaris_graph/retrieval/deepener_sweep_adapter.py b/src/polaris_graph/retrieval/deepener_sweep_adapter.py
+new file mode 100644
+index 00000000..35d7f396
+--- /dev/null
++++ b/src/polaris_graph/retrieval/deepener_sweep_adapter.py
+@@ -0,0 +1,123 @@
++"""Sweep-side adapter for the citation-snowball evidence_deepener (I-meta-002-q1d #942-deepener).
++
++Wires POLARIS's frontier-grade `evidence_deepener` (backward+forward S2 citation chase + recommendations
+++ mechanism search) into the launch sweep behind a flag + a Stop-RAG value-based trigger. SAFETY DESIGN
++(Codex brief-gate, Option A): the deepener only DISCOVERS relevant primary-paper URLs; those URLs are then
++fed back through the EXISTING `run_live_retrieval(seed_urls=...)` chokepoint (fetch → classify_source_tier
++→ is_content_starved → _build_provenance_quote), so a deepened paper earns its tier ONLY from fetched
++content and a thin/abstract-only paper is DROPPED fail-closed — no tier laundering, zero new evidence-row
++build logic that could drift from strict_verify.
++
++Pure orchestration helpers (no I/O except the injected `deepen_evidence` coroutine). The sweep does the
++merge + the `run_live_retrieval` pass; this module only builds the deepener state, runs the coroutine
++safely from a sync caller, applies the trigger predicate, and extracts the discovered URLs.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import concurrent.futures
++import os
++from typing import Any, Awaitable, Callable
++
++# Model the deepener uses for its mechanism-query generation LLM call (env-overridable).
++DEEPENER_LLM_MODEL = os.getenv("PG_SWEEP_DEEPENER_MODEL", "deepseek/deepseek-v4-pro")
++
++# Default URL injection cap (bounds the deepener fetch pass; also env-overridable at the call site).
++DEFAULT_DEEPENER_URL_CAP = 20
++
++
++def should_trigger_deepener(
++    *,
++    flag_on: bool,
++    has_s2_key: bool,
++    has_seed_evidence: bool,
++    adequacy_decision: str,
++    total_uncovered: int,
++) -> bool:
++    """Stop-RAG value-based trigger (Codex brief-gate iter-1 required predicate). The deepener fires
++    ONLY when it is enabled AND there is something to chase from AND the corpus is BORDERLINE — i.e.
++    NOT on an already-comfortably-adequate corpus with full coverage.
++
++    - `flag_on`: PG_SWEEP_EVIDENCE_DEEPENER truthy (default OFF — the deepener SPENDS).
++    - `has_s2_key`: SEMANTIC_SCHOLAR_API_KEY present (the deepener no-ops without it).
++    - `has_seed_evidence`: there is existing evidence to chase citations FROM (else "abort-impossible").
++    - borderline := adequacy.decision != "proceed" (i.e. "expand"/"abort") OR post-R6 uncovered topics > 0.
++    """
++    if not (flag_on and has_s2_key and has_seed_evidence):
++        return False
++    return adequacy_decision != "proceed" or total_uncovered > 0
++
++
++def build_deepener_state(evidence_rows: list[dict[str, Any]], question: str) -> dict[str, Any]:
++    """Build the 3-key state the deepener reads (`iteration_count`, `evidence` carrying `source_url`,
++    `original_query`). Pure."""
++    evidence = []
++    for ev in evidence_rows or []:
++        # Strip BEFORE the blank check (Codex diff-gate iter-1 P1): a whitespace-only url is not seed
++        # evidence.
++        url = (ev.get("source_url") or ev.get("url") or "").strip()
++        if url:
++            evidence.append({"source_url": url})
++    return {"iteration_count": 0, "evidence": evidence, "original_query": question or ""}
++
++
++def run_deepener_sync(
++    state: dict[str, Any],
++    *,
++    deepen_fn: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
++) -> dict[str, Any]:
++    """Run the async `deepen_evidence` coroutine from a SYNC caller WITHOUT raising RuntimeError if an
++    event loop is already running (Codex brief-gate iter-1 P1). Normal sweep execution has no running
++    loop → `asyncio.run`. If a loop IS running (async test harness / embedded caller), run the coroutine
++    in an ISOLATED thread with its own loop so it fails closed locally and never aborts unrelated work.
++
++    `deepen_fn` is injectable so offline tests pass a FAKE deepener (no network/spend). The REAL
++    `deepen_evidence(client, state)` takes an OpenRouterClient FIRST (Codex diff-gate iter-2 P1) — the
++    default closure constructs one and adapts it to the 1-arg `fn(state)` interface used here.
++    """
++    if deepen_fn is None:
++        from src.polaris_graph.agents.evidence_deepener import deepen_evidence  # noqa: E402
++        from src.polaris_graph.llm.openrouter_client import OpenRouterClient  # noqa: E402
++
++        async def deepen_fn(_state: dict[str, Any]) -> dict[str, Any]:
++            # Close the client after the pass to avoid leaking its async HTTP client (Codex diff-gate
++            # iter-3 P2; mirrors the generator pattern, e.g. analyst_synthesis).
++            client = OpenRouterClient(model=DEEPENER_LLM_MODEL)
++            try:
++                return await deepen_evidence(client, _state)
++            finally:
++                await client.close()
++
++    try:
++        asyncio.get_running_loop()
++        loop_running = True
++    except RuntimeError:
++        loop_running = False
++
++    if loop_running:
++        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
++            return executor.submit(lambda: asyncio.run(deepen_fn(state))).result()
++    return asyncio.run(deepen_fn(state))
++
++
++def discovered_urls(deepener_output: dict[str, Any] | None, *, cap: int = DEFAULT_DEEPENER_URL_CAP) -> list[str]:
++    """Extract de-duplicated, non-blank discovered paper URLs from the deepener output, capped. These
++    are seeded into the `run_live_retrieval(seed_urls=...)` chokepoint (not turned into evidence rows
++    here — the existing fetch/tier/provenance pipeline does that)."""
++    # Exact cap (Codex diff-gate iter-1 P1): a non-positive cap yields NO urls (and never flows a
++    # negative into fetch_cap) — guard up front so the append-then-break can't return one url at cap=0.
++    if cap is None or cap <= 0:
++        return []
++    papers = (deepener_output or {}).get("deepened_papers", []) or []
++    out: list[str] = []
++    seen: set[str] = set()
++    for paper in papers:
++        url = (paper.get("url") or "").strip() if isinstance(paper, dict) else ""
++        if not url or url in seen:
++            continue
++        seen.add(url)
++        out.append(url)
++        if len(out) >= cap:
++            break
++    return out
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 0b5e4140..2514203a 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -1280,6 +1280,7 @@ def run_live_retrieval(
+     enable_prefetch_filter: bool = False,
+     domain: Optional[str] = None,
+     seed_urls: Optional[list[str]] = None,
++    seed_only: bool = False,
+ ) -> LiveRetrievalResult:
+     """Execute live retrieval and classify the corpus.
+ 
+@@ -1346,7 +1347,10 @@ def run_live_retrieval(
+             _n_seed_injected,
+         )
+ 
+-    for q in effective_queries:
++    # I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only processes ONLY the injected
++    # seed_urls — no Serper/S2 fan-out and no domain backends. Used by the deepener pass so it fetches
++    # exactly the citation-snowball-discovered URLs (and nothing else) through the same chokepoint.
++    for q in ([] if seed_only else effective_queries):
+         logger.info("[live_retriever] SERPER q=%r", q[:80])
+         serper_hits = _serper_search(q, num=max_serper)
+         api_calls["serper"] += 1
+@@ -1383,7 +1387,8 @@ def run_live_retrieval(
+     # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+     # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
+     # for policy. Fail-open: any backend exception yields 0 new hits.
+-    if domain:
++    # Skipped on the seed_only deepener pass (no extra retrieval).
++    if domain and not seed_only:
+         try:
+             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                 run_domain_backends,
+diff --git a/tests/polaris_graph/test_deepener_sweep_adapter.py b/tests/polaris_graph/test_deepener_sweep_adapter.py
+new file mode 100644
+index 00000000..1dd7a870
+--- /dev/null
++++ b/tests/polaris_graph/test_deepener_sweep_adapter.py
+@@ -0,0 +1,144 @@
++"""Sweep-side deepener adapter (I-meta-002-q1d #942-deepener). Pure helpers + the event-loop-guarded
++sync wrapper. NO network / NO real deepener (a FAKE async deepen_fn is injected). The no-laundering
++property (thin deepened paper dropped) lives in run_live_retrieval's seed_urls chokepoint — exercised by
++test_no_laundering below via a stubbed fetch.
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++import pytest
++
++from src.polaris_graph.retrieval.deepener_sweep_adapter import (
++    build_deepener_state,
++    discovered_urls,
++    run_deepener_sync,
++    should_trigger_deepener,
++)
++
++
++# --- Stop-RAG trigger predicate (Codex brief-gate required predicate) -----------------------------
++def test_trigger_requires_flag_key_and_seed_evidence():
++    base = dict(has_s2_key=True, has_seed_evidence=True, adequacy_decision="expand", total_uncovered=2)
++    assert should_trigger_deepener(flag_on=True, **base) is True
++    assert should_trigger_deepener(flag_on=False, **base) is False  # off by default
++    assert should_trigger_deepener(flag_on=True, **{**base, "has_s2_key": False}) is False
++    assert should_trigger_deepener(flag_on=True, **{**base, "has_seed_evidence": False}) is False
++
++
++def test_trigger_only_on_borderline_corpus():
++    # Comfortably adequate (proceed) + full coverage → do NOT deepen.
++    assert should_trigger_deepener(
++        flag_on=True, has_s2_key=True, has_seed_evidence=True,
++        adequacy_decision="proceed", total_uncovered=0,
++    ) is False
++    # proceed but uncovered topics remain → deepen.
++    assert should_trigger_deepener(
++        flag_on=True, has_s2_key=True, has_seed_evidence=True,
++        adequacy_decision="proceed", total_uncovered=1,
++    ) is True
++    # expand / abort → deepen (try to rescue before the abort gate).
++    for dec in ("expand", "abort"):
++        assert should_trigger_deepener(
++            flag_on=True, has_s2_key=True, has_seed_evidence=True,
++            adequacy_decision=dec, total_uncovered=0,
++        ) is True
++
++
++# --- build_deepener_state -------------------------------------------------------------------------
++def test_build_deepener_state_shape():
++    rows = [
++        {"evidence_id": "ev_000", "source_url": "  https://a  "},  # stripped
++        {"evidence_id": "ev_001", "url": "https://b"},            # falls back to url
++        {"evidence_id": "ev_002"},                                 # no url → dropped
++        {"evidence_id": "ev_003", "source_url": "   "},           # whitespace-only → dropped (P1)
++    ]
++    state = build_deepener_state(rows, "what is X?")
++    assert state["iteration_count"] == 0
++    assert state["original_query"] == "what is X?"
++    assert state["evidence"] == [{"source_url": "https://a"}, {"source_url": "https://b"}]
++
++
++# --- discovered_urls ------------------------------------------------------------------------------
++def test_discovered_urls_dedup_and_cap():
++    out = {"deepened_papers": [
++        {"url": "https://x"}, {"url": "https://x"}, {"url": "https://y"}, {"url": ""}, {"no_url": 1},
++        {"url": "https://z"},
++    ]}
++    assert discovered_urls(out, cap=2) == ["https://x", "https://y"]
++    assert discovered_urls(out, cap=10) == ["https://x", "https://y", "https://z"]
++    assert discovered_urls(None, cap=5) == []
++    assert discovered_urls({}, cap=5) == []
++    # Codex diff-gate iter-1 P1: cap<=0 returns NO urls (never one) and never a negative.
++    assert discovered_urls(out, cap=0) == []
++    assert discovered_urls(out, cap=-3) == []
++
++
++# --- run_deepener_sync: event-loop guard (Codex brief-gate iter-1 P1) -----------------------------
++async def _fake_deepen(state):
++    return {"deepened_papers": [{"url": "https://paper1"}], "deepener_stats": {"rounds": 1}}
++
++
++def test_run_deepener_sync_no_running_loop():
++    # Normal sync sweep path: no running loop → asyncio.run.
++    out = run_deepener_sync({"iteration_count": 0, "evidence": [], "original_query": "q"}, deepen_fn=_fake_deepen)
++    assert out["deepened_papers"][0]["url"] == "https://paper1"
++
++
++def test_run_deepener_sync_inside_running_loop_does_not_raise():
++    # If a loop is already running (async test / embedded caller), it must NOT raise RuntimeError —
++    # the coroutine runs in an isolated thread.
++    async def _driver():
++        return run_deepener_sync(
++            {"iteration_count": 0, "evidence": [], "original_query": "q"}, deepen_fn=_fake_deepen
++        )
++
++    out = asyncio.run(_driver())
++    assert out["deepener_stats"]["rounds"] == 1
++
++
++def test_run_deepener_sync_real_path_uses_2arg_signature_and_closes_client(monkeypatch):
++    """Regression for the real adapter call shape (Codex brief-gate iter-2 P0): the default path
++    (no injected deepen_fn) must construct an OpenRouterClient and call the REAL 2-arg
++    deepen_evidence(client, state), then close the client — so a future 1-arg drift is caught."""
++    seen: dict = {}
++
++    class _FakeClient:
++        def __init__(self, *, model=None):
++            seen["model"] = model
++
++        async def close(self):
++            seen["closed"] = True
++
++    async def _fake_deepen_evidence(client, state):  # the REAL 2-arg signature
++        seen["client"] = client
++        seen["state_query"] = state["original_query"]
++        return {"deepened_papers": [{"url": "https://p"}]}
++
++    monkeypatch.setattr(
++        "src.polaris_graph.agents.evidence_deepener.deepen_evidence", _fake_deepen_evidence
++    )
++    monkeypatch.setattr(
++        "src.polaris_graph.llm.openrouter_client.OpenRouterClient", _FakeClient
++    )
++    out = run_deepener_sync({"iteration_count": 0, "evidence": [], "original_query": "qq"})
++    assert isinstance(seen["client"], _FakeClient)   # 2-arg: a client was constructed + passed
++    assert seen["state_query"] == "qq"
++    assert seen.get("closed") is True                # client closed (no leak)
++    assert out["deepened_papers"][0]["url"] == "https://p"
++
++
++# --- no laundering: a thin deepened paper is dropped by the SAME chokepoint the seed_urls path runs
++# (Codex brief-gate iter-1). The deepener feeds discovered URLs as `seed_urls` into run_live_retrieval,
++# which fetches each and runs `is_content_starved` (drops thin) + `classify_source_tier` (tier from
++# FETCHED content) — exactly the gate exercised by test_bug776_layer4_doi_seeds + test_r5_fix_d_*.
++def test_no_laundering_thin_deepened_content_dropped_by_chokepoint():
++    from src.polaris_graph.retrieval.live_retriever import is_content_starved
++
++    # Abstract-only / thin fetched content → DROPPED (a deepened paper cannot earn T1 on metadata).
++    assert is_content_starved("Short abstract only of a deepened paper.") is True
++    assert is_content_starved("a" * 100) is True
++    # Substantive fetched full text survives the starvation gate (then earns its tier from
++    # classify_source_tier over the fetched content — never from the deepener's say-so).
++    assert is_content_starved("Substantive clinical trial full text with real prose. " * 30) is False
+diff --git a/tests/polaris_graph/test_live_retriever_rerank.py b/tests/polaris_graph/test_live_retriever_rerank.py
+index 104e78c6..2d7c1e8b 100644
+--- a/tests/polaris_graph/test_live_retriever_rerank.py
++++ b/tests/polaris_graph/test_live_retriever_rerank.py
+@@ -121,3 +121,25 @@ def test_lexical_relevance_score_edges():
+     assert _lexical_relevance_score(_cand("https://x", title=""), {"tirzepatide"}) == 0.0
+     score = _lexical_relevance_score(_cand("https://x", title="tirzepatide hba1c"), {"tirzepatide", "hba1c", "diabetes"})
+     assert 0.0 < score <= 1.0
++
++
++# --- I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only skips search + domain ----
++def test_seed_only_skips_serper_s2_and_domain_backends(monkeypatch):
++    """run_live_retrieval(seed_only=True) must NOT fan out to Serper/S2 or run domain backends — it
++    processes ONLY the injected seed_urls (used by the deepener pass)."""
++    import src.polaris_graph.retrieval.live_retriever as lr
++    import src.polaris_graph.retrieval.domain_backends as db
++
++    def _boom(*args, **kwargs):
++        raise AssertionError("seed_only must not trigger search/domain retrieval")
++
++    monkeypatch.setattr(lr, "_serper_search", _boom)
++    monkeypatch.setattr(lr, "_s2_bulk_search", _boom)
++    monkeypatch.setattr(db, "run_domain_backends", _boom)
++
++    # No seed urls + seed_only → zero candidates, zero search/domain calls, no raise.
++    result = lr.run_live_retrieval(
++        research_question="anything", seed_only=True, seed_urls=[], fetch_cap=5, domain="clinical",
++    )
++    assert result.candidates_fetched == 0
++    assert result.total_candidates_pre_filter == 0
+
+
+codex
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+
+Reviewed only `.codex/I-meta-002-q1d-deepener-wiring/codex_diff.patch`.
+
+The final diff still satisfies the gate. The trigger predicate is exact and default-off, the deepener path only re-enters via `run_live_retrieval(seed_urls=..., seed_only=True)`, and the merge appends only post-chokepoint accepted evidence. The event-loop guard avoids the `asyncio.run()`-inside-running-loop failure by isolating the coroutine in a thread, and the new regression test pins the real `deepen_evidence(client, state)` call shape plus `client.close()`.
+
+No blocking execution risk found. The patch is shippable.
+tokens used
+15,088
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+
+Reviewed only `.codex/I-meta-002-q1d-deepener-wiring/codex_diff.patch`.
+
+The final diff still satisfies the gate. The trigger predicate is exact and default-off, the deepener path only re-enters via `run_live_retrieval(seed_urls=..., seed_only=True)`, and the merge appends only post-chokepoint accepted evidence. The event-loop guard avoids the `asyncio.run()`-inside-running-loop failure by isolating the coroutine in a thread, and the new regression test pins the real `deepen_evidence(client, state)` call shape plus `client.close()`.
+
+No blocking execution risk found. The patch is shippable.

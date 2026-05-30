@@ -1,0 +1,26 @@
+codex
+1. ✓ Build-order blocker closed: [§3 lines 36-39](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:36)
+2. ✓ Quota generator rules closed: [§2 line 30](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:30)
+3. ✓ Deterministic resample/expand closed: [§3 lines 43-57](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:43)
+4. ✓ Planned-intent stratum closed: [§3 line 41](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:41)
+5. ✓ Matched-control ratio closed: [§5 line 67](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:67)
+6. ✓ SME balancing closed: [§2 line 31](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:31)
+7. ✓ Expanded allocation manifest closed: [§4 line 61](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:61)
+8. ✓ Gate dependencies closed: header and §7 include D5/D7', source-packet readiness, accepted relation-builder code, and edge-fixture run: [lines 5, 77-79](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:77)
+
+No △ / ✗ remaining.
+
+Lock D8.
+9,943
+1. ✓ Build-order blocker closed: [§3 lines 36-39](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:36)
+2. ✓ Quota generator rules closed: [§2 line 30](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:30)
+3. ✓ Deterministic resample/expand closed: [§3 lines 43-57](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:43)
+4. ✓ Planned-intent stratum closed: [§3 line 41](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:41)
+5. ✓ Matched-control ratio closed: [§5 line 67](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:67)
+6. ✓ SME balancing closed: [§2 line 31](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:31)
+7. ✓ Expanded allocation manifest closed: [§4 line 61](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:61)
+8. ✓ Gate dependencies closed: header and §7 include D5/D7', source-packet readiness, accepted relation-builder code, and edge-fixture run: [lines 5, 77-79](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D8_pilot_allocation.md:77)
+
+No △ / ✗ remaining.
+
+Lock D8.

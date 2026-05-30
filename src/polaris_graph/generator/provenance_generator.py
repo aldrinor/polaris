@@ -893,6 +893,40 @@ def _trial_names_in_evidence(ev: dict[str, Any]) -> set[str]:
     return acc
 
 
+def _trial_name_span_fallback_enabled() -> bool:
+    """I-meta-002-q1d (#949). Default ON. When OFF, trial-name matching is the exact pass-7
+    title/statement-only behavior (byte-identical)."""
+    return os.getenv("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _trial_names_for_cited_row(ev: dict[str, Any], cited_spans: list[tuple[int, int]]) -> set[str]:
+    """Trial names this cited row authoritatively contributes (I-meta-002-q1d #949).
+
+    TITLE AUTHORITY (the binding clinical-safety rule): if statement/title names ANY trial, that set is
+    returned and the span is NOT consulted — a row whose title declares trial T can never match a sentence
+    naming a different trial, regardless of what its direct_quote/body contains (this preserves the pass-7
+    FABRICATED-#20 locked-FAIL even when the citation span covers the whole body).
+
+    SPAN FALLBACK (only when the title/statement names NO trial — the SURPASS-2-omitted-from-title case):
+    return trial names found in the CITED SPANS ONLY (`direct_quote[start:end]` for this row's tokens — the
+    same slice the numeric/content checks use), NOT the whole direct_quote. The cited RESULTS span names the
+    trial whose result it states; a prior-reference mention OUTSIDE the cited span never matches, and a body
+    that contextualises against sibling trials elsewhere does not pollute the match. Gated by
+    `_trial_name_span_fallback_enabled()` (default ON; OFF → exact title-only behavior)."""
+    title_trials = _trial_names_in_evidence(ev)
+    if title_trials or not _trial_name_span_fallback_enabled():
+        return title_trials
+    direct_quote = (ev.get("direct_quote") or ev.get("statement") or "") if ev else ""
+    if not direct_quote:
+        return set()
+    span_trials: set[str] = set()
+    for start, end in cited_spans:
+        span_trials |= extract_trial_names(direct_quote[start:end])
+    return span_trials
+
+
 def verify_sentence_provenance(
     sentence: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -1116,10 +1150,15 @@ def verify_sentence_provenance(
         # SURMOUNT-3 paper).
         sentence_trials = extract_trial_names(sentence_for_numbers)
         if sentence_trials:
-            evidence_trials: set[str] = set()
+            # I-meta-002-q1d (#949): resolve each cited row ROW-LOCALLY — title/statement authority, else
+            # the CITED SPANS for THAT row only (never whole direct_quote, never cross-row spans).
+            spans_by_ev: dict[str, list[tuple[int, int]]] = {}
             for tok in tokens:
-                ev = evidence_pool.get(tok.evidence_id)
-                evidence_trials |= _trial_names_in_evidence(ev or {})
+                spans_by_ev.setdefault(tok.evidence_id, []).append((tok.start, tok.end))
+            evidence_trials: set[str] = set()
+            for ev_id, cited_spans in spans_by_ev.items():
+                ev = evidence_pool.get(ev_id)
+                evidence_trials |= _trial_names_for_cited_row(ev or {}, cited_spans)
             matched = sentence_trials & evidence_trials
             if not matched:
                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))

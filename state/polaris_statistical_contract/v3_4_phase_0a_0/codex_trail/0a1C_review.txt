@@ -1,0 +1,44 @@
+codex
+**§-1.1 Verdict**
+
+Do not lock yet. The anti-leak split is directionally right, and the DEFF formula itself is correct, but the schema/spec half still has build-blocking gaps.
+
+The biggest issue is stratum input. §2 says the builder input is only `construction_manifest` + `source_packet_manifest`, but §2.1/§2.2 require severity stratum. Construction correctly has no labels, so the builder cannot compute `stratum`, `P`, `N`, or DEFF unless it also consumes `consensus_gold_labels` or a separate sealed `severity_stratum_manifest` derived from consensus gold. That is not a leak if custody controls access, because severity labels are allowed structural exposure pre-outcome, but it must be explicit.
+
+§1.5 is underspecified. It says facet-level severity/fab attaches via label manifests keyed on `(claim_id, facet_id)`, but the label schemas only contain `claim_id`. Add `facet_id`/`label_scope` to the relevant label manifests or create separate facet-label manifests, and define how facet labels roll up to claim-level `final_severity` / `final_fab_status` for Gate A.
+
+The relation scoping needs correction. For Gate A DEFF, `P` must be counted within each severity stratum. But criteria 1-4 are not intrinsically same-stratum criteria; they can be true cross-stratum. Criterion 5 is the only one whose definition includes same severity stratum. Best spec: compute base pairwise relations over all unordered pairs, then compute `P_S` by filtering to pairs where both claims are in stratum `S`. If you intentionally emit only within-stratum rows, say that explicitly and define degree statistics as within-stratum only. The current wording is ambiguous and may truncate the contract’s pairwise lookup table / degree audit.
+
+The DEFF formula `1 + 2*P*rho/N` is right, and the saturation edge case is right. But the per-stratum output needs a locked schema, not just prose: `stratum`, `N`, `P`, `rho`, `DEFF`, `n_eff`, relation-table hash, input hashes, and the contract-required max / 95th-percentile claim degree.
+
+Determinism is mostly correct. Integer Jaccard for `>=0.5` is correct. Add float-free comparisons for criterion 5’s `[0.2, 0.5)` interval, e.g. `5*intersection >= union` and `2*intersection < union`. Also specify source-list dedup before Jaccard, and add an exact `24h` fixture; the prose says inclusive, but the fixture list tests only 23h59m and 24h01m.
+
+The fixture list is good but incomplete. Add adversarial fixtures for cross-stratum pairs, criterion-5 same-stratum gating, each criterion firing alone, Jaccard just below/above 0.5, the 0.2 boundary for criterion 5, duplicate IDs in claim-level cited sets, alias-resolved IDs, missing/null relation fields fail-closed, and prompt-family role matching semantics.
+
+Forward placeholders are sound only if unresolved values are invalid at accepted builder-run time. Opaque IDs are fine now, but `microtopic_tags`, `sme_template_id`, prompt-family IDs, and `packet_class` are relation inputs, so the post-E dry run must wait until their governing enums/registries are locked. Also `packet_class` needs provenance; it is used in criterion 5 but not listed in the forward-placeholder note.
+
+One process gap: §4 says the JSON Schemas are hash-pinned in `state/data_lineage/schemas/`, but that directory is currently absent. If this half is meant to lock machine-readable schemas, those schema files and hashes are part of the lock, not the post-E code half.
+
+Fix severity-stratum input/output, facet label keying, relation scoping/degree summary schema, deterministic fixture coverage, placeholder fail-closed rules, and hash-pinned JSON Schemas then lock.
+98,015
+**§-1.1 Verdict**
+
+Do not lock yet. The anti-leak split is directionally right, and the DEFF formula itself is correct, but the schema/spec half still has build-blocking gaps.
+
+The biggest issue is stratum input. §2 says the builder input is only `construction_manifest` + `source_packet_manifest`, but §2.1/§2.2 require severity stratum. Construction correctly has no labels, so the builder cannot compute `stratum`, `P`, `N`, or DEFF unless it also consumes `consensus_gold_labels` or a separate sealed `severity_stratum_manifest` derived from consensus gold. That is not a leak if custody controls access, because severity labels are allowed structural exposure pre-outcome, but it must be explicit.
+
+§1.5 is underspecified. It says facet-level severity/fab attaches via label manifests keyed on `(claim_id, facet_id)`, but the label schemas only contain `claim_id`. Add `facet_id`/`label_scope` to the relevant label manifests or create separate facet-label manifests, and define how facet labels roll up to claim-level `final_severity` / `final_fab_status` for Gate A.
+
+The relation scoping needs correction. For Gate A DEFF, `P` must be counted within each severity stratum. But criteria 1-4 are not intrinsically same-stratum criteria; they can be true cross-stratum. Criterion 5 is the only one whose definition includes same severity stratum. Best spec: compute base pairwise relations over all unordered pairs, then compute `P_S` by filtering to pairs where both claims are in stratum `S`. If you intentionally emit only within-stratum rows, say that explicitly and define degree statistics as within-stratum only. The current wording is ambiguous and may truncate the contract’s pairwise lookup table / degree audit.
+
+The DEFF formula `1 + 2*P*rho/N` is right, and the saturation edge case is right. But the per-stratum output needs a locked schema, not just prose: `stratum`, `N`, `P`, `rho`, `DEFF`, `n_eff`, relation-table hash, input hashes, and the contract-required max / 95th-percentile claim degree.
+
+Determinism is mostly correct. Integer Jaccard for `>=0.5` is correct. Add float-free comparisons for criterion 5’s `[0.2, 0.5)` interval, e.g. `5*intersection >= union` and `2*intersection < union`. Also specify source-list dedup before Jaccard, and add an exact `24h` fixture; the prose says inclusive, but the fixture list tests only 23h59m and 24h01m.
+
+The fixture list is good but incomplete. Add adversarial fixtures for cross-stratum pairs, criterion-5 same-stratum gating, each criterion firing alone, Jaccard just below/above 0.5, the 0.2 boundary for criterion 5, duplicate IDs in claim-level cited sets, alias-resolved IDs, missing/null relation fields fail-closed, and prompt-family role matching semantics.
+
+Forward placeholders are sound only if unresolved values are invalid at accepted builder-run time. Opaque IDs are fine now, but `microtopic_tags`, `sme_template_id`, prompt-family IDs, and `packet_class` are relation inputs, so the post-E dry run must wait until their governing enums/registries are locked. Also `packet_class` needs provenance; it is used in criterion 5 but not listed in the forward-placeholder note.
+
+One process gap: §4 says the JSON Schemas are hash-pinned in `state/data_lineage/schemas/`, but that directory is currently absent. If this half is meant to lock machine-readable schemas, those schema files and hashes are part of the lock, not the post-E code half.
+
+Fix severity-stratum input/output, facet label keying, relation scoping/degree summary schema, deterministic fixture coverage, placeholder fail-closed rules, and hash-pinned JSON Schemas then lock.

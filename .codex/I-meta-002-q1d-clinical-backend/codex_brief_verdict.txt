@@ -1,0 +1,538 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e77ce-2904-7ae0-a77d-ca6c202d6fd1
+--------
+user
+RULE NOW — emit the YAML verdict block FIRST. APPROVE this CONCRETE plan or REQUEST_CHANGES with specifics. Read AT MOST the cited regions. NO SPEND (free keyless API) — but it DOES hit the network.
+
+HARD ITERATION CAP: 5. Iter 1 of 5. Front-load ALL findings; reserve P0/P1 for real execution risks.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]
+convergence_call: accept_remaining
+```
+
+# Codex brief-gate (iter 1) — PR4 clinical retrieval backend: Europe PMC (#942-clinical). NO SPEND (free keyless); DOES hit network (fail-open).
+
+Codex-verified depth gap (#941): `domain_backends.py:377` has NO clinical branch — the CLINICAL benchmark
+domain (3 of 5 golden Qs) relies on generic Serper + keyless S2 only; no PubMed/Europe PMC/ClinicalTrials.gov.
+This adds a keyless Europe PMC backend so the clinical search surface gains primary-literature breadth (the
+benchmark must out-depth frontier DR on the clinical set). Lands on PR1 rerank + PR2 decomposition.
+
+## GROUNDED FACTS (do not re-explore)
+- `src/polaris_graph/retrieval/domain_backends.py`: existing backends (`arxiv_search` :127, `policy_targeted_serper`,
+  `sec_edgar_search`) each take `(query, limit)` and return `list[SearchCandidate]`, fail-open. A shared
+  `_http_get_json(url, params)` (:55) + `_http_get_text` exist (httpx, `HTTP_TIMEOUT`, follow_redirects).
+  `SearchCandidate(url, title, snippet, source, metadata, query_origin)` from prefetch_offtopic_filter.
+- `run_domain_backends(domain, research_question, amplified_queries)` (:331) dispatches per domain via a
+  `_run(name, fn)` closure (dedups by URL, records `backends_used`/`per_backend_counts`); the `clinical`
+  branch is a NO-OP comment (:377). Returns `DomainBackendResult`.
+- `live_retriever.run_live_retrieval` already calls `run_domain_backends(domain=...)` and merges its
+  candidates (these flow through the SAME fetch/tier/strict_verify chokepoint as Serper/S2 — no laundering).
+- Workflow design (#941, Codex-verified): use Europe PMC (keyless, full-text-resolving) FIRST; PMC/DOI URLs
+  only, NEVER `europepmc.org` landing pages; defer ClinicalTrials.gov (runtime 403) + openFDA/DailyMed
+  (allowlist change) as NAMED fast-follows.
+
+## CONCRETE PROPOSAL (APPROVE or correct)
+A. **New `europe_pmc_search(query, limit=PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]`** in
+   domain_backends.py, matching the `arxiv_search` shape:
+   - GET `https://www.ebi.ac.uk/europepmc/webservices/rest/search` with params
+     `{"query": query, "format": "json", "resultType": "core", "pageSize": min(limit,25)}` via
+     `_http_get_json`. Fail-open (None/exception → []).
+   - For each `resultList.result[*]`, build a RESOLVABLE primary-literature URL, in priority order — and
+     SKIP a result that yields none (never a europepmc.org landing page):
+     1. `doi` → `https://doi.org/{doi}`
+     2. else `pmcid` (e.g. "PMC123") → `https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/`
+     3. else `pmid` → `https://pubmed.ncbi.nlm.nih.gov/{pmid}/`
+   - `SearchCandidate(url=<resolved>, title=result["title"], snippet=result.get("abstractText","")[:300],
+     source="europe_pmc", metadata={"doi": doi, "pmid": pmid, "pmcid": pmcid, "year": pubYear,
+     "is_oa": isOpenAccess})`. (metadata mirrors the S2 candidate so downstream year/OA logic can read it.)
+B. **Wire into the clinical branch** of `run_domain_backends`: `elif domain == "clinical":
+   _run("europe_pmc", europe_pmc_search)`. Replaces the no-op comment. The `_run` closure already dedups by
+   URL against existing candidates + records counts.
+C. **Bounded / no-spend:** Europe PMC is FREE + KEYLESS (no API key, no cost). `PG_DOMAIN_MAX_HITS`
+   (default 10) + the existing 3-amplified-query cap bound the call count. Add an env kill-switch
+   `PG_CLINICAL_EUROPE_PMC` (default "1") so the backend can be disabled. `HTTP_TIMEOUT` applies; fail-open
+   means a Europe PMC outage degrades to today's Serper+S2 (never breaks the run).
+D. **Tests (offline, socket blocked):** inject a canned Europe PMC JSON response (monkeypatch
+   `_http_get_json`): (1) a result with a `doi` → `https://doi.org/...` URL; (2) doi absent + `pmcid` →
+   PMC URL; (3) only `pmid` → pubmed URL; (4) a result with NONE of doi/pmcid/pmid is SKIPPED (no
+   europepmc.org landing URL ever emitted); (5) fail-open: `_http_get_json` returns None → []; (6)
+   `run_domain_backends(domain="clinical")` now includes the europe_pmc backend in `backends_used`; (7)
+   `PG_CLINICAL_EUROPE_PMC=0` disables it.
+
+## Constraints / frozen
+- NO SPEND (keyless). snake_case; explicit imports; no except:pass (fail-open = explicit try/except + log);
+  ≤200 LOC. Untouched: strict_verify / D8 / runtime lock / the 5 PR-10 contracts / tier classifier /
+  Serper+S2 path. Europe PMC candidates pass the SAME fetch/tier/strict_verify chokepoint (no laundering —
+  a Europe PMC source counts as T1 only if the tier classifier confirms the fetched content).
+
+## The real risks to rule on
+1. Is DOI→PMC→PubMed the right URL priority, and is SKIPPING a result with no resolvable id correct
+   (vs emitting a europepmc.org landing URL)? (Claim: skip — landing pages don't fetch as primary content.)
+2. Europe PMC `query` syntax: passing the raw decomposed sub-query string is fine (free-text search), or
+   should it be wrapped? (Claim: raw free-text is the documented default; confirm.)
+3. Any dedup/merge issue when a Europe PMC DOI URL equals an S2 DOI URL for the same paper? (The `_run`
+   closure dedups by URL; a `https://doi.org/{doi}` from both collapses — confirm that's the desired merge.)
+4. Network/fail-open: a Europe PMC timeout/500 must degrade to Serper+S2, never break the run (confirm the
+   try/except + None handling covers it).
+
+APPROVE iff this adds a keyless Europe PMC clinical backend emitting only resolvable DOI/PMC/PubMed URLs,
+wired into the clinical branch, fail-open + kill-switched, leaving strict_verify/D8/tier untouched, and is
+test-proven offline.
+
+---
+
+## REVISED SPEC — Codex brief-gate iter-1 REQUEST_CHANGES adopted (binding for the build)
+1. **URL priority is PMCID → DOI → PMID** (not DOI-first): PMC is the strongest keyless fetchable
+   full-text path; a record with NONE of pmcid/doi/pmid is SKIPPED (never a europepmc.org landing URL).
+2. **Dedup framing:** this PR does NOT claim `_run` dedups Europe PMC vs S2. Within-domain dedup is the
+   `_run` closure; ACROSS backends the exact-URL collapse is at the live_retriever MERGE
+   (`live_retriever.py:~1286-1291`, domain candidates appended only `if url not in seen_urls`, where
+   seen_urls already holds Serper+S2 URLs). HONEST limitation: PMC-first means the same paper can appear
+   as a PMC URL (Europe PMC) and a DOI URL (S2) — not collapsed; acceptable (fetch/tier/strict_verify
+   handles it; worst case a benign re-fetch).
+3. Raw Europe PMC query strings (httpx params handles encoding; free-text is the default). Fail-open +
+   `PG_CLINICAL_EUROPE_PMC=0` kill-switch retained. (Codex diff-gate iter-1 P1 additionally moved the
+   `_http_get_json` HTTP call INSIDE the fail-open try so a network exception returns [] not escapes.)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/domain_backends.py'; "'$lines=Get-Content -Path $p; for ($i=45; $i -le 95; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/domain_backends.py'; "'$lines=Get-Content -Path $p; for ($i=320; $i -le 390; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/domain_backends.py'; "'$lines=Get-Content -Path $p; for ($i=120; $i -le 170; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/live_retriever.py'; "'$lines=Get-Content -Path $p; for ($i=1278; $i -le 1295; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+ succeeded in 1450ms:
+45: logger = logging.getLogger("polaris_graph.domain_backends")
+46: 
+47: PG_DOMAIN_MAX_HITS = int(os.getenv("PG_DOMAIN_MAX_HITS", "10"))
+48: HTTP_TIMEOUT = float(os.getenv("PG_DOMAIN_HTTP_TIMEOUT", "15"))
+49: 
+50: 
+51: # ─────────────────────────────────────────────────────────────────────────────
+52: # Shared httpx helper
+53: # ─────────────────────────────────────────────────────────────────────────────
+54: 
+55: 
+56: def _http_get_json(url: str, params: dict | None = None) -> dict | None:
+57:     try:
+58:         with httpx.Client(
+59:             timeout=HTTP_TIMEOUT,
+60:             follow_redirects=True,
+61:             headers={"User-Agent": "POLARIS-honest-rebuild/1.0"},
+62:         ) as c:
+63:             r = c.get(url, params=params)
+64:         if r.status_code != 200:
+65:             return None
+66:         try:
+67:             return r.json()
+68:         except Exception:
+69:             return None
+70:     except Exception as exc:
+71:         logger.debug("http_get_json %r failed: %s", url, exc)
+72:         return None
+73: 
+74: 
+75: def _http_get_text(url: str, params: dict | None = None) -> str | None:
+76:     try:
+77:         with httpx.Client(
+78:             timeout=HTTP_TIMEOUT,
+79:             follow_redirects=True,
+80:             headers={"User-Agent": "POLARIS-honest-rebuild/1.0"},
+81:         ) as c:
+82:             r = c.get(url, params=params)
+83:         if r.status_code != 200:
+84:             return None
+85:         return r.text
+86:     except Exception as exc:
+87:         logger.debug("http_get_text %r failed: %s", url, exc)
+88:         return None
+89: 
+90: 
+91: # ─────────────────────────────────────────────────────────────────────────────
+92: # TECH: arXiv
+93: # ─────────────────────────────────────────────────────────────────────────────
+94: 
+95: _ARXIV_API = "http://export.arxiv.org/api/query"
+
+ succeeded in 1649ms:
+320: # ─────────────────────────────────────────────────────────────────────────────
+321: 
+322: _EUROPE_PMC_API = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+323: 
+324: 
+325: def europe_pmc_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
+326:     """Query Europe PMC (KEYLESS, FREE — no API key, no cost) for clinical primary literature.
+327:     Fail-open: any error / empty body returns [] (the run degrades to generic Serper + S2).
+328: 
+329:     Emits ONLY resolvable primary-literature URLs in PMCID -> DOI -> PMID priority — PMC is the
+330:     strongest keyless, fetchable full-text path (Codex brief-gate); a record carrying none of those
+331:     ids is SKIPPED (a europepmc.org landing page does not fetch as primary content). Candidates flow
+332:     through the SAME fetch / tier / strict_verify chokepoint as Serper/S2 (no tier laundering).
+333:     """
+334:     # Fail-open guard wraps the HTTP call AND the parse (Codex diff-gate iter-1 P1): a network/helper
+335:     # exception must degrade to [] (generic Serper + S2), never break the clinical run.
+336:     try:
+337:         data = _http_get_json(
+338:             _EUROPE_PMC_API,
+339:             params={
+340:                 "query": query,
+341:                 "format": "json",
+342:                 "resultType": "core",
+343:                 "pageSize": max(1, min(limit, 25)),
+344:             },
+345:         )
+346:         if not data:
+347:             return []
+348:         results = (data.get("resultList") or {}).get("result") or []
+349:         out: list[SearchCandidate] = []
+350:         for r in results:
+351:             pmcid = str(r.get("pmcid") or "").strip()
+352:             doi = str(r.get("doi") or "").strip()
+353:             pmid = str(r.get("pmid") or "").strip()
+354:             if pmcid:
+355:                 url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+356:             elif doi:
+357:                 url = f"https://doi.org/{doi}"
+358:             elif pmid:
+359:                 url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+360:             else:
+361:                 continue  # no resolvable primary-literature id — never emit a landing page
+362:             title = str(r.get("title") or "").strip()
+363:             snippet = re.sub(r"\s+", " ", str(r.get("abstractText") or "")).strip()[:300]
+364:             out.append(SearchCandidate(
+365:                 url=url,
+366:                 title=title,
+367:                 snippet=snippet,
+368:                 source="europe_pmc",
+369:                 metadata={
+370:                     "doi": doi or None,
+371:                     "pmid": pmid or None,
+372:                     "pmcid": pmcid or None,
+373:                     "year": r.get("pubYear"),
+374:                     "is_oa": r.get("isOpenAccess"),
+375:                 },
+376:             ))
+377:             if len(out) >= limit:
+378:                 break
+379:         return out
+380:     except Exception as exc:
+381:         logger.warning("[domain_backends] europe_pmc failed (fail-open): %s", exc)
+382:         return []
+383: 
+384: 
+385: # ─────────────────────────────────────────────────────────────────────────────
+386: # Dispatcher
+387: # ─────────────────────────────────────────────────────────────────────────────
+388: 
+389: 
+390: @dataclass
+
+ succeeded in 1785ms:
+1278:     fetch_cap: int = DEFAULT_FETCH_CAP,
+1279:     enable_openalex_enrich: bool = True,
+1280:     enable_prefetch_filter: bool = False,
+1281:     domain: Optional[str] = None,
+1282:     seed_urls: Optional[list[str]] = None,
+1283: ) -> LiveRetrievalResult:
+1284:     """Execute live retrieval and classify the corpus.
+1285: 
+1286:     Args:
+1287:         research_question: Raw user query (anchor for scope validator).
+1288:         amplified_queries: Optional extra queries (scope-validated).
+1289:         protocol: Protocol dict; used for scope validation.
+1290:         max_serper: Max Serper results per query.
+1291:         max_s2: Max S2 results per query.
+1292:         fetch_cap: Hard cap on total URLs to fetch (cost control).
+1293:         enable_openalex_enrich: Toggle OpenAlex lookup per URL.
+1294:         enable_prefetch_filter: Toggle embedding-based off-topic filter
+1295:             (slow; off by default for the first live run).
+
+ succeeded in 1895ms:
+120:         summary = re.sub(r"\s+", " ", summary)[:400]
+121:         candidates.append(SearchCandidate(
+122:             url=arxiv_url, title=title, snippet=summary, source="arxiv",
+123:         ))
+124:     return candidates
+125: 
+126: 
+127: def arxiv_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
+128:     """Query arXiv via the Atom API. Fail-open."""
+129:     params = {
+130:         "search_query": f"all:{query}",
+131:         "start": 0,
+132:         "max_results": max(1, min(limit, 30)),
+133:         "sortBy": "relevance",
+134:         "sortOrder": "descending",
+135:     }
+136:     xml = _http_get_text(_ARXIV_API, params=params)
+137:     if not xml:
+138:         return []
+139:     try:
+140:         return _parse_arxiv_feed(xml, limit)
+141:     except Exception as exc:
+142:         logger.warning("[domain_backends] arxiv parse failed: %s", exc)
+143:         return []
+144: 
+145: 
+146: # ─────────────────────────────────────────────────────────────────────────────
+147: # POLICY: Serper with site: filters for federal register + agencies
+148: # ─────────────────────────────────────────────────────────────────────────────
+149: 
+150: _POLICY_SITE_FILTERS = (
+151:     "site:federalregister.gov",
+152:     "site:regulations.gov",
+153:     "site:fda.gov",
+154:     "site:cms.gov",
+155:     "site:hhs.gov",
+156:     "site:ftc.gov",
+157:     "site:sec.gov",
+158:     "site:treasury.gov",
+159:     "site:ema.europa.eu",
+160:     "site:nice.org.uk",
+161: )
+162: 
+163: 
+164: def policy_targeted_serper(
+165:     query: str, limit: int = PG_DOMAIN_MAX_HITS,
+166: ) -> list[SearchCandidate]:
+167:     """Issue a Serper query with a policy-site OR clause.
+168: 
+169:     The policy domain's authoritative sources are regulatory agency
+170:     pages. Rather than spin up a new API, we use Serper with a
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/domain_backends.py'; "'$lines=Get-Content -Path $p; for ($i=390; $i -le 470; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "seen_urls|domain_candidates|domain_result|run_domain_backends" src/polaris_graph/retrieval/live_retriever.py' in C:\POLARIS
+ succeeded in 1951ms:
+1324:    seen_urls: set[str] = set()
+1336:        if _surl and _surl not in seen_urls:
+1337:            seen_urls.add(_surl)
+1355:            if not url or url in seen_urls:
+1357:            seen_urls.add(url)
+1371:            if not url or url in seen_urls:
+1373:            seen_urls.add(url)
+1389:                run_domain_backends,
+1391:            domain_result = run_domain_backends(
+1396:            for cand in domain_result.candidates:
+1398:                if not url or url in seen_urls:
+1400:                seen_urls.add(url)
+1406:            if domain_result.backends_used:
+1409:                    f"{domain_result.per_backend_counts}"
+1411:                for backend_name in domain_result.backends_used:
+
+ succeeded in 2175ms:
+390: @dataclass
+391: class DomainBackendResult:
+392:     domain: str
+393:     candidates: list[SearchCandidate]
+394:     backends_used: list[str]
+395:     per_backend_counts: dict[str, int]
+396: 
+397: 
+398: def run_domain_backends(
+399:     *,
+400:     domain: str,
+401:     research_question: str,
+402:     amplified_queries: list[str] | None = None,
+403:     max_hits_per_backend: int = PG_DOMAIN_MAX_HITS,
+404: ) -> DomainBackendResult:
+405:     """Run all applicable domain backends for the given domain.
+406: 
+407:     For each domain, returns a merged list of SearchCandidate that the
+408:     caller can concatenate with the generic Serper+S2 retrieval.
+409:     Fail-open: backends that raise return empty lists.
+410:     """
+411:     queries: list[str] = [research_question]
+412:     if amplified_queries:
+413:         queries.extend(amplified_queries[:3])   # cap amplified count
+414: 
+415:     candidates: list[SearchCandidate] = []
+416:     used: list[str] = []
+417:     per: dict[str, int] = {}
+418: 
+419:     def _run(name: str, fn) -> None:
+420:         nonlocal candidates, used, per
+421:         try:
+422:             got: list[SearchCandidate] = []
+423:             for q in queries:
+424:                 got.extend(fn(q, limit=max_hits_per_backend))
+425:                 if len(got) >= max_hits_per_backend * 2:
+426:                     break
+427:             # Dedup by URL
+428:             seen_urls = {c.url for c in candidates}
+429:             new = [c for c in got if c.url and c.url not in seen_urls]
+430:             candidates.extend(new)
+431:             used.append(name)
+432:             per[name] = len(new)
+433:         except Exception as exc:
+434:             logger.warning("[domain_backends] %s failed: %s", name, exc)
+435:             per[name] = 0
+436: 
+437:     if domain == "tech":
+438:         _run("arxiv", arxiv_search)
+439:         _run("github", github_search_repos)
+440:     elif domain == "policy":
+441:         _run("serper_policy", policy_targeted_serper)
+442:     elif domain == "due_diligence":
+443:         _run("sec_edgar", sec_edgar_search)
+444:     elif domain == "clinical":
+445:         # I-meta-002-q1d (#942-clinical): add Europe PMC primary-literature breadth on top of generic
+446:         # Serper + S2. Keyless/free + fail-open; kill-switch PG_CLINICAL_EUROPE_PMC=0. (ClinicalTrials.gov
+447:         # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
+448:         if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
+449:             _run("europe_pmc", europe_pmc_search)
+450: 
+451:     return DomainBackendResult(
+452:         domain=domain,
+453:         candidates=candidates,
+454:         backends_used=used,
+455:         per_backend_counts=per,
+456:     )
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/retrieval/live_retriever.py'; "'$lines=Get-Content -Path $p; for ($i=1320; $i -le 1415; $i++) { if ($i -le $lines.Length) { '"'{0}: {1}' -f "'$i, $lines[$i-1] } }' in C:\POLARIS
+ succeeded in 1383ms:
+1320:     else:
+1321:         effective_queries = list(all_queries)
+1322: 
+1323:     # ── Step 2: run Serper + S2 across queries ──────────────────────
+1324:     seen_urls: set[str] = set()
+1325:     candidates: list[SearchCandidate] = []
+1326: 
+1327:     # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI seed
+1328:     # candidates. Injected at the FRONT so the fetch_cap slice always includes
+1329:     # them (a reserved anchored-primary lane), and fetch_cap is bumped by the
+1330:     # seed count below so they are ADDITIVE — they do not evict search/guideline
+1331:     # candidates. They pass the SAME fetch / Unpaywall-OA / extraction / tier /
+1332:     # adequacy gates as every other source: a seed counts as T1 ONLY if the tier
+1333:     # classifier identifies the fetched content as a primary trial (no laundering).
+1334:     _n_seed_injected = 0
+1335:     for _surl in seed_urls or []:
+1336:         if _surl and _surl not in seen_urls:
+1337:             seen_urls.add(_surl)
+1338:             candidates.append(SearchCandidate(
+1339:                 url=_surl, title="", snippet="", source="primary_trial_doi",
+1340:                 query_origin="primary_trial_doi_seed",
+1341:             ))
+1342:             _n_seed_injected += 1
+1343:     if _n_seed_injected:
+1344:         logger.info(
+1345:             "[live_retriever] injected %d direct primary-trial DOI seed candidates",
+1346:             _n_seed_injected,
+1347:         )
+1348: 
+1349:     for q in effective_queries:
+1350:         logger.info("[live_retriever] SERPER q=%r", q[:80])
+1351:         serper_hits = _serper_search(q, num=max_serper)
+1352:         api_calls["serper"] += 1
+1353:         for hit in serper_hits:
+1354:             url = hit.get("url", "")
+1355:             if not url or url in seen_urls:
+1356:                 continue
+1357:             seen_urls.add(url)
+1358:             candidates.append(SearchCandidate(
+1359:                 url=url,
+1360:                 title=hit.get("title", ""),
+1361:                 snippet=hit.get("snippet", ""),
+1362:                 source="serper",
+1363:                 query_origin=q,
+1364:             ))
+1365: 
+1366:         logger.info("[live_retriever] S2 q=%r", q[:80])
+1367:         s2_hits = _s2_bulk_search(q, limit=max_s2)
+1368:         api_calls["s2"] += 1
+1369:         for hit in s2_hits:
+1370:             url = hit.get("url", "")
+1371:             if not url or url in seen_urls:
+1372:                 continue
+1373:             seen_urls.add(url)
+1374:             candidates.append(SearchCandidate(
+1375:                 url=url,
+1376:                 title=hit.get("title", ""),
+1377:                 snippet=hit.get("snippet", ""),
+1378:                 source="s2",
+1379:                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+1380:                 query_origin=q,
+1381:             ))
+1382: 
+1383:     # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
+1384:     # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
+1385:     # for policy. Fail-open: any backend exception yields 0 new hits.
+1386:     if domain:
+1387:         try:
+1388:             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+1389:                 run_domain_backends,
+1390:             )
+1391:             domain_result = run_domain_backends(
+1392:                 domain=domain,
+1393:                 research_question=research_question,
+1394:                 amplified_queries=amplified_queries,
+1395:             )
+1396:             for cand in domain_result.candidates:
+1397:                 url = cand.url
+1398:                 if not url or url in seen_urls:
+1399:                     continue
+1400:                 seen_urls.add(url)
+1401:                 # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
+1402:                 # bucket so the per-sub-query rerank reservation handles them consistently.
+1403:                 if not getattr(cand, "query_origin", ""):
+1404:                     cand.query_origin = "domain_backend"
+1405:                 candidates.append(cand)
+1406:             if domain_result.backends_used:
+1407:                 notes.append(
+1408:                     f"domain_backends({domain}): "
+1409:                     f"{domain_result.per_backend_counts}"
+1410:                 )
+1411:                 for backend_name in domain_result.backends_used:
+1412:                     api_calls[backend_name] = (
+1413:                         api_calls.get(backend_name, 0) + 1
+1414:                     )
+1415:         except Exception as exc:
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Approved against the revised binding spec.
+
+I checked only the cited regions. The plan now has the important corrections: PMCID → DOI → PMID priority, no Europe PMC landing URLs, clinical branch wiring behind `PG_CLINICAL_EUROPE_PMC`, and fail-open behavior wrapping both the HTTP call and parsing.
+
+Dedup framing is also honest: `_run` dedups only within domain-backend candidates, while `live_retriever` exact-URL dedups against already-seen Serper/S2 URLs. A PMC URL and DOI URL for the same paper can both survive, which is acceptable for this PR because they still pass through the shared fetch/tier/strict_verify path.
+tokens used
+13,034
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Approved against the revised binding spec.
+
+I checked only the cited regions. The plan now has the important corrections: PMCID → DOI → PMID priority, no Europe PMC landing URLs, clinical branch wiring behind `PG_CLINICAL_EUROPE_PMC`, and fail-open behavior wrapping both the HTTP call and parsing.
+
+Dedup framing is also honest: `_run` dedups only within domain-backend candidates, while `live_retriever` exact-URL dedups against already-seen Serper/S2 URLs. A PMC URL and DOI URL for the same paper can both survive, which is acceptable for this PR because they still pass through the shared fetch/tier/strict_verify path.

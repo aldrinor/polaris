@@ -1,0 +1,583 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e79aa-7263-7331-86cd-231d95cf7ed4
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL findings. Reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## iter-1 REQUEST_CHANGES — P1 + P2 FIXED in the regenerated patch (re-verify):
+- **iter-1 P1 (read path not mechanically read-only):** `VerifiedClaimGraphStore.__init__` gains
+  `read_only=False`. When True it opens via the SQLite `file:<path>?mode=ro` URI (uri=True) — NO parent
+  mkdir, NO `_ensure_table` DDL, cannot create/migrate/write-lock/mutate; a missing/unreadable db raises
+  `sqlite3.OperationalError`. `gather_reuse_context` now opens with `read_only=True` and the outer except
+  fail-opens to []. Write mode (default) unchanged. New tests: missing-db read creates nothing + fail-opens;
+  a read_only store reads but `write_claim` raises OperationalError.
+- **iter-1 P2 (flag not normalized):** `kg_reuse_enabled` now compares `.strip().lower()` against lowercase
+  off-values, so FALSE/No/OFF (any case) stay disabled. New test asserts the full off/on matrix.
+
+Evidence: 13 KG-reuse tests PASS (incl. the 2 new read-only + the case-normalize matrix); 22 PASS with
+verified_claim_graph (the read_only param is additive — write path byte-unchanged). `py_compile` OK.
+
+RULE NOW — emit the YAML verdict block FIRST. Read ONLY the patch at
+`.codex/I-meta-002-q1d-kg-readpath/codex_diff.patch` (6 files, +262/-1). CLINICAL-SAFETY-RELEVANT (feeds
+the analyst layer); fail-closed must be MECHANICAL. NO SPEND (read-only sqlite; default-OFF; no net/model).
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]
+convergence_call: accept_remaining
+```
+
+# Codex diff-gate (iter 1) — PR10: campaign KG reuse read-path, fail-closed (#948)
+
+Verify the diff implements the brief-gate-APPROVE'd design (brief APPROVE iter 2 — mechanical match-gate).
+
+## What to verify
+1. **Mechanical match-gate** (`memory/kg_reuse_gate.match_prior_claims_to_current_corpus`): reuses
+   strict_verify's OWN `_content_words` / `_decimals` / `_min_overlap_threshold`. A prior claim is KEPT only
+   if some CURRENT evidence row shares >= threshold content words AND contains every decimal in the claim;
+   anchored to that CURRENT evidence id. Unmatched prior claims are OMITTED (never returned). NEVER returns a
+   prior evidence id.
+2. **gather_reuse_context**: default-OFF (`kg_reuse_enabled`, `PG_SWEEP_KG_REUSE`); opens the campaign KG
+   READ-ONLY; `query_related_claims` (anti-poisoning: only VERIFIED reusable rows); claim-TEXT-only; passes
+   texts through the match-gate; capped; fail-open (any error → []).
+3. **Campaign-scope** (`sweep_integration`): `run_four_role_evaluation` + `run_four_role_seam` gain
+   `campaign_kg_db=None` (default → per-`run_dir`, existing callers/tests unchanged); when given, the KG is
+   persisted to the shared campaign db. Sequential sweep → no concurrent writers.
+4. **Injection** (`multi_section_generator` → `analyst_synthesis`): `prior_verified_context` threaded to the
+   UNVERIFIED analyst layer only; `_format_prior_verified_context` renders a labeled advisory block with the
+   claim + CURRENT evidence id, instructing `[N]`-only current-bibliography citation; empty input → "" (prompt
+   byte-identical). VERIFIED generator (multi_section sections) + strict_verify path UNTOUCHED.
+5. **run_honest_sweep wiring**: gathers reuse context before generation (fail-open, logged), passes
+   `prior_verified_context` to `generate_multi_section_report`, and `campaign_kg_db=out_root/...campaign.db`
+   to `run_four_role_seam`.
+
+## Evidence (verified by Claude main-thread, NO SPEND)
+- 10 KG-reuse tests PASS incl. Codex's two mandated cases: a prior-VERIFIED claim NOT supported by the
+  current corpus is OMITTED (`test_gather_anti_poisoning_and_unsupported_omitted`); a supported claim is
+  anchored to the CURRENT ev id only (never a prior id). Plus match-gate decimal-mismatch/low-overlap/dedup,
+  anti-poisoning (UNSUPPORTED-verdict prior excluded), flag-off→[], empty advisory block.
+- 54 PASS no-regression (analyst_synthesis + safety) + 34 PASS (verified_claim_graph + sweep_integration +
+  gate-b seam — the campaign_kg_db threading default-None preserves behavior). `py_compile` OK on all 5
+  source files. Patch +262/-1.
+
+## The real risks to rule on
+1. Is fail-closed now MECHANICAL (omit-unless-current-corpus-supported), not prompt-advisory? (Claim: yes —
+   the match-gate drops unmatched claims before they reach any prompt; reuses strict_verify's exact rule.)
+2. Can a reused claim earn provenance or appear with a PRIOR evidence id? (Claim: no — claim TEXT only, prior
+   ids never read; matched claims carry the CURRENT ev id; verified core + strict_verify untouched.)
+3. Anti-poisoning intact (only VERIFIED reusable)? campaign_kg_db default-None preserves existing callers?
+   (Claim: yes — query_related_claims filters reusable=1; default None → per-run_dir.)
+4. Default-OFF + fail-open (a KG/read error never aborts or alters a run)?
+
+APPROVE iff the diff makes reuse MECHANICALLY fail-closed (omit-unless-current-supported, anchored to current
+ev ids only, no prior ids, no provenance), preserves anti-poisoning + the verified core + strict_verify, is
+campaign-scoped with default-None back-compat, default-OFF, fail-open, and offline-tested with NO SPEND.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-meta-002-q1d-kg-readpath/codex_diff.patch'" in C:\POLARIS
+ succeeded in 805ms:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 7cbc5780..8c50387f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2545,11 +2545,29 @@ async def run_one_query(
+         # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
+         # so the Path-B gate captures every nested LLM completion (multi-section + analyst
+         # + retries + reason) under role="generator". No-op when the gate is inactive.
++        # I-meta-002-q1d (#948): campaign KG reuse (default-OFF PG_SWEEP_KG_REUSE). Gather prior-VERIFIED
++        # claims that the MECHANICAL match-gate confirms are independently supported by THIS question's
++        # evidence pool, and feed them ONLY as advisory context to the UNVERIFIED analyst layer
++        # (fail-closed: claim text + CURRENT evidence id only; no prior ids; no provenance). Fail-open.
++        _prior_verified_context: list[dict] = []
++        try:
++            from src.polaris_graph.memory.kg_reuse_gate import gather_reuse_context
++            _prior_verified_context = gather_reuse_context(
++                str(out_root / "verified_claim_graph_campaign.db"),
++                q["question"], evidence_for_gen,
++            )
++            if _prior_verified_context:
++                _log(f"[kg-reuse] {len(_prior_verified_context)} prior-verified claim(s) re-grounded "
++                     f"in current corpus → analyst advisory")
++        except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
++            _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
++
+         _pathb_gen_tok = _pathb.set_role("generator")
+         try:
+             multi = await generate_multi_section_report(
+                 research_question=q["question"],
+                 evidence=evidence_for_gen,
++                prior_verified_context=_prior_verified_context,
+                 section_temperature=0.3,
+             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
+             # match the upstream default. V19 had 3 / V20 had 2
+@@ -3427,6 +3445,9 @@ async def run_one_query(
+                 slug=q["slug"],
+                 domain=q["domain"],
+                 ev_pool=ev_pool,
++                # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped db so later
++                # questions in this sweep can reuse THIS question's VERIFIED claims (fail-closed read).
++                campaign_kg_db=str(out_root / "verified_claim_graph_campaign.db"),
+             )
+             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+diff --git a/src/polaris_graph/generator/analyst_synthesis.py b/src/polaris_graph/generator/analyst_synthesis.py
+index c639665f..f6ed1888 100644
+--- a/src/polaris_graph/generator/analyst_synthesis.py
++++ b/src/polaris_graph/generator/analyst_synthesis.py
+@@ -395,12 +395,32 @@ def _format_evidence_pool_for_prompt(
+     return "\n\n".join(blocks)
+ 
+ 
++def _format_prior_verified_context(prior_verified_context: list[dict[str, Any]] | None) -> str:
++    """Render the campaign KG-reuse advisory block (I-meta-002-q1d #948). Each item is a prior-VERIFIED
++    claim that the MECHANICAL match-gate already confirmed is INDEPENDENTLY supported by THIS question's
++    evidence (anchored to a CURRENT evidence id). Advisory only — the analyst still cites by [N] from the
++    current bibliography; no prior evidence ids appear. Empty input → empty block (prompt byte-identical)."""
++    items = [c for c in (prior_verified_context or []) if c.get("claim_text")]
++    if not items:
++        return ""
++    lines = [
++        "=== CROSS-QUESTION CONSISTENCY (advisory) ===\n",
++        "These facts were VERIFIED on prior campaign questions AND are independently supported by THIS",
++        "question's evidence pool. Prioritise them where relevant, but cite ONLY by [N] from the",
++        "bibliography above (the matching current source); do NOT invent citations or reuse prior ids.\n",
++    ]
++    for c in items:
++        lines.append(f"- {c['claim_text']}  (supported here by evidence {c.get('evidence_id', '')})")
++    return "\n".join(lines) + "\n\n"
++
++
+ async def generate_analyst_synthesis(
+     *,
+     verified_prose: str,
+     bibliography: list[dict[str, Any]],
+     evidence_rows: list[dict[str, Any]],
+     research_question: str,
++    prior_verified_context: list[dict[str, Any]] | None = None,
+     model: str = "deepseek/deepseek-v4-pro",
+     max_tokens: int = 4000,
+     temperature: float = 0.3,
+@@ -441,6 +461,7 @@ async def generate_analyst_synthesis(
+         f"{biblio_block}\n\n"
+         f"=== EVIDENCE POOL (for synthesis context) ===\n\n"
+         f"{evidence_block}\n\n"
++        f"{_format_prior_verified_context(prior_verified_context)}"
+         f"=== TASK ===\n\n"
+         f"Write the Analyst Synthesis section now, following the rules. "
+         f"Hedge interpretive claims; cite by [N] only; no [#ev:...] tokens; "
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 11807fe0..ab551e34 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -3607,6 +3607,10 @@ async def generate_multi_section_report(
+     *,
+     research_question: str,
+     evidence: list[dict[str, Any]],
++    # I-meta-002-q1d (#948): campaign KG-reuse advisory context (prior-VERIFIED claims already
++    # mechanically matched to THIS question's corpus). Passed through to the UNVERIFIED analyst layer
++    # only; None/[] => no change. Never reaches the verified generator/strict_verify path.
++    prior_verified_context: list[dict[str, Any]] | None = None,
+     model: Optional[str] = None,
+     outline_temperature: float = 0.2,
+     section_temperature: float = 0.3,
+@@ -4533,6 +4537,7 @@ async def generate_multi_section_report(
+                         bibliography=global_biblio,
+                         evidence_rows=evidence,
+                         research_question=research_question,
++                        prior_verified_context=prior_verified_context,
+                         model=gen_model,
+                         max_tokens=4000,
+                         temperature=0.3,
+diff --git a/src/polaris_graph/memory/kg_reuse_gate.py b/src/polaris_graph/memory/kg_reuse_gate.py
+new file mode 100644
+index 00000000..4a05fc2b
+--- /dev/null
++++ b/src/polaris_graph/memory/kg_reuse_gate.py
+@@ -0,0 +1,93 @@
++"""Campaign knowledge-graph reuse read-path, FAIL-CLOSED (I-meta-002-q1d #948).
++
++The `VerifiedClaimGraphStore` was WRITE-ONLY — nothing read `query_related_claims` back into generation, so
++the citation-snowball never reused a prior question's VERIFIED facts. This wires the read-path in, but the
++reuse is MECHANICALLY fail-closed (Codex brief-gate iter-1 P1): a prior-VERIFIED claim is OMITTED before it
++ever reaches a prompt UNLESS the CURRENT question's corpus independently supports it, judged by the SAME
++content-overlap + decimal primitives the verified chokepoint (`strict_verify`) uses. A surviving claim is
++anchored ONLY to the CURRENT evidence id that supports it — NEVER a prior evidence id, NEVER prior provenance.
++
++So reuse can only ever SURFACE a fact that is already present-and-supported in this question's corpus
++(a cross-question relevance signal); it can never introduce an unsupported claim. The verified core
++(multi_section generator + strict_verify) and the anti-poisoning store (only VERIFIED rows reusable) are
++untouched. Default OFF (`PG_SWEEP_KG_REUSE`); read-only; no network; no model; NO SPEND.
++"""
++
++from __future__ import annotations
++
++import os
++from typing import Any
++
++# Reuse the verified chokepoint's OWN primitives so the match-gate is identical to strict_verify's
++# content rule (§9.1.3 checks (d) decimal-subset + (e) >= min content-word overlap).
++from src.polaris_graph.clinical_generator.strict_verify import (
++    _content_words,
++    _decimals,
++    _min_overlap_threshold,
++)
++
++_OFF_VALUES = frozenset({"0", "false", "False", "no", "off", ""})
++
++
++def kg_reuse_enabled() -> bool:
++    """Default OFF — the read-path changes the analyst prompt; opt-in until a live smoke validates it.
++    Normalize before comparison (Codex diff-gate iter-1 P2) so FALSE/NO/OFF (any case) stay disabled."""
++    return os.getenv("PG_SWEEP_KG_REUSE", "0").strip().lower() not in _OFF_VALUES
++
++
++def match_prior_claims_to_current_corpus(
++    prior_claim_texts: list[str],
++    evidence_rows: list[dict[str, Any]],
++) -> list[dict[str, str]]:
++    """MECHANICAL fail-closed gate. Return one record per prior claim that is INDEPENDENTLY supported by
++    the CURRENT corpus — `{"claim_text", "evidence_id"}` anchored to the matching CURRENT evidence id.
++    A prior claim is kept iff some current evidence row shares >= min-overlap content words AND contains
++    every decimal in the claim (mirroring strict_verify). Unmatched prior claims are OMITTED (never
++    returned, so they never reach a prompt). NEVER returns a prior evidence id."""
++    threshold = _min_overlap_threshold()
++    out: list[dict[str, str]] = []
++    seen: set[str] = set()
++    for claim in prior_claim_texts or []:
++        claim = (claim or "").strip()
++        if not claim or claim in seen:
++            continue
++        claim_words = _content_words(claim)
++        claim_decimals = _decimals(claim)
++        for ev in evidence_rows or []:
++            quote = ev.get("direct_quote") or ev.get("statement") or ""
++            if not quote:
++                continue
++            if (len(claim_words & _content_words(quote)) >= threshold
++                    and claim_decimals <= _decimals(quote)):
++                seen.add(claim)
++                out.append({"claim_text": claim, "evidence_id": str(ev.get("evidence_id", ""))})
++                break  # first current-corpus support is enough
++    return out
++
++
++def gather_reuse_context(
++    campaign_db_path: str,
++    question: str,
++    evidence_rows: list[dict[str, Any]],
++    *,
++    cap: int = 5,
++) -> list[dict[str, str]]:
++    """Open the campaign KG READ-ONLY, query prior-VERIFIED claims related to `question`, and return only
++    those mechanically supported by the CURRENT corpus (capped). Fail-open: any store/read error returns
++    [] (reuse is advisory; it must never abort or alter a run)."""
++    if not kg_reuse_enabled():
++        return []
++    try:
++        from src.polaris_graph.memory.verified_claim_graph import VerifiedClaimGraphStore
++        # READ-ONLY open (Codex diff-gate iter-1 P1): never create/migrate/write-lock/mutate the campaign
++        # db. A missing/unreadable db raises → the outer except fail-opens to [].
++        store = VerifiedClaimGraphStore(db_path=campaign_db_path, read_only=True)
++        try:
++            related = store.query_related_claims(question)
++        finally:
++            store.close()
++        prior_texts = [r.claim_text for r in related if getattr(r, "claim_text", "")]
++        matched = match_prior_claims_to_current_corpus(prior_texts, evidence_rows)
++        return matched[:cap]
++    except Exception:  # noqa: BLE001 — read-only advisory; never abort the run
++        return []
+diff --git a/src/polaris_graph/memory/verified_claim_graph.py b/src/polaris_graph/memory/verified_claim_graph.py
+index 83e2c8b6..a5ed75f0 100644
+--- a/src/polaris_graph/memory/verified_claim_graph.py
++++ b/src/polaris_graph/memory/verified_claim_graph.py
+@@ -102,6 +102,7 @@ class VerifiedClaimGraphStore:
+         *,
+         db_path: str | Path | None = None,
+         run_dir: str | Path | None = None,
++        read_only: bool = False,
+     ) -> None:
+         if db_path is not None and run_dir is not None:
+             raise ValueError("pass exactly one of db_path or run_dir, not both")
+@@ -111,11 +112,24 @@ class VerifiedClaimGraphStore:
+             resolved = Path(run_dir) / _DEFAULT_DB_FILENAME
+         else:
+             raise ValueError("VerifiedClaimGraphStore requires db_path or run_dir")
+-        resolved.parent.mkdir(parents=True, exist_ok=True)
++        # I-meta-002-q1d (#948) Codex diff-gate iter-1 P1: a READ-ONLY open for the campaign reuse
++        # read-path. Opens the existing db via the SQLite `mode=ro` URI — it does NOT create the parent
++        # dir, does NOT create/migrate the table, and cannot mutate or write-lock the file. A missing or
++        # unreadable db raises sqlite3.OperationalError (the caller fail-opens). Write mode (default) is
++        # unchanged: mkdir + writable connection + _ensure_table.
+         self._db_path = resolved
+-        self._conn = sqlite3.connect(str(resolved))
+-        self._conn.row_factory = sqlite3.Row
+-        self._ensure_table()
++        self._read_only = read_only
++        if read_only:
++            self._conn = sqlite3.connect(
++                f"file:{resolved}?mode=ro", uri=True, check_same_thread=False,
++            )
++            self._conn.row_factory = sqlite3.Row
++            # NO _ensure_table — a read-only connection must not attempt DDL.
++        else:
++            resolved.parent.mkdir(parents=True, exist_ok=True)
++            self._conn = sqlite3.connect(str(resolved))
++            self._conn.row_factory = sqlite3.Row
++            self._ensure_table()
+ 
+     @property
+     def db_path(self) -> Path:
+diff --git a/src/polaris_graph/roles/sweep_integration.py b/src/polaris_graph/roles/sweep_integration.py
+index d9ff274e..dc57d99c 100644
+--- a/src/polaris_graph/roles/sweep_integration.py
++++ b/src/polaris_graph/roles/sweep_integration.py
+@@ -177,9 +177,16 @@ def run_four_role_evaluation(
+     model_slugs: dict[str, str],
+     rewrite_already_attempted: bool = False,
+     d8_config_path: str | Path | None = None,
++    campaign_kg_db: str | Path | None = None,
+ ) -> FourRoleEvaluationResult:
+     """Drive the per-claim 4-role pipeline, apply the SINGLE binding D8 gate, persist the KG.
+ 
++    I-meta-002-q1d (#948): when `campaign_kg_db` is given, the snowball KG is persisted to that
++    CAMPAIGN-scoped sqlite path (shared across the sweep's questions) instead of the per-question
++    `run_dir`, so question N can reuse questions 1..N-1's VERIFIED claims. Default None preserves the
++    per-`run_dir` behavior (existing callers/tests unchanged). The sweep runs questions sequentially, so
++    there are no concurrent writers; anti-poisoning (only VERIFIED rows reusable) is unchanged.
++
+     Pure orchestration over the INJECTED `transport` (no network, no spend). For EACH claim:
+     run `run_claim_pipeline`, collect its `D8ClaimRow` + served-identity records + final
+     verdict, and — only on a VERIFIED final verdict — credit that claim's canonical
+@@ -251,7 +258,12 @@ def run_four_role_evaluation(
+     # for line-by-line review. `reasoning` is its OWN field — NEVER concatenated into the verdict.
+     role_call_log: list[dict] = []
+ 
+-    kg_store = VerifiedClaimGraphStore(run_dir=run_dir)
++    # I-meta-002-q1d (#948): campaign-scoped KG when given, else per-question run_dir (default).
++    kg_store = (
++        VerifiedClaimGraphStore(db_path=campaign_kg_db)
++        if campaign_kg_db is not None
++        else VerifiedClaimGraphStore(run_dir=run_dir)
++    )
+     try:
+         for claim in claims:
+             result = run_claim_pipeline(
+@@ -383,6 +395,7 @@ def run_four_role_seam(
+     slug: str | None = None,
+     domain: str | None = None,
+     ev_pool: object = None,
++    campaign_kg_db: str | Path | None = None,
+ ) -> FourRoleEvaluationResult:
+     """Resolve the 4-role inputs (builder WINS), run the SINGLE binding D8 gate, persist audit.
+ 
+@@ -423,6 +436,7 @@ def run_four_role_seam(
+             required_s0_categories=inputs.required_s0_categories,
+             model_slugs=inputs.model_slugs,
+             rewrite_already_attempted=inputs.rewrite_already_attempted,
++            campaign_kg_db=campaign_kg_db,
+         )
+         # The SEAM (not the builder) persists the per-claim audit map alongside the run.
+         (run_dir / FOUR_ROLE_CLAIM_AUDIT_FILENAME).write_text(
+@@ -448,4 +462,5 @@ def run_four_role_seam(
+         required_s0_categories=four_role_inputs.required_s0_categories,
+         model_slugs=four_role_inputs.model_slugs,
+         rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
++        campaign_kg_db=campaign_kg_db,
+     )
+diff --git a/tests/polaris_graph/test_kg_reuse_gate.py b/tests/polaris_graph/test_kg_reuse_gate.py
+new file mode 100644
+index 00000000..6cdb74cd
+--- /dev/null
++++ b/tests/polaris_graph/test_kg_reuse_gate.py
+@@ -0,0 +1,144 @@
++"""Campaign KG reuse read-path, FAIL-CLOSED (I-meta-002-q1d #948). NO network / NO spend.
++
++Asserts Codex brief-gate requirements: reuse is MECHANICALLY gated (a prior-VERIFIED claim is OMITTED
++unless the CURRENT corpus independently supports it, by strict_verify's own content+decimal primitives),
++matched claims are anchored to CURRENT evidence ids only (never prior ids), anti-poisoning (only VERIFIED
++reusable) holds, default-OFF, and the analyst advisory block is empty when there is nothing to reuse.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator.analyst_synthesis import _format_prior_verified_context
++from src.polaris_graph.memory.kg_reuse_gate import (
++    gather_reuse_context,
++    kg_reuse_enabled,
++    match_prior_claims_to_current_corpus,
++)
++from src.polaris_graph.memory.verified_claim_graph import VerifiedClaimGraphStore
++
++_EV = [{"evidence_id": "ev_005",
++        "direct_quote": "Tirzepatide reduced HbA1c by 2.1 percent in adults with type 2 diabetes."}]
++
++
++# ── match-gate (mechanical, reuses strict_verify primitives) ──────────────────────────────────────
++def test_match_supported_claim_anchored_to_current_ev():
++    out = match_prior_claims_to_current_corpus(["tirzepatide reduced HbA1c by 2.1 percent"], _EV)
++    assert out == [{"claim_text": "tirzepatide reduced HbA1c by 2.1 percent", "evidence_id": "ev_005"}]
++
++
++def test_match_unsupported_claim_omitted():
++    assert match_prior_claims_to_current_corpus(["semaglutide caused injection-site reactions"], _EV) == []
++
++
++def test_match_decimal_mismatch_omitted():
++    # 3.5 is not in the evidence (which says 2.1) → omitted (strict_verify decimal-subset rule)
++    assert match_prior_claims_to_current_corpus(["tirzepatide reduced HbA1c by 3.5 percent"], _EV) == []
++
++
++def test_match_low_overlap_omitted():
++    # only one shared content word ("tirzepatide") < min threshold (2) → omitted
++    assert match_prior_claims_to_current_corpus(["tirzepatide marketing authorisation timeline"], _EV) == []
++
++
++def test_match_dedup_same_claim_once():
++    ev2 = _EV + [{"evidence_id": "ev_009", "direct_quote": _EV[0]["direct_quote"]}]
++    out = match_prior_claims_to_current_corpus(["tirzepatide reduced HbA1c by 2.1 percent"], ev2)
++    assert len(out) == 1  # first current-corpus support is enough
++
++
++# ── kill-switch ──────────────────────────────────────────────────────────────────────────────────
++def test_kg_reuse_enabled_default_off(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_KG_REUSE", raising=False)
++    assert kg_reuse_enabled() is False
++    monkeypatch.setenv("PG_SWEEP_KG_REUSE", "1")
++    assert kg_reuse_enabled() is True
++
++
++def test_kg_reuse_enabled_normalizes_case(monkeypatch):
++    # Codex diff-gate iter-1 P2: FALSE/NO/OFF in any case must stay disabled.
++    for off in ("FALSE", "False", "No", "OFF", "off", "0", ""):
++        monkeypatch.setenv("PG_SWEEP_KG_REUSE", off)
++        assert kg_reuse_enabled() is False, off
++    for on in ("1", "true", "yes", "ON"):
++        monkeypatch.setenv("PG_SWEEP_KG_REUSE", on)
++        assert kg_reuse_enabled() is True, on
++
++
++def test_gather_read_only_does_not_create_missing_db(tmp_path, monkeypatch):
++    """Codex diff-gate iter-1 P1: an enabled read against a MISSING campaign db must fail-open to []
++    WITHOUT creating the file (strictly read-only; no mutation)."""
++    monkeypatch.setenv("PG_SWEEP_KG_REUSE", "1")
++    missing = tmp_path / "nope" / "campaign.db"
++    assert gather_reuse_context(str(missing), "tirzepatide HbA1c", _EV) == []
++    assert not missing.exists()        # the read-only path created nothing
++    assert not missing.parent.exists()  # and did not mkdir the parent
++
++
++def test_read_only_store_cannot_write(tmp_path):
++    """A read_only store opens existing data but rejects writes (mechanical read-only)."""
++    import sqlite3
++    db = str(tmp_path / "campaign.db")
++    _seed_campaign_store(db)
++    ro = VerifiedClaimGraphStore(db_path=db, read_only=True)
++    try:
++        assert ro.query_related_claims("tirzepatide HbA1c")  # reads fine
++        with pytest.raises(sqlite3.OperationalError):
++            ro.write_claim(claim_text="x written via ro", claim_id="z",
++                           verdict="VERIFIED", role_verdicts={}, timestamp="t")
++    finally:
++        ro.close()
++
++
++def test_gather_flag_off_returns_empty(tmp_path, monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_KG_REUSE", raising=False)
++    db = str(tmp_path / "campaign.db")
++    assert gather_reuse_context(db, "tirzepatide HbA1c", _EV) == []
++
++
++# ── campaign store: anti-poisoning + Codex required #2 (omit unsupported) + #3 (current id only) ────
++def _seed_campaign_store(db_path: str) -> None:
++    store = VerifiedClaimGraphStore(db_path=db_path)
++    try:
++        store.write_claim(claim_text="tirzepatide reduced HbA1c by 2.1 percent",
++                          claim_id="c1", verdict="VERIFIED", role_verdicts={}, timestamp="t0")
++        # an UNSUPPORTED-verdict prior claim (anti-poisoning: must never be reusable)
++        store.write_claim(claim_text="tirzepatide reduced HbA1c by 9.9 percent",
++                          claim_id="c2", verdict="UNSUPPORTED", role_verdicts={}, timestamp="t0")
++        # a VERIFIED prior claim NOT present in the current corpus (must be omitted by the match-gate)
++        store.write_claim(claim_text="tirzepatide increased cardiovascular mortality risk",
++                          claim_id="c3", verdict="VERIFIED", role_verdicts={}, timestamp="t0")
++    finally:
++        store.close()
++
++
++def test_gather_anti_poisoning_and_unsupported_omitted(tmp_path, monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_KG_REUSE", "1")
++    db = str(tmp_path / "campaign.db")
++    _seed_campaign_store(db)
++    out = gather_reuse_context(db, "What is the effect of tirzepatide on HbA1c?", _EV)
++    texts = {c["claim_text"] for c in out}
++    # VERIFIED + current-corpus-supported → present, anchored to the CURRENT ev id
++    assert "tirzepatide reduced HbA1c by 2.1 percent" in texts
++    assert all(c["evidence_id"] == "ev_005" for c in out)  # CURRENT id only, never a prior id
++    # UNSUPPORTED-verdict prior (c2) → anti-poisoning excludes it
++    assert "tirzepatide reduced HbA1c by 9.9 percent" not in texts
++    # VERIFIED but NOT in current corpus (c3) → mechanically omitted (Codex required #2)
++    assert "tirzepatide increased cardiovascular mortality risk" not in texts
++
++
++# ── analyst advisory block rendering ───────────────────────────────────────────────────────────────
++def test_format_prior_verified_context_empty_is_blank():
++    assert _format_prior_verified_context(None) == ""
++    assert _format_prior_verified_context([]) == ""
++
++
++def test_format_prior_verified_context_renders_claim_and_current_ev():
++    block = _format_prior_verified_context(
++        [{"claim_text": "tirzepatide reduced HbA1c by 2.1 percent", "evidence_id": "ev_005"}]
++    )
++    assert "CROSS-QUESTION CONSISTENCY" in block
++    assert "tirzepatide reduced HbA1c by 2.1 percent" in block
++    assert "ev_005" in block
++    assert "[N]" in block  # instructs current-bibliography citation only
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Reviewed only `.codex/I-meta-002-q1d-kg-readpath/codex_diff.patch`.
+
+The regenerated diff mechanically satisfies the gate: reuse is default-off, read-only, fail-open, claim-text-only, filtered through `query_related_claims`, then mechanically omitted unless strict-verify’s own content-word and decimal primitives match the current corpus. Surviving claims are anchored to current evidence IDs, and the prior context is threaded only into the analyst advisory block.
+
+The iter-1 issues are fixed in the patch: `VerifiedClaimGraphStore(read_only=True)` avoids mkdir/DDL/write-mode opens, and `kg_reuse_enabled()` now normalizes env flags with `.strip().lower()`. Campaign KG persistence is default-`None` compatible, and `run_honest_sweep_r3.py` wires gather-before-generation plus campaign DB persistence as requested.
+tokens used
+15,486
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+required_changes: []
+convergence_call: accept_remaining
+```
+
+Reviewed only `.codex/I-meta-002-q1d-kg-readpath/codex_diff.patch`.
+
+The regenerated diff mechanically satisfies the gate: reuse is default-off, read-only, fail-open, claim-text-only, filtered through `query_related_claims`, then mechanically omitted unless strict-verify’s own content-word and decimal primitives match the current corpus. Surviving claims are anchored to current evidence IDs, and the prior context is threaded only into the analyst advisory block.
+
+The iter-1 issues are fixed in the patch: `VerifiedClaimGraphStore(read_only=True)` avoids mkdir/DDL/write-mode opens, and `kg_reuse_enabled()` now normalizes env flags with `.strip().lower()`. Campaign KG persistence is default-`None` compatible, and `run_honest_sweep_r3.py` wires gather-before-generation plus campaign DB persistence as requested.

@@ -1,0 +1,83 @@
+# Canada-US cross-border domain completeness checklist.
+# Authored for the Statistical Safety Contract validation scope (D1, #919).
+# The validation-domain fail-closed guard (src/polaris_safety/validation_domain_guard.py)
+# requires this file to be present + non-empty for the `canada_us` domain.
+
+domain: canada_us
+
+topics:
+  - id: binding_agreement
+    label: Binding treaty / bilateral agreement
+    keywords:
+      - "USMCA"
+      - "CUSMA"
+      - "treaty"
+      - "bilateral agreement"
+      - "trade agreement"
+      - "protocol"
+      - "ratification"
+    expand_queries:
+      - "{topic} Canada US binding agreement treaty"
+
+  - id: trade_tariff
+    label: Trade / tariff / customs
+    keywords:
+      - "tariff"
+      - "customs"
+      - "duty"
+      - "import"
+      - "export"
+      - "trade barrier"
+      - "rules of origin"
+    expand_queries:
+      - "{topic} Canada US tariff customs trade"
+
+  - id: immigration_status
+    label: Immigration / status / mobility
+    keywords:
+      - "immigration"
+      - "visa"
+      - "work permit"
+      - "mobility"
+      - "border"
+      - "TN status"
+      - "residency"
+    expand_queries:
+      - "{topic} Canada US immigration status mobility"
+
+  - id: defense_security
+    label: Defense / security cooperation
+    keywords:
+      - "NORAD"
+      - "defense"
+      - "security"
+      - "military"
+      - "intelligence"
+      - "critical infrastructure"
+    expand_queries:
+      - "{topic} Canada US defense security cooperation"
+
+  - id: energy_interconnection
+    label: Energy / interconnection
+    keywords:
+      - "energy"
+      - "electricity"
+      - "pipeline"
+      - "interconnection"
+      - "grid"
+      - "cross-border transmission"
+      - "oil"
+    expand_queries:
+      - "{topic} Canada US energy interconnection"
+
+  - id: regulatory_alignment
+    label: Regulatory alignment / divergence
+    keywords:
+      - "regulatory cooperation"
+      - "harmonization"
+      - "divergence"
+      - "standard"
+      - "mutual recognition"
+      - "compliance"
+    expand_queries:
+      - "{topic} Canada US regulatory alignment divergence"

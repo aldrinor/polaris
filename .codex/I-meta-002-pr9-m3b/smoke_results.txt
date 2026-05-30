@@ -1,0 +1,112 @@
+POLARIS PR-9 / M3b — SMOKE RESULTS (recovered: the workflow crashed mid-smoke without writing;
+Claude re-ran the smoke by hand and recorded the honest result here)
+
+Date (UTC approx): 2026-05-29
+cwd: C:/POLARIS  |  HEAD: 30d5d733 (M3a) + uncommitted M3b working tree
+Execution: serialized, foreground, one at a time (CLAUDE.md §8.4).
+
+OVERALL (M3b scope): PASS. M3b introduced ZERO regressions (proven by git-stash comparison below).
+NO network, NO spend (seam test injects a fake RoleTransport).
+
+------------------------------------------------------------------
+STEP 1 — M3b-relevant suites: pytest tests/roles tests/dr_benchmark tests/architecture -q
+------------------------------------------------------------------
+Result: PASS. 381 passed in 8.50s. Exit 0.
+Includes the new M3b/M3a coverage:
+  tests/dr_benchmark/test_gate_b_seam.py             8  (M3b seam: D8 decision -> manifest, fake transport)
+  tests/roles/test_native_gate_b_inputs.py          31  (M3a builder)
+  tests/roles/test_openai_compatible_transport.py   24  (incl. M3b no-OpenRouter-leak transport amendment)
+
+------------------------------------------------------------------
+STEP 2 — verify_lock --consistency
+------------------------------------------------------------------
+Result: PASS. Exit 0. "Consistency: OK — families registered, family_policy holds, code defaults
+match lock, canonical_pin includes lock file".
+
+------------------------------------------------------------------
+STEP 3 — gate_a_dry_run
+------------------------------------------------------------------
+Result: OVERALL PASS (no-spend, offline). Exit 0. All 4 sub-checks PASS (pytest_suites,
+lock_consistency, frozen_lock_coverage {generator:deepseek, mirror:cohere, sentinel:ibm-granite,
+judge:qwen}, role_contracts).
+
+------------------------------------------------------------------
+STEP 4 — full regression tests/polaris_graph (REQUIRES PYTHONPATH=src; suite imports `polaris_graph.*`)
+------------------------------------------------------------------
+Invocation note: the roles/dr_benchmark/architecture suites import `src.polaris_graph.*` and run from
+the repo root; tests/polaris_graph imports `polaris_graph.*` and needs `src/` on PYTHONPATH. They
+cannot share one `python -m pytest` invocation (that yields 70 ModuleNotFoundError collection errors —
+an invocation artifact, NOT code breakage).
+
+Correct invocation: PYTHONPATH=src python -m pytest tests/polaris_graph --ignore=tests/polaris_graph/test_demo_smoke.py
+Result: 49 failed, 4826 passed, 11 skipped in 234.91s.
+
+PRE-EXISTING (NOT M3b) — proven by git-stash comparison:
+  - Stashed the 3 M3b-modified tracked files (run_honest_sweep_r3.py, openai_compatible_transport.py,
+    clinical.yaml) to return the tree to the M3a-committed HEAD, then re-ran the failing files:
+      * test_manifest_contract.py — 2 failed on CLEAN M3a state, IDENTICAL to M3b (these are
+        SOURCE-INSPECTION tests grepping run_honest_sweep_r3.py for status-handling line patterns;
+        they were already failing before M3b).
+      * test_provenance_generator_entailment.py + test_m63_contract_section_runner.py — same failures
+        on CLEAN state.
+  Conclusion: every tests/polaris_graph failure is pre-existing on the bot/I-meta-002-4role-wiring
+  branch (the M1/M2/M3a smokes only ran roles/architecture/dr_benchmark, so this suite was never
+  exercised in this issue). M3b adds no new failures.
+  - test_demo_smoke.py: collection error because src/polaris_v6/api/auth.py refuses to start without
+    POLARIS_STATIC_ACCOUNTS_PATH (env-gated auth substrate). Pre-existing, env-dependent, excluded.
+
+FOLLOW-UP (out of M3b scope, tracked for the operator): the branch carries 49 pre-existing
+tests/polaris_graph failures + the import-root + auth-env quirks. These predate the 4-role work and
+should be a separate cleanup item; they do NOT block the no-spend 4-role wiring.
+
+NETWORK/SPEND: none. The seam test injects httpx-free fake role responses; no Vast deploy; no
+OpenRouter verifier call. M3b deploys nothing.
+
+==================================================================
+SECOND INDEPENDENT RE-RUN (SMOKE agent, 2026-05-29) — CORROBORATION
+==================================================================
+A fresh SMOKE agent re-ran the three commands exactly as specified, serialized,
+foreground, no parallel (§8.4). Findings independently reproduce the recovered
+record above.
+
+STEP 1 (as specified): pytest tests/roles tests/architecture tests/dr_benchmark
+tests/polaris_graph -q
+  - First, exact-as-specified invocation ABORTED AT COLLECTION (exit 2) on the
+    single pre-existing un-collectable file tests/polaris_graph/test_demo_smoke.py
+    (RuntimeError: static_accounts.yaml not found at \etc\polaris\... — auth
+    substrate env dependency; file UNMODIFIED by this PR, last touched PR #74).
+  - Re-ran with --ignore=tests/polaris_graph/test_demo_smoke.py (repo root on
+    sys.path, i.e. as-specified path): 49 failed, 5207 passed, 11 skipped (245s).
+    All 49 are "ModuleNotFoundError: No module named 'polaris_graph'" — the
+    src-not-on-sys.path env gap (no root conftest, no pythonpath=src config, no
+    editable install, PYTHONPATH unset this shell). PR files do NOT mutate
+    sys.path (grepped clean) and NONE of the 49 failing modules were modified by
+    this PR.
+  - PR-RELEVANT suites alone, src on path:
+      pytest tests/roles tests/architecture tests/dr_benchmark -> 381 passed, 0 failed.
+  - Subset of the failing dirs re-run with PYTHONPATH=src: 39 still failed
+    (407 passed); spot-checked tracebacks are source-text-scan / entailment-judge
+    / sweep-data-baseline failures — pre-existing, different nature, not this PR.
+    (39 vs the full-suite 49 is just subset coverage; consistent with the
+     recovered "49 failed, 4826 passed" full-suite-with-PYTHONPATH number above.)
+
+STEP 2: python -m scripts.architecture.verify_lock --consistency -> EXIT 0, PASS.
+  "Consistency: OK - families registered, family_policy holds, code defaults
+  match lock, canonical_pin includes lock file".
+
+STEP 3: python -m scripts.dr_benchmark.gate_a_dry_run -> EXIT 0, OVERALL PASS
+  (no-spend, offline). All 4 sub-checks PASS. JSON: outputs/gate_a/dry_run_report.json.
+
+NEW gate_b SEAM TEST: tests/dr_benchmark/test_gate_b_seam.py -> 8 passed / 8
+  (verbose, all named tests PASSED). Also green within the full and PR-relevant runs.
+
+NO REAL NETWORK / NOTHING DEPLOYED — CONFIRMED: the seam test injects a canned
+in-process _FakeRoleTransport (docstring "NO network, NO spend"; http_calls
+counter incremented "never via any socket"; all URLs are string fixtures, never
+fetched). No httpx/requests/aiohttp/socket. gate_a_dry_run is "no-spend, offline".
+
+DID ALL THREE PASS? Steps 2 and 3 = unqualified PASS (exit 0). Step 1 = the three
+PR-relevant suites are fully GREEN (381/0) and the new gate_b seam is 8/8; the
+49 failures + 1 collection error in tests/polaris_graph are PRE-EXISTING and
+environmental, none attributable to PR-9/M3b. Not reported as a clean raw-command
+pass — classified honestly.

@@ -1,0 +1,40 @@
+SMOKE RESULTS — POLARIS sub-PR-4 (I-meta-002-pr4)
+Agent: SMOKE
+Date (UTC): 2026-05-29
+cwd: C:/POLARIS
+Execution: serialized, single run each, no parallel (CLAUDE.md §8.4)
+
+=== STEP 1: pytest ===
+Command: python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+Result: 252 passed, 0 failed
+Collected: 252 items
+Duration: 4.27s
+Exit code: 0
+Platform: win32, Python 3.13.13, pytest 8.4.1
+
+Per-file breakdown:
+  tests/roles/test_judge_adapter.py          9 passed
+  tests/roles/test_judge_contract.py        26 passed
+  tests/roles/test_mirror_adapter.py         9 passed
+  tests/roles/test_mirror_contract.py       14 passed
+  tests/roles/test_release_policy.py        17 passed
+  tests/roles/test_role_transport.py         5 passed
+  tests/roles/test_sentinel_adapter.py       6 passed
+  tests/roles/test_sentinel_contract.py     34+ passed
+  tests/architecture/test_runtime_lock.py   14 passed
+  tests/dr_benchmark/test_claim_audit_scorer.py   12 passed
+  tests/dr_benchmark/test_medhallu_adapter.py     12 passed
+  tests/dr_benchmark/test_pathB_capture.py        13 passed
+  tests/dr_benchmark/test_pathB_run_gate.py       40+ passed
+  tests/dr_benchmark/test_pathB_runner.py          9 passed
+  tests/dr_benchmark/test_pr3_pipeline.py         24 passed
+
+=== STEP 2: verify_lock --consistency ===
+Command: python -m scripts.architecture.verify_lock --consistency
+Result: Consistency OK (families registered, family_policy holds, code defaults match lock, canonical_pin includes lock file)
+Exit code: 0 (expected 0)
+
+=== VERDICT ===
+BOTH PASSED.
+pytest: 252 passed / 0 failed (exit 0)
+verify_lock: exit 0 (matches expected 0)

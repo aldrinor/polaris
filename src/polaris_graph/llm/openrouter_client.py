@@ -27,6 +27,9 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
 from src.polaris_graph.tracing import _current_tracer
+# I-safety-002b (#925): Path-B benchmark gate capture (stdlib-only, no circular import;
+# all calls are gate-flagged via is_active() so the hot path pays one contextvar read).
+from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
 
 load_dotenv()
 
@@ -407,23 +410,44 @@ PG_GENERATOR_MODEL = os.getenv(
     # is obsolete — NOT a fallback.
     "deepseek/deepseek-v4-pro",
 )
-PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL", "google/gemma-4-31b-it")
+# I-meta-001 (#933): 4-role architecture env vars per the locked stack
+# (config/architecture/polaris_runtime_lock.yaml). Each role has its own knob;
+# the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
+# 2026-09-06 (Carney demo) after which it fails the gate at preflight.
+PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
+PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
+PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
+
+# Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
+# role subsumes the old "evaluator" responsibilities). When PG_EVALUATOR_MODEL
+# IS set, it overrides PG_MIRROR_MODEL for the Mirror role (back-compat).
+PG_EVALUATOR_MODEL = os.getenv("PG_EVALUATOR_MODEL") or PG_MIRROR_MODEL
 
 # Explicit family overrides for the cases where the model-name prefix is
 # not the true family (fine-tunes, licensed redistributions, etc.).
 PG_GENERATOR_FAMILY_OVERRIDE = os.getenv("PG_GENERATOR_FAMILY_OVERRIDE", "")
 PG_EVALUATOR_FAMILY_OVERRIDE = os.getenv("PG_EVALUATOR_FAMILY_OVERRIDE", "")
+PG_MIRROR_FAMILY_OVERRIDE = os.getenv("PG_MIRROR_FAMILY_OVERRIDE", "")
+PG_SENTINEL_FAMILY_OVERRIDE = os.getenv("PG_SENTINEL_FAMILY_OVERRIDE", "")
+PG_JUDGE_FAMILY_OVERRIDE = os.getenv("PG_JUDGE_FAMILY_OVERRIDE", "")
 
 # Known family prefixes. The first prefix matched wins. Distinct families
 # per the loopback/audit/_open_source_models_2026.md family-distance table.
+# I-meta-001 (#933): cohere + ibm-granite added for the locked 4-role architecture
+# (Generator deepseek + Mirror cohere + Sentinel ibm-granite + Judge qwen).
+# Codex iter-2 P1 — family registry must cover every role in the
+# config/architecture/polaris_runtime_lock.yaml or family_segregation refuses
+# to construct the client.
 _FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
-    "deepseek": ("deepseek/", "deepseek-ai/"),
-    "qwen":     ("qwen/", "qwen-ai/", "alibaba/"),
-    "glm":      ("z-ai/", "zhipuai/", "thudm/"),
-    "llama":    ("meta-llama/", "meta/", "llama/"),
-    "gemma":    ("google/gemma", "google/gemma-", "gemma/"),
-    "mistral":  ("mistralai/", "mistral/"),
-    "kimi":     ("moonshotai/", "moonshot/", "kimi/"),
+    "deepseek":    ("deepseek/", "deepseek-ai/"),
+    "qwen":        ("qwen/", "qwen-ai/", "alibaba/"),
+    "glm":         ("z-ai/", "zhipuai/", "thudm/"),
+    "llama":       ("meta-llama/", "meta/", "llama/"),
+    "gemma":       ("google/gemma", "google/gemma-", "gemma/"),
+    "mistral":     ("mistralai/", "mistral/"),
+    "kimi":        ("moonshotai/", "moonshot/", "kimi/"),
+    "cohere":      ("cohere/", "coherelabs/", "command-"),       # I-meta-001
+    "ibm-granite": ("ibm-granite/", "ibm/granite", "granite-"),  # I-meta-001
     # Closed frontier families included for completeness (off-MVP, but if
     # ever allowed via a closed-source fallback they get their own family).
     "openai":   ("openai/", "gpt-"),
@@ -503,6 +527,66 @@ def check_family_segregation(
             f"(evaluator) per loopback/audit/_open_source_models_2026.md."
         )
     return (gen_family, eval_family)
+
+
+def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+                           allowed_collisions: list[tuple[str, str]] | None = None) -> dict[str, str]:
+    """I-meta-001 (#933): N-way family segregation for the 4-role architecture.
+
+    Extends the pairwise check_family_segregation to N roles per the locked
+    architecture (Generator + Mirror + Sentinel + Judge). All four roles must
+    be from distinct training lineages by default; allowed_collisions overrides
+    specific pairs if the architecture lock's family_policy permits them.
+
+    Args:
+        role_map: {role_name: model_slug}, e.g. {"generator": "deepseek/...",
+                  "mirror": "cohere/...", "sentinel": "ibm-granite/...",
+                  "judge": "qwen/..."}
+        policy: "all_distinct" (default) or "permit_collisions".
+        allowed_collisions: list of [role_a, role_b] pairs whose families
+                  may collide. Ignored under all_distinct.
+
+    Returns:
+        {role_name: family_label} on success.
+
+    Raises:
+        RuntimeError if any role's family is "unknown" or if two roles share
+        a family outside allowed_collisions.
+
+    Codex APPROVE iter 2 — accept_remaining (see .codex/I-meta-001/codex_brief_iter2_verdict.txt).
+    """
+    allowed_collisions = allowed_collisions or []
+    role_families: dict[str, str] = {}
+    for role, model in role_map.items():
+        family = family_from_model(model)
+        if family == "unknown":
+            raise RuntimeError(
+                f"validate_role_families: role {role!r} model {model!r} returns "
+                f"family='unknown'. Add the family prefix to "
+                f"_FAMILY_PREFIXES in openrouter_client.py."
+            )
+        role_families[role] = family
+
+    if policy == "permit_collisions":
+        return role_families
+
+    # all_distinct (default policy): every family must be unique across roles
+    family_to_role: dict[str, str] = {}
+    allowed_set = {tuple(sorted([a, b])) for a, b in allowed_collisions}
+    for role, family in role_families.items():
+        if family in family_to_role:
+            other_role = family_to_role[family]
+            if tuple(sorted([role, other_role])) in allowed_set:
+                continue
+            raise RuntimeError(
+                f"validate_role_families: family {family!r} appears in both "
+                f"role {role!r} and role {other_role!r}; family_policy="
+                f"all_distinct forbids this. If intentional, add the pair to "
+                f"allowed_collisions in config/architecture/polaris_runtime_lock.yaml."
+            )
+        family_to_role[family] = role
+    return role_families
+
 
 # FIX-GLM5: Models that always route output to reasoning_content.
 # These need reasoning_enabled=True for all calls, and generate() must
@@ -1002,10 +1086,12 @@ class OpenRouterClient:
 
     async def _accumulate_sse(
         self, response: httpx.Response,
-    ) -> tuple[str, str, dict]:
+    ) -> tuple[str, str, dict, dict]:
         """Accumulate SSE chunks from a streaming response.
 
-        Returns (content, reasoning_content, usage_data).
+        Returns (content, reasoning_content, usage_data, served_identity), where
+        served_identity holds the genuinely-served provider/model/system_fingerprint
+        captured from the SSE chunks (I-safety-002b #925).
 
         Handles OpenRouter SSE format:
         - ``data: {JSON}`` — delta chunks with content/reasoning_content
@@ -1019,6 +1105,11 @@ class OpenRouterClient:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         usage_data: dict = {}
+        # I-safety-002b (#925): served-identity from SSE chunks (provider/model/
+        # system_fingerprint). OpenRouter reports these per-chunk; keep the last
+        # non-null. Used to populate the synthesized streaming `data` with the
+        # genuinely-served identity (not the request-derived model) for the gate.
+        served: dict = {}
 
         # Phase 3: SSE chunk metrics
         chunk_count = 0
@@ -1044,6 +1135,15 @@ class OpenRouterClient:
                 continue
 
             chunk_count += 1
+
+            # I-safety-002b (#925): capture genuinely-served identity (last non-null wins).
+            # Gate-flagged: skip entirely when the Path-B capture is inactive (off-mode pays
+            # one contextvar read, not three dict lookups per chunk).
+            if _pathb_capture.is_active():
+                for _sk in ("provider", "model", "system_fingerprint"):
+                    _sv = chunk.get(_sk)
+                    if _sv:
+                        served[_sk] = _sv
 
             # Phase 3: Mid-stream error detection (SOTA research finding)
             # FIX-QWEN-1: Also detect top-level errors with empty choices
@@ -1111,11 +1211,11 @@ class OpenRouterClient:
                 chunk_count,
             )
 
-        return content_text, reasoning_text, usage_data
+        return content_text, reasoning_text, usage_data, served
 
     async def _read_stream(
         self, body: dict, timeout: float,
-    ) -> tuple[str, str, dict]:
+    ) -> tuple[str, str, dict, dict]:
         """Execute streaming POST and accumulate SSE response.
 
         Opens an httpx streaming connection, reads SSE events, and returns
@@ -1146,7 +1246,7 @@ class OpenRouterClient:
                     "[polaris graph] SSE path: Content-Type=%s",
                     content_type,
                 )
-                content, reasoning, usage = await self._accumulate_sse(response)
+                content, reasoning, usage, served = await self._accumulate_sse(response)
 
                 # Defense: if SSE produced nothing, the stream may have
                 # been malformed. Log for diagnostics.
@@ -1157,7 +1257,7 @@ class OpenRouterClient:
                         content_type,
                     )
 
-                return content, reasoning, usage
+                return content, reasoning, usage, served
 
             # Non-SSE response — provider returned standard JSON
             # despite stream:true. Read full body and parse.
@@ -1176,11 +1276,17 @@ class OpenRouterClient:
                     content_type,
                     str(exc)[:200],
                 )
-                return "", "", {}
+                return "", "", {}, {}
 
+            # I-safety-002b (#925): served identity from the real JSON body.
+            _served = {
+                _k: data.get(_k)
+                for _k in ("provider", "model", "system_fingerprint")
+                if data.get(_k)
+            }
             choices = data.get("choices", [])
             if not choices:
-                return "", "", data.get("usage", {})
+                return "", "", data.get("usage", {}), _served
 
             message = choices[0].get("message", {})
             logger.info(
@@ -1198,6 +1304,7 @@ class OpenRouterClient:
                 or message.get("reasoning", "")
                 or "",
                 data.get("usage", {}),
+                _served,
             )
 
     async def __aenter__(self):
@@ -1348,9 +1455,20 @@ class OpenRouterClient:
             # ~12-15k content headroom. Env-tunable. Smoke #3 (2026-05-14)
             # confirmed: at 20000, V4 Pro completed all 6 sections with
             # zero ReasoningFirstTruncationError.
-            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "20000"))
+            # I-bug-941 (#927): default LOWERED 20000 → 16384 to match DeepInfra's
+            # deepseek-v4-pro provider cap (verified by binary search 2026-05-28: 16384
+            # → 200, 16385 → 404 "No endpoints found"). Operators with higher-tier
+            # endpoints can override via env. The 20000 floor produced a deterministic
+            # 404 on every generation call against the default provider configuration.
+            _min_tokens = int(os.getenv("PG_REASONING_FIRST_MIN_MAX_TOKENS", "16384"))
             if body.get("max_tokens", 0) < _min_tokens:
                 body["max_tokens"] = _min_tokens
+            # Hard ceiling at DeepInfra's verified cap for deepseek-v4-pro. The runner's
+            # per-section/outline max_tokens kwargs can legally request higher (e.g. 24000
+            # for V30 Phase-2 long-form sections); without this clamp those requests 404.
+            _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "16384"))
+            if body.get("max_tokens", 0) > _hard_cap:
+                body["max_tokens"] = _hard_cap
 
         if response_format:
             body["response_format"] = response_format
@@ -1368,7 +1486,18 @@ class OpenRouterClient:
             "allow_fallbacks": allow_fb,
             "require_parameters": require_params,
         }
-        if provider_order:
+        # I-bug-946 (#932): when Path-B gate is active, override the env candidate list with
+        # the per-role resolved singleton provider (resolved at preflight via /api/v1/models/
+        # <id>/endpoints). This is what makes C work end-to-end: pin AND routing align per role.
+        # Outside gate runs (gate-off), the env-driven path is unchanged.
+        try:
+            resolved_provider = _pathb_capture.current_role_provider()
+        except Exception:
+            resolved_provider = None
+        if resolved_provider:
+            provider_block["order"] = [resolved_provider]
+            provider_block["allow_fallbacks"] = False
+        elif provider_order:
             provider_block["order"] = provider_order
         body["provider"] = provider_block
 
@@ -1381,7 +1510,7 @@ class OpenRouterClient:
 
                 if body.get("stream", True):
                     # Streaming path — accumulate SSE chunks
-                    content_text, reasoning_text, stream_usage = await asyncio.wait_for(
+                    content_text, reasoning_text, stream_usage, stream_served = await asyncio.wait_for(
                         self._read_stream(body, actual_timeout),
                         timeout=actual_timeout + 30,
                     )
@@ -1396,6 +1525,11 @@ class OpenRouterClient:
                         "usage": stream_usage,
                         "model": self.model,
                     }
+                    # I-safety-002b (#925): stash the genuinely-SSE-served identity so the
+                    # Path-B gate sees the SERVED provider/model, not the request-derived
+                    # `self.model` fallback above. Gate-flagged: nothing added when off.
+                    if _pathb_capture.is_active():
+                        data["_pathb_served"] = stream_served
                 else:
                     # FIX-QWEN-2: Non-streaming path for json_object
                     resp = await asyncio.wait_for(
@@ -1454,9 +1588,29 @@ class OpenRouterClient:
 
                 # Rate limit — back off
                 if status == 429:
-                    wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    # I-bug-943: bumped 429 backoff floor 2,4,8 -> 15,30,60s (max 60s).
+                    # DeepInfra's V4 Pro throttle window is longer than 14s; the old 3-attempt
+                    # / 14s-total budget reliably gave up before the throttle cleared on
+                    # parallel-section generation. Operator-tunable via PG_RATE_LIMIT_FLOOR_S.
+                    floor = float(os.getenv("PG_RATE_LIMIT_FLOOR_S", "15.0"))
+                    wait = min(60.0, max(floor, RETRY_BACKOFF_BASE ** (attempt + 1)) * (attempt + 1))
                     logger.warning(
                         "[polaris graph] Rate limited, waiting %.1fs (attempt %d/%d)",
+                        wait, attempt + 1, MAX_RETRIES + 1,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
+                # I-bug-940: OpenRouter returns 404 transiently when the routed provider
+                # is briefly upstream-throttled or the edge routing has a momentary miss.
+                # Out-of-band probes confirmed the same call succeeds 8s later. Retry
+                # with backoff like 429 — a real "model not found" reproduces across all
+                # MAX_RETRIES+1 attempts (so a genuine config error still terminates).
+                if status == 404 and attempt < MAX_RETRIES:
+                    wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.warning(
+                        "[polaris graph] I-bug-940: 404 (transient provider routing), "
+                        "waiting %.1fs (attempt %d/%d)",
                         wait, attempt + 1, MAX_RETRIES + 1,
                     )
                     await asyncio.sleep(wait)
@@ -1655,6 +1809,23 @@ class OpenRouterClient:
         # run-scoped reasoning-trace sink BEFORE any caller-level promotion /
         # </think> extraction / retry / ReasoningFirstTruncationError raise.
         _capture_reasoning_trace(result, content, reasoning)
+
+        # I-safety-002b (#925): Path-B benchmark gate capture — one LLMCall per provider
+        # completion (this is the unified completion boundary for stream + non-stream +
+        # retries + reason/generate/generate_structured). Best-effort + gate-flagged:
+        # is_active() is a cheap contextvar read and is False outside a benchmark run.
+        # PR-2: capture ONLY explicitly-tagged calls (Codex APPROVE Option B). Auxiliary
+        # calls (scope LLM, inductor) without a role tag are NOT captured / NOT gated —
+        # the gate polices the REPORT generator + REPORT evaluators only, which is what
+        # the benchmark needs and is robust to auxiliary-model config changes.
+        if _pathb_capture.is_active():
+            _role = _pathb_capture.current_llm_role()
+            if _role is not None:
+                _pathb_capture.capture_llm_call(
+                    role=_role,
+                    messages=sanitized_messages,
+                    raw_response=data,
+                )
 
         logger.info(
             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "

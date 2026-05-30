@@ -1,0 +1,34 @@
+codex
+**Re-review Result**
+
+1. ✓ Seed child streams closed: §3 now uses HMAC-derived named streams and pins the name list.
+2. ✓ Result-affecting pins closed: §1 now includes the missing schemas, validators, runners, manifests, configs, classifiers, registries, and analysis code.
+3. ✓ Severity stratum blinding closed: §4.1 makes it answer-bearing and mechanically disqualifying.
+4. ✓ Packet access closed: §4 now names first-pass, tiebreaker, and panel SMEs for assigned claims only.
+5. ✓ Snapshot self-containment closed: §5 requires frozen offline-identical rendered packets.
+6. ✓ P4.2 map/channels closed: §6 matches the full v3.3 structural/outcome map and adds the missing access channels.
+7. ✓ Replacement/drop rules closed: §8 now pre-registers same-cell deterministic replacement, pre/post-SME 404 handling, and builder-rejection constraints.
+8. △ Broker enforcement mostly closed, but one internal schema inconsistency remains: §9 requires logging every allow and deny, while §6’s exposure-log schema only has `action: enum[read,write]`. A denied read must be distinguishable from an allowed read, or denied outcome attempts become ambiguous exposure events.
+
+Add a field like `decision: enum[allow,deny]` plus optional `deny_reason`, and specify that amendment eligibility is driven by `decision=allow` reads while denied attempts remain broker audit events.
+
+0a.-1.E is substantively ready to govern the 0a.-1.C code half after that schema fix.
+
+Fix §6 exposure-log schema to represent broker allow/deny decisions, then lock.
+83,317
+**Re-review Result**
+
+1. ✓ Seed child streams closed: §3 now uses HMAC-derived named streams and pins the name list.
+2. ✓ Result-affecting pins closed: §1 now includes the missing schemas, validators, runners, manifests, configs, classifiers, registries, and analysis code.
+3. ✓ Severity stratum blinding closed: §4.1 makes it answer-bearing and mechanically disqualifying.
+4. ✓ Packet access closed: §4 now names first-pass, tiebreaker, and panel SMEs for assigned claims only.
+5. ✓ Snapshot self-containment closed: §5 requires frozen offline-identical rendered packets.
+6. ✓ P4.2 map/channels closed: §6 matches the full v3.3 structural/outcome map and adds the missing access channels.
+7. ✓ Replacement/drop rules closed: §8 now pre-registers same-cell deterministic replacement, pre/post-SME 404 handling, and builder-rejection constraints.
+8. △ Broker enforcement mostly closed, but one internal schema inconsistency remains: §9 requires logging every allow and deny, while §6’s exposure-log schema only has `action: enum[read,write]`. A denied read must be distinguishable from an allowed read, or denied outcome attempts become ambiguous exposure events.
+
+Add a field like `decision: enum[allow,deny]` plus optional `deny_reason`, and specify that amendment eligibility is driven by `decision=allow` reads while denied attempts remain broker audit events.
+
+0a.-1.E is substantively ready to govern the 0a.-1.C code half after that schema fix.
+
+Fix §6 exposure-log schema to represent broker allow/deny decisions, then lock.

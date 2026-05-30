@@ -1,0 +1,367 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 8c50387f..66801975 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -3034,9 +3034,18 @@ async def run_one_query(
+                 f"(tier {b['tier']})\n"
+             )
+ 
++        # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
++        # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
++        # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
++        _key_findings = ""
++        try:
++            from src.polaris_graph.generator.key_findings import build_key_findings
++            _key_findings = build_key_findings(getattr(multi, "sections", []))
++        except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
++            _log(f"[key-findings] skipped (fail-open): {_exc}")
+         final_report = (
+             f"# Research report: {q['question']}\n\n"
+-            + sections_concat + methods + biblio_section
++            + _key_findings + sections_concat + methods + biblio_section
+         )
+         (run_dir / "report.md").write_text(final_report, encoding="utf-8")
+         (run_dir / "bibliography.json").write_text(
+diff --git a/src/polaris_graph/generator/key_findings.py b/src/polaris_graph/generator/key_findings.py
+new file mode 100644
+index 00000000..91e31f0b
+--- /dev/null
++++ b/src/polaris_graph/generator/key_findings.py
+@@ -0,0 +1,69 @@
++"""Verified-only extractive executive summary (I-meta-002-q1d #949 part b).
++
++Frontier DR reports lead with a key-findings-up-front summary; POLARIS opened cold into Efficacy. This
++builds a "Key Findings" block by EXTRACTING the first verified sentence (verbatim, with its `[N]` citation)
++from each verified section. It is PURELY EXTRACTIVE — it copies sentences that already survived strict_verify
++and introduces ZERO new claims, no LLM call, no spend. Empty input → "" (no empty heading).
++"""
++
++from __future__ import annotations
++
++import os
++import re
++from typing import Any
++
++# One sentence = minimal run up to end punctuation, PLUS any trailing `[N]` citation marker(s), where the
++# end punctuation must be a real sentence boundary: followed by whitespace+capital/bracket/digit OR end of
++# text. The boundary lookahead prevents stopping inside a decimal ("2.1" — the period is followed by a digit,
++# no whitespace, so it is not a boundary). Matching (not splitting) keeps trailing-citation forms (`claim.
++# [1]` AND `claim [1].`) attached to the sentence — re.split would consume the trailing `[N]` (Codex
++# diff-gate iter-1 P2).
++_SENTENCE_RE = re.compile(r".+?[.!?](?:\s*\[\d+\])*(?=\s+[A-Z(\[\d]|\s*$)", re.DOTALL)
++
++_OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
++
++# How many leading verified sentences to lift from each section (default 1 — the headline finding).
++_SENTENCES_PER_SECTION = 1
++# Hard cap on total bullets so the summary stays a summary.
++_MAX_BULLETS = 6
++
++
++def key_findings_enabled() -> bool:
++    """Default ON. `PG_SWEEP_KEY_FINDINGS=0` ships the report without the exec-summary block (cold-open)."""
++    return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
++
++
++def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
++    matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
++    return [s for s in matches if s][:n]
++
++
++def build_key_findings(sections: list[Any]) -> str:
++    """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
++    from each non-dropped section with verified_text. Verified-only + extractive — never a new claim.
++    Returns "" when disabled or when no section has verified prose (no empty heading)."""
++    if not key_findings_enabled():
++        return ""
++    bullets: list[str] = []
++    for sr in sections or []:
++        if getattr(sr, "dropped_due_to_failure", False):
++            continue
++        verified_text = getattr(sr, "verified_text", "") or ""
++        if not verified_text.strip():
++            continue
++        title = getattr(sr, "title", "") or ""
++        for sentence in _first_verified_sentences(verified_text, _SENTENCES_PER_SECTION):
++            label = f"**{title}.** " if title else ""
++            bullets.append(f"- {label}{sentence}")
++            if len(bullets) >= _MAX_BULLETS:
++                break
++        if len(bullets) >= _MAX_BULLETS:
++            break
++    if not bullets:
++        return ""
++    header = (
++        "## Key Findings\n\n"
++        "_Each finding below is a verbatim, span-verified statement carried up from the body section "
++        "named in bold; citations are the body's._\n\n"
++    )
++    return header + "\n".join(bullets) + "\n\n"
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 5a125f6e..0c5447f6 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -893,6 +893,40 @@ def _trial_names_in_evidence(ev: dict[str, Any]) -> set[str]:
+     return acc
+ 
+ 
++def _trial_name_span_fallback_enabled() -> bool:
++    """I-meta-002-q1d (#949). Default ON. When OFF, trial-name matching is the exact pass-7
++    title/statement-only behavior (byte-identical)."""
++    return os.getenv("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK", "1").strip().lower() not in (
++        "0", "false", "no", "off", "",
++    )
++
++
++def _trial_names_for_cited_row(ev: dict[str, Any], cited_spans: list[tuple[int, int]]) -> set[str]:
++    """Trial names this cited row authoritatively contributes (I-meta-002-q1d #949).
++
++    TITLE AUTHORITY (the binding clinical-safety rule): if statement/title names ANY trial, that set is
++    returned and the span is NOT consulted — a row whose title declares trial T can never match a sentence
++    naming a different trial, regardless of what its direct_quote/body contains (this preserves the pass-7
++    FABRICATED-#20 locked-FAIL even when the citation span covers the whole body).
++
++    SPAN FALLBACK (only when the title/statement names NO trial — the SURPASS-2-omitted-from-title case):
++    return trial names found in the CITED SPANS ONLY (`direct_quote[start:end]` for this row's tokens — the
++    same slice the numeric/content checks use), NOT the whole direct_quote. The cited RESULTS span names the
++    trial whose result it states; a prior-reference mention OUTSIDE the cited span never matches, and a body
++    that contextualises against sibling trials elsewhere does not pollute the match. Gated by
++    `_trial_name_span_fallback_enabled()` (default ON; OFF → exact title-only behavior)."""
++    title_trials = _trial_names_in_evidence(ev)
++    if title_trials or not _trial_name_span_fallback_enabled():
++        return title_trials
++    direct_quote = (ev.get("direct_quote") or ev.get("statement") or "") if ev else ""
++    if not direct_quote:
++        return set()
++    span_trials: set[str] = set()
++    for start, end in cited_spans:
++        span_trials |= extract_trial_names(direct_quote[start:end])
++    return span_trials
++
++
+ def verify_sentence_provenance(
+     sentence: str,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -1116,10 +1150,15 @@ def verify_sentence_provenance(
+         # SURMOUNT-3 paper).
+         sentence_trials = extract_trial_names(sentence_for_numbers)
+         if sentence_trials:
+-            evidence_trials: set[str] = set()
++            # I-meta-002-q1d (#949): resolve each cited row ROW-LOCALLY — title/statement authority, else
++            # the CITED SPANS for THAT row only (never whole direct_quote, never cross-row spans).
++            spans_by_ev: dict[str, list[tuple[int, int]]] = {}
+             for tok in tokens:
+-                ev = evidence_pool.get(tok.evidence_id)
+-                evidence_trials |= _trial_names_in_evidence(ev or {})
++                spans_by_ev.setdefault(tok.evidence_id, []).append((tok.start, tok.end))
++            evidence_trials: set[str] = set()
++            for ev_id, cited_spans in spans_by_ev.items():
++                ev = evidence_pool.get(ev_id)
++                evidence_trials |= _trial_names_for_cited_row(ev or {}, cited_spans)
+             matched = sentence_trials & evidence_trials
+             if not matched:
+                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+diff --git a/tests/polaris_graph/test_key_findings.py b/tests/polaris_graph/test_key_findings.py
+new file mode 100644
+index 00000000..f1944f1d
+--- /dev/null
++++ b/tests/polaris_graph/test_key_findings.py
+@@ -0,0 +1,96 @@
++"""Verified-only extractive Key Findings block (I-meta-002-q1d #949b). NO spend.
++
++Asserts: extractive-only (sentences appear verbatim in section verified_text; citations preserved), dropped
++sections excluded, empty input → "" (no heading), bullet cap, default-ON kill-switch.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++import src.polaris_graph.generator.key_findings as kf
++from src.polaris_graph.generator.key_findings import build_key_findings, key_findings_enabled
++
++
++@dataclass
++class _Section:
++    title: str
++    verified_text: str
++    dropped_due_to_failure: bool = False
++
++
++def test_extractive_first_sentence_with_citation_preserved():
++    secs = [
++        _Section("Efficacy", "Tirzepatide reduced HbA1c by 2.1 percent versus placebo [3]. More prose here [4]."),
++        _Section("Safety", "Nausea was the most common adverse event at 12 percent [7]. Second sentence [8]."),
++    ]
++    out = build_key_findings(secs)
++    assert "## Key Findings" in out
++    # first verified sentence of each section, verbatim, with its [N] citation
++    assert "Tirzepatide reduced HbA1c by 2.1 percent versus placebo [3]." in out
++    assert "Nausea was the most common adverse event at 12 percent [7]." in out
++    # bold section label
++    assert "**Efficacy.**" in out and "**Safety.**" in out
++    # only the FIRST sentence per section is lifted (extractive headline, not the whole section)
++    assert "More prose here [4]." not in out
++    assert "Second sentence [8]." not in out
++
++
++def test_dropped_and_empty_sections_excluded():
++    secs = [
++        _Section("Efficacy", "Kept finding [1].", dropped_due_to_failure=False),
++        _Section("Safety", "This was dropped [2].", dropped_due_to_failure=True),
++        _Section("Regulatory", "   "),  # empty verified_text
++    ]
++    out = build_key_findings(secs)
++    assert "Kept finding [1]." in out
++    assert "This was dropped [2]." not in out
++    assert "Regulatory" not in out
++
++
++def test_no_verified_sections_returns_empty_no_heading():
++    assert build_key_findings([]) == ""
++    assert build_key_findings([_Section("Efficacy", "", dropped_due_to_failure=True)]) == ""
++    assert "## Key Findings" not in build_key_findings([_Section("X", "  ")])
++
++
++def test_bullet_cap():
++    secs = [_Section(f"S{i}", f"Finding number {i} here [{i}].") for i in range(12)]
++    out = build_key_findings(secs)
++    assert out.count("\n- ") == kf._MAX_BULLETS
++
++
++def test_trailing_citation_form_stays_attached():
++    """Codex diff-gate iter-1 P2: a trailing-citation sentence `claim. [1]` keeps its citation with the
++    lifted finding (not split into a bare `[1]` second 'sentence')."""
++    secs = [_Section("Efficacy", "Tirzepatide reduced HbA1c by 2.1 percent. [3] Follow-on sentence here.")]
++    out = build_key_findings(secs)
++    assert "Tirzepatide reduced HbA1c by 2.1 percent. [3]" in out
++    assert "Follow-on sentence here." not in out
++
++
++def test_kill_switch(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_KEY_FINDINGS", raising=False)
++    assert key_findings_enabled() is True
++    secs = [_Section("Efficacy", "Kept finding [1].")]
++    assert build_key_findings(secs) != ""
++    monkeypatch.setenv("PG_SWEEP_KEY_FINDINGS", "0")
++    assert key_findings_enabled() is False
++    assert build_key_findings(secs) == ""
++
++
++def test_extractive_property_every_bullet_sentence_in_some_section():
++    """Hard extractive guarantee: every bulleted sentence must appear verbatim in some section's
++    verified_text (no synthesized/new claim)."""
++    secs = [
++        _Section("Efficacy", "Alpha finding [1]. beta."),
++        _Section("Safety", "Gamma finding [2]. delta."),
++    ]
++    out = build_key_findings(secs)
++    bodies = " ".join(s.verified_text for s in secs)
++    for line in out.splitlines():
++        if not line.startswith("- "):
++            continue
++        # strip the "- **Title.** " prefix → the lifted sentence
++        sentence = line.split("** ", 1)[-1] if "**" in line else line[2:]
++        assert sentence in bodies, f"non-extractive bullet: {sentence!r} not in any section body"
+diff --git a/tests/polaris_graph/test_m25_trial_name_match.py b/tests/polaris_graph/test_m25_trial_name_match.py
+index a721fa2f..24e3887d 100644
+--- a/tests/polaris_graph/test_m25_trial_name_match.py
++++ b/tests/polaris_graph/test_m25_trial_name_match.py
+@@ -242,3 +242,97 @@ class TestTrialNameMismatchRejection:
+         assert any("trial_name_mismatch" in r for r in result.failure_reasons), (
+             f"expected trial_name_mismatch; got {result.failure_reasons}"
+         )
++
++
++class TestTrialNameSpanFallback:
++    """I-meta-002-q1d (#949): title-authority + CITED-SPAN fallback. The fallback rescues a correct
++    sentence when the row's title names NO trial AND the CITED span names the trial — without re-opening
++    FABRICATED-#20 (title authority) and without the one-reference laundering hole (span scope, not body)."""
++
++    def test_span_fallback_rescues_surpass2_when_title_lacks_token(self) -> None:
++        """RESCUE: a SURPASS-2 paper whose TITLE lacks the token and whose body INTRO references SURPASS-1
++        and SURPASS-3 (≥2 trials in body), but whose CITED RESULTS span names SURPASS-2 → a SURPASS-2
++        sentence PASSES. (A whole-body count heuristic would still drop this; cited-span is required.)"""
++        intro = (
++            "Building on SURPASS-1 and contrasting with SURPASS-3 obesity outcomes, this analysis "
++        )
++        results = (
++            "reports that tirzepatide in SURPASS-2 produced a mean HbA1c reduction of 2.3 percent "
++            "versus semaglutide at 40 weeks."
++        )
++        direct_quote = intro + results
++        span_start = len(intro)
++        span_end = len(direct_quote)
++        sentence = (
++            f"In SURPASS-2, tirzepatide produced a mean HbA1c reduction of 2.3 percent versus "
++            f"semaglutide. [#ev:ev_s2:{span_start}-{span_end}]"
++        )
++        pool = {
++            "ev_s2": {
++                "direct_quote": direct_quote,
++                # AUTHORITATIVE title names NO trial token (the real SURPASS-2 paper title shape).
++                "statement": "Tirzepatide versus semaglutide once weekly in type 2 diabetes",
++            },
++        }
++        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
++        assert result.is_verified, (
++            f"span fallback should rescue the SURPASS-2 sentence (title lacks token, cited span names "
++            f"SURPASS-2); got failures={result.failure_reasons}"
++        )
++
++    def test_locked_fail_one_reference_outside_cited_span_rejected(self) -> None:
++        """MANDATORY locked-FAIL #2 (the one-reference hole): title names NO trial; the body mentions
++        SURMOUNT-1 ONCE as a prior reference in the INTRO; the CITED span is the SURMOUNT-3 result and does
++        NOT contain SURMOUNT-1 → a fabricated SURMOUNT-1 sentence is REJECTED. Span scope (not body scope)
++        is what closes this — a body mention outside the cited span never matches."""
++        intro = "Prior work in SURMOUNT-1 motivated this study. "
++        results = (
++            "Here SURMOUNT-3 with intensive lifestyle intervention produced a mean weight reduction "
++            "of 18.4 percent at 72 weeks."
++        )
++        direct_quote = intro + results
++        # Cite ONLY the results span (starts after the SURMOUNT-1 intro mention).
++        span_start = len(intro)
++        span_end = len(direct_quote)
++        sentence = (
++            f"In SURMOUNT-1, tirzepatide produced a mean weight reduction of 18.4 percent at 72 weeks. "
++            f"[#ev:ev_015:{span_start}-{span_end}]"
++        )
++        pool = {
++            "ev_015": {
++                "direct_quote": direct_quote,
++                "statement": "Tirzepatide with intensive lifestyle intervention in obesity",  # NO trial token
++            },
++        }
++        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
++        assert not result.is_verified, (
++            "one-reference hole: a SURMOUNT-1 reference OUTSIDE the cited span must NOT launder a "
++            f"fabricated SURMOUNT-1 sentence; got kept (failures={result.failure_reasons})"
++        )
++        assert any("trial_name_mismatch" in r for r in result.failure_reasons), (
++            f"expected trial_name_mismatch; got {result.failure_reasons}"
++        )
++
++    def test_kill_switch_off_restores_title_only_behavior(self, monkeypatch) -> None:
++        """Kill-switch OFF → exact pass-7 title/statement-only behavior: the SURPASS-2 rescue case (title
++        lacks the token) drops again, byte-identical to pre-#949."""
++        monkeypatch.setenv("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK", "0")
++        results = (
++            "tirzepatide in SURPASS-2 produced a mean HbA1c reduction of 2.3 percent versus semaglutide."
++        )
++        sentence = (
++            f"In SURPASS-2, tirzepatide produced a mean HbA1c reduction of 2.3 percent versus "
++            f"semaglutide. [#ev:ev_s2:0-{len(results)}]"
++        )
++        pool = {
++            "ev_s2": {
++                "direct_quote": results,
++                "statement": "Tirzepatide versus semaglutide once weekly in type 2 diabetes",  # no token
++            },
++        }
++        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
++        assert not result.is_verified, (
++            "with the span fallback OFF, a title-token-less SURPASS-2 row must drop the sentence "
++            f"(exact pre-#949 behavior); got kept (failures={result.failure_reasons})"
++        )
++        assert any("trial_name_mismatch" in r for r in result.failure_reasons)
