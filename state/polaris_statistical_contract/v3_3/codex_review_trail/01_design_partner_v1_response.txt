@@ -1,0 +1,385 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6b1e-5a50-7d11-a298-eaa08245e73f
+--------
+user
+# Design-partner mode — let's architect v3.0 together, not as another patch
+
+## Why this brief is different
+
+Operator just told me no external statistician — Claude 4.7 + Codex 5.5 with max reasoning + deep research is the only available pairing. So you and I have to converge on a real audit-grade contract by ourselves.
+
+Your last dialogue (v2 response) showed me the failure mode: I was patching gates while the underlying defect was a missing statistical contract. You gave me the 6-question framework:
+
+1. **Estimand** — what quantity am I trying to bound?
+2. **Sampling frame** — which population does the sample represent?
+3. **Unit of independence** — what's the actual independent observation?
+4. **Error-control claim** — per-stratum? per-period? lifetime?
+5. **Binding pass/fail rule** — one locked denominator
+6. **Discretion remaining** — what choices stay after data is seen?
+
+This brief restructures the document around that framework. I want your design pushback BEFORE I fill in the contract.
+
+**Mode**: design-partner dialogue. Long-form prose, no YAML, no APPROVE/REJECT framing.
+
+**Constraints**: no filesystem searches; you don't need to look at any POLARIS files — everything you need is in this brief.
+
+**Deep research authority**: please bring max reasoning + your training knowledge of preregistration, ordinal κ, online FDR, cluster-adjusted Wilson, FDA guidance, RAGTruth/HHEM/SAFE benchmark conventions, ICH-GCP, AMSTAR-2. We're the team. Use everything.
+
+## v3.0 architecture proposal — 5 safety claims, each with the 6-question contract
+
+I propose POLARIS makes exactly five safety claims at engineering-readiness. Each claim gets the full 6-question contract. Below I sketch my best attempt at each; **please push back on the framework choices before I lock denominators**.
+
+---
+
+### Claim 1: Per-stratum claim-level fabrication safety
+
+| Question | My proposal |
+|---|---|
+| Estimand | `P(verifier misses a fabrication | claim is in severity stratum S)` for S ∈ {S0, S1, S2} |
+| Sampling frame | Gold-set claims constructed from 6 research domains, 3 complexity tiers, 4 evidence-pool sizes; SME-adjudicated severity labels |
+| Unit of independence | Individual claim, AFTER MinHash≥0.85 and BGE-cosine≥0.90 dedup + manual group-split audit |
+| Error-control claim | Per-stratum Wilson one-sided 95% UCB; NO unweighted aggregation claim (per your Finding 4) |
+| Binding pass/fail rule | UCB(S1, k=0) ≤ 0.5% requires n_S1 ≥ 540; UCB(S2, k=0) ≤ 2% requires n_S2 ≥ 135; S0 is policy: zero observed misses on ≥50 stress-test items, no UCB target asserted |
+| Discretion remaining | Pre-registered: stratum definitions, dedup thresholds, SME panel composition, adjudication tiebreak; NO post-hoc stratum recomposition |
+
+**Open design question for you**: should I drop the per-domain Bonferroni gate entirely? In v2.8 I had 300/domain × 6 = 1800 as a separate Bonferroni-corrected gate (per-domain UCB ≤2%). But that's a second aggregation claim that has the same Finding-4 problem if the per-domain mix doesn't match production. **Two options**:
+
+- **Option α**: keep per-stratum gates only; per-domain is observability (descriptive, not a gate).
+- **Option β**: keep per-domain Bonferroni gate but redefine the estimand as "per-domain conditional miss rate, conditional on the gold-set domain construction" — explicitly not population-projected.
+
+Which is more audit-defensible? Why?
+
+---
+
+### Claim 2: Per-report safety-critical fabrication bound
+
+| Question | My proposal |
+|---|---|
+| Estimand | `P(report contains ≥1 missed S0/S1 fabrication | report is eligible production-canary traffic)` |
+| Sampling frame | Report-level holdout sampled from production canary, stratified by customer with eligibility filter (PHI-redacted, in-scope domain, complete pipeline run) |
+| Unit of independence | **Customer** (not report) because reports cluster within customers |
+| Error-control claim | Wilson with cluster-adjusted effective n (per your Finding 5 recommendation: Wilson n_eff PRIMARY, cluster bootstrap SENSITIVITY) |
+| Binding pass/fail rule | UCB(report, k=0) ≤ 5% with cluster-adjusted n_eff; gate requires ≥30 distinct customers; max-concentration cap (no single customer >20% of reports) |
+| Discretion remaining | Pre-registered: eligibility filter, customer floor, concentration cap; ICC value used in DEFF computation |
+
+**Open design question**: with zero observed events, you said "use Wilson with conservative cluster-adjusted n_eff, separately report cluster bootstrap as sensitivity." But how do I pick the ICC for DEFF when there are zero events in the calibration set? Options I see:
+
+- **(a)** Use ICC from a parallel labeled set on *similar* outcomes (not fabrications) — e.g., source-disagreement rate, evidence-citation completeness rate — under the assumption that customer-level correlation behaves similarly across these signals.
+- **(b)** Use a worst-case ICC bound (e.g., ICC=0.05 is conservative for most clinical/research applications).
+- **(c)** Sensitivity analysis: report n_eff under ICC ∈ {0.0, 0.01, 0.05, 0.1} and gate on the worst.
+
+Which is the audit-defensible choice? Is there a fourth option I'm missing?
+
+---
+
+### Claim 3: Continuous drift monitoring (production, lifetime)
+
+| Question | My proposal |
+|---|---|
+| Estimand | `P(per-cell drift detected this monitoring window | no true drift)` |
+| Sampling frame | Per-cell (domain × complexity × evidence-size = 72 cells) rolling-window claims |
+| Unit of independence | Window (with persistence requirement to suppress single-window noise) |
+| Error-control claim | **Monthly FDR (q=0.05)** within cadence — per your Finding 7, NOT lifetime FWER |
+| Binding pass/fail rule | Monthly: FDR-corrected Benjamini-Hochberg across eligible cells; alert ONLY if cell breaches threshold in 2 of 3 consecutive monthly windows; cells with N_window < 30 are observability-only, no formal test |
+| Discretion remaining | Persistence rule pre-registered; cell pooling rules pre-registered for sparse cells |
+
+**Open design question**: which monitoring framing is the standard?
+
+- **(i)** Monthly FDR-BH within cadence + persistence rule (my proposal, drawn from your Finding 7).
+- **(ii)** EWMA / CUSUM-style sequential change detection (industrial SPC convention).
+- **(iii)** Bayesian online changepoint detection (BOCPD).
+- **(iv)** Online FDR procedures (LORD, LORD++, SAFFRON) — these literally are designed for "indefinite stream of tests."
+
+You named (i) in Finding 7 but didn't fully justify why (iv) — online FDR procedures from Foster-Stine 2008, Aharoni-Rosset 2014, Ramdas et al. 2017 — isn't the standard. **Is online FDR (LORD++ or SAFFRON) the right primary, with monthly FDR-BH as a fallback/audit summary?**
+
+---
+
+### Claim 4: SME label quality (inter-rater reliability)
+
+| Question | My proposal |
+|---|---|
+| Estimand | Multiple, layered: (a) primary binary agreement on "safety-critical (S0/S1) vs not"; (b) ordinal-weighted agreement on full S0/S1/S2/S3 scale; (c) per-class confusion matrix |
+| Sampling frame | Calibration claims independent of gold-set holdout; raters drawn from pre-qualified SME pool |
+| Unit of independence | Claim (with rater-structure preserved in bootstrap) |
+| Error-control claim | Lower 95% CI on primary measure |
+| Binding pass/fail rule | Lower-95-CI ≥ 0.7 on **binary safety-critical distinction** (per your Finding 8 recommendation); ordinal-weighted κ reported as secondary; Gwet's AC2 reported as prevalence-skew sensitivity |
+| Discretion remaining | Rater assignment blinded; calibration set drawn independent of gold set; re-calibration cadence (90 days) pre-registered |
+
+**Open design question**: for the **ordinal-weighted** primary, which weights?
+
+- **(I)** Linear weights (Cicchetti-Allison): mis-rating off by one = weight 0.67 (for 4-class).
+- **(II)** Quadratic weights (Fleiss-Cohen): off by one = weight 0.89, off by two = 0.56, off by three = 0.
+- **(III)** Custom safety-asymmetric weights: under-rating severity (calling S0 → S1) is more dangerous than over-rating, so we weight asymmetrically.
+
+What's standard for clinical safety adjudication? FDA / ICH guidance? I genuinely don't know whether asymmetric weights are an accepted convention or whether they'd raise audit concerns about cherry-picking.
+
+---
+
+### Claim 5: Coverage classifier validity
+
+| Question | My proposal |
+|---|---|
+| Estimand | Per-cell precision and recall for "predict claim should escalate to SME review" |
+| Sampling frame | Cell-stratified labeled examples (72 cells × at least N_min each) |
+| Unit of independence | Example (single classified claim) |
+| Error-control claim | Per-cell Wilson lower 95% CI on recall and precision |
+| Binding pass/fail rule | Lower-95-CI recall ≥ 95% AND precision ≥ 90% per cell; cells failing denominator floor (N_total ≥ 50 AND N_positive ≥ 30 per metric) are "insufficient evidence" and gated by SME-review fallback rather than classifier |
+| Discretion remaining | Cell pooling rules pre-registered (e.g., adjacent-cell pooling within same domain) |
+
+**Open design question**: should there be a separate **operating-point** lock? A classifier at threshold τ has a precision-recall tradeoff curve. If we lock the threshold during validation but production has different prevalence, the operating point shifts. **Options**:
+
+- **(A)** Lock the threshold τ pre-validation; report precision/recall at that fixed τ; don't allow re-thresholding.
+- **(B)** Calibration-curve approach: lock the calibration scheme (e.g., Platt scaling), and the threshold is derived from a target precision per cell.
+- **(C)** Decision-curve analysis: lock the cost ratio (false-positive cost vs false-negative cost in claim-classification context) and threshold falls out.
+
+Which framing best resists post-hoc operating-point selection?
+
+---
+
+## What I want from you
+
+### Layer 1: framework-level pushback
+
+Before I write the contract, push back on:
+
+1. **Is the "5 claims with 6-question contract" decomposition actually the right shape**, or am I splitting/merging the wrong way? E.g., should drift be split into "claim-level drift" vs "report-level drift"? Should the SME κ claim and the gold-set construction be one combined claim?
+
+2. **Are there safety claims I'm MISSING entirely**? E.g., retrieval recall on gold-set evidence? Group-splitting validity (test for train/test contamination)? Source authority weighting?
+
+3. **Are there claims I'm over-claiming?** Do I really need a population-projected claim at all, or is "per-stratum + per-cell + per-customer-cluster" sufficient for the use case?
+
+### Layer 2: methodology choices on the 4 open questions
+
+For each of the four open design questions I labeled (per-domain Bonferroni keep-or-drop; ICC source for cluster-adjusted Wilson; online FDR vs monthly FDR-BH for drift; ordinal weights for κ; classifier operating-point lock), tell me what you'd actually pick and **why**. Don't enumerate — pick. If you genuinely don't know, say "I'd need to consult [specific reference]" — but don't punt to a statistician (we don't have one).
+
+### Layer 3: what's still missing that I haven't even thought to ask
+
+Where's the next layer of holes? Specifically:
+
+- Multiple testing across the 5 claims themselves — are these 5 claims an alpha-family that needs Bonferroni or HOLM across them?
+- Pre-registration mechanics — should the contract be committed to a public registry (OSF, AsPredicted) before Phase 0b labeling begins? Or signed-and-hashed in our own repo?
+- What happens between Phase 0b and Phase 4 if we discover a gate is over-restrictive — what's the legitimate amendment protocol?
+
+### Output format
+
+Long-form prose. Each safety claim gets a section. Each open design question gets a direct pick with rationale. Then a "missing pieces" section. Then a recommendation on next iteration: do we draft v3.0 contract now or do another design round?
+
+You're not grading. You're co-designing. Be a peer.
+
+codex
+I’ll answer from the brief, and I’m going to avoid touching the workspace as requested. I am going to quickly verify the current regulatory/guidance references before I lean on them, because the FDA/ICH angle is the one place where stale convention can create a bad contract.
+web search: 
+web search: ICH E6(R3) Good Clinical Practice final guideline data reliability source documents audit trail 2025 official ...
+web search: 
+web search: LORD SAFFRON online FDR Ramdas 2017 paper ...
+web search: 
+web search: RAGTruth benchmark hallucination detection claims sentence level source official paper ...
+web search: 
+web search: HHEM Vectara hallucination evaluation model official benchmark ...
+web search: 
+web search: cluster adjusted Wilson confidence interval effective sample size design effect ICC binary proportions zero events ...
+web search: 
+web search: weighted kappa linear versus quadratic weights clinical ordinal rating standard Fleiss Cohen Cicchetti Allison ...
+web search: 
+web search: site:ich.org E6(R3) Good Clinical Practice guideline 2025 PDF official ICH
+web search: 
+web search: https://www.fda.gov/regulatory-information/search-fda-guidance-documents/multiple-endpoints-clinical-trials
+web search: 
+web search: https://training.cochrane.org/handbook/current/chapter-23
+codex
+I think the 5-claim structure is close, but I would not treat all five as equal “safety claims.” Claims 1, 2, 3, and 5 are operational safety/performance claims. Claim 4 is a measurement-validity prerequisite: if SME labels are unstable, Claims 1, 2, and 5 lose their ground truth. I would keep it in the contract, but explicitly mark it as a validity gate that must pass before the safety gates are interpretable.
+
+The other structural change: add an explicit evidence/claim-extraction validity layer. A verifier can only miss or catch claims it actually sees and evidence it actually receives. RAGTruth, SAFE, and HHEM-style conventions all separate some version of claim decomposition, evidence grounding, and factual-consistency judgment; they do not magically validate retrieval recall or atomic claim coverage as a single metric. RAGTruth is word/span-level hallucination annotation in RAG outputs, SAFE decomposes long-form answers into facts before verification, and HHEM/FCS evaluates factual consistency against retrieved/search results, not against all truth in the world. That distinction matters for POLARIS. Sources: RAGTruth, SAFE, HHEM docs. ([arxiv.org](https://arxiv.org/abs/2401.00396)) ([arxiv.org](https://arxiv.org/abs/2403.18802)) ([docs.vectara.com](https://docs.vectara.com/docs/hallucination-and-evaluation/hallucination-evaluation))
+
+**Claim 1**
+For the per-stratum claim-level fabrication bound, I would pick Option α: keep per-stratum gates only, and make per-domain results observability rather than a binding confirmatory gate.
+
+The reason is simple: the domain gate is tempting because it feels safer, but unless domain mix is itself the target estimand, it creates a second family of conditional claims that does not answer the production question. Option β is technically defensible if you write it honestly as “conditional on this artificial gold-set domain construction,” but that is a weak audit claim. It is precise without being very meaningful. I would rather have one strong claim: “for adjudicated fabricated claims in severity stratum S, under the locked gold-set construction, the verifier miss probability is bounded by this UCB.” Then domain is a diagnostic lens: no silent domain collapse, no hidden pocket of badness, but not the headline denominator.
+
+My bigger pushback is independence. MinHash/BGE dedup plus manual split audit removes near-duplicates; it does not create independent observations. If many claims come from the same report, source packet, prompt family, SME construction template, disease area, or benchmark seed, claim-level Wilson intervals will be too optimistic. For Claim 1, either sample so that the independent unit is a “scenario family” and take one claim per family per stratum, or keep all claims but compute a cluster-adjusted sensitivity by scenario/source/report family. I would still let claim-level Wilson be primary only if the construction actively prevents clustered generation.
+
+Also tighten the estimand wording. It should be:
+
+`P(verifier fails to flag/escalate an adjudicated fabrication of severity S | fabricated claim is in severity stratum S and enters the verifier)`
+
+That avoids ambiguity over whether the denominator includes non-fabricated claims.
+
+S0 as “zero observed misses on ≥50 stress items, no UCB target asserted” is fine. Call it a policy sentinel, not a statistical population bound.
+
+**Claim 2**
+For the report-level bound, I would use a fourth version: a pre-specified conservative design ICC, informed by surrogate outcomes but not estimated from the zero-event fabrication outcome, with the gate evaluated at the worst pre-registered ICC in a plausible grid.
+
+So, practically: use surrogate outcomes to justify the grid, but gate on the upper design ICC, for example `ICC ∈ {0.01, 0.05, 0.10}` and pass only at `0.10` unless you have strong pre-data justification for a lower cap. I would not say “ICC=0.05 is conservative for most clinical/research applications” as a blanket claim. Cochrane’s cluster guidance notes that values below 0.05 are common, but also that small ICCs can materially widen intervals when clusters are large, and external estimates are often used when direct ICCs are unavailable. ([training.cochrane.org](https://training.cochrane.org/handbook/current/chapter-23))
+
+With zero events, you cannot learn the event ICC from the event data. A bootstrap sensitivity is also weak under all-zero outcomes because naïve resampling just rediscovers zero. The audit-defensible move is to treat ICC as a design assumption, not a fitted fact.
+
+The customer floor is necessary but not sufficient. The binding rule should say:
+
+`UCB(k=0, n_eff) ≤ 5%, where n_eff is computed from the pre-registered conservative ICC and cluster-size-adjusted DEFF; additionally ≥30 customers and no customer >20% of reports.`
+
+If cluster sizes vary materially, use a variable-cluster DEFF, not just `1 + (m - 1)ICC`. And report a customer-level exact zero-event bound as a sensitivity: “0 of C customers had any affected report.” It will be conservative, but it makes the cluster risk legible.
+
+**Claim 3**
+I would not use LORD++ or SAFFRON as the primary drift contract. I would keep monthly BH or BY with a persistence rule as the audited primary, and use EWMA/CUSUM as operational side monitors.
+
+Online FDR is mathematically attractive, but it is not the best primary here. SAFFRON/LORD are built for a possibly infinite sequence of p-values where each threshold is chosen from the past and must not depend on the current or future p-values. ([arxiv.org](https://arxiv.org/abs/1802.09098)) That is clean in theory, but POLARIS drift is batched, delayed-label, correlated, multi-cell monitoring with operational review cadence. Monthly FDR is easier to explain, easier to reproduce, easier to freeze, and easier to audit. If the cells are strongly dependent, use Benjamini-Yekutieli or a hierarchical/global-then-cell procedure rather than pretending BH independence assumptions are clean. FDA’s multiplicity guidance is also philosophically aligned with grouping and ordering endpoint families rather than letting an implicit family sprawl. ([fda.gov](https://www.fda.gov/regulatory-information/search-fda-guidance-documents/multiple-endpoints-clinical-trials))
+
+I would split drift into two layers:
+
+Formal labeled outcome drift: miss rate, escalation recall, report-level safety events, measured on labeled canary/audit samples.
+
+Operational leading-indicator drift: retrieval depth, evidence-source mix, unsupported-claim score distribution, claim complexity, domain mix, latency/fallback rates.
+
+EWMA/CUSUM belongs especially in the second layer. SPC methods are standard for detecting small process shifts and trends, but they are process-control alerts, not a clean multiple-testing contract over 72 cells. ([jmp.com](https://www.jmp.com/en/statistics-knowledge-portal/quality-and-reliability-methods/control-charts/cusum-and-ewma-control-charts))
+
+Also rewrite the estimand. `P(per-cell drift detected | no true drift)` is an error-control property, not the drift estimand. The estimand should be a change in a named metric relative to a locked baseline, with a minimum material effect size. Then the error-control claim says how often the monitor falsely alerts under no material drift.
+
+**Claim 4**
+Keep binary safety-critical agreement as the primary. For ordinal agreement, I would choose linear symmetric weights as secondary. I would not use custom asymmetric κ as a primary audit statistic.
+
+Quadratic weights are common, but they are too forgiving for this severity scale. On a four-level S0/S1/S2/S3 scale, quadratic weighting gives near-agreement too much credit; calling S1 as S2 is exactly the kind of adjacent miss that can matter operationally. Linear weighting is less flattering and easier to defend.
+
+Asymmetric weights are substantively right for loss analysis: under-rating severity is worse than over-rating. But they are not the standard κ convention, and they raise the obvious audit question: did you tune the weights to make agreement look acceptable? The better structure is:
+
+Primary: lower 95% CI on binary safety-critical κ or Gwet AC1/AC2 for S0/S1 vs not.
+
+Secondary: linearly weighted ordinal κ on S0/S1/S2/S3.
+
+Safety-loss table: under-rating rate, especially S0→lower and S1→S2/S3, with exact/Wilson intervals.
+
+Weighted κ literature explicitly recognizes linear and quadratic schemes as frequent choices and warns that weight selection can be subjective and can impair comparability. ([link.springer.com](https://link.springer.com/article/10.1007/s00357-021-09386-5)) FDA COA thinking is more “fit for context of use and reliability” than “use this exact κ weight,” and ICH-GCP is about protocolized, auditable, reliable data rather than prescribing ordinal weights. ([fda.gov](https://www.fda.gov/about-fda/clinical-outcome-assessment-coa-frequently-asked-questions)) ([database.ich.org](https://database.ich.org/sites/default/files/ICH_E6%28R3%29_Step4_FinalGuideline_2025_0106.pdf))
+
+One more point: measure IRR on initial blinded labels before consensus adjudication. Consensus labels are fine for gold-set truth; they are not the object for rater reliability.
+
+**Claim 5**
+I would pick A: lock the threshold before validation. More precisely, freeze the classifier version, features, calibration method, and threshold-selection rule before opening the validation labels. If thresholds vary by cell, freeze the per-cell thresholds before validation too.
+
+B can be acceptable only if the whole calibration scheme and threshold derivation are trained on a separate calibration set and then frozen before final validation. If the target precision is selected after seeing validation behavior, it becomes post-hoc operating-point search. C is useful for governance, but cost-ratio arguments are too plastic for a primary audit denominator.
+
+There is an important precision problem in your proposal. In a cell-stratified validation set with enriched positives, raw precision is not production PPV unless the sample prevalence matches production or you reweight to production prevalence. Recall is stable conditional on positives; precision moves with prevalence. So I would make recall the safety-primary classifier metric and treat precision as a workload/triage metric estimated either on production-canary prevalence or via pre-specified prevalence weighting.
+
+Also, the denominator floors need to be metric-specific:
+
+Recall floor: enough true positives, e.g. `N_true_positive ≥ 30`.
+
+Precision floor: enough predicted positives at locked threshold, e.g. `N_pred_positive ≥ 30`.
+
+`N_positive ≥ 30 per metric` is not quite right for precision.
+
+**Missing Pieces**
+The biggest missing safety claim is retrieval/evidence sufficiency. If the system fails to retrieve decisive contradictory evidence, the verifier may look good on “given evidence” but fail in production. You need either a separate claim or a prerequisite: for adjudicated S0/S1 fabrications, the evidence pipeline retrieves at least one decisive source/evidence unit within top-k at a locked recall bound. Without that, Claim 1 is really a verifier-on-provided-evidence claim.
+
+The second missing piece is atomic claim extraction recall. A report-level fabrication can evade Claim 1 if the dangerous sentence is never decomposed into an auditable claim. SAFE-style evaluation makes claim decomposition explicit for a reason. POLARIS needs the same: bound the probability that an S0/S1 factual assertion in a report is omitted from the claim set that the verifier evaluates.
+
+The third is contamination/group splitting. Your Claim 1 mentions manual group-split audit, but I would make this a locked prerequisite: no gold item, source packet, report template, or near-duplicate scenario may appear in training/tuning/dev material for the verifier, classifier, threshold selection, prompt iteration, or SME calibration examples. This is not just dedup; it is data lineage.
+
+On multiple testing across the five claims: no, I would not Bonferroni across them if the release rule is conjunctive: all required gates must pass. That is an intersection-union structure. If any one claim is false, global pass requires that false claim to pass its own test, so the global false-pass risk is bounded by that claim’s alpha under the usual conditions. But if you publish five separate “95% confident” marginal claims and want simultaneous coverage for all intervals, then yes, you need simultaneous intervals or adjusted language. The pass/fail gate and the marketing/audit language are different statistical objects.
+
+For pre-registration, use a signed-and-hashed internal protocol as the minimum. Commit the protocol, analysis code, denominator definitions, random seeds, data extract hashes, model/prompt/index versions, threshold values, adjudication rules, and amendment rules before Phase 0b labeling begins. Public OSF/AsPredicted is good for credibility if IP/PHI allows it, but it is not necessary for audit-grade internal governance. A private immutable registry, timestamped commit, or notarized hash is enough if access control and audit trail are clean.
+
+For amendments, write the protocol now. Administrative corrections are allowed with no statistical consequence. Design-changing amendments before relevant labels/outcomes are seen are allowed but must be versioned. Amendments after outcome data are seen turn the old analysis into exploratory evidence; the confirmatory gate needs a fresh sealed holdout, a prospectively defined alpha-spending plan, or a clearly labeled bridging validation. If a gate is over-restrictive after Phase 0b labels are known, that is learning, not grounds to quietly relax the denominator.
+
+The next iteration should be v3.0 drafting, not another broad design round. I would draft it as: “four safety gates plus one label-validity gate, with retrieval sufficiency, claim extraction recall, contamination control, and amendment governance as prerequisites.” That gives you an audit-grade contract without turning every diagnostic into a new statistical claim.
+tokens used
+61,031
+I think the 5-claim structure is close, but I would not treat all five as equal “safety claims.” Claims 1, 2, 3, and 5 are operational safety/performance claims. Claim 4 is a measurement-validity prerequisite: if SME labels are unstable, Claims 1, 2, and 5 lose their ground truth. I would keep it in the contract, but explicitly mark it as a validity gate that must pass before the safety gates are interpretable.
+
+The other structural change: add an explicit evidence/claim-extraction validity layer. A verifier can only miss or catch claims it actually sees and evidence it actually receives. RAGTruth, SAFE, and HHEM-style conventions all separate some version of claim decomposition, evidence grounding, and factual-consistency judgment; they do not magically validate retrieval recall or atomic claim coverage as a single metric. RAGTruth is word/span-level hallucination annotation in RAG outputs, SAFE decomposes long-form answers into facts before verification, and HHEM/FCS evaluates factual consistency against retrieved/search results, not against all truth in the world. That distinction matters for POLARIS. Sources: RAGTruth, SAFE, HHEM docs. ([arxiv.org](https://arxiv.org/abs/2401.00396)) ([arxiv.org](https://arxiv.org/abs/2403.18802)) ([docs.vectara.com](https://docs.vectara.com/docs/hallucination-and-evaluation/hallucination-evaluation))
+
+**Claim 1**
+For the per-stratum claim-level fabrication bound, I would pick Option α: keep per-stratum gates only, and make per-domain results observability rather than a binding confirmatory gate.
+
+The reason is simple: the domain gate is tempting because it feels safer, but unless domain mix is itself the target estimand, it creates a second family of conditional claims that does not answer the production question. Option β is technically defensible if you write it honestly as “conditional on this artificial gold-set domain construction,” but that is a weak audit claim. It is precise without being very meaningful. I would rather have one strong claim: “for adjudicated fabricated claims in severity stratum S, under the locked gold-set construction, the verifier miss probability is bounded by this UCB.” Then domain is a diagnostic lens: no silent domain collapse, no hidden pocket of badness, but not the headline denominator.
+
+My bigger pushback is independence. MinHash/BGE dedup plus manual split audit removes near-duplicates; it does not create independent observations. If many claims come from the same report, source packet, prompt family, SME construction template, disease area, or benchmark seed, claim-level Wilson intervals will be too optimistic. For Claim 1, either sample so that the independent unit is a “scenario family” and take one claim per family per stratum, or keep all claims but compute a cluster-adjusted sensitivity by scenario/source/report family. I would still let claim-level Wilson be primary only if the construction actively prevents clustered generation.
+
+Also tighten the estimand wording. It should be:
+
+`P(verifier fails to flag/escalate an adjudicated fabrication of severity S | fabricated claim is in severity stratum S and enters the verifier)`
+
+That avoids ambiguity over whether the denominator includes non-fabricated claims.
+
+S0 as “zero observed misses on ≥50 stress items, no UCB target asserted” is fine. Call it a policy sentinel, not a statistical population bound.
+
+**Claim 2**
+For the report-level bound, I would use a fourth version: a pre-specified conservative design ICC, informed by surrogate outcomes but not estimated from the zero-event fabrication outcome, with the gate evaluated at the worst pre-registered ICC in a plausible grid.
+
+So, practically: use surrogate outcomes to justify the grid, but gate on the upper design ICC, for example `ICC ∈ {0.01, 0.05, 0.10}` and pass only at `0.10` unless you have strong pre-data justification for a lower cap. I would not say “ICC=0.05 is conservative for most clinical/research applications” as a blanket claim. Cochrane’s cluster guidance notes that values below 0.05 are common, but also that small ICCs can materially widen intervals when clusters are large, and external estimates are often used when direct ICCs are unavailable. ([training.cochrane.org](https://training.cochrane.org/handbook/current/chapter-23))
+
+With zero events, you cannot learn the event ICC from the event data. A bootstrap sensitivity is also weak under all-zero outcomes because naïve resampling just rediscovers zero. The audit-defensible move is to treat ICC as a design assumption, not a fitted fact.
+
+The customer floor is necessary but not sufficient. The binding rule should say:
+
+`UCB(k=0, n_eff) ≤ 5%, where n_eff is computed from the pre-registered conservative ICC and cluster-size-adjusted DEFF; additionally ≥30 customers and no customer >20% of reports.`
+
+If cluster sizes vary materially, use a variable-cluster DEFF, not just `1 + (m - 1)ICC`. And report a customer-level exact zero-event bound as a sensitivity: “0 of C customers had any affected report.” It will be conservative, but it makes the cluster risk legible.
+
+**Claim 3**
+I would not use LORD++ or SAFFRON as the primary drift contract. I would keep monthly BH or BY with a persistence rule as the audited primary, and use EWMA/CUSUM as operational side monitors.
+
+Online FDR is mathematically attractive, but it is not the best primary here. SAFFRON/LORD are built for a possibly infinite sequence of p-values where each threshold is chosen from the past and must not depend on the current or future p-values. ([arxiv.org](https://arxiv.org/abs/1802.09098)) That is clean in theory, but POLARIS drift is batched, delayed-label, correlated, multi-cell monitoring with operational review cadence. Monthly FDR is easier to explain, easier to reproduce, easier to freeze, and easier to audit. If the cells are strongly dependent, use Benjamini-Yekutieli or a hierarchical/global-then-cell procedure rather than pretending BH independence assumptions are clean. FDA’s multiplicity guidance is also philosophically aligned with grouping and ordering endpoint families rather than letting an implicit family sprawl. ([fda.gov](https://www.fda.gov/regulatory-information/search-fda-guidance-documents/multiple-endpoints-clinical-trials))
+
+I would split drift into two layers:
+
+Formal labeled outcome drift: miss rate, escalation recall, report-level safety events, measured on labeled canary/audit samples.
+
+Operational leading-indicator drift: retrieval depth, evidence-source mix, unsupported-claim score distribution, claim complexity, domain mix, latency/fallback rates.
+
+EWMA/CUSUM belongs especially in the second layer. SPC methods are standard for detecting small process shifts and trends, but they are process-control alerts, not a clean multiple-testing contract over 72 cells. ([jmp.com](https://www.jmp.com/en/statistics-knowledge-portal/quality-and-reliability-methods/control-charts/cusum-and-ewma-control-charts))
+
+Also rewrite the estimand. `P(per-cell drift detected | no true drift)` is an error-control property, not the drift estimand. The estimand should be a change in a named metric relative to a locked baseline, with a minimum material effect size. Then the error-control claim says how often the monitor falsely alerts under no material drift.
+
+**Claim 4**
+Keep binary safety-critical agreement as the primary. For ordinal agreement, I would choose linear symmetric weights as secondary. I would not use custom asymmetric κ as a primary audit statistic.
+
+Quadratic weights are common, but they are too forgiving for this severity scale. On a four-level S0/S1/S2/S3 scale, quadratic weighting gives near-agreement too much credit; calling S1 as S2 is exactly the kind of adjacent miss that can matter operationally. Linear weighting is less flattering and easier to defend.
+
+Asymmetric weights are substantively right for loss analysis: under-rating severity is worse than over-rating. But they are not the standard κ convention, and they raise the obvious audit question: did you tune the weights to make agreement look acceptable? The better structure is:
+
+Primary: lower 95% CI on binary safety-critical κ or Gwet AC1/AC2 for S0/S1 vs not.
+
+Secondary: linearly weighted ordinal κ on S0/S1/S2/S3.
+
+Safety-loss table: under-rating rate, especially S0→lower and S1→S2/S3, with exact/Wilson intervals.
+
+Weighted κ literature explicitly recognizes linear and quadratic schemes as frequent choices and warns that weight selection can be subjective and can impair comparability. ([link.springer.com](https://link.springer.com/article/10.1007/s00357-021-09386-5)) FDA COA thinking is more “fit for context of use and reliability” than “use this exact κ weight,” and ICH-GCP is about protocolized, auditable, reliable data rather than prescribing ordinal weights. ([fda.gov](https://www.fda.gov/about-fda/clinical-outcome-assessment-coa-frequently-asked-questions)) ([database.ich.org](https://database.ich.org/sites/default/files/ICH_E6%28R3%29_Step4_FinalGuideline_2025_0106.pdf))
+
+One more point: measure IRR on initial blinded labels before consensus adjudication. Consensus labels are fine for gold-set truth; they are not the object for rater reliability.
+
+**Claim 5**
+I would pick A: lock the threshold before validation. More precisely, freeze the classifier version, features, calibration method, and threshold-selection rule before opening the validation labels. If thresholds vary by cell, freeze the per-cell thresholds before validation too.
+
+B can be acceptable only if the whole calibration scheme and threshold derivation are trained on a separate calibration set and then frozen before final validation. If the target precision is selected after seeing validation behavior, it becomes post-hoc operating-point search. C is useful for governance, but cost-ratio arguments are too plastic for a primary audit denominator.
+
+There is an important precision problem in your proposal. In a cell-stratified validation set with enriched positives, raw precision is not production PPV unless the sample prevalence matches production or you reweight to production prevalence. Recall is stable conditional on positives; precision moves with prevalence. So I would make recall the safety-primary classifier metric and treat precision as a workload/triage metric estimated either on production-canary prevalence or via pre-specified prevalence weighting.
+
+Also, the denominator floors need to be metric-specific:
+
+Recall floor: enough true positives, e.g. `N_true_positive ≥ 30`.
+
+Precision floor: enough predicted positives at locked threshold, e.g. `N_pred_positive ≥ 30`.
+
+`N_positive ≥ 30 per metric` is not quite right for precision.
+
+**Missing Pieces**
+The biggest missing safety claim is retrieval/evidence sufficiency. If the system fails to retrieve decisive contradictory evidence, the verifier may look good on “given evidence” but fail in production. You need either a separate claim or a prerequisite: for adjudicated S0/S1 fabrications, the evidence pipeline retrieves at least one decisive source/evidence unit within top-k at a locked recall bound. Without that, Claim 1 is really a verifier-on-provided-evidence claim.
+
+The second missing piece is atomic claim extraction recall. A report-level fabrication can evade Claim 1 if the dangerous sentence is never decomposed into an auditable claim. SAFE-style evaluation makes claim decomposition explicit for a reason. POLARIS needs the same: bound the probability that an S0/S1 factual assertion in a report is omitted from the claim set that the verifier evaluates.
+
+The third is contamination/group splitting. Your Claim 1 mentions manual group-split audit, but I would make this a locked prerequisite: no gold item, source packet, report template, or near-duplicate scenario may appear in training/tuning/dev material for the verifier, classifier, threshold selection, prompt iteration, or SME calibration examples. This is not just dedup; it is data lineage.
+
+On multiple testing across the five claims: no, I would not Bonferroni across them if the release rule is conjunctive: all required gates must pass. That is an intersection-union structure. If any one claim is false, global pass requires that false claim to pass its own test, so the global false-pass risk is bounded by that claim’s alpha under the usual conditions. But if you publish five separate “95% confident” marginal claims and want simultaneous coverage for all intervals, then yes, you need simultaneous intervals or adjusted language. The pass/fail gate and the marketing/audit language are different statistical objects.
+
+For pre-registration, use a signed-and-hashed internal protocol as the minimum. Commit the protocol, analysis code, denominator definitions, random seeds, data extract hashes, model/prompt/index versions, threshold values, adjudication rules, and amendment rules before Phase 0b labeling begins. Public OSF/AsPredicted is good for credibility if IP/PHI allows it, but it is not necessary for audit-grade internal governance. A private immutable registry, timestamped commit, or notarized hash is enough if access control and audit trail are clean.
+
+For amendments, write the protocol now. Administrative corrections are allowed with no statistical consequence. Design-changing amendments before relevant labels/outcomes are seen are allowed but must be versioned. Amendments after outcome data are seen turn the old analysis into exploratory evidence; the confirmatory gate needs a fresh sealed holdout, a prospectively defined alpha-spending plan, or a clearly labeled bridging validation. If a gate is over-restrictive after Phase 0b labels are known, that is learning, not grounds to quietly relax the denominator.
+
+The next iteration should be v3.0 drafting, not another broad design round. I would draft it as: “four safety gates plus one label-validity gate, with retrieval sufficiency, claim extraction recall, contamination control, and amendment governance as prerequisites.” That gives you an audit-grade contract without turning every diagnostic into a new statistical claim.

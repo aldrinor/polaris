@@ -1,3 +1,5 @@
+> **NOTE (I-meta-001 #933, 2026-05-28):** This document predates the 4-role architecture lock at `config/architecture/polaris_runtime_lock.yaml`. References to a 2-LLM (generator + evaluator) topology are LEGACY. The locked architecture is Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM Granite Guardian 4.1 8B) + Judge (Qwen 3.6-35B-A3B) + 2 deterministic layers. Full rewrite of this doc is queued as a follow-up PR.
+
 # POLARIS Architecture — Current State
 
 **Document date**: 2026-04-18

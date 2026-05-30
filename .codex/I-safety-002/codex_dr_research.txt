@@ -1,0 +1,153 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6d50-8e85-7f31-b808-4a0178f3f1f1
+--------
+user
+# Deep research task (Codex 5.5 + deep web research): gold-standard evaluation of deep-research AI tools
+
+You are co-investigating with Claude. Operator wants the LATEST (2025-2026) recognized gold-standard methodology for EVALUATING deep-research AI tools/agents, so we can measure POLARIS (a sovereign clinical-research deep-research platform; differentiator = per-claim faithfulness / fabrication safety) and benchmark it head-to-head vs top-tier (Perplexity, ChatGPT Deep Research, Gemini Deep Research).
+
+Do DEEP web research. Be concrete, cite sources (URLs + dates). Cover:
+
+1. **Named DR benchmarks (2025-2026)**: DeepResearch Bench (and its RACE + FACT frameworks), BrowseComp / BrowseComp-Plus, GAIA, Humanity's Last Exam (HLE), ResearchQA, DeepConsult, DeepResearchGym, Mind2Web/WebArena, FRAMES, and any newer ones. For each: what it measures, how it scores, who tops it now.
+
+2. **Factuality / faithfulness / citation evaluation**: SAFE (Search-Augmented Factuality Evaluator), FActScore, LongFact, RAGTruth, FacTool, ALCE (citation precision/recall), attribution/AIS, claim-level verification. Which is the current gold standard for LONG-FORM, CITED, clinical/high-stakes output.
+
+3. **How the frontier DR tools are actually evaluated** in their own reports + third-party (OpenAI Deep Research, Gemini, Perplexity). What metrics they publish, what the independent evals say.
+
+4. **LLM-as-judge methodology best practice (2025-2026)**: reference-based vs reference-free, rubric design, pairwise vs pointwise, bias controls, agreement with humans, what's defensible for a benchmark.
+
+5. **The harness-loop question**: what does the literature say about a closed test→evaluate→optimize loop for agentic research systems WITHOUT overfitting to the benchmark (held-out sets, contamination, eval gaming)?
+
+## Output
+- A ranked recommendation: the EXACT eval method(s) POLARIS should adopt to (a) be recognized/credible and (b) showcase the per-claim-faithfulness differentiator.
+- The minimal head-to-head protocol vs top-tier (prompt set source, scoring, what's automatable human-free).
+- The harness-loop design with anti-overfitting guardrails.
+- Cite everything. Flag where POLARIS's existing per-sentence provenance + fabrication-rate contract aligns with or exceeds the gold standard.
+
+codex
+I’ll treat this as a current-state research memo, so I’m going to verify dates, leaderboards, and primary eval descriptions rather than relying on memory. I’ll prioritize benchmark papers, official reports, and live leaderboard pages, then use third-party analysis only where it adds independent evidence.
+web search: 
+web search: DeepResearch Bench RACE FACT framework 2025 benchmark deep research AI agents ...
+web search: 
+web search: site:openai.com BrowseComp benchmark paper ...
+web search: 
+web search: https://arxiv.org/abs/2506.11763
+web search: 
+web search: 'RACE' in https://deepresearch-bench.github.io/static/papers/deepresearch-bench.pdf
+web search: 
+web search: https://deepresearch-bench.github.io/static/papers/deepresearch-bench.pdf
+web search: 
+web search: https://drb.futuresearch.ai/
+web search: 
+web search: https://evals.futuresearch.ai/
+web search: 
+web search: https://arxiv.org/pdf/2506.06287
+web search: 
+web search: https://arxiv.org/pdf/2506.06287
+web search: 
+web search: https://arxiv.org/pdf/2506.06287
+web search: 
+web search: "Deep Research Bench" "o3" "0.51" leaderboard ...
+web search: 
+web search: https://futuresearch.ai/effort-paradox
+web search: 
+web search: BrowseComp-Plus arxiv 2508.06600 BrowseComp Plus benchmark deep research agents ...
+web search: 
+web search: https://arxiv.org/abs/2508.06600
+web search: 
+web search: GAIA benchmark general AI assistants leaderboard 2025 2026 official ...
+web search: 
+web search: SAFE Search-Augmented Factuality Evaluator LongFact 2024 paper FActScore factuality evaluation long-form generation ...
+codex
+As of **May 28, 2026**, the credible methodology is a **battery**, not a single benchmark: pair objective web-research accuracy with long-form report quality and claim-level source support. For POLARIS, the strongest positioning is to adopt the public battery, then add a stricter clinical claim-faithfulness layer that most frontier tools do not expose.
+
+**Ranked Recommendation**
+1. **Primary POLARIS score: per-claim citation faithfulness.** Use a FACT/SAFE/FActScore-style pipeline: atomize every sentence into claims, map each claim to cited source spans, judge support/refutation/insufficient evidence, then report unsupported-claim rate, citation precision, citation coverage, effective supported claims, and critical-clinical-claim failure rate. This aligns with DeepResearch Bench’s FACT framework, which extracts statement-URL pairs and scores support plus effective citations; POLARIS exceeds it if provenance is native rather than post-hoc. Source: DeepResearch Bench, Jun. 2025, https://arxiv.org/abs/2506.11763.
+2. **Recognized report-quality layer: DeepResearch Bench RACE + FACT.** RACE scores comprehensiveness, depth, instruction-following, and readability with reference-based adaptive criteria; FACT scores citation accuracy and effective citations. In the paper, **Gemini 2.5 Pro Deep Research** led RACE, while **Perplexity Deep Research** led citation accuracy. Source: https://deepresearch-bench.github.io/static/papers/deepresearch-bench.pdf.
+3. **Objective web-research layer: FutureSearch Deep Research Bench / RetroSearch.** It uses frozen web snapshots and curated answers, avoiding live-web drift. Launch top was **o3 at 0.51**; 2026 FutureSearch updates report **Claude 4.6 Opus high-effort at 55.0%**, Sonnet 4.6 high at 54.9%, GPT-5 low at 49.6%, Gemini 3 Flash low at 49.9%. Sources: May 2025 paper https://arxiv.org/abs/2506.06287 and Mar. 30, 2026 update https://futuresearch.ai/effort-scaling/.
+4. **Retriever/agent disentangling: BrowseComp-Plus.** Prefer this over live BrowseComp when debugging POLARIS retrieval. It fixes the corpus, includes human-verified support docs and hard negatives, and reports answer accuracy/search calls. Paper top: **GPT-5 + Qwen3-Embedding-8B at 70.1%**, GPT-5+BM25 55.9%, Search-R1+BM25 3.86%. Source: Aug. 8, 2025, https://arxiv.org/abs/2508.06600.
+5. **External credibility, not core clinical proof:** BrowseComp, GAIA, HLE, FRAMES, Mind2Web/WebArena. These are useful sanity checks, but they do not measure long-form clinical citation faithfulness.
+
+**Benchmark Map**
+- **DeepResearch Bench RACE/FACT:** 100 PhD-level long-report tasks; best for report + citation evaluation; Gemini DR top overall, Perplexity DR top citation accuracy in 2025 run. https://arxiv.org/abs/2506.11763.
+- **FutureSearch DRB:** 89 paper tasks / 91+ current tasks, 8 real research categories, frozen RetroSearch; best reproducible objective web-research benchmark. https://futuresearch.ai/deep-research-bench/.
+- **BrowseComp:** 1,266 hard short-answer browsing questions; strong for persistent search, weak for long reports/citations. OpenAI, Apr. 2025: https://openai.com/index/browsecomp/.
+- **BrowseComp-Plus:** fixed corpus version for fair retriever/agent comparison. https://arxiv.org/abs/2508.06600.
+- **GAIA:** general assistant tasks with web/tool/file reasoning; useful but protocol-dependent and increasingly saturated. HF benchmark page: https://huggingface.co/gaia-benchmark/collections.
+- **HLE:** 2,500 expert closed-ended questions; measures expert reasoning/calibration, not research faithfulness. Official Scale leaderboard: https://scale.com/leaderboard/humanitys_last_exam.
+- **DeepResearchGym:** free sandbox extending Researchy Questions with LLM-judge relevance, retrieval faithfulness, and report quality. https://arxiv.org/abs/2505.19253.
+- **ResearchQA / Researchy Questions:** useful prompt source, but not a top-tier public leaderboard by itself.
+- **DeepConsult:** watch-list only unless you have a stronger primary source; I would not treat it as gold standard today.
+- **Mind2Web/WebArena:** browser-control success-rate benchmarks, not deep-research report benchmarks.
+- **FRAMES:** useful multi-hop/RAG factual QA diagnostic, not sufficient for long-form cited reports.
+- **Newer watch-list:** DeepResearch Bench II, MMDeepResearch-Bench, ResearcherBench, DeepResearch Arena, MedBrowseComp, DeepSearchQA/DRACO if public harnesses stabilize. ResearcherBench reports OpenAI and Gemini Deep Research strongest on frontier scientific inquiry: https://arxiv.org/abs/2507.16280.
+
+**Factuality Gold Standard**
+For long-form, cited, high-stakes clinical output, the defensible standard is **claim-level verification against identified sources**, not answer-level grading. SAFE/LongFact is the strongest open-domain automated factuality method: it decomposes long answers into facts, searches, judges support, and reports precision/recall-style factuality; it agreed with crowd annotators 72% of the time and won 76% of sampled disagreements. Source: Mar. 2024, https://arxiv.org/abs/2403.18802. FActScore is the core atomic-fact precision baseline: https://arxiv.org/abs/2305.14251. ALCE/AIS-style citation precision/recall should be added for attribution: https://arxiv.org/abs/2305.14627.
+
+For clinical use, automate the broad screen but keep a blinded clinician audit on a stratified sample, especially for treatment recommendations, contraindications, dosing, trial interpretation, and guideline claims. POLARIS’s per-sentence provenance is above current public norms if it can be converted to **per-atomic-claim provenance** with source span, date/version, evidence tier, and a hard unsupported-claim contract.
+
+**Minimal Head-to-Head Protocol**
+Use 80-120 prompts: 30 FutureSearch-style objective web tasks, 30 DeepResearch Bench long-report tasks, 20 BrowseComp/BrowseComp-Plus tasks, and 20-40 sealed clinical research tasks built from PubMed, FDA labels/reviews, ClinicalTrials.gov, major guidelines, and systematic reviews.
+
+Run POLARIS, ChatGPT Deep Research, Gemini Deep Research, and Perplexity Deep Research with identical prompts, same date window, paid top tier, no manual steering, and logged timestamps. If a tool asks for clarification, answer “You decide.” Require final markdown plus citations; for tools that cannot emit claim tables, evaluate post-hoc.
+
+Automatable scoring: objective answer accuracy, RACE pairwise/report score, FACT/SAFE claim support, ALCE citation precision/recall, source diversity, evidence-tier coverage, latency, and cost. Human-free is acceptable for regression and public nonclinical claims; clinical safety claims need expert audit and confidence intervals.
+
+**Harness Loop**
+Use three splits: public/dev, private validation, sealed test. Never tune prompts, retrievers, ranking, or judges on sealed test. Freeze source snapshots for reproducibility, rotate sealed clinical tasks quarterly, include post-cutoff documents, run contamination scans, and keep canary facts that should not appear in training data.
+
+Lock model/tool versions before each benchmark run, preregister scoring, run fixed N replicates, bootstrap confidence intervals, blind judge inputs, randomize pairwise order, use judges from different model families, and calibrate judge outputs against human labels. Report failures and abstentions, not only successful reports.
+
+The concise positioning: **POLARIS should claim leadership on “claim-faithful clinical deep research,” not generic deep research.** The public benchmark battery establishes credibility; the native per-claim provenance and fabrication-rate contract is where POLARIS can exceed the current gold standard.
+tokens used
+137,353
+As of **May 28, 2026**, the credible methodology is a **battery**, not a single benchmark: pair objective web-research accuracy with long-form report quality and claim-level source support. For POLARIS, the strongest positioning is to adopt the public battery, then add a stricter clinical claim-faithfulness layer that most frontier tools do not expose.
+
+**Ranked Recommendation**
+1. **Primary POLARIS score: per-claim citation faithfulness.** Use a FACT/SAFE/FActScore-style pipeline: atomize every sentence into claims, map each claim to cited source spans, judge support/refutation/insufficient evidence, then report unsupported-claim rate, citation precision, citation coverage, effective supported claims, and critical-clinical-claim failure rate. This aligns with DeepResearch Bench’s FACT framework, which extracts statement-URL pairs and scores support plus effective citations; POLARIS exceeds it if provenance is native rather than post-hoc. Source: DeepResearch Bench, Jun. 2025, https://arxiv.org/abs/2506.11763.
+2. **Recognized report-quality layer: DeepResearch Bench RACE + FACT.** RACE scores comprehensiveness, depth, instruction-following, and readability with reference-based adaptive criteria; FACT scores citation accuracy and effective citations. In the paper, **Gemini 2.5 Pro Deep Research** led RACE, while **Perplexity Deep Research** led citation accuracy. Source: https://deepresearch-bench.github.io/static/papers/deepresearch-bench.pdf.
+3. **Objective web-research layer: FutureSearch Deep Research Bench / RetroSearch.** It uses frozen web snapshots and curated answers, avoiding live-web drift. Launch top was **o3 at 0.51**; 2026 FutureSearch updates report **Claude 4.6 Opus high-effort at 55.0%**, Sonnet 4.6 high at 54.9%, GPT-5 low at 49.6%, Gemini 3 Flash low at 49.9%. Sources: May 2025 paper https://arxiv.org/abs/2506.06287 and Mar. 30, 2026 update https://futuresearch.ai/effort-scaling/.
+4. **Retriever/agent disentangling: BrowseComp-Plus.** Prefer this over live BrowseComp when debugging POLARIS retrieval. It fixes the corpus, includes human-verified support docs and hard negatives, and reports answer accuracy/search calls. Paper top: **GPT-5 + Qwen3-Embedding-8B at 70.1%**, GPT-5+BM25 55.9%, Search-R1+BM25 3.86%. Source: Aug. 8, 2025, https://arxiv.org/abs/2508.06600.
+5. **External credibility, not core clinical proof:** BrowseComp, GAIA, HLE, FRAMES, Mind2Web/WebArena. These are useful sanity checks, but they do not measure long-form clinical citation faithfulness.
+
+**Benchmark Map**
+- **DeepResearch Bench RACE/FACT:** 100 PhD-level long-report tasks; best for report + citation evaluation; Gemini DR top overall, Perplexity DR top citation accuracy in 2025 run. https://arxiv.org/abs/2506.11763.
+- **FutureSearch DRB:** 89 paper tasks / 91+ current tasks, 8 real research categories, frozen RetroSearch; best reproducible objective web-research benchmark. https://futuresearch.ai/deep-research-bench/.
+- **BrowseComp:** 1,266 hard short-answer browsing questions; strong for persistent search, weak for long reports/citations. OpenAI, Apr. 2025: https://openai.com/index/browsecomp/.
+- **BrowseComp-Plus:** fixed corpus version for fair retriever/agent comparison. https://arxiv.org/abs/2508.06600.
+- **GAIA:** general assistant tasks with web/tool/file reasoning; useful but protocol-dependent and increasingly saturated. HF benchmark page: https://huggingface.co/gaia-benchmark/collections.
+- **HLE:** 2,500 expert closed-ended questions; measures expert reasoning/calibration, not research faithfulness. Official Scale leaderboard: https://scale.com/leaderboard/humanitys_last_exam.
+- **DeepResearchGym:** free sandbox extending Researchy Questions with LLM-judge relevance, retrieval faithfulness, and report quality. https://arxiv.org/abs/2505.19253.
+- **ResearchQA / Researchy Questions:** useful prompt source, but not a top-tier public leaderboard by itself.
+- **DeepConsult:** watch-list only unless you have a stronger primary source; I would not treat it as gold standard today.
+- **Mind2Web/WebArena:** browser-control success-rate benchmarks, not deep-research report benchmarks.
+- **FRAMES:** useful multi-hop/RAG factual QA diagnostic, not sufficient for long-form cited reports.
+- **Newer watch-list:** DeepResearch Bench II, MMDeepResearch-Bench, ResearcherBench, DeepResearch Arena, MedBrowseComp, DeepSearchQA/DRACO if public harnesses stabilize. ResearcherBench reports OpenAI and Gemini Deep Research strongest on frontier scientific inquiry: https://arxiv.org/abs/2507.16280.
+
+**Factuality Gold Standard**
+For long-form, cited, high-stakes clinical output, the defensible standard is **claim-level verification against identified sources**, not answer-level grading. SAFE/LongFact is the strongest open-domain automated factuality method: it decomposes long answers into facts, searches, judges support, and reports precision/recall-style factuality; it agreed with crowd annotators 72% of the time and won 76% of sampled disagreements. Source: Mar. 2024, https://arxiv.org/abs/2403.18802. FActScore is the core atomic-fact precision baseline: https://arxiv.org/abs/2305.14251. ALCE/AIS-style citation precision/recall should be added for attribution: https://arxiv.org/abs/2305.14627.
+
+For clinical use, automate the broad screen but keep a blinded clinician audit on a stratified sample, especially for treatment recommendations, contraindications, dosing, trial interpretation, and guideline claims. POLARIS’s per-sentence provenance is above current public norms if it can be converted to **per-atomic-claim provenance** with source span, date/version, evidence tier, and a hard unsupported-claim contract.
+
+**Minimal Head-to-Head Protocol**
+Use 80-120 prompts: 30 FutureSearch-style objective web tasks, 30 DeepResearch Bench long-report tasks, 20 BrowseComp/BrowseComp-Plus tasks, and 20-40 sealed clinical research tasks built from PubMed, FDA labels/reviews, ClinicalTrials.gov, major guidelines, and systematic reviews.
+
+Run POLARIS, ChatGPT Deep Research, Gemini Deep Research, and Perplexity Deep Research with identical prompts, same date window, paid top tier, no manual steering, and logged timestamps. If a tool asks for clarification, answer “You decide.” Require final markdown plus citations; for tools that cannot emit claim tables, evaluate post-hoc.
+
+Automatable scoring: objective answer accuracy, RACE pairwise/report score, FACT/SAFE claim support, ALCE citation precision/recall, source diversity, evidence-tier coverage, latency, and cost. Human-free is acceptable for regression and public nonclinical claims; clinical safety claims need expert audit and confidence intervals.
+
+**Harness Loop**
+Use three splits: public/dev, private validation, sealed test. Never tune prompts, retrievers, ranking, or judges on sealed test. Freeze source snapshots for reproducibility, rotate sealed clinical tasks quarterly, include post-cutoff documents, run contamination scans, and keep canary facts that should not appear in training data.
+
+Lock model/tool versions before each benchmark run, preregister scoring, run fixed N replicates, bootstrap confidence intervals, blind judge inputs, randomize pairwise order, use judges from different model families, and calibrate judge outputs against human labels. Report failures and abstentions, not only successful reports.
+
+The concise positioning: **POLARIS should claim leadership on “claim-faithful clinical deep research,” not generic deep research.** The public benchmark battery establishes credibility; the native per-claim provenance and fabrication-rate contract is where POLARIS can exceed the current gold standard.

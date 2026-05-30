@@ -1,0 +1,28 @@
+POLARIS I-meta-002 PR-9 offline-E2E — SMOKE (Claude main-thread, build agent was session-limited mid-report; Claude re-ran + verified by hand)
+
+Date (UTC approx): 2026-05-29
+HEAD: c4122b63 (item7) + uncommitted offline-e2e working tree
+Execution: serialized, foreground (§8.4). NO network (socket blocked in the e2e test), NO spend.
+
+OVERALL: PASS.
+
+STEP 0 — offline_e2e test alone (verbose): 7 passed in 1.00s. Named tests:
+  test_socket_is_blocked_in_this_module PASSED
+  test_four_role_leg_manifest_evaluator_agrees_and_audit PASSED
+  test_four_role_leg_fabricated_claim_carries_marker PASSED
+  test_m4_gate_passes_on_matching_served_metadata PASSED
+  test_m4_gate_fails_closed_on_wrong_model PASSED
+  test_external_scorer_leg_emits_scored_and_summary PASSED
+  test_full_offline_chain_runs_under_socket_block PASSED
+  -> proves: 4-role manifest + evaluator_agrees map + audit; FABRICATED-carries-marker (safe rule);
+     pathB PASS on matching served-metadata AND fail-closed on wrong-model; external scorer emits
+     scored ledger + systems summary; the FULL chain runs with sockets BLOCKED (no-network fail-closed).
+
+STEP 1 — pytest tests/dr_benchmark tests/roles tests/architecture -q: 401 passed (was 394 + 7 new). Exit 0.
+STEP 2 — verify_lock --consistency: exit 0, "Consistency: OK" (lock NOT promoted).
+STEP 3 — gate_a_dry_run: OVERALL PASS, exit 0. JSON: outputs/gate_a/dry_run_report.json.
+
+NO NETWORK / NO SPEND: the e2e test blocks socket.socket/create_connection for the whole run; a stray
+real connection FAILS the test (test_socket_is_blocked_in_this_module + the full-chain test pass under
+the block). Verifier roles faked via canned RoleTransport; no live generator; nothing deployed.
+Fixtures live under tests/fixtures/offline_e2e/ (synthetic, isolated from outputs/dr_benchmark).

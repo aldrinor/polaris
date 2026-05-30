@@ -1,0 +1,19 @@
+SMOKE RESULTS — POLARIS sub-PR-1 (Gate-A subset)
+Agent: SMOKE
+Run: serialized, no parallel (CLAUDE.md 8.4)
+Timestamp (UTC): 2026-05-29
+
+Command 1:
+  python -m pytest tests/architecture tests/dr_benchmark -q
+  exit_code: 0
+  result: PASS
+  pytest summary line: 129 passed in 4.43s
+  (collected 129 items: 129 passed, 0 failed, 0 skipped)
+
+Command 2:
+  python -m scripts.architecture.verify_lock --consistency
+  exit_code: 0
+  result: PASS
+  output: Consistency: OK - families registered, family_policy holds, code defaults match lock, canonical_pin includes lock file
+
+OVERALL: PASS (both commands exited 0)

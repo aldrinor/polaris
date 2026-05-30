@@ -1,0 +1,13 @@
+POLARIS I-meta-002 PR-10 — benchmark contract FREEZE PIN (reproducible file-byte method)
+frozen: 2026-05-29 (post canonical-ID verification; before any benchmark run / gold-scorer consultation)
+method: SHA256 of the raw UTF-8 file bytes (portable across environments; the prior per-slug yaml.safe_dump hashing was NON-reproducible across yaml versions)
+
+config/scope_templates/clinical.yaml
+  sha256: 20d9404d704fa6692bc66cad088b65eab10461e65469285b9842cd7631f528df
+  benchmark slugs: drb_75_metal_ions_cvd, drb_76_gut_microbiota_crc, drb_78_parkinsons_dbs
+config/scope_templates/workforce.yaml
+  sha256: b2380c8fcc3c626aacacc2eaa9679cc50e8663c7723477b3ef2607a8968351d0
+  benchmark slugs: drb_72_ai_labor
+config/scope_templates/policy.yaml
+  sha256: 24ed71103d4f80eceabc4e4b1bd99f06e7500f5e7ab4c9d0ae3d768ad78975a5
+  benchmark slugs: drb_90_adas_liability

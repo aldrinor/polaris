@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "polaris/safety/template_manifest",
+  "title": "template_manifest",
+  "description": "D6 SME construction-template. A RECIPE (targets), not claims. The D6 validator additionally enforces cross-field invariants the JSON schema cannot express (severity counts sum to claim_count_target; fab-type counts sum to claim_count_target - SUPPORTED; parsed ID components match the typed fields; version int == _vN suffix; protocol refs + l2_focus resolve to locked artifacts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sme_template_id", "version", "content_hash", "domain", "complexity_tier",
+    "evidence_pool_bin", "l2_focus", "construction_protocol",
+    "sme_qualifications_required", "estimated_time_per_claim_minutes",
+    "created_by", "created_at", "status"
+  ],
+  "properties": {
+    "sme_template_id": {"type": "string", "pattern": "^(clinical|due_diligence|policy|tech|ai_sovereignty|canada_us)_(C1|C2|C3)_(E1|E2|E3|E4)_[a-z][a-z0-9_]*_v[0-9]+$"},
+    "version": {"type": "string", "minLength": 1},
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "domain": {"type": "string", "enum": ["clinical", "due_diligence", "policy", "tech", "ai_sovereignty", "canada_us"]},
+    "complexity_tier": {"type": "string", "enum": ["C1", "C2", "C3"]},
+    "evidence_pool_bin": {"type": "string", "enum": ["E1", "E2", "E3", "E4"], "description": "TARGET bin; realized bin is per-packet (D3 §2). D6 §2.3: realized must equal target at acceptance."},
+    "l2_focus": {"type": "string", "minLength": 1, "description": "An active D4 L2 category id for this domain (resolved by the D6 validator)."},
+    "construction_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_count_target", "severity_distribution_target", "fabrication_type_mix_target", "source_packet_protocol_ref", "fabrication_injection_protocol_ref", "blinded_labeling_protocol_ref", "tiebreak_protocol_ref"],
+      "properties": {
+        "claim_count_target": {"type": "integer", "minimum": 1},
+        "severity_distribution_target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["S0", "S1", "S2", "SUPPORTED"],
+          "description": "NO S3 — S3 is not a gold-set stratum (D6 §2.2; severity_stratum_manifest enum is S0/S1/S2/SUPPORTED).",
+          "properties": {
+            "S0": {"type": "integer", "minimum": 0},
+            "S1": {"type": "integer", "minimum": 0},
+            "S2": {"type": "integer", "minimum": 0},
+            "SUPPORTED": {"type": "integer", "minimum": 0}
+          }
+        },
+        "fabrication_type_mix_target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["quantitative", "qualitative_negation", "relation_direction", "citation_swap", "entity_swap", "temporal", "scope_overreach"],
+          "description": "0a.-1.B §2 seven types. Counts sum to claim_count_target - SUPPORTED (the fabricated remainder).",
+          "properties": {
+            "quantitative": {"type": "integer", "minimum": 0},
+            "qualitative_negation": {"type": "integer", "minimum": 0},
+            "relation_direction": {"type": "integer", "minimum": 0},
+            "citation_swap": {"type": "integer", "minimum": 0},
+            "entity_swap": {"type": "integer", "minimum": 0},
+            "temporal": {"type": "integer", "minimum": 0},
+            "scope_overreach": {"type": "integer", "minimum": 0}
+          }
+        },
+        "source_packet_protocol_ref": {"type": "string", "minLength": 1},
+        "fabrication_injection_protocol_ref": {"type": "string", "minLength": 1},
+        "blinded_labeling_protocol_ref": {"type": "string", "minLength": 1},
+        "tiebreak_protocol_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "sme_qualifications_required": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "estimated_time_per_claim_minutes": {"type": "integer", "minimum": 1},
+    "created_by": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "status": {"type": "string", "enum": ["active", "deprecated"]},
+    "supersedes": {"type": "string"},
+    "replaced_by": {"type": "string"}
+  }
+}

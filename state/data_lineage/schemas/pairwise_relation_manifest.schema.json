@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "polaris/safety/pairwise_relation_manifest",
+  "title": "pairwise_relation_manifest",
+  "description": "COMPUTED by the relation-builder. Base manifest holds ALL unordered pairs i<j incl. cross-stratum; per-stratum P_S filters to stratum_i==stratum_j==S (0a.-1.C §1.7/§2.1). Deduplicated: one row per unordered pair, i<j by claim_id lexical sort.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claim_id_i", "claim_id_j", "related", "criteria_matched", "stratum_i", "stratum_j"],
+  "properties": {
+    "claim_id_i": {"type": "string", "minLength": 1},
+    "claim_id_j": {"type": "string", "minLength": 1},
+    "related": {"type": "boolean"},
+    "criteria_matched": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["same_report", "evidence_jaccard_ge_0.5", "same_template_sme_24h", "same_prompt_family", "microtopic_stratum_plus"]},
+      "uniqueItems": true
+    },
+    "stratum_i": {"type": "string", "enum": ["S0", "S1", "S2", "SUPPORTED"]},
+    "stratum_j": {"type": "string", "enum": ["S0", "S1", "S2", "SUPPORTED"]}
+  }
+}

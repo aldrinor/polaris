@@ -1,0 +1,63 @@
+POLARIS sub-PR-6 SMOKE RESULTS
+Agent: SMOKE (serialized, no-parallel per CLAUDE.md §8.4)
+Date: 2026-05-29
+cwd: C:/POLARIS
+
+OVERALL: ALL THREE PASSED
+
+----------------------------------------------------------------------
+[1] python -m pytest tests/roles tests/architecture tests/dr_benchmark -q
+    (single serialized run)
+    RESULT: PASS
+    COUNTS: 293 passed, 0 failed, 0 errors, 0 skipped (293 collected)
+    DURATION: 4.51s
+    EXIT CODE: 0
+
+    Per-file breakdown:
+      tests/roles/test_judge_adapter.py            9
+      tests/roles/test_judge_contract.py           26
+      tests/roles/test_mirror_adapter.py           11
+      tests/roles/test_mirror_contract.py          14
+      tests/roles/test_release_policy.py           17
+      tests/roles/test_role_pipeline.py            10
+      tests/roles/test_role_transport.py           5
+      tests/roles/test_sentinel_adapter.py         6
+      tests/roles/test_sentinel_contract.py        (34 + continuation)
+      tests/roles/test_sweep_integration.py        10
+      tests/roles/test_verified_claim_graph.py     9
+      tests/architecture/test_runtime_lock.py      14
+      tests/dr_benchmark/test_claim_audit_scorer.py 12
+      tests/dr_benchmark/test_gate_a_dry_run.py     7
+      tests/dr_benchmark/test_medhallu_adapter.py   12
+      tests/dr_benchmark/test_pathB_capture.py      13
+      tests/dr_benchmark/test_pathB_run_gate.py     (26 + 15 continuation)
+      tests/dr_benchmark/test_pathB_runner.py       12
+      tests/dr_benchmark/test_pr3_pipeline.py       24
+
+----------------------------------------------------------------------
+[2] python -m scripts.architecture.verify_lock --consistency
+    RESULT: PASS
+    EXIT CODE: 0 (expected 0)
+    OUTPUT: Consistency: OK - families registered, family_policy holds,
+            code defaults match lock, canonical_pin includes lock file
+
+----------------------------------------------------------------------
+[3] python -m scripts.dr_benchmark.gate_a_dry_run
+    (new no-spend dry-run harness, default no live probes)
+    RESULT: OVERALL PASS (no-spend, offline)
+    EXIT CODE: 0
+
+    Sub-checks:
+      [PASS] pytest_suites: all 3 suites passed (serialized)
+      [PASS] lock_consistency: Consistency OK
+      [PASS] frozen_lock_coverage: 4 roles pinned + all-distinct families
+             {generator: deepseek, mirror: cohere, sentinel: ibm-granite, judge: qwen}
+      [PASS] role_contracts: Sentinel yes=UNGROUNDED, Judge off-enum raises,
+             Mirror two-pass binding holds
+
+    Note emitted by harness: Gate-A PASS does NOT authorize spend.
+    Lock promotion to status: locked is the operator's separate spend gate.
+    JSON report written: C:\POLARIS\outputs\gate_a\dry_run_report.json
+
+----------------------------------------------------------------------
+No tracebacks. No errors. No bluffing.

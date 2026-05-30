@@ -1,0 +1,16 @@
+AMENDMENT: Human-Free Validation Model (I-safety-001c / #922)
+Codex review (design-partner mode -> §-1.1 line-by-line):
+  - 00_design_partner_input.txt : Codex co-designed the 3-layer human-free model
+  - 01_review_iter1.txt : REQUEST_CHANGES (1 P0 SME-deps-in-all-deliverables, 3 P1, 3 P2)
+  - 02_review_iter2.txt : REQUEST_CHANGES (1 P1 stale-6-deliverables scope, 2 P2)
+  - 03_review_iter3_APPROVE.txt : APPROVE (zero P0, zero P1, zero P2; convergence_call accept_remaining)
+
+FINAL VERDICT: APPROVE (iter 3, 2026-05-27)
+Auth: env -u OPENAI_API_KEY codex exec (ChatGPT subscription / OAuth)
+
+This locks the human-free amendment DESIGN. The §10 conditions for the
+amendment + conversions to fully lock:
+  1. Codex §-1.1 APPROVE on the amendment  -> DONE (this verdict)
+  2. §8 zero-live-SME-dependency grep across the contract dir  -> PENDING (conversions)
+  3. All 14 Phase-0a.0 deliverables + plan + affected contract sections revised + each Codex-APPROVE'd  -> PENDING
+  4. Operator sign-off (PR #920)  -> PENDING
