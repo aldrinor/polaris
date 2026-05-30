@@ -1636,8 +1636,26 @@ async def run_one_query(
         if _trial_queries:
             _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
                  f"queries (slug={q['slug']})")
-        _amplified_effective = (
-            list(q.get("amplified", [])) + _reg_queries + _trial_queries
+        # I-meta-002-q1d (#951 q1d-a): decompose the multi-clause question into focused
+        # sub-queries (pure, no-network) so a 40-70-word golden question is not fired as
+        # ~one keyword query. Flag-gated (default ON); falls back to [] for short questions.
+        _decomposed: list[str] = []
+        if os.getenv("PG_SWEEP_QUERY_DECOMPOSE", "1").strip() in ("1", "true", "True"):
+            from src.polaris_graph.retrieval.query_decomposer import (
+                decompose_question,
+            )
+            _decomposed = decompose_question(q["question"])
+            if _decomposed:
+                _log(f"[q1d]         query_decompose: +{len(_decomposed)} sub-queries "
+                     f"(slug={q['slug']})")
+        from src.polaris_graph.retrieval.query_decomposer import (
+            build_amplified_query_list,
+        )
+        _amplified_effective = build_amplified_query_list(
+            hand_authored=list(q.get("amplified", [])),
+            decomposed=_decomposed,
+            regulatory=_reg_queries,
+            trial=_trial_queries,
         )
 
         # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
