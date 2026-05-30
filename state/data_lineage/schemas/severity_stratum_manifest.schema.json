@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "polaris/safety/severity_stratum_manifest",
+  "title": "severity_stratum_manifest",
+  "description": "SEALED, derived from consensus_gold_labels (0a.-1.C §1.4b). ANSWER-BEARING — readers are mechanically disjoint from adjudicators (0a.-1.E §4.1). Lets the relation-builder scope P per stratum without seeing miss outcomes. One row per claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claim_id", "severity_stratum"],
+  "properties": {
+    "claim_id": {"type": "string", "minLength": 1},
+    "severity_stratum": {"type": "string", "enum": ["S0", "S1", "S2", "SUPPORTED"]}
+  }
+}

@@ -1,0 +1,18 @@
+codex
+Lock 0a.-1.C-schema
+
+Confirmed closed:
+- §1 count/hash-pin: `EIGHT JSON-Lines manifests`; literal schema files + hash-pins deferred post-0a.-1.E, no false present-tense claim.
+- §1.7 cross-stratum schema: `pairwise_relation_manifest` uses `stratum_i, stratum_j`; base manifest includes all pairs; per-stratum `P_S` filters same-stratum pairs.
+- §2.3 fail-closed fields: enumerates actual relation-input fields from `construction_manifest`, `source_packet_manifest`, and `severity_stratum_manifest`.
+
+No remaining count, field, or stratum inconsistency found in the checked spec.
+13,498
+Lock 0a.-1.C-schema
+
+Confirmed closed:
+- §1 count/hash-pin: `EIGHT JSON-Lines manifests`; literal schema files + hash-pins deferred post-0a.-1.E, no false present-tense claim.
+- §1.7 cross-stratum schema: `pairwise_relation_manifest` uses `stratum_i, stratum_j`; base manifest includes all pairs; per-stratum `P_S` filters same-stratum pairs.
+- §2.3 fail-closed fields: enumerates actual relation-input fields from `construction_manifest`, `source_packet_manifest`, and `severity_stratum_manifest`.
+
+No remaining count, field, or stratum inconsistency found in the checked spec.

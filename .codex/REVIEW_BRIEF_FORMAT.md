@@ -129,3 +129,9 @@ on NO_ISSUES.
 - Promptfoo / Evidently: criterion decomposition
 - arxiv:2509.09912 "When Your Reviewer is an LLM" — anchoring
   empirical study
+
+## Canonical pipeline (anti-drift — read before reviewing any pipeline change)
+The authoritative POLARIS pipeline is `docs/polaris_pipeline_canonical.md` (20 stages,
+pinned in docs/canonical_pin.txt). Built today: stages 1-13 + 18-20. NOT built: 14 Mirror,
+15 Sentinel, 16 Judge, 17 snowball memory, pause/resume. Any brief/diff that changes the
+pipeline MUST keep this file in sync — disagreement between code and this file is a drift halt.

@@ -1,0 +1,43 @@
+codex
+**Verdict**
+
+v3 closes the round-2 P0s enough to start D1a. It is not perfect. The remaining defects are not blockers for D1a, but they must be redlined before C/D8 execution or you will contaminate the validation substrate later.
+
+D1a is the right split: lock the domain set first, defer rationale/checklists to D1. But D1a cannot be only a naked list. It must include the validation-scope framing statement, exact six IDs, explicit exclusions (`custom`, `workforce`), canonical-8 non-interference note, freeze/change-control rule, and hash/version metadata. No rationale essay. No checklist work. Just enough to stop later people from quietly reinterpreting the set.
+
+The manifest split mostly closes the label-leak P0. The remaining risk is not field co-location; it is access-path leakage and semantic leakage. `facet_manifest` is label-safe only if facets are produced neutrally from claim text, without access to constructor intent, injection notes, or gold labels. Do not let constructors hand-author facets in a way that points a spotlight at the fabricated clause. If adjudicators see facets, the decomposition must be deterministic, uniform across all claims, and free of any “this is the suspicious bit” structure. Better: adjudicators label claim/facet views through the same blinded tool, and the tool never exposes constructor intent or consensus labels.
+
+0a.-1.E is strong but still missing one hard custody control: role separation must be enforced mechanically, not just written as governance. Add an assignment manifest with `constructor_sme_id`, `adjudicator_ids`, `tiebreaker_id`, and a validator that rejects constructor/adjudicator overlap for the same claim. The adjudication UI/CLI should also refuse login/actions that violate it. Also add hashes for the relation-builder/randomizer code, not just the packet renderer; record full rendered packet snapshots or canonical rendered HTML/text, not only renderer hash; and make the exposure log cover reads as well as writes through controlled access channels.
+
+Ordering is now basically dependency-correct, with one redline: C should be split. Schema/relation-builder design can precede E, but accepted fixture dry-runs and edge-fixture outputs should happen after E or be rerun/hash-pinned after E. Otherwise you are using pre-custody artifacts as evidence that the builder worked. So the order should be: D → C-schema/spec → E → C-fixture dry-run. The final planned-allocation dry-run remains correctly at the end.
+
+D2: do not make all evidence-extraction modality a solo C3 trigger. Prose extraction is not C3. Structured records are usually not C3. Tables/figures that require cross-row interpretation, unit conversion, subgroup selection, or statistical reading should force C3. So the solo trigger is not “modality”; it is “modality plus interpretive burden.” Your named trigger `table/statistical extraction` is the right shape.
+
+D8: BIBD probably collapses at your scale. With about 18 SMEs and ~72 template cells, a strict balanced incomplete block is likely over-designed unless you massively constrain the claim count. Use blocked randomization with quotas/min-cost matching first. Latin-square works only for clean two-factor rotation; this is messier than that. Treat BIBD as optional if parameters happen to fit, not as the primary design.
+
+Repo check: your canonical-8/checklist assumption is right. `tests/v6/test_template_canonical_set.py` enforces the canonical 8 across runtime/template surfaces, while completeness checklists are currently permissive: missing checklist returns `no_checklist_loaded`, not a canonical failure. Since validation drops `workforce` and `custom`, D1 authoring only `ai_sovereignty.yaml` and `canada_us.yaml` is consistent. But D1 should add a validation-domain guard so the six validation domains fail closed if a checklist is missing.
+
+Nothing here is operationally unbuildable. The main threat is pretending policy prose is enforcement. Put the role-disjointness validator, access-controlled manifest channels, read/write exposure logging, and post-E fixture rerun into the execution design before any real labels exist.
+
+Begin D1a (lock 6 domains)
+**Verdict**
+
+v3 closes the round-2 P0s enough to start D1a. It is not perfect. The remaining defects are not blockers for D1a, but they must be redlined before C/D8 execution or you will contaminate the validation substrate later.
+
+D1a is the right split: lock the domain set first, defer rationale/checklists to D1. But D1a cannot be only a naked list. It must include the validation-scope framing statement, exact six IDs, explicit exclusions (`custom`, `workforce`), canonical-8 non-interference note, freeze/change-control rule, and hash/version metadata. No rationale essay. No checklist work. Just enough to stop later people from quietly reinterpreting the set.
+
+The manifest split mostly closes the label-leak P0. The remaining risk is not field co-location; it is access-path leakage and semantic leakage. `facet_manifest` is label-safe only if facets are produced neutrally from claim text, without access to constructor intent, injection notes, or gold labels. Do not let constructors hand-author facets in a way that points a spotlight at the fabricated clause. If adjudicators see facets, the decomposition must be deterministic, uniform across all claims, and free of any “this is the suspicious bit” structure. Better: adjudicators label claim/facet views through the same blinded tool, and the tool never exposes constructor intent or consensus labels.
+
+0a.-1.E is strong but still missing one hard custody control: role separation must be enforced mechanically, not just written as governance. Add an assignment manifest with `constructor_sme_id`, `adjudicator_ids`, `tiebreaker_id`, and a validator that rejects constructor/adjudicator overlap for the same claim. The adjudication UI/CLI should also refuse login/actions that violate it. Also add hashes for the relation-builder/randomizer code, not just the packet renderer; record full rendered packet snapshots or canonical rendered HTML/text, not only renderer hash; and make the exposure log cover reads as well as writes through controlled access channels.
+
+Ordering is now basically dependency-correct, with one redline: C should be split. Schema/relation-builder design can precede E, but accepted fixture dry-runs and edge-fixture outputs should happen after E or be rerun/hash-pinned after E. Otherwise you are using pre-custody artifacts as evidence that the builder worked. So the order should be: D → C-schema/spec → E → C-fixture dry-run. The final planned-allocation dry-run remains correctly at the end.
+
+D2: do not make all evidence-extraction modality a solo C3 trigger. Prose extraction is not C3. Structured records are usually not C3. Tables/figures that require cross-row interpretation, unit conversion, subgroup selection, or statistical reading should force C3. So the solo trigger is not “modality”; it is “modality plus interpretive burden.” Your named trigger `table/statistical extraction` is the right shape.
+
+D8: BIBD probably collapses at your scale. With about 18 SMEs and ~72 template cells, a strict balanced incomplete block is likely over-designed unless you massively constrain the claim count. Use blocked randomization with quotas/min-cost matching first. Latin-square works only for clean two-factor rotation; this is messier than that. Treat BIBD as optional if parameters happen to fit, not as the primary design.
+
+Repo check: your canonical-8/checklist assumption is right. `tests/v6/test_template_canonical_set.py` enforces the canonical 8 across runtime/template surfaces, while completeness checklists are currently permissive: missing checklist returns `no_checklist_loaded`, not a canonical failure. Since validation drops `workforce` and `custom`, D1 authoring only `ai_sovereignty.yaml` and `canada_us.yaml` is consistent. But D1 should add a validation-domain guard so the six validation domains fail closed if a checklist is missing.
+
+Nothing here is operationally unbuildable. The main threat is pretending policy prose is enforcement. Put the role-disjointness validator, access-controlled manifest channels, read/write exposure logging, and post-E fixture rerun into the execution design before any real labels exist.
+
+Begin D1a (lock 6 domains)
