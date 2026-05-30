@@ -1,0 +1,148 @@
+codex
+Bottom line: D5 is directionally correct, but I would not lock it as written. The deterministic/runtime-reachability approach is right, and it is consistent with 0a.-1.C criterion 4 in broad shape. The remaining gaps are buildability gaps: runtime mapping, skeleton canonicalization, multi-prompt claim attribution, and one gate wording contradiction.
+
+**§-1.1 Audit**
+
+1. Family definition: mostly right, but `callable_qualname` is a risk.
+
+`family_key = (system_template_id, user_template_id, model_conditioned_branch, retry_path, callable_qualname)` is strong enough to avoid the old directory-scan/file-level collapse. It correctly separates `multi_section_generator` outline/section/table/limitations/retry variants.
+
+The concern is `callable_qualname`: it makes copied or shared same-skeleton constructors in different functions different families. That is safe against false positive clustering, but unsafe against false negatives in DEFF if two call sites are genuinely the same prompt family. For a safety DEFF criterion, false negatives are worse than false positives.
+
+Fix: keep `callable_qualname` as provenance, but define the family identity as skeleton + branch + retry + role, with `callable_qualname` either:
+- a tie-breaker only when two same-skeleton constructors have materially different assembly/input semantics, or
+- part of a `constructors[]` provenance list under one family.
+
+Similarity-as-audit-only is correct. It must not define the family.
+
+2. Skeleton hashing is the right identity, but under-specified.
+
+Hashing the skeleton rather than filled values is correct. Otherwise every evidence packet, section title, source list, or claim text becomes a new family and criterion 4 stops firing.
+
+But current D5 does not define how skeletons are computed for f-strings, concatenation, conditional prompt blocks, and helper-rendered blocks. The repo has many such patterns, including `multi_section_generator.py` appending model-specific allow-lists, atom catalogs, contradiction hedging, cross-trial synthesis, and retry contracts before calling `OpenRouterClient.generate`.
+
+This is buildable only if D5 requires explicit constructor instrumentation: each prompt constructor must emit/register a canonical skeleton before fill, with data-derived spans replaced by typed placeholders. After-the-fact reverse hashing of the final emitted prompt is not reliable.
+
+Fix: add a canonicalization rule:
+- fixed literal text remains in the skeleton;
+- runtime data values become placeholders;
+- optional literal blocks present/absent produce different skeleton hashes;
+- dynamic block renderers must expose their own skeleton IDs;
+- canonical serialization/hash algorithm is fixed;
+- hash collision or unknown skeleton is fail-closed.
+
+3. Role typing is correct, but dual-use constructors need a rule.
+
+`gen.*` and `ver.*` are consistent with 0a.-1.C §2.1: match generator family OR verifier family separately.
+
+A constructor can be used in both generation and verification paths. That should not collapse across roles. The same underlying `family_key` used in both roles should produce two role-scoped records: `gen.<hash>` and `ver.<hash>`, or D5 should forbid dual-use wrappers unless they are split. Current D5 implies this but does not state it.
+
+4. Runtime reachability is the right methodology, but "gold-set run path" needs freezing.
+
+Runtime reachability beats directory scanning. The call graph is too dynamic for static enumeration alone: router decisions, retry paths, model-conditioned branches, fallback LLMs, structured-output retries, and data-dependent prompt blocks can all affect which constructors fire.
+
+Fix: define reachability as "reachable under the frozen production gold-set configuration": entry points, env vars, model slugs, provider fallback policy, feature flags, router config, retry settings, and enabled generation/verifier stages. Static tracing can seed the inventory, but instrumented dry-run coverage must be the enforcement surface.
+
+5. Completeness fail-closed is correct, but D5 needs the mechanical mapping.
+
+"Every emitted prompt must resolve to an enumerated family else halt" is the right invariant. It is mechanically enforceable only if the LLM call boundary requires prompt-family metadata.
+
+The central call wrappers should receive or derive:
+`role`, `family_key`, `prompt_family_id`, `system_template_id`, `user_template_id`, `retry_path`, `model_conditioned_branch`, `callable_qualname`.
+
+Then they validate against active `prompt_families.json` and write the family ID into the prompt trace / construction manifest. Mapping from raw prompt text back to family after emission is not enough.
+
+6. Gate is correct, but the wording currently contradicts itself.
+
+§6 says the enumeration must be validated before pilot, but §4.4 says validation checks every prompt emitted during the pilot. That cannot be both true unless "pilot" means a pre-pilot instrumented dress rehearsal.
+
+Fix: split it:
+- pre-pilot instrumented dry run/dress rehearsal must resolve every emitted prompt;
+- actual pilot/gold-set run also enforces the same fail-closed check;
+- missing family during actual run halts and invalidates that run until amended under the correct exposure window.
+
+7. Governance is directionally consistent.
+
+Append/deprecate mirrors D4 and §P4 correctly. But D5 should explicitly say that post-structural prompt-family changes require recomputing affected construction manifests, pairwise relations, degree stats, DEFF, and retaining old/new hashes. D4 says this more clearly for L3 changes; D5 should mirror that level of specificity.
+
+8. Schema issue: `ontology_version` / `ontology_hash` is wrong vocabulary.
+
+In D5’s `prompt_families.json`, use `inventory_version` / `inventory_hash`, not `ontology_version` / `ontology_hash`. Also specify stable-hash length/canonical JSON serialization and fail-closed collision handling.
+
+So: do not lock D5 yet. The concept is sound, but the current artifact leaves too much room for non-deterministic or gameable implementation.
+
+Fix skeleton canonicalization, runtime call-boundary instrumentation, multi-prompt claim attribution, dual-role constructor handling, gate wording, and schema naming/hash rules then lock.
+109,307
+Bottom line: D5 is directionally correct, but I would not lock it as written. The deterministic/runtime-reachability approach is right, and it is consistent with 0a.-1.C criterion 4 in broad shape. The remaining gaps are buildability gaps: runtime mapping, skeleton canonicalization, multi-prompt claim attribution, and one gate wording contradiction.
+
+**§-1.1 Audit**
+
+1. Family definition: mostly right, but `callable_qualname` is a risk.
+
+`family_key = (system_template_id, user_template_id, model_conditioned_branch, retry_path, callable_qualname)` is strong enough to avoid the old directory-scan/file-level collapse. It correctly separates `multi_section_generator` outline/section/table/limitations/retry variants.
+
+The concern is `callable_qualname`: it makes copied or shared same-skeleton constructors in different functions different families. That is safe against false positive clustering, but unsafe against false negatives in DEFF if two call sites are genuinely the same prompt family. For a safety DEFF criterion, false negatives are worse than false positives.
+
+Fix: keep `callable_qualname` as provenance, but define the family identity as skeleton + branch + retry + role, with `callable_qualname` either:
+- a tie-breaker only when two same-skeleton constructors have materially different assembly/input semantics, or
+- part of a `constructors[]` provenance list under one family.
+
+Similarity-as-audit-only is correct. It must not define the family.
+
+2. Skeleton hashing is the right identity, but under-specified.
+
+Hashing the skeleton rather than filled values is correct. Otherwise every evidence packet, section title, source list, or claim text becomes a new family and criterion 4 stops firing.
+
+But current D5 does not define how skeletons are computed for f-strings, concatenation, conditional prompt blocks, and helper-rendered blocks. The repo has many such patterns, including `multi_section_generator.py` appending model-specific allow-lists, atom catalogs, contradiction hedging, cross-trial synthesis, and retry contracts before calling `OpenRouterClient.generate`.
+
+This is buildable only if D5 requires explicit constructor instrumentation: each prompt constructor must emit/register a canonical skeleton before fill, with data-derived spans replaced by typed placeholders. After-the-fact reverse hashing of the final emitted prompt is not reliable.
+
+Fix: add a canonicalization rule:
+- fixed literal text remains in the skeleton;
+- runtime data values become placeholders;
+- optional literal blocks present/absent produce different skeleton hashes;
+- dynamic block renderers must expose their own skeleton IDs;
+- canonical serialization/hash algorithm is fixed;
+- hash collision or unknown skeleton is fail-closed.
+
+3. Role typing is correct, but dual-use constructors need a rule.
+
+`gen.*` and `ver.*` are consistent with 0a.-1.C §2.1: match generator family OR verifier family separately.
+
+A constructor can be used in both generation and verification paths. That should not collapse across roles. The same underlying `family_key` used in both roles should produce two role-scoped records: `gen.<hash>` and `ver.<hash>`, or D5 should forbid dual-use wrappers unless they are split. Current D5 implies this but does not state it.
+
+4. Runtime reachability is the right methodology, but "gold-set run path" needs freezing.
+
+Runtime reachability beats directory scanning. The call graph is too dynamic for static enumeration alone: router decisions, retry paths, model-conditioned branches, fallback LLMs, structured-output retries, and data-dependent prompt blocks can all affect which constructors fire.
+
+Fix: define reachability as "reachable under the frozen production gold-set configuration": entry points, env vars, model slugs, provider fallback policy, feature flags, router config, retry settings, and enabled generation/verifier stages. Static tracing can seed the inventory, but instrumented dry-run coverage must be the enforcement surface.
+
+5. Completeness fail-closed is correct, but D5 needs the mechanical mapping.
+
+"Every emitted prompt must resolve to an enumerated family else halt" is the right invariant. It is mechanically enforceable only if the LLM call boundary requires prompt-family metadata.
+
+The central call wrappers should receive or derive:
+`role`, `family_key`, `prompt_family_id`, `system_template_id`, `user_template_id`, `retry_path`, `model_conditioned_branch`, `callable_qualname`.
+
+Then they validate against active `prompt_families.json` and write the family ID into the prompt trace / construction manifest. Mapping from raw prompt text back to family after emission is not enough.
+
+6. Gate is correct, but the wording currently contradicts itself.
+
+§6 says the enumeration must be validated before pilot, but §4.4 says validation checks every prompt emitted during the pilot. That cannot be both true unless "pilot" means a pre-pilot instrumented dress rehearsal.
+
+Fix: split it:
+- pre-pilot instrumented dry run/dress rehearsal must resolve every emitted prompt;
+- actual pilot/gold-set run also enforces the same fail-closed check;
+- missing family during actual run halts and invalidates that run until amended under the correct exposure window.
+
+7. Governance is directionally consistent.
+
+Append/deprecate mirrors D4 and §P4 correctly. But D5 should explicitly say that post-structural prompt-family changes require recomputing affected construction manifests, pairwise relations, degree stats, DEFF, and retaining old/new hashes. D4 says this more clearly for L3 changes; D5 should mirror that level of specificity.
+
+8. Schema issue: `ontology_version` / `ontology_hash` is wrong vocabulary.
+
+In D5’s `prompt_families.json`, use `inventory_version` / `inventory_hash`, not `ontology_version` / `ontology_hash`. Also specify stable-hash length/canonical JSON serialization and fail-closed collision handling.
+
+So: do not lock D5 yet. The concept is sound, but the current artifact leaves too much room for non-deterministic or gameable implementation.
+
+Fix skeleton canonicalization, runtime call-boundary instrumentation, multi-prompt claim attribution, dual-role constructor handling, gate wording, and schema naming/hash rules then lock.

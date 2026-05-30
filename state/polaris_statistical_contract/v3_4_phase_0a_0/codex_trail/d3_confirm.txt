@@ -1,0 +1,16 @@
+codex
+1. ✓ Zero-source fail-closed is closed. D3 §2.1 states not E1/E0, and `source_packet_manifest.schema.json` has `canonical_source_ids.minItems: 1`.
+
+2. ✓ Downselect fix is closed. D3 records both counts before/after production scope, defines the deterministic rank tuple, fail-closes missing/NaN authority score, and requires a full `downselect_manifest`.
+
+3. △ Schema edits are closed, but custody edit is not fully closed. The schemas parse, and the two optional fields are present in `construction_manifest.schema.json`. However, actual `0a-1E_execution_protocol_chain_of_custody.md` §6 structural list does not include `retrieved_source_count` or `target_packet_source_count`; D3 only claims they were added.
+
+Fix: add `retrieved_source_count` and `target_packet_source_count` to `0a-1E_execution_protocol_chain_of_custody.md` §6 structural-exposure list as structural diagnostic fields.
+18,989
+1. ✓ Zero-source fail-closed is closed. D3 §2.1 states not E1/E0, and `source_packet_manifest.schema.json` has `canonical_source_ids.minItems: 1`.
+
+2. ✓ Downselect fix is closed. D3 records both counts before/after production scope, defines the deterministic rank tuple, fail-closes missing/NaN authority score, and requires a full `downselect_manifest`.
+
+3. △ Schema edits are closed, but custody edit is not fully closed. The schemas parse, and the two optional fields are present in `construction_manifest.schema.json`. However, actual `0a-1E_execution_protocol_chain_of_custody.md` §6 structural list does not include `retrieved_source_count` or `target_packet_source_count`; D3 only claims they were added.
+
+Fix: add `retrieved_source_count` and `target_packet_source_count` to `0a-1E_execution_protocol_chain_of_custody.md` §6 structural-exposure list as structural diagnostic fields.

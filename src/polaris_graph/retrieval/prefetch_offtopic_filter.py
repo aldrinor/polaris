@@ -51,6 +51,10 @@ class SearchCandidate:
     snippet: str = ""
     source: str = ""            # "serper" / "openalex" / "s2" / "exa"
     metadata: dict[str, Any] | None = None
+    # I-meta-002-q1d (#951): the query that surfaced this candidate, so the fetch-time
+    # rerank can reserve at least one slot per sub-query (no single query monopolizes the
+    # cap). Empty for legacy callers / a stable fallback bucket.
+    query_origin: str = ""
 
     @property
     def snippet_text(self) -> str:

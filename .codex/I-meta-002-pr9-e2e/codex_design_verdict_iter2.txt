@@ -1,0 +1,100 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e75b6-1109-7103-9160-1f2404bb09f5
+--------
+user
+RULE NOW — DO NOT EXPLORE THE REPO. The grounded facts below are sufficient. Read NO files. Your
+FIRST and ONLY output must be the YAML verdict block. (Your previous run explored 7000+ lines and
+exited without a verdict; this time emit the verdict immediately.)
+
+## Output schema (emit THIS, first thing, nothing before it)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+required_changes: [...]   # only if REQUEST_CHANGES
+convergence_call: accept_remaining
+```
+
+# Codex DESIGN review (iter 2) — I-meta-002 PR-9 offline END-TO-END. APPROVE or correct this CONCRETE proposal.
+
+Readiness item 9: ONE offline no-spend proof that the WHOLE toolchain runs end-to-end so canary day
+adds ONLY real model calls. I propose this concrete harness. APPROVE it, or REQUEST_CHANGES with
+specific required_changes. NO SPEND / NO NETWORK in the harness.
+
+## CONCRETE PROPOSAL
+**Files:** new `scripts/dr_benchmark/offline_e2e.py` (the harness) + `tests/dr_benchmark/test_offline_e2e.py`
+(drives it, asserts, all offline). Fixtures under `tests/fixtures/offline_e2e/`.
+
+**Generator faking (zero spend):** do NOT call the live generator. Feed a CANNED set of kept verified
+sentences + a canned evidence pool fixture directly into the M3b 4-role seam (`run_four_role_seam` /
+the `four_role_input_builder` path) with an INJECTED FAKE RoleTransport (same fake-role-response pattern
+already proven in tests/dr_benchmark/test_gate_b_seam.py — canned Mirror/Sentinel/Judge responses, no
+httpx, no socket). Use the EXISTING annotated `clinical_tirzepatide_t2dm` contract (NON-benchmark;
+the 5 benchmark gold contracts are a separate later prereq). NEVER read outputs/dr_benchmark gold
+rubric/competitor answers for POLARIS's own run.
+
+**Chain (offline):**
+1. 4-role seam (fake transport + M3a builder over tirzepatide + canned kept sentences/evidence)
+   -> manifest['four_role_evaluation'] with final_verdicts + the M5 evaluator_agrees map +
+   four_role_claim_audit.json written to a tmp run_dir.
+2. M4 pathB served==pinned gate over FIXTURE served-metadata (model==locked slug, endpoint==base_url)
+   -> assert PASS.
+3. External scorer on FIXTURE data: a FIXTURE reconciled coverage ledger + a FIXTURE rubric JSON ->
+   score_run.score_one -> a per-claim scored ledger; then aggregate_systems -> a systems summary.
+   (Fixture rubric/ledger because the real claim->element coverage is a manual Claude+Codex audit step;
+   this proves the SCRIPTS run, not a real score.)
+
+**Assertions (non-vacuous):** manifest carries four_role_evaluation with a NON-EMPTY evaluator_agrees
+map obeying the safe rule (True only for kept+VERIFIED; e.g. a FABRICATED canned verdict -> False);
+four_role_claim_audit.json exists; pathB gate returns PASS on matching served-metadata AND fail-closed
+on a wrong-model fixture; score_run emits a scored ledger file; aggregate emits a systems summary;
+a test asserts NO network (no httpx/requests/socket import exercised; fake transport only).
+
+## Grounded facts (sufficient — do not verify by reading)
+- tests/dr_benchmark/test_gate_b_seam.py already drives the 4-role seam offline with a fake transport
+  over the annotated tirzepatide contract and asserts the D8 decision flows to the manifest. The e2e
+  EXTENDS that to also run pathB gate + score_run + aggregate with fixtures.
+- M5 added manifest['four_role_evaluation']['evaluator_agrees'] = {claim_id: kept AND VERIFIED}.
+- M4 pathB gate (scripts/dr_benchmark/pathB_run_gate.py) asserts self-host served==pinned.
+- score_run.score_one(system, question_id, rubric_path, ledger_path) + reconcile (conservative-MAX) +
+  aggregate_systems exist in scripts/dr_benchmark/.
+- Frozen: claim_audit_scorer.py, runtime lock (NOT promoted by the e2e).
+
+## The only real risks to rule on
+1. Is feeding CANNED kept-sentences+evidence into the seam (vs faking the live generator inside
+   run_one_query) the honest/correct offline entry? (I believe yes — it proves the real seam without a
+   live call; run_one_query's live generator is the ONE thing the canary adds.)
+2. Is using a FIXTURE rubric+ledger for the score_run/aggregate leg acceptable (since real coverage is
+   a manual audit), or must the e2e derive the ledger from the manifest's evaluator_agrees/audit map?
+3. Any hidden-spend / vacuous-pass / contamination risk in this shape?
+
+APPROVE if the shape is correct + safe; REQUEST_CHANGES with specific required_changes otherwise.
+
+codex
+verdict: APPROVE
+p0: []
+p1: []
+p2:
+  - "Keep the fixture rubric/ledger clearly labeled as synthetic/non-benchmark and isolated from outputs/dr_benchmark gold/competitor artifacts."
+  - "Make the no-network assertion fail-closed by blocking socket/connect paths, not only by checking that fake transport was used."
+  - "Include both matching and wrong-model served-metadata fixtures so the pathB gate proves PASS and fail-closed behavior."
+convergence_call: accept_remaining
+tokens used
+3,160
+verdict: APPROVE
+p0: []
+p1: []
+p2:
+  - "Keep the fixture rubric/ledger clearly labeled as synthetic/non-benchmark and isolated from outputs/dr_benchmark gold/competitor artifacts."
+  - "Make the no-network assertion fail-closed by blocking socket/connect paths, not only by checking that fake transport was used."
+  - "Include both matching and wrong-model served-metadata fixtures so the pathB gate proves PASS and fail-closed behavior."
+convergence_call: accept_remaining

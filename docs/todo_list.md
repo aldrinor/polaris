@@ -1,5 +1,13 @@
 # POLARIS — todo / active scope (RE-PRIORITIZED 2026-05-20)
 
+## ⭐ CURRENT PRIORITY (2026-05-28, operator-flagged): I-safety-002b (#925) — proper DR head-to-head benchmark
+Benchmark POLARIS **as a deep-research tool** vs ChatGPT/Gemini/Perplexity DR on the **5 GOLDEN DRB-EN questions** (NOT homegrown), POLARIS at MAX POWER, **per-run §-1.1 line-by-line dual audit** (Claude+Codex, claim → fetched cited span → verdict). Plan Codex-APPROVE'd iter 5: `.codex/I-safety-002b/execution_plan_pathB.md`. Active per `state/active_issue.json`.
+- **Questions LOCKED** (`.codex/I-safety-002b/golden_questions_locked.md`, Codex-confirmed `codex_lock5.txt`): DRB-EN **#75/#76/#78** (clinical) + **#72** (AI-labor lit review, journal-only citation constraint) + **#90** (ADAS liability, case law). Homegrown Q02–Q08 rejected as selection-biased. Honest label: *"DRB-EN high-stakes citation-faithfulness stress slice: 3 clinical + 2 source-critical"* — NOT "objectively hardest." Report clinical-3 + overall-5 SEPARATELY.
+- **Scorer**: pre-existing `beat_both_scorer.py`/`dimension_scorers.py` §-1.1-BANNED + rigged → discarded; rebuilt as `src/polaris_graph/benchmark/claim_audit_scorer.py` (two-lane: faithfulness + pre-registered rubric coverage ≥0.70). 12 fixtures green.
+- **Done**: `pathB_run_gate.py` (14 fixtures) + `claim_audit_scorer.py` (12) + golden questions locked + `gold_rubrics_pathB.md` re-authored against the golden 5 (DRAFT).
+- **OPEN (Codex step-3 P1-3)**: gate enforces only in fixtures — NOT yet wired into a real run path.
+- **Next**: Codex §-1.1-verify the 5 rubrics against fetched sources + gold spans + hash-pin (freeze) → wire gate into runner → POLARIS full-power runs + dual line-by-line. Operator pulling competitor DR exports now. **P2 UI umbrella (#821) PAUSED.**
+
 **Active scope: the Carney demo, RE-PRIORITIZED by demo value.**
 
 APD Scope source (in precedence order):

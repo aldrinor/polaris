@@ -1,0 +1,1812 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e731c-9fe8-72d0-81f2-ffd094962b25
+--------
+user
+# Codex DIFF-gate — I-meta-002 sub-PR-4 — iter 2 of 5
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Reserve P0/P1 for real execution/safety risks; classify minor issues P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+```
+
+## What changed since your iter-1 diff review
+Your iter-1 verdict was REQUEST_CHANGES, zero P0, ONE P1:
+
+> mirror_adapter.py:88 — Empty-string doc_ids can be accepted if the supplied evidence set
+> contains EvidenceDocument(doc_id=""), because valid_doc_ids is built from raw doc.doc_id values
+> and the validator only rejects an empty doc_ids tuple. A structured citation with doc_ids=("",)
+> then survives and satisfies grounding, violating the required rejection of empty/missing doc_ids.
+
+**Fix applied (two layers, defense in depth):**
+1. `valid_doc_ids` now EXCLUDES empty/whitespace doc_ids:
+   `valid_doc_ids = {doc.doc_id for doc in evidence_documents if doc.doc_id and doc.doc_id.strip()}`
+   — so an `EvidenceDocument(doc_id="")` can never put `""` into the identity pool.
+2. `_validate_citation_binding` now also rejects a span if ANY of its doc_ids is empty/whitespace
+   (`if any((not doc_id or not doc_id.strip()) for doc_id in span.doc_ids): continue`), before the
+   membership check. An empty/whitespace doc_id is never grounding.
+
+**Regression tests added:**
+- `test_empty_doc_id_in_evidence_set_does_not_launder_empty_citation_codex_diff_p1` — your exact
+  case: evidence set contains `EvidenceDocument(doc_id="")`, citation span doc_ids=("",) ->
+  MirrorCitationError (no laundering); pass-2 never reached.
+- `test_whitespace_doc_id_span_is_rejected` — a whitespace-only doc_id echoed in the evidence set
+  is still rejected.
+
+## Smoke (serialized, §8.4)
+- `pytest tests/roles tests/architecture tests/dr_benchmark -q` -> 254 passed, 0 failed.
+- `verify_lock --consistency` -> exit 0.
+- No network anywhere; transport injected; mock transport only in tests.
+
+## Review ask
+Re-probe the Mirror grounding-integrity guard: can ANY citation that does not bind to a real,
+non-empty supplied evidence doc_id survive into a grounded `MirrorPass1` and satisfy the content
+binding? APPROVE iff empty/whitespace/hallucinated/mixed doc_ids are all rejected and a claim with
+no valid grounded citation fails closed.
+
+## DIFF (full sub-PR-4 diff, citation-binding fix included)
+diff --git a/src/polaris_graph/roles/judge_adapter.py b/src/polaris_graph/roles/judge_adapter.py
+new file mode 100644
+index 00000000..c6f9ab6d
+--- /dev/null
++++ b/src/polaris_graph/roles/judge_adapter.py
+@@ -0,0 +1,114 @@
++"""Judge (Qwen3.6) adapter — terminal-arbiter request builder + LOUD-FAIL caller.
++
++The Judge is the terminal arbiter: it sees the claim, the evidence, and the Mirror +
++Sentinel signals, and emits exactly one of the 5 canonical verdicts. It runs self-hosted
++under vLLM with a HARD ENUM constraint at decode time — `structured_outputs.choice =
++JUDGE_CHOICES` (current vLLM spelling; `guided_choice` is DEPRECATED, F4). Qwen context is
++BOUNDED (`max_tokens`); do not assume unbounded.
++
++FAIL LOUD (NOT closed): `parse_judge_verdict` raises `JudgeEnumError` on any non-enum token.
++`run_judge` deliberately does NOT wrap that — a missing/garbage arbiter verdict must
++propagate, never coerce to a default. (Sentinel/Mirror fail CLOSED; the Judge fails LOUD —
++do not pattern-copy a fail-closed wrap here.)
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.roles.judge_contract import (
++    JUDGE_CHOICES,
++    Verdict,
++    parse_judge_verdict,
++)
++from src.polaris_graph.roles.role_transport import (
++    RoleCallRecord,
++    RoleRequest,
++    RoleResponse,
++    RoleTransport,
++)
++
++_ROLE = "judge"
++
++# Bounded Qwen context (F4: do not assume unbounded). The verdict is a single enum token,
++# so a small ceiling is sufficient and keeps the arbiter from drifting into prose.
++_DEFAULT_MAX_TOKENS = 16
++
++# vLLM hard-enum spec key (current spelling, NOT guided_choice).
++_STRUCTURED_OUTPUTS_KEY = "structured_outputs"
++_CHOICE_KEY = "choice"
++
++_ARBITER_INSTRUCTION = (
++    "You are the terminal arbiter. Given the claim, the evidence, and the Mirror and "
++    "Sentinel signals below, output exactly one verdict token and nothing else."
++)
++
++
++def build_judge_request(
++    claim: str,
++    evidence: str,
++    mirror_verdict: str,
++    sentinel_verdict: str,
++    *,
++    model_slug: str,
++    max_tokens: int = _DEFAULT_MAX_TOKENS,
++) -> RoleRequest:
++    """Build the terminal-arbiter request with the hard-enum constraint + bounded context.
++
++    `params["structured_outputs"]["choice"]` is `JUDGE_CHOICES` (the 5 canonical verdicts),
++    the current vLLM choice-constrained decoding spelling (F4). `max_tokens` is bounded.
++    The prompt carries the claim, evidence, and the upstream Mirror + Sentinel signals.
++    """
++    prompt = (
++        f"{_ARBITER_INSTRUCTION}\n\n"
++        f"CLAIM:\n{claim}\n\n"
++        f"EVIDENCE:\n{evidence}\n\n"
++        f"MIRROR_SIGNAL: {mirror_verdict}\n"
++        f"SENTINEL_SIGNAL: {sentinel_verdict}\n\n"
++        f"Allowed verdicts: {JUDGE_CHOICES}"
++    )
++    params = {
++        _STRUCTURED_OUTPUTS_KEY: {_CHOICE_KEY: JUDGE_CHOICES},
++        "max_tokens": max_tokens,
++    }
++    return RoleRequest(
++        role=_ROLE,
++        model_slug=model_slug,
++        prompt=prompt,
++        params=params,
++    )
++
++
++def run_judge(
++    transport: RoleTransport,
++    claim: str,
++    evidence: str,
++    mirror_verdict: str,
++    sentinel_verdict: str,
++    *,
++    model_slug: str,
++    max_tokens: int = _DEFAULT_MAX_TOKENS,
++) -> tuple[Verdict, list[RoleCallRecord]]:
++    """Call the transport once and parse the enum verdict, FAIL LOUD.
++
++    Returns the `Verdict` and a 1-element `RoleCallRecord` list (one record per completion,
++    iter-3 P1-a). `parse_judge_verdict` raises `JudgeEnumError` on any non-enum token; that
++    propagates by design — there is NO silent default for the terminal arbiter.
++    """
++    request = build_judge_request(
++        claim,
++        evidence,
++        mirror_verdict,
++        sentinel_verdict,
++        model_slug=model_slug,
++        max_tokens=max_tokens,
++    )
++    response: RoleResponse = transport.complete(request)
++    # FAIL LOUD: a non-enum verdict raises JudgeEnumError here and is NOT caught.
++    verdict = parse_judge_verdict(response.raw_text)
++    record = RoleCallRecord(
++        role=_ROLE,
++        model_slug=model_slug,
++        served_model=response.served_model,
++        raw_text=response.raw_text,
++        parsed=verdict,
++    )
++    return verdict, [record]
+diff --git a/src/polaris_graph/roles/mirror_adapter.py b/src/polaris_graph/roles/mirror_adapter.py
+new file mode 100644
+index 00000000..ee0fc4b9
+--- /dev/null
++++ b/src/polaris_graph/roles/mirror_adapter.py
+@@ -0,0 +1,252 @@
++"""Mirror (Cohere Command-A+) adapter — two-pass RAG/JSON + citation-binding guard.
++
++Cohere `response_format` (JSON mode) is incompatible with `documents`/`tools` (F2), so the
++Mirror role is TWO PASS, each its own transport completion (iter-3 P1-a):
++  pass-1: RAG-with-documents (citations on, NO response_format) -> grounded answer + spans
++  pass-2: JSON classification (response_format ok, no documents), bound to pass-1 by hash
++
++Citation normalization (iter-3 P1-b): pass-1 citations come from `RoleResponse.citations`
++when the transport already normalized them (managed path), ELSE from `<co>...</co:doc_ids>`
++spans parsed out of `raw_text` (self-host path, F2). BOTH sources flow through ONE validator.
++
++Citation-binding guard (iter-4): every span must point at a `doc_id` actually present in the
++supplied `evidence_documents`. A span with an empty doc_id, or citing a doc_id never
++provided (hallucinated identity), or MIXING a real cite with a fabricated one, is REJECTED
++whole. If NO valid grounded citation survives, raise `MirrorCitationError` (fail closed) —
++a non-empty-but-ungrounded citation set must NOT satisfy the binding. Every Mirror claim in
++this PR is grounding-required; there is no escape hatch.
++
++Binding guard (pass-1<->pass-2): `verify_pass2_binding` MUST hold or `MirrorBindingError` is
++raised — an unbound pass-2 is never trusted.
++"""
++
++from __future__ import annotations
++
++import json
++
++from src.polaris_graph.roles.mirror_contract import (
++    CitationSpan,
++    MirrorPass1,
++    MirrorPass2,
++    _CO_SPAN_RE,
++    build_pass2_input,
++    parse_cohere_citations,
++    verify_pass2_binding,
++)
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleCallRecord,
++    RoleRequest,
++    RoleResponse,
++    RoleTransport,
++)
++
++_ROLE = "mirror"
++
++# Pass-2 JSON classification field keys.
++_CLASSIFICATION_KEY = "classification"
++_RATIONALE_KEY = "rationale"
++_CONTENT_HASH_KEY = "content_hash"
++
++
++class MirrorCitationError(ValueError):
++    """Raised when pass-1 has NO valid grounded citation after binding validation.
++
++    Fail closed: a missing, empty-doc_id, or hallucinated-identity citation set must not be
++    laundered into an apparently-grounded MirrorPass1. Grounding integrity guard (iter-4).
++    """
++
++
++class MirrorBindingError(ValueError):
++    """Raised when pass-2 does not bind to the pass-1 artifact (`verify_pass2_binding` False).
++
++    Fail closed: an unbound pass-2 classification is never trusted.
++    """
++
++
++def _strip_co_tags(raw: str) -> str:
++    """Strip `<co>...</co:doc_ids>` tags, leaving the covered text, so the cleaned answer
++    text's offsets align with the spans `parse_cohere_citations` reports (which index into
++    the TAG-STRIPPED text). Replacing each match with its covered group (group 1) mirrors
++    exactly how the contract reconstructs cleaned-text offsets.
++    """
++    return _CO_SPAN_RE.sub(lambda m: m.group(1), raw)
++
++
++def _validate_citation_binding(
++    spans: list[CitationSpan],
++    valid_doc_ids: set[str],
++) -> list[CitationSpan]:
++    """Keep only spans whose doc_ids ALL bind to a supplied evidence document.
++
++    A span is REJECTED whole if it has no doc_ids (empty/missing) OR if ANY of its doc_ids
++    is not in `valid_doc_ids` (a mixed real+hallucinated span is itself a fabrication signal,
++    so it does not count as grounding). Returns the surviving grounded spans.
++    """
++    grounded: list[CitationSpan] = []
++    for span in spans:
++        if not span.doc_ids:
++            continue  # empty/missing doc_id tuple -> not grounding
++        # Reject a span if ANY of its doc_ids is empty/whitespace. An empty doc_id is never
++        # grounding, even if the supplied evidence set happens to contain an
++        # EvidenceDocument with an empty/whitespace doc_id (Codex diff iter-1 P1: such a
++        # doc is excluded from valid_doc_ids, but guard here too — defense in depth).
++        if any((not doc_id or not doc_id.strip()) for doc_id in span.doc_ids):
++            continue
++        if any(doc_id not in valid_doc_ids for doc_id in span.doc_ids):
++            continue  # hallucinated (or mixed) identity -> reject whole span
++        grounded.append(span)
++    return grounded
++
++
++def _extract_citations(
++    response: RoleResponse,
++    valid_doc_ids: set[str],
++) -> list[CitationSpan]:
++    """Normalize pass-1 citations from the explicit precedence, then bind-validate them.
++
++    Source precedence (iter-3 P1-b): structured `RoleResponse.citations` (managed path) if
++    present, ELSE `<co>` spans parsed from `raw_text` (self-host path). Both sources flow
++    through the SINGLE `_validate_citation_binding` step (iter-4). Returns ONLY the spans
++    that bind to a supplied evidence document.
++    """
++    if response.citations is not None:
++        raw_spans = response.citations
++    else:
++        raw_spans = parse_cohere_citations(response.raw_text)
++    return _validate_citation_binding(raw_spans, valid_doc_ids)
++
++
++def build_mirror_pass1_request(
++    claim: str,
++    evidence_documents: list[EvidenceDocument],
++    *,
++    model_slug: str,
++) -> RoleRequest:
++    """Build the pass-1 RAG-with-documents request (citations on, NO response_format).
++
++    Documents ride in `params["documents"]`; `params["citations"] = True` turns on citation
++    emission. NO `response_format` — JSON mode is incompatible with documents (F2).
++    """
++    params = {
++        "documents": [
++            {"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents
++        ],
++        "citations": True,
++    }
++    return RoleRequest(
++        role=_ROLE,
++        model_slug=model_slug,
++        prompt=claim,
++        params=params,
++    )
++
++
++def build_mirror_pass2_request(pass1: MirrorPass1, *, model_slug: str) -> RoleRequest:
++    """Build the pass-2 JSON-classification request, embedding the pass-1 composite hash.
++
++    Uses `build_pass2_input(pass1)` so the request carries the composite `content_hash`
++    (answer text + ordered citation bindings). `response_format=json_object` is allowed now
++    (no documents in this pass).
++    """
++    pass2_input = build_pass2_input(pass1)
++    params = {
++        "response_format": {"type": "json_object"},
++        "pass2_input": pass2_input,
++    }
++    return RoleRequest(
++        role=_ROLE,
++        model_slug=model_slug,
++        prompt="Classify the bound pass-1 artifact and return JSON.",
++        params=params,
++    )
++
++
++def _parse_pass2(raw_text: str) -> MirrorPass2:
++    """Parse a pass-2 transport response into MirrorPass2.
++
++    The classification JSON must carry the `content_hash` (the binding) and a
++    `classification`; an optional `rationale` is preserved. JSON decode / shape errors
++    propagate (fail loud) rather than fabricate a verdict.
++    """
++    payload = json.loads(raw_text)
++    return MirrorPass2(
++        content_hash=payload[_CONTENT_HASH_KEY],
++        classification=payload[_CLASSIFICATION_KEY],
++        rationale=payload.get(_RATIONALE_KEY),
++    )
++
++
++def run_mirror(
++    transport: RoleTransport,
++    claim: str,
++    evidence_documents: list[EvidenceDocument],
++    *,
++    model_slug: str,
++) -> tuple[MirrorPass2, list[RoleCallRecord]]:
++    """Run the two Mirror passes and return MirrorPass2 + a 2-element RoleCallRecord list.
++
++    Pass-1: RAG-with-documents; normalize + bind-validate citations (iter-4). If no grounded
++    citation survives, raise `MirrorCitationError` (fail closed). Pass-2: JSON classification
++    bound by hash; if `verify_pass2_binding` is False, raise `MirrorBindingError` (fail
++    closed). BOTH completions get their own RoleCallRecord (iter-3 P1-a) so the Path-B gate
++    can verify served==pinned per call.
++    """
++    # Build the citation-identity pool from supplied documents, EXCLUDING any empty/whitespace
++    # doc_id so a citation with an empty doc_id can never bind (Codex diff iter-1 P1).
++    valid_doc_ids = {
++        doc.doc_id for doc in evidence_documents if doc.doc_id and doc.doc_id.strip()
++    }
++
++    # --- pass 1: RAG with documents + citations -------------------------------------
++    pass1_request = build_mirror_pass1_request(
++        claim, evidence_documents, model_slug=model_slug
++    )
++    pass1_response: RoleResponse = transport.complete(pass1_request)
++
++    grounded_spans = _extract_citations(pass1_response, valid_doc_ids)
++    if not grounded_spans:
++        # Fail closed: no citation binds to a supplied document for this grounding-required
++        # claim. A non-empty-but-ungrounded citation set lands here too (it was rejected).
++        raise MirrorCitationError(
++            "Mirror pass-1 produced no citation grounded in the supplied evidence documents "
++            f"(claim={claim!r}); refusing to treat as grounded."
++        )
++
++    # On the self-host path, store the TAG-STRIPPED answer so the span offsets (which index
++    # the cleaned text) align with the stored answer_text.
++    if pass1_response.citations is not None:
++        answer_text = pass1_response.raw_text
++    else:
++        answer_text = _strip_co_tags(pass1_response.raw_text)
++    pass1 = MirrorPass1(answer_text=answer_text, citation_spans=grounded_spans)
++
++    pass1_record = RoleCallRecord(
++        role=_ROLE,
++        model_slug=model_slug,
++        served_model=pass1_response.served_model,
++        raw_text=pass1_response.raw_text,
++        parsed=pass1,
++    )
++
++    # --- pass 2: JSON classification bound to pass-1 --------------------------------
++    pass2_request = build_mirror_pass2_request(pass1, model_slug=model_slug)
++    pass2_response: RoleResponse = transport.complete(pass2_request)
++    pass2 = _parse_pass2(pass2_response.raw_text)
++
++    pass2_record = RoleCallRecord(
++        role=_ROLE,
++        model_slug=model_slug,
++        served_model=pass2_response.served_model,
++        raw_text=pass2_response.raw_text,
++        parsed=pass2,
++    )
++
++    if not verify_pass2_binding(pass1, pass2):
++        # Fail closed: pass-2 classified a different (answer+citations) artifact than pass-1.
++        raise MirrorBindingError(
++            "Mirror pass-2 content_hash does not bind to the pass-1 artifact; "
++            "refusing to trust an unbound classification."
++        )
++
++    return pass2, [pass1_record, pass2_record]
+diff --git a/src/polaris_graph/roles/role_transport.py b/src/polaris_graph/roles/role_transport.py
+new file mode 100644
+index 00000000..cbb6fa0e
+--- /dev/null
++++ b/src/polaris_graph/roles/role_transport.py
+@@ -0,0 +1,101 @@
++"""Shared transport + result types for the POLARIS 4-role adapters (I-meta-002 sub-PR-4).
++
++Pure data contracts + a typing Protocol. There is NO network here and NO spend: the
++real transport (the thing that actually performs an LLM completion) is sub-PR-5 and is
++DEPENDENCY-INJECTED into each adapter. Tests inject a MOCK transport that returns canned
++`RoleResponse`s. This module deliberately does NOT import `openrouter_client` (the real
++transport that wraps it is sub-PR-5).
++
++Per-call identity capture (iter-3 fix, Codex P1-a): every adapter returns ONE
++`RoleCallRecord` per transport completion so the Path-B identity gate (sub-PR-5) can verify
++`served==pinned` for EVERY call — no completion may be hidden inside an adapter without its
++own record. Single-call roles (Sentinel, Judge) emit a 1-element list; Mirror (two passes)
++emits a 2-element list.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any, Protocol, runtime_checkable
++
++from src.polaris_graph.roles.mirror_contract import CitationSpan
++
++
++@dataclass(frozen=True)
++class EvidenceDocument:
++    """One evidence document handed to a role, carrying a STABLE `doc_id`.
++
++    The `doc_id` is the citation identity the Mirror adapter binds against (iter-4): a
++    citation span may only point at a `doc_id` that appears in the supplied documents, so
++    the document set is the ground-truth identity pool, not a free-text payload.
++    """
++
++    doc_id: str
++    text: str
++
++
++@dataclass
++class RoleRequest:
++    """A role-tagged request to the transport.
++
++    `role` and `model_slug` are the pinned identity the Path-B gate (sub-PR-5) checks the
++    served identity against. The payload is carried as either a chat `messages` list OR a
++    single `prompt` string (a role uses whichever its serving convention requires). `params`
++    holds everything else the transport needs, including the structured-output spec
++    (`structured_outputs`), the bounded `max_tokens`, and the `documents` payload (kept in
++    `params["documents"]` so it is introspectable by the adequacy/identity checks and the
++    tests).
++    """
++
++    role: str
++    model_slug: str
++    messages: list[dict] | None = None
++    prompt: str | None = None
++    params: dict[str, Any] = field(default_factory=dict)
++
++
++@dataclass
++class RoleResponse:
++    """A transport completion.
++
++    `raw_text` is the model's raw output string (parsed by the role's sub-PR-2 contract).
++    `served_model` is the identity the transport actually served (the Path-B gate compares
++    it to the pinned `model_slug`). `citations` is the OPTIONAL structured-span path for the
++    managed Mirror route (iter-3 P1-b): when the transport already normalized citations into
++    spans, they arrive here; otherwise the adapter parses `<co>` spans out of `raw_text`.
++    """
++
++    raw_text: str
++    served_model: str | None = None
++    usage: dict[str, Any] | None = None
++    citations: list[CitationSpan] | None = None
++
++
++@dataclass
++class RoleCallRecord:
++    """One captured transport completion for the Path-B identity/capture gate (sub-PR-5).
++
++    Echoes the pinned role + requested `model_slug` and the `served_model` the transport
++    reported, alongside the `raw_text` and the role-contract `parsed` result. EXACTLY one
++    record is emitted per transport completion (iter-3 P1-a).
++    """
++
++    role: str
++    model_slug: str
++    served_model: str | None
++    raw_text: str
++    parsed: Any
++
++
++@runtime_checkable
++class RoleTransport(Protocol):
++    """The injected completion boundary.
++
++    The real implementation (sub-PR-5) performs the actual LLM call; in this PR every caller
++    injects a mock. Synchronous by design — the per-axis live call shape it mirrors
++    (`live_judge.py`) is synchronous.
++    """
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        """Perform one completion for `request` and return its `RoleResponse`."""
++        ...
+diff --git a/src/polaris_graph/roles/sentinel_adapter.py b/src/polaris_graph/roles/sentinel_adapter.py
+new file mode 100644
+index 00000000..5034f048
+--- /dev/null
++++ b/src/polaris_graph/roles/sentinel_adapter.py
+@@ -0,0 +1,112 @@
++"""Sentinel (IBM Granite Guardian 4.1) adapter — request builder + FAIL-CLOSED caller.
++
++Granite Guardian groundedness calling convention (F3, I-meta-002 iter-2): an assistant turn
++carrying the claim to be checked, then a FINAL user `<guardian>` groundedness block, plus the
++`documents`. The model emits `<score>yes|no</score>` (NOT JSON), so the request carries NO
++structured-output spec — the score is parsed by `parse_sentinel_score`.
++
++FAIL CLOSED (lethal-inversion guard): a malformed/empty output OR a transport error yields
++`SentinelResult(UNGROUNDED, parsed_ok=False)`. There is NO path that returns GROUNDED on bad
++or missing output. `yes=UNGROUNDED` polarity lives in the contract, never re-derived here.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleCallRecord,
++    RoleRequest,
++    RoleResponse,
++    RoleTransport,
++)
++from src.polaris_graph.roles.sentinel_contract import (
++    SentinelResult,
++    SentinelVerdict,
++    parse_sentinel_score,
++)
++
++_ROLE = "sentinel"
++
++# The prescribed groundedness instruction wrapped in the final user `<guardian>` block.
++# Documents are carried separately in params["documents"] (Granite's `documents` channel),
++# NOT inlined here, so the calling convention stays auditable.
++_GUARDIAN_BLOCK = (
++    "<guardian>groundedness</guardian>\n"
++    "Assess whether the assistant's claim is grounded in the provided documents. "
++    "Respond with exactly <score>yes</score> if the claim is NOT grounded (risk present) "
++    "or <score>no</score> if it IS grounded (no risk). Output only the score element."
++)
++
++# The fail-closed result returned on transport error / malformed output. NEVER GROUNDED.
++_FAIL_CLOSED = SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++
++
++def build_sentinel_request(
++    claim: str,
++    evidence_documents: list[EvidenceDocument],
++    *,
++    model_slug: str,
++) -> RoleRequest:
++    """Build a Granite Guardian groundedness request.
++
++    Layout (F3): assistant turn = the claim under check; final user turn = the `<guardian>`
++    groundedness block. The documents ride in `params["documents"]` (Granite's documents
++    channel). NO structured-output spec — Granite emits a `<score>` element, not JSON.
++    """
++    messages = [
++        {"role": "assistant", "content": claim},
++        {"role": "user", "content": _GUARDIAN_BLOCK},
++    ]
++    params = {
++        "documents": [
++            {"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents
++        ],
++    }
++    return RoleRequest(
++        role=_ROLE,
++        model_slug=model_slug,
++        messages=messages,
++        params=params,
++    )
++
++
++def run_sentinel(
++    transport: RoleTransport,
++    claim: str,
++    evidence_documents: list[EvidenceDocument],
++    *,
++    model_slug: str,
++) -> tuple[SentinelResult, list[RoleCallRecord]]:
++    """Call the transport once and parse the Granite Guardian score, FAIL CLOSED.
++
++    Returns the `SentinelResult` and a 1-element `RoleCallRecord` list (one record per
++    completion, iter-3 P1-a). A transport error OR a malformed/empty `raw_text` both yield
++    `SentinelResult(UNGROUNDED, parsed_ok=False)` — never GROUNDED.
++    """
++    request = build_sentinel_request(claim, evidence_documents, model_slug=model_slug)
++    try:
++        response: RoleResponse = transport.complete(request)
++        result = parse_sentinel_score(response.raw_text)
++        served_model = response.served_model
++        raw_text = response.raw_text
++    except Exception as exc:  # noqa: BLE001 — deliberate fail-closed; see comment below.
++        # FAIL CLOSED: a transport-layer fault must not be read as GROUNDED. We capture a
++        # record with the safe (UNGROUNDED, parsed_ok=False) result and the error text as
++        # the raw payload so sub-PR-5 can surface the fault rather than silently masking it.
++        record = RoleCallRecord(
++            role=_ROLE,
++            model_slug=model_slug,
++            served_model=None,
++            raw_text=f"<transport_error>{exc}</transport_error>",
++            parsed=_FAIL_CLOSED,
++        )
++        return _FAIL_CLOSED, [record]
++
++    record = RoleCallRecord(
++        role=_ROLE,
++        model_slug=model_slug,
++        served_model=served_model,
++        raw_text=raw_text,
++        parsed=result,
++    )
++    return result, [record]
+diff --git a/tests/roles/test_judge_adapter.py b/tests/roles/test_judge_adapter.py
+new file mode 100644
+index 00000000..ae93386f
+--- /dev/null
++++ b/tests/roles/test_judge_adapter.py
+@@ -0,0 +1,88 @@
++"""Tests for the Judge (Qwen3.6) adapter — hard-enum request + LOUD-FAIL parse.
++
++Properties:
++- request carries params["structured_outputs"]["choice"] == JUDGE_CHOICES (current vLLM
++  spelling, NOT guided_choice) and a bounded max_tokens;
++- the prompt includes the Mirror + Sentinel signals;
++- every canonical enum token parses to itself;
++- a non-enum token raises JudgeEnumError (NO silent default — fail loud);
++- run_judge returns a 1-element RoleCallRecord list.
++All with a mock transport. No network.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.roles.judge_contract import JUDGE_CHOICES, JudgeEnumError
++from src.polaris_graph.roles.judge_adapter import build_judge_request, run_judge
++from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
++
++_MODEL = "qwen/qwen3.6-35b-a3b"
++_CLAIM = "Tirzepatide lowered HbA1c by 2.3 points."
++_EVIDENCE = "SURMOUNT-1: HbA1c fell 2.3 points across arms."
++_MIRROR = "grounded"
++_SENTINEL = "grounded"
++
++
++class _CannedTransport:
++    def __init__(self, raw_text: str, served_model: str | None = _MODEL) -> None:
++        self._raw_text = raw_text
++        self._served_model = served_model
++        self.last_request: RoleRequest | None = None
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        self.last_request = request
++        return RoleResponse(raw_text=self._raw_text, served_model=self._served_model)
++
++
++def test_request_carries_choice_enum_and_bounded_max_tokens() -> None:
++    request = build_judge_request(
++        _CLAIM, _EVIDENCE, _MIRROR, _SENTINEL, model_slug=_MODEL
++    )
++    assert request.role == "judge"
++    assert request.model_slug == _MODEL
++
++    # hard-enum spec: structured_outputs.choice == JUDGE_CHOICES (NOT guided_choice).
++    assert request.params["structured_outputs"]["choice"] == JUDGE_CHOICES
++    assert "guided_choice" not in request.params
++
++    # bounded context.
++    assert isinstance(request.params["max_tokens"], int)
++    assert request.params["max_tokens"] > 0
++
++    # the arbiter prompt carries the Mirror + Sentinel signals.
++    assert "MIRROR_SIGNAL" in request.prompt
++    assert "SENTINEL_SIGNAL" in request.prompt
++
++
++def test_custom_max_tokens_is_bounded_and_passed_through() -> None:
++    request = build_judge_request(
++        _CLAIM, _EVIDENCE, _MIRROR, _SENTINEL, model_slug=_MODEL, max_tokens=8
++    )
++    assert request.params["max_tokens"] == 8
++
++
++@pytest.mark.parametrize("verdict_token", JUDGE_CHOICES)
++def test_every_enum_token_parses(verdict_token: str) -> None:
++    transport = _CannedTransport(verdict_token)
++    verdict, records = run_judge(
++        transport, _CLAIM, _EVIDENCE, _MIRROR, _SENTINEL, model_slug=_MODEL
++    )
++    assert verdict == verdict_token
++    assert len(records) == 1
++    assert records[0].role == "judge"
++    assert records[0].served_model == _MODEL
++    assert records[0].parsed == verdict_token
++
++
++def test_non_enum_token_raises_judge_enum_error() -> None:
++    transport = _CannedTransport("MAYBE")
++    with pytest.raises(JudgeEnumError):
++        run_judge(transport, _CLAIM, _EVIDENCE, _MIRROR, _SENTINEL, model_slug=_MODEL)
++
++
++def test_empty_output_raises_judge_enum_error() -> None:
++    transport = _CannedTransport("")
++    with pytest.raises(JudgeEnumError):
++        run_judge(transport, _CLAIM, _EVIDENCE, _MIRROR, _SENTINEL, model_slug=_MODEL)
+diff --git a/tests/roles/test_mirror_adapter.py b/tests/roles/test_mirror_adapter.py
+new file mode 100644
+index 00000000..5c9197a5
+--- /dev/null
++++ b/tests/roles/test_mirror_adapter.py
+@@ -0,0 +1,239 @@
++"""Tests for the Mirror (Cohere) two-pass adapter — citation normalization + binding.
++
++Properties:
++- run_mirror makes TWO transport calls and returns a 2-element RoleCallRecord list with
++  BOTH pass-1 and pass-2 asserted;
++- the pass-2 request embeds the pass-1 composite content_hash;
++- a pass-2 whose hash does not bind -> MirrorBindingError (fail closed);
++- citation normalization: the structured RoleResponse.citations path is parsed, the <co>
++  raw_text path is parsed, and the empty-both case raises MirrorCitationError (no silent
++  empty MirrorPass1 that trivially passes the binding);
++- citation-binding (iter-4): an empty-doc_id span is rejected, a span citing a doc_id NOT
++  in evidence_documents is rejected, a MIXED real+hallucinated span is rejected whole, a
++  claim left with no valid grounded citation raises MirrorCitationError, and a span citing a
++  real supplied doc_id is accepted.
++All with a mock transport. No network.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.roles.mirror_adapter import (
++    MirrorBindingError,
++    MirrorCitationError,
++    build_mirror_pass2_request,
++    run_mirror,
++)
++from src.polaris_graph.roles.mirror_contract import (
++    CitationSpan,
++    MirrorPass1,
++    build_pass2_input,
++)
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleRequest,
++    RoleResponse,
++)
++
++_MODEL = "cohere/command-a-plus"
++_CLAIM = "Summarize the HbA1c effect."
++_DOCS = [
++    EvidenceDocument(doc_id="doc_surmount1", text="HbA1c fell 2.3 points."),
++    EvidenceDocument(doc_id="doc_label2", text="Indicated for T2DM."),
++]
++_VALID_IDS = {d.doc_id for d in _DOCS}
++
++
++class _SequencedTransport:
++    """Mock transport returning queued RoleResponses in order, recording each request."""
++
++    def __init__(self, responses: list[RoleResponse]) -> None:
++        self._responses = list(responses)
++        self.requests: list[RoleRequest] = []
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        self.requests.append(request)
++        return self._responses.pop(0)
++
++
++def _pass2_hash_for(pass1: MirrorPass1) -> str:
++    """The composite content_hash the adapter will compute for `pass1`."""
++    return build_pass2_input(pass1)["content_hash"]
++
++
++def _pass2_response_for(pass1: MirrorPass1, classification: str = "grounded") -> RoleResponse:
++    """A canned pass-2 JSON response that binds to `pass1`."""
++    payload = {
++        "content_hash": _pass2_hash_for(pass1),
++        "classification": classification,
++        "rationale": "ok",
++    }
++    return RoleResponse(raw_text=json.dumps(payload), served_model=_MODEL)
++
++
++# --- structured-citation path ------------------------------------------------------
++def test_structured_citations_two_calls_two_records_and_binding() -> None:
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
++    pass1_response = RoleResponse(
++        raw_text="HbA1c fell 2.3 points.",
++        served_model=_MODEL,
++        citations=spans,
++    )
++    # On the structured path answer_text is the raw_text verbatim.
++    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
++    transport = _SequencedTransport(
++        [pass1_response, _pass2_response_for(expected_pass1)]
++    )
++
++    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++    # TWO transport calls.
++    assert len(transport.requests) == 2
++    # 2-element record list, BOTH passes asserted.
++    assert len(records) == 2
++    assert records[0].role == "mirror"
++    assert records[0].parsed.answer_text == "HbA1c fell 2.3 points."
++    assert records[0].parsed.citation_spans == spans
++    assert records[1].parsed is pass2
++    assert pass2.classification == "grounded"
++
++    # pass-2 request embeds the pass-1 composite hash.
++    pass2_request = transport.requests[1]
++    assert pass2_request.params["pass2_input"]["content_hash"] == _pass2_hash_for(
++        expected_pass1
++    )
++
++
++# --- self-host <co> path -----------------------------------------------------------
++def test_co_span_path_parsed_and_answer_text_stripped() -> None:
++    # raw_text carries a <co> span; offsets index the TAG-STRIPPED text.
++    pass1_raw = "<co>HbA1c fell 2.3</co:doc_surmount1> overall."
++    cleaned = "HbA1c fell 2.3 overall."
++    expected_spans = [CitationSpan(span_start=0, span_end=14, doc_ids=("doc_surmount1",))]
++    expected_pass1 = MirrorPass1(answer_text=cleaned, citation_spans=expected_spans)
++
++    pass1_response = RoleResponse(raw_text=pass1_raw, served_model=_MODEL)
++    transport = _SequencedTransport(
++        [pass1_response, _pass2_response_for(expected_pass1)]
++    )
++
++    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++    # answer_text is the cleaned (tag-stripped) text so span offsets align.
++    assert records[0].parsed.answer_text == cleaned
++    assert records[0].parsed.citation_spans == expected_spans
++    assert pass2.classification == "grounded"
++
++
++# --- binding mismatch --------------------------------------------------------------
++def test_binding_mismatch_raises_mirror_binding_error() -> None:
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
++    pass1_response = RoleResponse(
++        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
++    )
++    # pass-2 carries a hash that does NOT bind to pass-1.
++    bad_pass2 = RoleResponse(
++        raw_text=json.dumps(
++            {"content_hash": "deadbeef", "classification": "grounded"}
++        ),
++        served_model=_MODEL,
++    )
++    transport = _SequencedTransport([pass1_response, bad_pass2])
++    with pytest.raises(MirrorBindingError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++
++# --- empty-both: no silent empty MirrorPass1 ---------------------------------------
++def test_empty_both_citation_sources_raises_mirror_citation_error() -> None:
++    # No structured citations AND no <co> spans -> no grounded citation -> fail closed.
++    pass1_response = RoleResponse(raw_text="A bare answer with no citations.", served_model=_MODEL)
++    # Only pass-1 should be consumed; pass-2 should never be reached.
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert len(transport.requests) == 1  # pass-2 never called
++
++
++# --- iter-4 citation-binding guard -------------------------------------------------
++def test_empty_doc_id_span_is_rejected() -> None:
++    # <co>covered</co:> -> a span with empty doc_ids; rejected -> no grounded citation.
++    pass1_response = RoleResponse(raw_text="<co>covered</co:>", served_model=_MODEL)
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++
++def test_unknown_doc_id_span_is_rejected() -> None:
++    # span cites a doc_id never supplied -> hallucinated identity -> rejected.
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_phantom",))]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++
++def test_mixed_real_and_hallucinated_doc_ids_rejected_whole() -> None:
++    # One real + one hallucinated doc_id in the SAME span -> reject the whole span.
++    spans = [
++        CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1", "doc_phantom")),
++    ]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++
++def test_real_doc_id_span_is_accepted() -> None:
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
++    transport = _SequencedTransport(
++        [pass1_response, _pass2_response_for(expected_pass1)]
++    )
++    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert len(records) == 2
++    assert records[0].parsed.citation_spans == spans
++    assert pass2.classification == "grounded"
++
++
++def test_empty_doc_id_in_evidence_set_does_not_launder_empty_citation_codex_diff_p1() -> None:
++    """Codex diff iter-1 P1: if the supplied evidence set itself contains an
++    EvidenceDocument with an empty doc_id, a citation span with doc_ids=("",) must STILL be
++    rejected. valid_doc_ids excludes empty ids AND the validator rejects empty-doc_id spans,
++    so an empty doc_id can never bind — leaving no grounded citation -> MirrorCitationError."""
++    docs_with_empty = [
++        EvidenceDocument(doc_id="", text="a document that was given an empty id"),
++        EvidenceDocument(doc_id="doc_real", text="HbA1c fell."),
++    ]
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("",))]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, docs_with_empty, model_slug=_MODEL)
++    assert len(transport.requests) == 1  # pass-2 never reached
++
++
++def test_whitespace_doc_id_span_is_rejected() -> None:
++    # A whitespace-only doc_id is not a real identity even if echoed in the evidence set.
++    docs = [EvidenceDocument(doc_id="   ", text="whitespace id"), *_DOCS]
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("   ",))]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    transport = _SequencedTransport([pass1_response])
++    with pytest.raises(MirrorCitationError):
++        run_mirror(transport, _CLAIM, docs, model_slug=_MODEL)
++
++
++# --- build_mirror_pass2_request shape ----------------------------------------------
++def test_pass2_request_has_response_format_and_no_documents() -> None:
++    pass1 = MirrorPass1(
++        answer_text="answer",
++        citation_spans=[CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))],
++    )
++    request = build_mirror_pass2_request(pass1, model_slug=_MODEL)
++    assert request.role == "mirror"
++    assert request.params["response_format"]["type"] == "json_object"
++    assert "documents" not in request.params
++    assert request.params["pass2_input"]["content_hash"] == _pass2_hash_for(pass1)
+diff --git a/tests/roles/test_role_transport.py b/tests/roles/test_role_transport.py
+new file mode 100644
+index 00000000..f4d663ba
+--- /dev/null
++++ b/tests/roles/test_role_transport.py
+@@ -0,0 +1,85 @@
++"""Shape tests for the shared role transport data contracts (I-meta-002 sub-PR-4).
++
++Pure data-contract checks: RoleRequest / RoleResponse (incl. the citations field) /
++RoleCallRecord / EvidenceDocument shapes and the RoleTransport Protocol. No network.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.roles.mirror_contract import CitationSpan
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleCallRecord,
++    RoleRequest,
++    RoleResponse,
++    RoleTransport,
++)
++
++
++def test_role_request_carries_role_model_and_params() -> None:
++    request = RoleRequest(
++        role="judge",
++        model_slug="qwen/qwen3.6-35b-a3b",
++        prompt="decide",
++        params={"max_tokens": 16},
++    )
++    assert request.role == "judge"
++    assert request.model_slug == "qwen/qwen3.6-35b-a3b"
++    assert request.prompt == "decide"
++    assert request.messages is None
++    assert request.params["max_tokens"] == 16
++
++
++def test_role_response_defaults_and_citations_field() -> None:
++    # Minimal response: only raw_text required, citations defaults to None.
++    minimal = RoleResponse(raw_text="<score>no</score>")
++    assert minimal.raw_text == "<score>no</score>"
++    assert minimal.served_model is None
++    assert minimal.usage is None
++    assert minimal.citations is None
++
++    # Structured-citation path: citations carries CitationSpan objects.
++    spans = [CitationSpan(span_start=0, span_end=5, doc_ids=("doc_a",))]
++    rich = RoleResponse(
++        raw_text="answer",
++        served_model="cohere/command-a-plus",
++        usage={"total_tokens": 12},
++        citations=spans,
++    )
++    assert rich.served_model == "cohere/command-a-plus"
++    assert rich.usage == {"total_tokens": 12}
++    assert rich.citations == spans
++    assert rich.citations[0].doc_ids == ("doc_a",)
++
++
++def test_role_call_record_shape() -> None:
++    record = RoleCallRecord(
++        role="sentinel",
++        model_slug="ibm-granite/granite-guardian-4.1-8b",
++        served_model="ibm-granite/granite-guardian-4.1-8b",
++        raw_text="<score>no</score>",
++        parsed="grounded",
++    )
++    assert record.role == "sentinel"
++    assert record.model_slug == "ibm-granite/granite-guardian-4.1-8b"
++    assert record.served_model == record.model_slug
++    assert record.raw_text == "<score>no</score>"
++    assert record.parsed == "grounded"
++
++
++def test_evidence_document_shape() -> None:
++    doc = EvidenceDocument(doc_id="doc_surmount1", text="HbA1c fell 2.3 points.")
++    assert doc.doc_id == "doc_surmount1"
++    assert doc.text == "HbA1c fell 2.3 points."
++
++
++def test_mock_transport_satisfies_protocol() -> None:
++    class _MockTransport:
++        def complete(self, request: RoleRequest) -> RoleResponse:
++            return RoleResponse(raw_text="ok", served_model=request.model_slug)
++
++    transport = _MockTransport()
++    assert isinstance(transport, RoleTransport)
++    response = transport.complete(RoleRequest(role="judge", model_slug="m"))
++    assert response.raw_text == "ok"
++    assert response.served_model == "m"
+diff --git a/tests/roles/test_sentinel_adapter.py b/tests/roles/test_sentinel_adapter.py
+new file mode 100644
+index 00000000..6985dae0
+--- /dev/null
++++ b/tests/roles/test_sentinel_adapter.py
+@@ -0,0 +1,113 @@
++"""Tests for the Sentinel (Granite Guardian) adapter — request shape + FAIL-CLOSED.
++
++Properties:
++- request has the assistant claim turn, the final user <guardian> groundedness block, and
++  the documents in params["documents"]; NO structured-output spec;
++- a clean <score>no</score> -> GROUNDED, parsed_ok; <score>yes</score> -> UNGROUNDED;
++- a malformed transport output FAILS CLOSED (UNGROUNDED, parsed_ok=False), never GROUNDED;
++- a transport that raises FAILS CLOSED too;
++- run_sentinel returns a 1-element RoleCallRecord list (one record per completion).
++All with a mock transport. No network.
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleRequest,
++    RoleResponse,
++)
++from src.polaris_graph.roles.sentinel_adapter import (
++    build_sentinel_request,
++    run_sentinel,
++)
++from src.polaris_graph.roles.sentinel_contract import SentinelVerdict
++
++_MODEL = "ibm-granite/granite-guardian-4.1-8b"
++_CLAIM = "Tirzepatide lowered HbA1c by 2.3 points."
++_DOCS = [
++    EvidenceDocument(doc_id="doc_surmount1", text="HbA1c fell 2.3 points across arms."),
++]
++
++
++class _CannedTransport:
++    """Mock transport returning a fixed RoleResponse and recording the last request."""
++
++    def __init__(self, raw_text: str, served_model: str | None = _MODEL) -> None:
++        self._raw_text = raw_text
++        self._served_model = served_model
++        self.last_request: RoleRequest | None = None
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        self.last_request = request
++        return RoleResponse(raw_text=self._raw_text, served_model=self._served_model)
++
++
++class _RaisingTransport:
++    """Mock transport that raises to exercise the fail-closed path."""
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        raise RuntimeError("transport down")
++
++
++def test_request_has_guardian_block_documents_and_no_structured_output() -> None:
++    request = build_sentinel_request(_CLAIM, _DOCS, model_slug=_MODEL)
++    assert request.role == "sentinel"
++    assert request.model_slug == _MODEL
++
++    # assistant turn carries the claim; final user turn is the <guardian> block.
++    assert request.messages is not None
++    roles = [m["role"] for m in request.messages]
++    assert roles == ["assistant", "user"]
++    assert request.messages[0]["content"] == _CLAIM
++    assert "<guardian>" in request.messages[-1]["content"]
++
++    # documents present in params; NO structured-output spec (Granite emits <score>).
++    assert request.params["documents"][0]["doc_id"] == "doc_surmount1"
++    assert "structured_outputs" not in request.params
++    assert "response_format" not in request.params
++
++
++def test_grounded_score_parses_ok() -> None:
++    transport = _CannedTransport("<score>no</score>")
++    result, records = run_sentinel(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.verdict is SentinelVerdict.GROUNDED
++    assert result.parsed_ok is True
++    assert len(records) == 1
++    assert records[0].role == "sentinel"
++    assert records[0].served_model == _MODEL
++    assert records[0].parsed == result
++
++
++def test_yes_score_is_ungrounded() -> None:
++    transport = _CannedTransport("<score>yes</score>")
++    result, _records = run_sentinel(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is True
++
++
++def test_malformed_output_fails_closed() -> None:
++    # Surrounding prose makes the strict envelope fail -> UNGROUNDED, parsed_ok False.
++    transport = _CannedTransport("The claim looks fine <score>no</score> overall.")
++    result, records = run_sentinel(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++    assert len(records) == 1
++
++
++def test_empty_output_fails_closed() -> None:
++    transport = _CannedTransport("")
++    result, _records = run_sentinel(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++
++
++def test_transport_error_fails_closed() -> None:
++    transport = _RaisingTransport()
++    result, records = run_sentinel(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.parsed_ok is False
++    # One record per attempted completion; served_model unknown on the error path.
++    assert len(records) == 1
++    assert records[0].served_model is None
++    assert "transport_error" in records[0].raw_text
+
+codex
+I’m reviewing the supplied diff against the narrow Mirror citation-binding question, focusing on whether the validator can still emit a `MirrorPass1` containing ungrounded, empty, whitespace, hallucinated, or mixed citation identities.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/mirror_contract.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/mirror_adapter.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class CitationSpan|parse_cohere_citations|verify_pass2_binding|content_hash|_CO_SPAN_RE|MirrorPass1" src tests' in C:\POLARIS
+ succeeded in 1016ms:
+"""Mirror (Cohere Command-A+) two-pass RAG/JSON contract.
+
+Cohere `response_format` (JSON mode) is NOT supported together with `documents`/`tools`
+(F2, confirmed in I-meta-002 iter-2 verdict). So the Mirror role is TWO-PASS:
+  pass-1: RAG-with-citations  -> grounded answer text + citation spans (each span its doc_id)
+  pass-2: JSON classification -> bound to pass-1 by a content_hash
+
+The pass-2 classification MUST be of the SAME artifact pass-1 produced, not a regenerated
+or normalized one. (iter-2 fix, Codex P1-a): the binding hash covers BOTH the answer text
+AND the ordered citation bindings `(span_start, span_end, doc_id)` — NOT the answer text
+alone — so identical answer text with swapped or missing citation bindings does NOT pass
+the hash check.
+
+Citation span format: self-host Cohere emits `<co>...</co:doc_ids>` spans (doc_ids is a
+comma-separated list). `parse_cohere_citations` parses that form and tolerates an empty
+input. There is no live Cohere in this PR; the `<co>` fixture IS the assumed self-host
+span shape, documented here rather than implied as verified output.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class CitationSpan:
+    """One grounded citation span: a [span_start, span_end) char range over the answer
+    text, attached to one or more source doc_ids."""
+
+    span_start: int
+    span_end: int
+    doc_ids: tuple[str, ...]
+
+
+@dataclass
+class MirrorPass1:
+    """Pass-1 output: the grounded answer text plus its citation spans."""
+
+    answer_text: str
+    citation_spans: list[CitationSpan] = field(default_factory=list)
+
+
+@dataclass
+class MirrorPass2:
+    """Pass-2 output: the JSON classification, bound to pass-1 by `content_hash`."""
+
+    content_hash: str
+    classification: str
+    rationale: str | None = None
+
+
+# Field key for the embedded binding hash in the pass-2 input dict.
+_CONTENT_HASH_KEY = "content_hash"
+_ANSWER_TEXT_KEY = "answer_text"
+
+# Self-host Cohere span: `<co>covered text</co:doc_a,doc_b>`. The doc_ids list is
+# captured from the closing tag. Whitespace-tolerant around the doc_ids.
+_CO_SPAN_RE = re.compile(r"<co>(.*?)</co:\s*([^>]*?)\s*>", re.DOTALL)
+
+
+def _canonical_binding(pass1: MirrorPass1) -> str:
+    """Deterministic canonical serialization of the pass-1 artifact for hashing.
+
+    Covers the answer text AND the ordered list of `(span_start, span_end, doc_id)` tuples.
+    Multi-doc spans are expanded to one tuple per doc_id, and the full tuple list is sorted,
+    so the serialization is independent of span/doc_id authoring order but still sensitive
+    to ANY change in the (start, end, doc_id) bindings. The exact same serializer is used
+    by both `build_pass2_input` and `verify_pass2_binding`.
+
+    INJECTIVITY: the answer text and the binding list are wrapped as the two elements of a
+    single JSON array. Because the answer is JSON-string-escaped, there is NO ambiguous
+    delimiter byte a crafted doc_id (which may legitimately contain spaces or brackets) could
+    inject to collide two distinct (answer, bindings) pairs onto the same serialization —
+    unlike a flat `answer + " " + bindings` concatenation. Resolves brief question 2 (P1-a).
+    """
+    binding_tuples: list[tuple[int, int, str]] = []
+    for span in pass1.citation_spans:
+        for doc_id in span.doc_ids:
+            binding_tuples.append((span.span_start, span.span_end, doc_id))
+    binding_tuples.sort()
+    return json.dumps([pass1.answer_text, binding_tuples], separators=(",", ":"))
+
+
+def _compute_content_hash(pass1: MirrorPass1) -> str:
+    """sha256 over the canonical (answer_text + citation bindings) serialization."""
+    canonical = _canonical_binding(pass1)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_pass2_input(pass1: MirrorPass1) -> dict:
+    """Build the input dict handed to pass-2, embedding the composite `content_hash`.
+
+    The hash is computed over BOTH the answer text and the ordered citation bindings
+    (P1-a), so pass-2 can only validly classify the exact (answer + citations) artifact
+    pass-1 produced.
+    """
+    return {
+        _ANSWER_TEXT_KEY: pass1.answer_text,
+        _CONTENT_HASH_KEY: _compute_content_hash(pass1),
+    }
+
+
+def verify_pass2_binding(pass1: MirrorPass1, pass2: MirrorPass2) -> bool:
+    """True iff pass-2 classified the SAME (answer + citations) artifact as pass-1.
+
+    Recomputes the composite hash from pass-1 and compares it to `pass2.content_hash`.
+    Returns False if the answer text was regenerated/normalized OR if any citation binding
+    (span_start, span_end, doc_id) was swapped or dropped — even when the answer text is
+    byte-identical.
+    """
+    return _compute_content_hash(pass1) == pass2.content_hash
+
+
+def parse_cohere_citations(raw: str) -> list[CitationSpan]:
+    """Parse self-host Cohere `<co>...</co:doc_ids>` spans into CitationSpans.
+
+    `span_start`/`span_end` are the [start, end) char offsets of the covered text WITHIN
+    the cleaned answer (tags stripped), reconstructed as the spans are consumed left to
+    right. `doc_ids` is the comma-separated list from the closing tag (empty entries
+    dropped). Tolerates empty input (returns []) and tolerates a span with no doc_ids.
+
+    Managed-form tolerance: a managed Cohere `message.citations` offset payload contains no
+    `<co>` spans, so this parser returns [] for it BY DESIGN (it does not crash). Full
+    managed-offset parsing is sub-PR-4's adapter; this contract covers the self-host span
+    form only.
+    """
+    if not raw:
+        return []
+
+    spans: list[CitationSpan] = []
+    cleaned_len = 0  # running length of the answer text with tags removed
+    cursor = 0       # position in raw
+    for match in _CO_SPAN_RE.finditer(raw):
+        # Plain text before this span contributes to the cleaned-text offset.
+        cleaned_len += len(raw[cursor:match.start()])
+        covered_text = match.group(1)
+        doc_ids_raw = match.group(2)
+        doc_ids = tuple(d.strip() for d in doc_ids_raw.split(",") if d.strip())
+        span_start = cleaned_len
+        span_end = span_start + len(covered_text)
+        spans.append(CitationSpan(span_start=span_start, span_end=span_end, doc_ids=doc_ids))
+        cleaned_len = span_end
+        cursor = match.end()
+    return spans
+
+ succeeded in 1016ms:
+tests\integration\test_mesh_e2e.py:248:            content_hash="z" * 64, sig_authority=0.5,
+tests\unit\test_content_deduplicator.py:322:        assert fp.content_hash is not None
+tests\unit\test_content_deduplicator.py:330:        assert fp1.content_hash == fp2.content_hash
+tests\unit\test_content_deduplicator.py:336:        assert fp1.content_hash != fp2.content_hash
+src\utils\ingest.py:1845:    content_hash: Optional[str] = None
+src\utils\ingest.py:1858:            "content_hash": self.content_hash,
+src\utils\ingest.py:2011:                content_hash = self._compute_hash(content)
+src\utils\ingest.py:2023:                    content_hash=content_hash,
+src\utils\ingest.py:2146:        assert result.content_hash is not None
+src\utils\ingest.py:2147:        print(f"  [PASS] Fetched {result.content_length} bytes, hash: {result.content_hash[:16]}...")
+src\utils\ingest.py:2191:        assert "content_hash" in result_dict
+src\utils\content_deduplicator.py:93:    content_hash: str  # MD5 hash for exact matching
+src\utils\content_deduplicator.py:365:        content_hash = hashlib.md5(normalized.encode()).hexdigest()
+src\utils\content_deduplicator.py:374:            content_hash=content_hash,
+src\utils\content_deduplicator.py:504:        if fp1.content_hash == fp2.content_hash:
+tests\unit\test_mesh_api.py:60:        content_hash="x" * 64,
+tests\unit\test_mesh_compose.py:97:        content_hash="a" * 64,
+tests\unit\test_mesh_compose.py:111:        content_hash="b" * 64,
+tests\unit\test_mesh_edge_discovery.py:100:        content_hash="a" * 64,
+tests\unit\test_mesh_edge_discovery.py:112:        content_hash="b" * 64,
+tests\unit\test_mesh_cli.py:58:        content_hash="c" * 64,
+tests\unit\test_mesh_entity.py:136:        content_hash="0" * 64,
+tests\unit\test_mesh_ingest.py:33:    _compute_content_hash,
+tests\unit\test_mesh_ingest.py:408:        content_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+tests\unit\test_mesh_ingest.py:409:        predicted = _predicted_src_id(ws_id, content_hash)
+tests\unit\test_mesh_ingest.py:410:        actual = MeshStore._make_id("src", f"{ws_id}:{content_hash}")
+tests\unit\test_mesh_lethal_retrieve.py:99:        content_hash="u" * 64,
+tests\unit\test_mesh_lethal_retrieve.py:112:        content_hash="w" * 64,
+tests\unit\test_mesh_qa.py:81:        content_hash="q" * 64,
+tests\unit\test_mesh_snapshot.py:32:        content_hash="s" * 64,
+tests\unit\test_mesh_store.py:68:        content_hash="hash_test_1",
+tests\unit\test_mesh_store.py:118:            content_hash="h1", sig_authority=0.9,
+tests\unit\test_mesh_store.py:199:            content_hash="abc123",
+tests\unit\test_mesh_store.py:219:            content_hash="same_hash",
+tests\unit\test_mesh_store.py:227:                content_hash="same_hash",  # same hash
+tests\unit\test_mesh_store.py:238:            content_hash="unique",
+tests\unit\test_mesh_store.py:252:                content_hash="x",
+tests\unit\test_mesh_store.py:264:                content_hash="x",
+tests\unit\test_mesh_store.py:914:            filepath="a.md", content_hash="ha",
+tests\unit\test_mesh_store.py:919:            filepath="b.md", content_hash="hb",
+src\agents\search_agent.py:1636:                content_hash = hashlib.md5(
+src\agents\search_agent.py:1659:                        "content_hash": content_hash,
+src\agents\analyst_agent.py:179:            content_hash = hashlib.md5(content[:200].encode()).hexdigest()[:12]
+src\agents\analyst_agent.py:181:            if content_hash not in seen_hashes:
+src\agents\analyst_agent.py:182:                seen_hashes.add(content_hash)
+src\agents\analyst_agent.py:796:        seen_content_hashes = {
+src\agents\analyst_agent.py:922:                    content_hash = hashlib.md5(
+src\agents\analyst_agent.py:925:                    if content_hash in seen_content_hashes:
+src\agents\analyst_agent.py:928:                    seen_content_hashes.add(content_hash)
+src\agents\analyst_agent.py:1030:                    content_hash = hashlib.md5(
+src\agents\analyst_agent.py:1034:                    if content_hash not in seen_content_hashes and len(all_evidence) < evidence_cap:
+src\agents\analyst_agent.py:1035:                        seen_content_hashes.add(content_hash)
+src\agents\analyst_agent.py:1173:                            content_hash = hashlib.md5(
+src\agents\analyst_agent.py:1177:                            if content_hash not in seen_content_hashes and len(all_evidence) < evidence_cap:
+src\agents\analyst_agent.py:1178:                                seen_content_hashes.add(content_hash)
+src\agents\analyst_agent.py:1275:                            content_hash = hashlib.md5(
+src\agents\analyst_agent.py:1279:                            if content_hash not in seen_content_hashes and len(all_evidence) < evidence_cap:
+src\agents\analyst_agent.py:1280:                                seen_content_hashes.add(content_hash)
+src\agents\analyst_agent.py:1359:            f"{len(seen_content_hashes)} unique content hashes"
+src\polaris_graph\roles\mirror_contract.py:6:  pass-2: JSON classification -> bound to pass-1 by a content_hash
+src\polaris_graph\roles\mirror_contract.py:15:comma-separated list). `parse_cohere_citations` parses that form and tolerates an empty
+src\polaris_graph\roles\mirror_contract.py:29:class CitationSpan:
+src\polaris_graph\roles\mirror_contract.py:39:class MirrorPass1:
+src\polaris_graph\roles\mirror_contract.py:48:    """Pass-2 output: the JSON classification, bound to pass-1 by `content_hash`."""
+src\polaris_graph\roles\mirror_contract.py:50:    content_hash: str
+src\polaris_graph\roles\mirror_contract.py:56:_CONTENT_HASH_KEY = "content_hash"
+src\polaris_graph\roles\mirror_contract.py:61:_CO_SPAN_RE = re.compile(r"<co>(.*?)</co:\s*([^>]*?)\s*>", re.DOTALL)
+src\polaris_graph\roles\mirror_contract.py:64:def _canonical_binding(pass1: MirrorPass1) -> str:
+src\polaris_graph\roles\mirror_contract.py:71:    by both `build_pass2_input` and `verify_pass2_binding`.
+src\polaris_graph\roles\mirror_contract.py:87:def _compute_content_hash(pass1: MirrorPass1) -> str:
+src\polaris_graph\roles\mirror_contract.py:93:def build_pass2_input(pass1: MirrorPass1) -> dict:
+src\polaris_graph\roles\mirror_contract.py:94:    """Build the input dict handed to pass-2, embedding the composite `content_hash`.
+src\polaris_graph\roles\mirror_contract.py:102:        _CONTENT_HASH_KEY: _compute_content_hash(pass1),
+src\polaris_graph\roles\mirror_contract.py:106:def verify_pass2_binding(pass1: MirrorPass1, pass2: MirrorPass2) -> bool:
+src\polaris_graph\roles\mirror_contract.py:109:    Recomputes the composite hash from pass-1 and compares it to `pass2.content_hash`.
+src\polaris_graph\roles\mirror_contract.py:114:    return _compute_content_hash(pass1) == pass2.content_hash
+src\polaris_graph\roles\mirror_contract.py:117:def parse_cohere_citations(raw: str) -> list[CitationSpan]:
+src\polaris_graph\roles\mirror_contract.py:136:    for match in _CO_SPAN_RE.finditer(raw):
+src\polaris_graph\roles\mirror_adapter.py:19:Binding guard (pass-1<->pass-2): `verify_pass2_binding` MUST hold or `MirrorBindingError` is
+src\polaris_graph\roles\mirror_adapter.py:29:    MirrorPass1,
+src\polaris_graph\roles\mirror_adapter.py:31:    _CO_SPAN_RE,
+src\polaris_graph\roles\mirror_adapter.py:33:    parse_cohere_citations,
+src\polaris_graph\roles\mirror_adapter.py:34:    verify_pass2_binding,
+src\polaris_graph\roles\mirror_adapter.py:49:_CONTENT_HASH_KEY = "content_hash"
+src\polaris_graph\roles\mirror_adapter.py:56:    laundered into an apparently-grounded MirrorPass1. Grounding integrity guard (iter-4).
+src\polaris_graph\roles\mirror_adapter.py:61:    """Raised when pass-2 does not bind to the pass-1 artifact (`verify_pass2_binding` False).
+src\polaris_graph\roles\mirror_adapter.py:69:    text's offsets align with the spans `parse_cohere_citations` reports (which index into
+src\polaris_graph\roles\mirror_adapter.py:73:    return _CO_SPAN_RE.sub(lambda m: m.group(1), raw)
+src\polaris_graph\roles\mirror_adapter.py:116:        raw_spans = parse_cohere_citations(response.raw_text)
+src\polaris_graph\roles\mirror_adapter.py:145:def build_mirror_pass2_request(pass1: MirrorPass1, *, model_slug: str) -> RoleRequest:
+src\polaris_graph\roles\mirror_adapter.py:148:    Uses `build_pass2_input(pass1)` so the request carries the composite `content_hash`
+src\polaris_graph\roles\mirror_adapter.py:168:    The classification JSON must carry the `content_hash` (the binding) and a
+src\polaris_graph\roles\mirror_adapter.py:174:        content_hash=payload[_CONTENT_HASH_KEY],
+src\polaris_graph\roles\mirror_adapter.py:191:    bound by hash; if `verify_pass2_binding` is False, raise `MirrorBindingError` (fail
+src\polaris_graph\roles\mirror_adapter.py:222:    pass1 = MirrorPass1(answer_text=answer_text, citation_spans=grounded_spans)
+src\polaris_graph\roles\mirror_adapter.py:245:    if not verify_pass2_binding(pass1, pass2):
+src\polaris_graph\roles\mirror_adapter.py:248:            "Mirror pass-2 content_hash does not bind to the pass-1 artifact; "
+tests\roles\test_mirror_contract.py:4:- build_pass2_input embeds a content_hash that matches the pass-1 artifact;
+tests\roles\test_mirror_contract.py:5:- verify_pass2_binding is True on the matching artifact, False on a regenerated answer
+tests\roles\test_mirror_contract.py:8:- parse_cohere_citations parses the golden <co> span format and tolerates empty input.
+tests\roles\test_mirror_contract.py:18:    MirrorPass1,
+tests\roles\test_mirror_contract.py:21:    parse_cohere_citations,
+tests\roles\test_mirror_contract.py:22:    verify_pass2_binding,
+tests\roles\test_mirror_contract.py:32:def _pass1() -> MirrorPass1:
+tests\roles\test_mirror_contract.py:33:    return MirrorPass1(
+tests\roles\test_mirror_contract.py:46:    assert "content_hash" in payload
+tests\roles\test_mirror_contract.py:48:    pass2 = MirrorPass2(content_hash=payload["content_hash"], classification="grounded")
+tests\roles\test_mirror_contract.py:49:    assert verify_pass2_binding(pass1, pass2) is True
+tests\roles\test_mirror_contract.py:55:        content_hash=build_pass2_input(pass1)["content_hash"],
+tests\roles\test_mirror_contract.py:58:    assert verify_pass2_binding(pass1, pass2) is True
+tests\roles\test_mirror_contract.py:64:        content_hash=build_pass2_input(pass1)["content_hash"],
+tests\roles\test_mirror_contract.py:67:    regenerated = MirrorPass1(
+tests\roles\test_mirror_contract.py:71:    assert verify_pass2_binding(regenerated, pass2) is False
+tests\roles\test_mirror_contract.py:78:        content_hash=build_pass2_input(pass1)["content_hash"],
+tests\roles\test_mirror_contract.py:81:    swapped = MirrorPass1(
+tests\roles\test_mirror_contract.py:88:    assert verify_pass2_binding(swapped, pass2) is False
+tests\roles\test_mirror_contract.py:94:        content_hash=build_pass2_input(pass1)["content_hash"],
+tests\roles\test_mirror_contract.py:97:    missing = MirrorPass1(
+tests\roles\test_mirror_contract.py:101:    assert verify_pass2_binding(missing, pass2) is False
+tests\roles\test_mirror_contract.py:107:        content_hash=build_pass2_input(pass1)["content_hash"],
+tests\roles\test_mirror_contract.py:110:    moved = MirrorPass1(
+tests\roles\test_mirror_contract.py:117:    assert verify_pass2_binding(moved, pass2) is False
+tests\roles\test_mirror_contract.py:125:    swapped = MirrorPass1(
+tests\roles\test_mirror_contract.py:132:    assert build_pass2_input(base)["content_hash"] != build_pass2_input(swapped)["content_hash"]
+tests\roles\test_mirror_contract.py:136:    """P1-a injectivity: a doc_id carrying spaces/brackets (legal per parse_cohere_citations,
+tests\roles\test_mirror_contract.py:141:    a = MirrorPass1(
+tests\roles\test_mirror_contract.py:149:    b = MirrorPass1(
+tests\roles\test_mirror_contract.py:154:    assert build_pass2_input(a)["content_hash"] != build_pass2_input(b)["content_hash"]
+tests\roles\test_mirror_contract.py:157:    c = MirrorPass1(answer_text="claim", citation_spans=[CitationSpan(0, 5, ("doc [[x]] y",))])
+tests\roles\test_mirror_contract.py:158:    d = MirrorPass1(answer_text="claim", citation_spans=[CitationSpan(0, 5, ("doc",))])
+tests\roles\test_mirror_contract.py:159:    assert build_pass2_input(c)["content_hash"] != build_pass2_input(d)["content_hash"]
+tests\roles\test_mirror_contract.py:164:    a = MirrorPass1(
+tests\roles\test_mirror_contract.py:171:    b = MirrorPass1(
+tests\roles\test_mirror_contract.py:178:    assert build_pass2_input(a)["content_hash"] == build_pass2_input(b)["content_hash"]
+tests\roles\test_mirror_contract.py:181:# --- parse_cohere_citations --------------------------------------------------------
+tests\roles\test_mirror_contract.py:182:def test_parse_cohere_citations_golden() -> None:
+tests\roles\test_mirror_contract.py:183:    spans = parse_cohere_citations(_read_fixture("cohere_citations_golden.txt"))
+tests\roles\test_mirror_contract.py:193:def test_parse_cohere_citations_offsets_match_cleaned_text() -> None:
+tests\roles\test_mirror_contract.py:195:    spans = parse_cohere_citations(raw)
+tests\roles\test_mirror_contract.py:202:def test_parse_cohere_citations_empty_returns_empty_list() -> None:
+tests\roles\test_mirror_contract.py:203:    assert parse_cohere_citations("") == []
+tests\roles\test_mirror_contract.py:206:def test_parse_cohere_citations_no_spans_returns_empty_list() -> None:
+tests\roles\test_mirror_contract.py:207:    assert parse_cohere_citations("plain answer with no co spans at all") == []
+tests\roles\test_mirror_contract.py:210:def test_parse_cohere_citations_tolerates_span_without_doc_ids() -> None:
+tests\roles\test_mirror_contract.py:211:    spans = parse_cohere_citations("text <co>covered</co:>")
+tests\roles\test_mirror_adapter.py:6:- the pass-2 request embeds the pass-1 composite content_hash;
+tests\roles\test_mirror_adapter.py:10:  empty MirrorPass1 that trivially passes the binding);
+tests\roles\test_mirror_adapter.py:32:    MirrorPass1,
+tests\roles\test_mirror_adapter.py:62:def _pass2_hash_for(pass1: MirrorPass1) -> str:
+tests\roles\test_mirror_adapter.py:63:    """The composite content_hash the adapter will compute for `pass1`."""
+tests\roles\test_mirror_adapter.py:64:    return build_pass2_input(pass1)["content_hash"]
+tests\roles\test_mirror_adapter.py:67:def _pass2_response_for(pass1: MirrorPass1, classification: str = "grounded") -> RoleResponse:
+tests\roles\test_mirror_adapter.py:70:        "content_hash": _pass2_hash_for(pass1),
+tests\roles\test_mirror_adapter.py:86:    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
+tests\roles\test_mirror_adapter.py:105:    assert pass2_request.params["pass2_input"]["content_hash"] == _pass2_hash_for(
+tests\roles\test_mirror_adapter.py:116:    expected_pass1 = MirrorPass1(answer_text=cleaned, citation_spans=expected_spans)
+tests\roles\test_mirror_adapter.py:140:            {"content_hash": "deadbeef", "classification": "grounded"}
+tests\roles\test_mirror_adapter.py:149:# --- empty-both: no silent empty MirrorPass1 ---------------------------------------
+tests\roles\test_mirror_adapter.py:192:    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+tests\roles\test_mirror_adapter.py:231:    pass1 = MirrorPass1(
+tests\roles\test_mirror_adapter.py:239:    assert request.params["pass2_input"]["content_hash"] == _pass2_hash_for(pass1)
+src\polaris_graph\export\docx_exporter.py:971:        content_hash = hashlib.sha256(
+src\polaris_graph\export\docx_exporter.py:983:            ("Content SHA-256", content_hash),
+
+ succeeded in 1067ms:
+"""Mirror (Cohere Command-A+) adapter — two-pass RAG/JSON + citation-binding guard.
+
+Cohere `response_format` (JSON mode) is incompatible with `documents`/`tools` (F2), so the
+Mirror role is TWO PASS, each its own transport completion (iter-3 P1-a):
+  pass-1: RAG-with-documents (citations on, NO response_format) -> grounded answer + spans
+  pass-2: JSON classification (response_format ok, no documents), bound to pass-1 by hash
+
+Citation normalization (iter-3 P1-b): pass-1 citations come from `RoleResponse.citations`
+when the transport already normalized them (managed path), ELSE from `<co>...</co:doc_ids>`
+spans parsed out of `raw_text` (self-host path, F2). BOTH sources flow through ONE validator.
+
+Citation-binding guard (iter-4): every span must point at a `doc_id` actually present in the
+supplied `evidence_documents`. A span with an empty doc_id, or citing a doc_id never
+provided (hallucinated identity), or MIXING a real cite with a fabricated one, is REJECTED
+whole. If NO valid grounded citation survives, raise `MirrorCitationError` (fail closed) —
+a non-empty-but-ungrounded citation set must NOT satisfy the binding. Every Mirror claim in
+this PR is grounding-required; there is no escape hatch.
+
+Binding guard (pass-1<->pass-2): `verify_pass2_binding` MUST hold or `MirrorBindingError` is
+raised — an unbound pass-2 is never trusted.
+"""
+
+from __future__ import annotations
+
+import json
+
+from src.polaris_graph.roles.mirror_contract import (
+    CitationSpan,
+    MirrorPass1,
+    MirrorPass2,
+    _CO_SPAN_RE,
+    build_pass2_input,
+    parse_cohere_citations,
+    verify_pass2_binding,
+)
+from src.polaris_graph.roles.role_transport import (
+    EvidenceDocument,
+    RoleCallRecord,
+    RoleRequest,
+    RoleResponse,
+    RoleTransport,
+)
+
+_ROLE = "mirror"
+
+# Pass-2 JSON classification field keys.
+_CLASSIFICATION_KEY = "classification"
+_RATIONALE_KEY = "rationale"
+_CONTENT_HASH_KEY = "content_hash"
+
+
+class MirrorCitationError(ValueError):
+    """Raised when pass-1 has NO valid grounded citation after binding validation.
+
+    Fail closed: a missing, empty-doc_id, or hallucinated-identity citation set must not be
+    laundered into an apparently-grounded MirrorPass1. Grounding integrity guard (iter-4).
+    """
+
+
+class MirrorBindingError(ValueError):
+    """Raised when pass-2 does not bind to the pass-1 artifact (`verify_pass2_binding` False).
+
+    Fail closed: an unbound pass-2 classification is never trusted.
+    """
+
+
+def _strip_co_tags(raw: str) -> str:
+    """Strip `<co>...</co:doc_ids>` tags, leaving the covered text, so the cleaned answer
+    text's offsets align with the spans `parse_cohere_citations` reports (which index into
+    the TAG-STRIPPED text). Replacing each match with its covered group (group 1) mirrors
+    exactly how the contract reconstructs cleaned-text offsets.
+    """
+    return _CO_SPAN_RE.sub(lambda m: m.group(1), raw)
+
+
+def _validate_citation_binding(
+    spans: list[CitationSpan],
+    valid_doc_ids: set[str],
+) -> list[CitationSpan]:
+    """Keep only spans whose doc_ids ALL bind to a supplied evidence document.
+
+    A span is REJECTED whole if it has no doc_ids (empty/missing) OR if ANY of its doc_ids
+    is not in `valid_doc_ids` (a mixed real+hallucinated span is itself a fabrication signal,
+    so it does not count as grounding). Returns the surviving grounded spans.
+    """
+    grounded: list[CitationSpan] = []
+    for span in spans:
+        if not span.doc_ids:
+            continue  # empty/missing doc_id tuple -> not grounding
+        # Reject a span if ANY of its doc_ids is empty/whitespace. An empty doc_id is never
+        # grounding, even if the supplied evidence set happens to contain an
+        # EvidenceDocument with an empty/whitespace doc_id (Codex diff iter-1 P1: such a
+        # doc is excluded from valid_doc_ids, but guard here too — defense in depth).
+        if any((not doc_id or not doc_id.strip()) for doc_id in span.doc_ids):
+            continue
+        if any(doc_id not in valid_doc_ids for doc_id in span.doc_ids):
+            continue  # hallucinated (or mixed) identity -> reject whole span
+        grounded.append(span)
+    return grounded
+
+
+def _extract_citations(
+    response: RoleResponse,
+    valid_doc_ids: set[str],
+) -> list[CitationSpan]:
+    """Normalize pass-1 citations from the explicit precedence, then bind-validate them.
+
+    Source precedence (iter-3 P1-b): structured `RoleResponse.citations` (managed path) if
+    present, ELSE `<co>` spans parsed from `raw_text` (self-host path). Both sources flow
+    through the SINGLE `_validate_citation_binding` step (iter-4). Returns ONLY the spans
+    that bind to a supplied evidence document.
+    """
+    if response.citations is not None:
+        raw_spans = response.citations
+    else:
+        raw_spans = parse_cohere_citations(response.raw_text)
+    return _validate_citation_binding(raw_spans, valid_doc_ids)
+
+
+def build_mirror_pass1_request(
+    claim: str,
+    evidence_documents: list[EvidenceDocument],
+    *,
+    model_slug: str,
+) -> RoleRequest:
+    """Build the pass-1 RAG-with-documents request (citations on, NO response_format).
+
+    Documents ride in `params["documents"]`; `params["citations"] = True` turns on citation
+    emission. NO `response_format` — JSON mode is incompatible with documents (F2).
+    """
+    params = {
+        "documents": [
+            {"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents
+        ],
+        "citations": True,
+    }
+    return RoleRequest(
+        role=_ROLE,
+        model_slug=model_slug,
+        prompt=claim,
+        params=params,
+    )
+
+
+def build_mirror_pass2_request(pass1: MirrorPass1, *, model_slug: str) -> RoleRequest:
+    """Build the pass-2 JSON-classification request, embedding the pass-1 composite hash.
+
+    Uses `build_pass2_input(pass1)` so the request carries the composite `content_hash`
+    (answer text + ordered citation bindings). `response_format=json_object` is allowed now
+    (no documents in this pass).
+    """
+    pass2_input = build_pass2_input(pass1)
+    params = {
+        "response_format": {"type": "json_object"},
+        "pass2_input": pass2_input,
+    }
+    return RoleRequest(
+        role=_ROLE,
+        model_slug=model_slug,
+        prompt="Classify the bound pass-1 artifact and return JSON.",
+        params=params,
+    )
+
+
+def _parse_pass2(raw_text: str) -> MirrorPass2:
+    """Parse a pass-2 transport response into MirrorPass2.
+
+    The classification JSON must carry the `content_hash` (the binding) and a
+    `classification`; an optional `rationale` is preserved. JSON decode / shape errors
+    propagate (fail loud) rather than fabricate a verdict.
+    """
+    payload = json.loads(raw_text)
+    return MirrorPass2(
+        content_hash=payload[_CONTENT_HASH_KEY],
+        classification=payload[_CLASSIFICATION_KEY],
+        rationale=payload.get(_RATIONALE_KEY),
+    )
+
+
+def run_mirror(
+    transport: RoleTransport,
+    claim: str,
+    evidence_documents: list[EvidenceDocument],
+    *,
+    model_slug: str,
+) -> tuple[MirrorPass2, list[RoleCallRecord]]:
+    """Run the two Mirror passes and return MirrorPass2 + a 2-element RoleCallRecord list.
+
+    Pass-1: RAG-with-documents; normalize + bind-validate citations (iter-4). If no grounded
+    citation survives, raise `MirrorCitationError` (fail closed). Pass-2: JSON classification
+    bound by hash; if `verify_pass2_binding` is False, raise `MirrorBindingError` (fail
+    closed). BOTH completions get their own RoleCallRecord (iter-3 P1-a) so the Path-B gate
+    can verify served==pinned per call.
+    """
+    # Build the citation-identity pool from supplied documents, EXCLUDING any empty/whitespace
+    # doc_id so a citation with an empty doc_id can never bind (Codex diff iter-1 P1).
+    valid_doc_ids = {
+        doc.doc_id for doc in evidence_documents if doc.doc_id and doc.doc_id.strip()
+    }
+
+    # --- pass 1: RAG with documents + citations -------------------------------------
+    pass1_request = build_mirror_pass1_request(
+        claim, evidence_documents, model_slug=model_slug
+    )
+    pass1_response: RoleResponse = transport.complete(pass1_request)
+
+    grounded_spans = _extract_citations(pass1_response, valid_doc_ids)
+    if not grounded_spans:
+        # Fail closed: no citation binds to a supplied document for this grounding-required
+        # claim. A non-empty-but-ungrounded citation set lands here too (it was rejected).
+        raise MirrorCitationError(
+            "Mirror pass-1 produced no citation grounded in the supplied evidence documents "
+            f"(claim={claim!r}); refusing to treat as grounded."
+        )
+
+    # On the self-host path, store the TAG-STRIPPED answer so the span offsets (which index
+    # the cleaned text) align with the stored answer_text.
+    if pass1_response.citations is not None:
+        answer_text = pass1_response.raw_text
+    else:
+        answer_text = _strip_co_tags(pass1_response.raw_text)
+    pass1 = MirrorPass1(answer_text=answer_text, citation_spans=grounded_spans)
+
+    pass1_record = RoleCallRecord(
+        role=_ROLE,
+        model_slug=model_slug,
+        served_model=pass1_response.served_model,
+        raw_text=pass1_response.raw_text,
+        parsed=pass1,
+    )
+
+    # --- pass 2: JSON classification bound to pass-1 --------------------------------
+    pass2_request = build_mirror_pass2_request(pass1, model_slug=model_slug)
+    pass2_response: RoleResponse = transport.complete(pass2_request)
+    pass2 = _parse_pass2(pass2_response.raw_text)
+
+    pass2_record = RoleCallRecord(
+        role=_ROLE,
+        model_slug=model_slug,
+        served_model=pass2_response.served_model,
+        raw_text=pass2_response.raw_text,
+        parsed=pass2,
+    )
+
+    if not verify_pass2_binding(pass1, pass2):
+        # Fail closed: pass-2 classified a different (answer+citations) artifact than pass-1.
+        raise MirrorBindingError(
+            "Mirror pass-2 content_hash does not bind to the pass-1 artifact; "
+            "refusing to trust an unbound classification."
+        )
+
+    return pass2, [pass1_record, pass2_record]
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+tokens used
+26,890
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```

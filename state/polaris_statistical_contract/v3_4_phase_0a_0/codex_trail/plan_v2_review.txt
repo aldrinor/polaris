@@ -1,0 +1,67 @@
+codex
+**Findings First**
+
+P0: Phase `0a.-1` cannot fully precede D1 as written. SME governance, domain-specific severity examples, and source admissibility are all per-domain. You need a tiny `D1a` before `0a.-1.A`: lock the six validation domains. The later D1 can still document rationale and checklists, but the domain set itself must be frozen first.
+
+P0: `claim_manifest` is label-leaky as written. Putting `severity` and `fab_status` beside constructor/prompt/evidence metadata invites contamination. Split it into construction metadata, sealed constructor-intent labels, blinded adjudication labels, and final consensus gold labels. Also add a facet/atomic-claim layer, because your D2 allows multi-facet claims but your labels are claim-level.
+
+P0/P1: there is a fifth substrate hole: chain of custody. Add `0a.-1.E execution protocol`: immutable artifact hashes, adjudication UI/tool version, randomization seed, access/blinding rules, packet renderer hash, calibration fixture, replacement/drop rules, exposure boundaries, and event log. Hashing schemas is not enough.
+
+P1: `0a.-1.C` and `0a.-1.D` are ordered backwards. C references canonical source identity from D, so D must precede the final C hash-pin and relation-builder validation.
+
+P1: your D1 checklist gap is understated. In the repo, only `clinical`, `custom`, `due_diligence`, `policy`, and `tech` have completeness checklists. `ai_sovereignty`, `canada_us`, and `workforce` are all missing. The canonical 8 are enforced in [test_template_canonical_set.py](/C:/POLARIS/tests/v6/test_template_canonical_set.py:24) and [scope_gate.py](/C:/POLARIS/src/polaris_graph/nodes/scope_gate.py:69), but checklist governance is not canonical 8.
+
+P1: D5 is still too narrow if it says “wherever it lives in `src/polaris_graph/`”. Live prompt surfaces also exist under `src/agents`, and likely `src/polaris_v6` / `config/prompts` depending on route. I verified examples in [multi_section_generator.py](/C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:256), [analyst_agent.py](/C:/POLARIS/src/agents/analyst_agent.py:632), [verifier_agent.py](/C:/POLARIS/src/agents/verifier_agent.py:136), and [synthesizer_agent.py](/C:/POLARIS/src/agents/synthesizer_agent.py:179). D5 must be runtime-reachability based, not directory based.
+
+**Answers**
+
+1. A-D is the right shape, but incomplete. Add `0a.-1.E execution protocol / chain of custody`. Also split D1 so the validation-domain set locks before SME recruitment.
+
+2. The D2 axes are mostly right. Add evidence-extraction modality and statistical/measurement nuance. Do not equal-weight. Use dominant-trigger plus additive scoring: conflict resolution, temporal instability, cross-jurisdiction synthesis, and table/statistical extraction should be able to force C3 by themselves.
+
+3. Use E4 = `41-80`. Do not lift the packet cap. A lifted cap creates a context-handling confound. If production retrieval finds more than 80 sources, record `retrieved_source_count` separately and downselect to the locked packet.
+
+4. Final six: agree with `clinical`, `due_diligence`, `policy`, `tech`, `ai_sovereignty`, `canada_us`. Drop `workforce`; do not use `custom` for validation. But D1 must author two missing checklists, not one: `ai_sovereignty` and `canada_us`.
+
+5. A synthetic 50-claim fixture is adequate only as the nominal integration demo. You also need small deterministic edge fixtures: `P=0`, all-related saturation, exact Jaccard threshold, duplicate source IDs, empty packets, multi-criterion pair dedup, transitive trap `A-B` and `B-C` related but `A-C` unrelated, same-SME 24h boundary, and unordered-pair determinism.
+
+6. D8 should be a blocked fractional-factorial design, not a naive full factorial. Stratify by domain, complexity, evidence bin, severity, and fabrication type; randomize within strata using a pinned seed; balance SMEs and templates with a Latin-square or balanced incomplete block; run the relation-builder on the planned allocation before labels are exposed; resample if `P/N` leaves the pre-registered target band.
+
+7. No, `0a.-1` is not correctly before D1 unless you split D1. Domain-set lock comes first. SME roster scouting can start, but locked SME governance cannot. Also B must precede adjudicator calibration, and D must precede final C.
+
+8. As written, still operationally unbuildable. Not v1-bad, but not closed. The remaining blockers are structural, not cosmetic.
+
+v3 needed on [D1a domain-set lock before SME work; split label/facet manifests; 0a.-1.E chain-of-custody; 0a.-1.D before final 0a.-1.C; D1 checklist correction; D5 runtime prompt inventory; D8 allocation protocol]
+**Findings First**
+
+P0: Phase `0a.-1` cannot fully precede D1 as written. SME governance, domain-specific severity examples, and source admissibility are all per-domain. You need a tiny `D1a` before `0a.-1.A`: lock the six validation domains. The later D1 can still document rationale and checklists, but the domain set itself must be frozen first.
+
+P0: `claim_manifest` is label-leaky as written. Putting `severity` and `fab_status` beside constructor/prompt/evidence metadata invites contamination. Split it into construction metadata, sealed constructor-intent labels, blinded adjudication labels, and final consensus gold labels. Also add a facet/atomic-claim layer, because your D2 allows multi-facet claims but your labels are claim-level.
+
+P0/P1: there is a fifth substrate hole: chain of custody. Add `0a.-1.E execution protocol`: immutable artifact hashes, adjudication UI/tool version, randomization seed, access/blinding rules, packet renderer hash, calibration fixture, replacement/drop rules, exposure boundaries, and event log. Hashing schemas is not enough.
+
+P1: `0a.-1.C` and `0a.-1.D` are ordered backwards. C references canonical source identity from D, so D must precede the final C hash-pin and relation-builder validation.
+
+P1: your D1 checklist gap is understated. In the repo, only `clinical`, `custom`, `due_diligence`, `policy`, and `tech` have completeness checklists. `ai_sovereignty`, `canada_us`, and `workforce` are all missing. The canonical 8 are enforced in [test_template_canonical_set.py](/C:/POLARIS/tests/v6/test_template_canonical_set.py:24) and [scope_gate.py](/C:/POLARIS/src/polaris_graph/nodes/scope_gate.py:69), but checklist governance is not canonical 8.
+
+P1: D5 is still too narrow if it says “wherever it lives in `src/polaris_graph/`”. Live prompt surfaces also exist under `src/agents`, and likely `src/polaris_v6` / `config/prompts` depending on route. I verified examples in [multi_section_generator.py](/C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:256), [analyst_agent.py](/C:/POLARIS/src/agents/analyst_agent.py:632), [verifier_agent.py](/C:/POLARIS/src/agents/verifier_agent.py:136), and [synthesizer_agent.py](/C:/POLARIS/src/agents/synthesizer_agent.py:179). D5 must be runtime-reachability based, not directory based.
+
+**Answers**
+
+1. A-D is the right shape, but incomplete. Add `0a.-1.E execution protocol / chain of custody`. Also split D1 so the validation-domain set locks before SME recruitment.
+
+2. The D2 axes are mostly right. Add evidence-extraction modality and statistical/measurement nuance. Do not equal-weight. Use dominant-trigger plus additive scoring: conflict resolution, temporal instability, cross-jurisdiction synthesis, and table/statistical extraction should be able to force C3 by themselves.
+
+3. Use E4 = `41-80`. Do not lift the packet cap. A lifted cap creates a context-handling confound. If production retrieval finds more than 80 sources, record `retrieved_source_count` separately and downselect to the locked packet.
+
+4. Final six: agree with `clinical`, `due_diligence`, `policy`, `tech`, `ai_sovereignty`, `canada_us`. Drop `workforce`; do not use `custom` for validation. But D1 must author two missing checklists, not one: `ai_sovereignty` and `canada_us`.
+
+5. A synthetic 50-claim fixture is adequate only as the nominal integration demo. You also need small deterministic edge fixtures: `P=0`, all-related saturation, exact Jaccard threshold, duplicate source IDs, empty packets, multi-criterion pair dedup, transitive trap `A-B` and `B-C` related but `A-C` unrelated, same-SME 24h boundary, and unordered-pair determinism.
+
+6. D8 should be a blocked fractional-factorial design, not a naive full factorial. Stratify by domain, complexity, evidence bin, severity, and fabrication type; randomize within strata using a pinned seed; balance SMEs and templates with a Latin-square or balanced incomplete block; run the relation-builder on the planned allocation before labels are exposed; resample if `P/N` leaves the pre-registered target band.
+
+7. No, `0a.-1` is not correctly before D1 unless you split D1. Domain-set lock comes first. SME roster scouting can start, but locked SME governance cannot. Also B must precede adjudicator calibration, and D must precede final C.
+
+8. As written, still operationally unbuildable. Not v1-bad, but not closed. The remaining blockers are structural, not cosmetic.
+
+v3 needed on [D1a domain-set lock before SME work; split label/facet manifests; 0a.-1.E chain-of-custody; 0a.-1.D before final 0a.-1.C; D1 checklist correction; D5 runtime prompt inventory; D8 allocation protocol]

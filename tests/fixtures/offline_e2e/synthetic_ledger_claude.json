@@ -1,0 +1,29 @@
+{
+  "system": "chatgpt",
+  "question_id": "Q75",
+  "auditor": "claude",
+  "audit_method": "SYNTHETIC:true offline-e2e-fixture (NOT a real line-by-line audit; reconciled with synthetic_ledger_codex.json then scored offline; NEVER written under outputs/dr_benchmark)",
+  "audit_timestamp_utc": "2026-05-29T00:00:00+00:00",
+  "rubric_sha256": "synthetic-offline-e2e-rubric-sha256-do-not-use-for-scoring",
+  "claims": [
+    {
+      "claim_id": "syn_claim_agree_verified",
+      "severity": "S1",
+      "verdict": "VERIFIED",
+      "citation_id": "syn_cit_1",
+      "span_quote": "Synthetic span supporting the verified claim."
+    },
+    {
+      "claim_id": "syn_claim_disagree",
+      "severity": "S2",
+      "verdict": "VERIFIED",
+      "citation_id": "syn_cit_2",
+      "span_quote": "Claude read this span as supporting the claim."
+    }
+  ],
+  "coverage": [
+    {"element_id": "syn_element_covered_cited", "covered": true, "citation_supported": true},
+    {"element_id": "syn_element_covered_uncited", "covered": true, "citation_supported": true},
+    {"element_id": "syn_element_uncovered", "covered": false, "citation_supported": false}
+  ]
+}

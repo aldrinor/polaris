@@ -1,0 +1,8 @@
+codex
+Confirmed. [0a-1E §6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1E_execution_protocol_chain_of_custody.md:93) now explicitly lists `retrieved_source_count` + `target_packet_source_count` as structural, pre-outcome diagnostics, matching [D3 §6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D3_evidence_pool_bins.md:63). The schema edits are also present.
+
+Lock D3.
+18,064
+Confirmed. [0a-1E §6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1E_execution_protocol_chain_of_custody.md:93) now explicitly lists `retrieved_source_count` + `target_packet_source_count` as structural, pre-outcome diagnostics, matching [D3 §6](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/D3_evidence_pool_bins.md:63). The schema edits are also present.
+
+Lock D3.

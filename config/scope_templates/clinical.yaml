@@ -268,9 +268,22 @@ per_query_report_contract:
       - Mechanism
       - Regulatory
 
+    # I-meta-002 PR-9/M3b — native Gate-B per-entity severity annotations
+    # (pre-registered, NATIVE, derived from each entity's clinical role; NOT
+    # from any benchmark rubric/competitor source). Consumed ONLY by the native
+    # 4-role builder (src/polaris_graph/roles/native_gate_b_inputs.py); the V30
+    # contract loader (nodes/report_contract.py) ignores these keys. Mapping
+    # rationale: pivotal efficacy/CVOT trials carry decision-relevant efficacy
+    # evidence -> S1; the mechanism clamp study is supporting context -> S2;
+    # the regulatory labels/HTAs carry the S0 safety categories (boxed warnings,
+    # contraindications, dosing limits, pregnancy/renal/hepatic cautions,
+    # regulatory status) -> S0 with a valid s0_category + non-blank
+    # coverage_content_requirements (an S0 category is credited only when a
+    # VERIFIED claim deterministically matches its content tokens).
     required_entities:
       - id: surpass_1_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-1
         doi: 10.1016/S0140-6736(21)01324-6
         pmid: 34186022
@@ -293,6 +306,7 @@ per_query_report_contract:
 
       - id: surpass_2_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-2
         doi: 10.1056/NEJMoa2107519
         pmid: 34170647
@@ -305,6 +319,7 @@ per_query_report_contract:
 
       - id: surpass_3_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-3
         doi: 10.1016/S0140-6736(21)01443-4
         pmid: 34370970
@@ -317,6 +332,7 @@ per_query_report_contract:
 
       - id: surpass_4_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-4
         doi: 10.1016/S0140-6736(21)02188-7
         pmid: 34672967
@@ -329,6 +345,7 @@ per_query_report_contract:
 
       - id: surpass_5_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-5
         doi: 10.1001/jama.2022.0078
         pmid: 35133415
@@ -341,6 +358,7 @@ per_query_report_contract:
 
       - id: surpass_6_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-6
         # M-69 Fix #1 (Codex run-9 audit): both DOI and PMID
         # were wrong — pointed at "Glioblastoma and Other
@@ -361,6 +379,7 @@ per_query_report_contract:
 
       - id: surpass_cvot_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURPASS-CVOT
         doi: 10.1056/NEJMoa2509079
         pmid: null
@@ -373,6 +392,7 @@ per_query_report_contract:
 
       - id: surmount_2_primary
         type: pivotal_trial
+        severity: S1
         anchor: SURMOUNT-2
         doi: 10.1016/S0140-6736(23)01200-X
         pmid: 37385275
@@ -385,6 +405,7 @@ per_query_report_contract:
 
       - id: thomas_clamp_2022
         type: mechanism_primary
+        severity: S2
         anchor: Thomas-clamp
         doi: 10.1016/S2213-8587(22)00085-7
         pmid: 35468322
@@ -412,6 +433,13 @@ per_query_report_contract:
       # of relevant regulatory content.
       - id: fda_mounjaro_label
         type: regulatory
+        severity: S0
+        s0_category: black_box_warnings
+        # Deterministic tokens credited only when a VERIFIED claim cited to this
+        # label states the thyroid C-cell boxed warning (FDA Mounjaro PI Boxed Warning).
+        coverage_content_requirements:
+          - boxed warning
+          - thyroid
         jurisdiction: FDA
         label_name: Mounjaro
         url_pattern: https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d2d7da5d-ad07-4228-955f-cf7e355c8cc0
@@ -421,6 +449,13 @@ per_query_report_contract:
 
       - id: fda_zepbound_label
         type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # Credited only when a VERIFIED claim cited to this label states the
+        # contraindication (medullary thyroid carcinoma history / MEN 2).
+        coverage_content_requirements:
+          - contraindicated
+          - medullary thyroid
         jurisdiction: FDA
         label_name: Zepbound
         url_pattern: https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/217806s000lbl.pdf
@@ -430,6 +465,13 @@ per_query_report_contract:
 
       - id: ema_mounjaro_epar
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to the EPAR states the EMA
+        # marketing-authorisation status for Mounjaro.
+        coverage_content_requirements:
+          - marketing authorisation
+          - mounjaro
         jurisdiction: EMA
         label_name: Mounjaro
         url_pattern: https://www.ema.europa.eu/en/medicines/human/EPAR/mounjaro
@@ -439,6 +481,13 @@ per_query_report_contract:
 
       - id: nice_ta924_t2d
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to TA924 states the NICE
+        # recommendation status for tirzepatide in type 2 diabetes.
+        coverage_content_requirements:
+          - nice
+          - recommended
         jurisdiction: NICE
         label_name: TA924
         url_pattern: https://www.nice.org.uk/guidance/ta924
@@ -448,6 +497,13 @@ per_query_report_contract:
 
       - id: nice_ta1026_obesity
         type: regulatory
+        severity: S0
+        s0_category: regulatory_status
+        # Credited only when a VERIFIED claim cited to TA1026 states the NICE
+        # recommendation status for tirzepatide in obesity / weight management.
+        coverage_content_requirements:
+          - nice
+          - recommended
         jurisdiction: NICE
         label_name: TA1026
         url_pattern: https://www.nice.org.uk/guidance/ta1026
@@ -457,6 +513,13 @@ per_query_report_contract:
 
       - id: hc_mounjaro_monograph
         type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # Credited only when a VERIFIED claim cited to the Canadian Product
+        # Monograph states the contraindication (hypersensitivity to tirzepatide).
+        coverage_content_requirements:
+          - contraindicated
+          - hypersensitivity
         jurisdiction: HC
         label_name: Mounjaro Canadian Product Monograph
         url_pattern: https://health-products.canada.ca/dpd-bdpp/dispatch-repartition?q=Mounjaro&type=prod
@@ -539,4 +602,578 @@ per_query_report_contract:
         section: Regulatory
         subsection_title: "Health Canada Product Monograph"
         ordering: 6
+        required: true
+
+  # ===================================================================
+  # I-meta-002 PR-10 — DRB-EN benchmark slug #75 (metal ions / CVD).
+  # NATIVE per_query_report_contract authored BLIND to the frozen gold
+  # rubric / freeze pins / competitor answers (outputs/dr_benchmark was
+  # sealed out of the repo during authoring; see
+  # .codex/I-meta-002-pr10-contracts/contract_attestation.txt). Every
+  # required_entity below is derived SOLELY from the locked question
+  # text, the clinical scope_template + completeness_checklist, the D8
+  # s0_must_cover categories, and general clinical domain knowledge of
+  # what a rigorous answer to a "modulate plasma metal-ion levels to
+  # prevent/treat cardiovascular disease — supplementation — clinical
+  # evidence of feasibility/efficacy" question MUST cover.
+  #
+  # Severity rationale (NATIVE, not gold-derived): the landmark RCT
+  # evidence (chelation, mineral supplementation outcome trials) carries
+  # decision-relevant efficacy -> S1; the mechanistic / observational
+  # association evidence is supporting context -> S2; the regulatory /
+  # safety dimension of taking metal-ion supplements (dosing limits,
+  # contraindications, renal cautions) maps to true clinical must-cover
+  # catastrophic categories -> S0 with a valid s0_category + non-blank
+  # coverage_content_requirements. Biomedical-literature entities carry a
+  # SINGLE canonical identifier (doi only, no paired pmid) so a blind
+  # DOI<->PMID pairing can never be authored wrong; regulatory /
+  # authoritative entities carry the FULL canonical url_pattern (exact-
+  # equality coverage, never a fragment).
+  drb_75_metal_ions_cvd:
+    schema_version: "v30.1"
+
+    section_order:
+      - Efficacy
+      - Mechanism
+      - Regulatory
+
+    required_entities:
+      - id: tact_chelation_rct
+        type: pivotal_trial
+        severity: S1
+        anchor: TACT
+        # Lamas et al. TACT — EDTA chelation post-MI cardiovascular
+        # outcomes RCT (the landmark trial of metal-ion modulation as a
+        # cardiovascular therapeutic). doi only (no blind pmid pairing).
+        # Canonical DOI verified via Crossref: 10.1001/jama.2013.2107 ->
+        # "Effect of Disodium EDTA Chelation Regimen on Cardiovascular
+        # Events in Patients With Previous Myocardial Infarction" (Lamas
+        # et al., JAMA 2013). The prior 10.1001/jama.2013.13805 did not
+        # resolve to the TACT primary.
+        doi: 10.1001/jama.2013.2107
+        journal: JAMA
+        year: 2013
+        population_scope: direct
+        coverage_content_requirements:
+          - chelation
+        required_fields:
+          - N
+          - population
+          - comparator
+          - intervention
+          - primary_endpoint
+          - timepoint
+          - effect_estimate_with_uncertainty
+          - safety_signal
+          - study_design
+        min_fields_for_completion: 4
+        rendering_slot: efficacy_chelation_rct
+
+      - id: magnesium_supplementation_meta
+        type: systematic_review
+        severity: S1
+        anchor: Mg-supplementation-meta
+        # Meta-analysis of magnesium supplementation and cardiovascular /
+        # blood-pressure outcomes (the most-studied mineral-ion
+        # supplementation arm for CVD).
+        doi: 10.1161/HYPERTENSIONAHA.116.07664
+        journal: Hypertension
+        year: 2016
+        population_scope: direct
+        coverage_content_requirements:
+          - magnesium
+        required_fields:
+          - included_studies
+          - population
+          - intervention
+          - dose_range
+          - primary_outcome
+          - effect_estimate_with_uncertainty
+          - heterogeneity
+          - certainty_of_evidence
+        min_fields_for_completion: 4
+        rendering_slot: efficacy_mineral_supplementation
+
+      - id: iron_status_cvd_observational
+        type: cohort_primary
+        severity: S2
+        anchor: Iron-CVD-cohort
+        # Observational / Mendelian-randomization evidence on iron status
+        # and cardiovascular risk (mechanistic + association tier —
+        # supporting, not RCT-grade efficacy).
+        doi: 10.1161/ATVBAHA.117.309757
+        journal: Arteriosclerosis Thrombosis and Vascular Biology
+        year: 2017
+        population_scope: indirect
+        coverage_content_requirements:
+          - iron
+        required_fields:
+          - exposure
+          - population
+          - outcome
+          - effect_estimate_with_uncertainty
+          - confounding_adjustment
+          - study_design
+        min_fields_for_completion: 3
+        rendering_slot: mechanism_metal_homeostasis
+
+      - id: zinc_oxidative_mechanism
+        type: mechanism_primary
+        severity: S2
+        anchor: Zinc-redox-mechanism
+        # Mechanistic review on zinc redox biology and cellular
+        # oxidative-stress pathways relevant to the proposed cardiovascular
+        # benefit. Canonical DOI verified via Crossref: 10.1038/aps.2018.25
+        # -> "Zinc deficiency and cellular oxidative stress: prognostic
+        # implications in cardiovascular diseases" (Choi, Liu & Pan, Acta
+        # Pharmacologica Sinica 2018). The prior 10.3390/nu12082358 was a
+        # COVID-19 micronutrient antiviral article (Alexander et al.,
+        # Nutrients 2020) — wrong source for this entity.
+        doi: 10.1038/aps.2018.25
+        journal: Acta Pharmacologica Sinica
+        year: 2018
+        population_scope: indirect
+        coverage_content_requirements:
+          - oxidative
+        required_fields:
+          - metal_ion
+          - mechanism
+          - pathway
+          - evidence_type
+        min_fields_for_completion: 2
+        rendering_slot: mechanism_metal_homeostasis
+
+      - id: nih_ods_mineral_supplement_safety
+        type: regulatory
+        severity: S0
+        s0_category: dosing_limits
+        # An answer that recommends/discusses mineral-ion supplementation
+        # for CVD MUST state the tolerable upper intake limits — exceeding
+        # the UL (e.g. iron, zinc, selenium, magnesium) is a real
+        # catastrophic-omission dosing-safety category. Credited only when
+        # a VERIFIED claim cited to the authoritative source states an
+        # upper-limit / tolerable-upper-intake dosing bound.
+        coverage_content_requirements:
+          - tolerable upper intake
+          - mg
+        jurisdiction: NIH
+        label_name: NIH Office of Dietary Supplements mineral fact sheets
+        url_pattern: https://ods.od.nih.gov/factsheets/Magnesium-HealthProfessional/
+        required_fields:
+          - nutrient
+          - tolerable_upper_intake_level
+          - adverse_effects_of_excess
+          - at_risk_populations
+        min_fields_for_completion: 2
+        rendering_slot: regulatory_supplement_safety
+
+      - id: fda_iron_supplement_contraindication
+        type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # Iron / metal-ion supplementation is contraindicated in iron-
+        # overload disorders (hemochromatosis) and excess iron is itself
+        # cardiotoxic — a true must-cover contraindication for a CVD
+        # supplementation answer. Credited only when a VERIFIED claim
+        # states the iron-overload / hemochromatosis contraindication.
+        # url_pattern corrected: the prior 21 CFR 101.17 link is the
+        # PEDIATRIC accidental-overdose warning rule ("leading cause of
+        # fatal poisoning in children under 6") and contains NO iron-
+        # overload / hemochromatosis contraindication, so the content
+        # requirements could never be satisfied from it. Replaced with the
+        # authoritative NIH ODS Iron Health Professional fact sheet, which
+        # states the iron-overload (hereditary hemochromatosis) avoidance /
+        # contraindication for iron supplements.
+        coverage_content_requirements:
+          - contraindicated
+          - iron overload
+        jurisdiction: NIH
+        label_name: NIH Office of Dietary Supplements Iron Health Professional fact sheet (hemochromatosis / iron-overload contraindication)
+        url_pattern: https://ods.od.nih.gov/factsheets/Iron-HealthProfessional/
+        required_fields:
+          - contraindication
+          - at_risk_population
+          - warning_statement
+        min_fields_for_completion: 2
+        rendering_slot: regulatory_supplement_safety
+
+    rendering_slots:
+      efficacy_chelation_rct:
+        section: Efficacy
+        subsection_title: "Chelation therapy cardiovascular outcomes RCT (TACT)"
+        ordering: 1
+        required: true
+      efficacy_mineral_supplementation:
+        section: Efficacy
+        subsection_title: "Mineral-ion supplementation cardiovascular outcome evidence"
+        ordering: 2
+        required: true
+      mechanism_metal_homeostasis:
+        section: Mechanism
+        subsection_title: "Metal-ion homeostasis, oxidative stress, and vascular biology"
+        ordering: 1
+        required: true
+      regulatory_supplement_safety:
+        section: Regulatory
+        subsection_title: "Supplement dosing limits, contraindications, and at-risk populations"
+        ordering: 1
+        required: true
+
+  # ===================================================================
+  # I-meta-002 PR-10 — DRB-EN benchmark slug #76 (gut microbiota / CRC).
+  # NATIVE, authored BLIND (outputs/dr_benchmark sealed out; see
+  # contract_attestation.txt). Derived SOLELY from the locked question
+  # text ("predominant gut probiotics; what prebiotics are + mechanism;
+  # which pathogenic bacteria + their toxic metabolites; how to optimize
+  # daily diet"), the clinical scope_template + completeness_checklist,
+  # the D8 s0_must_cover categories, and general domain knowledge.
+  #
+  # Severity rationale (NATIVE): probiotic clinical-outcome evidence in
+  # inflammation / colorectal-cancer prevention carries decision-relevant
+  # efficacy -> S1; the mechanistic prebiotic / SCFA evidence and the
+  # pathogen-genotoxin (e.g. Fusobacterium, colibactin, B. fragilis
+  # toxin) mechanism are supporting context -> S2; the safety dimension —
+  # probiotics are contraindicated / hazardous in immunocompromised and
+  # critically-ill patients (a real catastrophic must-cover) -> S0
+  # contraindications. Biomedical entities carry doi only (no blind pmid
+  # pairing); the safety entity carries a full canonical url_pattern.
+  drb_76_gut_microbiota_crc:
+    schema_version: "v30.1"
+
+    section_order:
+      - Efficacy
+      - Mechanism
+      - Regulatory
+
+    required_entities:
+      - id: probiotic_crc_inflammation_rct
+        type: pivotal_trial
+        severity: S1
+        anchor: Probiotic-CRC-RCT
+        # RCT of probiotic supplementation on colorectal / mucosal
+        # inflammation or post-resection / adenoma outcomes (the
+        # interventional efficacy anchor the question's "probiotics retard
+        # CRC progression" claim must rest on).
+        doi: 10.1093/ajcn/85.2.488
+        journal: American Journal of Clinical Nutrition
+        year: 2007
+        population_scope: direct
+        coverage_content_requirements:
+          - probiotic
+        required_fields:
+          - N
+          - population
+          - intervention
+          - probiotic_strain
+          - comparator
+          - primary_endpoint
+          - effect_estimate_with_uncertainty
+          - safety_signal
+          - study_design
+        min_fields_for_completion: 4
+        rendering_slot: efficacy_probiotic_intervention
+
+      - id: prebiotic_fiber_scfa_meta
+        type: systematic_review
+        severity: S1
+        anchor: Prebiotic-SCFA-meta
+        # Systematic review of dietary fiber / prebiotic intake and
+        # colorectal-cancer risk (the evidence basis for the question's
+        # "inform daily dietary choices" deliverable).
+        doi: 10.1136/bmj.d6617
+        journal: BMJ
+        year: 2011
+        population_scope: direct
+        coverage_content_requirements:
+          - fiber
+        required_fields:
+          - included_studies
+          - exposure
+          - population
+          - outcome
+          - effect_estimate_with_uncertainty
+          - dose_response
+          - certainty_of_evidence
+        min_fields_for_completion: 4
+        rendering_slot: efficacy_prebiotic_diet
+
+      - id: fusobacterium_genotoxin_mechanism
+        type: mechanism_primary
+        severity: S2
+        anchor: Fusobacterium-CRC
+        # Pathogenic-bacterium mechanism: Fusobacterium nucleatum and
+        # colorectal carcinogenesis (directly answers "which pathogenic
+        # bacteria warrant concern + toxic metabolites").
+        doi: 10.1016/j.chom.2013.07.012
+        journal: Cell Host and Microbe
+        year: 2013
+        population_scope: indirect
+        coverage_content_requirements:
+          - fusobacterium
+        required_fields:
+          - pathogen
+          - toxic_metabolite_or_virulence_factor
+          - mechanism
+          - association_with_crc
+        min_fields_for_completion: 2
+        rendering_slot: mechanism_pathogen_genotoxin
+
+      - id: colibactin_pks_ecoli_mechanism
+        type: mechanism_primary
+        severity: S2
+        anchor: Colibactin-pks-Ecoli
+        # Colibactin-producing (pks+) E. coli genotoxin and the
+        # characteristic mutational signature in colorectal cancer (a
+        # second pathogen-metabolite the question explicitly requests).
+        doi: 10.1038/s41586-020-2080-8
+        journal: Nature
+        year: 2020
+        population_scope: indirect
+        coverage_content_requirements:
+          - colibactin
+        required_fields:
+          - pathogen
+          - toxic_metabolite_or_virulence_factor
+          - mechanism
+          - mutational_signature
+        min_fields_for_completion: 2
+        rendering_slot: mechanism_pathogen_genotoxin
+
+      - id: probiotic_immunocompromised_contraindication
+        type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # A daily-diet probiotic recommendation MUST flag that live
+        # probiotics are hazardous / contraindicated in immunocompromised,
+        # critically-ill, and central-line patients (bacteremia /
+        # fungemia; the PROPATRIA pancreatitis mortality signal). A true
+        # catastrophic must-cover. Credited only when a VERIFIED claim
+        # states the immunocompromised / critically-ill contraindication.
+        # url_pattern corrected (twice): the original FDA "Live Biotherapeutic
+        # Products: CMC" link was IND manufacturing guidance AND HTTP 404; an
+        # interim FDA preterm-infant safety communication was topically close
+        # but its body never contains the unchangeable S0 token
+        # "immunocompromised" (preterm-infant scope only), so a faithful claim
+        # could never strict-verify the token against a span there (fail-closed
+        # uncoverable). Replaced with the CDC Emerging Infectious Diseases
+        # report on Saccharomyces boulardii fungemia (HTTP 200, stable), whose
+        # body carries the verbatim contraindication language: probiotic use
+        # "should be avoided for patients who have indwelling catheters, are
+        # immunocompromised, or are critically ill."
+        coverage_content_requirements:
+          - contraindicated
+          - immunocompromised
+        jurisdiction: CDC
+        label_name: CDC Emerging Infectious Diseases — fungemia / invasive infection from probiotics; avoid in immunocompromised, critically-ill, and central-line patients
+        url_pattern: https://wwwnc.cdc.gov/eid/article/27/8/21-0018_article
+        required_fields:
+          - contraindication
+          - at_risk_population
+          - adverse_event
+          - warning_statement
+        min_fields_for_completion: 2
+        rendering_slot: regulatory_probiotic_safety
+
+    rendering_slots:
+      efficacy_probiotic_intervention:
+        section: Efficacy
+        subsection_title: "Probiotic intervention clinical evidence (inflammation / CRC)"
+        ordering: 1
+        required: true
+      efficacy_prebiotic_diet:
+        section: Efficacy
+        subsection_title: "Prebiotic / dietary-fiber intake and colorectal-cancer risk"
+        ordering: 2
+        required: true
+      mechanism_pathogen_genotoxin:
+        section: Mechanism
+        subsection_title: "Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis"
+        ordering: 1
+        required: true
+      regulatory_probiotic_safety:
+        section: Regulatory
+        subsection_title: "Probiotic contraindications and at-risk populations"
+        ordering: 1
+        required: true
+
+  # ===================================================================
+  # I-meta-002 PR-10 — DRB-EN benchmark slug #78 (Parkinson's / DBS).
+  # NATIVE, authored BLIND (outputs/dr_benchmark sealed out; see
+  # contract_attestation.txt). Derived SOLELY from the locked question
+  # text ("health warning signs across disease stages; which signs
+  # should alert family to seek medical advice; for Deep Brain
+  # Stimulation [DBS] post-surgery patients, daily-life adjustments and
+  # support strategies"), the clinical scope_template +
+  # completeness_checklist, the D8 s0_must_cover categories, and general
+  # neurology domain knowledge.
+  #
+  # Severity rationale (NATIVE): the DBS efficacy/long-term-outcome RCT
+  # evidence carries decision-relevant efficacy -> S1; disease-staging /
+  # progression-marker evidence is supporting clinical context -> S2; the
+  # device + medication safety dimension carries true catastrophic
+  # must-cover categories — DBS device contraindications (MRI/diathermy
+  # precautions) and the danger of abrupt dopaminergic withdrawal
+  # (parkinsonism-hyperpyrexia / NMS-like syndrome) -> S0. Biomedical
+  # entities carry doi only (no blind pmid pairing); the device-safety
+  # entity carries a full canonical url_pattern.
+  drb_78_parkinsons_dbs:
+    schema_version: "v30.1"
+
+    section_order:
+      - Efficacy
+      - Mechanism
+      - Regulatory
+
+    required_entities:
+      - id: dbs_vs_medical_therapy_rct
+        type: pivotal_trial
+        severity: S1
+        anchor: DBS-RCT
+        # Randomized trial of deep brain stimulation vs best medical
+        # therapy in Parkinson's disease (the efficacy/benefit anchor for
+        # the question's DBS-patient deliverable).
+        doi: 10.1056/NEJMoa060281
+        journal: NEJM
+        year: 2006
+        population_scope: direct
+        coverage_content_requirements:
+          - deep brain stimulation
+        required_fields:
+          - N
+          - population
+          - intervention
+          - comparator
+          - primary_endpoint
+          - timepoint
+          - effect_estimate_with_uncertainty
+          - adverse_events
+          - study_design
+        min_fields_for_completion: 4
+        rendering_slot: efficacy_dbs_outcomes
+
+      - id: parkinson_staging_progression
+        type: cohort_primary
+        severity: S2
+        anchor: PD-staging
+        # Disease-staging / progression-marker evidence (Hoehn & Yahr,
+        # MDS-UPDRS, non-motor and red-flag symptoms) underpinning the
+        # "warning signs at different stages" deliverable.
+        doi: 10.1002/mds.22340
+        journal: Movement Disorders
+        year: 2008
+        population_scope: direct
+        coverage_content_requirements:
+          - stage
+        required_fields:
+          - staging_instrument
+          - stages_or_domains
+          - progression_markers
+          - red_flag_symptoms
+          - validation
+        min_fields_for_completion: 2
+        rendering_slot: mechanism_disease_staging
+
+      - id: dbs_complications_warning_signs
+        type: mechanism_primary
+        severity: S2
+        anchor: DBS-complications
+        # DBS device- and stimulation-related complications and the
+        # caregiver warning signs (infection, lead migration, hardware
+        # erosion, stimulation-induced dysarthria / gait / mood change)
+        # that should prompt seeking medical advice. Canonical DOI verified
+        # via Crossref: 10.1212/01.WNL.0000134650.91974.1A -> "Surgical and
+        # hardware complications of subthalamic stimulation: A series of 160
+        # procedures" (Lyons et al., Neurology 2004) — STN-DBS (the
+        # Parkinson's target) infection / lead-migration / hardware
+        # complications. The prior 10.1136/jnnp-2013-306580 was a consensus
+        # guideline on stereotactic neurosurgery for PSYCHIATRIC disorders
+        # (Nuttin et al., JNNP 2014) — wrong source for this entity.
+        doi: 10.1212/01.WNL.0000134650.91974.1A
+        journal: Neurology
+        year: 2004
+        population_scope: direct
+        coverage_content_requirements:
+          - complication
+        required_fields:
+          - complication_type
+          - warning_sign
+          - time_course
+          - recommended_action
+        min_fields_for_completion: 2
+        rendering_slot: mechanism_dbs_complications
+
+      - id: dbs_device_mri_safety
+        type: regulatory
+        severity: S0
+        s0_category: contraindications
+        # DBS hardware imposes hard device contraindications/precautions —
+        # MRI conditional-use limits, prohibition of diathermy, and
+        # electromagnetic-interference precautions; violating them can
+        # cause lethal tissue heating. A true catastrophic must-cover for
+        # any DBS daily-life-support answer. Credited only when a VERIFIED
+        # claim states the MRI / diathermy device contraindication.
+        coverage_content_requirements:
+          - diathermy
+          - contraindicated
+        jurisdiction: FDA
+        label_name: FDA DBS device labeling — MRI / diathermy contraindications and precautions
+        url_pattern: https://www.accessdata.fda.gov/cdrh_docs/pdf/P960009.pdf
+        required_fields:
+          - device_precaution
+          - mri_conditions
+          - diathermy_contraindication
+          - emi_precautions
+        min_fields_for_completion: 2
+        rendering_slot: regulatory_dbs_device_safety
+
+      - id: dopaminergic_withdrawal_caution
+        type: regulatory
+        severity: S0
+        s0_category: dosing_limits
+        # Abrupt reduction/withdrawal of dopaminergic therapy (including
+        # peri-operatively around DBS) can precipitate parkinsonism-
+        # hyperpyrexia (NMS-like) syndrome — a real dosing-safety
+        # catastrophic must-cover for the daily-management answer.
+        # Credited only when a VERIFIED claim states the do-not-abruptly-
+        # stop / withdrawal-hyperpyrexia dosing caution.
+        coverage_content_requirements:
+          - abrupt
+          - withdrawal
+        jurisdiction: FDA
+        label_name: FDA carbidopa-levodopa labeling — abrupt-withdrawal hyperpyrexia warning
+        # url_pattern corrected: the prior 017555s076lbl.pdf suffix returns
+        # HTTP 404. Replaced with the live current SINEMET (carbidopa-
+        # levodopa, FDA NDA 017555) label PDF — 2020 s072 (HTTP 200) — which
+        # carries the WARNINGS-section caution that abrupt dose reduction /
+        # withdrawal can precipitate a symptom complex resembling neuroleptic
+        # malignant syndrome (parkinsonism-hyperpyrexia).
+        url_pattern: https://www.accessdata.fda.gov/drugsatfda_docs/label/2020/017555s072lbl.pdf
+        required_fields:
+          - warning
+          - mechanism
+          - clinical_consequence
+          - management
+        min_fields_for_completion: 2
+        rendering_slot: regulatory_dbs_device_safety
+
+    rendering_slots:
+      efficacy_dbs_outcomes:
+        section: Efficacy
+        subsection_title: "Deep brain stimulation clinical outcomes vs medical therapy"
+        ordering: 1
+        required: true
+      mechanism_disease_staging:
+        section: Mechanism
+        subsection_title: "Parkinson's disease staging, progression, and red-flag warning signs"
+        ordering: 1
+        required: true
+      mechanism_dbs_complications:
+        section: Mechanism
+        subsection_title: "DBS device / stimulation complications and caregiver warning signs"
+        ordering: 2
+        required: true
+      regulatory_dbs_device_safety:
+        section: Regulatory
+        subsection_title: "DBS device contraindications and dopaminergic-withdrawal dosing safety"
+        ordering: 1
         required: true
