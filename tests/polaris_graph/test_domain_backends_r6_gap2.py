@@ -12,6 +12,7 @@ import pytest
 
 from src.polaris_graph.retrieval.domain_backends import (
     _parse_arxiv_feed,
+    europe_pmc_search,
     run_domain_backends,
 )
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
@@ -123,14 +124,33 @@ def test_r6_due_diligence_dispatcher_calls_sec() -> None:
     assert all(c.source == "sec_edgar" for c in result.candidates)
 
 
-def test_r6_clinical_dispatcher_uses_no_domain_backends() -> None:
-    result = run_domain_backends(
-        domain="clinical",
-        research_question="semaglutide weight loss",
-    )
-    # Clinical defers to generic Serper+S2 — no specific backends
+def test_r6_clinical_dispatcher_calls_europe_pmc() -> None:
+    # I-meta-002-q1d (#942-clinical): clinical now adds the Europe PMC backend on top of Serper+S2.
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends.europe_pmc_search",
+        return_value=[SearchCandidate(
+            url="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123/",
+            title="A clinical trial", snippet="", source="europe_pmc",
+        )],
+    ) as mock_epmc:
+        result = run_domain_backends(
+            domain="clinical",
+            research_question="semaglutide weight loss",
+        )
+    assert mock_epmc.called
+    assert result.backends_used == ["europe_pmc"]
+    assert all(c.source == "europe_pmc" for c in result.candidates)
+
+
+def test_r6_clinical_europe_pmc_kill_switch(monkeypatch) -> None:
+    monkeypatch.setenv("PG_CLINICAL_EUROPE_PMC", "0")
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends.europe_pmc_search",
+        return_value=[SearchCandidate(url="https://x", title="t", snippet="", source="europe_pmc")],
+    ) as mock_epmc:
+        result = run_domain_backends(domain="clinical", research_question="q")
+    assert not mock_epmc.called
     assert result.candidates == []
-    assert result.backends_used == []
 
 
 def test_r6_unknown_domain_returns_empty() -> None:
@@ -185,3 +205,56 @@ def test_r6_dispatcher_dedupes_across_backends() -> None:
     assert len(result.candidates) == 1
     # First backend to surface wins (arxiv) — github drops as duplicate
     assert result.candidates[0].source == "arxiv"
+
+
+# --- I-meta-002-q1d (#942-clinical): Europe PMC backend URL priority + skip + fail-open ----------
+def _epmc_result(*, pmcid="", doi="", pmid="", title="t", abstract="a"):
+    return {"pmcid": pmcid, "doi": doi, "pmid": pmid, "title": title, "abstractText": abstract}
+
+
+def test_europe_pmc_url_priority_pmcid_first() -> None:
+    # PMCID present (even with doi+pmid) → PMC full-text URL wins (Codex brief-gate: PMC is the
+    # strongest keyless fetchable path).
+    payload = {"resultList": {"result": [_epmc_result(pmcid="PMC555", doi="10.1/x", pmid="999")]}}
+    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
+        out = europe_pmc_search("metformin renal")
+    assert out[0].url == "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC555/"
+    assert out[0].source == "europe_pmc"
+    assert out[0].metadata["doi"] == "10.1/x"
+
+
+def test_europe_pmc_url_priority_doi_then_pmid() -> None:
+    payload = {"resultList": {"result": [
+        _epmc_result(doi="10.1056/abc", pmid="111"),   # no pmcid → doi
+        _epmc_result(pmid="222"),                       # only pmid → pubmed
+    ]}}
+    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
+        out = europe_pmc_search("q")
+    assert out[0].url == "https://doi.org/10.1056/abc"
+    assert out[1].url == "https://pubmed.ncbi.nlm.nih.gov/222/"
+
+
+def test_europe_pmc_skips_record_with_no_resolvable_id() -> None:
+    # A record with none of pmcid/doi/pmid is SKIPPED — never a europepmc.org landing URL.
+    payload = {"resultList": {"result": [
+        _epmc_result(title="no ids"),
+        _epmc_result(doi="10.1/keep"),
+    ]}}
+    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
+        out = europe_pmc_search("q")
+    assert len(out) == 1
+    assert out[0].url == "https://doi.org/10.1/keep"
+    assert all("europepmc.org" not in c.url for c in out)
+
+
+def test_europe_pmc_fails_open_on_empty_or_error() -> None:
+    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=None):
+        assert europe_pmc_search("q") == []
+    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value={"bad": "shape"}):
+        assert europe_pmc_search("q") == []
+    # Codex diff-gate iter-1 P1: a helper/network EXCEPTION must also fail open (not escape).
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        side_effect=RuntimeError("network down"),
+    ):
+        assert europe_pmc_search("q") == []

@@ -1,0 +1,44 @@
+codex
+**Findings**
+
+1. **Blocking §2.4 output-schema divergence.** The locked spec requires per-stratum rows with `N`, `P`, `DEFF`, `n_eff`, degree stats, `relation_table_sha256`, and `input_manifest_sha256s` ([spec](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1C_metadata_schema_relation_builder_spec.md:154)). The implementation emits `StratumSummary(n, p, deff, ...)` and omits both custody/hash fields ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:62), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:293)). The tests also assert the lowercase dataclass API, so the passing suite encodes the wrong expected output for §2.4.
+
+2. **Fail-closed is incomplete if this builder is the accepted-run validator.** `_require_fields` only checks missing/`None` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:83)). It does not reject schema-invalid or unresolved values required fail-closed by §2.3, e.g. invalid `severity_stratum`, empty `packet_class`, or duplicate manifest IDs that silently overwrite in `packet_class_by_id` / `stratum_by_claim` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:188), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:193)). The JSON schemas define the valid enums/min lengths, but there is no call here to enforce them.
+
+3. **Fixture coverage is not sufficient for the locked §3 fixture spec.** The 33 tests pass, but they miss required/adversarial cases: nominal 50-claim integration, criterion-5 via shared packet class, criterion-5 via Jaccard band at pair level, duplicate `canonical_source_ids` in a packet, explicit p95 assertion, 23h59m boundary, just-above-0.5 Jaccard boundary, packet/severity null-field failures, unresolved/schema-invalid values, and duplicate row IDs.
+
+**Correctness Notes**
+
+The core relation logic is otherwise faithful under already-valid unique inputs. Criteria 1-4 are implemented directly at [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:133). Criterion 5 is correctly gated on shared microtopic plus same stratum, then ORs shared template, shared packet class, or Jaccard in `[0.2, 0.5)` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:160)).
+
+The float-free Jaccard functions are correct, including empty-union returning false ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:92), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:104)). Pairwise DEFF is correct: `1 + 2*P_S*rho/N_S`, and saturation reduces to `1+(N-1)rho` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:287)).
+
+Base relations are emitted for all unordered pairs, including cross-stratum, and `P_S` only counts related same-stratum pairs ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:253), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:270)). Determinism is mostly correct: lexical claim sort, canonical `i<j`, set-based dedup before Jaccard, sorted criteria list, and inclusive 24h boundary ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:212), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:148)).
+
+Degree stats are computed within-stratum and include zero-degree claims ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:291)). Nearest-rank p95 is a defensible deterministic method for an integer `>25` audit, but it should be explicitly locked or tested; current tests only assert `max_claim_degree`, not `p95_claim_degree`.
+
+Code hygiene is clean on the requested points: no `try/except pass`, mocks, or silent fallback in the relation logic; `rho` and the 24h window are named constants/parameters. I ran `python -m pytest -q tests/polaris_safety/test_relation_builder.py`: 33 passed, with only a `.pytest_cache` permission warning.
+
+Fix [relation_builder.py:62-72/293-302 §2.4 summary schema and custody hash fields; relation_builder.py:83-214 fail-closed schema/unresolved/duplicate-row validation; test_relation_builder.py missing §3 fixture coverage]
+50,637
+**Findings**
+
+1. **Blocking §2.4 output-schema divergence.** The locked spec requires per-stratum rows with `N`, `P`, `DEFF`, `n_eff`, degree stats, `relation_table_sha256`, and `input_manifest_sha256s` ([spec](C:/POLARIS/state/polaris_statistical_contract/v3_4_phase_0a_0/0a-1C_metadata_schema_relation_builder_spec.md:154)). The implementation emits `StratumSummary(n, p, deff, ...)` and omits both custody/hash fields ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:62), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:293)). The tests also assert the lowercase dataclass API, so the passing suite encodes the wrong expected output for §2.4.
+
+2. **Fail-closed is incomplete if this builder is the accepted-run validator.** `_require_fields` only checks missing/`None` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:83)). It does not reject schema-invalid or unresolved values required fail-closed by §2.3, e.g. invalid `severity_stratum`, empty `packet_class`, or duplicate manifest IDs that silently overwrite in `packet_class_by_id` / `stratum_by_claim` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:188), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:193)). The JSON schemas define the valid enums/min lengths, but there is no call here to enforce them.
+
+3. **Fixture coverage is not sufficient for the locked §3 fixture spec.** The 33 tests pass, but they miss required/adversarial cases: nominal 50-claim integration, criterion-5 via shared packet class, criterion-5 via Jaccard band at pair level, duplicate `canonical_source_ids` in a packet, explicit p95 assertion, 23h59m boundary, just-above-0.5 Jaccard boundary, packet/severity null-field failures, unresolved/schema-invalid values, and duplicate row IDs.
+
+**Correctness Notes**
+
+The core relation logic is otherwise faithful under already-valid unique inputs. Criteria 1-4 are implemented directly at [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:133). Criterion 5 is correctly gated on shared microtopic plus same stratum, then ORs shared template, shared packet class, or Jaccard in `[0.2, 0.5)` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:160)).
+
+The float-free Jaccard functions are correct, including empty-union returning false ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:92), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:104)). Pairwise DEFF is correct: `1 + 2*P_S*rho/N_S`, and saturation reduces to `1+(N-1)rho` ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:287)).
+
+Base relations are emitted for all unordered pairs, including cross-stratum, and `P_S` only counts related same-stratum pairs ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:253), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:270)). Determinism is mostly correct: lexical claim sort, canonical `i<j`, set-based dedup before Jaccard, sorted criteria list, and inclusive 24h boundary ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:212), [relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:148)).
+
+Degree stats are computed within-stratum and include zero-degree claims ([relation_builder.py](C:/POLARIS/src/polaris_safety/relation_builder.py:291)). Nearest-rank p95 is a defensible deterministic method for an integer `>25` audit, but it should be explicitly locked or tested; current tests only assert `max_claim_degree`, not `p95_claim_degree`.
+
+Code hygiene is clean on the requested points: no `try/except pass`, mocks, or silent fallback in the relation logic; `rho` and the 24h window are named constants/parameters. I ran `python -m pytest -q tests/polaris_safety/test_relation_builder.py`: 33 passed, with only a `.pytest_cache` permission warning.
+
+Fix [relation_builder.py:62-72/293-302 §2.4 summary schema and custody hash fields; relation_builder.py:83-214 fail-closed schema/unresolved/duplicate-row validation; test_relation_builder.py missing §3 fixture coverage]

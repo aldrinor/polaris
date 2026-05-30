@@ -1,0 +1,16 @@
+codex
+Lock 0a.-1.B
+
+Both fixes are closed:
+- §1.1 now requires a stated S0 path; anchors cannot substitute for it.
+- §5 now says “7-type fabrication taxonomy + type-priority rules” and includes the expanded DoD items.
+
+I found no remaining stale `6-type` wording or old domain-anchor-control exception.
+9,014
+Lock 0a.-1.B
+
+Both fixes are closed:
+- §1.1 now requires a stated S0 path; anchors cannot substitute for it.
+- §5 now says “7-type fabrication taxonomy + type-priority rules” and includes the expanded DoD items.
+
+I found no remaining stale `6-type` wording or old domain-anchor-control exception.

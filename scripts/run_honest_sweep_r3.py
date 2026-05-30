@@ -48,6 +48,8 @@ for noisy in ("httpx", "httpcore"):
 
 from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
 from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
+# I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
+from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
 )
@@ -204,6 +206,11 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
     "abort_evaluator_critical": "abort_evaluator_critical",
+    # I-meta-002 sub-PR-6: 4-role D8 release decision (single binding gate). Released =>
+    # success; held => a release-blocking abort (D8 held: fabricated occurrence / coverage
+    # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
+    "four_role_released": "success",
+    "four_role_held": "abort_four_role_release_held",
     "error": "error_unexpected",
 }
 
@@ -586,6 +593,114 @@ SWEEP_QUERIES: list[dict] = [
             "out-of-pocket drug spending Canada household",
             "CIHI Conference Board pharmacare cost-effectiveness",
         ],
+    },
+    # I-safety-002b (#925): DRB-EN #72 — AI labor-market lit review. Operator-authorized
+    # smoke run for the Path-B gate (per scripts/dr_benchmark/smoke.md). Verbatim prompt
+    # from .codex/I-safety-002b/golden_questions_locked.md. Domain "workforce" so the
+    # native per_query_report_contract[drb_72_ai_labor] (workforce.yaml) is reachable at
+    # runtime (I-meta-002 PR-11 #937): the 4-role Gate-B builder keys the frozen contract
+    # by (domain template, slug); domain "custom" left it inert (contract lives in
+    # workforce.yaml). Fires corpus_adequacy_gate + strict_verify + evaluator as before.
+    {
+        "slug": "drb_72_ai_labor",
+        "domain": "workforce",
+        "question": (
+            "Please write a literature review on the restructuring impact of "
+            "Artificial Intelligence (AI) on the labor market. Focus on how AI, "
+            "as a key driver of the Fourth Industrial Revolution, is causing "
+            "significant disruptions and affecting various industries. Ensure the "
+            "review only cites high-quality, English-language journal articles."
+        ),
+        # Amplified retrieval set targeting the 8 Q72 rubric elements via JOURNAL-PUBLISHER
+        # site: operators (I-bug-942 #928 fix). The rubric demands "high-quality, English-
+        # language journal articles" exactly; targeting AEA/QJE/JPE/Science/Wiley directly
+        # pulls T1 sources past the corpus_adequacy_gate.
+        "amplified": [
+            "site:aeaweb.org Autor why are there still so many jobs Journal of Economic Perspectives",
+            "site:aeaweb.org Goos Manning Salomons explaining job polarization American Economic Review",
+            "site:aeaweb.org Acemoglu Restrepo automation and new tasks Journal of Economic Perspectives",
+            "site:journals.uchicago.edu Acemoglu Restrepo robots and jobs Journal of Political Economy",
+            "site:academic.oup.com Brynjolfsson generative AI at work Quarterly Journal of Economics",
+            "site:academic.oup.com Autor Levy Murnane skill content technological change Quarterly Journal of Economics",
+            "site:science.org Eloundou GPTs are GPTs large language models labor",
+            "site:science.org Noy Zhang generative artificial intelligence productivity",
+            "site:sciencedirect.com Frey Osborne future of employment computerisation Technological Forecasting Social Change",
+            "site:onlinelibrary.wiley.com Goldsmith Casey fourth industrial revolution Southern Economic Journal",
+            "Frey Osborne 2017 Technological Forecasting Social Change 47 percent computerisation",
+            "Acemoglu Restrepo race between man and machine 2018 American Economic Review",
+            "Acemoglu Restrepo 2020 robots and jobs Journal of Political Economy 128",
+            "Brynjolfsson Li Raymond 2025 generative AI at work productivity QJE",
+            "Autor 2015 Journal of Economic Perspectives why so many jobs",
+            "Goos Manning Salomons 2014 American Economic Review polarization routine-biased",
+            "skill-biased technical change wage inequality peer reviewed economics",
+            "AI labor market exposure occupations literature review journal",
+            "automation employment effects commuting zones manufacturing peer reviewed",
+            "generative AI productivity field experiment journal article",
+        ],
+    },
+    # I-meta-002 PR-11 (#937): remaining 4 LOCKED golden DRB-EN benchmark questions
+    # (#75/#76/#78/#90 — #72 above). Verbatim prompts from
+    # .codex/I-safety-002b/golden_questions_locked.md. Each slug EXACTLY equals its frozen
+    # native per_query_report_contract key so load_scope_template(domain) +
+    # load_required_entities(template, slug) resolves the contract at runtime (a routing
+    # typo fail-closes in the M3a builder). These are NO-NETWORK registration stubs: no
+    # `amplified` / seed field, so import + registration trigger no live fetch/spend.
+    {
+        "slug": "drb_75_metal_ions_cvd",
+        "domain": "clinical",
+        "question": (
+            "Could therapeutic interventions aimed at modulating plasma metal "
+            "ion concentrations represent effective preventive or therapeutic "
+            "strategies against cardiovascular diseases? What types of "
+            "interventions—such as supplementation—have been proposed, and is "
+            "there clinical evidence supporting their feasibility and efficacy?"
+        ),
+    },
+    {
+        "slug": "drb_76_gut_microbiota_crc",
+        "domain": "clinical",
+        "question": (
+            "The significance of the gut microbiota in maintaining normal "
+            "intestinal function has emerged as a prominent focus in "
+            "contemporary research, revealing both beneficial and detrimental "
+            "impacts on the equilibrium of gut health. Disruption of microbial "
+            "homeostasis can precipitate intestinal inflammation and has been "
+            "implicated in the pathogenesis of colorectal cancer. Conversely, "
+            "probiotics have demonstrated the capacity to mitigate inflammation "
+            "and retard the progression of colorectal cancer. Within this "
+            "domain, key questions arise: What are the predominant types of gut "
+            "probiotics? What precisely constitutes prebiotics and their "
+            "mechanistic role? Which pathogenic bacteria warrant concern, and "
+            "what toxic metabolites do they produce? How might these findings "
+            "inform and optimize our daily dietary choices?"
+        ),
+    },
+    {
+        "slug": "drb_78_parkinsons_dbs",
+        "domain": "clinical",
+        "question": (
+            "Parkinson's disease has a profound impact on patients. What are "
+            "the potential health warning signs associated with different "
+            "stages of the disease? As family members, which specific signs "
+            "should alert us to intervene or seek medical advice regarding the "
+            "patient's condition? Furthermore, for patients who have undergone "
+            "Deep Brain Stimulation (DBS) surgery, what daily life adjustments "
+            "and support strategies can be implemented to improve their comfort "
+            "and overall well-being?"
+        ),
+    },
+    {
+        "slug": "drb_90_adas_liability",
+        "domain": "policy",
+        "question": (
+            "Analyze the complex issue of liability allocation in accidents "
+            "involving vehicles with advanced driver-assistance systems (ADAS) "
+            "operating in a shared human-machine driving context. Your analysis "
+            "should integrate technical principles of ADAS, existing legal "
+            "frameworks, and relevant case law to systematically examine the "
+            "boundaries of responsibility between the driver and the system. "
+            "Conclude with proposed regulatory guidelines or recommendations."
+        ),
     },
 ]
 
@@ -1157,8 +1272,33 @@ def _abort_if_cancelled(
 async def run_one_query(
     q: dict,
     out_root: Path,
+    *,
+    four_role_transport=None,
+    four_role_inputs=None,
+    four_role_input_builder=None,
 ) -> dict:
-    """Run the full honest pipeline on one query. Returns a summary dict."""
+    """Run the full honest pipeline on one query. Returns a summary dict.
+
+    I-meta-002 sub-PR-6 (4-role wiring, GUARDED + default OFF): the 4-role evaluation path
+    activates ONLY when BOTH ``four_role_transport`` is supplied (an explicit, INJECTED
+    ``RoleTransport`` — there is NO default real transport; live transport is Gate-B after lock
+    promotion) AND ``PG_FOUR_ROLE_MODE`` is enabled (env "1"/"true"/"True"). When OFF (the
+    default), the legacy evaluator-gate path below is byte-unchanged. ``four_role_inputs`` is the
+    caller-supplied ``FourRoleEvaluationInputs`` (claims with EXISTING ids, the canonical
+    required-element coverage ledger, and the required-S0 set) — the sweep NEVER synthesizes
+    them from the report (that extraction is Gate-B). When the branch fires it delegates entirely
+    to ``sweep_integration.run_four_role_seam`` (D8 is the single binding gate) and
+    overrides BOTH ``manifest['release_allowed']`` AND ``manifest['status']`` from the D8
+    decision, demoting the legacy evaluator_gate to ADVISORY metadata only.
+
+    I-meta-002 PR-9/M3b (Gate-B wiring): ``four_role_input_builder`` is an OPTIONAL no-argument
+    closure (wired by ``scripts/dr_benchmark/run_gate_b.py`` over the native
+    ``build_native_gate_b_inputs`` + evidence normalization). When supplied it WINS over a
+    static ``four_role_inputs``: it is called AFTER generation to PRODUCE the inputs+audit
+    bundle, and the seam writes the per-claim audit map to ``four_role_claim_audit.json`` next
+    to the run. The default (both None while the branch is OFF) leaves the legacy path
+    byte-unchanged.
+    """
     reset_run_cost()
     # I-bug-111: reset synthesis-scrub alert + telemetry at run
     # boundary so per-run manifest reflects ONLY this run's
@@ -1441,16 +1581,17 @@ async def run_one_query(
 
         # Live retrieval
         # Env-controllable retrieval width for full-scale runs:
-        #   PG_SWEEP_MAX_SERPER  (default 8)   — number of amplified
-        #     queries fanned to Serper
-        #   PG_SWEEP_MAX_S2      (default 8)   — same to Semantic Scholar
-        #   PG_SWEEP_FETCH_CAP   (default 20)  — max URLs to classify
-        #     & fetch per query (after pre-filter)
-        # Example full-scale: max_serper=20, max_s2=20, fetch_cap=200
-        # → ~400 pre-filter candidates, 200 classified sources per query.
-        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "8"))
-        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "8"))
-        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "20"))
+        #   PG_SWEEP_MAX_SERPER  (default 12)  — results per query from Serper
+        #   PG_SWEEP_MAX_S2      (default 12)  — same from Semantic Scholar
+        #   PG_SWEEP_FETCH_CAP   (default 40)  — max URLs to classify & fetch
+        #     in TOTAL after dedup (NOT per query — I-meta-002-q1d #943 doc
+        #     fix). Bounded by PG_MAX_COST_PER_RUN.
+        # I-meta-002-q1d (#943): raised 8/8/20 → 12/12/40 to close the
+        # evidence-depth gap vs frontier DR; the fetch-time relevance rerank
+        # (#951) keeps the most relevant candidates within the total cap.
+        _max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
+        _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
+        _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
         # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
         # the scope template for this domain and — if the template has
@@ -1495,8 +1636,26 @@ async def run_one_query(
         if _trial_queries:
             _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
                  f"queries (slug={q['slug']})")
-        _amplified_effective = (
-            list(q.get("amplified", [])) + _reg_queries + _trial_queries
+        # I-meta-002-q1d (#951 q1d-a): decompose the multi-clause question into focused
+        # sub-queries (pure, no-network) so a 40-70-word golden question is not fired as
+        # ~one keyword query. Flag-gated (default ON); falls back to [] for short questions.
+        _decomposed: list[str] = []
+        if os.getenv("PG_SWEEP_QUERY_DECOMPOSE", "1").strip() in ("1", "true", "True"):
+            from src.polaris_graph.retrieval.query_decomposer import (
+                decompose_question,
+            )
+            _decomposed = decompose_question(q["question"])
+            if _decomposed:
+                _log(f"[q1d]         query_decompose: +{len(_decomposed)} sub-queries "
+                     f"(slug={q['slug']})")
+        from src.polaris_graph.retrieval.query_decomposer import (
+            build_amplified_query_list,
+        )
+        _amplified_effective = build_amplified_query_list(
+            hand_authored=list(q.get("amplified", [])),
+            decomposed=_decomposed,
+            regulatory=_reg_queries,
+            trial=_trial_queries,
         )
 
         # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
@@ -2246,10 +2405,15 @@ async def run_one_query(
         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
             return summary
 
-        multi = await generate_multi_section_report(
-            research_question=q["question"],
-            evidence=evidence_for_gen,
-            section_temperature=0.3,
+        # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
+        # so the Path-B gate captures every nested LLM completion (multi-section + analyst
+        # + retries + reason) under role="generator". No-op when the gate is inactive.
+        _pathb_gen_tok = _pathb.set_role("generator")
+        try:
+            multi = await generate_multi_section_report(
+                research_question=q["question"],
+                evidence=evidence_for_gen,
+                section_temperature=0.3,
             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
             # match the upstream default. V19 had 3 / V20 had 2
             # "Expecting ',' delimiter" JSON decode failures — all
@@ -2276,7 +2440,7 @@ async def run_one_query(
             min_kept_fraction=float(os.environ.get(
                 "PG_MIN_KEPT_FRACTION", "0.4",
             )),
-            max_parallel_sections=3,
+            max_parallel_sections=int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "3")),
             tier_fractions=dist.tier_fractions,
             contradictions=[asdict(c) for c in contradictions],
             date_range=(
@@ -2318,7 +2482,9 @@ async def run_one_query(
             m50_skip_anchors=_compute_m50_skip_anchors(
                 _phase2_contract_plans, _primary_anchors,
             ) if _phase2_contract_plans else None,
-        )
+            )
+        finally:
+            _pathb.reset_role(_pathb_gen_tok)
         dt = time.time() - t0
         _log(f"              elapsed={dt:.1f}s outline={len(multi.outline)} "
              f"sections, words={multi.total_words}, "
@@ -2864,14 +3030,21 @@ async def run_one_query(
         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
             return summary
 
-        ev_out = run_external_evaluation(
-            report_text=final_report,
-            protocol=protocol,
-            tier_distribution_report=asdict(dist),
-            contradictions=[asdict(c) for c in contradictions],
-            evidence_pool=ev_pool,
-            enable_llm_judge=False,
-        )
+        # I-safety-002b (#925) PR-2: tag external_evaluator under role="evaluator". Per
+        # Codex iter-1 P3: this is no-op in honest_sweep today (enable_llm_judge=False
+        # routes only rule checks; future-proofs if an LLM judge is enabled).
+        _pathb_ev_tok = _pathb.set_role("evaluator")
+        try:
+            ev_out = run_external_evaluation(
+                report_text=final_report,
+                protocol=protocol,
+                tier_distribution_report=asdict(dist),
+                contradictions=[asdict(c) for c in contradictions],
+                evidence_pool=ev_pool,
+                enable_llm_judge=False,
+            )
+        finally:
+            _pathb.reset_role(_pathb_ev_tok)
         (run_dir / "evaluator_rule_checks.json").write_text(
             json.dumps(ev_out.to_json_dict(), indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",
@@ -2885,12 +3058,17 @@ async def run_one_query(
         # Judge
         jr = None
         try:
-            jr = await judge_report(
-                report_text=final_report,
-                research_question=q["question"],
-                temperature=0.2,
-                max_tokens=800,
-            )
+            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
+            _pathb_jr_tok = _pathb.set_role("evaluator")
+            try:
+                jr = await judge_report(
+                    report_text=final_report,
+                    research_question=q["question"],
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+            finally:
+                _pathb.reset_role(_pathb_jr_tok)
             if jr.parse_ok:
                 vcounts = {
                     v: sum(1 for j in jr.verdicts.values()
@@ -3051,6 +3229,100 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+        # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+        # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
+        # 4-role sweep is Gate-B (after lock promotion + operator spend authorization). When
+        # this branch is OFF (the default), every line below is the unchanged legacy path —
+        # eval_gate already drove manifest['release_allowed'] + status above.
+        #
+        # When ON: D8 (apply_d8_release_policy, via sweep_integration) is the SINGLE binding
+        # gate. We OVERRIDE both manifest['release_allowed'] AND manifest['status'] from the
+        # D8 decision (so status and release_allowed cannot contradict — the double-gate the
+        # Codex P2 forbids) and DEMOTE the legacy evaluator_gate to advisory metadata only.
+        # claims/ledger/required-set are caller-supplied (four_role_inputs); the sweep never
+        # synthesizes claim_ids or a coverage denominator (fail-closed: sweep_integration
+        # raises on a blank id or an empty canonical required set).
+        _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
+            "1", "true", "True",
+        )
+        if _four_role_on and four_role_transport is not None:
+            # M3b: the seam resolves inputs (builder WINS over static four_role_inputs; both
+            # None -> fail-closed), runs the SINGLE binding D8 gate, and persists the per-claim
+            # audit map next to the run. The builder closure is called HERE — AFTER generation —
+            # so it sees the finished `multi` report; the sweep still synthesizes nothing itself.
+            from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+                build_evaluator_agrees_map,
+                run_four_role_seam,
+            )
+            four_role_result = run_four_role_seam(
+                four_role_transport,
+                run_dir=run_dir,
+                timestamp=_utc_now_iso(),
+                four_role_input_builder=four_role_input_builder,
+                four_role_inputs=four_role_inputs,
+                multi=multi,
+                template=_template,
+                slug=q["slug"],
+                domain=q["domain"],
+                ev_pool=ev_pool,
+            )
+            # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+            manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+            manifest["release_allowed"] = four_role_result.release_allowed
+            # Single binding status: released => success; held => release-blocking abort.
+            summary_status = (
+                "four_role_released"
+                if four_role_result.release_allowed
+                else "four_role_held"
+            )
+            # Reassign BOTH the summary label AND the unified local so manifest.json,
+            # sweep_summary.json (summary["status"] at the function tail), and the status log
+            # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+            # assembly point (clinical_generator, Gate-B); they are surfaced here so the D8
+            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+            # VERIFIED->True / else->False (the helper lives in sweep_integration). The sweep's
+            # SectionResult path holds SentenceVerification, NOT VerifiedSentence, so there is no
+            # VerifiedSentence object to write here — populating one would be fake wiring.
+            manifest["four_role_evaluation"] = {
+                "release_allowed": four_role_result.release_allowed,
+                "held_reasons": four_role_result.held_reasons,
+                "coverage_fraction": round(four_role_result.coverage_fraction, 3),
+                "fabricated_occurrence_latched": (
+                    four_role_result.fabricated_occurrence_latched
+                ),
+                "needs_rewrite": four_role_result.needs_rewrite,
+                "final_verdicts": four_role_result.final_verdicts,
+                "gaps": [
+                    {
+                        "ref": gap.ref,
+                        "kind": gap.kind,
+                        "severity": gap.severity,
+                        "note": gap.note,
+                    }
+                    for gap in four_role_result.gaps
+                ],
+                "kg_path": str(four_role_result.kg_path),
+            }
+            # I-meta-002 PR-9/M5: ADDITIVE per-claim evaluator_agrees MAP for audit/inspector
+            # fidelity (NOT a release gate — D8 above stays the single binding gate). Joinable to
+            # four_role_claim_audit.json by claim_id. kept_claim_ids is None here: on the sweep
+            # path the FourRoleClaim set is built from KEPT (is_verified) sentences only, so every
+            # claim_id in final_verdicts is already a kept claim (invariant documented in the
+            # helper). The §-1.1 fail-safe rule (VERIFIED+kept -> True; every other verdict ->
+            # False) lives in build_evaluator_agrees_map -> evaluator_agrees_from_verdict.
+            manifest["four_role_evaluation"]["evaluator_agrees"] = (
+                build_evaluator_agrees_map(four_role_result.final_verdicts)
+            )
+            _log(
+                f"[four_role]   release_allowed={four_role_result.release_allowed} "
+                f"coverage={four_role_result.coverage_fraction:.3f} "
+                f"held_reasons={four_role_result.held_reasons}"
+            )
 
         # V30 Report Contract Architecture integration (Phase 1 of
         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
@@ -3255,6 +3527,16 @@ async def main_async() -> int:
         help="Output directory root. Default: outputs/honest_sweep_r3",
     )
     parser.add_argument(
+        "--pathB-gate", action="store_true",
+        help=(
+            "I-safety-002b (#925): enable the Path-B DR head-to-head benchmark gate. "
+            "Per question: preflight (full-power env + reachability + no fallbacks), "
+            "capture every generator+evaluator LLM completion, then assert_post_run "
+            "(served-model match + retrieval-backends actually attempted) BEFORE any "
+            "scoring. Persists pathB_gate_pin.json + pathB_gate_result.json to run_dir."
+        ),
+    )
+    parser.add_argument(
         "--replay-from-pin", type=str, default=None,
         help=(
             "M-INT-0b: load a captured ModelPin from <path> and apply "
@@ -3446,7 +3728,15 @@ async def main_async() -> int:
         for q in queries_to_run:
             print(f"\n>>> {q['domain']} / {q['slug']}")
             t0 = time.time()
-            summary = await run_one_query(q, out_root)
+            # I-safety-002b (#925) PR-2: wrap each question's run with the Path-B gate
+            # (preflight + capture + assert_post_run). No-op when --pathB-gate is off.
+            _pathb_run_dir = out_root / q["domain"] / q["slug"]
+            _pathb_run_dir.mkdir(parents=True, exist_ok=True)
+            from src.polaris_graph.benchmark.pathB_runner import gate_around_question
+            with gate_around_question(
+                enabled=args.pathB_gate, run_dir=_pathb_run_dir,
+            ):
+                summary = await run_one_query(q, out_root)
             dt = time.time() - t0
             summary["wall_time_seconds"] = round(dt, 1)
             # M-INT-0b: capture a ModelPin for every run so later
