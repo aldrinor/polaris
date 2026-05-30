@@ -1,0 +1,253 @@
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5. (iter-1 + iter-2 REQUEST_CHANGES fully adopted in the two REVISED SPEC sections at the END of this brief — read BOTH; "REVISED SPEC v2" supersedes any conflicting detail above. The two iter-2 P1s — permissive-`may` precedence + object_slot review-routing — are addressed in REVISED SPEC v2.)
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+RULE NOW — emit the YAML verdict block FIRST. APPROVE this CONCRETE plan or REQUEST_CHANGES with specifics. CLINICAL-SAFETY-CRITICAL (§-1.1): a FALSE qualitative conflict floods the safety report with phantom contradictions; a MISSED qualitative conflict (the lethal-error class per feedback_qualitative_negation_escapes_regex_2026_05_26) hides a real present-vs-absent contraindication/DDI disagreement. Precision is the lever; the fail-safe for uncertainty is ESCALATE-TO-REVIEW, never silent no-conflict. NO SPEND offline (rule-cue only; LLM-judge escalation is a default-OFF opt-in).
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# Codex brief-gate (iter 1) — PR6: qualitative present-vs-absent clinical conflict detection (#944)
+
+Codex-verified gap (#941): `contradiction_detector.py` is numeric-regex ONLY (`extract_numeric_claims` →
+`detect_contradictions`, groups by (subject, predicate, unit, dose), flags numeric gaps >10%). The most
+patient-dangerous disagreements — contraindication PRESENT vs ABSENT, drug-interaction warning present vs
+absent, eligibility/exclusion — carry NO number and are structurally invisible. This adds a parallel
+qualitative assertion-status conflict path, surfaced into the SAME `contradictions.json` + report.
+
+## GROUNDED FACTS (verified; do not re-explore)
+- **Numeric detector** `src/polaris_graph/retrieval/contradiction_detector.py` (651 lines): `ExtractedNumericClaim`,
+  `ContradictionRecord`, `extract_numeric_claims(evidence, domain)`, `detect_contradictions(claims)`,
+  `format_contradictions_for_user(records)`. Untouched by this PR (additive sibling path).
+- **Sweep call site** `scripts/run_honest_sweep_r3.py:2180-2192`: `numeric_claims = extract_numeric_claims(
+  retrieval.evidence_rows, domain=q["domain"])`; `contradictions = detect_contradictions(numeric_claims)`;
+  writes `(run_dir/"contradictions.json").write_text(json.dumps([asdict(c) for c in contradictions], ...))`;
+  logs counts. Report references contradictions.json at ~line 2890.
+- **Consumer schema (HARD constraint)** `src/polaris_graph/audit_ir/loader.py`: contradictions.json must be a
+  JSON list (`:552`); each record `_require_keys(predicate, claims)` (`:557`); `claims` must be a list len≥2
+  (`:559-562`); each claim `_require_keys(evidence_id, predicate, value)` and **`value=float(raw["value"])`
+  (`:540`) — value is REQUIRED and coerced to float**; subject/severity/abs_diff/rel_diff/recommended_action
+  are `.get()` with defaults (`:570-575`); **loader is TOLERANT of unknown/extra fields**. inspector_router.py
+  treats contradictions.json as a required canonical file (`:655-662`), no extra field-level validation.
+  → A qualitative record is loader-safe iff: `predicate` (str) + `claims` (list≥2), each claim has
+  `evidence_id`(str) + `predicate`(str) + `value`(**float**). I encode polarity as `value=1.0` (PRESENT) /
+  `0.0` (ABSENT); human-readable `assertion_status` + `type:"qualitative"` ride as tolerated extra fields.
+- **Evidence rows** carry `evidence_id`, `direct_quote` (or `statement`), `source_url`, `tier`.
+- **Same class as** PR3 `analyst_synthesis._screen_qualitative_negations` (which DROPS fabricated qualitative
+  negations in OUTPUT) and `feedback_qualitative_negation_escapes_regex_2026_05_26` (the real-smoke miss:
+  "Constipation did not lead to discontinuation" vs evidence). This PR detects qualitative conflicts ACROSS
+  sources at INPUT — a different surface, same lethal class.
+
+## DESIGN — NegEx/ConText-grounded, three-pass, precision-first, fail-safe-to-review
+**New `src/polaris_graph/retrieval/qualitative_conflict_detector.py`** + a config lexicon
+`config/clinical_safety/qualitative_conflict_lexicon.yaml` (LAW VI: cues are SME-editable config, not
+hard-coded). Canonical method: NegEx (Chapman 2001) + ConText (Harkema/Chapman 2009) — three lexicons
+(pre-negation, post-negation, pseudo-negation) + termination terms + bounded directional scope.
+
+Concept-type axis (5): `contraindication`, `drug_interaction`, `eligibility_exclusion`, `warning`,
+`ae_causation`. assertion_status ∈ {PRESENT, ABSENT, INDETERMINATE}.
+
+1. `extract_qualitative_assertions(evidence, domain) -> list[QualitativeAssertion]`: for each evidence quote,
+   per sentence: (a) find a concept-type via the concept lexicon, mapping ANTONYM/VARIANT phrasings to a
+   polarity — `contraindicated`/`avoid in`/`should not be used in`/`do not co-administer` → PRESENT;
+   `safe in`/`no contraindication`/`may be co-administered` → ABSENT (this catches the LETHAL FALSE NEGATIVE
+   where a real disagreement carries NO 'no/not' token); (b) **PASS 1 pseudo-negation guard FIRST** — if a
+   pseudo cue scopes the concept (statistical-significance family `no significant difference|increase|change|
+   association`, plus `not only`, `cannot be excluded`, `not associated with increased risk`), SUPPRESS — do
+   not flip; (c) **PASS 2** apply pre-negation cues scoping FORWARD / post-negation BACKWARD, hard-stopping at
+   the nearest termination term (`but|however|except|although|...`), sentence end, or a ~6-token cap; net
+   polarity is XOR-folded so double-negation collapses correctly; (d) **PASS 3** mark ABSENT only inside an
+   un-terminated, un-suppressed negation scope, else PRESENT; (e) **modality gate** — hedge cues (`may|might|
+   possibly|suggested|cannot be ruled out`) → INDETERMINATE; (f) extract `subject` (drug, reuse the numeric
+   detector's `_subject_near_position`/`_normalize_subject`) and a `condition_scope` phrase (renal/hepatic/
+   pregnancy/dose/population cue if present, else "").
+2. `detect_qualitative_conflicts(assertions) -> list[QualitativeConflictRecord]`: group by
+   `(subject, concept_type, normalized_condition_scope)`. Flag a conflict iff within a group there are
+   **≥2 DISTINCT sources** (normalize source identity by DOI/PMID/NCT/canonical-url; same source self-quoted
+   = ONE source, cannot raise a conflict) with **DIFFERING definite net polarity** (one PRESENT, one ABSENT).
+   INDETERMINATE/hedged assertions CANNOT anchor a hard conflict against a definite one.
+3. **Fail-safe = escalate-to-review, never silent** (the must-have clinical stance — a missed contradiction
+   is the lethal error): when a DISCRIMINATING field is indeterminate — condition_scope differs OR is missing
+   on one side, source identity unresolvable, concept-type/subject unresolved, hedged polarity — DO NOT emit a
+   hard conflict AND DO NOT drop: emit a `review_flag` record (`severity:"review"`, `conflict_reason`
+   naming the indeterminate field). "High precision" = do not fire on a DETERMINABLE non-conflict, NOT go
+   quiet when unsure. Optional `PG_QUALITATIVE_CONFLICT_LLM_JUDGE` (default "0", NO SPEND): when ON, route the
+   review-flag pairs to the Judge for annotate-only adjudication; default OFF = rule-cue only.
+4. **Serialization**: `QualitativeConflictRecord` → dict shaped EXACTLY for the loader: `predicate` (e.g.
+   `"contraindication (renal impairment)"`), `claims` (list≥2, each `{evidence_id, predicate, value:1.0|0.0,
+   subject, assertion_status, source_url, source_tier, context_snippet}`), plus tolerated extras
+   `type:"qualitative"`, `severity`, `conflict_reason`, `recommended_action`.
+5. **Wire into `run_honest_sweep_r3.py`** after line 2183: `qual = detect_qualitative_conflicts(
+   extract_qualitative_assertions(retrieval.evidence_rows, q["domain"]))`; **merge** qual records into the
+   `contradictions` list BEFORE writing contradictions.json (numeric first, qualitative + review-flags after);
+   extend the report contradiction section + the log line (`numeric=N qualitative=M review_flagged=K`).
+   Behind `PG_SWEEP_QUALITATIVE_CONFLICT` (default ON — it is NO-SPEND and additive; a kill-switch for safety).
+
+## HONEST SCOPE (what is fully solved vs review-routed vs deferred)
+- FULLY SOLVED (rule-cue): pseudo-negation suppression incl. the statistical family; antonym/variant PRESENT
+  vs ABSENT lexicon; bounded-scope negation + net-polarity double-negation; modality→INDETERMINATE;
+  concept-type alignment (compare only within same type); subject match; source-distinctness ≥2.
+- REVIEW-ROUTED (not auto-fired, not dropped): differing/missing condition_scope, unresolved source identity,
+  unresolved subject/concept, hedged polarity → `review_flag` record (optionally LLM-adjudicated when the
+  default-OFF flag is on).
+- DEFERRED (named, not silently dropped): full temporal/guideline-version stratification (needs reliable
+  effective-date metadata we don't yet capture) → if date metadata differs it is review-flagged as
+  "temporal provenance"; full dependency-parse scope (we use a token-window approximation of NegEx, the
+  precision-tightened original, not medspaCy's permissive whole-sentence default).
+
+## Tests (offline, NO SPEND — fail-closed clinical regressions mandatory)
+Precision (must NOT fire): "no significant difference in MACE" vs "reduced MACE 12%" → NO conflict;
+"contraindicated in eGFR<30" vs "not contraindicated in normal renal function" → review_flag, NOT hard
+conflict; same NCT different arm → NO conflict (source-distinctness); verapamil vs diltiazem → NO conflict
+(subject); AE-causation vs contraindication → NO conflict (concept-type); double-negation "not non-
+contraindicated" vs "contraindicated" → NO conflict (agree). Recall (must fire / must not be silent):
+"contraindicated in pregnancy" vs "safe in pregnancy" (no 'no/not' token, antonym) → conflict; "avoid
+clarithromycin with lovastatin" vs "may be co-administered" → conflict; "constipation did not lead to
+discontinuation" vs "leading cause of discontinuation" → conflict. Schema: every emitted record round-trips
+through audit_ir.loader (predicate+claims≥2, each claim value=float). Kill-switch off → no records. LLM-judge
+flag off → no network.
+
+## Constraints / frozen
+snake_case; explicit imports; no except:pass; fail-closed (uncertainty → review_flag, never silent drop);
+LAW VI cues in config yaml. Untouched: strict_verify / provenance / numeric `contradiction_detector` /
+runtime lock / verified core. LOC: NEW isolated module + config + ~25 LOC wiring; likely ~180-220 production
+LOC given the clinical lexicons + guards — FLAG: is this within the §3.0 200-LOC cap as a new-module
+exemption, or should the detector module (PR6) and the sweep wiring (PR6b) split into two PRs? Rule on it.
+
+## The real risks to rule on
+1. Is the precision guard set SUFFICIENT for clinical safety — specifically the pseudo-negation statistical
+   family ("no significant difference") suppression, concept-type+subject+condition-scope keying, and
+   source-distinctness — to avoid phantom conflicts that would be "lethal in clinical context" per §-1.1?
+2. Is the fail-safe correct: indeterminate → review_flag (surfaced, never silent), NOT auto-fire and NOT
+   drop? Is `review` severity the right vehicle, or should review-flags be a separate file/field?
+3. Is encoding polarity as claim `value=1.0/0.0` loader-safe and non-misleading in the audit viewer (which
+   renders numeric contradictions), or should qualitative records carry a distinct discriminator the viewer
+   must learn? (loader is tolerant; viewer renders value — risk of a "1.0 vs 0.0" looking like a numeric gap.)
+4. Scope honesty: is review-routing condition_scope/temporal (vs full extraction) an acceptable v1, or a P1
+   gap for the golden clinical set?
+5. LOC/PR-split: one PR (module+wiring) vs split PR6/PR6b. Your call.
+6. Default-ON kill-switch for a NO-SPEND additive detector — acceptable, or default-OFF until a live smoke?
+
+APPROVE iff this adds a precision-first qualitative present-vs-absent conflict path that (a) suppresses the
+pseudo-negation/statistical false-positive class, (b) catches the antonym/variant false-negative class,
+(c) keys conflicts on concept-type+subject+condition-scope with ≥2 distinct sources, (d) fail-safes
+indeterminate cases to a surfaced review_flag (never silent), (e) writes loader-safe records into the
+existing contradictions.json + report, (f) is NO-SPEND by default and fully testable offline, (g) leaves
+strict_verify / numeric detector / verified core untouched.
+
+---
+
+## REVISED SPEC — Codex brief-gate iter-1 REQUEST_CHANGES adopted (all 6 P1 + P2 rulings, binding). Iter 2.
+
+**P1.1 — mixed serialization crash (existing `[asdict(c) for c in contradictions]`).** `QualitativeConflictRecord`
+is a `@dataclass` (fields: `predicate:str`, `claims:list[dict]`, `subject:str`, `severity:str`,
+`type:str="qualitative"`, `conflict_reason:str`, `recommended_action:str`, `absolute_difference:float=0.0`,
+`relative_difference:float=0.0`). The sweep merges `contradictions + qual_records` — a HOMOGENEOUS list of
+dataclasses — so the existing `[asdict(c) for c in merged]` writer is UNCHANGED and cannot crash. `asdict`
+deep-copies the `claims` list-of-dicts as-is. Numeric path untouched.
+
+**P1.2 — exact-scope grouping silently drops the review cases (the opposite of the promised fail-safe).**
+TWO-PASS: **Pass A (hard conflict)** groups by the FULL key and flags only same-key differing-definite-polarity
+≥2-distinct-source clusters. **Pass B (review candidate)** groups by the COARSE key (drop condition_scope);
+within a coarse group NOT already a hard conflict, if ≥2 distinct sources have differing definite polarity but
+condition_scopes DIFFER or are missing on one side, OR a definite opposes an INDETERMINATE/STATISTICAL_NULL,
+emit a `review_flag` (`severity:"review"`, `conflict_reason` names the indeterminate field). Never dropped,
+never auto-fired as a hard conflict.
+
+**P1.3 — under-specified conflict key (phantom conflicts).** Full key = `(subject, concept_type, object_slot,
+condition_scope)`. `object_slot` is concept-specific, extracted from the lexicon: `drug_interaction` → the
+interacting co-drug; `ae_causation` → the AE/outcome term; `warning` → the hazard; `eligibility_exclusion` →
+the criterion/population; `contraindication` → the population/condition. Differing object_slot → different
+instance → NOT a conflict (verapamil+ivabradine ≠ diltiazem+ivabradine; thyroid-AE ≠ contraindication).
+
+**P1.4 — INDETERMINATE has no loader-safe float.** Finite encoding on every claim `value`:
+PRESENT=1.0, ABSENT=0.0, INDETERMINATE=0.5, STATISTICAL_NULL=0.5. Always a finite float → `float(raw["value"])`
+safe. The human-readable `assertion_status` rides as a per-claim field; `value` is the loader-required numeric.
+
+**P1.5 — consumers must branch on `type:"qualitative"` + `severity:"review"` (else 1.0-vs-0.0 reads as a
+numeric gap / review flags miscount as hard conflicts).** Owned in THIS PR: `report.md` generation
+(run_honest_sweep_r3 ~line 2890) renders qualitative records by `assertion_status` TEXT (present/absent/
+indeterminate/statistical-null), NOT the raw float, and counts hard-conflicts vs review-flags SEPARATELY;
+the log line becomes `numeric=N qualitative_conflicts=M review_flags=K`. The `audit_ir.loader` is left
+UNCHANGED (tolerant; `severity="review"` already flows into `ContradictionCluster.severity`). The web
+inspector qualitative rendering (branch on `type`/`severity`) is a NAMED FOLLOW-UP issue — it is a `web/**`
+change requiring the separate `visual_review_gate`, so it cannot ride in this backend PR (honest scope). I
+will file it and reference the issue number in the PR body + claude_audit.
+
+**P1.6 — pseudo-negation pass over-suppresses (`cannot be excluded`, `not associated with increased risk`).**
+The single suppress bucket is split into FOUR cue classes (Codex remaining_blocker #5):
+(1) `no_assertion` true-pseudo (`gram negative`, `not only`, `without difficulty`) → concept NOT asserted →
+skip; (2) `statistical_null` (`no significant difference|increase|change|association`, `not statistically
+significant`, `not associated with increased risk`) → status STATISTICAL_NULL → cannot anchor a hard conflict;
+opposes-a-definite → review_flag; (3) `uncertainty` (`cannot be excluded`, `cannot be ruled out`, `not ruled
+out`) → status INDETERMINATE → review; (4) `real_negation` (`no evidence of`, `negative for`, `ruled out`, +
+scoped `no|not|never|absent|without`) → ABSENT. Plus affirmation/antonym → PRESENT and hedge (`may|might|
+possibly|suggested`) → INDETERMINATE. NOTHING is silently dropped before fail-safe routing.
+
+**P2 rulings adopted:** one cohesive PR (module + wiring + report rendering + tests together) — no hard
+automated LOC gate exists in CI (verified), so the new-module + clinical lexicons exemption is documented and
+LOC is not split. Default-ON kept BUT gated by an OFFLINE SMOKE fixture test that drives the full
+extract→detect→serialize→`audit_ir.loader` round-trip→report path AND asserts the kill-switch
+(`PG_SWEEP_QUALITATIVE_CONFLICT=0`) emits zero qualitative records; LLM-judge flag (`PG_QUALITATIVE_CONFLICT_
+LLM_JUDGE`, default "0") off → no network. The YAML lexicon loader validates required sections at first use
+(fail-loud `RuntimeError` if a section is missing); PyYAML is already a declared dep (requirements.txt).
+
+**Tests add (beyond iter-1 list):** object_slot discrimination (DDI co-drug pair, AE outcome) → no phantom
+conflict; STATISTICAL_NULL vs definite → review_flag NOT hard conflict; INDETERMINATE `cannot be excluded` →
+review_flag NOT dropped; coarse-key scope-mismatch → review_flag (Pass B) NOT dropped; finite-float encoding
+for all four statuses; mixed dataclass list serializes via `asdict` without crash; report renders
+assertion_status text + separate counts; lexicon-section-missing → fail-loud.
+
+---
+
+## REVISED SPEC v2 — Codex brief-gate iter-2 REQUEST_CHANGES adopted (2 P1 + 2 P2, binding). Iter 3.
+
+**iter-2 P1.a — permissive/deontic `may` vs epistemic hedge `may` (would break the mandatory DDI recall
+test).** A curated **permissive-allow lexicon** — `may be co-administered`, `may be used with`, `can be
+co-administered`, `can be used with`, `is compatible with`, `no interaction with` — is classified ABSENT
+(allowed-interaction / no-contraindication) and is checked with PRECEDENCE **before** the generic hedge rule.
+The hedge→INDETERMINATE rule applies ONLY to epistemic modality over a present-leaning concept (`may be
+contraindicated`, `might interact`, `possibly contraindicated`). Classification precedence per span:
+permissive-allow (→ABSENT definite) → statistical_null → uncertainty (→INDETERMINATE) → real-negation
+(→ABSENT) → affirmation/antonym (→PRESENT) → epistemic-hedge (→INDETERMINATE). So `avoid clarithromycin with
+lovastatin` (PRESENT) vs `clarithromycin may be co-administered with lovastatin` (ABSENT, permissive) HARD-
+fires — not downgraded.
+
+**iter-2 P1.b — unresolved/missing `object_slot` must route to review, not silent-drop.** Pass B's coarse key
+is `(subject, concept_type)` ONLY (drops BOTH `object_slot` AND `condition_scope`). Within a coarse group,
+for each definite-polarity-disagreeing distinct-source pair: (a) if `object_slot` AND `condition_scope` match
+exactly → it is a Pass-A hard conflict (handled there); (b) if either side's `object_slot` is missing/
+unresolved, OR one is a broad class vs the other specific, OR `condition_scope` differs/missing → `review_flag`
+(never dropped); (c) ONLY when BOTH `object_slot`s are resolved to clearly-different SPECIFIC entities (e.g.
+ivabradine vs amiodarone) AND determinably different → NOT a conflict (no flag). Net: indeterminate object_slot
+→ review, determinable-different → no-conflict, exact-match → hard conflict.
+
+**iter-2 P2.a — Pass B must not skip a whole coarse group that already has a hard conflict.** Pass B iterates
+every distinct-source pair in the coarse group and suppresses ONLY the specific source-pairs already emitted as
+Pass-A hard conflicts; all remaining indeterminate / statistical-null / scope-or-object-mismatch pairs in the
+same (subject, concept_type) cluster still get their `review_flag`.
+
+**iter-2 P2.b — canonical key ownership (no double-encoding of population/condition).** Each extracted span
+goes into exactly ONE key field per concept-type: `contraindication` → `condition_scope` owns population/
+organ-status, `object_slot=""`; `drug_interaction` → `object_slot` = co-drug, `condition_scope` = population
+qualifier if any; `eligibility_exclusion` → `object_slot` = criterion, `condition_scope` = population;
+`warning` → `object_slot` = hazard, `condition_scope=""` unless population-qualified; `ae_causation` →
+`object_slot` = AE/outcome, `condition_scope=""`. No span is written into both fields.
+
+**Tests add (iter-2):** permissive `may be co-administered` vs `avoid` → HARD conflict (NOT downgraded to
+review); epistemic `may be contraindicated` vs `is contraindicated` → agree/no-conflict (hedge can't anchor);
+missing/broad object_slot pair → review_flag NOT dropped; resolved-different object_slot (ivabradine vs
+amiodarone) → NO flag; coarse group with one hard conflict + one indeterminate pair → BOTH a hard conflict AND
+a review_flag emitted (Pass B not skipped).

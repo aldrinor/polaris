@@ -1,0 +1,36 @@
+codex
+§-1.1 result: close, but not lockable yet.
+
+1. Packet definition is consistent with D3 and 0a.-1.C: packet = non-empty, admissible, distinct canonical source set; bin comes from the downselected packet size; `source_packet_manifest` has `minItems: 1`; criterion-2 Jaccard is claim-level, not full-packet. No contradiction there.
+
+2. Curation order is mostly right: gather → admissibility → canonicalize/dedup → downselect → snapshot → manifest. The gap is step 1. “Production retrieval and/or direct SME selection” is too open unless D7 requires a recorded, pre-registered source-gathering rule/provenance. Downstream admissibility and downselect validation cannot detect a constructor choosing a telltale source universe for fabricated claims.
+
+3. `packet_class = (domain, complexity_tier, evidence_pool_bin, dominant_source_class)` is directionally acceptable for criterion 5 because criterion 5 is also gated by shared microtopic and same severity stratum. It should not become universal unless microtopics are too broad or packets are over-homogenized, and the degree audit can catch saturation. But D7 needs build details: canonical string serialization for the tuple, explicit source-class namespace/tie order from the scope-template tier priority, and handling for exception-admitted/out-of-class sources.
+
+4. Label symmetry is necessary but not mechanically complete. The identical pipeline prevents obvious renderer/process tells, but not selection tells. The constructor’s initial candidate-source choice remains a residual asymmetry path unless there is a `source_gathering/source_selection_manifest` recording retrieval queries, direct selections, inclusion rationale/provenance, and matched-control parity.
+
+5. §5 correctly reaffirms 0a.-1.D §4: criterion 2 uses `claim_cited_source_ids`, not full packet IDs. The residual gaming path is that `claim_cited_source_ids` could be hand-shaped to raise/lower Jaccard. D7 should require it to be derived from rendered cited spans/citation annotations, alias-resolved by the canonicalizer, and validated as a subset of the packet’s `canonical_source_ids`.
+
+6. `packet_class` is computable for ordinary non-empty packets, including ties and single-source packets. It is not guaranteed for exception-admitted sources unless D7 defines their class token or requires exceptions to carry a packet-class source class. Also, if one `evidence_packet_id` can be reused by claims with different `complexity_tier`, putting `complexity_tier` in `source_packet_manifest.packet_class` is ambiguous; D7 needs an invariant that shared packet IDs are homogeneous for domain/tier/bin or are duplicated under separate packet IDs.
+
+7. Nothing is conceptually unbuildable, but the above gaps are methodology-level, not cosmetic. They affect blinding, relation manipulation, and deterministic packet-class construction.
+
+Fix source-gathering provenance/label-symmetry enforcement, `packet_class` serialization/class handling/reuse invariant, and `claim_cited_source_ids` derivation/subset validation then lock.
+112,346
+§-1.1 result: close, but not lockable yet.
+
+1. Packet definition is consistent with D3 and 0a.-1.C: packet = non-empty, admissible, distinct canonical source set; bin comes from the downselected packet size; `source_packet_manifest` has `minItems: 1`; criterion-2 Jaccard is claim-level, not full-packet. No contradiction there.
+
+2. Curation order is mostly right: gather → admissibility → canonicalize/dedup → downselect → snapshot → manifest. The gap is step 1. “Production retrieval and/or direct SME selection” is too open unless D7 requires a recorded, pre-registered source-gathering rule/provenance. Downstream admissibility and downselect validation cannot detect a constructor choosing a telltale source universe for fabricated claims.
+
+3. `packet_class = (domain, complexity_tier, evidence_pool_bin, dominant_source_class)` is directionally acceptable for criterion 5 because criterion 5 is also gated by shared microtopic and same severity stratum. It should not become universal unless microtopics are too broad or packets are over-homogenized, and the degree audit can catch saturation. But D7 needs build details: canonical string serialization for the tuple, explicit source-class namespace/tie order from the scope-template tier priority, and handling for exception-admitted/out-of-class sources.
+
+4. Label symmetry is necessary but not mechanically complete. The identical pipeline prevents obvious renderer/process tells, but not selection tells. The constructor’s initial candidate-source choice remains a residual asymmetry path unless there is a `source_gathering/source_selection_manifest` recording retrieval queries, direct selections, inclusion rationale/provenance, and matched-control parity.
+
+5. §5 correctly reaffirms 0a.-1.D §4: criterion 2 uses `claim_cited_source_ids`, not full packet IDs. The residual gaming path is that `claim_cited_source_ids` could be hand-shaped to raise/lower Jaccard. D7 should require it to be derived from rendered cited spans/citation annotations, alias-resolved by the canonicalizer, and validated as a subset of the packet’s `canonical_source_ids`.
+
+6. `packet_class` is computable for ordinary non-empty packets, including ties and single-source packets. It is not guaranteed for exception-admitted sources unless D7 defines their class token or requires exceptions to carry a packet-class source class. Also, if one `evidence_packet_id` can be reused by claims with different `complexity_tier`, putting `complexity_tier` in `source_packet_manifest.packet_class` is ambiguous; D7 needs an invariant that shared packet IDs are homogeneous for domain/tier/bin or are duplicated under separate packet IDs.
+
+7. Nothing is conceptually unbuildable, but the above gaps are methodology-level, not cosmetic. They affect blinding, relation manipulation, and deterministic packet-class construction.
+
+Fix source-gathering provenance/label-symmetry enforcement, `packet_class` serialization/class handling/reuse invariant, and `claim_cited_source_ids` derivation/subset validation then lock.

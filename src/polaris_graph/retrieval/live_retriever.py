@@ -78,6 +78,35 @@ class LiveRetrievalResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-meta-002-q1d (#945): per-call retrieval-trace helpers. Best-effort, lazy-import, no-op when the
+# trace is not started — PURELY OBSERVATIONAL (the retrieval/verify chokepoint is never altered).
+# Mirrors the existing record_retrieval_attempt idiom (lazy import + swallow any error).
+# ─────────────────────────────────────────────────────────────────────────────
+def _trace_query(backend: str, query: str, urls: list[str]) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_query(backend, query, urls)
+    except Exception:
+        pass
+
+
+def _trace_kept(url: str, backend: str) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_kept(url, backend)
+    except Exception:
+        pass
+
+
+def _trace_drop(url: str, reason: str) -> None:
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_drop(url, reason)
+    except Exception:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API clients
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -87,6 +116,14 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
     if not api_key:
         logger.warning("[live_retriever] SERPER_API_KEY missing — skipping Serper")
         return []
+    # I-safety-002b (#925) PR-2: record that the Path-B-required backend was actually
+    # invoked (key present + call attempted). assert_post_run rejects a run where a
+    # required backend was never tried. Lazy + best-effort; no-op when gate is off.
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("serper")
+    except Exception:
+        pass
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     payload = {"q": query, "num": max(1, min(num, 20))}
     try:
@@ -97,10 +134,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
                 "[live_retriever] Serper returned %s for %r",
                 r.status_code, query[:60],
             )
+            _trace_query("serper", query, [])
             return []
         data = r.json()
     except Exception as exc:
         logger.warning("[live_retriever] Serper exception: %s", exc)
+        _trace_query("serper", query, [])
         return []
     organic = data.get("organic", []) or []
     out: list[dict[str, Any]] = []
@@ -111,11 +150,18 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             "snippet": item.get("snippet", ""),
             "source": "serper",
         })
+    _trace_query("serper", query, [o["url"] for o in out])
     return out
 
 
 def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    # I-safety-002b (#925) PR-2: record S2 backend attempt (lazy, best-effort).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("semantic_scholar")
+    except Exception:
+        pass
     headers = {}
     if api_key:
         headers["x-api-key"] = api_key
@@ -132,10 +178,12 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
                 "[live_retriever] S2 returned %s for %r",
                 r.status_code, query[:60],
             )
+            _trace_query("semantic_scholar", query, [])
             return []
         data = r.json()
     except Exception as exc:
         logger.warning("[live_retriever] S2 exception: %s", exc)
+        _trace_query("semantic_scholar", query, [])
         return []
     papers = data.get("data", []) or []
     out: list[dict[str, Any]] = []
@@ -167,6 +215,7 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             "year": p.get("year"),
             "venue": p.get("venue"),
         })
+    _trace_query("semantic_scholar", query, [o["url"] for o in out])
     return out
 
 
@@ -669,21 +718,111 @@ def _bounded_openalex_enrich(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# I-meta-002-q1d (#954): table-aware linearization. _strip_html flattens <table> markup to running text,
+# so a result-table cell loses its header association ("Discontinuation due to nausea ... 3.8%" collapses to
+# a floating "3.8") and integer / %-without-decimal cells become unanchored — strict_verify can then only
+# verify the loose decimals that survive in prose, under-verifying the richest clinical data (results tables).
+# This no-network pass detects <table> blocks and linearizes each data row as "header: cell | header: cell"
+# BEFORE flattening, so the cell keeps its column header in the text the provenance window captures.
+_TABLE_RE = re.compile(r"<table\b[^>]*>(.*?)</table>", re.DOTALL | re.IGNORECASE)
+_ROW_RE = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+# Capture each cell WITH its tag (th vs td) so a column-header row is distinguishable from a row-header.
+_CELL_TAGGED_RE = re.compile(r"<(t[hd])\b[^>]*>(.*?)</t[hd]>", re.DOTALL | re.IGNORECASE)
+# colspan/rowspan shift columns → index-zip would mis-align → degrade (Codex diff-gate iter-1 P1).
+_SPAN_ATTR_RE = re.compile(r"\b(?:col|row)span\s*=", re.IGNORECASE)
+
+
+def _cell_text(cell_html: str) -> str:
+    """Strip inner tags from a single cell and collapse whitespace."""
+    txt = re.sub(r"<[^>]+>", " ", cell_html)
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _parse_row_cells(row_html: str) -> list[tuple[str, str]]:
+    """Return [(tag, text)] for each <th>/<td> in the row (tag lowercased)."""
+    return [(m.group(1).lower(), _cell_text(m.group(2))) for m in _CELL_TAGGED_RE.finditer(row_html)]
+
+
+def linearize_html_tables(html: str) -> str:
+    """Return result-table rows linearized so table numbers survive in text WITH their column header when —
+    and ONLY when — the source unambiguously declares one. Pure regex, no network, fail-open ('').
+
+    Header:cell association is emitted ONLY for the CANONICAL column-header table: the first non-empty row
+    is ENTIRELY <th> with non-empty header text, the table has >1 column, NO colspan/rowspan anywhere, and
+    <th> appears in NO other row (so it is column headers, not per-row row-headers). EVERY other shape —
+    span tables, headerless tables, row-header / mixed <th>+<td> data rows, empty-<th>-before-data — DEGRADES
+    to plain ' | '-joined cells. Joined still surfaces the number next to its row label, but a cell can NEVER
+    receive a column header the source did not declare (no fabricated provenance). This single conservative
+    rule covers the Codex diff-gate P1s (colspan/rowspan, headerless-multirow, row-header, empty-th-before-
+    data) without enumerating each."""
+    try:
+        out_rows: list[str] = []
+        for table_html in _TABLE_RE.findall(html or ""):
+            raw_rows = _ROW_RE.findall(table_html)
+            if not raw_rows:
+                continue
+            rows = [_parse_row_cells(r) for r in raw_rows]
+            rows = [r for r in rows if any(text for _tag, text in r)]  # drop all-empty rows
+            if not rows:
+                continue
+
+            def _join(r: list[tuple[str, str]]) -> str:
+                return " | ".join(text for _tag, text in r if text)
+
+            first = rows[0]
+            canonical = (
+                not _SPAN_ATTR_RE.search(table_html)              # no colspan/rowspan
+                and len(first) > 1                                # multi-column
+                and all(tag == "th" for tag, _t in first)         # row 0 is ENTIRELY <th> (column headers)
+                and all(text for _tag, text in first)             # ... with non-empty header text
+                and not any(tag == "th" for r in rows[1:] for tag, _t in r)  # <th> only in row 0
+            )
+            if not canonical:
+                # DEGRADE: every ambiguous shape joins plainly — never a fabricated header:cell.
+                out_rows.extend(j for r in rows if (j := _join(r)))
+                continue
+            # CANONICAL column-header table: zip each data row to the <th> header row by column index.
+            headers = [text for _tag, text in first]
+            for row in rows[1:]:
+                cells = [text for _tag, text in row]
+                pairs = [
+                    f"{headers[j]}: {cells[j]}"
+                    if j < len(headers) and headers[j] and cells[j]
+                    else cells[j]
+                    for j in range(len(cells))
+                ]
+                joined = " | ".join(p for p in pairs if p)
+                if joined:
+                    out_rows.append(joined)
+        return "\n".join(r for r in out_rows if r)
+    except Exception:  # noqa: BLE001 — additive observability; never break fetch on a malformed table
+        return ""
+
+
 def _strip_html(html: str) -> str:
-    """Extract visible text from HTML via basic regex (trafilatura if available)."""
+    """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
+    linearized rows (#954) so result-table cells survive with their column headers regardless of how the
+    base extractor flattened the tables. Default-ON; PG_FETCH_TABLE_LINEARIZE=0 disables the append."""
+    base = ""
     try:
         import trafilatura  # type: ignore
         extracted = trafilatura.extract(html) or ""
         if extracted:
-            return extracted
+            base = extracted
     except Exception:
         pass
-    # Fallback: strip tags + collapse whitespace
-    no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
-    no_tags = re.sub(r"<style[^>]*>.*?</style>", " ", no_tags, flags=re.DOTALL | re.IGNORECASE)
-    no_tags = re.sub(r"<[^>]+>", " ", no_tags)
-    no_tags = re.sub(r"\s+", " ", no_tags)
-    return no_tags.strip()
+    if not base:
+        # Fallback: strip tags + collapse whitespace
+        no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        no_tags = re.sub(r"<style[^>]*>.*?</style>", " ", no_tags, flags=re.DOTALL | re.IGNORECASE)
+        no_tags = re.sub(r"<[^>]+>", " ", no_tags)
+        no_tags = re.sub(r"\s+", " ", no_tags)
+        base = no_tags.strip()
+    if os.getenv("PG_FETCH_TABLE_LINEARIZE", "1").strip().lower() not in ("0", "false", "no", "off", ""):
+        tables = linearize_html_tables(html)
+        if tables:
+            base = (base + "\n\n" + tables).strip() if base else tables
+    return base
 
 
 def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
@@ -1143,6 +1282,113 @@ def _build_provenance_quote(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Fetch-time relevance rerank + per-sub-query reservation (I-meta-002-q1d #951/#943)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pure-lexical, no-model relevance: stopword-filtered content-word overlap of a
+# candidate's (title+snippet) against the research question. NO embedder / no model
+# load (§8.4) — sentence-transformers/CUDA are never touched on the ranking path.
+_RERANK_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "of", "in",
+    "on", "at", "to", "for", "with", "by", "from", "as", "that", "this", "these",
+    "those", "it", "its", "be", "been", "what", "which", "who", "how", "why",
+    "when", "where", "we", "our", "their", "between", "into", "about", "than",
+})
+
+
+def _rerank_content_tokens(text: str) -> set[str]:
+    """Lowercase content-word tokens (3+ chars, stopword-filtered). Pure lexical."""
+    toks = re.findall(r"[A-Za-z][A-Za-z\-]{2,}", (text or "").lower())
+    return {t for t in toks if t not in _RERANK_STOPWORDS}
+
+
+def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[str]) -> float:
+    """Overlap fraction of the candidate's (title+snippet) content tokens with the
+    question tokens. 0.0 when either side is empty. Deterministic, no network/model."""
+    if not question_tokens:
+        return 0.0
+    cand_tokens = _rerank_content_tokens(getattr(candidate, "snippet_text", "") or "")
+    if not cand_tokens:
+        return 0.0
+    return len(cand_tokens & question_tokens) / float(len(question_tokens))
+
+
+def _rerank_and_reserve(
+    candidates: list["SearchCandidate"],
+    *,
+    research_question: str,
+    fetch_cap: int,
+    n_seed_injected: int,
+) -> list["SearchCandidate"]:
+    """Replace arrival-order truncation with a no-spend, no-model-load relevance rerank
+    that reserves at least one slot per sub-query (I-meta-002-q1d #951, Codex brief-gate
+    iter-1 required-changes).
+
+    Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
+    relevance scoring would drop them. They are SPLIT OUT by `source == "primary_trial_doi"`
+    and prepended AFTER ranking — never ranked, never dropped, exactly additive as before.
+
+    Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
+    take at most ONE reserved item per origin while capacity remains (origins with the best
+    candidate score reserved first when origins exceed cap); then fill the remaining slots
+    by global (-score, index). The long full-paragraph/anchor query is not starved.
+
+    Fail-open (never raise): on any error fall back to the previous arrival-order behavior
+    `candidates[:fetch_cap + n_seed_injected]`.
+    """
+    try:
+        seeds = [c for c in candidates if getattr(c, "source", "") == "primary_trial_doi"]
+        non_seeds = [c for c in candidates if getattr(c, "source", "") != "primary_trial_doi"]
+        if fetch_cap <= 0 or not non_seeds:
+            return seeds + non_seeds[:max(fetch_cap, 0)]
+
+        question_tokens = _rerank_content_tokens(research_question)
+        # (score, original_index, candidate) so ties + zero-overlap fall back to arrival order.
+        scored = [
+            (_lexical_relevance_score(c, question_tokens), i, c)
+            for i, c in enumerate(non_seeds)
+        ]
+        # Group by origin, each group sorted by (-score, index).
+        groups: dict[str, list[tuple[float, int, "SearchCandidate"]]] = {}
+        for entry in scored:
+            origin = getattr(entry[2], "query_origin", "") or "_unlabeled"
+            groups.setdefault(origin, []).append(entry)
+        for entries in groups.values():
+            entries.sort(key=lambda e: (-e[0], e[1]))
+
+        selected_idx: set[int] = set()
+        chosen: list[tuple[float, int, "SearchCandidate"]] = []
+        # Phase 1 — reserve >=1 slot per origin (origins ranked by their best candidate score),
+        # bounded by capacity.
+        origins_by_best = sorted(
+            groups.items(), key=lambda kv: (-kv[1][0][0], kv[1][0][1])
+        )
+        for _origin, entries in origins_by_best:
+            if len(chosen) >= fetch_cap:
+                break
+            top = entries[0]
+            chosen.append(top)
+            selected_idx.add(top[1])
+        # Phase 2 — fill remaining slots by global (-score, index).
+        if len(chosen) < fetch_cap:
+            remainder = sorted(
+                (e for e in scored if e[1] not in selected_idx),
+                key=lambda e: (-e[0], e[1]),
+            )
+            for entry in remainder:
+                if len(chosen) >= fetch_cap:
+                    break
+                chosen.append(entry)
+                selected_idx.add(entry[1])
+        # Emit non-seeds in original arrival order among the selected set (stable corpus).
+        selected_non_seeds = [c for i, c in enumerate(non_seeds) if i in selected_idx]
+        return seeds + selected_non_seeds
+    except Exception as exc:  # fail-open: never break retrieval on a ranking error
+        logger.warning("[live_retriever] rerank failed (%s) — arrival-order fallback", exc)
+        return candidates[:fetch_cap + n_seed_injected]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1159,6 +1405,7 @@ def run_live_retrieval(
     enable_prefetch_filter: bool = False,
     domain: Optional[str] = None,
     seed_urls: Optional[list[str]] = None,
+    seed_only: bool = False,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1216,6 +1463,7 @@ def run_live_retrieval(
             seen_urls.add(_surl)
             candidates.append(SearchCandidate(
                 url=_surl, title="", snippet="", source="primary_trial_doi",
+                query_origin="primary_trial_doi_seed",
             ))
             _n_seed_injected += 1
     if _n_seed_injected:
@@ -1224,7 +1472,10 @@ def run_live_retrieval(
             _n_seed_injected,
         )
 
-    for q in effective_queries:
+    # I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only processes ONLY the injected
+    # seed_urls — no Serper/S2 fan-out and no domain backends. Used by the deepener pass so it fetches
+    # exactly the citation-snowball-discovered URLs (and nothing else) through the same chokepoint.
+    for q in ([] if seed_only else effective_queries):
         logger.info("[live_retriever] SERPER q=%r", q[:80])
         serper_hits = _serper_search(q, num=max_serper)
         api_calls["serper"] += 1
@@ -1238,6 +1489,7 @@ def run_live_retrieval(
                 title=hit.get("title", ""),
                 snippet=hit.get("snippet", ""),
                 source="serper",
+                query_origin=q,
             ))
 
         logger.info("[live_retriever] S2 q=%r", q[:80])
@@ -1254,12 +1506,14 @@ def run_live_retrieval(
                 snippet=hit.get("snippet", ""),
                 source="s2",
                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
+                query_origin=q,
             ))
 
     # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
     # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
     # for policy. Fail-open: any backend exception yields 0 new hits.
-    if domain:
+    # Skipped on the seed_only deepener pass (no extra retrieval).
+    if domain and not seed_only:
         try:
             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
                 run_domain_backends,
@@ -1274,6 +1528,10 @@ def run_live_retrieval(
                 if not url or url in seen_urls:
                     continue
                 seen_urls.add(url)
+                # I-meta-002-q1d (#951): give domain-backend candidates a stable origin
+                # bucket so the per-sub-query rerank reservation handles them consistently.
+                if not getattr(cand, "query_origin", ""):
+                    cand.query_origin = "domain_backend"
                 candidates.append(cand)
             if domain_result.backends_used:
                 notes.append(
@@ -1295,19 +1553,33 @@ def run_live_retrieval(
 
     # ── Step 3: prefetch off-topic filter ──────────────────────────
     if enable_prefetch_filter and candidates:
+        _pre_offtopic_urls = {c.url for c in candidates}
         filt = filter_search_results(candidates, research_question)
         candidates = filt.kept
+        for _dropped_url in _pre_offtopic_urls - {c.url for c in candidates}:
+            _trace_drop(_dropped_url, "offtopic")
         notes.append(
             f"prefetch_offtopic: {filt.total_kept} kept / "
             f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
         )
     kept_by_offtopic = len(candidates)
 
-    # ── Step 4: cap, fetch, enrich, classify ────────────────────────
-    # I-bug-776 (#817) layer-4: bump the cap by the seed count so the injected
-    # primary-trial DOIs are additive (they occupy a reserved lane at the front
-    # and do not displace search/guideline candidates).
-    candidates = candidates[:fetch_cap + _n_seed_injected]
+    # ── Step 4: fetch-time relevance rerank + per-sub-query reservation, then cap ──
+    # I-meta-002-q1d (#951, #943): replace arrival-order truncation with a no-spend,
+    # no-model-load lexical relevance rerank that reserves >=1 slot per sub-query so a
+    # long full-paragraph query cannot monopolize the cap (the breadth of amplified
+    # queries was previously illusory). I-bug-776 (#817) layer-4 seed lane preserved:
+    # primary-trial DOI seeds (empty title/snippet) are split out and prepended AFTER
+    # ranking so relevance scoring can never drop them — they remain additive.
+    _pre_rerank_urls = {c.url for c in candidates}
+    candidates = _rerank_and_reserve(
+        candidates,
+        research_question=research_question,
+        fetch_cap=fetch_cap,
+        n_seed_injected=_n_seed_injected,
+    )
+    for _dropped_url in _pre_rerank_urls - {c.url for c in candidates}:
+        _trace_drop(_dropped_url, "rerank_not_selected")
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -1448,6 +1720,7 @@ def run_live_retrieval(
         api_calls["fetch"] += 1
         if not ok:
             failed_fetch += 1
+            _trace_drop(cand.url, "fetch_failed")
         else:
             fetched += 1
 
@@ -1535,6 +1808,7 @@ def run_live_retrieval(
                     "[live_retriever] skipping content-starved evidence "
                     "for %r (len=%d)", cand.url, len(content),
                 )
+                _trace_drop(cand.url, "content_starved")
             else:
                 direct_quote = _build_provenance_quote(
                     content, head_chars=1500, window_chars=500,
@@ -1548,6 +1822,7 @@ def run_live_retrieval(
                     "source": cand.source,
                     "full_content_length": len(content),
                 })
+                _trace_kept(cand.url, cand.source)
 
     return LiveRetrievalResult(
         classified_sources=classified_sources,

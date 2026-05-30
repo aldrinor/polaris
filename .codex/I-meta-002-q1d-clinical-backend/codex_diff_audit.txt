@@ -1,0 +1,267 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e77cd-76cd-7562-ba97-a13a41cda688
+--------
+user
+RULE NOW — emit the YAML verdict block FIRST. Read the patch at `.codex/I-meta-002-q1d-clinical-backend/codex_diff.patch`. NO SPEND.
+
+HARD ITERATION CAP: 5. Iter 2 of 5.
+
+## Output (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: accept_remaining
+```
+
+# Codex diff-gate (iter 2) — PR4 Europe PMC clinical backend (#942-clinical). The iter-1 P1 (HTTP call outside fail-open try) is NOW FIXED.
+
+Iter-1 P1: `_http_get_json` was called OUTSIDE the `try`, so a network/helper exception could escape. FIX:
+the fail-open `try` now wraps BOTH the `_http_get_json` HTTP call AND the parse — any exception →
+logger.warning + `return []` (degrade to generic Serper + S2, never break the clinical run).
+
+Evidence: 15 tests PASS incl. the NEW exception case in `test_europe_pmc_fails_open_on_empty_or_error`
+(`_http_get_json` `side_effect=RuntimeError` → `[]`), plus None / bad-shape. All prior cases (PMCID→DOI→PMID
+priority, skip-no-id, clinical dispatch, kill-switch) still PASS. Everything else in PR4 you APPROVE'd in
+iter 1 (PMC-first, keyless, dedup framing). strict_verify/D8/tier untouched; no-spend.
+
+Rule on ONLY: is the HTTP call now inside the fail-open guard so a network/helper exception returns [] and
+never escapes? APPROVE iff the iter-1 P1 is resolved with no new blocker.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath .codex/I-meta-002-q1d-clinical-backend/codex_diff.patch' in C:\POLARIS
+ succeeded in 1396ms:
+diff --git a/src/polaris_graph/retrieval/domain_backends.py b/src/polaris_graph/retrieval/domain_backends.py
+index af6ad05c..92bb8909 100644
+--- a/src/polaris_graph/retrieval/domain_backends.py
++++ b/src/polaris_graph/retrieval/domain_backends.py
+@@ -315,6 +315,73 @@ def github_search_repos(
+     return out
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────────
++# CLINICAL: Europe PMC (keyless, free) primary-literature backend (I-meta-002-q1d #942-clinical)
++# ─────────────────────────────────────────────────────────────────────────────
++
++_EUROPE_PMC_API = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
++
++
++def europe_pmc_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
++    """Query Europe PMC (KEYLESS, FREE — no API key, no cost) for clinical primary literature.
++    Fail-open: any error / empty body returns [] (the run degrades to generic Serper + S2).
++
++    Emits ONLY resolvable primary-literature URLs in PMCID -> DOI -> PMID priority — PMC is the
++    strongest keyless, fetchable full-text path (Codex brief-gate); a record carrying none of those
++    ids is SKIPPED (a europepmc.org landing page does not fetch as primary content). Candidates flow
++    through the SAME fetch / tier / strict_verify chokepoint as Serper/S2 (no tier laundering).
++    """
++    # Fail-open guard wraps the HTTP call AND the parse (Codex diff-gate iter-1 P1): a network/helper
++    # exception must degrade to [] (generic Serper + S2), never break the clinical run.
++    try:
++        data = _http_get_json(
++            _EUROPE_PMC_API,
++            params={
++                "query": query,
++                "format": "json",
++                "resultType": "core",
++                "pageSize": max(1, min(limit, 25)),
++            },
++        )
++        if not data:
++            return []
++        results = (data.get("resultList") or {}).get("result") or []
++        out: list[SearchCandidate] = []
++        for r in results:
++            pmcid = str(r.get("pmcid") or "").strip()
++            doi = str(r.get("doi") or "").strip()
++            pmid = str(r.get("pmid") or "").strip()
++            if pmcid:
++                url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
++            elif doi:
++                url = f"https://doi.org/{doi}"
++            elif pmid:
++                url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
++            else:
++                continue  # no resolvable primary-literature id — never emit a landing page
++            title = str(r.get("title") or "").strip()
++            snippet = re.sub(r"\s+", " ", str(r.get("abstractText") or "")).strip()[:300]
++            out.append(SearchCandidate(
++                url=url,
++                title=title,
++                snippet=snippet,
++                source="europe_pmc",
++                metadata={
++                    "doi": doi or None,
++                    "pmid": pmid or None,
++                    "pmcid": pmcid or None,
++                    "year": r.get("pubYear"),
++                    "is_oa": r.get("isOpenAccess"),
++                },
++            ))
++            if len(out) >= limit:
++                break
++        return out
++    except Exception as exc:
++        logger.warning("[domain_backends] europe_pmc failed (fail-open): %s", exc)
++        return []
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # Dispatcher
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -374,8 +441,12 @@ def run_domain_backends(
+         _run("serper_policy", policy_targeted_serper)
+     elif domain == "due_diligence":
+         _run("sec_edgar", sec_edgar_search)
+-    # clinical: rely on generic Serper + S2 (PubMed-indexed academic is
+-    # well-covered by S2's bulk endpoint).
++    elif domain == "clinical":
++        # I-meta-002-q1d (#942-clinical): add Europe PMC primary-literature breadth on top of generic
++        # Serper + S2. Keyless/free + fail-open; kill-switch PG_CLINICAL_EUROPE_PMC=0. (ClinicalTrials.gov
++        # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
++        if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
++            _run("europe_pmc", europe_pmc_search)
+ 
+     return DomainBackendResult(
+         domain=domain,
+diff --git a/tests/polaris_graph/test_domain_backends_r6_gap2.py b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+index ec80562e..89403f62 100644
+--- a/tests/polaris_graph/test_domain_backends_r6_gap2.py
++++ b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+@@ -12,6 +12,7 @@ import pytest
+ 
+ from src.polaris_graph.retrieval.domain_backends import (
+     _parse_arxiv_feed,
++    europe_pmc_search,
+     run_domain_backends,
+ )
+ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+@@ -123,14 +124,33 @@ def test_r6_due_diligence_dispatcher_calls_sec() -> None:
+     assert all(c.source == "sec_edgar" for c in result.candidates)
+ 
+ 
+-def test_r6_clinical_dispatcher_uses_no_domain_backends() -> None:
+-    result = run_domain_backends(
+-        domain="clinical",
+-        research_question="semaglutide weight loss",
+-    )
+-    # Clinical defers to generic Serper+S2 — no specific backends
++def test_r6_clinical_dispatcher_calls_europe_pmc() -> None:
++    # I-meta-002-q1d (#942-clinical): clinical now adds the Europe PMC backend on top of Serper+S2.
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends.europe_pmc_search",
++        return_value=[SearchCandidate(
++            url="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123/",
++            title="A clinical trial", snippet="", source="europe_pmc",
++        )],
++    ) as mock_epmc:
++        result = run_domain_backends(
++            domain="clinical",
++            research_question="semaglutide weight loss",
++        )
++    assert mock_epmc.called
++    assert result.backends_used == ["europe_pmc"]
++    assert all(c.source == "europe_pmc" for c in result.candidates)
++
++
++def test_r6_clinical_europe_pmc_kill_switch(monkeypatch) -> None:
++    monkeypatch.setenv("PG_CLINICAL_EUROPE_PMC", "0")
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends.europe_pmc_search",
++        return_value=[SearchCandidate(url="https://x", title="t", snippet="", source="europe_pmc")],
++    ) as mock_epmc:
++        result = run_domain_backends(domain="clinical", research_question="q")
++    assert not mock_epmc.called
+     assert result.candidates == []
+-    assert result.backends_used == []
+ 
+ 
+ def test_r6_unknown_domain_returns_empty() -> None:
+@@ -185,3 +205,56 @@ def test_r6_dispatcher_dedupes_across_backends() -> None:
+     assert len(result.candidates) == 1
+     # First backend to surface wins (arxiv) — github drops as duplicate
+     assert result.candidates[0].source == "arxiv"
++
++
++# --- I-meta-002-q1d (#942-clinical): Europe PMC backend URL priority + skip + fail-open ----------
++def _epmc_result(*, pmcid="", doi="", pmid="", title="t", abstract="a"):
++    return {"pmcid": pmcid, "doi": doi, "pmid": pmid, "title": title, "abstractText": abstract}
++
++
++def test_europe_pmc_url_priority_pmcid_first() -> None:
++    # PMCID present (even with doi+pmid) → PMC full-text URL wins (Codex brief-gate: PMC is the
++    # strongest keyless fetchable path).
++    payload = {"resultList": {"result": [_epmc_result(pmcid="PMC555", doi="10.1/x", pmid="999")]}}
++    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
++        out = europe_pmc_search("metformin renal")
++    assert out[0].url == "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC555/"
++    assert out[0].source == "europe_pmc"
++    assert out[0].metadata["doi"] == "10.1/x"
++
++
++def test_europe_pmc_url_priority_doi_then_pmid() -> None:
++    payload = {"resultList": {"result": [
++        _epmc_result(doi="10.1056/abc", pmid="111"),   # no pmcid → doi
++        _epmc_result(pmid="222"),                       # only pmid → pubmed
++    ]}}
++    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
++        out = europe_pmc_search("q")
++    assert out[0].url == "https://doi.org/10.1056/abc"
++    assert out[1].url == "https://pubmed.ncbi.nlm.nih.gov/222/"
++
++
++def test_europe_pmc_skips_record_with_no_resolvable_id() -> None:
++    # A record with none of pmcid/doi/pmid is SKIPPED — never a europepmc.org landing URL.
++    payload = {"resultList": {"result": [
++        _epmc_result(title="no ids"),
++        _epmc_result(doi="10.1/keep"),
++    ]}}
++    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=payload):
++        out = europe_pmc_search("q")
++    assert len(out) == 1
++    assert out[0].url == "https://doi.org/10.1/keep"
++    assert all("europepmc.org" not in c.url for c in out)
++
++
++def test_europe_pmc_fails_open_on_empty_or_error() -> None:
++    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value=None):
++        assert europe_pmc_search("q") == []
++    with patch("src.polaris_graph.retrieval.domain_backends._http_get_json", return_value={"bad": "shape"}):
++        assert europe_pmc_search("q") == []
++    # Codex diff-gate iter-1 P1: a helper/network EXCEPTION must also fail open (not escape).
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        side_effect=RuntimeError("network down"),
++    ):
++        assert europe_pmc_search("q") == []
+
+codex
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+
+The HTTP call is now inside the `try` together with parsing. `_http_get_json` exceptions are caught, logged, and return `[]`, so the iter-1 P1 is resolved with no new blocker in the reviewed patch.
+tokens used
+5,470
+```yaml
+verdict: APPROVE
+p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+
+The HTTP call is now inside the `try` together with parsing. `_http_get_json` exceptions are caught, logged, and return `[]`, so the iter-1 P1 is resolved with no new blocker in the reviewed patch.

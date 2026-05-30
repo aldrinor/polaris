@@ -1,0 +1,24 @@
+codex
+No open findings.
+
+1. ✓ Control split closed.
+2. ✓ L2 category revisions closed.
+3. ✓ ID regex, L3 schema, and alias canonicalization closed.
+4. ✓ Append governance closed.
+5. ✓ Anti-gaming rules closed.
+6. ✓ COI re-screening closed.
+7. ✓ D4/D4-seed boundary and validator substrate closed.
+
+Lock D4.
+9,750
+No open findings.
+
+1. ✓ Control split closed.
+2. ✓ L2 category revisions closed.
+3. ✓ ID regex, L3 schema, and alias canonicalization closed.
+4. ✓ Append governance closed.
+5. ✓ Anti-gaming rules closed.
+6. ✓ COI re-screening closed.
+7. ✓ D4/D4-seed boundary and validator substrate closed.
+
+Lock D4.

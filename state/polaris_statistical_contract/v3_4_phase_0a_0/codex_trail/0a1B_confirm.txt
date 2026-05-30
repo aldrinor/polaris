@@ -1,0 +1,26 @@
+codex
+1. △ — S0 predicates/record are present, but §1.1 still says “falls to S1 unless a domain anchor in §1.2 clearly controls.” That weakens “can’t state path → S1.” Remove the exception.
+2. ✓
+3. ✓
+4. ✓
+5. △ — §2 correctly adds `relation_direction`, but §5 still says “6-type fabrication taxonomy.” Change to 7-type.
+6. ✓
+7. ✓
+8. ✓
+
+§1↔§2↔§3↔§4 are otherwise internally consistent: severity, type priority, matched controls, and intent→gold migration now propagate correctly.
+
+Fix §1.1 path-fallback wording and §5 “6-type” stale DoD text. Do not lock yet.
+16,271
+1. △ — S0 predicates/record are present, but §1.1 still says “falls to S1 unless a domain anchor in §1.2 clearly controls.” That weakens “can’t state path → S1.” Remove the exception.
+2. ✓
+3. ✓
+4. ✓
+5. △ — §2 correctly adds `relation_direction`, but §5 still says “6-type fabrication taxonomy.” Change to 7-type.
+6. ✓
+7. ✓
+8. ✓
+
+§1↔§2↔§3↔§4 are otherwise internally consistent: severity, type priority, matched controls, and intent→gold migration now propagate correctly.
+
+Fix §1.1 path-fallback wording and §5 “6-type” stale DoD text. Do not lock yet.

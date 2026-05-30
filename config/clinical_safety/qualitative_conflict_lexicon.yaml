@@ -1,0 +1,97 @@
+# Qualitative clinical-safety conflict-detection lexicon (I-meta-002-q1d #944).
+#
+# SME-editable cue lexicons for the NegEx/ConText-grounded qualitative present-vs-absent
+# conflict detector (src/polaris_graph/retrieval/qualitative_conflict_detector.py). LAW VI:
+# all cues live here, not hard-coded. The loader validates that every REQUIRED section below
+# is present and non-empty at first use (fail-loud RuntimeError otherwise).
+#
+# Cue-class PRECEDENCE per span (highest first), per Codex brief-gate iter-2 P1.a:
+#   permissive_allow -> statistical_null -> uncertainty -> real_negation -> antonym/affirmation -> hedge
+# A permissive/deontic "may be co-administered" (ABSENT, definite) MUST win over the generic
+# epistemic hedge "may" (INDETERMINATE) so the mandatory DDI antonym recall case hard-fires.
+
+# ── Concept types (the 5 clinical-safety axes). assertion-status comparison runs ONLY within
+#    the same concept_type. Each concept owns exactly ONE of object_slot / condition_scope for a
+#    given span (canonical ownership, Codex iter-2 P2.b) — see object_slot_owner below.
+concept_types:
+  contraindication:
+    present_cues: ["contraindicated", "contraindication", "avoid in", "should not be used in",
+                   "should be avoided in", "do not use in", "is precluded in"]
+    absent_cues: ["not contraindicated", "no contraindication", "safe in", "safe to use in",
+                  "can be used in", "may be used in", "well tolerated in"]
+  drug_interaction:
+    present_cues: ["contraindicated with", "avoid", "do not co-administer", "should not be co-administered",
+                   "do not combine", "should not be used with", "do not administer with", "avoid concomitant"]
+    # absent_cues include the permissive/allowed-interaction phrasings so the sentence is DETECTED as a
+    # drug_interaction ABSENT assertion (status resolution then confirms via permissive_allow precedence).
+    absent_cues: ["no interaction with", "not contraindicated with", "no clinically significant interaction",
+                  "may be co-administered", "can be co-administered", "may be used with", "can be used with",
+                  "may be administered with", "can be administered with", "is compatible with",
+                  "may be combined with"]
+  eligibility_exclusion:
+    present_cues: ["excluded", "exclusion criterion", "ineligible", "not eligible", "were excluded",
+                   "are excluded", "exclusion criteria"]
+    absent_cues: ["eligible", "were included", "are included", "not excluded", "no exclusion",
+                  "permitted to enroll"]
+  warning:
+    present_cues: ["boxed warning", "black box warning", "black-box warning", "warning of",
+                   "increased risk of", "risk of", "caution in", "should be monitored for"]
+    absent_cues: ["no increased risk of", "no warning", "no excess risk of"]
+  ae_causation:
+    present_cues: ["causes", "caused", "leads to", "led to", "results in", "resulted in",
+                   "is associated with", "was associated with", "associated with", "a leading cause of",
+                   "leading cause of", "induces", "induced"]
+    absent_cues: ["did not cause", "does not cause", "did not lead to", "does not lead to",
+                  "not a cause of", "did not result in"]
+
+# Which key field owns the extracted text per concept_type (no double-encoding).
+#   "condition_scope" => the population/organ-status owns the key (object_slot stays "").
+#   "object_slot"     => the co-drug / criterion / hazard / outcome owns the key.
+object_slot_owner:
+  contraindication: condition_scope
+  drug_interaction: object_slot      # the interacting co-drug
+  eligibility_exclusion: object_slot # the criterion
+  warning: object_slot               # the hazard
+  ae_causation: object_slot          # the AE / outcome
+
+# ── Cue classes (precedence order enforced in code) ───────────────────────────────────────────
+# permissive/deontic permission => ABSENT (definite, CAN anchor a hard conflict). MUST precede hedge.
+permissive_allow: ["may be co-administered", "may be used with", "can be co-administered",
+                   "can be used with", "may be administered with", "can be administered with",
+                   "is compatible with", "may be combined with", "no interaction with"]
+
+# statistical null => STATISTICAL_NULL (cannot anchor a hard conflict; opposing a definite => review).
+# The statistical-significance family is the LETHAL false-positive class (a stats statement is NOT a
+# clinical absence assertion). Kept distinct from real negation.
+statistical_null: ["no significant difference", "no significant increase", "no significant decrease",
+                   "no significant change", "no significant association", "no significant correlation",
+                   "not statistically significant", "not associated with an increased risk",
+                   "not associated with increased risk", "no increase in", "no significant effect"]
+
+# epistemic uncertainty => INDETERMINATE (route to review, never silent absent).
+uncertainty: ["cannot be excluded", "cannot be ruled out", "can not be excluded", "not ruled out",
+              "could not be excluded", "remains uncertain", "unclear whether"]
+
+# true pseudo-negation / no-assertion => the concept is NOT asserted; skip (no assertion extracted).
+no_assertion: ["gram negative", "gram-negative", "not only", "without difficulty", "no doubt"]
+
+# real negation cues => flip polarity within the bounded scope (net XOR).
+real_negation: ["no evidence of", "negative for", "ruled out", "free of", "no sign of", "no signs of",
+                "no", "not", "never", "absent", "without", "denies", "denied"]
+
+# epistemic hedge => INDETERMINATE (only AFTER permissive_allow has been ruled out).
+hedge: ["may", "might", "possibly", "suggested", "could", "potential", "perhaps", "uncertain if"]
+
+# scope terminators bound the negation window (NegEx termination terms).
+termination_terms: ["but", "however", "yet", "though", "although", "except", "aside from",
+                    "apart from", "nevertheless", "whereas", "while", "otherwise"]
+
+# condition / population qualifier cues (used to extract condition_scope for contraindication/eligibility
+# and to detect condition-stratified non-conflicts). SINGLE-WORD only — the token-by-token extractor cannot
+# match multi-word cues (Codex diff-gate iter-1 P2.2); 'creatinine'/'clearance' cover the renal qualifier.
+condition_scope_cues: ["renal", "hepatic", "egfr", "creatinine", "clearance", "pregnan", "lactation",
+                       "breastfeeding", "elderly", "geriatric", "pediatric", "paediatric", "child",
+                       "impairment", "insufficiency", "dialysis", "cirrhosis", "failure"]
+
+# token-window cap for negation scope (original NegEx 1-6 word window; precision over recall).
+scope_token_cap: 6

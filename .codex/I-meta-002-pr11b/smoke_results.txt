@@ -1,0 +1,17 @@
+PR-11b robust 5-question offline e2e — SMOKE (Claude main-thread; build agent verified)
+OVERALL: PASS. NO network/spend (socket BLOCKED whole run; injected fake RoleTransport; nothing deployed).
+- import scripts.dr_benchmark.offline_e2e: OK (no network at import).
+- pytest tests/dr_benchmark/test_offline_e2e.py -v: 13 passed (was 7; +5 per-question parametrized + 1 pairwise-disjoint denominator).
+- pytest tests/dr_benchmark tests/roles tests/architecture -q: 419 passed.
+- verify_lock --consistency: rc0 (lock NOT promoted). gate_a_dry_run: OVERALL PASS.
+Per-question (routing read from real SWEEP_QUERIES, denominator from production M3a builder):
+  drb_75->clinical: 6 entities, release HELD, chain flows
+  drb_76->clinical: 5 entities, HELD, chain flows
+  drb_78->clinical: 5 entities, HELD, chain flows
+  drb_72->workforce: 7 entities, HELD, chain flows
+  drb_90->policy: 6 entities, HELD, chain flows
+  -> denominators pairwise DISJOINT (entity ids globally unique) = no cross-contamination of contracts.
+  -> HELD release is CORRECT/fail-closed under the fake transport (S0 exact-source gates not satisfied by canned claims).
+Honest scope: OFFLINE WIRING proof (routing + denominator + chain-flows), NOT the live canary. Legs B(M4 pin)/C(scorer)
+use shared synthetic data; per-question variation is legs 1+2 (routing + denominator). Documented in code.
+Frozen untouched: claim_audit_scorer.py, runtime lock (NOT promoted), 5 PR-10 contracts. Dead CLINICAL_TEMPLATE_PATH removed.

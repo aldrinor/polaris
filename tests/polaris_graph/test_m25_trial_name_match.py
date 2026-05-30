@@ -242,3 +242,97 @@ class TestTrialNameMismatchRejection:
         assert any("trial_name_mismatch" in r for r in result.failure_reasons), (
             f"expected trial_name_mismatch; got {result.failure_reasons}"
         )
+
+
+class TestTrialNameSpanFallback:
+    """I-meta-002-q1d (#949): title-authority + CITED-SPAN fallback. The fallback rescues a correct
+    sentence when the row's title names NO trial AND the CITED span names the trial — without re-opening
+    FABRICATED-#20 (title authority) and without the one-reference laundering hole (span scope, not body)."""
+
+    def test_span_fallback_rescues_surpass2_when_title_lacks_token(self) -> None:
+        """RESCUE: a SURPASS-2 paper whose TITLE lacks the token and whose body INTRO references SURPASS-1
+        and SURPASS-3 (≥2 trials in body), but whose CITED RESULTS span names SURPASS-2 → a SURPASS-2
+        sentence PASSES. (A whole-body count heuristic would still drop this; cited-span is required.)"""
+        intro = (
+            "Building on SURPASS-1 and contrasting with SURPASS-3 obesity outcomes, this analysis "
+        )
+        results = (
+            "reports that tirzepatide in SURPASS-2 produced a mean HbA1c reduction of 2.3 percent "
+            "versus semaglutide at 40 weeks."
+        )
+        direct_quote = intro + results
+        span_start = len(intro)
+        span_end = len(direct_quote)
+        sentence = (
+            f"In SURPASS-2, tirzepatide produced a mean HbA1c reduction of 2.3 percent versus "
+            f"semaglutide. [#ev:ev_s2:{span_start}-{span_end}]"
+        )
+        pool = {
+            "ev_s2": {
+                "direct_quote": direct_quote,
+                # AUTHORITATIVE title names NO trial token (the real SURPASS-2 paper title shape).
+                "statement": "Tirzepatide versus semaglutide once weekly in type 2 diabetes",
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert result.is_verified, (
+            f"span fallback should rescue the SURPASS-2 sentence (title lacks token, cited span names "
+            f"SURPASS-2); got failures={result.failure_reasons}"
+        )
+
+    def test_locked_fail_one_reference_outside_cited_span_rejected(self) -> None:
+        """MANDATORY locked-FAIL #2 (the one-reference hole): title names NO trial; the body mentions
+        SURMOUNT-1 ONCE as a prior reference in the INTRO; the CITED span is the SURMOUNT-3 result and does
+        NOT contain SURMOUNT-1 → a fabricated SURMOUNT-1 sentence is REJECTED. Span scope (not body scope)
+        is what closes this — a body mention outside the cited span never matches."""
+        intro = "Prior work in SURMOUNT-1 motivated this study. "
+        results = (
+            "Here SURMOUNT-3 with intensive lifestyle intervention produced a mean weight reduction "
+            "of 18.4 percent at 72 weeks."
+        )
+        direct_quote = intro + results
+        # Cite ONLY the results span (starts after the SURMOUNT-1 intro mention).
+        span_start = len(intro)
+        span_end = len(direct_quote)
+        sentence = (
+            f"In SURMOUNT-1, tirzepatide produced a mean weight reduction of 18.4 percent at 72 weeks. "
+            f"[#ev:ev_015:{span_start}-{span_end}]"
+        )
+        pool = {
+            "ev_015": {
+                "direct_quote": direct_quote,
+                "statement": "Tirzepatide with intensive lifestyle intervention in obesity",  # NO trial token
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert not result.is_verified, (
+            "one-reference hole: a SURMOUNT-1 reference OUTSIDE the cited span must NOT launder a "
+            f"fabricated SURMOUNT-1 sentence; got kept (failures={result.failure_reasons})"
+        )
+        assert any("trial_name_mismatch" in r for r in result.failure_reasons), (
+            f"expected trial_name_mismatch; got {result.failure_reasons}"
+        )
+
+    def test_kill_switch_off_restores_title_only_behavior(self, monkeypatch) -> None:
+        """Kill-switch OFF → exact pass-7 title/statement-only behavior: the SURPASS-2 rescue case (title
+        lacks the token) drops again, byte-identical to pre-#949."""
+        monkeypatch.setenv("PG_VERIFY_TRIAL_NAME_SPAN_FALLBACK", "0")
+        results = (
+            "tirzepatide in SURPASS-2 produced a mean HbA1c reduction of 2.3 percent versus semaglutide."
+        )
+        sentence = (
+            f"In SURPASS-2, tirzepatide produced a mean HbA1c reduction of 2.3 percent versus "
+            f"semaglutide. [#ev:ev_s2:0-{len(results)}]"
+        )
+        pool = {
+            "ev_s2": {
+                "direct_quote": results,
+                "statement": "Tirzepatide versus semaglutide once weekly in type 2 diabetes",  # no token
+            },
+        }
+        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+        assert not result.is_verified, (
+            "with the span fallback OFF, a title-token-less SURPASS-2 row must drop the sentence "
+            f"(exact pre-#949 behavior); got kept (failures={result.failure_reasons})"
+        )
+        assert any("trial_name_mismatch" in r for r in result.failure_reasons)

@@ -174,6 +174,12 @@ def policy_targeted_serper(
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
         return []
+    # I-safety-002b (#925) PR-2: record serper attempt for the Path-B gate (best-effort).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("serper")
+    except Exception:
+        pass
     site_clause = " OR ".join(_POLICY_SITE_FILTERS)
     q = f"{query} ({site_clause})"
     try:
@@ -200,6 +206,12 @@ def policy_targeted_serper(
             snippet=item.get("snippet", "") or "",
             source="serper_policy",
         ))
+    # I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started).
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_query("serper_policy", q, [c.url for c in out])
+    except Exception:
+        pass
     return out
 
 
@@ -310,6 +322,73 @@ def github_search_repos(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# CLINICAL: Europe PMC (keyless, free) primary-literature backend (I-meta-002-q1d #942-clinical)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EUROPE_PMC_API = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+
+def europe_pmc_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
+    """Query Europe PMC (KEYLESS, FREE — no API key, no cost) for clinical primary literature.
+    Fail-open: any error / empty body returns [] (the run degrades to generic Serper + S2).
+
+    Emits ONLY resolvable primary-literature URLs in PMCID -> DOI -> PMID priority — PMC is the
+    strongest keyless, fetchable full-text path (Codex brief-gate); a record carrying none of those
+    ids is SKIPPED (a europepmc.org landing page does not fetch as primary content). Candidates flow
+    through the SAME fetch / tier / strict_verify chokepoint as Serper/S2 (no tier laundering).
+    """
+    # Fail-open guard wraps the HTTP call AND the parse (Codex diff-gate iter-1 P1): a network/helper
+    # exception must degrade to [] (generic Serper + S2), never break the clinical run.
+    try:
+        data = _http_get_json(
+            _EUROPE_PMC_API,
+            params={
+                "query": query,
+                "format": "json",
+                "resultType": "core",
+                "pageSize": max(1, min(limit, 25)),
+            },
+        )
+        if not data:
+            return []
+        results = (data.get("resultList") or {}).get("result") or []
+        out: list[SearchCandidate] = []
+        for r in results:
+            pmcid = str(r.get("pmcid") or "").strip()
+            doi = str(r.get("doi") or "").strip()
+            pmid = str(r.get("pmid") or "").strip()
+            if pmcid:
+                url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+            elif doi:
+                url = f"https://doi.org/{doi}"
+            elif pmid:
+                url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+            else:
+                continue  # no resolvable primary-literature id — never emit a landing page
+            title = str(r.get("title") or "").strip()
+            snippet = re.sub(r"\s+", " ", str(r.get("abstractText") or "")).strip()[:300]
+            out.append(SearchCandidate(
+                url=url,
+                title=title,
+                snippet=snippet,
+                source="europe_pmc",
+                metadata={
+                    "doi": doi or None,
+                    "pmid": pmid or None,
+                    "pmcid": pmcid or None,
+                    "year": r.get("pubYear"),
+                    "is_oa": r.get("isOpenAccess"),
+                },
+            ))
+            if len(out) >= limit:
+                break
+        return out
+    except Exception as exc:
+        logger.warning("[domain_backends] europe_pmc failed (fail-open): %s", exc)
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dispatcher
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -368,8 +447,12 @@ def run_domain_backends(
         _run("serper_policy", policy_targeted_serper)
     elif domain == "due_diligence":
         _run("sec_edgar", sec_edgar_search)
-    # clinical: rely on generic Serper + S2 (PubMed-indexed academic is
-    # well-covered by S2's bulk endpoint).
+    elif domain == "clinical":
+        # I-meta-002-q1d (#942-clinical): add Europe PMC primary-literature breadth on top of generic
+        # Serper + S2. Keyless/free + fail-open; kill-switch PG_CLINICAL_EUROPE_PMC=0. (ClinicalTrials.gov
+        # + openFDA/DailyMed are named fast-follows — CT.gov runtime 403, openFDA needs an allowlist change.)
+        if os.getenv("PG_CLINICAL_EUROPE_PMC", "1").strip() in ("1", "true", "True"):
+            _run("europe_pmc", europe_pmc_search)
 
     return DomainBackendResult(
         domain=domain,
