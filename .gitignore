@@ -62,6 +62,12 @@ outputs/*
 state/*
 !state/polaris_restart/
 !state/polaris_restart/**
+!state/polaris_statistical_contract/
+!state/polaris_statistical_contract/**
+!state/data_lineage/
+!state/data_lineage/schemas/
+!state/data_lineage/schemas/**
+!state/data_lineage/code_pins.sha256
 !state/active_issue.json
 !state/restart_instructions.md
 !state/handover.md
@@ -105,6 +111,10 @@ models/
 
 # --- Archive (historical snapshots, 36 GB+) ---
 archive/
+# I-meta-001 (#933) exception: docs/archive/ holds superseded but historically-relevant
+# decision documents that MUST stay tracked so the supersession chain is auditable.
+!docs/archive/
+!docs/archive/**
 
 # --- ChromaDB vector store ---
 memory/chroma_db/
@@ -254,3 +264,7 @@ outputs/codex_findings/round_*/last_message.txt
 # I-p2-p0 (#789): canonical demo bundles MUST ship to prod (read by the inspector). Never ignore.
 !web/public/canonical_bundles/
 !web/public/canonical_bundles/**
+
+# I-meta-001 (#933) Step 12: drift reports must stay tracked for audit history.
+!state/drift_reports/
+!state/drift_reports/**

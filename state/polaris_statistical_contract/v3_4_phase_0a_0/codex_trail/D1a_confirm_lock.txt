@@ -1,0 +1,256 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6b5c-f5f0-79e0-b999-2a9ff50dd615
+--------
+user
+# D1a re-review — confirm 5 fixes before lock
+
+UNCAPPED per operator. You flagged 5 fixes on D1a; I applied each. Confirm they're closed, no new issues.
+
+Read the updated artifact at `state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md`.
+
+The 5 fixes you requested:
+1. §1 line 21: "locked gold-set construction" → "applicable locked evaluation construction — including gold-set construction and/or canary eligibility as specified by each gate"
+2. §2 line 34: "filenames byte-for-byte" → "filename stems byte-for-byte (i.e., `config/scope_templates/{domain}.yaml`)"
+3. §3 lines 40-41: removed rationale ("lower Carney-relevance", "budget feasible"), removed "custom is not a domain", → workforce exclusion is validation-scope-only + canonical-8 member; custom = "not a stable substantive validation stratum", canonical-8/supported
+4. §5 line 57: full §P4 Category-4 remedy (fresh sealed holdout OR alpha-spending plan OR conservative bridging validation), not just fresh holdout
+5. §7: removed the process checklist; replaced with a one-sentence deferral note
+
+Per item: ✓ closed / △ wording / ✗ broke something. Then: "Lock D1a" OR "Fix [specifics]".
+
+codex
+I’ll re-read the updated D1a artifact against the five requested edits and check nearby language for regressions before giving the lock/no-lock call.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md' | ForEach-Object { "'$i++; '"'{0,4}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 845ms:
+   1: # D1a — POLARIS Validation Domain Set (LOCKED)
+   2: 
+   3: **Deliverable**: Phase 0a.0 / D1a — the frozen validation-domain set.
+   4: **Status**: candidate for lock (pending Codex §-1.1 review + operator sign-off).
+   5: **Parent**: Statistical Safety Contract v3.3 (`state/polaris_statistical_contract/v3_3/contract.md`).
+   6: **Plan**: `state/polaris_statistical_contract/v3_4_phase_0a_0/PHASE_0a_0_PLAN.md`.
+   7: **Version**: 1
+   8: **Content hash**: (computed at lock; see `D1a_validation_domain_set.sha256`)
+   9: 
+  10: ---
+  11: 
+  12: ## §1. Validation-scope framing (binding)
+  13: 
+  14: These six domains define the **validation scope** of the POLARIS Statistical Safety Contract. They are the strata over which Gates A, B, D, E and prerequisites P1, P2 are constructed and measured.
+  15: 
+  16: **This is NOT**:
+  17: - a population claim about Prime Minister Carney's research interests,
+  18: - a claim about all POLARIS use,
+  19: - a claim that these are the only domains POLARIS supports.
+  20: 
+  21: Per contract §10.0, "all domains / all customers" is a forbidden overclaim. Gate pass-sentences are scoped to the applicable locked evaluation construction — including gold-set construction and/or canary eligibility as specified by each gate — within these six domains only.
+  22: 
+  23: ## §2. The six validation domains (exact IDs)
+  24: 
+  25: | # | Domain ID | Scope template (exists) | Completeness checklist | Action |
+  26: |---|---|---|---|---|
+  27: | 1 | `clinical` | `config/scope_templates/clinical.yaml` | `config/completeness_checklists/clinical.yaml` (exists) | use as-is |
+  28: | 2 | `due_diligence` | `config/scope_templates/due_diligence.yaml` | `config/completeness_checklists/due_diligence.yaml` (exists) | use as-is |
+  29: | 3 | `policy` | `config/scope_templates/policy.yaml` | `config/completeness_checklists/policy.yaml` (exists) | use as-is |
+  30: | 4 | `tech` | `config/scope_templates/tech.yaml` | `config/completeness_checklists/tech.yaml` (exists) | use as-is |
+  31: | 5 | `ai_sovereignty` | `config/scope_templates/ai_sovereignty.yaml` | MISSING | D1 authors `ai_sovereignty.yaml` |
+  32: | 6 | `canada_us` | `config/scope_templates/canada_us.yaml` | MISSING | D1 authors `canada_us.yaml` |
+  33: 
+  34: The domain IDs are the canonical string identifiers used everywhere in the contract substrate (manifests, allocation, stratification). They MUST match the scope-template filename stems byte-for-byte (i.e., `config/scope_templates/{domain}.yaml`).
+  35: 
+  36: ## §3. Explicit exclusions
+  37: 
+  38: | Excluded | Reason |
+  39: |---|---|
+  40: | `workforce` | Excluded from validation scope. Remains a valid POLARIS production domain and a member of the canonical-8 — the exclusion is validation-scope only. (Selection rationale is deferred to D1.) |
+  41: | `custom` | Not a stable substantive validation stratum (it is the fallback template shape). Remains a canonical-8 / supported production template; excluded from validation scope only. |
+  42: 
+  43: ## §4. Canonical-8 non-interference note
+  44: 
+  45: The repo enforces a **canonical-8 template set** = {clinical, policy, tech, due_diligence, ai_sovereignty, canada_us, workforce, custom} in `tests/v6/test_template_canonical_set.py` and `src/polaris_graph/nodes/scope_gate.py`.
+  46: 
+  47: D1a does **NOT** modify the canonical-8. The validation domain set (six) is a SUBSET selected for contract validation. `workforce` and `custom` remain in the canonical-8 and in production; they are merely outside validation scope.
+  48: 
+  49: Completeness-checklist governance is **separate** from the canonical-8 and is currently permissive (a missing checklist returns `no_checklist_loaded`, not a canonical failure). D1 will add a validation-domain fail-closed guard (per Phase-0a.0 plan carry-forward redline 7) so the six validation domains require a present checklist. Authoring `ai_sovereignty.yaml` + `canada_us.yaml` in D1 does not change the canonical-8.
+  50: 
+  51: ## §5. Freeze / change-control rule
+  52: 
+  53: This domain set is **frozen** on lock. Any change (add / remove / rename a validation domain) is a contract amendment governed by `state/polaris_statistical_contract/v3_3/contract.md` §P4:
+  54: 
+  55: - Before any Phase-0a structural exposure: §P4 Category-3 (pre-outcome design amendment) — versioned hash-pin, no fresh holdout.
+  56: - After structural exposure (pilot cluster structure observed): the domain set feeds stratification/allocation; a change is design-changing and requires §P4 Category-3 treatment with a re-run of affected allocation.
+  57: - After outcome exposure (any gate's miss counts seen): §P4 Category-4 — the affected gate's analysis becomes exploratory; the confirmatory gate requires one of the full Category-4 remedies (a fresh sealed holdout, a prospectively-defined alpha-spending plan covering both designs, or a clearly-labelled conservative bridging validation).
+  58: 
+  59: No silent reinterpretation of the set is permitted. The domain IDs in §2 are the sole authority.
+  60: 
+  61: ## §6. Version + hash metadata
+  62: 
+  63: - **Version**: 1
+  64: - **Locked at**: (timestamp at sign-off)
+  65: - **Content hash**: SHA256 of this file, recorded in `D1a_validation_domain_set.sha256`
+  66: - **Supersedes**: none (first version)
+  67: - **Amendment log**: `state/data_lineage/amendments/` (per contract §P4.3)
+  68: 
+  69: ---
+  70: 
+  71: ## §7. Deferral note
+  72: 
+  73: The following are deferred to D1 (explicitly NOT part of this D1a lock): the domain-selection rationale, authoring the two missing completeness checklists (`ai_sovereignty.yaml`, `canada_us.yaml`), and the validation-domain fail-closed checklist guard.
+
+codex
+The requested line edits are present in the artifact. I’m checking the referenced §P4 remedy language now so the lock decision is based on the contract text, not just the local wording.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "§P4|Category-4|alpha-spending|bridging|fresh sealed holdout|outcome exposure|structural exposure" state/polaris_statistical_contract/v3_3/contract.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "locked gold-set construction|filenames byte-for-byte|lower Carney|budget feasible|custom is not a domain|process checklist|Category-4|fresh sealed holdout|conservative bridging" state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md' in C:\POLARIS
+ succeeded in 1079ms:
+57:- After outcome exposure (any gate's miss counts seen): §P4 Category-4 — the affected gate's analysis becomes exploratory; the confirmatory gate requires one of the full Category-4 remedies (a fresh sealed holdout, a prospectively-defined alpha-spending plan covering both designs, or a clearly-labelled conservative bridging validation).
+
+ succeeded in 1134ms:
+63:If DEFF_binding > 2.5, §P4 Category-3 amendment required.
+65:**Phase 0a sees STRUCTURE only**, not outcomes — see §P4.2.
+168:§P4 Category-3 amendment filed.
+314:## §P4. Amendment governance (REVISED v3.3 per Codex round-3 §9)
+347:After structural exposure: amendments touching CLUSTERING/ELIGIBILITY/ICC/SAMPLE SIZE require §P4 Category-3 (pre-outcome design) treatment.
+349:After outcome exposure: amendments require §P4 Category-4 (post-outcome design) — analysis becomes exploratory.
+374:| §P4.2 structural exposure | Some rows implicit | + explicit: P_final/N_final/degree/relation-hash/DEFF_binding row; + explicit denominator-distribution row |
+375:| §P4.2 outcome exposure | Some rows implicit | + explicit note: agreement coefficient values are outcome (even though severity labels are structural) |
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -LiteralPath '"'state/polaris_statistical_contract/v3_3/contract.md' | ForEach-Object { "'$i++; if ($i -ge 314 -and $i -le 355) { '"'{0,4}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 937ms:
+ 314: ## §P4. Amendment governance (REVISED v3.3 per Codex round-3 §9)
+ 315: 
+ 316: ### P4.1 (unchanged from v3.1-v3.2 — 5 categories)
+ 317: 
+ 318: ### P4.2 Gate-specific exposure log — STRUCTURAL vs OUTCOME (REVISED v3.3)
+ 319: 
+ 320: **Structural exposure events** (visible pre-outcome; v3.3 row additions per Codex round-3 §1, §9):
+ 321: 
+ 322: | Event | Notes |
+ 323: |---|---|
+ 324: | Phase-0a pilot cluster size, P_pilot, N_pilot | Allowed; needed for Phase-0b DEFF lock |
+ 325: | **Per-stratum P_final, N_final, claim degree statistics, relation-table hash, DEFF_binding** (NEW v3.3 row per Codex round-3 §1) | Allowed pre-unblinding; needed for binding analysis. Stratum denominators implicitly exposed (acceptable since severity labels are locked and verifier-outcomes are not visible). |
+ 326: | Canary customer count, m_i distribution, concentration | Allowed; §4.2 prerequisite check |
+ 327: | Surrogate ICC values (4 surrogates) | Allowed; §4.4 escalation |
+ 328: | Canary observed prevalence | Allowed; §6.4 PPV propagation |
+ 329: | Eligibility-failure counts | Allowed; §4.2 prerequisite check |
+ 330: | Per-cell denominator counts | Allowed; §6.2 eligibility |
+ 331: | **Domain/stratum/cell denominator distributions + eligibility distributions** (NEW v3.3 explicit row per Codex round-3 §9) | Allowed pre-outcome |
+ 332: | Per-stratum severity label distributions (pre-outcome) | Allowed |
+ 333: | Missingness/prevalence/completeness audit (Gate E) | Allowed |
+ 334: 
+ 335: **Outcome exposure events** (must be blinded until gate analysis):
+ 336: 
+ 337: | Event | Notes |
+ 338: |---|---|
+ 339: | Per-stratum / per-cell / per-domain miss counts | Outcome |
+ 340: | Severity-distribution AMONG MISSES | Outcome |
+ 341: | Customer-distribution of any affected reports | Outcome (vs aggregate customer count = structural) |
+ 342: | **Inter-rater agreement coefficient values** (NEW v3.3 explicit note per Codex round-3 §9 — even though severity labels themselves are needed structurally for Gate A) | Outcome |
+ 343: | Under-rating-rate confusion matrix | Outcome |
+ 344: | Retrieval recall numerators | Outcome |
+ 345: | Extraction recall numerators | Outcome |
+ 346: 
+ 347: After structural exposure: amendments touching CLUSTERING/ELIGIBILITY/ICC/SAMPLE SIZE require §P4 Category-3 (pre-outcome design) treatment.
+ 348: 
+ 349: After outcome exposure: amendments require §P4 Category-4 (post-outcome design) — analysis becomes exploratory.
+ 350: 
+ 351: **Logging**: automatic, append-only, attached to all access channels (dashboards, notebooks, CI logs, stdout, exports, screenshots). Manual self-report insufficient. Lives at `state/data_lineage/exposure_log.jsonl`.
+ 352: 
+ 353: ### P4.3 (unchanged)
+ 354: 
+ 355: ---
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"Category-4|fresh sealed|alpha-spending|bridging|post-outcome|exploratory\" state/polaris_statistical_contract -g '*.md'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"D1a|Validation Domain Set|validation domain\" state/polaris_statistical_contract/v3_4_phase_0a_0 -g '*.md'" in C:\POLARIS
+ succeeded in 1180ms:
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:1:# D1a — POLARIS Validation Domain Set (LOCKED)
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:3:**Deliverable**: Phase 0a.0 / D1a — the frozen validation-domain set.
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:8:**Content hash**: (computed at lock; see `D1a_validation_domain_set.sha256`)
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:23:## §2. The six validation domains (exact IDs)
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:47:D1a does **NOT** modify the canonical-8. The validation domain set (six) is a SUBSET selected for contract validation. `workforce` and `custom` remain in the canonical-8 and in production; they are merely outside validation scope.
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:49:Completeness-checklist governance is **separate** from the canonical-8 and is currently permissive (a missing checklist returns `no_checklist_loaded`, not a canonical failure). D1 will add a validation-domain fail-closed guard (per Phase-0a.0 plan carry-forward redline 7) so the six validation domains require a present checklist. Authoring `ai_sovereignty.yaml` + `canada_us.yaml` in D1 does not change the canonical-8.
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:53:This domain set is **frozen** on lock. Any change (add / remove / rename a validation domain) is a contract amendment governed by `state/polaris_statistical_contract/v3_3/contract.md` §P4:
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:65:- **Content hash**: SHA256 of this file, recorded in `D1a_validation_domain_set.sha256`
+state/polaris_statistical_contract/v3_4_phase_0a_0\D1a_validation_domain_set.md:73:The following are deferred to D1 (explicitly NOT part of this D1a lock): the domain-selection rationale, authoring the two missing completeness checklists (`ai_sovereignty.yaml`, `canada_us.yaml`), and the validation-domain fail-closed checklist guard.
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:3:**Status**: Plan APPROVED by Codex round-3 ("Begin D1a"). Deliverables execute in locked order below.
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:7:**Codex round-3 verdict**: "v3 closes the round-2 P0s enough to start D1a... Begin D1a (lock 6 domains)."
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:12:D1a   LOCK 6 validation domains (FIRST — minimal frozen artifact)
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:31:## CARRY-FORWARD REDLINES (Codex round-3 — apply before C/D8 EXECUTION, not blockers for D1a)
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:33:1. **D1a content** (applied in D1a now): validation-scope framing statement, exact 6 IDs, explicit exclusions (custom, workforce), canonical-8 non-interference note, freeze/change-control rule, hash/version metadata. NO rationale essay, NO checklist work.
+state/polaris_statistical_contract/v3_4_phase_0a_0\PHASE_0a_0_PLAN.md:45:7. **D1 validation-domain guard** (apply at D1): completeness checklists currently permissive (missing → `no_checklist_loaded`, not failure). Add a validation-domain guard so the 6 validation domains FAIL CLOSED if a checklist is missing. (Repo check confirmed: `tests/v6/test_template_canonical_set.py` enforces canonical-8; checklists are separately permissive.)
+
+ succeeded in 1459ms:
+state/polaris_statistical_contract\v3_4_phase_0a_0\D1a_validation_domain_set.md:57:- After outcome exposure (any gate's miss counts seen): §P4 Category-4 — the affected gate's analysis becomes exploratory; the confirmatory gate requires one of the full Category-4 remedies (a fresh sealed holdout, a prospectively-defined alpha-spending plan covering both designs, or a clearly-labelled conservative bridging validation).
+state/polaris_statistical_contract\v3_3\contract.md:349:After outcome exposure: amendments require §P4 Category-4 (post-outcome design) — analysis becomes exploratory.
+
+codex
+The contract file only restates Category-4 as post-outcome/exploratory, while this D1a now carries the remedy enumeration you requested. I’m doing one last diff-level pass so I don’t miss a wording regression outside the five target lines.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short -- state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "TODO|TBD|lower Carney|budget feasible|custom is not a domain|locked gold-set construction|filenames byte-for-byte|process checklist|fresh holdout" state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md' in C:\POLARIS
+ succeeded in 950ms:
+55:- Before any Phase-0a structural exposure: §P4 Category-3 (pre-outcome design amendment) — versioned hash-pin, no fresh holdout.
+
+ succeeded in 1188ms:
+?? state/polaris_statistical_contract/v3_4_phase_0a_0/D1a_validation_domain_set.md
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 1366ms:
+codex
+The five edited areas read cleanly. I’m also validating the file/path claims in the table because those are lock-facing assertions, and then I’ll give the per-item call.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$paths = @('"'config/scope_templates/clinical.yaml','config/scope_templates/due_diligence.yaml','config/scope_templates/policy.yaml','config/scope_templates/tech.yaml','config/scope_templates/ai_sovereignty.yaml','config/scope_templates/canada_us.yaml','config/completeness_checklists/clinical.yaml','config/completeness_checklists/due_diligence.yaml','config/completeness_checklists/policy.yaml','config/completeness_checklists/tech.yaml','config/completeness_checklists/ai_sovereignty.yaml','config/completeness_checklists/canada_us.yaml'); foreach ("'$p in $paths) { '"'{0} {1}' -f ("'$(if (Test-Path -LiteralPath $p) {'"'OK'} else {'MISSING'}), "'$p) }' in C:\POLARIS
+ succeeded in 744ms:
+OK config/scope_templates/clinical.yaml
+OK config/scope_templates/due_diligence.yaml
+OK config/scope_templates/policy.yaml
+OK config/scope_templates/tech.yaml
+OK config/scope_templates/ai_sovereignty.yaml
+OK config/scope_templates/canada_us.yaml
+OK config/completeness_checklists/clinical.yaml
+OK config/completeness_checklists/due_diligence.yaml
+OK config/completeness_checklists/policy.yaml
+OK config/completeness_checklists/tech.yaml
+MISSING config/completeness_checklists/ai_sovereignty.yaml
+MISSING config/completeness_checklists/canada_us.yaml
+
+codex
+Per item:
+
+1. ✓ closed — §1 now scopes to the applicable locked evaluation construction.
+2. ✓ closed — §2 now correctly requires filename stems byte-for-byte.
+3. ✓ closed — §3 removes the bad rationale and preserves canonical-8/production status.
+4. ✓ closed — §5 now includes all three Category-4 remedy paths.
+5. ✓ closed — §7 is now only the deferral note.
+
+No new issues found. Table path claims also match repo state.
+
+Lock D1a.
+tokens used
+18,545
+Per item:
+
+1. ✓ closed — §1 now scopes to the applicable locked evaluation construction.
+2. ✓ closed — §2 now correctly requires filename stems byte-for-byte.
+3. ✓ closed — §3 removes the bad rationale and preserves canonical-8/production status.
+4. ✓ closed — §5 now includes all three Category-4 remedy paths.
+5. ✓ closed — §7 is now only the deferral note.
+
+No new issues found. Table path claims also match repo state.
+
+Lock D1a.

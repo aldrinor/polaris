@@ -1,0 +1,224 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e6cf9-c60f-71d3-a539-eb2459b6e7ca
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd; do not bank issues.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Review: Human-Free Validation Amendment — ITER 3 (I-safety-001c / #922)
+
+## Your iter-2 verdict was REQUEST_CHANGES with ONE P1 + two P2s. All addressed:
+
+**P1 (stale '6 deliverables' in §0/§10)** — FIXED. §0 now: "supersedes the affected v3.3 sections and requires conversion across all 14 Phase-0a.0 deliverables + PHASE_0a_0_PLAN.md (systematic scope in §8)". §10 now has 4 explicit lock conditions: (1) Codex APPROVE, (2) the §8 zero-live-dependency grep as an explicit lock condition, (3) all 14 deliverables + plan + affected contract sections revised + individually Codex-APPROVE'd, (4) operator sign-off. No "6 deliverables" remains except in §8's explanatory "NOT confined to 6" sentence.
+
+**P2 (§7 guardrail 4 stale '(disjoint entity)')** — FIXED. Now: "BOTH the controlled field/scope mismatch holds AND the E1 packet-level no-accidental-support check passes. Disjoint-entity alone is NOT sufficient." Matches §3/§5.
+
+**P2 (§6 linter 'immediately preceded')** — FIXED. Now parses assertion POLARITY tolerating small function-word gaps ("not an expert-validated benchmark"), explicitly rejecting the negator-must-be-adjacent rule as a defect.
+
+## Your task this iter
+Confirm the three fixes are real + complete. APPROVE if zero P0/P1 remain.
+
+## Output schema
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+## The REVISED amendment doc
+# Amendment — Human-Free Validation Model (draft for Codex review)
+
+**Amends**: contract v3.3 (`state/polaris_statistical_contract/v3_3/contract.md`, SHA `75c9eb94…d0d98a3`) + the 14 Phase-0a.0 deliverables.
+**Status**: DRAFT (Codex design-partner review pending, then §-1.1 APPROVE).
+**GitHub**: I-safety-001c (#922), under master #917.
+**Driver**: operator HARD CONSTRAINT 2026-05-27 — **no human SMEs, ever; only budget is API fees.** Same class as the earlier "no external statistician" lock. Not Codex-consultable, not relaxable.
+**Codex design-partner input**: `.codex/I-safety-001b/codex_human_free_design.txt`.
+
+---
+
+## §0. What this amendment changes (scope)
+
+v3.3 + the Phase-0a.0 deliverables put **human SMEs** in load-bearing roles: claim construction, blinded "is it fabricated?" labeling, severity adjudication, tiebreak, and Gate E (human inter-rater reliability — the validity gate that makes Gates A/B/D interpretable). The no-human constraint removes all of these. This amendment replaces them with a **mechanical-oracle + deterministic-hazard + cross-family-LLM** model and **re-scopes the safety claim accordingly**.
+
+This is a **contract amendment**, not a deliverable cleanup: it changes the meaning of Gate E and the entire validity story, so it supersedes the affected v3.3 sections and requires conversion across **all 14 Phase-0a.0 deliverables + `PHASE_0a_0_PLAN.md`** (the systematic scope is enumerated in §8; the load-bearing human-SME dependencies are NOT confined to a subset).
+
+## §1. The terminology fix (Codex P0)
+
+The single most important honesty correction:
+
+- POLARIS **can** make **fabrication status** a true benchmark label (mechanical, source-grounded mutation).
+- POLARIS **cannot** make the **severity / risk stratum** (clinical or non-clinical) ground truth without humans. It can make severity a **machine-adjudicated risk stratum** (structured-rule-constrained + cross-family-LLM-adjudicated). "Clinical" is reserved for the clinical domain only; the benchmark spans 6 domains, so the generic term is **severity/risk stratum** (Codex P2 — terminology consistency).
+
+So the design is NOT "Job 1 mechanical, Job 2 LLM." It is:
+
+> **Fabrication status is mechanical. Severity is mostly provenance-constrained and only partly LLM-adjudicated.**
+
+This phrasing minimizes how much of the safety claim rests on LLM judgment, and it is the phrasing the claim license (§6) enforces.
+
+## §2. The three-layer model (replaces the SME construction+adjudication stack)
+
+### Layer 1 — Mechanical fabrication oracle (the truth backbone)
+Real source claim → **deterministic mutation** → KNOWN fabricated / non-fabricated label. We know the label because we injected it. The core measurement — *"did the verifier miss a planted fabrication?"* — depends on **no LLM judge**. Anti-circularity is structural: the dependent variable is mechanical.
+
+- Prefer **structured sources** where truth is a field value: clinical-trial registries (NCT / EudraCT), drug labels with structured dose/contraindication/boxed-warning fields, DOI'd papers with extractable numbers.
+- Mutation is auditable: original value, mutated value, source field, mutation type, diff, and the regenerated expected label are all logged (`mutation_audit_log`).
+
+### Layer 2 — Deterministic hazard scaffold (rules first, before any LLM)
+The **source field + mutation type** assign a presumptive risk band WHERE RULES CAN DECIDE: dose, contraindication, boxed warning, withdrawal status, pediatric population, pregnancy warning, endpoint direction, mortality/safety outcome. **Codex P0 caveat — severity laundering**: a "dose field changed" rule yields **S0-candidate**, NOT auto-S0. The rule proves a safety-relevant field was altered; final S0 still needs the explicit S0 predicate test (0a.-1.B) applied. Layer 2 narrows the plausible band; it does not certify S0.
+
+### Layer 3 — Cross-family LLM severity adjudication (residual judgment only)
+For severity that rules cannot fully determine, OR to confirm/challenge the Layer-2 band, a **panel of ≥3 different-family LLMs** adjudicates. **Used only for severity, never for fabrication status.**
+
+## §3. Per-fabrication-type classification (Codex — the 7 types are NOT uniform)
+
+Mechanical ground truth is **strong** for 5 types, **conditional** for 2:
+
+| Fab type | Mechanical? | Condition |
+|---|---|---|
+| quantitative (5mg→15mg, 12%→21%, n=140→410) | **Strong** | original parsed from structured source / exact source text |
+| entity_swap (drug A→B, NCT A→B, disease X→Y) | **Strong** | entities from controlled vocab / structured fields |
+| qualitative_negation ("reduced"→"did not reduce") | **Strong** | template-generated, original polarity explicit |
+| temporal (active→withdrawn, completed→recruiting) | **Strong** | dated registries / versioned labels / status fields |
+| relation_direction (A↑B→A↓B, superior→inferior) | **Strong** | template-controlled, original relation extractable |
+| **citation_swap** | **Conditional** | mechanical ONLY if (a) swapped to a source from a **disjoint** entity/trial/drug/population AND (b) E1's **packet-level "no-accidental-support" check** (§5) deterministically proves the cited packet cannot support the mutated proposition. Disjoint-by-entity alone is NOT sufficient for multi-topic labels / guidelines / reviews (Codex P1). Otherwise → exploratory-only (below). |
+| **scope_overreach** | **Split** | `structured_population_overreach` (trial pop → "all patients") = mechanical; `indication_overreach` = mechanical IF label fields support it AND the E1 no-accidental-support check passes; `causal_clinical_overreach` = **NOT mechanical-status** (its severity may be LLM-panel-judged, but its STATUS is not mechanically certain → exploratory-only). |
+
+### §3.1 Confirmatory vs exploratory separation (Codex P1 — fabrication status is NEVER LLM-judged)
+
+The core anti-circularity guarantee is that **fabrication STATUS is never LLM-judged**. Therefore:
+
+- **Confirmatory gold set** (feeds Gates A/B/D, the UCB bound, the headline claim): contains **ONLY mechanically-labeled status items** — the 5 strong types + the citation_swap/scope_overreach subtypes whose unsupportedness is created by **controlled source/field mismatch AND deterministically proven** (§5 E1 no-accidental-support). No LLM-status items, ever.
+- **Exploratory set** (separately licensed, never feeds Gates A/B/D or the bound): any fab item whose status is NOT mechanically certain. Reported as exploratory observation only, under its own weaker license. An LLM may *flag* such items, but that flag never becomes a confirmatory label.
+
+**Binding rule**: a fab item enters the confirmatory gold set iff its unsupportedness is created by controlled source/field mismatch **and** E1 deterministically proves the cited packet cannot support the mutated proposition. Otherwise it is exploratory-only. There is NO "LLM-panel-flagged status" path into the confirmatory measurement.
+
+## §4. Cross-family panel + anti-circularity (Codex)
+
+- **≥3 families**: one GPT/Codex-family, one Claude-family, one independent third (Qwen or other in the POLARIS stack). 2 is the minimum useful; 3 lets us detect one-family outliers + compute meaningful agreement.
+- **Independence controls**: generator-family ≠ verifier-family ≠ judge-family where feasible (extends the contract's existing two-family rule); judges do NOT see verifier outputs/rationales/scores/labels; freeze prompts, rubrics, model versions, decoding settings, source packets before evaluation; store judge first-pass labels before any consensus; include adversarial controls (known status, intentionally-ambiguous severity); **report disagreement, not just consensus**.
+- **The structural protection**: fabrication status is not LLM-judged at all — the LLM panel only affects severity stratification.
+
+## §5. Gate E → E1 + E2 (the validity story, reframed)
+
+Human Gate E ("are trained humans applying the rubric consistently enough that Gates A/B/D are interpretable?") no longer exists. Replace with TWO gates:
+
+### Gate E1 — Mechanical Oracle Integrity (the new validity backbone)
+Checks that the benchmark labels are actually KNOWN:
+- source-fetch reproducibility, structured-field extraction correctness, mutation audit logs, original-vs-mutated diff validity, **no accidental unsupported ORIGINAL claims**, deterministic expected-label regeneration, fixture hash stability.
+- **Packet-level "no-accidental-support" check (Codex P1)**: for every confirmatory item, deterministically verify that NO source in the cited packet supports the mutated proposition (not just that the swapped/narrowed source is disjoint). For citation_swap/scope_overreach this is the gate that promotes an item from exploratory to confirmatory. A packet that could accidentally support the "fabrication" invalidates the item.
+- **LLM-extracted facts are NOT mechanical (Codex P2)**: a source fact counts as mechanical-truth ONLY if it is backed by a deterministic structured field OR exact-span reproducibility. An LLM-paraphrased/LLM-extracted "original value" is NOT a mechanical anchor and cannot ground a confirmatory label.
+- This is what makes Gates A/B/D interpretable for fabrication miss-rate. **If E1 fails, the whole benchmark is invalid** (we don't actually know the labels).
+
+### Gate E2 — Machine Severity Stability (the reframed agreement gate)
+- AC1 / Krippendorff across the LLM judges, per-stratum disagreement, family-specific bias checks, deterministic-guardrail override rates, consensus-vs-rule conflict rates.
+- **Gate A/B/D survival under E2 failure (Codex P1 — precise)**: Gate A/B/D severity stratification now uses **machine-adjudicated severity** (Layer-2 scaffold + Layer-3 panel), NOT SME-adjudicated severity (the v3.3 SME reference is amended out). On E2 PASS: the full severity-stratified Gate A/B/D results + their UCB bounds are confirmatory. On E2 FAIL: only the **severity-agnostic overall fabrication miss-rate** (E1-backed, mechanical labels) remains confirmatory; all **per-severity-stratum** claims (S0/S1/S2-specific bounds) drop to exploratory and the claim license forbids any severity-stratified assertion. The reporting template emits the E2 verdict alongside every stratified number.
+- **Agreement-worship guard (Codex)**: high AC1 among LLM judges can mean consistent shared bias. E2 is a STABILITY signal, not a TRUTH signal — labeled as such.
+
+## §6. Claim license (binding — forbids overclaim)
+
+**CAN claim**:
+> "POLARIS achieved a verifier miss-rate bounded at X% on a reproducible benchmark of deterministically injected fabrications against fetched cited sources; fabrication-status labels are mechanical, while severity strata are provenance-constrained and cross-family-LLM-adjudicated, not expert-validated."
+
+**Strongest split form**:
+> "The fabrication-detection result is mechanically labeled. The severity-stratified result is machine-adjudicated and should be interpreted as a bench safety stress test, not clinical validation."
+
+**CANNOT claim**: any AFFIRMATIVE assertion that the benchmark was "expert-validated", "clinically validated", "physician-reviewed", "expert-grade", or any phrasing implying a human clinician adjudicated.
+
+**Claim-license linter — negation-aware (Codex P2)**: the linter bans the AFFIRMATIVE assertion, NOT the required negated disclaimer. It must PASS "not expert-validated" / "is NOT clinical expert validation" / "not an expert-validated benchmark" (mandatory disclaimers) and FAIL "expert-validated" / "clinically validated" used as a positive claim. Enforcement = parse the assertion POLARITY of the forbidden phrase (negated vs affirmative), tolerating small function-word gaps between the negator ("not", "no", "isn't", "is not", "never") and the phrase (e.g. "not **an** expert-validated benchmark"). A naive substring ban, or a negator-must-be-immediately-adjacent rule, would block valid disclaimers — that is itself a defect.
+
+**The hard line in the contract**:
+> Human-free POLARIS validation is a reproducible bench test of verifier behavior under mechanically-known fabrications. It is NOT clinical expert validation. Severity labels are machine-adjudicated risk strata and must be reported as such.
+
+## §7. Self-deception guardrails (Codex — clinical-safety context: a fake-looking validation is worse than an honest bench test)
+
+1. **Benchmark over-templating**: if mutations are too formulaic, the verifier may learn benchmark artifacts, not real fabrication detection. Mitigation: mutation-template diversity quota + held-out template families + report transfer gap.
+2. **Source-selection bias**: structured sources are easier to validate than messy clinical prose; performance may not transfer to unstructured papers/guidelines/ambiguous claims. Mitigation: disclose the structured/unstructured split + report per-source-class miss-rate; do NOT generalize a structured-source number to all prose.
+3. **Severity laundering** (§2 Layer-2): "dose field changed" → S0-**candidate**, never auto-S0.
+4. **Citation-swap illusion** (§3): replacing a citation proves unsupportedness only when BOTH the controlled field/scope mismatch holds AND the E1 packet-level no-accidental-support check passes (§3/§5). Disjoint-entity alone is NOT sufficient.
+5. **Scope-overreach ambiguity** (§3): causal/clinical overreach is judgment, not mechanical — don't launder it as mechanical.
+6. **Judge contamination** (§4): shared examples/rationales across generator/verifier/judge prompts → agreement reflects shared conditioning, not independent validation.
+7. **Agreement-worship** (§5): high LLM-judge AC1 = stability, not truth.
+8. **Clinical claim creep** (§6): the final report must not let "safety/clinical/expert validation" sneak back in via phrasing.
+
+## §8. Artifacts to revise — systematic human-SME removal (Codex P0)
+
+A repo-wide scan (`grep -i` for SME / sme_id / adjudicator / domain-expert / physician / panelist / tiebreak / inter-rater / calibration / recruit, 2026-05-27) shows human-SME dependencies are NOT confined to 6 deliverables — they are present in **every** deliverable and the contract. Listing only 6 would leave human dependencies load-bearing (the P0). The honest scope is a **systematic conversion across the contract + all 14 deliverables + the Phase-0a.0 plan**.
+
+**Per-artifact disposition** (live-dependency hit count → conversion):
+
+| Artifact | Hits | Disposition |
+|---|---|---|
+| **contract.md** v3.3 | 8 | amend Gate E → E1+E2; severity source SME→machine; claim license; §-1.1 audit "both Claude+Codex" stays (those are the tooling, not SMEs) |
+| **0a.-1.A** panel/role governance | 38 | full rewrite: SME panel → model-family-judge governance + deterministic-oracle governance + role separation + prompt/version freezing + contamination controls |
+| **0a.-1.B** severity/fab rubric | 12 | human-consensus ground truth → mechanical oracle; severity → hazard scaffold + LLM-panel; blinded HUMAN labeling → judge first-pass |
+| **0a.-1.C** metadata schema | 3 | `blinded_adjudication_labels`/`consensus_gold_labels` → `mechanical_fabrication_labels`, `mutation_audit_log`, `structured_source_fields`, `llm_first_pass_severity_labels`, `llm_consensus_severity_labels`, `severity_guardrail_overrides` |
+| **0a.-1.D** canonical source identity | 1 | the "≥1 domain SME for source exceptions" path → deterministic rule OR explicitly disabled (no human fallback) |
+| **0a.-1.E** execution/custody chain | 17 | `sme_id`/adjudicator/panel/calibration/drop-out custody → judge-instance custody (model id + version + prompt-hash + decoding settings); blinding-unit redefined for judges |
+| **D2** complexity rubric | 1 | any SME-assigned complexity → deterministic/auto-assigned or judge-assigned |
+| **D3** evidence-pool bins | 2 | confirm bin assignment is mechanical count (likely already); strip any SME reference |
+| **D4** microtopic ontology | 3 | ontology authoring SME refs → Claude+Codex authoring; no per-run human |
+| **D6** template format | 9 | `sme_qualifications_required` → judge-model eligibility + family separation + prompt controls + deterministic-extractor + audit requirements |
+| **D7'** source-packet methodology | 2 | "direct SME selection" of sources → deterministic/registry-driven selection (no human curator) |
+| **D8** allocation | 3 | SME/template balancing → source-template / mutation-template / model-family balancing; roster feasibility → judge-instance feasibility |
+| **PHASE_0a_0_PLAN.md** | 3 | update the locked deliverable order + any SME-gated step to the human-free model |
+| **D1 / D1a** rationale | 1 | strip incidental SME mention; domain SET unchanged |
+
+Also touched: claim-license language (§6), reporting template, benchmark manifest, leakage controls (§P3.4), data-provenance schema, Gate A/B/D acceptance under E2 failure (§5).
+
+**Binding completion check (the P0 close-out)**: before this amendment + the revisions lock, a repo-wide `grep -i` for the human-SME vocabulary across `state/polaris_statistical_contract/**/*.md` (excluding the historical `codex_trail/` and `codex_review_trail/` review records, which are frozen audit history) must return **zero LIVE human-SME dependencies**. Any residual hit must be either converted to the human-free model or accompanied by an explicit "this path is DISABLED under the no-human constraint" annotation. No human fallback may remain reachable.
+
+## §9. What is preserved (genuinely human-free already)
+
+These survive because they never depended on a human. ("Preserved" = the concept is unchanged; any incidental SME *string* inside them is still subject to the §8 completion check.)
+
+- The cluster arithmetic (DEFF, n_eff, Wilson UCB) — Gate A/B sizing math is unaffected; only the LABEL SOURCE changes.
+- `relation_builder.py` + `validation_domain_guard.py` + the 6 JSON schemas — code, already human-free (verified: no SME logic).
+- The 6 validation **domains** (D1a) as a SET, complexity TIERS (D2), evidence-pool BIN definitions (D3), the microtopic ontology STRUCTURE (D4), prompt-family inventory methodology (D5) — the *definitions* stand; their *authoring/assignment* SME references are converted per §8.
+- The intersection-union release rule; the §P3 prerequisite STRUCTURE (P1 retrieval recall, P2 extraction recall, P3 contamination, P4 amendment governance) — but P-prereq SME references are converted per §8.
+- The operator sign-off gate (contract §11) — retained (the operator is the spec owner, not an SME labeler).
+
+**Not preserved** (Codex P0 — these were wrongly listed as unchanged in the draft and DO carry live human dependencies): 0a.-1.D, 0a.-1.E, D7', the Phase-0a.0 plan. Moved to §8.
+
+## §10. Definition of done (this amendment)
+
+Locked: the terminology fix (§1), 3-layer model (§2), per-fab-type classification (§3), ≥3-family panel + anti-circularity (§4), Gate E→E1+E2 (§5), claim license (§6), 8 self-deception guardrails (§7), the systematic conversion scope across **all 14 Phase-0a.0 deliverables + `PHASE_0a_0_PLAN.md` + affected contract sections** (§8), the v3.3-preserved set (§9). Codex §-1.1 APPROVE. Operator sign-off (PR).
+
+**§10 lock conditions** (all must hold before this amendment + the conversions lock):
+1. Codex §-1.1 APPROVE on this amendment.
+2. The §8 binding completion check passes: a repo-wide `grep -i` for the human-SME vocabulary across `state/polaris_statistical_contract/**/*.md` (excluding frozen `codex_trail/` + `codex_review_trail/`) returns **zero LIVE human-SME dependencies** — every residual hit is either converted to the human-free model or carries an explicit "DISABLED under the no-human constraint" annotation.
+3. Each of the **14 Phase-0a.0 deliverables + the plan + the affected contract sections** is revised + individually Codex-APPROVE'd against this amendment.
+4. Operator sign-off (PR), per contract §11.
+
+codex
+I’m checking the revised text against the three iter-2 findings and also scanning for any remaining execution blockers, not reopening cosmetic wording unless it changes the implementability of the amendment.
+codex
+verdict: APPROVE  
+novel_p0: []  
+continuing_p0: []  
+p1: []  
+p2: []  
+convergence_call: accept_remaining  
+remaining_blockers_for_execution: []
+tokens used
+10,377
+verdict: APPROVE  
+novel_p0: []  
+continuing_p0: []  
+p1: []  
+p2: []  
+convergence_call: accept_remaining  
+remaining_blockers_for_execution: []

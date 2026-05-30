@@ -1,0 +1,478 @@
+diff --git a/src/polaris_graph/roles/openai_compatible_transport.py b/src/polaris_graph/roles/openai_compatible_transport.py
+index 6fc3b959..b22dfd38 100644
+--- a/src/polaris_graph/roles/openai_compatible_transport.py
++++ b/src/polaris_graph/roles/openai_compatible_transport.py
+@@ -276,12 +276,68 @@ def _build_body(
+     return body
+ 
+ 
+-def _parse_response(raw: dict) -> tuple[str, str | None, dict | None]:
+-    """Extract `(raw_text, served_model, usage)` from an OpenAI-compatible response body.
++_THINK_OPEN = "<think>"
++_THINK_CLOSE = "</think>"
++
++
++def _separate_reasoning(content: object, model_repr: str) -> tuple[object, str | None]:
++    """Split verifier REASONING from the bare verdict/body (I-meta-002-q1b #939).
++
++    Returns `(bare, reasoning)`. A served reasoning-model can deliver its reasoning two ways:
++    a separate `reasoning_content` field (handled by the caller) OR inline as a LEADING
++    `<think>...</think>` block in `content`. Here we handle the inline case: only a LEADING
++    block is split (never a mid-body search/replace) so any Mirror `<co>...</co:doc_id>` spans
++    that FOLLOW are byte-preserved and the adapter's offset alignment over the returned bare
++    text stays internally consistent.
++
++    Fail loud (LAW II): a `<think>` opened with NO closing `</think>` is a malformed verifier
++    response — raise rather than feed a half-emitted reasoning block to a strict verdict parser.
++    """
++    if not (isinstance(content, str) and content.lstrip().startswith(_THINK_OPEN)):
++        return content, None
++    stripped = content.lstrip()
++    close_idx = stripped.find(_THINK_CLOSE)
++    if close_idx == -1:
++        raise RoleTransportError(
++            f"self-host response content opened a <think> block with no closing </think> "
++            f"(model={model_repr}); a half-emitted reasoning block is a malformed verifier "
++            f"response (fail-closed, never parsed as a verdict)."
++        )
++    reasoning = stripped[len(_THINK_OPEN):close_idx].strip() or None
++    bare = stripped[close_idx + len(_THINK_CLOSE):].strip()
++    return bare, reasoning
++
++
++def _sanitize_raw_for_capture(raw: dict, *, bare_text: object) -> dict:
++    """Return a copy of `raw` with verifier REASONING removed, for Path-B capture (I-meta-002-q1b
++    #939, Codex diff P1 no-leak). Drops any `reasoning_content` from the assistant message and
++    replaces its `content` with the separated bare verdict, so reasoning is never persisted
++    outside the dedicated `four_role_role_calls.jsonl`. Served-identity fields (`model`, `usage`,
++    `_pathb_served`, `system_fingerprint`, provider) are preserved so M4 served==pinned is
++    unaffected. The original `raw` is NOT mutated (shallow-copied along the touched path only).
++    """
++    sanitized = dict(raw)
++    choices = raw.get("choices")
++    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
++        first_choice = dict(choices[0])
++        message = first_choice.get("message")
++        if isinstance(message, dict):
++            clean_message = dict(message)
++            clean_message.pop("reasoning_content", None)
++            clean_message["content"] = bare_text
++            first_choice["message"] = clean_message
++        sanitized["choices"] = [first_choice, *choices[1:]]
++    return sanitized
++
++
++def _parse_response(raw: dict) -> tuple[object, str | None, dict | None, str | None]:
++    """Extract `(raw_text, served_model, usage, reasoning)` from an OpenAI-compatible body.
+ 
+     Fail loud (LAW II): a missing `choices` array or an absent assistant `content` raises
+     `RoleTransportError` rather than returning an empty string a fail-closed parser would
+-    mis-read as a (deliberately) empty completion.
++    mis-read as a (deliberately) empty completion. Verifier REASONING is separated from the
++    bare verdict/body here (I-meta-002-q1b #939) so the verdict parsers only ever see the bare
++    answer (no "soap") and the reasoning is captured for line-by-line review.
+     """
+     choices = raw.get("choices")
+     if not choices:
+@@ -303,14 +359,27 @@ def _parse_response(raw: dict) -> tuple[str, str | None, dict | None]:
+             f"self-host response choice carried no message object (model={raw.get('model')!r})"
+         )
+     content = message.get("content")
+-    if content is None or (isinstance(content, str) and not content.strip()):
++    model_repr = f"{raw.get('model')!r}"
++    # Two served-reasoning shapes. Prefer the explicit separate `reasoning_content` field (vLLM
++    # reasoning-parser path: `content` is already the bare verdict). Otherwise split a leading
++    # inline `<think>` block out of `content`.
++    reasoning_field = message.get("reasoning_content")
++    if isinstance(reasoning_field, str) and reasoning_field.strip():
++        bare: object = content
++        reasoning: str | None = reasoning_field
++    else:
++        bare, reasoning = _separate_reasoning(content, model_repr)
++    # Post-split blank guard (Codex brief note): a verifier role MUST return a non-blank bare
++    # verdict/body across BOTH paths. A reasoning-only / think-only / empty-content response is a
++    # transport failure, never a deliberately-empty answer — fail loud identically either way.
++    if bare is None or (isinstance(bare, str) and not bare.strip()):
+         raise RoleTransportError(
+-            f"self-host response choice carried no/blank message content "
+-            f"(model={raw.get('model')!r})"
++            f"self-host response choice carried no/blank message content after reasoning "
++            f"separation (model={model_repr})"
+         )
+     served_model = raw.get("model")
+     usage = raw.get("usage")
+-    return content, served_model, usage
++    return bare, served_model, usage, reasoning
+ 
+ 
+ class OpenAICompatibleRoleTransport:
+@@ -368,23 +437,32 @@ class OpenAICompatibleRoleTransport:
+                     f"self-host {request.role!r} returned a non-JSON body at {url}: {exc}"
+                 ) from exc
+ 
+-            raw_text, served_model, usage = _parse_response(raw)
++            # I-meta-002-q1b (#939): reasoning is separated from the bare verdict/body HERE so
++            # the verdict parsers only ever see the bare answer (no "soap").
++            raw_text, served_model, usage, reasoning = _parse_response(raw)
+ 
+             # Augment the captured raw with the served block BEFORE capture so M4's
+             # served==pinned check can read the endpoint a self-host role was served from
+             # (no fabricated provider_name for vLLM).
+             raw["_pathb_served"] = {"endpoint": base_url, "model": served_model}
++            # I-meta-002-q1b (#939) no-leak (Codex diff P1): Path-B capture must NEVER carry
++            # verifier reasoning. Sanitize the response for capture — drop `reasoning_content`
++            # and replace the assistant content with the separated BARE verdict — so reasoning
++            # lives ONLY in the RoleCallRecord + four_role_role_calls.jsonl, never in the capture
++            # channel, regardless of what build_response_metadata happens to persist today.
+             _pathb_capture.capture_llm_call(
+                 role=request.role,
+                 messages=normalized_messages,
+-                raw_response=raw,
++                raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
+             )
+ 
+         # Self-host citation invariant (iter-2): return raw_text AS-IS (<co> tags intact),
+-        # citations=None — mirror_adapter owns the parse/strip/offset alignment.
++        # citations=None — mirror_adapter owns the parse/strip/offset alignment. `reasoning`
++        # rides alongside (never concatenated into raw_text) for separate persistence.
+         return RoleResponse(
+             raw_text=raw_text,
+             served_model=served_model,
+             usage=usage,
+             citations=None,
++            reasoning=reasoning,
+         )
+diff --git a/src/polaris_graph/roles/role_pipeline.py b/src/polaris_graph/roles/role_pipeline.py
+index 89865627..5b515be4 100644
+--- a/src/polaris_graph/roles/role_pipeline.py
++++ b/src/polaris_graph/roles/role_pipeline.py
+@@ -90,6 +90,9 @@ class RecordingTransport:
+                 served_model=response.served_model,
+                 raw_text=response.raw_text,
+                 parsed=None,
++                # I-meta-002-q1b (#939): carry the separated reasoning so the seam can persist it
++                # to four_role_role_calls.jsonl apart from the verdict (None if the role had none).
++                reasoning=response.reasoning,
+             )
+         )
+         return response
+diff --git a/src/polaris_graph/roles/role_transport.py b/src/polaris_graph/roles/role_transport.py
+index cbb6fa0e..b26d1e86 100644
+--- a/src/polaris_graph/roles/role_transport.py
++++ b/src/polaris_graph/roles/role_transport.py
+@@ -69,6 +69,10 @@ class RoleResponse:
+     served_model: str | None = None
+     usage: dict[str, Any] | None = None
+     citations: list[CitationSpan] | None = None
++    # I-meta-002-q1b (#939): the model's verifier REASONING, separated from `raw_text` at the
++    # transport so the verdict parsers only ever see the bare verdict/body (no "soap") AND the
++    # reasoning is captured for line-by-line review. None when the role emitted no reasoning.
++    reasoning: str | None = None
+ 
+ 
+ @dataclass
+@@ -85,6 +89,10 @@ class RoleCallRecord:
+     served_model: str | None
+     raw_text: str
+     parsed: Any
++    # I-meta-002-q1b (#939): the verifier reasoning carried alongside the served-identity record
++    # so `run_four_role_evaluation` can persist it to `four_role_role_calls.jsonl` SEPARATELY from
++    # the verdict. None when the role emitted no reasoning.
++    reasoning: str | None = None
+ 
+ 
+ @runtime_checkable
+diff --git a/src/polaris_graph/roles/sweep_integration.py b/src/polaris_graph/roles/sweep_integration.py
+index 165082bc..d9ff274e 100644
+--- a/src/polaris_graph/roles/sweep_integration.py
++++ b/src/polaris_graph/roles/sweep_integration.py
+@@ -247,6 +247,9 @@ def run_four_role_evaluation(
+     d8_rows: list[D8ClaimRow] = []
+     all_records: list[RoleCallRecord] = []
+     final_verdicts: dict[str, str] = {}
++    # I-meta-002-q1b (#939): per-role-call reasoning log, persisted to four_role_role_calls.jsonl
++    # for line-by-line review. `reasoning` is its OWN field — NEVER concatenated into the verdict.
++    role_call_log: list[dict] = []
+ 
+     kg_store = VerifiedClaimGraphStore(run_dir=run_dir)
+     try:
+@@ -264,6 +267,20 @@ def run_four_role_evaluation(
+             d8_rows.append(result.d8_row)
+             all_records.extend(result.records)
+             final_verdicts[claim.claim_id] = result.final_verdict
++            # I-meta-002-q1b (#939): record each verifier call for this claim with its reasoning
++            # held SEPARATE from raw_text (the bare verdict/body). This is the verifiers' analogue
++            # of the generator's reasoning_trace.jsonl.
++            for record in result.records:
++                role_call_log.append(
++                    {
++                        "claim_id": claim.claim_id,
++                        "role": record.role,
++                        "model_slug": record.model_slug,
++                        "served_model": record.served_model,
++                        "raw_text": record.raw_text,
++                        "reasoning": record.reasoning,
++                    }
++                )
+ 
+             # Coverage credit ONLY on a VERIFIED final verdict, against the CANONICAL required
+             # ids this claim covers — a dropped/UNSUPPORTED claim adds nothing (denominator is
+@@ -298,6 +315,17 @@ def run_four_role_evaluation(
+     finally:
+         kg_store.close()
+ 
++    # I-meta-002-q1b (#939): persist the per-role-call reasoning log next to the run — one JSON
++    # object per line, `reasoning` in its own field, NEVER mixed into the verdict. Reviewable
++    # line-by-line alongside the generator's reasoning_trace.jsonl.
++    (run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME).write_text(
++        "".join(
++            json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
++            for entry in role_call_log
++        ),
++        encoding="utf-8",
++    )
++
+     # The D8 threshold is loaded from config (LAW VI, pure file read — no network).
+     config = load_d8_policy_config(d8_config_path)
+ 
+@@ -337,6 +365,11 @@ FourRoleBundleBuilder = Callable[..., object]
+ # writes it; the builder does NO file I/O.
+ FOUR_ROLE_CLAIM_AUDIT_FILENAME = "four_role_claim_audit.json"
+ 
++# I-meta-002-q1b (#939): filename of the per-role-call reasoning log (one JSON object per line)
++# `run_four_role_evaluation` writes next to the run — the verifiers' analogue of the generator's
++# reasoning_trace.jsonl, with `reasoning` held SEPARATE from the verdict for line-by-line review.
++FOUR_ROLE_ROLE_CALLS_FILENAME = "four_role_role_calls.jsonl"
++
+ 
+ def run_four_role_seam(
+     transport: RoleTransport,
+diff --git a/tests/roles/test_openai_compatible_transport.py b/tests/roles/test_openai_compatible_transport.py
+index 440bf7db..744a00d9 100644
+--- a/tests/roles/test_openai_compatible_transport.py
++++ b/tests/roles/test_openai_compatible_transport.py
+@@ -22,6 +22,7 @@ from src.polaris_graph.benchmark import pathB_capture as pc
+ from src.polaris_graph.roles.openai_compatible_transport import (
+     OpenAICompatibleRoleTransport,
+     RoleTransportError,
++    _sanitize_raw_for_capture,
+     role_endpoint,
+ )
+ from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
+@@ -444,3 +445,163 @@ def test_blank_message_content_raises_role_transport_error():
+     transport = _make_transport(handler)
+     with pytest.raises(RoleTransportError, match="no/blank message content"):
+         transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
++
++
++# --------------------------------------------------------------------------------------
++# I-meta-002-q1b (#939): verifier REASONING is separated from the bare verdict/body so the
++# verdict parsers never see "soap", AND the reasoning is captured (on RoleResponse) for the
++# four_role_role_calls.jsonl line-by-line review. Three served-reasoning shapes × all 3 roles,
++# plus the fail-closed cases.
++# --------------------------------------------------------------------------------------
++_ALL_ROLES = (
++    ("mirror", _MIRROR_SLUG),
++    ("sentinel", _SENTINEL_SLUG),
++    ("judge", _JUDGE_SLUG),
++)
++
++
++def _message_handler(*, served_model: str, message: dict):
++    """A MockTransport handler returning a canned `message` object verbatim (no network)."""
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        payload = {
++            "model": served_model,
++            "choices": [{"message": {"role": "assistant", **message}}],
++            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
++        }
++        return httpx.Response(200, json=payload)
++
++    return handler
++
++
++@pytest.mark.parametrize("role,slug", _ALL_ROLES)
++def test_separate_reasoning_content_field_kept_apart_from_verdict(role, slug):
++    # vLLM reasoning-parser path: reasoning arrives in its OWN `reasoning_content` field and
++    # `content` is already the bare verdict. raw_text = bare verdict; reasoning = the field.
++    handler = _message_handler(
++        served_model=slug,
++        message={"content": "VERIFIED", "reasoning_content": "I weighed the evidence span."},
++    )
++    transport = _make_transport(handler)
++    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
++    assert resp.raw_text == "VERIFIED"
++    assert resp.reasoning == "I weighed the evidence span."
++
++
++@pytest.mark.parametrize("role,slug", _ALL_ROLES)
++def test_inline_leading_think_block_split_from_verdict(role, slug):
++    # Inline path: a LEADING <think>...</think> block is split off `content`; raw_text is the
++    # bare remainder, reasoning is the inner text. The verdict parser never sees the think block.
++    handler = _message_handler(
++        served_model=slug,
++        message={"content": "<think>step one; step two</think>VERIFIED"},
++    )
++    transport = _make_transport(handler)
++    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
++    assert resp.raw_text == "VERIFIED"
++    assert resp.reasoning == "step one; step two"
++
++
++@pytest.mark.parametrize("role,slug", _ALL_ROLES)
++def test_no_reasoning_leaves_verdict_clean(role, slug):
++    # No reasoning of any shape: raw_text is the content unchanged, reasoning is None.
++    handler = _message_handler(served_model=slug, message={"content": "PARTIAL"})
++    transport = _make_transport(handler)
++    resp = transport.complete(RoleRequest(role=role, model_slug=slug, prompt="decide"))
++    assert resp.raw_text == "PARTIAL"
++    assert resp.reasoning is None
++
++
++def test_unterminated_think_block_fails_closed():
++    # A <think> opened with NO closing </think> is a malformed verifier response — raise rather
++    # than feed a half-emitted reasoning block to a strict verdict parser.
++    handler = _message_handler(
++        served_model=_JUDGE_SLUG, message={"content": "<think>reasoning that never closes"}
++    )
++    transport = _make_transport(handler)
++    with pytest.raises(RoleTransportError, match="no closing </think>"):
++        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
++
++
++def test_think_only_no_verdict_fails_closed():
++    # A think-only message (empty verdict after the block) fails the SAME post-split blank guard
++    # as a blank content — a verifier must return a non-blank bare verdict.
++    handler = _message_handler(
++        served_model=_JUDGE_SLUG, message={"content": "<think>only reasoning here</think>   "}
++    )
++    transport = _make_transport(handler)
++    with pytest.raises(RoleTransportError, match="no/blank message content after reasoning"):
++        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
++
++
++def test_separate_reasoning_field_but_blank_verdict_fails_closed():
++    # Parity (Codex brief note): reasoning_content present but `content` blank must fail the SAME
++    # way as a think-only inline message — never a deliberately-empty verdict.
++    handler = _message_handler(
++        served_model=_JUDGE_SLUG, message={"content": "  ", "reasoning_content": "I reasoned."}
++    )
++    transport = _make_transport(handler)
++    with pytest.raises(RoleTransportError, match="no/blank message content after reasoning"):
++        transport.complete(RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="x"))
++
++
++def test_sanitize_raw_for_capture_strips_reasoning_keeps_served_identity():
++    # No-leak (Codex diff P1): the response handed to Path-B capture must carry the BARE verdict
++    # and NO reasoning — neither a `reasoning_content` field nor an inline <think> block — while
++    # served-identity fields (model / usage / _pathb_served / system_fingerprint) are preserved.
++    raw = {
++        "model": _JUDGE_SLUG,
++        "usage": {"prompt_tokens": 7, "completion_tokens": 3},
++        "system_fingerprint": "fp_abc",
++        "_pathb_served": {"endpoint": _JUDGE_BASE, "model": _JUDGE_SLUG},
++        "choices": [
++            {
++                "message": {
++                    "role": "assistant",
++                    "content": "<think>chain of thought</think>VERIFIED",
++                    "reasoning_content": "separate-field reasoning",
++                }
++            }
++        ],
++    }
++    sanitized = _sanitize_raw_for_capture(raw, bare_text="VERIFIED")
++    msg = sanitized["choices"][0]["message"]
++    assert msg["content"] == "VERIFIED"
++    assert "reasoning_content" not in msg
++    # No reasoning text survives anywhere in the captured object.
++    blob = json.dumps(sanitized)
++    assert "chain of thought" not in blob
++    assert "separate-field reasoning" not in blob
++    # Served-identity fields preserved (M4 served==pinned must still work).
++    assert sanitized["model"] == _JUDGE_SLUG
++    assert sanitized["usage"] == {"prompt_tokens": 7, "completion_tokens": 3}
++    assert sanitized["system_fingerprint"] == "fp_abc"
++    assert sanitized["_pathb_served"] == {"endpoint": _JUDGE_BASE, "model": _JUDGE_SLUG}
++    # The ORIGINAL raw is not mutated (still carries its reasoning for the record/jsonl path).
++    assert raw["choices"][0]["message"]["reasoning_content"] == "separate-field reasoning"
++    assert raw["choices"][0]["message"]["content"] == "<think>chain of thought</think>VERIFIED"
++
++
++def test_mirror_inline_think_preserves_co_spans_after_split():
++    # Splitting a LEADING <think> block must NOT corrupt Mirror's <co> spans that FOLLOW: the
++    # bare raw_text keeps the tags intact and mirror_adapter aligns offsets over THIS raw_text.
++    handler = _message_handler(
++        served_model=_MIRROR_SLUG,
++        message={
++            "content": "<think>grounding check</think>The drug <co>reduced HbA1c</co:doc_a> in trial."
++        },
++    )
++    transport = _make_transport(handler)
++    resp = transport.complete(
++        RoleRequest(
++            role="mirror",
++            model_slug=_MIRROR_SLUG,
++            prompt="ground it",
++            params={"documents": [{"doc_id": "doc_a", "text": "..."}], "citations": True},
++        )
++    )
++    assert resp.raw_text == "The drug <co>reduced HbA1c</co:doc_a> in trial."
++    assert resp.raw_text.startswith("The drug")
++    assert "<co>" in resp.raw_text
++    assert resp.reasoning == "grounding check"
++    assert resp.citations is None
+diff --git a/tests/roles/test_sweep_integration.py b/tests/roles/test_sweep_integration.py
+index 35fbdc76..bb525d09 100644
+--- a/tests/roles/test_sweep_integration.py
++++ b/tests/roles/test_sweep_integration.py
+@@ -23,6 +23,7 @@ from src.polaris_graph.roles.role_transport import (
+     RoleResponse,
+ )
+ from src.polaris_graph.roles.sweep_integration import (
++    FOUR_ROLE_ROLE_CALLS_FILENAME,
+     FourRoleClaim,
+     build_evaluator_agrees_map,
+     evaluator_agrees_from_verdict,
+@@ -293,3 +294,40 @@ def test_evaluator_agrees_map_extra_kept_id_does_not_add_key() -> None:
+         {"only-claim": "VERIFIED"}, kept_claim_ids={"only-claim", "ghost-id"}
+     )
+     assert agrees == {"only-claim": True}
++
++
++# --- I-meta-002-q1b (#939): verifier reasoning persists to four_role_role_calls.jsonl, SEPARATE
++# from the verdict (the verifiers' analogue of the generator's reasoning_trace.jsonl) ----------
++
++
++class _ReasoningMock(MockTransport):
++    """A MockTransport whose every role response carries a per-role `reasoning` string, so the
++    seam's persistence of reasoning-apart-from-verdict can be asserted end-to-end (no network)."""
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        response = super().complete(request)
++        response.reasoning = f"{request.role} weighed the evidence"
++        return response
++
++
++def test_four_role_role_calls_jsonl_separates_reasoning_from_verdict(tmp_path) -> None:
++    transport = _ReasoningMock(sentinel_grounded=True, judge_verdict="VERIFIED")
++    _run(transport, [_claim()], run_dir=tmp_path)
++
++    log_path = tmp_path / FOUR_ROLE_ROLE_CALLS_FILENAME
++    assert log_path.exists(), "the per-role-call reasoning log must be written next to the run"
++    lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
++    assert lines, "at least one verifier call must be logged for the single claim"
++
++    roles_seen = set()
++    for line in lines:
++        entry = json.loads(line)
++        # reasoning is its OWN field — present and NEVER concatenated into the bare verdict.
++        assert entry["reasoning"] == f"{entry['role']} weighed the evidence"
++        assert entry["reasoning"] not in entry["raw_text"]
++        assert "<think>" not in entry["raw_text"]
++        assert entry["claim_id"] == "claim-1"
++        assert entry["served_model"] == _MODEL_SLUGS[entry["role"]]
++        roles_seen.add(entry["role"])
++    # All three verifier roles ran and were logged for the claim.
++    assert roles_seen == {"mirror", "sentinel", "judge"}

@@ -213,3 +213,198 @@ per_query_report_contract:
         subsection_title: "CBO 10-year baseline IRA savings projection"
         ordering: 1
         required: true
+
+  # ===================================================================
+  # I-meta-002 PR-10 — DRB-EN benchmark slug #90 (ADAS liability, crime
+  # & law), SOURCE-CRITICAL. Authored BLIND to the frozen gold rubric /
+  # freeze pins / competitor answers (outputs/dr_benchmark was sealed out
+  # of the repo during authoring; see
+  # .codex/I-meta-002-pr10-contracts/contract_attestation.txt).
+  #
+  # Allowed inputs used (NATIVE only): the locked question text ("liability
+  # allocation in accidents involving vehicles with advanced driver-
+  # assistance systems (ADAS) in a shared human-machine driving context
+  # ... integrate technical principles of ADAS, existing legal frameworks,
+  # and relevant case law ... conclude with proposed regulatory
+  # guidelines"); this policy scope_template + completeness_checklist
+  # (regulatory_framework / enforcement / precedent / international-
+  # comparison topics); and general law-and-technology domain knowledge
+  # of the load-bearing standards, statutes, case law, and agency
+  # documents a faithful analysis MUST cite.
+  #
+  # Severity rationale (NATIVE): no S0. Every D8 s0_must_cover category is
+  # clinical; the policy domain defines NO must-cover catastrophic/
+  # invalidating omission category, so per the design ruling severities
+  # are S1/S2/S3 only. The load-bearing technical standard (SAE J3016
+  # automation levels) and the controlling legal-framework / case-law
+  # sources without which the liability analysis is invalid -> S1; the
+  # supporting agency-report / regulatory-guideline context -> S2; the
+  # forward-looking proposed-guideline framing -> S3. Canonical id is
+  # `url_pattern` (statutes / standards / case law / agency reports do
+  # not carry a biomedical DOI) — the FULL canonical URL (exact-equality
+  # coverage, never a fragment).
+  drb_90_adas_liability:
+    schema_version: "v30.1"
+
+    section_order:
+      - Technical_Standard
+      - Legal_Framework
+      - Case_Law
+      - Regulatory_Recommendations
+
+    required_entities:
+      - id: sae_j3016_automation_levels
+        type: technical_standard
+        severity: S1
+        anchor: SAE-J3016
+        # SAE J3016 driving-automation levels (0-5) — the load-bearing
+        # technical taxonomy that defines the human-machine responsibility
+        # boundary; a liability analysis is invalid without it.
+        url_pattern: https://www.sae.org/standards/content/j3016_202104/
+        coverage_content_requirements:
+          - j3016
+        required_fields:
+          - standard_id
+          - automation_levels_defined
+          - human_role_per_level
+          - fallback_responsibility
+        min_fields_for_completion: 2
+        rendering_slot: technical_sae_levels
+
+      - id: unece_alks_regulation_framework
+        type: regulation
+        severity: S1
+        anchor: UNECE-ALKS
+        # UNECE WP.29 automated-lane-keeping (ALKS) regulation — the
+        # controlling international regulatory framework allocating
+        # system-vs-driver responsibility during automated operation.
+        url_pattern: https://unece.org/transport/documents/2021/03/standards/un-regulation-no-157-automated-lane-keeping-systems-alks
+        coverage_content_requirements:
+          - lane keeping
+        required_fields:
+          - instrument
+          - scope_of_automation
+          - driver_obligations
+          - system_obligations
+          - transition_demand
+        min_fields_for_completion: 3
+        rendering_slot: legal_framework_unece
+
+      - id: nhtsa_ads_policy_framework
+        type: agency_report
+        severity: S2
+        anchor: NHTSA-ADS
+        # NHTSA automated-driving-systems policy / standing general order
+        # on crash reporting — the US agency framework and the data
+        # source for ADAS-involved crash liability analysis.
+        url_pattern: https://www.nhtsa.gov/laws-regulations/standing-general-order-crash-reporting
+        coverage_content_requirements:
+          - nhtsa
+        required_fields:
+          - issuing_agency
+          - scope
+          - reporting_obligation
+          - liability_relevance
+        min_fields_for_completion: 2
+        rendering_slot: legal_framework_nhtsa
+
+      - id: product_liability_doctrine
+        type: authoritative_source
+        severity: S1
+        anchor: Products-liability-Restatement
+        # The product-liability / negligence doctrinal framework
+        # (Restatement (Third) of Torts: Products Liability; defect
+        # categories) under which an ADAS manufacturer's responsibility is
+        # assessed — load-bearing for the driver-vs-system boundary.
+        # url_pattern corrected: the prior /publications/show/... path
+        # returns HTTP 404. Replaced with the live canonical American Law
+        # Institute publication page for "Restatement of the Law Third,
+        # Torts: Products Liability" (HTTP 200).
+        url_pattern: https://www.ali.org/publications/restatement-law-third/torts-third
+        coverage_content_requirements:
+          - product liability
+        required_fields:
+          - doctrine
+          - defect_categories
+          - manufacturer_duty
+          - driver_duty
+        min_fields_for_completion: 2
+        rendering_slot: legal_framework_product_liability
+
+      - id: adas_crash_case_law
+        type: legal_case
+        severity: S1
+        anchor: Benavides-v-Tesla
+        # Relevant case law on ADAS/automated-feature-involved crash
+        # liability (the question explicitly requires "relevant case
+        # law"). The canonical id is the authoritative court-record URL.
+        # url_pattern corrected: the prior CourtListener SEARCH-RESULTS URL
+        # (a query page) can never bind under exact-equality coverage.
+        # Replaced with the STABLE CourtListener docket record for
+        # Benavides v. Tesla, Inc., No. 1:21-cv-21940 (S.D. Fla.) — nature
+        # of suit "365 Personal Inj. Prod. Liability"; the first US verdict
+        # apportioning shared driver-vs-system fault in an Autopilot/ADAS
+        # crash (33% Tesla, 67% driver) — directly on-point for the
+        # shared-human-machine-control liability question. HTTP 200, stable.
+        url_pattern: https://www.courtlistener.com/docket/59932667/benavides-v-tesla-inc/
+        coverage_content_requirements:
+          - liability
+        required_fields:
+          - case_name
+          - court
+          - disposition
+          - liability_holding
+          - applicability_to_shared_control
+        min_fields_for_completion: 3
+        rendering_slot: case_law_adas
+
+      - id: proposed_regulatory_guidelines
+        type: policy_report
+        severity: S3
+        anchor: Proposed-guidelines
+        # The question's required CONCLUSION — proposed regulatory
+        # guidelines / recommendations. Observe-only (S3): a synthesis
+        # deliverable, anchored to an authoritative policy framework
+        # (e.g. an NTSB / national AV-policy recommendation set) rather
+        # than a single load-bearing empirical claim.
+        url_pattern: https://www.ntsb.gov/Advocacy/mwl/Pages/mwl-22-23/mwl-hs.aspx
+        coverage_content_requirements:
+          - recommendation
+        required_fields:
+          - recommendation
+          - allocation_principle
+          - implementation_path
+        min_fields_for_completion: 1
+        rendering_slot: recommendations_synthesis
+
+    rendering_slots:
+      technical_sae_levels:
+        section: Technical_Standard
+        subsection_title: "SAE J3016 driving-automation levels and the human-machine boundary"
+        ordering: 1
+        required: true
+      legal_framework_unece:
+        section: Legal_Framework
+        subsection_title: "UNECE WP.29 ALKS regulation (system-vs-driver responsibility)"
+        ordering: 1
+        required: true
+      legal_framework_nhtsa:
+        section: Legal_Framework
+        subsection_title: "NHTSA automated-driving-systems policy and crash-reporting order"
+        ordering: 2
+        required: true
+      legal_framework_product_liability:
+        section: Legal_Framework
+        subsection_title: "Product-liability / negligence doctrine for ADAS manufacturers"
+        ordering: 3
+        required: true
+      case_law_adas:
+        section: Case_Law
+        subsection_title: "Relevant ADAS / automated-feature crash-liability case law"
+        ordering: 1
+        required: true
+      recommendations_synthesis:
+        section: Regulatory_Recommendations
+        subsection_title: "Proposed regulatory guidelines and liability-allocation recommendations"
+        ordering: 1
+        required: false
