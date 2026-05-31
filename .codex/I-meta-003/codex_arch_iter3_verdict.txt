@@ -1,0 +1,242 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7d17-4fd4-75d1-8926-a62fa8aa87a2
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex gate iter 3 — full-power architecture doc, the §5 cost/sovereignty P1 fixed
+
+iter 2 was APPROVE-but-for one continuing P1: §5 still read "$2.63 = full-power run" while discussing EU-sovereign
+wall-clock, re-muddying the Mode A/B split. §5 (docs/full_power_polaris_architecture_2026_05_31.md, "## 5. RUNTIME +
+COST") has now been rewritten to strictly separate the two modes. READ §5 + §0. Output YAML verdict FIRST.
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+p1_closed: <true|false>
+remaining_issues: [...]
+honest_one_line: "<for the operator>"
+```
+
+## The fix to confirm
+§5 now has two clearly-labeled cost models:
+- MODE A (PoC, non-sovereign): ≈$2.63/run — Writer+Mirror+Judge via OpenRouter, only Sentinel self-host; the $0.62
+  golden-5 verifier-API + Writer-token + amortized Sentinel GPU. The budget Mode A holds.
+- MODE B (sovereign, all 4 self-hosted): ≈$129-770/run GPU-cluster model; $2.63 does NOT apply.
+- The "biggest risk" (EU-sovereign verifier wall-clock unmeasured at N>=200, ~$250-920 GPU) is now explicitly
+  attributed to MODE B, NOT the $2.63 Mode-A envelope; each envelope confirmed against its own mode's run.
+
+## Your ruling
+APPROVE iff the §5 Mode-A/Mode-B cost split is now clean (no "$2.63 = full-power" generic claim, no EU-sovereign
+wall-clock attached to the $2.63 figure) and no new P0/P1. This doc commits to docs/ + closes GH #980 on APPROVE.
+
+codex
+I’ll read only §0 and §5, then scan nearby cost/sovereignty terms so the ruling is tied to the exact claimed fix.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path docs/full_power_polaris_architecture_2026_05_31.md -TotalCount 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "''^(## 0'"\\.|## 5\\.|## 6\\.)|\\"'$2'"\\.63|MODE A|MODE B|sovereign|full-power|biggest risk\" docs/full_power_polaris_architecture_2026_05_31.md" in C:\POLARIS
+ succeeded in 745ms:
+5:Scope: pipeline A (honest-rebuild), full-power configuration. Pipeline B (UI) and C (frozen) governed separately per `architecture.md`.
+7:## 0. Purpose, runtime, and the wedge
+21:- **Mode A — PoC (non-sovereign, ≈$2.63/run):** Writer + Mirror + Judge via OpenRouter (US-hosted); only Sentinel self-hosts. The cheap proof that the architecture beats frontier BEFORE renting sovereign GPUs. Explicitly NON-sovereign (US vendors touch writer/mirror/judge) — must be labeled so.
+23:- Same weights both modes → Mode A is a faithful preview of Mode B; sovereignty is a substrate relocation, not a redesign. The ≈$2.63 in §5 is **Mode A only**.
+25:**The wedge (do NOT trade it away).** Per-sentence provenance `[#ev:<id>:<start>-<end>]` + 4-role verification + fail-closed refusal. Frontier fabricates and cites loosely: Gemini's sovereign-compute report is **4,887 words with zero citations** (`state/compare_gemini_q1.md`); ChatGPT stacks nine footnote indices on one paragraph (`state/compare_chatgpt_dr.txt:1067-1075`) and uses opaque `turn31view0` tokens that resolve to nothing (`state/compare_chatgpt_q1.md:11`). POLARIS makes every shipped number one click from its proof, and shows what it refused.
+27:**Shipped baseline we are closing.** Single-pass retrieval (1 main query + R6 expansion capped at 4, `PG_R6_EXPAND_QUERY_CAP=4`); fetch-cap 40 (`run_honest_sweep_r3.py:1627` / header-correction `:1714`); gen-cap 20 (`MAX_EV_TO_GEN`, `:2266` / `:2340`; `evidence_selector.py:893,:976,:1500`); deepener default-off; 4-role gate built but not default-on (`run_one_query` called WITHOUT transport at `:3940`, `corpus_relevance_driven_logic.md:12-13`); ~30% verified prose. The full-power design closes every one.
+33:## 1. END-TO-END PIPELINE (full-power stage sequence)
+51:**Stage 9 — Composition + contradiction (surface conflicts, refuse to adjudicate).** Detects directional conflicts across deduped findings (one source asserts a clinical signal present, another absent, for the same endpoint+population) and **closes the shipped loop**: conflicts become a generation INPUT (Writer must disclose both sides, cite both spans, refuse to adjudicate) AND an evaluation GATE (the evaluator FAILS a report that hides a known directional conflict). Unverified "analyst voice" connective tissue is quarantined to a minimized, clearly-labeled Analysis block so it can never masquerade as a verified claim. **Model/tool:** Mirror (conflict detection) + Writer (conflict-as-input) + Judge (disclosure gate) + contradiction/refusal panel UI (task #454). **Fixes vs shipped (narrowed per Codex 2026-05-31):** NUMERIC contradictions are ALREADY fed into generation (`run_honest_sweep_r3.py:2613`) and disclosure-gated in the evaluator (PT08), so that path is not inert. The real gap full-power closes is QUALITATIVE conflicts — directional clinical disagreements written to `contradictions.json` but NOT yet fed to generation or bound to the evaluation gate. Full-power consumes the qualitative conflicts and adds the qualitative-disclosure gate.
+121:## 5. RUNTIME + COST
+127:- **MODE A — PoC, non-sovereign (the ≈$2.63/run figure):** Writer + Mirror + Judge via OpenRouter API (US-hosted); only the 8B Sentinel self-hosts. Per single full-power question ≈ **$2.63** (≈$0.62 golden-5 verifier-API line per `role_selection_final.md:64`, i.e. ≈$0.123/question API-only, PLUS the Writer synthesis-token bill <$2.30 even at N=1,500 `corpus_relevance_driven_logic.md:69`, PLUS the amortized Sentinel GPU hour ~$0.50/hr 1×24GB). This is the budget Mode A holds under `PG_MAX_COST_PER_RUN`. Cost rises smoothly with kept-N (extract $ linear, synth $ sub-linear over digests). All Mode-A figures are [ESTIMATE] on [VERIFIED] unit prices; only the on-disk baseline ($0.747686 / 22.18 min / 107 claims) is [MEASURED].
+129:- **MODE B — Sovereign production (NOT $2.63):** all four roles self-hosted on Canadian/EU GPUs. Cost is the GPU-cluster model ≈ **$129–770/run** (`corpus_relevance_driven_logic.md` §3), driven by self-hosting the calibration + judge models alongside the Sentinel — an entirely different cost basis. The $2.63 figure does NOT apply to Mode B.
+131:**The one biggest cost/runtime risk — and note it belongs to MODE B, not the $2.63 Mode-A envelope:** the EU-sovereign self-hosted verifier wall-clock at scale is the real `f(N)` and is **unmeasured at N≥200** (`corpus_relevance_driven_logic.md:16`); Mode-B sovereign GPU spend is plausibly ~$250–920 per the cost-corrections record (`project_complete_solution_codex_corrections_2026_05_30`). Mode A's $2.63 does NOT depend on this — the first full-scale Mode-A run measures kept-N + claims/run + Sentinel calls via `corpus_funnel` + timing; a separate sovereign bring-up measures the Mode-B wall-clock. Confirm each envelope against its OWN mode's run.
+135:## 6. PLAIN-SPOKEN SUMMARY (for a blind operator)
+
+ succeeded in 899ms:
+# FULL-POWER POLARIS — End-to-End Architecture (to beat Gemini 3.1 Pro DR + ChatGPT 5.5 Pro DR)
+
+Document class: Architecture, Codex-gated, project-canonical.
+Date: 2026-05-31. Author role: Chief Architect (synthesis of 4 upstream architect deliverables + design anchors).
+Scope: pipeline A (honest-rebuild), full-power configuration. Pipeline B (UI) and C (frozen) governed separately per `architecture.md`.
+
+## 0. Purpose, runtime, and the wedge
+
+**Goal.** Design FULL-POWER POLARIS end-to-end — every stage — engineered to BEAT Gemini 3.1 Pro DR and ChatGPT 5.5 Pro DR on the 5 golden clinical questions, scored claim-by-claim faithfulness (RACE / FACT) plus gold-rubric coverage ≥ 0.70. We win on **auditable faithfulness**, not length.
+
+**Runtime (locked, open-weight OpenRouter lineup — `outputs/I-meta-002/role_selection_final.md:32-35`):**
+
+- **Writer** — `deepseek/deepseek-v4-pro` (MIT, 1M ctx, GDPval-AA 1558 Elo #1 open-weight). The only role that authors text; runs all front-half query/plan/synthesis work.
+- **Mirror** — `z-ai/glm-5.1` (MIT, AA-Omniscience 29.4% hallucination — best-calibrated in eligible pool). Calibration + conflict surfacing.
+- **Sentinel** — `ibm-granite/granite-guardian-4.1-8b` (Apache-2.0, self-host, RAGTruth BAcc 0.841 think / 0.834 non-think). The lethal faithfulness role; self-hosted in BOTH modes (not on OpenRouter), so the lethal check never touches a US vendor even in the cheap PoC.
+- **Judge** — `qwen/qwen3.6-35b-a3b` (Apache-2.0). Terminal per-claim 5-enum verdict; distinct lineage from Writer (two-family invariant, §9.1.1).
+
+Four distinct training families.
+
+**TWO runtime modes — do NOT conflate (Codex correction, 2026-05-31):**
+- **Mode A — PoC (non-sovereign, ≈$2.63/run):** Writer + Mirror + Judge via OpenRouter (US-hosted); only Sentinel self-hosts. The cheap proof that the architecture beats frontier BEFORE renting sovereign GPUs. Explicitly NON-sovereign (US vendors touch writer/mirror/judge) — must be labeled so.
+- **Mode B — Sovereign production (all 4 self-hosted):** identical open weights on Canadian/EU GPUs; NO runtime US vendor. Cost = the GPU-cluster model (~$129–770/run, `corpus_relevance_driven_logic.md` §3), NOT $2.63.
+- Same weights both modes → Mode A is a faithful preview of Mode B; sovereignty is a substrate relocation, not a redesign. The ≈$2.63 in §5 is **Mode A only**.
+
+**The wedge (do NOT trade it away).** Per-sentence provenance `[#ev:<id>:<start>-<end>]` + 4-role verification + fail-closed refusal. Frontier fabricates and cites loosely: Gemini's sovereign-compute report is **4,887 words with zero citations** (`state/compare_gemini_q1.md`); ChatGPT stacks nine footnote indices on one paragraph (`state/compare_chatgpt_dr.txt:1067-1075`) and uses opaque `turn31view0` tokens that resolve to nothing (`state/compare_chatgpt_q1.md:11`). POLARIS makes every shipped number one click from its proof, and shows what it refused.
+
+**Shipped baseline we are closing.** Single-pass retrieval (1 main query + R6 expansion capped at 4, `PG_R6_EXPAND_QUERY_CAP=4`); fetch-cap 40 (`run_honest_sweep_r3.py:1627` / header-correction `:1714`); gen-cap 20 (`MAX_EV_TO_GEN`, `:2266` / `:2340`; `evidence_selector.py:893,:976,:1500`); deepener default-off; 4-role gate built but not default-on (`run_one_query` called WITHOUT transport at `:3940`, `corpus_relevance_driven_logic.md:12-13`); ~30% verified prose. The full-power design closes every one.
+
+**Honesty up front (per `corpus_relevance_driven_logic.md` Codex header corrections 1-4):** the relevance-driven corpus, map-reduce, saturation stop-rule, and default-on 4-role gate are **designed, not yet built** — fixed caps are still live in code. The "~120-200 relevant of ~1,000 discovered" density is an **unmeasured prior** (extrapolated from TREC-2020 ~29% top-rank precision, `corpus_relevance_driven_logic.md:91`). No "beat" is proven until a blinded golden-5 run scores claim-by-claim. The wedge is structurally sound; its measured margin is a hypothesis pending that run.
+
+---
+
+## 1. END-TO-END PIPELINE (full-power stage sequence)
+
+**Stage 1 — Scope & decomposition (PICO faceting).** Detects domain (clinical / regulatory / policy), parses the question into Population / Intervention / Comparator / Outcome plus the safety facets clinical RAG requires — contraindications, adverse-event signals, special populations, regulatory-label divergence, comparator head-to-heads — and sets a per-domain `relevance_tau` floor. **Model/tool:** existing scope gate (`src/polaris_graph/nodes/`, §9.2) + Writer for PICO + synonym/MeSH-candidate proposal, validated against the keyless NCBI E-utilities MeSH database so no hallucinated MeSH ID reaches a query. **Fixes vs shipped:** `query_decomposer.py` is pure string-splitting — no LLM, no MeSH, no PICO, no synonyms, hard cap 6 sub-queries (`query_decomposer.py:33-36,108-148`); it cannot expand "tirzepatide"→"Mounjaro" or map "T2DM"→MeSH `Diabetes Mellitus, Type 2`. Full-power replaces flat keyword fan-out with semantic PICO faceting (~20-40 backend-native queries) feeding the existing deterministic expanders (`regulatory_expander.py`, `primary_trial_expander.py`).
+
+**Stage 2 — Research plan (explicit, editable, enforced).** Compiles the PICO plan into an ordered set of report sections with, per section, an **evidence target** (minimum tier mix + minimum distinct findings) and a machine-checkable **definition of done** (each gold-rubric coverage axis backed by ≥1 verified finding, else the section is flagged INCOMPLETE — never silently thin). Rendered in the built editable plan-review UI (tasks #459/#754) so the operator edits scope before any generator token is billed. **Model/tool:** Writer drafts from the scope template (`nodes/scope_gate.load_scope_template`) + `section_blueprint.py`; targets written to the run manifest as a checkable `plan` block. **Fixes vs shipped:** sections today come from a static template with no per-section evidence target and no done-definition; a section that retrieves nothing still renders prose at ~30% verified rate. Full-power makes "done" an enforced per-section contract.
+
+**Stage 3 — Multi-round agentic search (STORM-style, saturation-stopped).** Round 1 fires the full PICO query plan across all backends. Between rounds a **gap-analysis** compares retrieved findings to the per-section targets and PICO facets and emits **targeted follow-up queries for gaps only**. Stop rule is **saturation, not a fixed count**: continue until the new-unique-finding rate drops below ~1 per 20 newly-fetched sources for two consecutive batches (`corpus_relevance_driven_logic.md §4.6`), OR all section targets are met, OR the budget cap binds — and report where it saturated. **Model/tool:** Writer runs gap-analysis + follow-up query generation; backends = Serper + Semantic Scholar + Europe PMC (existing, `domain_backends.py:331`) + **new first-class PubMed E-utilities (esearch/efetch, keyless)** + **new first-class ClinicalTrials.gov v2 API**. **Fixes vs shipped:** today is effectively single-pass + one bolt-on R6 expansion capped at 4 queries (`run_honest_sweep_r3.py:1885-1891`) with no gap-analysis and no saturation rule; PubMed is treated as "already well-served" via generic Serper (`domain_backends.py:7`) and ClinicalTrials.gov is **skipped** (`:452`). Full-power adds the two clinical-channel backends and a true gap-driven loop.
+
+**Stage 4 — Relevance + tier-driven fetch (no count cap; `corpus_funnel`).** Fetches every candidate that clears all three bars and drops the rest **with a counted reason**: (1) tier bar (T1-T4 admissible; T5/T6 only with a regulatory-content marker; hard-drop T7 stubs/predatory via `tier_classifier.py`); (2) relevance bar (`_row_relevance ≥ tau`, tau from the score-distribution knee, floored by `PG_RELEVANCE_TAU_FLOOR`, adaptive — never constant); (3) dedup-by-finding (collapse same-trial/DOI-family sources to one FINDING with N provenance pointers). Emits the **binding `corpus_funnel` invariant** to the manifest: `discovered / dropped_tier / dropped_relevance / dropped_dedup / kept=N / tau`. **Model/tool:** `live_retriever` fetch loop with the `chosen[:fetch_cap]` truncation (`live_retriever.py:1573-1591`) replaced by a relevance/tier floor; `evidence_selector.select_evidence_for_generation` (`evidence_selector.py:893,:976,:1500`) with `max_rows` truncation removed; no new model — selection logic only. **Fixes vs shipped:** this is the central loophole — the pipeline DISCOVERS ~1,000 candidates but DUMPS ~96% at two fixed-COUNT cuts (FETCH_CAP=40 then MAX_EV_TO_GEN=20) by POSITION not quality, and the dump is SILENT (drops go to a best-effort Path-B trace, not a counted manifest funnel) (`corpus_relevance_driven_logic.md:37`). Keeping ALL 1,000 would hurt (lost-in-the-middle); the goal is the **covering set** (~120-200, an unmeasured prior to MEASURE), reported by count.
+
+**Stage 5 — Relevance corpus → per-source MAP digest.** One independent DeepSeek digest call per kept source → a structured claim record (≈2,500 tok in / 500 out), embarrassingly parallel. **Model/tool:** new `evidence_reducer` (`corpus_relevance_driven_logic.md §4.2`) + Writer. **Fixes vs shipped:** replaces the cram-then-truncate single-context approach; unbinds N from the 1M window and avoids lost-in-the-middle degradation (Liu 2307.03172, Levy 2503.04388). Each source is read in isolation, so no source is diluted by neighbours.
+
+**Stage 6 — Dedup-to-FINDINGS + hierarchical REDUCE synthesis.** Clusters digests into unique findings-with-N-provenance, then synthesizes section-by-section **over the digests** (≈500 tok each), not over raw source text. **Model/tool:** `multi_section_generator` re-pointed at findings (`corpus_relevance_driven_logic.md §4.3-4.4`) + Writer. **Fixes vs shipped:** lifts the ~30% verified-prose ceiling — the 30% is a SUPPLY problem (only 20 evidence rows reach the writer, `:2266`), so the writer runs out of grounded material mid-report; more verified supply → higher verified fraction at the same coverage. Honest breadth: a meta-analysis + 5 press rehashes collapse to 1 finding + 6 provenance pointers (frontier counts them as 5 sources of apparent breadth).
+
+**Stage 7 — Generation with per-sentence provenance.** Every generated sentence carries a `[#ev:<evidence_id>:<start>-<end>]` token, and generation is **evidence-first**: composed FROM findings that already carry provenance, so a sentence with no backing finding is not written in the first place (verified-by-construction, not verified-by-post-hoc-patch). **Model/tool:** Writer + `generator/provenance` (§9.1.2). **Fixes vs shipped:** the token mechanism exists but operates at ~30% rate; map-reduce raises the grounded fraction. **The inversion is the composition fix:** frontier writes the narrative then attaches citations (hence Gemini's zero-anchor q1 and ChatGPT's end-stacked footnotes); POLARIS writes only what a finding supports.
+
+**Stage 8 — 4-role verification (per-claim terminal verdict).** Per atomized claim: **atomize** (Writer splits a sentence with two numbers into two claim-records sharing one span — finer than shipped sentence-level strict_verify) → **Mirror** 2-pass calibration (re-read claim blind to Writer confidence; flag over-claim, emit `calibration_delta`) → **Sentinel** binary RAG-faithfulness gate (grounded y/n; `UNGROUNDED` is **fail-closed** — cannot proceed regardless of Judge) → **Sentinel** qualitative-negation pass (`(did not|no|never|absent|without)+endpoint` must be asserted in the span) → **Judge** terminal 5-enum **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** (may downgrade, may NOT upgrade a Sentinel-UNGROUNDED claim) → **python strict_verify** deterministic floor (evidence-id in pool, span bounds valid, every decimal appears verbatim in the span, ≥2 content-word overlap; any failure → DROP, no model override) → **guarded citation-repair** only for span-locality failures (right source, wrong offset): Writer proposes a narrower span from the SAME source, re-judged against the short span; still failing → fail-closed DROP; repair can never invent a source or widen scope. **Model/tool:** `role_pipeline.py` Mirror/Sentinel/Judge (`corpus_relevance_driven_logic.md §4.5`); `generator/strict_verify` (§9.1.3) + M-45 refetch; `openrouter_client.check_family_segregation` (§9.1.1). **Fixes vs shipped:** wires the built-but-not-default gate into the default CLI/UI/queue path (`:3940`); adds atomization, the 5-enum, the negation pass, and the guarded repair (shipped has none — a correct claim with a slightly-off offset is dropped outright, costing coverage). The guarded repair is the corrected design from `project_complete_solution_codex_corrections_2026_05_30` (whole-doc widening would smuggle ungrounded claims; candidate-generator-only + re-judge short span + fail-closed is the safe form).
+
+**Stage 9 — Composition + contradiction (surface conflicts, refuse to adjudicate).** Detects directional conflicts across deduped findings (one source asserts a clinical signal present, another absent, for the same endpoint+population) and **closes the shipped loop**: conflicts become a generation INPUT (Writer must disclose both sides, cite both spans, refuse to adjudicate) AND an evaluation GATE (the evaluator FAILS a report that hides a known directional conflict). Unverified "analyst voice" connective tissue is quarantined to a minimized, clearly-labeled Analysis block so it can never masquerade as a verified claim. **Model/tool:** Mirror (conflict detection) + Writer (conflict-as-input) + Judge (disclosure gate) + contradiction/refusal panel UI (task #454). **Fixes vs shipped (narrowed per Codex 2026-05-31):** NUMERIC contradictions are ALREADY fed into generation (`run_honest_sweep_r3.py:2613`) and disclosure-gated in the evaluator (PT08), so that path is not inert. The real gap full-power closes is QUALITATIVE conflicts — directional clinical disagreements written to `contradictions.json` but NOT yet fed to generation or bound to the evaluation gate. Full-power consumes the qualitative conflicts and adds the qualitative-disclosure gate.
+
+**Stage 10 — Output + audit trail (the category frontier does not contest).** Emits: (O1) a per-sentence VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE/DROPPED **ledger** with the cited span, the Mirror/Sentinel/Judge signals, and the drop-reason — a first-class artifact, not a debug log; (O2) **fail-closed verdict** — if every section fails strict_verify, `report.md` is a pipeline-verdict artifact `abort_no_verified_sections`; rubber-stamp corpus → `abort_corpus_approval_denied` (§9.3); (O3) a **signed audit bundle** (report + ledger + conflict records + `corpus_funnel` + resolved span text, hashed/signed); (O4) the **Proof-Replay split-view** demo centerpiece (click any claim → highlight the exact cited span side-by-side + 4-role verdict chips + decimal-match); (O5) a **saturation/concision report** so concision is auditable, not arbitrary truncation. **Model/tool:** python aggregator over Stage-8 outputs; §9.3 statuses; signed-manifest infra (§9.1); Proof-Replay UI (tasks #448-454, #461). **Fixes vs shipped:** the pipeline emits artifacts but no user-facing ledger, no single signed replayable bundle, and no replay surface; sentences are dropped silently inside strict_verify.
+
+---
+
+## 2. FRONTIER COUNTER-MAP
+
+| Frontier behavior | ChatGPT or Gemini (file evidence) | POLARIS counter (stage / invariant) | wins / parity |
+|---|---|---|---|
+| No claim→span binding; footnotes stacked at paragraph ends | ChatGPT: nine indices `33-41` on one paragraph (`compare_chatgpt_dr.txt:1067-1075`) | Per-sentence `[#ev:id:start-end]` (Stage 7, §9.1.2) | **WINS** |
+| Opaque citation tokens resolving to nothing | ChatGPT: `turn31view0` (`compare_chatgpt_q1.md:11`) | Signed bundle resolves every claim to span text (Stage 10/O3) | **WINS** |
+| Whole-report with zero citations | Gemini: 4,887-word q1, no inline markers, no source list (`compare_gemini_q1.md`) | `corpus_funnel` + per-sentence provenance + fail-closed (Stages 4,7,10) | **WINS** |
+| Whole-PDF superscript on a precise number | Gemini: "63% … M-value²" → cite 2 = whole Product Monograph (`compare_gemini_dr.txt:57`) | strict_verify: decimal must appear verbatim in the cited span (Stage 8/V7) | **WINS** |
+| Figure-read decimals shipped as table values | ChatGPT: 104-wk "6.43/6.13/6.11" read off graphs (`compare_chatgpt_dr.txt:614-616`) | strict_verify DROP + DROPPED ledger entry (Stage 8 + O1) | **WINS** |
+| Approximation laundering ("roughly −7.5/−10.7/−12.9 kg") | ChatGPT: `compare_chatgpt_dr.txt:263-266` | Approximated decimal absent from span → fails strict_verify (Stage 8/V7) | **WINS** |
+| Fabrication-suspect trial asserted as fact | ChatGPT: "SURPASS-SWITCH, reported in 2026 …" directional conclusion (`compare_chatgpt_dr.txt:1089-1091`) | No citable atom → Judge UNREACHABLE / fail-closed refuse (Stage 8/10) | **WINS** |
+| Conflict flattened to a confident bottom-line | ChatGPT: "clearly more potent" while row evidence is "inferential" (`compare_chatgpt_dr.txt:690-700,755-762`) | Mirror conflict-as-input; disclose both sides, refuse to adjudicate (Stage 9) | **WINS** |
+| Qualitative safety conflict not surfaced as an explicit open question | Gemini discusses unknown human MTC causality alongside the label contraindication (`compare_gemini_dr.txt:541`) — not itself a fabrication, but presented as smooth prose rather than a flagged open conflict | Qualitative conflict-as-input + open-conflict panel + negation Sentinel pass (Stage 8/V4, Stage 9) | **PARITY→WINS (presentation)** |
+| Never refuses / never says "could not verify" | Gemini q1 confident on zero sources (`compare_gemini_q1.md`); ChatGPT never returns "unverifiable" | `abort_no_verified_sections` fail-closed (Stage 10/O2, §9.3) | **WINS** |
+| Self-judges (writer = verifier) | Both frontier systems | Two-family segregation, RuntimeError at construction (Stage 8/V6, §9.1.1) | **WINS** |
+| Full SURPASS-program per-trial coverage with CIs/p-values | ChatGPT: SURPASS-1..6 + CVOT + SWITCH table (`compare_chatgpt_dr.txt:67-576`) | Multi-round search + PubMed/ctgov backends + no-cap fetch (Stages 3-4) | **PARITY (must hold)** |
+| Strong comparison tables | Gemini: SURPASS matrix (`compare_gemini_dr.txt:215-320`); pharmacare matrix (`compare_gemini_q5.md:207-213`) | REDUCE synthesis renders equivalent tables (Stage 6) | **PARITY (must hold)** |
+| High-tier source breadth (CMHC/PBO/OSFI/PHARMAC) | Gemini: ~50 sources (`compare_gemini_q2.md:291-528`) | Relevance-driven corpus keeps ≥ as many high-tier sources (Stage 4) | **PARITY** |
+| Excellent narrative prose | Gemini: think-tank-grade writing (`compare_gemini_q3.md:85`) | Writer (DeepSeek V4 Pro, GDPval-AA #1 open-weight) must be report-grade (Stage 7) | **PARITY (real risk)** |
+| Visible reasoning trace | Gemini: "Thoughts" appendix (`compare_gemini_q2.md:596-602`) | Editable plan (Stage 2) + run-progress/thinking toggle (#452/#754) | **PARITY** |
+| Total length / exhaustiveness | ChatGPT 9,289-word q1; Gemini 4,887-word q1 | Saturation stop + report-the-ceiling | **DELIBERATE-BEHIND** |
+| Long-term / cross-session memory | Frontier conversational memory | Out of scope for single-shot golden-5 | **DELIBERATE-BEHIND** |
+
+---
+
+## 3. HONEST PER-PARAMETER BEAT / PARITY MAP
+
+Never "beat on all." Length and memory are deliberate not-goals — chasing them dilutes the wedge.
+
+| Parameter | Verdict | One-line reason |
+|---|---|---|
+| **Faithfulness (claim↔span)** | **BEAT (decisive)** | strict_verify drops any sentence whose decimal isn't verbatim in the cited span (Stage 8/V7); frontier has no claim→span binding at all (`compare_gemini_q1.md` zero citations; `compare_chatgpt_dr.txt:1067-1075` stacked footnotes). |
+| **Auditability** | **BEAT (decisive)** | Signed bundle + Proof-Replay click→span→verdict (Stage 10/O3-O4); ChatGPT's `turn31view0` resolves to nothing (`compare_chatgpt_q1.md:11`). |
+| **Contradiction-surfacing** | **BEAT** | Conflict-as-input + disclosure gate + open-conflict panel (Stage 9); both frontiers flatten (`compare_chatgpt_dr.txt:690-700`; `compare_gemini_dr.txt:541`). |
+| **Refusal / UNREACHABLE honesty** | **BEAT** | Fail-closed `abort_no_verified_sections` (Stage 10/O2); neither frontier ever refuses (`compare_gemini_q1.md`). MedHallu: abstention raises precision up to 15% (`clinical_rag_sota_deepest_research_2026_05_27.md:38`). |
+| **Clinical-channel coverage** | **PARITY (must hold)** | New first-class PubMed E-utilities + ClinicalTrials.gov v2 backends + multi-round search (Stages 3-4) reach ChatGPT's full-SURPASS coverage (`compare_chatgpt_dr.txt:67-576`); shipped fetch-40 corpus is thinner. |
+| **Depth (numeric specificity)** | **PARITY (must hold)** | Map-reduce supplies enough verified rows to surface exact ETDs/CIs (`compare_chatgpt_dr.txt:189-198`) — but only when a span supports them verbatim. |
+| **Breadth (high-tier sources)** | **PARITY** | Relevance-driven corpus keeps ≥ Gemini's ~50 sources, with dedup-by-finding exposing rehash inflation. |
+| **Prose readability** | **PARITY (real risk)** | DeepSeek writer must match Gemini's genuinely strong prose (`compare_gemini_q3.md:85`); this is the largest match-risk. |
+| **Length / exhaustiveness** | **DELIBERATE-BEHIND** | 4,830-9,289 words is a clinical liability, not a target (`feedback_frontier_dr_not_agentic_2026_05_09`); POLARIS reports its saturation ceiling instead. |
+| **Long-term / cross-session memory** | **DELIBERATE-BEHIND** | Out of scope for the single-shot golden-5 benchmark; not contested. |
+
+---
+
+## 4. WHAT CHANGES VS SHIPPED (ordered build list)
+
+Ordered by dependency + leverage. Sizes are rough engineering estimates; all parameters config-driven (LAW VI). Items marked **wire-on** reuse existing code on the default path; **new** needs net-new code.
+
+1. **`corpus_funnel` instrumentation FIRST, then cap-removal (split per Codex 2026-05-31)** (wire-on/selection-logic, ~1-2 days). **(1a)** Add the binding `corpus_funnel` manifest block (discovered / dropped-by-reason / kept / tau) BEFORE removing any cap — this alone closes the SILENT-dump half and measures the true relevance density. **(1b)** Only AFTER MAP/REDUCE (item 3) is wired, remove `max_rows` truncation in `select_evidence_for_generation` (`evidence_selector.py:893,:976,:1500`) and replace `chosen[:fetch_cap]` (`live_retriever.py:1573-1591`) with a relevance/tier floor. **Do NOT send uncapped raw rows through the CURRENT single-context generator** — that would trigger lost-in-the-middle degradation; uncapping is safe only once generation runs over per-source digests.
+2. **Default-on the 4-role gate** (wire-on, ~1-2 days). Pass the transport into `run_one_query` on the CLI/UI/queue path (`:3940`; `pipeline_a_ui_adapter.py:253`; `actors.py:206`) so Mirror/Sentinel/Judge run by default. Highest single-item leverage — the gate already exists.
+3. **Per-source MAP digest (`evidence_reducer`)** (new, ~3-4 days). One DeepSeek digest per kept source → structured claim record; embarrassingly parallel. Unbinds N from the context window.
+4. **Dedup-to-FINDINGS + REDUCE synthesis re-point** (new + wire-on, ~3-4 days). Cluster digests (lexical-key fallback for the autonomous path per §8.4; embeddings gated); re-point `multi_section_generator` at findings.
+5. **PICO query-gen + MeSH validation** (new, ~3-4 days). Writer PICO faceting + NCBI E-utilities MeSH validation; feed existing deterministic expanders; replace `query_decomposer.py` flat split (`:33-36,108-148`).
+6. **First-class PubMed E-utilities + ClinicalTrials.gov v2 backends** (new, ~3-4 days). esearch/efetch + ctgov v2; promote from "well-served via Serper" (`domain_backends.py:7`) / "skipped" (`:452`).
+7. **Multi-round gap-analysis loop + saturation stop** (new, ~2-3 days). Gap-analysis between rounds; saturation stop-rule (`corpus_relevance_driven_logic.md §4.6`); replace the fixed R6-cap-4 expansion (`run_honest_sweep_r3.py:1885-1891`).
+8. **Research-plan contract (per-section evidence target + done-definition)** (new + wire-on, ~2 days). Machine-checkable `plan` block in the manifest; wire to Stage-2 editable UI (#459/#754) and the Stage-9 INCOMPLETE flag.
+9. **Claim atomization + 5-enum Judge + qualitative-negation Sentinel pass + guarded citation-repair** (new, ~4-5 days). The Stage-8 additions over the existing binary strict_verify.
+10. **Conflict-as-input + disclosure evaluation gate** (new, ~2-3 days). Close the inert-`contradictions.json` loop into generation and evaluation; open-conflict panel (#454).
+11. **Per-claim ledger + signed audit bundle + Proof-Replay split-view** (new + wire-on, ~4-5 days). O1/O3/O4 over existing UI components (#448-454, #461) and signed-manifest infra.
+
+**Already invariant (keep ON at scale, no new code):** two-family segregation (§9.1.1), per-sentence provenance tokens (§9.1.2), python strict_verify floor (§9.1.3), zero-verified abort + corpus-approval abort (§9.3), delimiter sanitization (§9.1.7).
+
+---
+
+## 5. RUNTIME + COST
+
+**Lineup confirmed** (`role_selection_final.md:32-35`): Writer `deepseek/deepseek-v4-pro`, Mirror `z-ai/glm-5.1`, Sentinel `ibm-granite/granite-guardian-4.1-8b` (self-host), Judge `qwen/qwen3.6-35b-a3b`. Four distinct families; all slugs/licenses/prices VERIFIED against the live OpenRouter catalog and named leaderboards (`role_selection_final.md:83`).
+
+**Cost — strictly per runtime mode (Mode A and Mode B are SEPARATE cost models; never blend them):**
+
+- **MODE A — PoC, non-sovereign (the ≈$2.63/run figure):** Writer + Mirror + Judge via OpenRouter API (US-hosted); only the 8B Sentinel self-hosts. Per single full-power question ≈ **$2.63** (≈$0.62 golden-5 verifier-API line per `role_selection_final.md:64`, i.e. ≈$0.123/question API-only, PLUS the Writer synthesis-token bill <$2.30 even at N=1,500 `corpus_relevance_driven_logic.md:69`, PLUS the amortized Sentinel GPU hour ~$0.50/hr 1×24GB). This is the budget Mode A holds under `PG_MAX_COST_PER_RUN`. Cost rises smoothly with kept-N (extract $ linear, synth $ sub-linear over digests). All Mode-A figures are [ESTIMATE] on [VERIFIED] unit prices; only the on-disk baseline ($0.747686 / 22.18 min / 107 claims) is [MEASURED].
+
+- **MODE B — Sovereign production (NOT $2.63):** all four roles self-hosted on Canadian/EU GPUs. Cost is the GPU-cluster model ≈ **$129–770/run** (`corpus_relevance_driven_logic.md` §3), driven by self-hosting the calibration + judge models alongside the Sentinel — an entirely different cost basis. The $2.63 figure does NOT apply to Mode B.
+
+**The one biggest cost/runtime risk — and note it belongs to MODE B, not the $2.63 Mode-A envelope:** the EU-sovereign self-hosted verifier wall-clock at scale is the real `f(N)` and is **unmeasured at N≥200** (`corpus_relevance_driven_logic.md:16`); Mode-B sovereign GPU spend is plausibly ~$250–920 per the cost-corrections record (`project_complete_solution_codex_corrections_2026_05_30`). Mode A's $2.63 does NOT depend on this — the first full-scale Mode-A run measures kept-N + claims/run + Sentinel calls via `corpus_funnel` + timing; a separate sovereign bring-up measures the Mode-B wall-clock. Confirm each envelope against its OWN mode's run.
+
+---
+
+## 6. PLAIN-SPOKEN SUMMARY (for a blind operator)
+
+1. Today POLARIS searches once, keeps only 40 sources, and only about a third of its sentences are actually backed by a citation — that loses on coverage to the frontier tools.
+2. Full-power searches in several rounds until it stops finding anything new, keeps every relevant source instead of the first 40, and reads each source on its own so none gets drowned out.
+3. It writes evidence-first: it only writes a sentence if a real source already supports it, and it tags every sentence with the exact span it came from.
+4. Then four different AI models check the work — one for over-confidence, one purpose-built hallucination catcher, one final judge, plus a strict math check that every number appears word-for-word in its source; anything that fails is dropped or refused, not smoothed over.
+5. The frontier tools never refuse and never let you click a number to see its proof — Gemini's compute report had 4,887 words and zero citations; ChatGPT's footnotes point to nothing you can check. POLARIS makes every number one click from its source and shows you what it threw out.
+6. We win on trustworthy, checkable answers — not on length or memory, which we deliberately don't chase; nothing is proven until one real blinded run on the five clinical questions scores it.
+
+---
+
+## 7. HONESTY FOOTER
+
+**Grounded (on disk / verified):** the frontier weaknesses (Gemini zero-citation q1 `compare_gemini_q1.md`; ChatGPT stacked footnotes `compare_chatgpt_dr.txt:1067-1075` and opaque tokens `compare_chatgpt_q1.md:11`; both flatten conflicts and never refuse); the shipped caps and their line numbers (FETCH_CAP=40 `:1627`; MAX_EV_TO_GEN=20 `:2266`; gate-not-default-on `:3940`); the locked lineup, licenses, and unit prices (`role_selection_final.md:32-35,83`); the existing invariants (two-family, provenance tokens, strict_verify, fail-closed — CLAUDE.md §9). The redesign shape (relevance/tier floors + map-reduce) is the correct cure for rank-position truncation (`corpus_relevance_driven_logic.md:2`).
+
+**Projected (not yet built / not yet measured):** the relevance-driven corpus, map-reduce, saturation stop-rule, default-on 4-role gate, PICO/MeSH query-gen, new clinical backends, and the audit-bundle/Proof-Replay surface are **designed, not built**; the per-run cost envelope, verifier wall-clock at N≥200, and Sentinel GPU spend are estimates on verified unit prices; every BEAT in §3 is a hypothesis until a blinded golden-5 run scores it claim-by-claim (RACE/FACT) with coverage ≥0.70.
+
+**The single biggest unproven assumption:** that ~120-200 of ~1,000 discovered sources are genuinely relevant high-quality and ~800 are true noise (`corpus_relevance_driven_logic.md:91`). It is extrapolated from TREC-2020 Precision-Medicine top-rank precision (~29%), NOT measured on POLARIS's own pool — the only on-disk run had 24 rows. If true density is higher, kept-N, claim count, GPU-hours, wall-clock, and cost all slide up the same smooth `f(N)` curve (the model does not break, the numbers move). The first full-scale run MUST replace this prior with ground truth via the `corpus_funnel` manifest before any "beat" is claimed.
+
+---
+
+**Files cited (absolute):** `C:\POLARIS\state\compare_chatgpt_dr.txt`, `C:\POLARIS\state\compare_chatgpt_q1.md`, `C:\POLARIS\state\compare_gemini_q1.md`, `C:\POLARIS\state\compare_gemini_q2.md`, `C:\POLARIS\state\compare_gemini_q3.md`, `C:\POLARIS\state\compare_gemini_q5.md`, `C:\POLARIS\state\compare_gemini_dr.txt`, `C:\POLARIS\outputs\I-meta-002\corpus_relevance_driven_logic.md`, `C:\POLARIS\outputs\I-meta-002\role_selection_final.md`, `C:\POLARIS\docs\clinical_rag_sota_deepest_research_2026_05_27.md`, `C:\POLARIS\scripts\run_honest_sweep_r3.py`, `C:\POLARIS\src\polaris_graph\retrieval\query_decomposer.py`, `C:\POLARIS\src\polaris_graph\retrieval\domain_backends.py`, `C:\POLARIS\src\polaris_graph\retrieval\evidence_selector.py`, `C:\POLARIS\src\polaris_graph\retrieval\live_retriever.py`.
+
+codex
+```yaml
+verdict: APPROVE
+p1_closed: true
+remaining_issues: []
+honest_one_line: "§5 now cleanly separates Mode A $2.63 non-sovereign PoC from Mode B sovereign GPU-cluster cost/wall-clock; no continuing P1 found."
+```
+
+Reviewed §0 and §5. The Mode A/B split is explicit in both sections, `$2.63` is repeatedly scoped to Mode A only, and the EU-sovereign verifier wall-clock risk is attributed to Mode B, not the Mode-A budget envelope.
+
+No novel P0/P1 and no continuing P1.
+tokens used
+13,053
+```yaml
+verdict: APPROVE
+p1_closed: true
+remaining_issues: []
+honest_one_line: "§5 now cleanly separates Mode A $2.63 non-sovereign PoC from Mode B sovereign GPU-cluster cost/wall-clock; no continuing P1 found."
+```
+
+Reviewed §0 and §5. The Mode A/B split is explicit in both sections, `$2.63` is repeatedly scoped to Mode A only, and the EU-sovereign verifier wall-clock risk is attributed to Mode B, not the Mode-A budget envelope.
+
+No novel P0/P1 and no continuing P1.

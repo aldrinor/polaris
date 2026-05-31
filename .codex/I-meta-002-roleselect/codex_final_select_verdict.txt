@@ -1,0 +1,219 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7ceb-aaf4-7c83-b2d3-f90d63b5a93b
+--------
+user
+# Codex gate — final 4-role open-weight OpenRouter selection: numbers real, picks sound?
+
+ADVERSARIAL §-1.1 auditor. A workflow produced the per-role model selection below (full doc
+outputs/I-meta-002/role_selection_final.md — READ IT). It claims live-verified benchmarks + prices and a Mirror
+RE-PICK (Cohere→GLM-5.1). Re-verify via WebFetch — sub-agents may have erred (one already had a wrong Gemma
+calibration number). Rule whether the picks are merit-correct, the numbers real, and the proxy-caveat honest. iter 1.
+
+```yaml
+verdict: SOUND | NEEDS_CORRECTION
+price_or_availability_errors: [...]
+benchmark_errors: [...]              # esp. proxy/sibling numbers presented as the model's own
+wrong_picks: [...]
+family_distinct_valid: <true|false>  # deepseek / z-ai(glm) / ibm-granite / qwen all distinct + open-weight?
+license_errors: [...]                # GLM-5.1 MIT? Qwen3.6-35b-a3b Apache? granite-guardian Apache? deepseek-v4-pro MIT?
+sentinel_gap_honest: <true|false>    # is "self-host Granite 0.841 vs ~0.73-0.775 OR-general = +6.5-11 BAcc" fair?
+the_one_correction: "<or none>"
+honest_one_line: "<for the operator>"
+```
+
+## The selection to verify
+- WRITER (keep): deepseek/deepseek-v4-pro, MIT, $0.435/$0.87. GDPval-AA 1558 Elo #1 open-weight, +23 over GLM-5.1.
+- MIRROR (RE-PICK Cohere→GLM-5.1): z-ai/glm-5.1, MIT, $0.98/$3.08. AA-Omniscience 29.4% hallucination = best calibration
+  in eligible OpenRouter pool; −9.9pts vs Kimi K2.6 (39.3%). (Cohere command-a-plus NOT on OpenRouter → hard-gate fail.)
+- SENTINEL (keep, self-host): ibm-granite/granite-guardian-4.1-8b (NOT on OpenRouter), Apache 2.0. RAGTruth BAcc
+  0.841 think / 0.834 non-think; best OR general LLM ~0.73-0.775 → gap +6.5-11 BAcc pts → self-host justified.
+- JUDGE (keep): qwen/qwen3.6-35b-a3b, Apache 2.0, $0.14/$1.00. BFCL V4: Qwen owns all 9 board slots; 35B-A3B = 0.673.
+- Families: deepseek / z-ai / ibm-granite / qwen = 4 distinct. Per-run API ≈ $0.12, golden-5 ≈ $0.62.
+- HONEST GAP the workflow flagged: GLM-5.1 / Qwen3.6 / DeepSeek-V4 not independently benchmarked AS faithfulness
+  judges; some Judge/Mirror numbers rest on same-family SIBLING proxies (Qwen3.5-35B-A3B BFCL 0.673; GLM-5 base for
+  Vectara). VERIFY whether any headline number is a proxy presented as the model's own, and flag it.
+
+## The decisive checks
+1. Live prices + OpenRouter availability for z-ai/glm-5.1, qwen/qwen3.6-35b-a3b, deepseek/deepseek-v4-pro.
+2. LICENSES: GLM-5.1 actually MIT? (Z.ai GLM models have varied licenses — verify.) granite-guardian-4.1-8b Apache?
+3. Is GLM-5.1's 29.4% AA-Omniscience a REAL GLM-5.1 number or a GLM-5-base proxy? Is Qwen 0.673 BFCL the actual
+   qwen3.6-35b-a3b or a qwen3.5 sibling? Flag any proxy.
+4. Is the Sentinel +6.5-11 BAcc gap defensible, and is self-hosting the real specialist the right call for the lethal role?
+5. Family-distinctness + open-weight + commercial-self-host all hold?
+6. Is the Mirror re-pick to GLM-5.1 merit-correct, or is there a better-calibrated eligible open-weight OpenRouter model?
+
+## Your ruling
+SOUND or NEEDS_CORRECTION. Re-verify each load-bearing number/price/license live. Flag proxy numbers. The single
+most important correction. Honest one-liner. (Mirror final pick is operator-locked — verify facts, don't decide it.)
+
+codex
+I’ll read the local selection doc first, then verify the load-bearing claims against primary sources where possible: OpenRouter model pages/API for availability/prices, model cards/repos for licenses, and benchmark leaderboard/docs for the claimed scores.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath 'outputs/I-meta-002/role_selection_final.md'" in C:\POLARIS
+ succeeded in 3226ms:
+All margins confirmed. Now I have everything. Final answer below.
+
+---
+
+# POLARIS 4-ROLE FINAL SELECTION — by merit, OpenRouter-gated, live-verified 2026-05-31
+
+Where the five analysts disagreed I broke the tie with the live number. The two real conflicts: (a) **Mirror** — Analyst 1 picked Gemma 4 26B-A4B on a calibration figure (31.3%) that is the *wrong variant*; the actual 26B-A4B AA-Omniscience is **80.9%** [VERIFIED benchlm.ai], which collapses that pick and confirms Analysts 2/4's **GLM-5.1**. (b) **Mistral open-weight status** — Analyst 5 was wrong; Mistral Medium 3.5 **is** downloadable open-weight (Modified MIT) [VERIFIED huggingface.co], but its revenue carve-out and weak calibration keep it off the podium anyway.
+
+## 1. THE FINAL LINEUP
+
+| Role | THE pick | OpenRouter slug | Family | License | $/M in→out | Role-relevant benchmark (number + source) | Margin over runner-up | Runner-up |
+|---|---|---|---|---|---|---|---|---|
+| **WRITER** | **DeepSeek V4 Pro** | `deepseek/deepseek-v4-pro` | DeepSeek | **MIT** | $0.435 → $0.87 | **GDPval-AA 1558 Elo — #1 open-weight** [VERIFIED artificialanalysis.ai/evaluations/gdpval-aa] | **+23 Elo** over GLM-5.1 (1535) | GLM-5.1 |
+| **MIRROR** | **GLM-5.1** | `z-ai/glm-5.1` | Z.ai | **MIT** | $0.98 → $3.08 | **AA-Omniscience 29.4% halluc — best-in-eligible-pool calibration** [VERIFIED benchlm.ai/benchmarks/omniscienceHallucinationRate] | **−9.9 pts** vs Kimi K2.6 (39.3%); **−51.5 pts** vs Gemma 4 26B-A4B (80.9%) | Kimi K2.6 |
+| **SENTINEL** | **Granite Guardian 4.1 8B** (SELF-HOST) | not on OR — `ibm-granite/granite-guardian-4.1-8b` (HF) | IBM Granite | **Apache 2.0** | self-host (~$0.50/hr 1×24GB) | **RAGTruth BAcc 0.841 (think) / 0.834 (non-think)** [VERIFIED huggingface.co/ibm-granite/granite-guardian-4.1-8b] | **+6.5 to +11 BAcc pts** over best OR general LLM (~0.73–0.775) | HalluGuard-4B (CC-BY-4.0, self-host) |
+| **JUDGE** | **Qwen3.6-35B-A3B** | `qwen/qwen3.6-35b-a3b` | Alibaba Qwen | **Apache 2.0** | $0.14 → $1.00 | **BFCL V4 — Qwen family owns ALL 9 board slots; sibling 35B-A3B = 0.673** [VERIFIED llm-stats.com/benchmarks/bfcl-v4] | **measured-vs-unmeasured** (no rival family appears on BFCL V4) | Mistral Medium 3.5 |
+
+Families: **DeepSeek / Z.ai / IBM-Granite / Alibaba-Qwen** — four distinct.
+
+## 2. FAMILY-DISTINCT SOLVE
+
+The 4 picks are **4 distinct families — no swap needed.** The only latent collision: the best calibration model overall on OpenRouter is in the Qwen family (and Judge is also Qwen). The assignment that maximizes total role-fit subject to 4-distinct-families resolves cleanly because **Mirror's merit winner is GLM-5.1 (Z.ai), not Qwen** — GLM-5.1 has both better calibration (29.4% vs Qwen3.6-27B 48.3%) AND a cleaner conflict-free family. So Judge keeps Qwen at zero cost. **Benchmark cost of the distinctness constraint = 0 points** on this lineup.
+
+Contingency (state it for completeness): if a future re-pick put a Qwen model in Mirror, the Judge would have to step to **GLM-5.1 on BFCL** — but GLM-5.1 does not appear on the BFCL V4 board at all, so that swap would trade a measured 0.673 for an unmeasured number. The current lineup avoids that entirely.
+
+## 3. THE SENTINEL DECISION — THE LETHAL ROLE, QUANTIFIED
+
+**Best OpenRouter open-weight faithfulness option:** there is NO purpose-built faithfulness detector on OpenRouter. The catalog has only the *general* `ibm-granite/granite-4.1-8b`, not the Guardian variant [VERIFIED openrouter.ai/api/v1/models]. The best you can do on-OpenRouter is prompt a general LLM as a judge: the open-weight ceiling there is ~**0.73–0.775 BAcc** (Qwen-family / Llama-3.3-70B-class FaithBench), and Llama isn't even on OpenRouter. Response-level RAGTruth F1 for prompted general models is far worse (~0.63 for GPT-4-class).
+
+**Self-host the specialist:** Granite Guardian 4.1 8B = **RAGTruth BAcc 0.841 (think) / 0.834 (non-think)** [VERIFIED huggingface.co/ibm-granite/granite-guardian-4.1-8b], Apache 2.0, also 0.854 AUC on aggregate RAG-hallucination benchmarks [VERIFIED arxiv 2412.07724].
+
+**The gap: +6.5 to +11 balanced-accuracy points** (0.841 vs ~0.73–0.775), and the gap on original RAGTruth response-level F1 is larger still (~+15 pts). For the role where a missed ungrounded clinical claim is **literally lethal**, a 6.5–11 point detection deficit is unacceptable. **CLEAR RECOMMENDATION: self-host Granite Guardian 4.1 8B.** The brief's Sentinel exception applies and is now numerically proven. It is 8B — trivially co-hosted on POLARIS's planned OVH H200. (CC-BY-NC specialists Bespoke-MiniCheck-7B 0.84 and Patronus Lynx are DISQUALIFIED for production; keep as internal-eval ceilings only.)
+
+## 4. TOTAL PER-RUN COST
+
+Per-run depends on token volume; using a representative deep-research run profile (numbers are estimates from per-token prices × assumed volumes — flag [ESTIMATE], the prices themselves are [VERIFIED]):
+
+Assume per golden question: Writer ~80K in / 8K out; Mirror ~60K in / 4K out; Judge ~50K in / 3K out (per-claim batched); Sentinel self-hosted (GPU-hour amortized, ≈$0 marginal API).
+
+- Writer: 80K×$0.435 + 8K×$0.87 per M = $0.0348 + $0.00696 = **$0.0418**
+- Mirror (GLM-5.1): 60K×$0.98 + 4K×$3.08 = $0.0588 + $0.01232 = **$0.0711**
+- Judge (Qwen3.6-35B-A3B): 50K×$0.14 + 3K×$1.00 = $0.007 + $0.003 = **$0.0100**
+- Sentinel: self-hosted, ~**$0** marginal (amortized GPU)
+
+**Per-run API cost ≈ $0.123** [ESTIMATE on [VERIFIED] prices]. **Per golden-5 batch ≈ $0.62** (API only; excludes the amortized self-host GPU hour for Sentinel, ~$0.50/hr regardless of batch size).
+
+## 5. WHAT CHANGES vs THE CURRENT LOCK
+
+- **WRITER — KEEP DeepSeek V4 Pro.** #1 open-weight on GDPval-AA (1558 Elo); legacy lock survives on merit.
+- **MIRROR — RE-PICK: Cohere Command A+ → GLM-5.1.** Reason: Cohere is **not on OpenRouter at all** (hard-gate fail) and the real Cohere open weights are CC-BY-NC anyway; GLM-5.1 is the best-calibrated eligible cross-family model (29.4% AA-Omniscience), MIT-licensed.
+- **SENTINEL — KEEP Granite Guardian 4.1 8B, reclassify as SELF-HOST.** Reason: no faithfulness specialist exists on OpenRouter; self-host beats the best OR general option by +6.5–11 BAcc points (0.841 vs ~0.73–0.775).
+- **JUDGE — KEEP Qwen3.6-35B-A3B.** Reason: Qwen owns all 9 BFCL V4 slots; no rival family is even measured on the function-calling benchmark.
+
+Net: **2 confirmations (Writer, Judge), 1 re-pick (Mirror→GLM-5.1), 1 reclassification (Sentinel→self-host).**
+
+## 6. FIVE-LINE PLAIN-SPOKEN SUMMARY FOR THE OPERATOR
+
+1. Writer is DeepSeek V4 Pro — it tops the open-weight real-work leaderboard at 1558, beating the runner-up by 23 points, and it's the only one with a one-million-token window for big evidence bundles.
+2. Mirror, the calibration checker, changes from Cohere to GLM-5.1, because Cohere isn't on OpenRouter and GLM has the best-calibrated honesty score in the eligible pool, 29.4 percent, with a clean MIT license.
+3. Sentinel, the lethal hallucination-catcher, is the one we deliberately self-host instead of using OpenRouter — IBM's Granite Guardian scores 0.841 at catching ungrounded claims, six-and-a-half to eleven points better than any general model we could rent, and for the role where a miss can hurt a patient that gap decides it.
+4. Judge stays Qwen3.6-35B-A3B, because Qwen is the only family that even appears on the function-calling leaderboard, and it's the cheapest top-tier option at fourteen cents per million tokens.
+5. The API cost is about twelve cents a run, sixty-two cents for the golden-five batch, and yes this is a fair preview of the sovereign system — three of the four run on OpenRouter today using the exact open weights we can later self-host, and Sentinel is self-hosted from day one, so the demo and the sovereign deployment use the identical models.
+
+**One honest gap:** the newest 2026 models (GLM-5.1, Qwen3.6, DeepSeek V4) have not been independently benchmarked *as faithfulness judges*; some Judge/Mirror numbers rest on same-family sibling proxies (Qwen3.5-35B-A3B BFCL 0.673; GLM-5 base for Vectara). An internal RAGTruth + MedHallu run of the final lineup before lock would tighten the Sentinel gap estimate, but is very unlikely to close 6.5–11 points against a task-trained specialist. Every price, slug, and license above is [VERIFIED] against the live OpenRouter catalog and the named leaderboards; per-run dollar figures are [ESTIMATE] built on those verified prices.
+
+web search: 
+web search: OpenRouter deepseek/deepseek-v4-pro price $0.435 $0.87
+web search: 
+web search: https://openrouter.ai/api/v1/models
+web search: 
+web search: 'z-ai/glm-5.1' in https://openrouter.ai/api/v1/models
+web search: 
+web search: https://huggingface.co/zai-org/GLM-5.1
+web search: 
+web search: 'License:' in https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+web search: 
+web search: BenchLM AA Omniscience hallucination rate GLM-5.1 29.4
+web search: 
+web search: https://benchlm.ai/benchmarks/omniscienceHallucinationRate
+web search: 
+web search: https://benchlm.ai/models/glm-5-1
+web search: 
+web search: BFCL V4 qwen3.6-35b-a3b 0.673
+web search: 
+web search: https://llm-stats.com/benchmarks/bfcl-v4
+web search: 
+web search: GDPval-AA DeepSeek V4 Pro 1558 Elo GLM-5.1 1535 open weight
+web search: 
+web search: https://benchlm.ai/benchmarks/gdpvalAa
+web search: 
+web search: 
+web search: 
+web search: https://artificialanalysis.ai/evaluations/gdpval-aa
+web search: 
+web search: 'command-a-plus' in https://openrouter.ai/api/v1/models
+web search: 
+web search: Cohere Command A+ model OpenRouter command-a-plus
+web search: 
+web search: https://artificialanalysis.ai/evaluations/omniscience
+web search: 
+web search: FaithBench RAGTruth balanced accuracy Qwen Llama 0.775 0.73 general LLM judge
+web search: 
+web search: https://llm-aggrefact.github.io/
+codex
+```yaml
+verdict: NEEDS_CORRECTION
+
+price_or_availability_errors: []
+benchmark_errors:
+  - "JUDGE: BFCL V4 0.673 is Qwen3.5-35B-A3B, not qwen3.6-35b-a3b. qwen3.6-35b-a3b is not on that BFCL V4 table."
+  - "WRITER: GDPval-AA 1558 is DeepSeek V4 Pro with reasoning/high effort, not the non-reasoning/default row; non-reasoning is 1477."
+  - "SENTINEL: +6.5-11 BAcc over OR-general is overstated/mixed-baseline. Same LLM-AggreFact RAGTruth comparators put Qwen2.5-72B at 81.9 and Llama-3.3-70B at 82.6 vs Granite Guardian 4.1 think at 84.1."
+
+wrong_picks:
+  - "No forced swap, but Judge is proxy-backed, not exact-model proven. If exact BFCL evidence is mandatory, use a measured Qwen3.5 BFCL model instead of qwen3.6-35b-a3b."
+
+family_distinct_valid: true
+
+license_errors:
+  - "No final-pick license error: GLM-5.1 MIT, Qwen3.6-35B-A3B Apache-2.0, Granite Guardian 4.1 Apache-2.0, DeepSeek V4 Pro MIT."
+  - "Non-final doc error: Command A+ is Apache-2.0, not CC-BY-NC; it still fails the OpenRouter availability gate."
+
+sentinel_gap_honest: false
+
+the_one_correction: "Replace the Sentinel gap claim: self-host Granite Guardian is still reasonable for a lethal specialist role, but the defensible public same-benchmark edge is small single digits, not +6.5-11 BAcc."
+
+honest_one_line: "Lineup is usable, but do not oversell it: GLM-5.1 calibration is real, Qwen BFCL is a Qwen3.5 sibling proxy, and the Sentinel self-host case is specialist/operational rather than a proven +6.5-11 point win."
+```
+
+OpenRouter availability/prices check out: DeepSeek V4 Pro, GLM-5.1, and Qwen3.6-35B-A3B are live at the stated prices; Granite Guardian is not in the OpenRouter catalog while non-Guardian Granite 4.1 is. Licenses check out from the model cards. Sources: OpenRouter API for [DeepSeek](https://openrouter.ai/api/v1/models), [GLM](https://openrouter.ai/api/v1/models), [Qwen](https://openrouter.ai/api/v1/models), and missing Guardian; HF for [GLM](https://huggingface.co/zai-org/GLM-5.1), [Qwen](https://huggingface.co/Qwen/Qwen3.6-35B-A3B), [Granite Guardian](https://huggingface.co/ibm-granite/granite-guardian-4.1-8b), [DeepSeek](https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro); benchmark pages for [AA-Omniscience](https://benchlm.ai/benchmarks/omniscienceHallucinationRate), [GDPval-AA](https://artificialanalysis.ai/evaluations/gdpval-aa), [BFCL V4](https://llm-stats.com/benchmarks/bfcl-v4), and [LLM-AggreFact](https://llm-aggrefact.github.io/).
+tokens used
+135,220
+```yaml
+verdict: NEEDS_CORRECTION
+
+price_or_availability_errors: []
+benchmark_errors:
+  - "JUDGE: BFCL V4 0.673 is Qwen3.5-35B-A3B, not qwen3.6-35b-a3b. qwen3.6-35b-a3b is not on that BFCL V4 table."
+  - "WRITER: GDPval-AA 1558 is DeepSeek V4 Pro with reasoning/high effort, not the non-reasoning/default row; non-reasoning is 1477."
+  - "SENTINEL: +6.5-11 BAcc over OR-general is overstated/mixed-baseline. Same LLM-AggreFact RAGTruth comparators put Qwen2.5-72B at 81.9 and Llama-3.3-70B at 82.6 vs Granite Guardian 4.1 think at 84.1."
+
+wrong_picks:
+  - "No forced swap, but Judge is proxy-backed, not exact-model proven. If exact BFCL evidence is mandatory, use a measured Qwen3.5 BFCL model instead of qwen3.6-35b-a3b."
+
+family_distinct_valid: true
+
+license_errors:
+  - "No final-pick license error: GLM-5.1 MIT, Qwen3.6-35B-A3B Apache-2.0, Granite Guardian 4.1 Apache-2.0, DeepSeek V4 Pro MIT."
+  - "Non-final doc error: Command A+ is Apache-2.0, not CC-BY-NC; it still fails the OpenRouter availability gate."
+
+sentinel_gap_honest: false
+
+the_one_correction: "Replace the Sentinel gap claim: self-host Granite Guardian is still reasonable for a lethal specialist role, but the defensible public same-benchmark edge is small single digits, not +6.5-11 BAcc."
+
+honest_one_line: "Lineup is usable, but do not oversell it: GLM-5.1 calibration is real, Qwen BFCL is a Qwen3.5 sibling proxy, and the Sentinel self-host case is specialist/operational rather than a proven +6.5-11 point win."
+```
+
+OpenRouter availability/prices check out: DeepSeek V4 Pro, GLM-5.1, and Qwen3.6-35B-A3B are live at the stated prices; Granite Guardian is not in the OpenRouter catalog while non-Guardian Granite 4.1 is. Licenses check out from the model cards. Sources: OpenRouter API for [DeepSeek](https://openrouter.ai/api/v1/models), [GLM](https://openrouter.ai/api/v1/models), [Qwen](https://openrouter.ai/api/v1/models), and missing Guardian; HF for [GLM](https://huggingface.co/zai-org/GLM-5.1), [Qwen](https://huggingface.co/Qwen/Qwen3.6-35B-A3B), [Granite Guardian](https://huggingface.co/ibm-granite/granite-guardian-4.1-8b), [DeepSeek](https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro); benchmark pages for [AA-Omniscience](https://benchlm.ai/benchmarks/omniscienceHallucinationRate), [GDPval-AA](https://artificialanalysis.ai/evaluations/gdpval-aa), [BFCL V4](https://llm-stats.com/benchmarks/bfcl-v4), and [LLM-AggreFact](https://llm-aggrefact.github.io/).
