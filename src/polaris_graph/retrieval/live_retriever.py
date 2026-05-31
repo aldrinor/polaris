@@ -1022,6 +1022,41 @@ def linearize_html_tables(html: str) -> str:
         return ""
 
 
+_JSONLD_SCRIPT_RE = re.compile(
+    r'<script[^>]*type\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.DOTALL | re.IGNORECASE,
+)
+# Bound the captured JSON-LD so a pathological page cannot balloon the payload
+# the classifier scans (the junk patterns only need the @type marker near the top).
+_JSONLD_MAX_CHARS = 20000
+
+
+def _extract_jsonld_blocks(raw_html: str) -> str:
+    """Capture the raw <script type="application/ld+json"> block contents from
+    the RAW fetched HTML — BEFORE _strip_html() deletes every <script> block.
+
+    Diff-gate P1-C: the structural junk-detection classifier (Signal C,
+    news_article/login_wall/press_release classes) scans JSON-LD strings such as
+    `"@type":"NewsArticle"` that live ONLY inside ld+json <script> blocks. Those
+    blocks are destroyed by _strip_html (line removing <script>...</script>), so
+    the demotion never fires unless the JSON-LD is extracted FIRST and routed to
+    ClassificationSignals.structured_jsonld separately from the stripped body.
+
+    Returns the concatenated block contents (bounded), or "" when the input is
+    not raw HTML (e.g. Jina markdown / Crawl4AI cleaned text already had its
+    <script> blocks removed upstream) — honestly empty, never fabricated. Pure
+    regex, no network, fail-open ("").
+    """
+    if not raw_html or "ld+json" not in raw_html.lower():
+        return ""
+    try:
+        blocks = [m.group(1).strip() for m in _JSONLD_SCRIPT_RE.finditer(raw_html)]
+        joined = "\n".join(b for b in blocks if b)
+        return joined[:_JSONLD_MAX_CHARS]
+    except Exception:  # noqa: BLE001 — additive structural signal; never break fetch
+        return ""
+
+
 def _strip_html(html: str) -> str:
     """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
     linearized rows (#954) so result-table cells survive with their column headers regardless of how the
@@ -1048,10 +1083,17 @@ def _strip_html(html: str) -> str:
     return base
 
 
-def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+def _fetch_content_httpx_naive(
+    url: str, max_chars: int
+) -> tuple[str, bool, str, str, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
-    spawning, or sandboxes without Playwright)."""
+    spawning, or sandboxes without Playwright).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW HTML
+    BEFORE _strip_html deletes the <script> blocks (empty when the page carries
+    no JSON-LD)."""
     try:
         with httpx.Client(
             timeout=DEFAULT_HTTP_TIMEOUT,
@@ -1069,7 +1111,7 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
-            return "", False, "", ""
+            return "", False, "", "", ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
         if not raw and r.content:
@@ -1079,13 +1121,15 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         extracted_title = _extract_title_from_content(raw)
         # BUG-M-17: detect article-type from bounded body region.
         body_type = _detect_article_type_from_body(raw)
+        # Diff-gate P1-C: capture raw ld+json BEFORE _strip_html removes <script>.
+        jsonld = _extract_jsonld_blocks(raw)
         content = _strip_html(raw)[:max_chars]
-        return content, bool(content), extracted_title, body_type
+        return content, bool(content), extracted_title, body_type, jsonld
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
-        return "", False, "", ""
+        return "", False, "", "", ""
 
 
 def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
@@ -1191,7 +1235,7 @@ def refetch_for_extraction_with_diagnostics(
         return "", diagnostics
     diagnostics["attempted"] = True
     try:
-        content, ok, _title, body_type = _fetch_content(url, max_chars)
+        content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
     except Exception as exc:
         logger.warning(
             "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
@@ -1250,10 +1294,18 @@ def refetch_for_extraction_with_diagnostics(
     return quote, diagnostics
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW fetched
+    HTML BEFORE _strip_html removes <script> blocks, so the structural junk
+    classifier (Signal C: NewsArticle / press-release / login-wall) can fire on
+    the live ON path. Empty when the winning backend already returned cleaned
+    text (Jina markdown / Crawl4AI) with no <script> blocks — honestly empty,
+    never fabricated.
 
     BUG-FETCH-R8d (2026-04-18): the live smoke test of
     clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
@@ -1363,7 +1415,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         # M-45 pass-2: record the winning backend + reason even on miss
         # so downstream audits can see which backend was last invoked.
         _m45_record_fetch_telemetry(url, method, reason or "no_content")
-        return "", False, "", ""
+        return "", False, "", "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
     # markdown has "Title: X" on first line; Crawl4AI cleaned text has
@@ -1371,6 +1423,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     extracted_title = _extract_title_from_content(result.content)
     # BUG-M-17 (Codex pass 2): detect article-type from body.
     body_type = _detect_article_type_from_body(result.content)
+    # Diff-gate P1-C: capture raw ld+json from result.content BEFORE _strip_html
+    # removes <script> blocks. Direct-HTTP path returns raw HTML (JSON-LD present);
+    # Jina/Crawl4AI return cleaned text with <script> already gone (honestly empty).
+    jsonld = _extract_jsonld_blocks(result.content)
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
@@ -1381,7 +1437,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     )
     # M-45 pass-2: record winning backend for diagnostics.
     _m45_record_fetch_telemetry(url, method, "")
-    return content, bool(content), extracted_title, body_type
+    return content, bool(content), extracted_title, body_type, jsonld
 
 
 def _domain_of(url: str) -> str:
@@ -1818,11 +1874,12 @@ def run_live_retrieval(
     #
     # The substrate's ParallelFetcher Protocol expects (bytes, str,
     # int). Live retrieval's existing _fetch_content returns
-    # (content, ok, title, body_type) — we wrap it in an adapter
-    # that stashes the full 4-tuple in a side dict keyed by URL,
-    # then post-process serially using the side dict.
+    # (content, ok, title, body_type, jsonld) — we wrap it in an adapter
+    # that stashes the full 5-tuple in a side dict keyed by URL,
+    # then post-process serially using the side dict. Diff-gate P1-C: the 5th
+    # element is the raw ld+json captured before _strip_html (Signal C input).
     use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
-    fetched_side: dict[str, tuple[str, bool, str, str]] = {}
+    fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
 
     if use_parallel and candidates:
         from src.polaris_graph.audit_ir.parallel_fetch import (
@@ -1833,7 +1890,7 @@ def run_live_retrieval(
         class _LiveContentParallelFetcher:
             """Adapter wrapping `_fetch_content(url, max_chars)` for
             the parallel_fetch substrate's ParallelFetcher Protocol.
-            Stashes the full 4-tuple (content, ok, title, body_type)
+            Stashes the full 5-tuple (content, ok, title, body_type, jsonld)
             in a thread-safe side dict so the post-processing loop
             can read it back per-candidate."""
 
@@ -1845,12 +1902,12 @@ def run_live_retrieval(
             def fetch(
                 self, task: "FetchTask"
             ) -> tuple[bytes, str, int]:
-                content, ok, title, body_type = _fetch_content(
+                content, ok, title, body_type, jsonld = _fetch_content(
                     task.source_url, self.max_chars,
                 )
                 with self._lock:
                     self.results[task.source_url] = (
-                        content, ok, title, body_type,
+                        content, ok, title, body_type, jsonld,
                     )
                 payload = (content or "").encode("utf-8", errors="replace")
                 return (payload, "text/plain", 200 if ok else 502)
@@ -1940,8 +1997,8 @@ def run_live_retrieval(
             i + 1, len(candidates), cand.url[:60],
         )
         if use_parallel:
-            content, ok, content_title_from_fetch, body_article_type = (
-                fetched_side.get(cand.url, ("", False, "", ""))
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
+                fetched_side.get(cand.url, ("", False, "", "", ""))
             )
         else:
             # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
@@ -1949,7 +2006,7 @@ def run_live_retrieval(
             if i > 0 and i % 5 == 0:
                 time.sleep(0.2)
             # Fetch content (for tier classification + evidence)
-            content, ok, content_title_from_fetch, body_article_type = (
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
                 _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
             )
         api_calls["fetch"] += 1
@@ -2034,15 +2091,23 @@ def run_live_retrieval(
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
             authority=authority_payload,
-            # Diff-gate P1-B: wire the structural junk inputs so Signal C
+            # Diff-gate P1-B/P1-C: wire the structural junk inputs so Signal C
             # (junk_detection) can actually fire on the ON path. INERT when OFF
-            # (the legacy rule body never reads these). `content` is the fetched
-            # page text (carries any embedded JSON-LD that the junk JSON-LD
-            # patterns scan); the claim-vendor token is the lowercased research
-            # question, used by the self-interest check (exact host-org-token ==
-            # vendor-token equality, so a phrase can never false-fire).
+            # (the legacy rule body never reads these).
+            #   * fetched_body = the stripped visible page text (survives
+            #     _strip_html; carries press-release / login-wall body cues).
+            #   * structured_jsonld = the RAW ld+json <script> block contents
+            #     captured by _fetch_content BEFORE _strip_html deleted the
+            #     <script> blocks (P1-C). Without this the NewsArticle @type
+            #     marker never reaches the classifier on the live path — it is
+            #     destroyed by stripping. Honestly empty when the fetch backend
+            #     already returned cleaned text (Jina/Crawl4AI) with no JSON-LD.
+            #   * claim_vendor_token = the lowercased research question, used by
+            #     the self-interest check (exact host-org-token == vendor-token
+            #     equality, so a phrase can never false-fire). Extracting single
+            #     candidate vendor tokens from the question is a Gate-A residual.
             fetched_body=content or "",
-            structured_jsonld=content or "",
+            structured_jsonld=raw_jsonld or "",
             claim_vendor_token=(research_question or "").strip().lower(),
         )
         tier_result = classify_source_tier(signals)

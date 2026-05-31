@@ -164,6 +164,19 @@ def main() -> None:
             "authority_signals": _authority_payload(signals, row),
             "head_tier": row.get("tier", ""),
             "head_rule": row.get("tier_rule", ""),
+            # Diff-gate P1-C — structural junk INPUTS are EMPTY for every offline
+            # row. The frozen corpus dumps recorded ONLY stripped content; they
+            # never captured the raw ld+json <script> blocks (destroyed by
+            # _strip_html) nor single-vendor self-interest tokens. So a
+            # production-realistic OFFLINE replay has none of these signals —
+            # injecting synthetic JSON-LD / vendor tokens would launder the S2
+            # number (the iter-2 artifact Codex flagged). These fields fire only
+            # after the one-time FREE Gate-A live re-fetch (raw HTML → JSON-LD
+            # via the now-wired live_retriever path; OpenAlex /sources →
+            # predatory-OA; vendor-token extraction → self-interest). LAW II.
+            "fetched_body": "",
+            "structured_jsonld": "",
+            "claim_vendor_token": "",
         }
         lines.append(json.dumps(entry, ensure_ascii=False))
 

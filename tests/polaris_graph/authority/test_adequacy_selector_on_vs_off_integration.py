@@ -1,13 +1,22 @@
 """Smoke S5 (integration) — kill-switch OFF byte-identity + tier-string gate.
 
-Diff-gate P2-A FIX: the previous version filtered to the OFF/ON-AGREEING URLs
-before comparing, so it no longer proved the kill-switch guarantee. This version
-asserts, over the WHOLE frozen corpus:
+Diff-gate P2-A FIX (iter-2): the iter-1 version only asserted OFF-before ==
+OFF-after determinism — it did NOT prove the kill-switch guarantee per-URL over
+the whole corpus, and it compared only the tier STRING (not confidence + rule).
+This version asserts, over the WHOLE frozen corpus, the full kill-switch
+contract:
 
-  1. The OFF classification is BYTE-IDENTICAL regardless of whether the ON path
-     is ever exercised in the same process (the kill-switch guarantee — OFF must
-     not depend on ON behaviour), and is deterministic across repeated runs.
-  2. The REAL corpus_adequacy_gate verdict + the REAL evidence_selector per-tier
+  1. For EVERY URL, the OFF result is BYTE-IDENTICAL — tier AND confidence AND
+     matched-rule — whether or not the ON path is exercised in the same process.
+     This is the kill-switch guarantee: flipping ON can NEVER perturb the OFF
+     classification of ANY url (not a filtered agree-subset, not the tier string
+     alone). We classify OFF, exercise ON (mutating env + running the authority
+     model over the corpus), then classify OFF again and compare the full
+     per-URL OFF result objects across EVERY url.
+  2. ON genuinely DIFFERS from OFF on at least one URL — proving the OFF/ON
+     comparison is meaningful (the kill-switch is guarding a real behavioural
+     fork, not a trivially-identical no-op), while OFF stays byte-identical.
+  3. The REAL corpus_adequacy_gate verdict + the REAL evidence_selector per-tier
      quota are driven ONLY by the T1-T7 tier string: feeding the gate/selector
      the OFF tier strings vs the same strings re-labelled produces the identical
      verdict, proving the four additive authority fields are inert downstream.
@@ -52,6 +61,8 @@ def _build_signals(e: dict):
 
 
 def _classify_all(rows, on: bool, monkeypatch):
+    """Return [(url, tier_string)] for every row (used by the gate/selector
+    tier-string tests)."""
     if on:
         monkeypatch.setenv("PG_USE_AUTHORITY_MODEL", "1")
     else:
@@ -59,6 +70,27 @@ def _classify_all(rows, on: bool, monkeypatch):
     from src.polaris_graph.retrieval.tier_classifier import classify_source_tier
 
     return [(e["url"], classify_source_tier(_build_signals(e)).tier.value) for e in rows]
+
+
+def _classify_all_full(rows, on: bool, monkeypatch):
+    """Return {url: (tier, confidence, matched_rule)} for every row.
+
+    P2-A: the kill-switch comparison must be over the FULL result object — tier
+    AND confidence AND rule — not the tier string alone, so an ON-path change to
+    confidence/rule on the OFF path could not slip through unnoticed.
+    """
+    if on:
+        monkeypatch.setenv("PG_USE_AUTHORITY_MODEL", "1")
+    else:
+        monkeypatch.delenv("PG_USE_AUTHORITY_MODEL", raising=False)
+    from src.polaris_graph.retrieval.tier_classifier import classify_source_tier
+
+    out: dict[str, tuple[str, float, str]] = {}
+    for e in rows:
+        r = classify_source_tier(_build_signals(e))
+        rule = r.matched_rules[0] if r.matched_rules else ""
+        out[e["url"]] = (r.tier.value, round(r.confidence, 6), rule)
+    return out
 
 
 def _tier_counts(classified) -> dict[str, int]:
@@ -69,25 +101,43 @@ def _tier_counts(classified) -> dict[str, int]:
 
 
 def test_s5_kill_switch_off_byte_identical_full_corpus(monkeypatch):
-    """OFF over the WHOLE corpus is byte-identical regardless of ON, and stable.
+    """OFF over the WHOLE corpus is byte-identical regardless of ON.
 
-    The kill-switch guarantee: the OFF path must be byte-identical no matter what
-    the ON path does. We classify OFF, then exercise ON (mutating env + the
-    authority model), then classify OFF again — the two OFF results must match
-    exactly over EVERY URL (not a filtered subset).
+    The kill-switch guarantee (P2-A): for EVERY URL the OFF result — tier AND
+    confidence AND matched-rule — must be byte-identical no matter what the ON
+    path does. We classify OFF (full result objects), exercise ON over the whole
+    corpus (mutating env + running the authority model), then classify OFF again
+    — the two OFF maps must match exactly over EVERY URL (not a filtered subset,
+    not the tier string alone).
     """
     rows = _load()
 
-    off_first = _classify_all(rows, on=False, monkeypatch=monkeypatch)
-    _ = _classify_all(rows, on=True, monkeypatch=monkeypatch)   # exercise ON
-    off_second = _classify_all(rows, on=False, monkeypatch=monkeypatch)
+    off_first = _classify_all_full(rows, on=False, monkeypatch=monkeypatch)
+    on_full = _classify_all_full(rows, on=True, monkeypatch=monkeypatch)  # exercise ON
+    off_second = _classify_all_full(rows, on=False, monkeypatch=monkeypatch)
 
-    assert off_first == off_second, (
-        "OFF path is NOT byte-identical across the full corpus after ON ran — "
-        "the kill-switch guarantee is broken"
-    )
-    # And OFF must classify the full corpus (no silent drops).
+    # OFF must cover the FULL corpus (no silent drops) and be byte-identical
+    # per-URL whether or not ON ran in this process.
+    assert set(off_first) == {e["url"] for e in rows}
     assert len(off_first) == len(rows)
+    assert off_first == off_second, (
+        "OFF result is NOT byte-identical across the full corpus after ON ran — "
+        "the kill-switch guarantee is broken. Per-URL diff: "
+        + ", ".join(
+            f"{u}: {off_first[u]} != {off_second[u]}"
+            for u in off_first
+            if off_first[u] != off_second[u]
+        )
+    )
+
+    # The kill-switch must be guarding a REAL behavioural fork: ON must differ
+    # from OFF on at least one URL over the corpus (otherwise OFF==ON trivially
+    # and the byte-identity assertion above is vacuous). OFF itself is unchanged.
+    differing = [u for u in off_first if on_full[u] != off_first[u]]
+    assert differing, (
+        "ON did not differ from OFF on ANY url — the OFF/ON kill-switch "
+        "comparison is vacuous (ON is exercising no behavioural change)"
+    )
 
 
 def test_s5_adequacy_gate_tier_string_driven_full_corpus(monkeypatch):
