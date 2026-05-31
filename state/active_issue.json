@@ -1,7 +1,7 @@
 {
-  "active_issue_id": "I-meta-005-phase-0a",
+  "active_issue_id": "I-meta-005-phase-0b",
   "active_issue_github": 935,
-  "current_step": "PR QUEUED for operator merge (Codex brief+diff APPROVE; ships OFF/shadow; Gate-A free-shadow-run prerequisite before ON)",
+  "current_step": "BUILD (verification-mode deltas 1-3) \u2014 brief APPROVE iter3",
   "sub_pr_build_status_2026_05_29": {
     "pr1_lock_slug_serving_route_verify_consistency": "d0ccc583 \u2014 brief APPROVE iter1, diff APPROVE iter1",
     "pr2_role_contracts": "fff6f2ef \u2014 brief APPROVE iter2, diff APPROVE iter5 (4 Sentinel fail-closed hardenings)",
@@ -112,7 +112,7 @@
     "implication": "codex-required CI check is NOT actually enforced as a required check on polaris. This is a separate operator-side branch-protection fix needed. Surfaced 2026-05-28."
   },
   "last_updated_utc": "2026-05-28T22:05:00Z",
-  "gh_issue": 983,
+  "gh_issue": 984,
   "parent": 982,
   "note": "Operator-assigned 2026-05-31: execute the fundamental-fix plan phase by phase, Codex-gated, PRs queued for operator merge (no auto-merge)."
 }
