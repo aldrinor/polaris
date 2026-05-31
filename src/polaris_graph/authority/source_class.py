@@ -79,3 +79,11 @@ class AuthorityResult:
     reasons: list[str] = field(default_factory=list)
     # Per-signal sub-scores, surfaced for the shadow harness / audit trail.
     signal_scores: dict = field(default_factory=dict)
+    # ── Diff-gate P1-B additive fields — let the clinical VIEW render
+    # SIGNAL-DRIVEN demotions (no host list). `junk_class` is the fine-grained
+    # structural junk-class that fired (e.g. "press_release"/"self_published_blog"/
+    # "self_interest"); "" when no junk fired. `predatory_oa` is True when the
+    # scholarly-graph signal detected the predatory-OA smell (not in DOAJ AND
+    # high APC) — used to suppress an auto-T1 for a low-quality OA primary.
+    junk_class: str = ""
+    predatory_oa: bool = False

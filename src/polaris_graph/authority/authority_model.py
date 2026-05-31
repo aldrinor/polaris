@@ -198,4 +198,8 @@ def score_source_authority(
         authority_confidence=confidence,
         reasons=reasons,
         signal_scores=signal_scores,
+        # Diff-gate P1-B: surface the fine-grained junk-class + the predatory-OA
+        # smell so the clinical VIEW can demote SIGNAL-DRIVEN (no host list).
+        junk_class=junk.junk_class if junk.fired else "",
+        predatory_oa=a.predatory,
     )

@@ -45,6 +45,22 @@ junk_classes:
       - '/@[A-Za-z0-9._-]+'
       - '/posts?/'
 
+  # Structural news / lay-media re-reporting (schema.org NewsArticle family).
+  # Field-agnostic stand-in for the legacy NEWS_BLOG_DOMAINS frozenset (R4):
+  # a page declaring itself a news/media article is secondary lay re-reporting,
+  # NOT a primary source — even when OpenAlex matched the underlying paper.
+  # Lower precedence than press_release/login_wall so a press release wins.
+  news_article:
+    precedence: 4
+    ceiling: 0.25
+    source_class: COMMENTARY
+    target: [jsonld, body]
+    patterns:
+      - '"@type"\s*:\s*"NewsArticle"'
+      - '"@type"\s*:\s*"NewsMediaOrganization"'
+      - '"@type"\s*:\s*"MedicalWebPage"'
+      - '"@type"\s*:\s*"ReportageNewsArticle"'
+
   self_interest:
     precedence: 1
     ceiling: 0.25

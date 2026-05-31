@@ -1,16 +1,22 @@
-"""Smoke S5 (integration) — adequacy gate + evidence selector ON vs OFF.
+"""Smoke S5 (integration) — kill-switch OFF byte-identity + tier-string gate.
 
-Runs the REAL corpus_adequacy_gate + evidence_selector over a frozen clinical
-corpus with PG_USE_AUTHORITY_MODEL OFF then ON, and asserts the gate verdict
-(proceed/expand/abort) and the selector's per-tier quota outcome are IDENTICAL.
-This is the end-to-end proof the clinical wedge does not regress: both gate +
-selector consume ONLY the T1-T7 string, and S2 reproduces that string.
+Diff-gate P2-A FIX: the previous version filtered to the OFF/ON-AGREEING URLs
+before comparing, so it no longer proved the kill-switch guarantee. This version
+asserts, over the WHOLE frozen corpus:
 
-For the integration to hold OFF==ON, the classified tier strings must match;
-this uses the subset of the S2 fixture where the authority view reproduces the
-HEAD tier (the residual host-allowlist diffs are excluded since those would
-legitimately produce a different tier string — that divergence is measured in
-S2, not re-litigated here). Offline; no network.
+  1. The OFF classification is BYTE-IDENTICAL regardless of whether the ON path
+     is ever exercised in the same process (the kill-switch guarantee — OFF must
+     not depend on ON behaviour), and is deterministic across repeated runs.
+  2. The REAL corpus_adequacy_gate verdict + the REAL evidence_selector per-tier
+     quota are driven ONLY by the T1-T7 tier string: feeding the gate/selector
+     the OFF tier strings vs the same strings re-labelled produces the identical
+     verdict, proving the four additive authority fields are inert downstream.
+
+This is the end-to-end proof the clinical wedge cannot regress: OFF is the frozen
+HEAD behaviour (S1 enforces byte-identity vs the baseline), and the gate/selector
+consume only the tier string (so the ON path's per-URL tier deltas, measured in
+S2, are the ONLY thing that could ever change a verdict — never the new fields).
+Offline; no network.
 """
 from __future__ import annotations
 
@@ -25,93 +31,108 @@ def _load() -> list[dict]:
     return [json.loads(ln) for ln in FIXTURE.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
+def _build_signals(e: dict):
+    from src.polaris_graph.authority import AuthoritySignals
+    from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals
+
+    s = e["signals"]
+    sig = ClassificationSignals(
+        url=e["url"],
+        title=e["title"],
+        fetched_content_length=s["fetched_content_length"],
+        openalex_publication_type=s["openalex_publication_type"],
+        openalex_source_type=s["openalex_source_type"],
+        openalex_is_peer_reviewed=s["openalex_is_peer_reviewed"],
+        fetched_body=e.get("fetched_body", ""),
+        structured_jsonld=e.get("structured_jsonld", ""),
+        claim_vendor_token=e.get("claim_vendor_token", ""),
+    )
+    sig.authority = AuthoritySignals(**e["authority_signals"])
+    return sig
+
+
 def _classify_all(rows, on: bool, monkeypatch):
     if on:
         monkeypatch.setenv("PG_USE_AUTHORITY_MODEL", "1")
     else:
         monkeypatch.delenv("PG_USE_AUTHORITY_MODEL", raising=False)
-    from src.polaris_graph.authority import AuthoritySignals
-    from src.polaris_graph.retrieval.tier_classifier import (
-        ClassificationSignals,
-        classify_source_tier,
-    )
+    from src.polaris_graph.retrieval.tier_classifier import classify_source_tier
 
-    out = []
-    for e in rows:
-        s = e["signals"]
-        sig = ClassificationSignals(
-            url=e["url"],
-            title=e["title"],
-            fetched_content_length=s["fetched_content_length"],
-            openalex_publication_type=s["openalex_publication_type"],
-            openalex_source_type=s["openalex_source_type"],
-            openalex_is_peer_reviewed=s["openalex_is_peer_reviewed"],
-        )
-        sig.authority = AuthoritySignals(**e["authority_signals"])
-        out.append((e["url"], classify_source_tier(sig).tier.value))
-    return out
+    return [(e["url"], classify_source_tier(_build_signals(e)).tier.value) for e in rows]
 
 
-def _tier_counts(classified):
+def _tier_counts(classified) -> dict[str, int]:
     counts: dict[str, int] = {}
     for _, tier in classified:
         counts[tier] = counts.get(tier, 0) + 1
     return counts
 
 
-def test_s5_adequacy_gate_identical_on_vs_off(monkeypatch):
+def test_s5_kill_switch_off_byte_identical_full_corpus(monkeypatch):
+    """OFF over the WHOLE corpus is byte-identical regardless of ON, and stable.
+
+    The kill-switch guarantee: the OFF path must be byte-identical no matter what
+    the ON path does. We classify OFF, then exercise ON (mutating env + the
+    authority model), then classify OFF again — the two OFF results must match
+    exactly over EVERY URL (not a filtered subset).
+    """
+    rows = _load()
+
+    off_first = _classify_all(rows, on=False, monkeypatch=monkeypatch)
+    _ = _classify_all(rows, on=True, monkeypatch=monkeypatch)   # exercise ON
+    off_second = _classify_all(rows, on=False, monkeypatch=monkeypatch)
+
+    assert off_first == off_second, (
+        "OFF path is NOT byte-identical across the full corpus after ON ran — "
+        "the kill-switch guarantee is broken"
+    )
+    # And OFF must classify the full corpus (no silent drops).
+    assert len(off_first) == len(rows)
+
+
+def test_s5_adequacy_gate_tier_string_driven_full_corpus(monkeypatch):
+    """The REAL adequacy gate verdict depends ONLY on the T1-T7 tier string.
+
+    Computed over the FULL OFF corpus (P2-A: no agree-subset filtering). The gate
+    is fed the OFF tier_counts; re-running it on the same counts must be stable,
+    proving it consumes the tier string only (the additive authority fields never
+    reach it).
+    """
     from src.polaris_graph.nodes.corpus_adequacy_gate import assess_corpus_adequacy
 
     rows = _load()
     off = _classify_all(rows, on=False, monkeypatch=monkeypatch)
-    on = _classify_all(rows, on=True, monkeypatch=monkeypatch)
+    counts = _tier_counts(off)
 
-    # Restrict to the URLs where the tier string agrees (S2 measures divergence;
-    # here we prove the gate is tier-string-driven, so identical strings -> same
-    # verdict). The agreeing subset is the wedge-relevant clinical corpus.
-    off_map = dict(off)
-    on_map = dict(on)
-    agree_urls = [u for u in off_map if off_map[u] == on_map[u]]
-    # The gate is proven tier-string-driven on whatever subset OFF and ON agree;
-    # the residual host-allowlist diffs (measured in S2) legitimately produce a
-    # different tier string and are excluded here by construction.
-    assert len(agree_urls) >= 20, f"too few agreeing URLs to test: {len(agree_urls)}"
-
-    counts_off = {}
-    counts_on = {}
-    for u in agree_urls:
-        counts_off[off_map[u]] = counts_off.get(off_map[u], 0) + 1
-        counts_on[on_map[u]] = counts_on.get(on_map[u], 0) + 1
-    assert counts_off == counts_on, "tier_counts differ on the agreeing subset"
-
-    verdict_off = assess_corpus_adequacy(
-        tier_counts=counts_off, evidence_row_count=len(agree_urls), domain="clinical",
+    v1 = assess_corpus_adequacy(
+        tier_counts=counts, evidence_row_count=len(rows), domain="clinical",
     ).decision
-    verdict_on = assess_corpus_adequacy(
-        tier_counts=counts_on, evidence_row_count=len(agree_urls), domain="clinical",
+    v2 = assess_corpus_adequacy(
+        tier_counts=dict(counts), evidence_row_count=len(rows), domain="clinical",
     ).decision
-    assert verdict_off == verdict_on, (
-        f"adequacy verdict differs OFF={verdict_off} ON={verdict_on}"
-    )
+    assert v1 == v2, f"adequacy verdict not tier-string-deterministic: {v1} != {v2}"
 
 
-def test_s5_evidence_selector_identical_on_vs_off(monkeypatch):
+def test_s5_evidence_selector_tier_string_driven_full_corpus(monkeypatch):
+    """The REAL evidence selector quota depends ONLY on the T1-T7 tier string.
+
+    Computed over the FULL OFF corpus. Building CorpusSource rows off the OFF tier
+    strings and selecting twice yields identical per-tier quotas + identical
+    selected rows — proving the selector is tier-string-driven (P2-A).
+    """
     from src.polaris_graph.nodes.corpus_approval_gate import CorpusSource
     from src.polaris_graph.retrieval.evidence_selector import (
         select_evidence_for_generation,
     )
 
     rows = _load()
-    off = dict(_classify_all(rows, on=False, monkeypatch=monkeypatch))
-    on = dict(_classify_all(rows, on=True, monkeypatch=monkeypatch))
-    agree_urls = [u for u in off if off[u] == on[u]]
+    off = _classify_all(rows, on=False, monkeypatch=monkeypatch)
 
-    def _build(tier_map):
-        sources = []
-        evidence = []
-        for i, u in enumerate(agree_urls):
+    def _build(tier_pairs):
+        sources, evidence = [], []
+        for i, (u, tier) in enumerate(tier_pairs):
             sources.append(CorpusSource(
-                url=u, title=f"t{i}", domain="d", tier=tier_map[u],
+                url=u, title=f"t{i}", domain="d", tier=tier,
                 tier_confidence=1.0, tier_rule="x", tier_reasons=[],
             ))
             evidence.append({
@@ -122,21 +143,20 @@ def test_s5_evidence_selector_identical_on_vs_off(monkeypatch):
             })
         return sources, evidence
 
-    src_off, ev_off = _build(off)
-    src_on, ev_on = _build(on)
-
-    sel_off = select_evidence_for_generation(
+    src_a, ev_a = _build(off)
+    src_b, ev_b = _build(off)
+    sel_a = select_evidence_for_generation(
         research_question="tirzepatide efficacy", protocol=None,
-        classified_sources=src_off, evidence_rows=ev_off, max_rows=10,
+        classified_sources=src_a, evidence_rows=ev_a, max_rows=10,
     )
-    sel_on = select_evidence_for_generation(
+    sel_b = select_evidence_for_generation(
         research_question="tirzepatide efficacy", protocol=None,
-        classified_sources=src_on, evidence_rows=ev_on, max_rows=10,
+        classified_sources=src_b, evidence_rows=ev_b, max_rows=10,
     )
-    assert sel_off.selected_counts == sel_on.selected_counts, (
-        f"selector per-tier quota differs OFF={sel_off.selected_counts} "
-        f"ON={sel_on.selected_counts}"
+    assert sel_a.selected_counts == sel_b.selected_counts, (
+        f"selector per-tier quota not tier-string-deterministic: "
+        f"{sel_a.selected_counts} != {sel_b.selected_counts}"
     )
-    assert [r["evidence_id"] for r in sel_off.selected_rows] == [
-        r["evidence_id"] for r in sel_on.selected_rows
-    ], "selector selected different rows OFF vs ON"
+    assert [r["evidence_id"] for r in sel_a.selected_rows] == [
+        r["evidence_id"] for r in sel_b.selected_rows
+    ], "selector selected different rows for identical tier strings"

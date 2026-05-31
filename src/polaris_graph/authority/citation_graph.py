@@ -27,6 +27,7 @@ class SignalAResult:
     confidence: AuthorityConfidence
     reasons: list[str]
     fired: bool   # whether any scholarly field was present at all
+    predatory: bool = False  # predatory-OA smell fired (not in DOAJ AND high APC)
 
 
 def _clamp01(x: float) -> float:
@@ -103,7 +104,8 @@ def compute_signal_a(signals: AuthoritySignals, weights: dict) -> SignalAResult:
 
     # Predatory-OA smell: NOT in DOAJ AND high APC.
     max_apc = _max_apc_usd(signals.apc_prices)
-    if signals.is_in_doaj is False and max_apc > weights["APC_FLOOR"]:
+    predatory = signals.is_in_doaj is False and max_apc > weights["APC_FLOOR"]
+    if predatory:
         score -= weights["predatory_penalty"]
         reasons.append(
             f"predatory-OA smell: not in DOAJ and APC={max_apc:.0f} "
@@ -122,4 +124,7 @@ def compute_signal_a(signals: AuthoritySignals, weights: dict) -> SignalAResult:
         confidence = AuthorityConfidence.LOW
         reasons.append("no scholarly-graph fields present (thin OpenAlex coverage)")
 
-    return SignalAResult(score=score, confidence=confidence, reasons=reasons, fired=fired)
+    return SignalAResult(
+        score=score, confidence=confidence, reasons=reasons, fired=fired,
+        predatory=predatory,
+    )

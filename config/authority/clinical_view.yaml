@@ -50,11 +50,39 @@ source_class_default_tier:
   UGC: T6
   UNKNOWN: UNKNOWN
 
+# Diff-gate P1-B: fine-grained STRUCTURAL junk-class -> demotion tier. This is
+# the SIGNAL-DRIVEN replacement for the legacy host frozensets R3/R4 — the key
+# is the structural junk-class that fired (junk_detection.py), NOT a host.
+# A junk-detected source is demoted to this tier even when OpenAlex matched an
+# underlying article (so host-wrapped news re-reporting a real paper does NOT
+# inherit the paper's T1). Self-interest (host-org == claim vendor) is the
+# field-agnostic stand-in for legacy R3 industry-marketing -> T5; press / blog /
+# login-wall map to T6 (legacy R4 news/blog/social). Junk-class names mirror
+# junk_patterns.yaml keys.
+junk_class_tier:
+  self_interest: T5        # industry / vendor self-interest (legacy R3)
+  press_release: T6        # press / news release (legacy R4)
+  self_published_blog: T6  # blog / pulse / @handle / posts (legacy R4)
+  login_wall: T6           # paywalled / social posting / login-wall (legacy R4)
+  news_article: T6         # schema.org NewsArticle lay re-reporting (legacy R4)
+
+# Diff-gate P1-B: a scholarly source with the predatory-OA smell (not in DOAJ
+# AND high APC, computed by citation_graph) does NOT earn an auto-T1; it lands
+# T4 (unverified primary). Pure LOW-confidence (thin OpenAlex coverage) does NOT
+# trigger this — only the affirmative predatory signal does, so the many honest
+# thin-coverage T1 primaries are NOT collapsed. The live is_in_doaj/apc_prices
+# signals are a HARD Gate-A prerequisite (see clinical_view.py module docstring).
+predatory_oa_tier: T4
+
 # Structural rule ordering (first match wins). Each rule names the primitive
 # condition; the renderer evaluates them in this order.
 rule_order:
   - retracted_unknown          # is_retracted -> UNKNOWN (preserves legacy R0)
   - stub_content_t7            # content_length < t7_stub_content_chars -> T7
+  # Diff-gate P1-B SIGNAL-DRIVEN demotions — MUST precede the scholarly rules so
+  # a junk-detected / predatory source cannot inherit a scholarly T1/T2.
+  - junk_demote                # junk_class fired -> junk_class_tier (T5/T6)
+  - predatory_no_t1            # predatory-OA scholarly source -> predatory_oa_tier (T4)
   - conference_abstract_t7     # scholarly + conference-abstract title -> T7
   # Scholarly shape is decided by publication_type/source_type BEFORE the
   # official check: a peer-reviewed journal article/review is T1/T2/T4 even on

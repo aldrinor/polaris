@@ -767,6 +767,14 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """
     try:
         doi = _extract_doi_from_url(url)
+        # Diff-gate P2-B: READ the authority-enrich cache first, keyed by the
+        # stable pre-fetch identifier (DOI when present, else the URL). A hit
+        # returns the frozen enrich dict and AVOIDS the OpenAlex /works +
+        # /sources round-trip entirely (the read path the cache exists for).
+        enrich_cache_key = f"doi:{doi}" if doi else f"url:{url}"
+        cached = _authority_cache_get(enrich_cache_key)
+        if isinstance(cached, dict) and cached:
+            return cached
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
@@ -823,11 +831,8 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
 
         # Build the additive AuthoritySignals payload (dict form, cacheable).
         authority_signals = _build_authority_signals_dict(work, source_fields)
-        cache_key = work.get("id", "") or (doi or url)
-        if cache_key:
-            _authority_cache_put(cache_key, authority_signals)
 
-        return {
+        enrich = {
             "openalex_pub_type": work.get("type", "") or "",
             "openalex_source_type": source.get("type", "") or "",
             "is_peer_reviewed": bool(
@@ -845,6 +850,11 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             # :1751 -> :1789 into ClassificationSignals.authority.
             "authority_signals": authority_signals,
         }
+        # Diff-gate P2-B: WRITE the whole enrich dict under the SAME stable
+        # pre-fetch key the read path uses, so a later lookup is a true cache
+        # hit that skips the network (the read path is now exercised).
+        _authority_cache_put(enrich_cache_key, enrich)
+        return enrich
     except Exception as exc:
         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
         return {}
@@ -2024,6 +2034,16 @@ def run_live_retrieval(
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
             authority=authority_payload,
+            # Diff-gate P1-B: wire the structural junk inputs so Signal C
+            # (junk_detection) can actually fire on the ON path. INERT when OFF
+            # (the legacy rule body never reads these). `content` is the fetched
+            # page text (carries any embedded JSON-LD that the junk JSON-LD
+            # patterns scan); the claim-vendor token is the lowercased research
+            # question, used by the self-interest check (exact host-org-token ==
+            # vendor-token equality, so a phrase can never false-fire).
+            fetched_body=content or "",
+            structured_jsonld=content or "",
+            claim_vendor_token=(research_question or "").strip().lower(),
         )
         tier_result = classify_source_tier(signals)
 
