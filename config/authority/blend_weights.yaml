@@ -1,0 +1,30 @@
+# A-E blend weights + JUNK_CEIL + confidence-floor rules.
+# Versioned DATA (LAW VI). Consumed by src/polaris_graph/authority/authority_model.py.
+#
+# authority_score = clamp01( sum_signal(w_signal * score_signal) ) * junk_cap
+# One default profile in Phase 0a.
+
+# Signal blend weights. signal_d is an additive corroboration multiplier applied
+# on top of the A/B/C/E weighted blend (see authority_model.py), so the four
+# weights below (A,B,C,E) sum to 1.0; D is handled as a bounded multiplier.
+signal_weights:
+  signal_a_scholarly: 0.40   # citation_graph
+  signal_b_institutional: 0.35
+  signal_c_structural: 0.15  # junk detection contributes a (low) positive when clean
+  signal_e_recency: 0.10
+
+# Corroboration (Signal D) bounded multiplier range.
+# final_blend *= (corroboration_floor + (1 - corroboration_floor) * score_d)
+corroboration_floor: 0.85    # single-source (count=1) keeps 85% of the blend
+corroboration_log_norm: 2.3  # log1p(corroboration_count)/this, then clamp01
+
+# Junk ceiling: any fired junk-class caps authority_score at this value.
+JUNK_CEIL: 0.25
+
+# Honest mid-band bounds for thin sources (contract part 4).
+thin_band_low: 0.10
+thin_band_high: 0.80
+
+# Confidence-floor rule: overall confidence = MIN over the per-signal
+# confidences that actually fired (computed in code from this ordering).
+confidence_order: [LOW, MEDIUM, HIGH]

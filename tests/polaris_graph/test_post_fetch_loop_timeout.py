@@ -102,7 +102,7 @@ def _stub_pipeline(monkeypatch, n, openalex_impl):
             "Canadian provinces during the study period; the effect was "
             "partly offset by federal rebates and varied by region and by "
             "household income decile in the published evidence reviewed.",
-            True, "Study title", "article",
+            True, "Study title", "article", "",
         ),
     )
     monkeypatch.setattr(lr, "_openalex_enrich", openalex_impl)

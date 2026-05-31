@@ -1,0 +1,79 @@
+# Public Suffix List — GOVERNMENT subset snapshot (versioned DATA, LAW VI).
+# Consumed by src/polaris_graph/authority/institutional.py (Signal B pre-filter)
+#   and src/polaris_graph/authority/corroboration.py (Signal D eTLD+1).
+#
+# Provenance:
+#   source_url: https://publicsuffix.org/list/public_suffix_list.dat
+#   canonical_owner: Mozilla Foundation (ICANN + private sections)
+#   fetch_date: 2026-05-31
+#   subset: government-style public suffixes only (a DNS-boundary list, NOT a
+#           trust signal — ICANN explicit). This is a PRE-FILTER for Signal B;
+#           ROR institution-type is the load-bearing official-source signal.
+#
+# CRITICAL (Codex-verified, brief ADDENDUM + §4 Signal B):
+#   A gov-style suffix MISSES canada.ca / bundesbank.de / rbi.org.in (no gov
+#   suffix). Those resolve via ROR institution-type, not via this list. Do not
+#   treat absence-of-suffix as not-official.
+#
+# Format: one suffix per line, no leading dot. Lines starting with '#' ignored.
+# A host matches if it equals the suffix or ends with '.' + suffix.
+
+# --- generic / international government second-levels ---
+gov
+mil
+int
+
+# --- United States ---
+gov
+fed.us
+
+# --- United Kingdom ---
+gov.uk
+mod.uk
+nhs.uk
+
+# --- Canada ---
+gc.ca
+
+# --- Japan ---
+go.jp
+
+# --- France ---
+gouv.fr
+
+# --- Germany (Bund/Laender use bund.de + *.de; PSL has no .gov.de) ---
+bund.de
+
+# --- Kenya ---
+go.ke
+
+# --- Mexico ---
+gob.mx
+
+# --- Australia ---
+gov.au
+
+# --- New Zealand ---
+govt.nz
+
+# --- India ---
+gov.in
+nic.in
+
+# --- Brazil ---
+gov.br
+
+# --- South Africa ---
+gov.za
+
+# --- Spain ---
+gob.es
+
+# --- Italy ---
+gov.it
+
+# --- China ---
+gov.cn
+
+# --- European Union institutions ---
+europa.eu

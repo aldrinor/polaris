@@ -1,0 +1,9 @@
+{
+  "url": "https://journals.example.test/article/randomized-trial-of-x",
+  "jsonld": "{\"@context\":\"https://schema.org\",\"@type\":\"ScholarlyArticle\"}",
+  "body": "Methods: We conducted a randomized double-blind trial. Results: ...",
+  "claim_vendor_token": "someunrelatedvendor",
+  "authority_signals": {"cited_by_count": 320, "source_id": "https://openalex.org/S7", "venue_summary_stats": {"h_index": 180, "2yr_mean_citedness": 8.5}, "is_core": true, "is_in_doaj": true, "apc_prices": null, "publication_year": 2023, "ror_id": "https://ror.org/edu9", "institution_type": "education", "country_code": "GB"},
+  "expect_junk_class": "",
+  "expect_source_class": "PRIMARY_SCHOLARLY"
+}

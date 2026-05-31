@@ -28,9 +28,11 @@ import math
 import os
 import asyncio
 import re
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -44,6 +46,7 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
 from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
+from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     classify_source_tier,
@@ -55,6 +58,27 @@ logger = logging.getLogger("polaris_graph.live_retriever")
 SERPER_ENDPOINT = "https://google.serper.dev/search"
 S2_BULK_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
 OPENALEX_ENDPOINT = "https://api.openalex.org/works"
+OPENALEX_SOURCES_ENDPOINT = "https://api.openalex.org/sources"
+
+# Phase 0a (GH #983, ADDENDUM C5): root-level /works select= fieldset for the
+# authority model. OpenAlex select= is ROOT-LEVEL ONLY (rejects nested props),
+# so summary_stats / apc_prices / is_core / is_in_doaj come from a SEPARATE
+# /sources/{id} fetch keyed by primary_location.source.id.
+OPENALEX_WORKS_SELECT = (
+    "id,doi,title,display_name,type,publication_year,cited_by_count,"
+    "is_retracted,primary_location,authorships"
+)
+OPENALEX_SOURCES_SELECT = (
+    "id,is_core,is_in_doaj,apc_prices,summary_stats"
+)
+
+# Versioned local cache for the authority-enrich payload (live path). The
+# schema version is bumped (not CREATE-IF-NOT-EXISTS no-op) on any column
+# change, with an ALTER/rebuild migration (C5 requirement).
+AUTHORITY_CACHE_DB = Path(
+    os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
+)
+AUTHORITY_CACHE_SCHEMA_VERSION = 1
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -570,6 +594,166 @@ def _extract_doi_from_url(url: str) -> str:
     return ""
 
 
+def _authority_cache_init() -> None:
+    """Create the authority-enrich cache with a VERSIONED migration (C5).
+
+    Not a CREATE-IF-NOT-EXISTS no-op: a stale cache whose recorded schema
+    version is older than AUTHORITY_CACHE_SCHEMA_VERSION is rebuilt rather than
+    silently used with missing columns.
+    """
+    AUTHORITY_CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_meta ("
+            " id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)"
+        )
+        row = conn.execute("SELECT version FROM schema_meta WHERE id = 1").fetchone()
+        existing = row[0] if row else 0
+        table_present = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='authority_enrich'"
+        ).fetchone() is not None
+        # Migrate whenever the recorded version is older than the current one
+        # (existing=0 means an unversioned/legacy cache). Drop + rebuild the
+        # payload table (the cache is a rebuildable accelerator, never the
+        # source of truth) — NOT a CREATE-IF-NOT-EXISTS no-op (C5).
+        if table_present and existing < AUTHORITY_CACHE_SCHEMA_VERSION:
+            conn.execute("DROP TABLE IF EXISTS authority_enrich")
+            logger.warning(
+                "[live_retriever] authority cache schema %d < %d — migrating "
+                "(rebuild)", existing, AUTHORITY_CACHE_SCHEMA_VERSION,
+            )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS authority_enrich ("
+            " key TEXT PRIMARY KEY,"
+            " payload_json TEXT NOT NULL,"
+            " fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO schema_meta (id, version) VALUES (1, ?)"
+            " ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+            (AUTHORITY_CACHE_SCHEMA_VERSION,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _authority_cache_get(key: str) -> Optional[dict[str, Any]]:
+    if not AUTHORITY_CACHE_DB.exists():
+        return None
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        row = conn.execute(
+            "SELECT payload_json FROM authority_enrich WHERE key = ?", (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    if not row:
+        return None
+    import json
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
+
+
+def _authority_cache_put(key: str, payload: dict[str, Any]) -> None:
+    import json
+    _authority_cache_init()
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "INSERT INTO authority_enrich (key, payload_json) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET payload_json = excluded.payload_json,"
+            " fetched_at = CURRENT_TIMESTAMP",
+            (key, json.dumps(payload)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _openalex_fetch_source(
+    client: httpx.Client, source_id: str
+) -> dict[str, Any]:
+    """Separate /sources/{id} fetch for venue-level authority fields (C5).
+
+    Returns the summary_stats / apc_prices / is_core / is_in_doaj subset, or
+    {} on any failure (the model degrades to LOW confidence — never fabricates).
+    """
+    if not source_id:
+        return {}
+    sid = source_id.rsplit("/", 1)[-1]  # accept full URL or bare S-id
+    if not sid.startswith("S"):
+        return {}
+    resp = client.get(
+        f"{OPENALEX_SOURCES_ENDPOINT}/{sid}",
+        params={"select": OPENALEX_SOURCES_SELECT},
+    )
+    if resp.status_code != 200:
+        return {}
+    src = resp.json()
+    if not isinstance(src, dict):
+        return {}
+    return {
+        "is_core": src.get("is_core"),
+        "is_in_doaj": src.get("is_in_doaj"),
+        "apc_prices": src.get("apc_prices"),
+        "summary_stats": src.get("summary_stats") or {},
+    }
+
+
+def _build_authority_signals_dict(
+    work: dict[str, Any], source_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the additive AuthoritySignals payload (C1/C5) as a plain dict.
+
+    Stored as a dict so the live-path enrich return value stays JSON-cacheable;
+    live_retriever reconstructs the AuthoritySignals dataclass at classify time.
+    Missing fields stay absent/None -> the authority model returns LOW
+    confidence (fail-honest, never fabricate).
+    """
+    primary = work.get("primary_location") or {}
+    source = primary.get("source") or {}
+    # First resolved institution (ROR) from authorships.
+    ror_id = ""
+    inst_type = ""
+    country_code = ""
+    for authorship in work.get("authorships") or []:
+        for inst in authorship.get("institutions") or []:
+            if inst.get("ror"):
+                ror_id = inst.get("ror") or ""
+                inst_type = inst.get("type") or ""
+                country_code = inst.get("country_code") or ""
+                break
+        if ror_id:
+            break
+
+    stats = source_fields.get("summary_stats") or {}
+    venue_summary_stats: dict[str, Any] = {}
+    if isinstance(stats, dict):
+        if "h_index" in stats:
+            venue_summary_stats["h_index"] = stats.get("h_index")
+        if "2yr_mean_citedness" in stats:
+            venue_summary_stats["2yr_mean_citedness"] = stats.get("2yr_mean_citedness")
+
+    return {
+        "cited_by_count": work.get("cited_by_count"),
+        "source_id": source.get("id", "") or "",
+        "venue_summary_stats": venue_summary_stats or None,
+        "is_core": source_fields.get("is_core"),
+        "is_in_doaj": source_fields.get("is_in_doaj"),
+        "apc_prices": source_fields.get("apc_prices"),
+        "publication_year": work.get("publication_year"),
+        "ror_id": ror_id,
+        "institution_type": inst_type,
+        "country_code": country_code,
+    }
+
+
 def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
 
@@ -583,11 +767,23 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """
     try:
         doi = _extract_doi_from_url(url)
+        # Diff-gate P2-B: READ the authority-enrich cache first, keyed by the
+        # stable pre-fetch identifier (DOI when present, else the URL). A hit
+        # returns the frozen enrich dict and AVOIDS the OpenAlex /works +
+        # /sources round-trip entirely (the read path the cache exists for).
+        enrich_cache_key = f"doi:{doi}" if doi else f"url:{url}"
+        cached = _authority_cache_get(enrich_cache_key)
+        if isinstance(cached, dict) and cached:
+            return cached
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
                 # both the bare DOI and the URL form; use bare DOI.
-                r = c.get(f"{OPENALEX_ENDPOINT}/doi:{doi}")
+                # Phase 0a (C5): request the root-level authority select=.
+                r = c.get(
+                    f"{OPENALEX_ENDPOINT}/doi:{doi}",
+                    params={"select": OPENALEX_WORKS_SELECT},
+                )
                 if r.status_code != 200:
                     # Fall back to title search if DOI not indexed
                     r = c.get(
@@ -595,6 +791,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                         params={
                             "search": (title or url)[:200],
                             "per-page": 1,
+                            "select": OPENALEX_WORKS_SELECT,
                         },
                     )
                     if r.status_code != 200:
@@ -612,6 +809,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                     params={
                         "search": (title or url)[:200],
                         "per-page": 1,
+                        "select": OPENALEX_WORKS_SELECT,
                     },
                 )
                 if r.status_code != 200:
@@ -621,9 +819,20 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 if not results:
                     return {}
                 work = results[0]
-        primary = work.get("primary_location") or {}
-        source = primary.get("source") or {}
-        return {
+
+            primary = work.get("primary_location") or {}
+            source = primary.get("source") or {}
+
+            # Phase 0a (C5): SEPARATE /sources/{id} fetch for venue-level
+            # authority fields, keyed by primary_location.source.id. Absent
+            # source / failed fetch -> empty -> LOW confidence downstream.
+            source_id = source.get("id", "") or ""
+            source_fields = _openalex_fetch_source(c, source_id)
+
+        # Build the additive AuthoritySignals payload (dict form, cacheable).
+        authority_signals = _build_authority_signals_dict(work, source_fields)
+
+        enrich = {
             "openalex_pub_type": work.get("type", "") or "",
             "openalex_source_type": source.get("type", "") or "",
             "is_peer_reviewed": bool(
@@ -637,7 +846,15 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             # "perspective for primary care providers", etc. suffixes
             # that the classifier needs to demote false T1s.
             "openalex_full_title": work.get("display_name", "") or "",
+            # Phase 0a (C1/C5): the additive authority payload, carried at
+            # :1751 -> :1789 into ClassificationSignals.authority.
+            "authority_signals": authority_signals,
         }
+        # Diff-gate P2-B: WRITE the whole enrich dict under the SAME stable
+        # pre-fetch key the read path uses, so a later lookup is a true cache
+        # hit that skips the network (the read path is now exercised).
+        _authority_cache_put(enrich_cache_key, enrich)
+        return enrich
     except Exception as exc:
         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
         return {}
@@ -805,6 +1022,41 @@ def linearize_html_tables(html: str) -> str:
         return ""
 
 
+_JSONLD_SCRIPT_RE = re.compile(
+    r'<script[^>]*type\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.DOTALL | re.IGNORECASE,
+)
+# Bound the captured JSON-LD so a pathological page cannot balloon the payload
+# the classifier scans (the junk patterns only need the @type marker near the top).
+_JSONLD_MAX_CHARS = 20000
+
+
+def _extract_jsonld_blocks(raw_html: str) -> str:
+    """Capture the raw <script type="application/ld+json"> block contents from
+    the RAW fetched HTML — BEFORE _strip_html() deletes every <script> block.
+
+    Diff-gate P1-C: the structural junk-detection classifier (Signal C,
+    news_article/login_wall/press_release classes) scans JSON-LD strings such as
+    `"@type":"NewsArticle"` that live ONLY inside ld+json <script> blocks. Those
+    blocks are destroyed by _strip_html (line removing <script>...</script>), so
+    the demotion never fires unless the JSON-LD is extracted FIRST and routed to
+    ClassificationSignals.structured_jsonld separately from the stripped body.
+
+    Returns the concatenated block contents (bounded), or "" when the input is
+    not raw HTML (e.g. Jina markdown / Crawl4AI cleaned text already had its
+    <script> blocks removed upstream) — honestly empty, never fabricated. Pure
+    regex, no network, fail-open ("").
+    """
+    if not raw_html or "ld+json" not in raw_html.lower():
+        return ""
+    try:
+        blocks = [m.group(1).strip() for m in _JSONLD_SCRIPT_RE.finditer(raw_html)]
+        joined = "\n".join(b for b in blocks if b)
+        return joined[:_JSONLD_MAX_CHARS]
+    except Exception:  # noqa: BLE001 — additive structural signal; never break fetch
+        return ""
+
+
 def _strip_html(html: str) -> str:
     """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
     linearized rows (#954) so result-table cells survive with their column headers regardless of how the
@@ -831,10 +1083,17 @@ def _strip_html(html: str) -> str:
     return base
 
 
-def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+def _fetch_content_httpx_naive(
+    url: str, max_chars: int
+) -> tuple[str, bool, str, str, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
-    spawning, or sandboxes without Playwright)."""
+    spawning, or sandboxes without Playwright).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW HTML
+    BEFORE _strip_html deletes the <script> blocks (empty when the page carries
+    no JSON-LD)."""
     try:
         with httpx.Client(
             timeout=DEFAULT_HTTP_TIMEOUT,
@@ -852,7 +1111,7 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
-            return "", False, "", ""
+            return "", False, "", "", ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
         if not raw and r.content:
@@ -862,13 +1121,15 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         extracted_title = _extract_title_from_content(raw)
         # BUG-M-17: detect article-type from bounded body region.
         body_type = _detect_article_type_from_body(raw)
+        # Diff-gate P1-C: capture raw ld+json BEFORE _strip_html removes <script>.
+        jsonld = _extract_jsonld_blocks(raw)
         content = _strip_html(raw)[:max_chars]
-        return content, bool(content), extracted_title, body_type
+        return content, bool(content), extracted_title, body_type, jsonld
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
-        return "", False, "", ""
+        return "", False, "", "", ""
 
 
 def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
@@ -974,7 +1235,7 @@ def refetch_for_extraction_with_diagnostics(
         return "", diagnostics
     diagnostics["attempted"] = True
     try:
-        content, ok, _title, body_type = _fetch_content(url, max_chars)
+        content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
     except Exception as exc:
         logger.warning(
             "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
@@ -1033,10 +1294,18 @@ def refetch_for_extraction_with_diagnostics(
     return quote, diagnostics
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW fetched
+    HTML BEFORE _strip_html removes <script> blocks, so the structural junk
+    classifier (Signal C: NewsArticle / press-release / login-wall) can fire on
+    the live ON path. Empty when the winning backend already returned cleaned
+    text (Jina markdown / Crawl4AI) with no <script> blocks — honestly empty,
+    never fabricated.
 
     BUG-FETCH-R8d (2026-04-18): the live smoke test of
     clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
@@ -1146,7 +1415,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         # M-45 pass-2: record the winning backend + reason even on miss
         # so downstream audits can see which backend was last invoked.
         _m45_record_fetch_telemetry(url, method, reason or "no_content")
-        return "", False, "", ""
+        return "", False, "", "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
     # markdown has "Title: X" on first line; Crawl4AI cleaned text has
@@ -1154,6 +1423,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     extracted_title = _extract_title_from_content(result.content)
     # BUG-M-17 (Codex pass 2): detect article-type from body.
     body_type = _detect_article_type_from_body(result.content)
+    # Diff-gate P1-C: capture raw ld+json from result.content BEFORE _strip_html
+    # removes <script> blocks. Direct-HTTP path returns raw HTML (JSON-LD present);
+    # Jina/Crawl4AI return cleaned text with <script> already gone (honestly empty).
+    jsonld = _extract_jsonld_blocks(result.content)
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
@@ -1164,7 +1437,7 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     )
     # M-45 pass-2: record winning backend for diagnostics.
     _m45_record_fetch_telemetry(url, method, "")
-    return content, bool(content), extracted_title, body_type
+    return content, bool(content), extracted_title, body_type, jsonld
 
 
 def _domain_of(url: str) -> str:
@@ -1601,11 +1874,12 @@ def run_live_retrieval(
     #
     # The substrate's ParallelFetcher Protocol expects (bytes, str,
     # int). Live retrieval's existing _fetch_content returns
-    # (content, ok, title, body_type) — we wrap it in an adapter
-    # that stashes the full 4-tuple in a side dict keyed by URL,
-    # then post-process serially using the side dict.
+    # (content, ok, title, body_type, jsonld) — we wrap it in an adapter
+    # that stashes the full 5-tuple in a side dict keyed by URL,
+    # then post-process serially using the side dict. Diff-gate P1-C: the 5th
+    # element is the raw ld+json captured before _strip_html (Signal C input).
     use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
-    fetched_side: dict[str, tuple[str, bool, str, str]] = {}
+    fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
 
     if use_parallel and candidates:
         from src.polaris_graph.audit_ir.parallel_fetch import (
@@ -1616,7 +1890,7 @@ def run_live_retrieval(
         class _LiveContentParallelFetcher:
             """Adapter wrapping `_fetch_content(url, max_chars)` for
             the parallel_fetch substrate's ParallelFetcher Protocol.
-            Stashes the full 4-tuple (content, ok, title, body_type)
+            Stashes the full 5-tuple (content, ok, title, body_type, jsonld)
             in a thread-safe side dict so the post-processing loop
             can read it back per-candidate."""
 
@@ -1628,12 +1902,12 @@ def run_live_retrieval(
             def fetch(
                 self, task: "FetchTask"
             ) -> tuple[bytes, str, int]:
-                content, ok, title, body_type = _fetch_content(
+                content, ok, title, body_type, jsonld = _fetch_content(
                     task.source_url, self.max_chars,
                 )
                 with self._lock:
                     self.results[task.source_url] = (
-                        content, ok, title, body_type,
+                        content, ok, title, body_type, jsonld,
                     )
                 payload = (content or "").encode("utf-8", errors="replace")
                 return (payload, "text/plain", 200 if ok else 502)
@@ -1723,8 +1997,8 @@ def run_live_retrieval(
             i + 1, len(candidates), cand.url[:60],
         )
         if use_parallel:
-            content, ok, content_title_from_fetch, body_article_type = (
-                fetched_side.get(cand.url, ("", False, "", ""))
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
+                fetched_side.get(cand.url, ("", False, "", "", ""))
             )
         else:
             # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
@@ -1732,7 +2006,7 @@ def run_live_retrieval(
             if i > 0 and i % 5 == 0:
                 time.sleep(0.2)
             # Fetch content (for tier classification + evidence)
-            content, ok, content_title_from_fetch, body_article_type = (
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
                 _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
             )
         api_calls["fetch"] += 1
@@ -1786,6 +2060,25 @@ def run_live_retrieval(
             classifier_title = max(title_candidates, key=len)
         else:
             classifier_title = cand.title or ""
+        # Phase 0a (C1/C5): reconstruct the additive AuthoritySignals payload
+        # from the live-path enrich dict. Absent/partial -> None / partial ->
+        # the authority model returns LOW confidence (fail-honest). Inert on the
+        # OFF path (the legacy rule body never reads `.authority`).
+        authority_payload = None
+        _auth_dict = oa.get("authority_signals")
+        if isinstance(_auth_dict, dict):
+            authority_payload = AuthoritySignals(
+                cited_by_count=_auth_dict.get("cited_by_count"),
+                source_id=_auth_dict.get("source_id", "") or "",
+                venue_summary_stats=_auth_dict.get("venue_summary_stats"),
+                is_core=_auth_dict.get("is_core"),
+                is_in_doaj=_auth_dict.get("is_in_doaj"),
+                apc_prices=_auth_dict.get("apc_prices"),
+                publication_year=_auth_dict.get("publication_year"),
+                ror_id=_auth_dict.get("ror_id", "") or "",
+                institution_type=_auth_dict.get("institution_type", "") or "",
+                country_code=_auth_dict.get("country_code", "") or "",
+            )
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,
@@ -1797,6 +2090,25 @@ def run_live_retrieval(
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
+            authority=authority_payload,
+            # Diff-gate P1-B/P1-C: wire the structural junk inputs so Signal C
+            # (junk_detection) can actually fire on the ON path. INERT when OFF
+            # (the legacy rule body never reads these).
+            #   * fetched_body = the stripped visible page text (survives
+            #     _strip_html; carries press-release / login-wall body cues).
+            #   * structured_jsonld = the RAW ld+json <script> block contents
+            #     captured by _fetch_content BEFORE _strip_html deleted the
+            #     <script> blocks (P1-C). Without this the NewsArticle @type
+            #     marker never reaches the classifier on the live path — it is
+            #     destroyed by stripping. Honestly empty when the fetch backend
+            #     already returned cleaned text (Jina/Crawl4AI) with no JSON-LD.
+            #   * claim_vendor_token = the lowercased research question, used by
+            #     the self-interest check (exact host-org-token == vendor-token
+            #     equality, so a phrase can never false-fire). Extracting single
+            #     candidate vendor tokens from the question is a Gate-A residual.
+            fetched_body=content or "",
+            structured_jsonld=raw_jsonld or "",
+            claim_vendor_token=(research_question or "").strip().lower(),
         )
         tier_result = classify_source_tier(signals)
 
