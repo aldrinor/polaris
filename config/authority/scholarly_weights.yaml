@@ -1,0 +1,29 @@
+# Signal A — scholarly-graph authority weights / anchors / norms.
+# Versioned DATA (LAW VI). ZERO venue names. All numbers live here, not in code.
+# Consumed by src/polaris_graph/authority/citation_graph.py.
+#
+# Provenance: anchors below are conservative percentile estimates derived from
+# OpenAlex public aggregate documentation on source summary_stats distributions
+# (https://docs.openalex.org/api-entities/sources/source-object#summary_stats).
+# They are calibration knobs, not host knowledge.
+
+# Blend weights INSIDE signal A (must sum to 1.0 across the positive terms).
+w_cite: 0.45        # weight on log1p(cited_by_count) squashed
+w_hindex: 0.35      # weight on venue h_index squashed
+w_recent: 0.20      # weight on venue 2yr_mean_citedness clamped
+
+# Normalisation constants for the squash/clamp.
+H_NORM: 200.0       # venue h_index that maps to ~1.0 after squash
+C_NORM: 10.0        # venue 2yr_mean_citedness that maps to ~1.0 after clamp
+CITE_LOG_NORM: 9.0  # log1p(cited_by_count) divisor (log1p(~8000) ~= 9)
+
+# Bonuses / penalties.
+is_core_bonus: 0.10           # additive bonus when venue is_core is True
+predatory_penalty: 0.25       # subtractive penalty for predatory-OA smell
+APC_FLOOR: 2000.0             # APC (USD) above which, absent DOAJ, smells predatory
+
+# Percentile anchors for the min-max squash of log1p(cited_by_count).
+# squash maps anchor_low -> 0.0 and anchor_high -> 1.0 (clamped).
+percentile_anchors:
+  cite_log_low: 0.0     # log1p(0) — never cited
+  cite_log_high: 9.0    # log1p(~8000) — heavily cited

@@ -1,0 +1,9 @@
+{
+  "url": "https://corporate-news.test/press-release/new-product",
+  "jsonld": "{\"@context\":\"https://schema.org\",\"@type\":\"PressRelease\",\"headline\":\"FOR IMMEDIATE RELEASE\"}",
+  "body": "FOR IMMEDIATE RELEASE. The company today announced...",
+  "claim_vendor_token": "",
+  "authority_signals": {"cited_by_count": null, "source_id": "", "venue_summary_stats": null, "is_core": null, "is_in_doaj": null, "apc_prices": null, "publication_year": 2024, "ror_id": "", "institution_type": "", "country_code": ""},
+  "expect_junk_class": "press_release",
+  "expect_source_class": "PRESS_RELEASE"
+}

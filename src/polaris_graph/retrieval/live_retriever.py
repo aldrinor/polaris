@@ -28,9 +28,11 @@ import math
 import os
 import asyncio
 import re
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -44,6 +46,7 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
 from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
+from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     classify_source_tier,
@@ -55,6 +58,27 @@ logger = logging.getLogger("polaris_graph.live_retriever")
 SERPER_ENDPOINT = "https://google.serper.dev/search"
 S2_BULK_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
 OPENALEX_ENDPOINT = "https://api.openalex.org/works"
+OPENALEX_SOURCES_ENDPOINT = "https://api.openalex.org/sources"
+
+# Phase 0a (GH #983, ADDENDUM C5): root-level /works select= fieldset for the
+# authority model. OpenAlex select= is ROOT-LEVEL ONLY (rejects nested props),
+# so summary_stats / apc_prices / is_core / is_in_doaj come from a SEPARATE
+# /sources/{id} fetch keyed by primary_location.source.id.
+OPENALEX_WORKS_SELECT = (
+    "id,doi,title,display_name,type,publication_year,cited_by_count,"
+    "is_retracted,primary_location,authorships"
+)
+OPENALEX_SOURCES_SELECT = (
+    "id,is_core,is_in_doaj,apc_prices,summary_stats"
+)
+
+# Versioned local cache for the authority-enrich payload (live path). The
+# schema version is bumped (not CREATE-IF-NOT-EXISTS no-op) on any column
+# change, with an ALTER/rebuild migration (C5 requirement).
+AUTHORITY_CACHE_DB = Path(
+    os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
+)
+AUTHORITY_CACHE_SCHEMA_VERSION = 1
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -570,6 +594,166 @@ def _extract_doi_from_url(url: str) -> str:
     return ""
 
 
+def _authority_cache_init() -> None:
+    """Create the authority-enrich cache with a VERSIONED migration (C5).
+
+    Not a CREATE-IF-NOT-EXISTS no-op: a stale cache whose recorded schema
+    version is older than AUTHORITY_CACHE_SCHEMA_VERSION is rebuilt rather than
+    silently used with missing columns.
+    """
+    AUTHORITY_CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_meta ("
+            " id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)"
+        )
+        row = conn.execute("SELECT version FROM schema_meta WHERE id = 1").fetchone()
+        existing = row[0] if row else 0
+        table_present = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='authority_enrich'"
+        ).fetchone() is not None
+        # Migrate whenever the recorded version is older than the current one
+        # (existing=0 means an unversioned/legacy cache). Drop + rebuild the
+        # payload table (the cache is a rebuildable accelerator, never the
+        # source of truth) — NOT a CREATE-IF-NOT-EXISTS no-op (C5).
+        if table_present and existing < AUTHORITY_CACHE_SCHEMA_VERSION:
+            conn.execute("DROP TABLE IF EXISTS authority_enrich")
+            logger.warning(
+                "[live_retriever] authority cache schema %d < %d — migrating "
+                "(rebuild)", existing, AUTHORITY_CACHE_SCHEMA_VERSION,
+            )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS authority_enrich ("
+            " key TEXT PRIMARY KEY,"
+            " payload_json TEXT NOT NULL,"
+            " fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO schema_meta (id, version) VALUES (1, ?)"
+            " ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+            (AUTHORITY_CACHE_SCHEMA_VERSION,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _authority_cache_get(key: str) -> Optional[dict[str, Any]]:
+    if not AUTHORITY_CACHE_DB.exists():
+        return None
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        row = conn.execute(
+            "SELECT payload_json FROM authority_enrich WHERE key = ?", (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    if not row:
+        return None
+    import json
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
+
+
+def _authority_cache_put(key: str, payload: dict[str, Any]) -> None:
+    import json
+    _authority_cache_init()
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "INSERT INTO authority_enrich (key, payload_json) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET payload_json = excluded.payload_json,"
+            " fetched_at = CURRENT_TIMESTAMP",
+            (key, json.dumps(payload)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _openalex_fetch_source(
+    client: httpx.Client, source_id: str
+) -> dict[str, Any]:
+    """Separate /sources/{id} fetch for venue-level authority fields (C5).
+
+    Returns the summary_stats / apc_prices / is_core / is_in_doaj subset, or
+    {} on any failure (the model degrades to LOW confidence — never fabricates).
+    """
+    if not source_id:
+        return {}
+    sid = source_id.rsplit("/", 1)[-1]  # accept full URL or bare S-id
+    if not sid.startswith("S"):
+        return {}
+    resp = client.get(
+        f"{OPENALEX_SOURCES_ENDPOINT}/{sid}",
+        params={"select": OPENALEX_SOURCES_SELECT},
+    )
+    if resp.status_code != 200:
+        return {}
+    src = resp.json()
+    if not isinstance(src, dict):
+        return {}
+    return {
+        "is_core": src.get("is_core"),
+        "is_in_doaj": src.get("is_in_doaj"),
+        "apc_prices": src.get("apc_prices"),
+        "summary_stats": src.get("summary_stats") or {},
+    }
+
+
+def _build_authority_signals_dict(
+    work: dict[str, Any], source_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the additive AuthoritySignals payload (C1/C5) as a plain dict.
+
+    Stored as a dict so the live-path enrich return value stays JSON-cacheable;
+    live_retriever reconstructs the AuthoritySignals dataclass at classify time.
+    Missing fields stay absent/None -> the authority model returns LOW
+    confidence (fail-honest, never fabricate).
+    """
+    primary = work.get("primary_location") or {}
+    source = primary.get("source") or {}
+    # First resolved institution (ROR) from authorships.
+    ror_id = ""
+    inst_type = ""
+    country_code = ""
+    for authorship in work.get("authorships") or []:
+        for inst in authorship.get("institutions") or []:
+            if inst.get("ror"):
+                ror_id = inst.get("ror") or ""
+                inst_type = inst.get("type") or ""
+                country_code = inst.get("country_code") or ""
+                break
+        if ror_id:
+            break
+
+    stats = source_fields.get("summary_stats") or {}
+    venue_summary_stats: dict[str, Any] = {}
+    if isinstance(stats, dict):
+        if "h_index" in stats:
+            venue_summary_stats["h_index"] = stats.get("h_index")
+        if "2yr_mean_citedness" in stats:
+            venue_summary_stats["2yr_mean_citedness"] = stats.get("2yr_mean_citedness")
+
+    return {
+        "cited_by_count": work.get("cited_by_count"),
+        "source_id": source.get("id", "") or "",
+        "venue_summary_stats": venue_summary_stats or None,
+        "is_core": source_fields.get("is_core"),
+        "is_in_doaj": source_fields.get("is_in_doaj"),
+        "apc_prices": source_fields.get("apc_prices"),
+        "publication_year": work.get("publication_year"),
+        "ror_id": ror_id,
+        "institution_type": inst_type,
+        "country_code": country_code,
+    }
+
+
 def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
 
@@ -587,7 +771,11 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
                 # both the bare DOI and the URL form; use bare DOI.
-                r = c.get(f"{OPENALEX_ENDPOINT}/doi:{doi}")
+                # Phase 0a (C5): request the root-level authority select=.
+                r = c.get(
+                    f"{OPENALEX_ENDPOINT}/doi:{doi}",
+                    params={"select": OPENALEX_WORKS_SELECT},
+                )
                 if r.status_code != 200:
                     # Fall back to title search if DOI not indexed
                     r = c.get(
@@ -595,6 +783,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                         params={
                             "search": (title or url)[:200],
                             "per-page": 1,
+                            "select": OPENALEX_WORKS_SELECT,
                         },
                     )
                     if r.status_code != 200:
@@ -612,6 +801,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                     params={
                         "search": (title or url)[:200],
                         "per-page": 1,
+                        "select": OPENALEX_WORKS_SELECT,
                     },
                 )
                 if r.status_code != 200:
@@ -621,8 +811,22 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 if not results:
                     return {}
                 work = results[0]
-        primary = work.get("primary_location") or {}
-        source = primary.get("source") or {}
+
+            primary = work.get("primary_location") or {}
+            source = primary.get("source") or {}
+
+            # Phase 0a (C5): SEPARATE /sources/{id} fetch for venue-level
+            # authority fields, keyed by primary_location.source.id. Absent
+            # source / failed fetch -> empty -> LOW confidence downstream.
+            source_id = source.get("id", "") or ""
+            source_fields = _openalex_fetch_source(c, source_id)
+
+        # Build the additive AuthoritySignals payload (dict form, cacheable).
+        authority_signals = _build_authority_signals_dict(work, source_fields)
+        cache_key = work.get("id", "") or (doi or url)
+        if cache_key:
+            _authority_cache_put(cache_key, authority_signals)
+
         return {
             "openalex_pub_type": work.get("type", "") or "",
             "openalex_source_type": source.get("type", "") or "",
@@ -637,6 +841,9 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             # "perspective for primary care providers", etc. suffixes
             # that the classifier needs to demote false T1s.
             "openalex_full_title": work.get("display_name", "") or "",
+            # Phase 0a (C1/C5): the additive authority payload, carried at
+            # :1751 -> :1789 into ClassificationSignals.authority.
+            "authority_signals": authority_signals,
         }
     except Exception as exc:
         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
@@ -1786,6 +1993,25 @@ def run_live_retrieval(
             classifier_title = max(title_candidates, key=len)
         else:
             classifier_title = cand.title or ""
+        # Phase 0a (C1/C5): reconstruct the additive AuthoritySignals payload
+        # from the live-path enrich dict. Absent/partial -> None / partial ->
+        # the authority model returns LOW confidence (fail-honest). Inert on the
+        # OFF path (the legacy rule body never reads `.authority`).
+        authority_payload = None
+        _auth_dict = oa.get("authority_signals")
+        if isinstance(_auth_dict, dict):
+            authority_payload = AuthoritySignals(
+                cited_by_count=_auth_dict.get("cited_by_count"),
+                source_id=_auth_dict.get("source_id", "") or "",
+                venue_summary_stats=_auth_dict.get("venue_summary_stats"),
+                is_core=_auth_dict.get("is_core"),
+                is_in_doaj=_auth_dict.get("is_in_doaj"),
+                apc_prices=_auth_dict.get("apc_prices"),
+                publication_year=_auth_dict.get("publication_year"),
+                ror_id=_auth_dict.get("ror_id", "") or "",
+                institution_type=_auth_dict.get("institution_type", "") or "",
+                country_code=_auth_dict.get("country_code", "") or "",
+            )
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,
@@ -1797,6 +2023,7 @@ def run_live_retrieval(
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
+            authority=authority_payload,
         )
         tier_result = classify_source_tier(signals)
 

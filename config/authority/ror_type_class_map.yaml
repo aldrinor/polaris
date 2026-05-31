@@ -1,0 +1,33 @@
+# Signal B — institution-type -> source_class map.
+# Versioned DATA (LAW VI). ZERO host names.
+# Consumed by src/polaris_graph/authority/institutional.py.
+#
+# Provenance: OpenAlex institution `type` vocabulary
+# (https://docs.openalex.org/api-entities/institutions/institution-object#type)
+# union ROR native `types`
+# (https://ror.readme.io/docs/ror-data-structure). Codex-verified ADDENDUM C4:
+# OpenAlex adds `archive`; ROR native adds `funder`. Both handled explicitly
+# below so neither falls through to an accidental default.
+
+# institution type (lowercased) -> {source_class, confidence_when_resolved}
+# source_class values match src/polaris_graph/authority/source_class.py SourceClass.
+type_to_class:
+  government:   {source_class: PRIMARY_OFFICIAL,  confidence: HIGH}
+  healthcare:   {source_class: PRIMARY_OFFICIAL,  confidence: HIGH}
+  education:    {source_class: PRIMARY_SCHOLARLY, confidence: HIGH}
+  facility:     {source_class: PRIMARY_SCHOLARLY, confidence: MEDIUM}
+  nonprofit:    {source_class: SECONDARY,         confidence: MEDIUM}
+  funder:       {source_class: SECONDARY,         confidence: MEDIUM}
+  archive:      {source_class: SECONDARY,         confidence: MEDIUM}
+  company:      {source_class: COMMENTARY,        confidence: MEDIUM}
+  other:        {source_class: SECONDARY,         confidence: LOW}
+
+# Per-sub-signal score weights (max-of wins per §4 Signal B compute).
+score_weights:
+  ror_resolved: 1.0        # ROR institution-type resolved (load-bearing)
+  psl_gov_suffix: 0.85     # PSL gov-style suffix matched (fast pre-filter only)
+  issuer_self_desc: 0.55   # schema.org GovernmentOrganization / dc.publisher backstop
+
+# When NO sub-signal fires the institutional score is neutral, not zero,
+# so a thin source is not falsely penalised (honest-uncertain mid-band).
+neutral_score: 0.40

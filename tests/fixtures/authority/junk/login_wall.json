@@ -1,0 +1,9 @@
+{
+  "url": "https://social-platform.test/posts/12345",
+  "jsonld": "{\"@context\":\"https://schema.org\",\"@type\":\"SocialMediaPosting\",\"isAccessibleForFree\":false}",
+  "body": "Please log in to read this post.",
+  "claim_vendor_token": "",
+  "authority_signals": {"cited_by_count": null, "source_id": "", "venue_summary_stats": null, "is_core": null, "is_in_doaj": null, "apc_prices": null, "publication_year": 2024, "ror_id": "", "institution_type": "", "country_code": ""},
+  "expect_junk_class": "login_wall",
+  "expect_source_class": "UGC"
+}

@@ -1,0 +1,53 @@
+# Signal C — structural junk-detection patterns.
+# Versioned DATA (LAW VI). ZERO host names. PATH/JSON-LD/structural shapes only.
+# Consumed by src/polaris_graph/authority/junk_detection.py.
+#
+# Replaces the legacy frozensets INDUSTRY_MARKETING_DOMAINS /
+# SOCIAL_PLATFORM_DOMAINS / VENDOR_BLOG_DOMAINS / MARKET_RESEARCH_DOMAINS with
+# field-agnostic structural patterns. Each junk-class carries:
+#   precedence: lower number wins when multiple classes fire (for source_class)
+#   ceiling:    authority_score is capped at this value when the class fires
+#   patterns:   regexes (Python re, applied case-insensitively by the loader)
+#   target:     which input field(s) the patterns run against
+#               (one of: jsonld, body, url_path)
+
+junk_classes:
+
+  press_release:
+    precedence: 1
+    ceiling: 0.25
+    source_class: PRESS_RELEASE
+    target: [jsonld, body, url_path]
+    patterns:
+      - '"@type"\s*:\s*"PressRelease"'
+      - 'for\s+immediate\s+release'
+      - '/press-?releases?/'
+      - '/news-?releases?/'
+
+  login_wall:
+    precedence: 2
+    ceiling: 0.25
+    source_class: UGC
+    target: [jsonld, body]
+    patterns:
+      - '"isAccessibleForFree"\s*:\s*false'
+      - 'loginwall'
+      - '"@type"\s*:\s*"SocialMediaPosting"'
+
+  self_published_blog:
+    precedence: 3
+    ceiling: 0.25
+    source_class: COMMENTARY
+    target: [url_path]
+    patterns:
+      - '/blog/'
+      - '/pulse/'
+      - '/@[A-Za-z0-9._-]+'
+      - '/posts?/'
+
+  self_interest:
+    precedence: 1
+    ceiling: 0.25
+    source_class: COMMENTARY
+    target: [self_interest]   # special: host-org token vs claim-vendor token
+    patterns: []              # computed by junk_detection, no regex needed

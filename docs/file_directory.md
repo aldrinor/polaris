@@ -49,6 +49,7 @@ produced, see `docs/live_code_audit.json`.
 |------|------|-----------|-------|
 | `src/polaris_graph/nodes/` | Pre-generation gates | A | `scope_gate`, `corpus_approval_gate`, `corpus_adequacy_gate`, `completeness_checker` |
 | `src/polaris_graph/retrieval/` | Source retrieval + tiering | A | `live_retriever`, `tier_classifier`, `domain_backends`, `scope_query_validator`, `contradiction_detector`, `prefetch_offtopic_filter`, `fetch_limiter` |
+| `src/polaris_graph/authority/` | Field-agnostic computed source-authority model (Phase 0a, GH #983) | A | `authority_model` (entry `score_source_authority`), `citation_graph`/`institutional`/`junk_detection`/`corroboration`/`recency` (signals A-E), `source_class` (enums + `AuthoritySignals`/`AuthorityResult`), `clinical_view` (primitives->T1-T7 renderer), `data_loader` (fail-loud loader for `config/authority/*`). Drop-in behind `PG_USE_AUTHORITY_MODEL` (default OFF); ZERO host literals in code (all knowledge in versioned `config/authority/*`). |
 | `src/polaris_graph/generator/` | Prose generation + strict verify | A | `multi_section_generator`, `live_deepseek_generator`, `provenance_generator` |
 | `src/polaris_graph/evaluator/` | External evaluator (different-family judge) | A | `external_evaluator`, `live_judge` |
 | `src/polaris_graph/llm/` | OpenRouter gateway | A, B | `openrouter_client` enforces two-family segregation, budget guard, cost imputation |

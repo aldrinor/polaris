@@ -1,0 +1,92 @@
+# Clinical VIEW renderer — AuthorityResult primitives -> legacy T1..T7 TierLevel.
+# Versioned DATA (LAW VI). Consumed by src/polaris_graph/authority/clinical_view.py.
+#
+# This is the clinical VIEW (primitives -> tiers), NOT a host map. It exists so
+# the computed authority model can run as a drop-in behind PG_USE_AUTHORITY_MODEL
+# and reproduce the existing clinical T1-T7 distribution >=95% (smoke S2).
+#
+# The renderer maps the structural primitives the authority model carries
+# through (publication_type, source_type, is_retracted, content_length, title
+# markers, source_class) onto the seven tiers. Ordering is load-bearing: the
+# first matching rule wins (mirrors the legacy classifier's priority-order
+# semantics). Numbers are calibration knobs, not host knowledge.
+
+# Stub-content threshold (chars). Below this => T7 stub regardless of venue.
+# Matches legacy T7_STUB_CONTENT_CHARS (tier_classifier.py).
+t7_stub_content_chars: 1000
+
+# Title markers (substrings, lowercased) that signal each article shape.
+# These are STRUCTURAL article-type cues, NOT host names.
+title_markers:
+  systematic_review:
+    - "systematic review"
+    - "meta-analysis"
+    - "meta analysis"
+    - "network meta-analysis"
+    - "cochrane review"
+    - "umbrella review"
+    - "scoping review"
+  narrative_review:
+    - "narrative review"
+    - "review of"
+    - "commentary"
+    - "editorial"
+    - "perspective"
+    - "opinion"
+    - "viewpoint"
+  conference_abstract:
+    - "abstract"
+    - "poster"
+    - "conference"
+    - "supplement"
+
+# source_class -> default tier when no stronger structural cue fires.
+source_class_default_tier:
+  PRIMARY_OFFICIAL: T3      # government / regulator / healthcare-regulator
+  PRIMARY_SCHOLARLY: T1     # peer-reviewed primary (refined by title markers)
+  SECONDARY: T4             # narrative / unreviewed secondary
+  COMMENTARY: T6            # commentary / industry-marketing / law-firm blog
+  PRESS_RELEASE: T6
+  UGC: T6
+  UNKNOWN: UNKNOWN
+
+# Structural rule ordering (first match wins). Each rule names the primitive
+# condition; the renderer evaluates them in this order.
+rule_order:
+  - retracted_unknown          # is_retracted -> UNKNOWN (preserves legacy R0)
+  - stub_content_t7            # content_length < t7_stub_content_chars -> T7
+  - conference_abstract_t7     # scholarly + conference-abstract title -> T7
+  # Scholarly shape is decided by publication_type/source_type BEFORE the
+  # official check: a peer-reviewed journal article/review is T1/T2/T4 even on
+  # a gov-suffix host (legacy routes NIH/PMC/PubMed literature to journals, NOT
+  # regulatory). source_type/pub_type are STRUCTURAL cues, not hosts.
+  - scholarly_sr_t2            # journal + SR/MA title -> T2
+  - scholarly_narrative_t4     # journal + narrative title -> T4
+  - scholarly_primary_t1       # journal article (no review/narrative title) -> T1
+  - review_pubtype_t4          # pub_type review (no journal/title cue) -> T4
+  - secondary_doctype_t4       # editorial/letter/book/dataset -> T4 (legacy R11)
+  - preprint_repo_t4           # preprint / repository -> T4
+  - official_t3                # PRIMARY_OFFICIAL (gov/regulator) -> T3
+  - source_class_fallthrough   # source_class_default_tier
+
+# Scholarly-primary requires a journal-shaped source. These are the OpenAlex
+# publication_type / source_type values (NOT hosts) that qualify.
+scholarly_primary_types:
+  publication_type: ["article", "review"]
+  source_type: ["journal"]
+
+# pub_type 'review' (legacy R9_openalex_pubtype_review) -> T4 narrative even
+# when the source_type was not recorded as journal.
+review_pubtypes: ["review"]
+
+preprint_repo:
+  publication_type: ["preprint"]
+  source_type: ["repository"]
+
+# Non-peer-reviewed OpenAlex doc types -> T4 (mirrors legacy R11).
+secondary_doc_types:
+  - "book-chapter"
+  - "book"
+  - "dataset"
+  - "editorial"
+  - "letter"
