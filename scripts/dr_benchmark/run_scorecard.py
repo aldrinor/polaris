@@ -62,16 +62,23 @@ _CITATION_SHAPE_RE = re.compile(
 
 def _is_citation_entry(line: str) -> bool:
     """True ONLY for a positively-shaped bibliographic entry (author-initials /
-    et al / "& Author" / DOI) that also bears a year — after dropping any leading
-    enumerator. A numbered PROSE claim ('1. Semaglutide reduced events by 20% in
-    the 2020 cohort') has no author-initials shape → NOT a citation entry, so its
-    presence prevents the block from being stripped (Codex diff-gate iter1-3 P1)."""
+    et al / "& Author" / "Surname, Year" / DOI) with a FRONT-LOADED year — after
+    dropping any leading enumerator.
+
+    The front-loaded-year requirement (the year within the first 5 tokens) is the
+    key discriminator that closes acronym-led prose (Codex diff-gate iter4 P1):
+    a reference puts author+year up front ('Smith J. 2020 ...'), whereas a prose
+    claim's year is embedded later in the sentence ('HPV DNA testing improved
+    cervical precancer detection in the 2020 screening cohort'). A Vancouver-style
+    reference with a late year is simply NOT stripped (kept as atoms = the
+    acceptable minor over-inclusion), never a prose claim dropped."""
     s = re.sub(r"^\s*(?:\[?\d{1,3}[\].]|[-*•])\s*", "", line.strip()).strip()
     if not s:
         return False
-    if not re.search(r"\b(?:19|20)\d{2}\b", s):       # a reference entry has a year
+    if not _CITATION_SHAPE_RE.match(s):                # positive author/DOI shape
         return False
-    return bool(_CITATION_SHAPE_RE.match(s))           # AND the positive author shape
+    head = " ".join(s.split()[:5])                     # year must be front-loaded
+    return bool(re.search(r"\b(?:19|20)\d{2}\b", head))
 
 
 def split_body_and_references(report_text: str) -> tuple[str, str]:

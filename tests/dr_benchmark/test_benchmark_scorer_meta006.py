@@ -287,6 +287,20 @@ def test_split_body_keeps_proper_noun_led_prose_under_references():
     assert refs == ""
 
 
+def test_split_body_keeps_acronym_led_prose_under_references():
+    # Codex diff-gate iter4 P1: acronym-led prose ("HPV DNA testing ... in the 2020
+    # cohort") must NOT be misread as an author-initials citation. The year is
+    # NOT front-loaded (it's embedded later in the sentence) → not a citation entry.
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Summary.\n\nReferences\n\n"
+        "1. HPV DNA testing improved cervical precancer detection in the 2020 "
+        "screening cohort.\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "HPV DNA testing improved" in body and refs == ""
+
+
 def test_split_body_strips_author_initial_reference_list():
     # genuine author-initials reference list (Smith J. / Doe A.) IS stripped.
     from scripts.dr_benchmark.run_scorecard import split_body_and_references
