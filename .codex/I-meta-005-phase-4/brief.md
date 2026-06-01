@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 5 — I-meta-005 Phase 4 (#988): multi-round saturation search
+# Codex BRIEF gate iter 6 (confirm) — I-meta-005 Phase 4 (#988): multi-round saturation search
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 50. Phase 4 closes gap #3 (search depth):
 single-pass retrieval → a gap-targeted SATURATION LOOP that, when Phase 3's plan-sufficiency gate returns
@@ -43,7 +43,7 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 ### 2.1 NEW `src/polaris_graph/retrieval/saturation.py` (pure decision logic)
 - `marginal_novelty(prev_evidence_rows, new_round_rows) -> float`: the fraction of the new round's rows that
   are NOVEL. **Single dedup identity = canonical URL via the EXISTING `run_diff` canonicalizer (iter-2 P2):**
-  reuse `audit_ir/run_diff.py:222-251` (`canonical_url`) which lowercases host, strips `www.`, DROPS tracking
+  reuse `audit_ir/run_diff.py:220` `_normalize_url` (the existing private helper — add a thin public wrapper if importing a private name is undesirable) which lowercases host, strips `www.`, DROPS tracking
   params (utm_*/fbclid/gclid/ref/...) but PRESERVES + sorts identifier query params — so two distinct
   query-addressed sources (`?abstract_id=123` vs `?abstract_id=456`, `?doi=...`) stay DISTINCT while only
   tracking noise collapses. (eTLD+1+path alone would wrongly merge distinct identifier-addressed pages — the
@@ -98,16 +98,20 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
     INSIDE `run_live_retrieval` (Serper `:1790`, S2 `:1806`, over `effective_queries`), so a post-round
     counter OVERSHOOTS (cumulative 1 below cap + a 40-gap-query round = overspend before STOP_BUDGET). FIX:
     PREFLIGHT before firing round N+1. **Exact accounting (iter-4 P1 #2):** `PG_SATURATION_MAX_RETRIEVAL_CALLS`
-    counts DISCOVERY calls only — the per-gap-query search cost the loop controls: core Serper + core S2
-    (`live_retriever.py:1790`,`:1806`) = 2 calls/query, PLUS the need-type backends (counted once per backend
-    per round, `domain_backends.py:660`). (Fetch + OpenAlex enrichment `:2085`,`:2100` are downstream of
-    discovery and bounded by `fetch_cap`, NOT multiplied per gap query — out of this cap's scope.) PREFLIGHT:
-    `remaining = MAX - cumulative_discovery_calls`; if `remaining <= 0` → STOP_BUDGET (do NOT fire); else the
-    round may fire at most `floor(remaining / per_query_discovery_cost)` gap queries (worst-case 2/query +
-    the fixed need-type backend count) — TRUNCATE `gap_sub_queries` to that many so the round's discovery
-    spend CANNOT exceed `remaining`. After the round, add its actual discovery `api_calls`. INVARIANT
-    (P4-14): `cumulative_discovery_calls <= MAX` at ALL times, computed from the WORST-CASE preflight, not
-    merely observed after.
+    counts DISCOVERY calls. **Per-query WORST-CASE cost — the need-type adapters loop PER QUERY (iter-5 P1
+    #1):** core Serper + core S2 (`live_retriever.py:1790`,`:1806`) = 2 calls/query, PLUS the need-type
+    dispatcher which calls EACH routed adapter inside `for q in queries` (`domain_backends.py:660`) =
+    `adapter_count` calls PER gap query (NOT once per backend — the live result undercounts by recording each
+    backend once at `live_retriever.py:1857`; that is the bug, so use the worst-case for the cap).
+    `per_query_discovery_cost = 2 + adapter_count` (`adapter_count` from the routed need-type registry,
+    `source_adapter_registry.py:247`). (Fetch + OpenAlex `:2085`,`:2100` are bounded by `fetch_cap`, not
+    multiplied per gap query — out of this cap's scope.) PREFLIGHT: `remaining = MAX -
+    cumulative_discovery_calls`; if `remaining <= 0` → STOP_BUDGET; else the round may fire at most
+    `floor(remaining / per_query_discovery_cost)` gap queries — TRUNCATE `gap_sub_queries` to that many so
+    the round's WORST-CASE discovery spend (`fired_queries * per_query_discovery_cost`) CANNOT exceed
+    `remaining`. After the round, add the WORST-CASE `fired_queries * per_query_discovery_cost` (NOT the
+    undercounting observed `api_calls`) to the cumulative counter. INVARIANT (P4-14):
+    `cumulative_discovery_calls <= MAX` at ALL times.
   - **Re-gate on the BILLED set each round (iter-3 P2):** every round's re-gate uses the SAME generator-visible
     `evidence_for_gen` Phase 3 certifies — i.e. AFTER the round's selection AND the V30 contract-row
     (`:2719`) + upload-row (`:2749`) injections, immediately before the generator. So the loop wraps
@@ -129,14 +133,19 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
   `generate_multi_section_report` (`run_honest_sweep_r3.py:3012`). So the generator structurally CANNOT
   render an under-covered SECTION. The manifest names the dropped sections + their shortfall + the
   `partial_saturation` status.
-- **Disable ALL out-of-plan generator additions in partial mode (iter-4 P1 #1):** the pruned plan controls
-  `research_plan.outline`, but the generator ALSO renders content OUTSIDE the plan that the prune does not
-  reach: V30 contract-plan sections (`multi_section_generator.py:4167`, fed from `run_honest_sweep_r3.py:3002`)
-  and M50 per-trial summary appendices (`run_honest_sweep_r3.py:3073`, `multi_section_generator.py:5177`).
-  In `partial_saturation` mode these MUST also be DISABLED (do not inject V30 contract plans, do not append
-  M50/trial appendices) so the FINAL RENDERED report contains ONLY the sufficient pruned sections — no
-  out-of-plan content for an under-covered topic. (PROCEED/full mode is unchanged.) Smoke P4-7c asserts the
-  rendered report's sections == the pruned sufficient sections, with NO V30/M50 additions.
+- **Disable EVERY out-of-plan generator addition in partial mode (iter-4/5 P1 #1 — EXHAUSTIVE):** the pruned
+  plan controls `research_plan.outline`, but the report assembly ALSO appends content OUTSIDE the plan that
+  the prune does not reach. In `partial_saturation` mode a single `partial_mode` flag MUST DISABLE ALL of
+  these out-of-plan appenders (a fixture that would otherwise trigger each must produce NONE):
+  - V30 contract-plan sections (`multi_section_generator.py:4167`, fed from `run_honest_sweep_r3.py:3002`);
+  - M50 per-trial summary appendices (`run_honest_sweep_r3.py:3073`, `multi_section_generator.py:5177`);
+  - the `### Trial Summary` + timeline (`run_honest_sweep_r3.py:3057`, builder `multi_section_generator.py:4972`);
+  - the `## Analyst Synthesis` (`run_honest_sweep_r3.py:3190`, generator-side `multi_section_generator.py:4998`);
+  - the `### Limitations` (`run_honest_sweep_r3.py:3199`, builder `multi_section_generator.py:5034`).
+  So the FINAL RENDERED report's headings == ONLY the pruned sufficient sections — NO out-of-plan content for
+  an under-covered topic. (PROCEED/full mode is UNCHANGED — all of these still render.) Smoke P4-7c uses a
+  fixture that would otherwise trigger Trial Summary + Analyst Synthesis + Limitations + V30 + M50, and
+  asserts the partial report's headings equal exactly the pruned plan's sections.
 - **Money rule (iter-1 P2 — exact wording):** the generator is billed EXACTLY when the final verdict is
   PROCEED (full plan) OR `partial_saturation` (pruned plan = sufficient sections ONLY) — NEVER on an
   under-covered section. If ZERO sections are sufficient → `abort_corpus_inadequate`, no generator bill.
@@ -195,9 +204,10 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 - **P4-7 strengthened (pruned plan, iter-1 P1 #4):** the generator receives a PRUNED plan whose outline
   contains ONLY the sufficient sections — the under-covered section is NOT in the plan passed to
   `generate_multi_section_report` (structurally cannot be rendered).
-- **P4-7c partial-mode out-of-plan disabled (iter-4 P1 #1):** in `partial_saturation` mode, the FINAL
-  rendered report's sections == the pruned sufficient sections ONLY — NO V30 contract-plan sections, NO
-  M50/trial appendices (assert the generator is NOT given v30_contract_plans and the M50 append is skipped).
+- **P4-7c partial-mode out-of-plan disabled EXHAUSTIVE (iter-5 P1 #1):** a fixture that would otherwise emit
+  Trial Summary + Analyst Synthesis + Limitations + V30 contract sections + M50 appendices → in
+  `partial_saturation` mode the rendered report's headings == EXACTLY the pruned sufficient sections (none of
+  the five out-of-plan appenders fire); PROCEED/full mode still emits them.
 - **P4-7b pruned-plan index remap invariant (iter-2 P2):** after pruning, the pruned plan's orphaned
   sub_queries are dropped, the retained sections' sub_query_indices are REMAPPED to the compacted
   sub_queries, ALL indices are in-range, and `union(sub_query_indices)==range(len(pruned.sub_queries))` holds
