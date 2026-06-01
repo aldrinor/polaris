@@ -344,6 +344,25 @@ _PROVENANCE_TOKEN_RE = re.compile(
     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
 )
 
+# I-meta-005 Phase 7 (#991): Regime C — COMPUTED numbers. A calc token binds a
+# rendered number to ONE field of THIS run's quantified model. Grammar:
+#   [#calc:<model_id>:<spec_hash>:<field>]
+# placed IMMEDIATELY after the rendered display value (token adjacency). <field>
+# addresses every computed number: an output (`tco`), a sensitivity point
+# (`tco@discount=0.06`), or a break-even (`tco.break_even`). spec_hash binds the
+# token to THIS run's model (a stale/foreign model_id|spec_hash → Regime C FAIL).
+_CALC_TOKEN_RE = re.compile(
+    r"\[#calc:(?P<model_id>[A-Za-z0-9_]+):(?P<spec_hash>[A-Za-z0-9]+):"
+    r"(?P<field>[^\]]+)\]"
+)
+
+# Regime C equality is canonicalize-and-compare (the parsed adjacent number must
+# re-format to EXACTLY the field's display_value via the shared _canonical_display)
+# — there is NO numeric tolerance (a tolerance let a magnitude-scaled wrong number
+# pass, Codex diff-gate iter1 P1-2). Only the modeled-assumption disclosure label
+# is a named constant here.
+_MODELED_ASSUMPTION_LABEL = "(modeled assumption)"
+
 # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
 # tokens emitted by V4 Pro per the Step 3a atom-citation contract
 # (additive to [ev_XXX]) must be invisible to every internal check
@@ -378,6 +397,7 @@ def _verifier_cleaned_text(sentence: str) -> str:
     SentenceVerification.sentence.
     """
     s = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
+    s = _CALC_TOKEN_RE.sub(" ", s)
     s = _VERIFIER_STRIP_ATOM_RE.sub(" ", s)
     s = _VERIFIER_STRIP_BARE_EV_RE.sub(" ", s)
     return re.sub(r"\s+", " ", s).strip()
@@ -994,11 +1014,143 @@ def _trial_names_for_cited_row(ev: dict[str, Any], cited_spans: list[tuple[int, 
     return span_trials
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Regime C — verification of COMPUTED numbers (Phase 7, #991)
+# ─────────────────────────────────────────────────────────────────────────────
+# Captures the numeric run IMMEDIATELY before a calc token (optional $ prefix,
+# optional % suffix, thousands-grouped). Used for token-adjacency binding so the
+# token verifies against the number it directly follows, not a modeled-assumption
+# number elsewhere in the sentence.
+_CALC_ADJACENT_NUMBER_RE = re.compile(r"(\$?\s*-?\d[\d,]*(?:\.\d+)?\s*%?)\s*$")
+
+
+def _calc_parse_number(text: str) -> float | None:
+    m = re.search(r"-?\d[\d,]*(?:\.\d+)?", text or "")
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def verify_modeled_atom(
+    sentence: str,
+    calc_match: "re.Match[str]",
+    quantified_models: dict[tuple[str, str], Any],
+    evidence_pool: dict[str, dict[str, Any]],
+) -> SentenceVerification:
+    """Verify a sentence carrying a ``[#calc:model_id:spec_hash:field]`` token.
+
+    Fail-closed checks (brief §1.5):
+      (a) (model_id, spec_hash) resolves in the RUN-SCOPED registry — a stale or
+          foreign model reference fails (P7-19).
+      (b) the field exists in that model's executed result.
+      (c) the rendered number IMMEDIATELY before the token equals the field's
+          canonical ``display_value`` — exact display-string match OR a tight
+          numeric backstop (D2). Adjacency means a modeled-assumption number
+          elsewhere in the sentence cannot satisfy the token (P7-20).
+      (d) every modeled input USED by the field is labeled "(modeled assumption)"
+          in the sentence (P7-7/P7-8).
+      (e) the field's sourced inputs all resolve in the evidence pool.
+
+    On PASS, returns SentenceVerification whose ``tokens`` are the source-input
+    ProvenanceTokens (so resolve_provenance_to_citations cites the inputs) — the
+    calc token is stripped downstream. On any failure → is_verified=False (the
+    whole sentence is dropped).
+    """
+    model_id = calc_match.group("model_id")
+    spec_hash = calc_match.group("spec_hash")
+    field_id = calc_match.group("field")
+    failures: list[str] = []
+
+    result = quantified_models.get((model_id, spec_hash))
+    if result is None:
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=[f"calc_model_not_in_registry:{model_id}:{spec_hash}"],
+        )
+    fld = getattr(result, "fields", {}).get(field_id)
+    if not isinstance(fld, dict):
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=[f"calc_field_unknown:{field_id}"],
+        )
+
+    display_value = str(fld.get("display_value", ""))
+
+    # (c) adjacency + equality (Codex diff-gate P1-1/P1-2). The rendered number
+    # IMMEDIATELY before the token must canonicalize to EXACTLY the field's
+    # display_value. Two fail-closed properties:
+    #   - FULL-number compare (not `before.endswith(display_value)`, which would
+    #     accept "123.40%" for a "23.40%" field — the wrong number ends with the
+    #     canonical string).
+    #   - RE-CANONICALIZE the parsed adjacent value through the SAME pinned
+    #     formatter and require an exact string match (no magnitude-scaled rel-tol
+    #     drift, which would accept "$1,000,000,000,999.00" for a
+    #     "$1,000,000,000,000.00" field). A benign reformat (missing $/commas) that
+    #     canonicalizes to the same string still passes; any real numeric
+    #     difference fails.
+    before = sentence[: calc_match.start()]
+    adj = _CALC_ADJACENT_NUMBER_RE.search(before)
+    if adj is None:
+        failures.append("calc_no_adjacent_number")
+    else:
+        adj_str = adj.group(1).strip()
+        ok = adj_str == display_value
+        if not ok:
+            adj_val = _calc_parse_number(adj_str)
+            if adj_val is not None:
+                from src.polaris_graph.synthesis.tradeoff_modeler import (
+                    _canonical_display,
+                )
+                recanon = _canonical_display(
+                    adj_val,
+                    str(fld.get("unit", "")),
+                    str(fld.get("display_kind", "number")),
+                )
+                ok = recanon == display_value
+        if not ok:
+            failures.append(f"calc_number_mismatch:{adj_str}!={display_value}")
+
+    # (d) modeled-assumption labeling
+    modeled_used = fld.get("modeled_used") or []
+    if modeled_used and _MODELED_ASSUMPTION_LABEL not in sentence:
+        failures.append(
+            "calc_modeled_assumption_unlabeled:" + ",".join(map(str, modeled_used))
+        )
+
+    # (e) sourced-input evidence resolution + ProvenanceToken construction
+    src_tokens: list[ProvenanceToken] = []
+    for t in (fld.get("sourced_tokens") or []):
+        ev_id = str(t.get("ev_id", ""))
+        if ev_id not in evidence_pool:
+            failures.append(f"calc_input_ev_not_in_pool:{ev_id}")
+            continue
+        src_tokens.append(ProvenanceToken(
+            evidence_id=ev_id,
+            start=int(t.get("start", 0)),
+            end=int(t.get("end", 0)),
+            raw=str(t.get("raw", "")),
+        ))
+
+    if failures:
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=failures,
+        )
+    return SentenceVerification(
+        sentence=sentence, tokens=src_tokens, is_verified=True,
+        failure_reasons=[], soft_warnings=["regime_c_modeled_verified"],
+    )
+
+
 def verify_sentence_provenance(
     sentence: str,
     evidence_pool: dict[str, dict[str, Any]],
     *,
     require_number_match: bool = True,
+    quantified_models: dict[tuple[str, str], Any] | None = None,
 ) -> SentenceVerification:
     """Verify every provenance token in a sentence.
 
@@ -1007,7 +1159,36 @@ def verify_sentence_provenance(
       2. Span bounds are within evidence direct_quote length.
       3. If require_number_match AND the sentence contains numbers,
          each number must appear in the claimed span text.
+
+    Phase 7 (#991) — Regime C router: when ``quantified_models`` is supplied
+    (run-scoped registry keyed by (model_id, spec_hash)) AND the sentence carries
+    a ``[#calc:...]`` token, the sentence is FORCE-ROUTED to
+    ``verify_modeled_atom`` BEFORE the Regime-A machinery below and that result is
+    returned. ``quantified_models=None`` (default) skips the router entirely →
+    Regime A is byte-identical.
     """
+    if quantified_models is not None:
+        _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
+        if _calc_matches:
+            # Fail-closed sentence-shape rules (brief §1.5: AT MOST one calc number
+            # per sentence). >1 calc token would leave the 2nd..Nth number
+            # unverified after the 1st is checked; a MIXED [#calc:]+[#ev:] sentence
+            # would launder an unverified Regime-A numeric claim through the calc
+            # path. Both drop the whole sentence.
+            if len(_calc_matches) > 1:
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_multiple_tokens_in_sentence"],
+                )
+            if _PROVENANCE_TOKEN_RE.search(sentence):
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_mixed_with_ev_token"],
+                )
+            return verify_modeled_atom(
+                sentence, _calc_matches[0], quantified_models, evidence_pool,
+            )
+
     tokens = parse_provenance_tokens(sentence)
     failures: list[str] = []
     # Phase 0b Delta 3 (I-meta-005, gap-#18): tracks whether the entailment
@@ -1649,6 +1830,7 @@ def strict_verify(
     *,
     require_number_match: bool = True,
     telemetry_block: str | None = None,
+    quantified_models: dict[tuple[str, str], Any] | None = None,
 ) -> StrictVerificationReport:
     """Run strict verification on a draft. Drops failing sentences.
 
@@ -1673,6 +1855,7 @@ def strict_verify(
         v = verify_sentence_provenance(
             s, evidence_pool,
             require_number_match=require_number_match,
+            quantified_models=quantified_models,
         )
         if v.is_verified:
             kept.append(v)
@@ -1751,6 +1934,9 @@ def resolve_provenance_to_citations(
         # — must PRESERVE atom_NNN so PR #906 Step 3b validator can
         # see atom citations downstream in verified_text.
         stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+        # Phase 7 (#991): strip calc tokens too so a verified computed-number
+        # sentence carries its source-input [N] citations but no token leak.
+        stripped = _CALC_TOKEN_RE.sub("", stripped).strip()
         # Clean trailing spaces before punctuation
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments

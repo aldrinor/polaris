@@ -3626,6 +3626,95 @@ async def run_one_query(
                 f"*{ANALYST_SYNTHESIS_DISCLOSURE}*\n\n"
                 f"{multi.analyst_synthesis_text}"
             )
+        # I-meta-005 Phase 7 (#991): quantified trade-off (gap 9, PAL rewire).
+        # Gate PG_ENABLE_QUANTIFIED_ANALYSIS (default OFF -> whole block skipped,
+        # report + manifest byte-identical). ON-mode runs Extract -> Model ->
+        # Execute(deterministic, no codegen LLM) -> Bind -> Verify(Regime C) and
+        # appends a VERIFIED "Quantified Trade-off" section BEFORE Limitations
+        # (D3). The Model spec-gen Writer call is the ONLY billed step
+        # (operator-gated). Defensive: any failure logs + skips, never aborts.
+        _quantified_telemetry = None
+        if os.environ.get("PG_ENABLE_QUANTIFIED_ANALYSIS", "0").strip() in (
+            "1", "true", "TRUE", "yes",
+        ):
+            try:
+                import json as _q_json
+                import re as _q_re
+
+                from src.polaris_graph.generator.quantified_analysis import (
+                    run_quantified_section,
+                )
+                from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+
+                _q_ev_pool = {
+                    ev["evidence_id"]: ev for ev in evidence_for_gen
+                    if isinstance(ev, dict) and ev.get("evidence_id")
+                }
+
+                async def _q_spec_provider(_question, _sourced):
+                    # The ONLY billed step: ask the Writer for a JSON ModelSpec
+                    # over the EXISTING extracted sourced numbers; parse defensively.
+                    _shortlist = [
+                        {"evidence_id": d.get("evidence_id"), "label": d.get("label"),
+                         "context": d.get("context"), "value": d.get("value"),
+                         "unit": d.get("unit")}
+                        for d in _sourced[:40]
+                    ]
+                    _prompt = (
+                        "You are modeling a quantified trade-off for a research "
+                        "report. Using ONLY the sourced numbers below, emit a "
+                        "SINGLE JSON object (no prose) with keys model_id, title, "
+                        "inputs, outputs, sensitivity, solve_for per the POLARIS "
+                        "ModelSpec schema. Each SOURCED input MUST carry "
+                        "datapoint_ref:{ev_id,label,context,value,unit} copied "
+                        "EXACTLY from one listed number; mark every ASSUMPTION "
+                        "input modeled:true with base+unit+sweep. Every output "
+                        "formula must be pure arithmetic over the declared input "
+                        "names. If the numbers do not support a defensible model, "
+                        'return {"model_id":"none"} and nothing else.\n\n'
+                        f"QUESTION: {_question}\n\n"
+                        f"SOURCED NUMBERS (JSON): {_q_json.dumps(_shortlist)[:8000]}"
+                    )
+                    _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    try:
+                        _resp = await _client.generate(
+                            _prompt, max_tokens=1500, temperature=0.0,
+                        )
+                    finally:
+                        await _client.close()
+                    _txt = getattr(_resp, "content", "") or ""
+                    _m = _q_re.search(r"\{.*\}", _txt, _q_re.DOTALL)
+                    if not _m:
+                        return None
+                    try:
+                        _obj = _q_json.loads(_m.group(0))
+                    except _q_json.JSONDecodeError:
+                        return None
+                    if (not isinstance(_obj, dict)
+                            or _obj.get("model_id") in (None, "", "none")):
+                        return None
+                    return _obj
+
+                _q_section_md, _quantified_telemetry = await run_quantified_section(
+                    q["question"], _q_ev_pool,
+                    spec_provider=_q_spec_provider, run_dir=str(run_dir),
+                )
+                if _q_section_md:
+                    sections_concat += "\n\n" + _q_section_md
+                    _log(
+                        "[phase7]      quantified trade-off: "
+                        f"{_quantified_telemetry.get('verified_sentences', 0)} "
+                        "verified sentence(s)"
+                    )
+                else:
+                    _log(
+                        "[phase7]      no quantified section "
+                        f"(spec_produced={_quantified_telemetry.get('spec_produced')})"
+                    )
+            except Exception as _q_exc:  # never abort the run on quantified failure
+                _log(f"[phase7]      quantified analysis skipped: {str(_q_exc)[:160]}")
+                _quantified_telemetry = {"enabled": True, "error": str(_q_exc)[:200]}
+
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 
@@ -4267,6 +4356,13 @@ async def run_one_query(
         # (key absent in OFF -> legacy manifest shape preserved).
         if _finding_dedup_telemetry is not None:
             manifest["finding_dedup"] = _finding_dedup_telemetry
+
+        # I-meta-005 Phase 7 (#991): quantified-analysis telemetry (spec produced,
+        # execution success, sourced/modeled input counts, verified/dropped
+        # sentence counts, sourced-input conflicts). ON-mode only (key absent in
+        # OFF -> legacy manifest shape preserved byte-for-byte).
+        if _quantified_telemetry is not None:
+            manifest["quantified_analysis"] = _quantified_telemetry
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)

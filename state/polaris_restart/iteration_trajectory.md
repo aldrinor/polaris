@@ -1232,3 +1232,61 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   Integrative prompt-mandate ok for shape-1; answer_type plan_sha change ok).
   Preceded by: 4-scout build-map workflow + Part-B shape consult (shape 1) + 5-lens
   adversarial architect review (40 findings, 0 real defects). Merge authorized.
+
+## I-meta-005 Phase 7 (#991) — brief gate
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 4 P2 + D1-D5 ruled.
+  Deep pre-code findings: (P1-1) sourced inputs must bind value+span not ev_id-only;
+  (P1-2) one number per calc token; (P1-3) Execute must be DETERMINISTIC (template
+  script from spec, no free LLM codegen — sandbox proves safety not correctness);
+  (P1-4) token-strip + input-citation resolution. D-rulings: ASCII token (D1),
+  display-value equality (D2), dedicated section (D3), whole-model-skip (D4), confirm
+  sensitivity/break-even (D5). ALL addressed in iter-2 brief (deterministic render_script,
+  value+span verbatim check, one-token-per-number, strip, ASCII grammar, dedicated
+  section, 14 smoke cases). convergence_call: continue.
+- **iter 2** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 3 P2 (precise
+  executability). (P1-1) extractor has no byte-span → bind ev_id+literal, verify literal
+  numeric-verbatim in direct_quote; (P1-2) modeled inputs need base scalar + bracketed
+  solve_for; (P1-3) sentence-level keep/drop (one calc-number/sentence); (P1-4) every input
+  must be in the formula dependency AST. P2: async execute, pinned display formatter, conflict
+  threshold. ALL addressed iter-3. convergence_call: continue (converging — iter1 design holes,
+  iter2 executability precision, decreasing).
+- **iter 3** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 2 P1, 3 P2 (converging 4->4->2).
+  (P1-1) build_quantified_spec needs evidence_rows arg to inspect cited direct_quote;
+  (P1-2) outputs need {name,unit,display_kind} for deterministic canonical display/replay.
+  P2: stale span wording, direct_quote-OR-statement, numeric (not syntactic) dependency check.
+  ALL addressed iter-4. convergence_call: continue.
+- **iter 4** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 1 P1, 2 P2 (converging 4->4->2->1).
+  (P1) sourced-input binding still row-level — a multi-number row could pair right ev_id with
+  wrong quantity; fix = bind to a CONCRETE extracted datapoint (datapoint_ref match by
+  ev_id+value+unit from sourced_numbers). P2: pin _canonical_display(value,unit,display_kind);
+  per-output formula mapping. ALL addressed iter-5. This is the iter-5 cap submission; if still
+  REQUEST_CHANGES, force-APPROVE per §8.3.1 on residual non-P0/P1.
+- **iter 5 (CAP)** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 2 P1, 3 P2. CAP-EXCEPTION
+  (§-1.2.6): both P1 are REAL wedge-safety blockers (datapoint exact-identity vs repeated values;
+  Regime C run-scoped model lookup) with DETERMINISTIC Codex-prescribed fixes -> applied + ONE
+  confirmatory re-gate (iter 6), NOT cap-force-approve. iter5_cap_exception.txt logged.
+- **iter 6 (confirmatory)** (2026-06-01): `verdict: REQUEST_CHANGES`, 2 P1 + 3 P2. iter-5 P1s
+  ACCEPTED/closed. Residuals = precise data-contract (raw-literal+span; perturb-primary
+  dependency) — applied to brief. FORCE-APPROVE per §8.3.1 (6 iters; confirmatory exception
+  used; design correct+complete+wedge-safe; diff-gate verifies the real-code implementation).
+  codex_brief_verdict_iter6_force_approve.txt. Proceed to BUILD.
+- **Phase-7 DIFF-gate iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`, 2 P1 + 2 P2,
+  0 P0. Both P1 were REAL false-number-survives holes (the wedge class): P1-1
+  `before.endswith(display_value)` accepts "123.40%" for a "23.40%" field; P1-2
+  rel_tol=1e-9 numeric backstop accepts "$1,000,000,000,999" for a "$1e12" field.
+  FIX (deterministic, §-1.2.6): canonicalize-and-compare — parse the adjacent number,
+  re-format through the SAME pinned `_canonical_display`, require exact string match;
+  removed endswith + the rel/abs tol + `_is_calc_equal`. P2-1 (persist modeled_used +
+  sourced_tokens in quantified_model.json) FIXED. P2-2 (per-input modeled label) ACCEPTED
+  as disclosure-completeness (Codex: "not a wedge failure"; number is executor-correct).
+  +P7-23/P7-24 smoke (the exact Codex examples). 29 P7 + 39 regression green. Re-gate iter 2.
+- **Phase-7 DIFF-gate iter 2** (2026-06-01): `verdict: REQUEST_CHANGES`, 1 P1 + 1 P2, 0 P0.
+  P1 (REAL false-DROP): `_canonical_display` "number" kind could emit scientific notation
+  ("1e+06") which the verifier's decimal-only adjacency regex would mis-bind -> drop a
+  LEGITIMATE computed number. FIX: never emit sci notation — expand to plain fixed-point
+  decimal via Decimal. P2 (stale `_CALC_EQ_*` tol constants) REMOVED. +P7-25 smoke
+  (number-kind plain-decimal + verify). 30 P7 + 84 regression green. Re-gate iter 3.
+- **Phase-7 DIFF-gate iter 3** (2026-06-01): `verdict: APPROVE`, 0 P0/P1/P2,
+  convergence_call accept_remaining. Wedge holds: no false-accept (suffix/magnitude
+  closed iter1) AND no false-drop (sci-notation closed iter2). MERGE AUTHORIZED.
+  Trajectory P1: diff 2->1->0. Brief: 4->4->2->1->2->2 (force-APPROVE). Phase 7 COMPLETE.

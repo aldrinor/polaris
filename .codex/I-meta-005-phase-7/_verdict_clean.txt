@@ -1,0 +1,39 @@
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-1
+    finding: "Sourced-input literal binding is still not executable against the real extractor/provenance contract. `extract_numbers_from_evidence()` returns `evidence_id`, `label`, normalized string `value`, `unit`, and `context`, but no `raw_literal` and no span. Regime A/`ProvenanceToken` still require concrete start/end spans for citation resolution. Checking normalized `value` verbatim will also reject valid scaled literals like `$1.548 billion` -> `1548000000.0`."
+    required_change: "Require `build_quantified_spec` to locate a unique raw literal in `statement`/`direct_quote` or context, parse it with extractor-equivalent normalization to the datapoint value/unit, persist `{literal,start,end}`, and fail closed if no unique literal span exists."
+  - id: P1-2
+    finding: "The dependency rule says every input must materially affect an output, but §1.2(iii) ends with 'reject only when the AST shows NO occurrence'. That allows `irrelevant * 0 + y`, `x - x + y`, or other canceling formulas to pass while citing inputs that do not affect the computed number."
+    required_change: "Make numeric perturb/material-effect validation normative: reject any declared input whose perturb does not change at least one output at non-degenerate test points, not just inputs absent from the AST. Add a smoke for cancellation/zero-effect formulas."
+p2:
+  - "Pin calc-number binding adjacency: the token should be immediately attached to the rendered computed display value, or verification can become ambiguous when the sentence also includes modeled-assumption/input numbers."
+  - "Add smoke coverage for raw-literal recovery with scaled literals, exact-one duplicate datapoint ambiguity, and cancellation/zero-effect dependency rejection."
+  - "The substrate map is stale relative to this brief: it still references older `[ #model ... ]` grammar and LLM-generated execution paths. Mark the brief as superseding it or update the map."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and persist raw literal + span for sourced inputs despite the extractor lacking spans."
+  - "Tighten dependency validation so declared inputs must materially affect outputs, not merely appear syntactically."
+tokens used
+48,490
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-1
+    finding: "Sourced-input literal binding is still not executable against the real extractor/provenance contract. `extract_numbers_from_evidence()` returns `evidence_id`, `label`, normalized string `value`, `unit`, and `context`, but no `raw_literal` and no span. Regime A/`ProvenanceToken` still require concrete start/end spans for citation resolution. Checking normalized `value` verbatim will also reject valid scaled literals like `$1.548 billion` -> `1548000000.0`."
+    required_change: "Require `build_quantified_spec` to locate a unique raw literal in `statement`/`direct_quote` or context, parse it with extractor-equivalent normalization to the datapoint value/unit, persist `{literal,start,end}`, and fail closed if no unique literal span exists."
+  - id: P1-2
+    finding: "The dependency rule says every input must materially affect an output, but §1.2(iii) ends with 'reject only when the AST shows NO occurrence'. That allows `irrelevant * 0 + y`, `x - x + y`, or other canceling formulas to pass while citing inputs that do not affect the computed number."
+    required_change: "Make numeric perturb/material-effect validation normative: reject any declared input whose perturb does not change at least one output at non-degenerate test points, not just inputs absent from the AST. Add a smoke for cancellation/zero-effect formulas."
+p2:
+  - "Pin calc-number binding adjacency: the token should be immediately attached to the rendered computed display value, or verification can become ambiguous when the sentence also includes modeled-assumption/input numbers."
+  - "Add smoke coverage for raw-literal recovery with scaled literals, exact-one duplicate datapoint ambiguity, and cancellation/zero-effect dependency rejection."
+  - "The substrate map is stale relative to this brief: it still references older `[ #model ... ]` grammar and LLM-generated execution paths. Mark the brief as superseding it or update the map."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and persist raw literal + span for sourced inputs despite the extractor lacking spans."
+  - "Tighten dependency validation so declared inputs must materially affect outputs, not merely appear syntactically."

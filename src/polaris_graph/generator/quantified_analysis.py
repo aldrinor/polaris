@@ -1,0 +1,384 @@
+"""I-meta-005 Phase 7 (#991) — Quantified analysis executor + binder (gap 9).
+
+Owns the **Execute** (run the deterministic script in the existing sandbox) and
+**Bind** (attach one calc token per rendered computed number) stages of the
+Extract -> Model -> Execute -> Bind -> Verify pipeline.
+
+``execute_quantified_model`` renders the validated spec to a FIXED Python script
+(``tradeoff_modeler.render_script`` — no codegen LLM), runs it via the EXISTING
+``code_executor.execute_analysis_script`` (sandbox unchanged), and pins each
+computed field's canonical ``display_value`` (via the ONE shared
+``_canonical_display``) so Regime C verification is an exact-string equality plus
+a numeric backstop, and so the spec replays deterministically (gap-19).
+
+The ``QuantifiedResult`` it returns is intentionally self-describing with plain
+data (no tradeoff_modeler dataclasses leak into the verifier): each field carries
+``value`` / ``display_value`` / ``modeled_used`` (names that must be labeled
+"(modeled assumption)") / ``sourced_tokens`` (the evidence spans Regime C returns
+so resolve_provenance_to_citations cites the inputs).
+
+SPEND-FREE: deterministic render + sandbox execution of FIXED Python; no network.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from src.polaris_graph.synthesis.tradeoff_modeler import (
+    ModelSpec,
+    _canonical_display,
+    output_referenced_inputs,
+)
+from src.polaris_graph.tools.code_executor import execute_analysis_script
+
+logger = logging.getLogger(__name__)
+
+# ``{{calc:<field>}}`` placeholder the Writer/section template emits where a
+# computed number should be rendered + bound.
+_CALC_PLACEHOLDER_RE = re.compile(r"\{\{calc:(?P<field>[^}]+)\}\}")
+
+# Two extracted datapoints describing the SAME quantity (same label + unit) whose
+# values disagree by more than this are a sourced-input conflict — surfaced in
+# manifest telemetry so the operator sees the corpus contradiction (named, Law VI).
+_CALC_CONFLICT_REL_TOL = float(os.environ.get("PG_CALC_CONFLICT_REL_TOL", "0.05"))
+
+
+def detect_sourced_conflicts(
+    sourced_numbers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Flag datapoints that describe the SAME quantity (same label+unit) but whose
+    values disagree by > ``PG_CALC_CONFLICT_REL_TOL``. Telemetry only — does not
+    gate. Returns a list of conflict records {label, unit, values, rel_spread}."""
+    groups: dict[tuple[str, str], list[float]] = {}
+    for dp in sourced_numbers:
+        label = str(dp.get("label", "")).strip().lower()
+        unit = str(dp.get("unit", "")).strip().lower()
+        if not label:
+            continue
+        try:
+            val = float(dp.get("value"))
+        except (TypeError, ValueError):
+            continue
+        groups.setdefault((label, unit), []).append(val)
+
+    conflicts: list[dict[str, Any]] = []
+    for (label, unit), vals in groups.items():
+        if len(vals) < 2:
+            continue
+        lo, hi = min(vals), max(vals)
+        denom = max(abs(lo), abs(hi), 1e-9)
+        rel_spread = abs(hi - lo) / denom
+        if rel_spread > _CALC_CONFLICT_REL_TOL:
+            conflicts.append({
+                "label": label, "unit": unit,
+                "values": sorted(set(vals)), "rel_spread": rel_spread,
+            })
+    return conflicts
+
+
+@dataclass
+class QuantifiedResult:
+    model_id: str
+    spec_hash: str
+    spec: ModelSpec
+    script: str
+    # field_id -> {value, display_value, modeled_used: [names],
+    #             sourced_tokens: [{ev_id,start,end,raw}]}
+    fields: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def key(self) -> tuple[str, str]:
+        return (self.model_id, self.spec_hash)
+
+    def display_value(self, field_id: str) -> str | None:
+        f = self.fields.get(field_id)
+        return None if f is None else f.get("display_value")
+
+    def calc_token(self, field_id: str) -> str:
+        return f"[#calc:{self.model_id}:{self.spec_hash}:{field_id}]"
+
+
+def _modeled_set(spec: ModelSpec) -> set[str]:
+    return {m.name for m in spec.modeled_inputs}
+
+
+def _sourced_tokens_for(spec: ModelSpec, refs: set[str]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for s in spec.sourced_inputs:
+        if s.name in refs:
+            out.append({
+                "ev_id": s.ev_id,
+                "start": int(s.literal_start),
+                "end": int(s.literal_end),
+                "raw": s.raw_literal,
+            })
+    return out
+
+
+def _output_for_field(field_id: str) -> str:
+    """Map a field id to its underlying output name.
+
+    output            -> "tco"
+    sensitivity point -> "tco@discount=0.06"  -> "tco"
+    break-even        -> "tco.break_even"     -> "tco"
+    """
+    base = field_id.split("@", 1)[0]
+    if base.endswith(".break_even"):
+        base = base[: -len(".break_even")]
+    return base
+
+
+async def execute_quantified_model(
+    spec: ModelSpec,
+    evidence_rows: dict[str, dict[str, Any]],
+    *,
+    run_dir: str | None = None,
+    timeout: int | None = None,
+) -> QuantifiedResult | None:
+    """Render -> execute (sandbox) -> pin per-field display_value -> persist.
+
+    Returns a ``QuantifiedResult`` or ``None`` if execution fails (fail-closed:
+    a model that does not execute cleanly contributes no verified numbers).
+    """
+    from src.polaris_graph.synthesis.tradeoff_modeler import render_script
+
+    script = render_script(spec)
+    exec_result = await execute_analysis_script(script, input_data=None, timeout=timeout)
+    if not exec_result.get("success") or not isinstance(exec_result.get("result"), dict):
+        logger.warning(
+            "[quantified_analysis] execute failed for model %s: %s",
+            spec.model_id, str(exec_result.get("error"))[:160],
+        )
+        return None
+
+    parsed = exec_result["result"]
+    raw_outputs = parsed.get("outputs") or {}
+    raw_sens = parsed.get("sensitivity") or {}
+    raw_be = parsed.get("break_even") or {}
+    modeled_names = _modeled_set(spec)
+
+    fields: dict[str, dict[str, Any]] = {}
+
+    def _add_output_field(field_id: str, value: Any, *, exclude: str | None = None):
+        out_name = _output_for_field(field_id)
+        out = spec.output_by_name(out_name)
+        if out is None:
+            return
+        try:
+            fval = float(value)
+        except (TypeError, ValueError):
+            return
+        is_break_even = field_id.endswith(".break_even")
+        # break-even renders the solve-var VALUE (a threshold), not the output's
+        # currency/percent — display it as a plain number.
+        if is_break_even:
+            disp_unit, disp_kind = "", "number"
+        else:
+            disp_unit, disp_kind = out.unit, out.display_kind
+        display = _canonical_display(fval, disp_unit, disp_kind)
+        refs = output_referenced_inputs(spec, out_name)
+        modeled_used = sorted((refs & modeled_names) - ({exclude} if exclude else set()))
+        fields[field_id] = {
+            "value": fval,
+            "display_value": display,
+            # display_kind + unit let Regime C RE-CANONICALIZE the adjacent number
+            # (Codex diff-gate P1-1/P1-2): the parsed adjacent value must format to
+            # EXACTLY display_value — no suffix-match, no magnitude-scaled drift.
+            "display_kind": disp_kind,
+            "unit": disp_unit,
+            "modeled_used": modeled_used,
+            "sourced_tokens": _sourced_tokens_for(spec, refs),
+        }
+
+    for name, value in raw_outputs.items():
+        _add_output_field(str(name), value)
+    for fid, value in raw_sens.items():
+        # "tco@discount=0.06" -> the swept var is stated as the point, exclude it
+        swept = None
+        if "@" in fid:
+            after = fid.split("@", 1)[1]
+            swept = after.split("=", 1)[0]
+        _add_output_field(str(fid), value, exclude=swept)
+    for fid, value in raw_be.items():
+        out_name = _output_for_field(str(fid))
+        var = spec.solve_for.var if spec.solve_for else None
+        _add_output_field(str(fid), value, exclude=var)
+
+    result = QuantifiedResult(
+        model_id=spec.model_id, spec_hash=spec.spec_hash, spec=spec,
+        script=script, fields=fields,
+    )
+
+    if run_dir:
+        try:
+            _persist(result, run_dir)
+        except OSError as exc:
+            logger.warning("[quantified_analysis] persist failed: %s", str(exc)[:160])
+
+    return result
+
+
+def _persist(result: QuantifiedResult, run_dir: str) -> str:
+    """Write the audit/replay bundle (gap-19): spec + rendered script + per-field
+    canonical display values + spec_hash."""
+    spec = result.spec
+    bundle = {
+        "model_id": result.model_id,
+        "spec_hash": result.spec_hash,
+        "title": spec.title,
+        "script": result.script,
+        "sourced_inputs": [
+            {"name": s.name, "value": s.value, "unit": s.unit, "ev_id": s.ev_id,
+             "raw_literal": s.raw_literal, "literal_span": [s.literal_start, s.literal_end]}
+            for s in spec.sourced_inputs
+        ],
+        "modeled_inputs": [
+            {"name": m.name, "base": m.base, "unit": m.unit,
+             "sweep": [m.sweep_lo, m.sweep_hi, m.sweep_step]}
+            for m in spec.modeled_inputs
+        ],
+        "outputs": [
+            {"name": o.name, "unit": o.unit, "display_kind": o.display_kind,
+             "formula": o.formula}
+            for o in spec.outputs
+        ],
+        "fields": {
+            fid: {
+                "value": f["value"], "display_value": f["display_value"],
+                "display_kind": f.get("display_kind"), "unit": f.get("unit"),
+                # Codex diff-gate P2-1: persist the full per-field audit record
+                # (modeled inputs that must be labeled + the source-input spans).
+                "modeled_used": f.get("modeled_used", []),
+                "sourced_tokens": f.get("sourced_tokens", []),
+            }
+            for fid, f in result.fields.items()
+        },
+    }
+    path = os.path.join(run_dir, "quantified_model.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(bundle, fh, indent=2, sort_keys=True)
+    return path
+
+
+def bind_calc_tokens(prose: str, result: QuantifiedResult) -> str:
+    """Replace each ``{{calc:<field>}}`` placeholder with the field's canonical
+    display value IMMEDIATELY followed by its calc token, so the verifier binds
+    the token to the exact rendered number (token adjacency, brief §1.4)."""
+    def _sub(m: re.Match) -> str:
+        fid = m.group("field")
+        disp = result.display_value(fid)
+        if disp is None:
+            return m.group(0)  # leave unknown placeholder untouched (will fail verify)
+        return f"{disp}{result.calc_token(fid)}"
+
+    return _CALC_PLACEHOLDER_RE.sub(_sub, prose)
+
+
+def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> str:
+    """Deterministically template a one-sentence-per-number trade-off paragraph
+    with ``{{calc:<field>}}`` placeholders + per-sentence "(modeled assumption)"
+    labels where the field uses a modeled input. NOT an LLM call — the NUMBERS
+    come from the verified executor; only the connective prose is templated, so
+    no model can confabulate a computed value. One calc number per sentence
+    (sentence-level keep/drop, brief §1.5)."""
+    def _label(field_id: str) -> str:
+        f = result.fields.get(field_id) or {}
+        return (" " + _MODELED_LABEL_TEXT) if f.get("modeled_used") else ""
+
+    sents: list[str] = []
+    for o in spec.outputs:
+        if o.name in result.fields:
+            human = o.name.replace("_", " ")
+            sents.append(f"The {human} is {{{{calc:{o.name}}}}}{_label(o.name)}.")
+    if spec.solve_for is not None:
+        be = f"{spec.solve_for.output}.break_even"
+        if be in result.fields:
+            var = spec.solve_for.var.replace("_", " ")
+            sents.append(f"The break-even {var} is {{{{calc:{be}}}}}{_label(be)}.")
+    return " ".join(sents)
+
+
+_MODELED_LABEL_TEXT = "(modeled assumption)"
+
+
+async def run_quantified_section(
+    question: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    *,
+    spec_provider,
+    run_dir: str | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Sweep-facing orchestrator: Extract -> Model -> Execute -> Bind ->
+    Verify(Regime C) -> verified "Quantified Trade-off" section.
+
+    ``spec_provider`` is an ASYNC callable ``(question, sourced_numbers) ->
+    raw_spec_dict | None`` (the Writer in prod; a fake in tests) — the ONLY
+    billed step, isolated here so the sync validation in ``build_quantified_spec``
+    and the deterministic execute/verify stay spend-free-testable.
+
+    Returns ``(section_markdown | None, telemetry)``. The section is produced
+    ONLY when a spec validates, executes, and at least one computed sentence
+    survives Regime C.
+    """
+    from src.polaris_graph.generator.provenance_generator import (
+        resolve_provenance_to_citations,
+        strict_verify,
+    )
+    from src.polaris_graph.synthesis.tradeoff_modeler import build_quantified_spec
+    from src.polaris_graph.tools.evidence_extractor import (
+        extract_numbers_from_evidence,
+    )
+
+    telem: dict[str, Any] = {
+        "enabled": True, "spec_produced": False, "execution_success": False,
+        "outputs": 0, "sourced_inputs": 0, "modeled_inputs": 0,
+        "verified_sentences": 0, "dropped_sentences": 0, "conflicts": [],
+    }
+
+    sourced_numbers = extract_numbers_from_evidence(evidence_pool)
+    telem["conflicts"] = detect_sourced_conflicts(sourced_numbers)
+    telem["sourced_numbers_extracted"] = len(sourced_numbers)
+
+    try:
+        raw_spec = await spec_provider(question, sourced_numbers)
+    except Exception as exc:
+        logger.warning("[quantified_analysis] spec_provider raised: %s", str(exc)[:160])
+        return None, telem
+    if not isinstance(raw_spec, dict):
+        return None, telem
+
+    spec = build_quantified_spec(
+        question, sourced_numbers, evidence_pool,
+        spec_llm=lambda _q, _s: raw_spec,
+    )
+    if spec is None:
+        return None, telem
+    telem["spec_produced"] = True
+    telem["model_id"] = spec.model_id
+    telem["sourced_inputs"] = len(spec.sourced_inputs)
+    telem["modeled_inputs"] = len(spec.modeled_inputs)
+
+    result = await execute_quantified_model(spec, evidence_pool, run_dir=run_dir)
+    if result is None:
+        return None, telem
+    telem["execution_success"] = True
+    telem["outputs"] = len(spec.outputs)
+
+    prose = render_decision_matrix_prose(spec, result)
+    bound = bind_calc_tokens(prose, result)
+    report = strict_verify(
+        bound, evidence_pool, quantified_models={result.key(): result},
+    )
+    telem["verified_sentences"] = report.total_kept
+    telem["dropped_sentences"] = report.total_dropped
+    if report.total_kept == 0:
+        return None, telem
+
+    rendered, _biblio = resolve_provenance_to_citations(
+        report.kept_sentences, evidence_pool,
+    )
+    section_md = f"### Quantified Trade-off\n\n{rendered}"
+    return section_md, telem

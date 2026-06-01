@@ -1,0 +1,16 @@
+CAP EXCEPTION (CLAUDE.md §-1.2 point 6): the iter-5 brief gate returned 2 P1 that are REAL
+faithfulness-wedge safety blockers, NOT pick-bone-from-egg:
+- P1-1: datapoint identity by {ev_id,value,unit} cannot disambiguate a row that REPEATS the same
+  value+unit for two different quantities -> a wrong-quantity computed number could be verified.
+- P1-2: Regime C had no run-scoped model-lookup contract -> a stale/colliding model_id could
+  resolve a wrong/old model and pass equality.
+Both would let a FALSE computed number into the verified core — exactly the gap-14 failure this
+phase exists to kill. §-1.2.6 forbids cap-5 force-approving a real production blocker. Both fixes
+are DETERMINISTIC (Codex prescribed them exactly): exact-one-match on {ev_id,label,context,value,
+unit} + raw_literal; spec_hash in the calc token + a run-scoped `quantified_models` registry
+threaded into strict_verify; per-field display persistence; sensitivity fail-closed schema; AST+
+non-degenerate-perturb dependency. All applied to the iter-6 brief. ONE confirmatory re-gate to
+verify the contract is closed. CONVERGING (4->4->2->1->2 where the iter-5 "2" are NEW precise
+contract findings that emerged as the design sharpened — real specificity per §8.3.4, not
+toothpaste). Operator standing directive: no circle-jerking, no subpar; this is the only NEW
+build + the wedge extension to computed numbers must be airtight.
