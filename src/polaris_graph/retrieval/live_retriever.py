@@ -1685,6 +1685,7 @@ def run_live_retrieval(
     domain: Optional[str] = None,
     seed_urls: Optional[list[str]] = None,
     seed_only: bool = False,
+    research_frame: Any = None,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1702,11 +1703,39 @@ def run_live_retrieval(
             tech / due_diligence). When set, R-6 Gap-2 domain backends
             augment the generic Serper+S2 retrieval with arxiv (tech),
             SEC EDGAR (DD), or policy-site targeted Serper queries.
+        research_frame: Optional planner `ResearchFrame` (I-meta-005 Phase 2
+            #986). When set (ON-mode), the field-agnostic need-type registry
+            REPLACES the domain backends at the Step-2a seam — discovery is
+            keyed on the frame's declared `evidence_needs` + extracted
+            `jurisdictions`, NOT a domain. Mutually exclusive with `domain` on
+            the on-path (the sweep passes `domain=None` on-mode).
 
     Returns LiveRetrievalResult.
+
+    Raises:
+        MalformedPlanError: when `research_frame` carries a malformed
+            `evidence_needs` value OR a malformed jurisdiction SHAPE. This is
+            validated UP-FRONT (before ANY live discovery, incl. core
+            Serper/S2) and FAILS LOUD — it NEVER silently degrades to core
+            Serper/S2 (brief §2.4 P2-note-1). Distinct from the fail-OPEN
+            adapter/network handling at the Step-2a seam.
     """
     api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
     notes: list[str] = []
+
+    # ── Step 0: UP-FRONT plan validation (I-meta-005 Phase 2, P2-note-1) ──
+    # A malformed frame (bad evidence_need / bad jurisdiction SHAPE) must FAIL
+    # LOUD here — BEFORE the core Serper/S2 baseline spends or populates any
+    # candidate. The router's validation raises MalformedPlanError; we let it
+    # propagate (it is a VALIDATION error, distinct from the fail-OPEN
+    # adapter/network handling at Step 2a). Only fires on-mode (frame present).
+    if research_frame is not None and not seed_only:
+        from src.polaris_graph.discovery.need_type_router import (
+            validate_frame_needs,
+        )
+        # Raises MalformedPlanError on a malformed value/SHAPE; a valid-shape
+        # unknown jurisdiction + an empty evidence_needs both pass (non-fatal).
+        validate_frame_needs(research_frame)
 
     # ── Step 1: compile the effective query list ──────────────────────
     all_queries: list[str] = [research_question]
@@ -1788,11 +1817,54 @@ def run_live_retrieval(
                 query_origin=q,
             ))
 
-    # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
-    # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
-    # for policy. Fail-open: any backend exception yields 0 new hits.
-    # Skipped on the seed_only deepener pass (no extra retrieval).
-    if domain and not seed_only:
+    # ── Step 2a: specialized issuer-class backends ──────────────────
+    # I-meta-005 Phase 2 (#986) DUAL PATH:
+    #   ON-mode (research_frame present): the field-agnostic NEED-TYPE registry
+    #     REPLACES the domain backends — discovery is routed off the frame's
+    #     declared evidence_needs + jurisdictions (NO `if domain ==` branch
+    #     reached). The malformed-frame case already FAILED LOUD at Step 0.
+    #   OFF-mode (domain set, no frame): the legacy R-6 Gap-2 domain switch runs
+    #     byte-identically (arXiv for tech, SEC EDGAR for DD, policy-site Serper
+    #     for policy, Europe PMC for clinical).
+    # Both stay fail-OPEN at the live seam (ADAPTER/network exception -> 0 new
+    # hits; the run degrades to the core Serper/S2 baseline). Skipped on the
+    # seed_only deepener pass (no extra retrieval).
+    if research_frame is not None and not seed_only:
+        # ON-path: need-type registry dispatch. NO domain literal consulted.
+        try:
+            from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                run_need_type_backends,
+            )
+            need_result = run_need_type_backends(
+                frame=research_frame,
+                research_question=research_question,
+                amplified_queries=amplified_queries,
+            )
+            for cand in need_result.candidates:
+                url = cand.url
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                if not getattr(cand, "query_origin", ""):
+                    cand.query_origin = "need_type_backend"
+                candidates.append(cand)
+            if need_result.backends_used:
+                notes.append(
+                    f"need_type_backends({need_result.needs}): "
+                    f"{need_result.per_backend_counts}"
+                )
+                for backend_name in need_result.backends_used:
+                    api_calls[backend_name] = (
+                        api_calls.get(backend_name, 0) + 1
+                    )
+        except Exception as exc:
+            # ADAPTER/network fail-open ONLY. A MalformedPlanError cannot reach
+            # here — it raised at Step 0 before the baseline ran.
+            logger.warning(
+                "[live_retriever] need_type_backends failed (fail-open): %s",
+                exc,
+            )
+    elif domain and not seed_only:
         try:
             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
                 run_domain_backends,

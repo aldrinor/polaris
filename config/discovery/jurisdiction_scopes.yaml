@@ -1,0 +1,182 @@
+# Jurisdiction-scoped discovery site-scopes — I-meta-005 Phase 2 (#986).
+#
+# VERSIONED DATA CONTRACT (LAW VI: knowledge lives in DATA, never in on-path
+# host literals in code). This file REPLACES the on-path use of the US-only
+# `_POLICY_SITE_FILTERS` tuple in `domain_backends.py`; that tuple is retained
+# byte-identical ONLY on the OFF (legacy `if domain ==`) path.
+#
+# Consumed by:
+#   src/polaris_graph/discovery/source_adapter_registry.py
+#   src/polaris_graph/discovery/need_type_router.py
+# via a scope loader that resolves jurisdiction MEMBERSHIP non-fatally:
+#   - a jurisdiction code present here  -> its per-need site scopes apply;
+#   - a valid-shape code ABSENT here    -> NO scope for that need (logged,
+#     never a fabricated/US-default scope), NEVER parser-fatal.
+#
+# NOT a DNS-suffix pre-filter. `config/authority/psl_gov_suffixes.txt` stays an
+# authority pre-filter only (its own header notes it MISSES canada.ca); this
+# file is the discovery-SCOPE source.
+#
+# WILDCARD NORMALIZATION (Phase 2 build-note-2):
+#   Store CANONICAL hosts only — `gc.ca`, NOT `*.gc.ca`. Search operators
+#   handle wildcard hosts (`site:*.gc.ca`) inconsistently, so the adapter
+#   emits `site:gc.ca` (a `site:` on a registrable host already matches
+#   sub-hosts on the major engines). Any `*.` prefix that slips into the data
+#   is normalized away by the loader before emission. Do not add `*.` entries.
+
+schema_version: 1
+provenance:
+  source: "POLARIS Phase 2 bootstrap — official issuer/regulator/statistical/legal/standards hosts per jurisdiction"
+  curated_by: "I-meta-005 Phase 2 (#986)"
+  notes: >-
+    Bootstrap set (US/CA/GB/EU/JP/AU + INTL). Extensible by editing THIS DATA
+    file (add a jurisdiction code + its per-need host arrays), never by adding
+    a host literal to code. Per-need keys are field-agnostic EvidenceNeed
+    values: regulatory / legal / statistical / standards / company_filings /
+    datasets / news_press. A scoped need with no entry for a jurisdiction
+    yields no scope for that need (logged, no fabricated default).
+fetch_date: "2026-05-31"
+
+# ── INTL: cross-jurisdiction standards/issuer bodies (not tied to one code) ──
+# `standards` adapters always include these in addition to any jurisdiction
+# standards scopes.
+INTL:
+  standards:
+    - iso.org
+    - iec.ch
+    - itu.int
+    - ietf.org
+
+jurisdictions:
+  US:
+    regulatory:
+      - federalregister.gov
+      - regulations.gov
+      - fda.gov
+      - cms.gov
+      - hhs.gov
+      - ftc.gov
+      - epa.gov
+    legal:
+      - law.cornell.edu
+      - supremecourt.gov
+      - uscourts.gov
+      - govinfo.gov
+    statistical:
+      - census.gov
+      - bls.gov
+      - bea.gov
+    standards:
+      - nist.gov
+      - ansi.org
+    company_filings:
+      - sec.gov
+    datasets:
+      - data.gov
+    news_press:
+      - whitehouse.gov
+
+  CA:
+    regulatory:
+      - canada.ca
+      - gc.ca
+      - hc-sc.gc.ca
+    legal:
+      - canlii.org
+      - laws-lois.justice.gc.ca
+      - scc-csc.ca
+    statistical:
+      - statcan.gc.ca
+    standards:
+      - scc.ca
+      - csagroup.org
+    company_filings:
+      - sedarplus.ca
+      - osc.ca
+    datasets:
+      - open.canada.ca
+    news_press:
+      - pm.gc.ca
+
+  GB:
+    regulatory:
+      - gov.uk
+      - mhra.gov.uk
+      - nice.org.uk
+      - fca.org.uk
+    legal:
+      - legislation.gov.uk
+      - bailii.org
+      - supremecourt.uk
+    statistical:
+      - ons.gov.uk
+    standards:
+      - bsigroup.com
+    company_filings:
+      - find-and-update.company-information.service.gov.uk
+    datasets:
+      - data.gov.uk
+    news_press:
+      - gov.uk
+
+  EU:
+    regulatory:
+      - europa.eu
+      - ema.europa.eu
+      - eur-lex.europa.eu
+    legal:
+      - eur-lex.europa.eu
+      - curia.europa.eu
+    statistical:
+      - ec.europa.eu
+    standards:
+      - cen.eu
+      - cenelec.eu
+      - etsi.org
+    company_filings:
+      - esma.europa.eu
+    datasets:
+      - data.europa.eu
+    news_press:
+      - ec.europa.eu
+
+  JP:
+    regulatory:
+      - mhlw.go.jp
+      - pmda.go.jp
+      - meti.go.jp
+    legal:
+      - japaneselawtranslation.go.jp
+      - courts.go.jp
+    statistical:
+      - stat.go.jp
+    standards:
+      - jisc.go.jp
+    company_filings:
+      - disclosure2.edinet-fsa.go.jp
+      - fsa.go.jp
+    datasets:
+      - data.go.jp
+    news_press:
+      - kantei.go.jp
+
+  AU:
+    regulatory:
+      - gov.au
+      - tga.gov.au
+      - accc.gov.au
+    legal:
+      - austlii.edu.au
+      - legislation.gov.au
+      - hcourt.gov.au
+    statistical:
+      - abs.gov.au
+    standards:
+      - standards.org.au
+    company_filings:
+      - asic.gov.au
+      - asx.com.au
+    datasets:
+      - data.gov.au
+    news_press:
+      - pm.gov.au
