@@ -42,6 +42,7 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -291,12 +292,16 @@ def _canonical_display(value: float, unit: str, display_kind: str) -> str:
     if display_kind == "count":
         return f"{int(round(v)):,}"
     # "number" (default): up to 6 significant figures, thousands-grouped integer
-    # part, no trailing zeros, deterministic.
+    # part, no trailing zeros, deterministic. NEVER scientific notation — the
+    # verifier's adjacency capture is decimal/thousands only, so a "1e+06" display
+    # would false-DROP a legitimate computed number (Codex diff-gate iter2 P1). A
+    # 6-sig-fig value that Python would render in scientific form is EXPANDED to a
+    # plain fixed-point decimal via Decimal.
     if v == 0:
         return "0"
     s = f"{v:.6g}"
-    if "e" in s or "E" in s:        # keep scientific notation verbatim
-        return s
+    if "e" in s or "E" in s:
+        s = format(Decimal(s), "f")   # expand sci -> plain fixed-point decimal
     if "." in s:
         int_part, frac_part = s.split(".")
     else:
@@ -305,6 +310,7 @@ def _canonical_display(value: float, unit: str, display_kind: str) -> str:
     digits = int_part[1:] if neg else int_part
     grouped = f"{int(digits):,}" if digits.isdigit() else digits
     out = ("-" if neg else "") + grouped
+    frac_part = frac_part.rstrip("0")     # no trailing zeros after expansion
     if frac_part:
         out += "." + frac_part
     return out

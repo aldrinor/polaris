@@ -559,6 +559,26 @@ def test_p7_sweep_orchestrator_no_spec_returns_none():
     assert section is None and telem["spec_produced"] is False
 
 
+# ── P7-25 number-kind never scientific (Codex diff-gate iter2 P1) ────────────
+def test_p7_25_number_kind_never_scientific_and_verifies():
+    # _canonical_display "number" must be plain decimal (no 'e'), and a number-kind
+    # field must VERIFY against its own canonical display (no false-drop).
+    big = _canonical_display(1_000_000.0, "", "number")
+    assert "e" not in big.lower() and big == "1,000,000"
+    tiny = _canonical_display(1e-7, "", "number")
+    assert "e" not in tiny.lower() and tiny == "0.0000001"
+    result = _hand_result({
+        "n": {"value": 1_000_000.0, "display_value": "1,000,000",
+              "display_kind": "number", "unit": "",
+              "modeled_used": [], "sourced_tokens": []},
+    })
+    reg = {result.key(): result}
+    ok = "The index is 1,000,000[#calc:m:abc123:n]."
+    assert pg.strict_verify(ok, {}, quantified_models=reg).total_kept == 1
+    wrong = "The index is 2,000,000[#calc:m:abc123:n]."
+    assert pg.strict_verify(wrong, {}, quantified_models=reg).total_kept == 0
+
+
 # ── canonical display formatter sanity ───────────────────────────────────────
 def test_canonical_display_formats():
     assert _canonical_display(2_148_000_000.0, "USD", "currency") == "$2,148,000,000.00"
@@ -566,3 +586,4 @@ def test_canonical_display_formats():
     assert _canonical_display(1.85, "", "ratio") == "1.8500"
     assert _canonical_display(1548, "", "count") == "1,548"
     assert _canonical_display(-200.0, "", "number") == "-200"
+    assert _canonical_display(1_000_000.0, "", "number") == "1,000,000"  # not 1e+06

@@ -356,11 +356,11 @@ _CALC_TOKEN_RE = re.compile(
     r"(?P<field>[^\]]+)\]"
 )
 
-# Tolerances for the Regime C numeric backstop (D2 — primary check is exact
-# display-string equality; this is the formatting-difference backstop). Named
-# per Law VI; tight so a fabricated different number cannot pass.
-_CALC_EQ_REL_TOL = float(os.environ.get("PG_CALC_EQ_REL_TOL", "1e-9"))
-_CALC_EQ_ABS_TOL = float(os.environ.get("PG_CALC_EQ_ABS_TOL", "1e-9"))
+# Regime C equality is canonicalize-and-compare (the parsed adjacent number must
+# re-format to EXACTLY the field's display_value via the shared _canonical_display)
+# — there is NO numeric tolerance (a tolerance let a magnitude-scaled wrong number
+# pass, Codex diff-gate iter1 P1-2). Only the modeled-assumption disclosure label
+# is a named constant here.
 _MODELED_ASSUMPTION_LABEL = "(modeled assumption)"
 
 # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN

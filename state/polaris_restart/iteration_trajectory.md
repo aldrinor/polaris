@@ -1280,3 +1280,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   sourced_tokens in quantified_model.json) FIXED. P2-2 (per-input modeled label) ACCEPTED
   as disclosure-completeness (Codex: "not a wedge failure"; number is executor-correct).
   +P7-23/P7-24 smoke (the exact Codex examples). 29 P7 + 39 regression green. Re-gate iter 2.
+- **Phase-7 DIFF-gate iter 2** (2026-06-01): `verdict: REQUEST_CHANGES`, 1 P1 + 1 P2, 0 P0.
+  P1 (REAL false-DROP): `_canonical_display` "number" kind could emit scientific notation
+  ("1e+06") which the verifier's decimal-only adjacency regex would mis-bind -> drop a
+  LEGITIMATE computed number. FIX: never emit sci notation — expand to plain fixed-point
+  decimal via Decimal. P2 (stale `_CALC_EQ_*` tol constants) REMOVED. +P7-25 smoke
+  (number-kind plain-decimal + verify). 30 P7 + 84 regression green. Re-gate iter 3.
