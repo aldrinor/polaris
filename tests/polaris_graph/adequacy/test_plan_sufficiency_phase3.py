@@ -553,6 +553,41 @@ def test_p3_15f_assignment_uses_threaded_floor_not_just_env(monkeypatch):
     assert set(plans_lo[0].ev_ids) == {"mid_0", "mid_1"}
 
 
+def test_p3_15g_reserved_survives_when_facets_exceed_section_cap():
+    """Codex diff-gate P1: a section mapped to MORE facets than max_ev_per_section
+    must STILL bill >=min_per_facet for EVERY facet — the per-facet reserved set
+    is sacred and the section size cap applies only to the filler. Codex's exact
+    repro: 31 mapped facets, target=31, 31 above-floor rows (one per facet),
+    max_ev_per_section=30. Gate PROCEED; the assignment must emit all 31, not
+    drop facet 30."""
+    from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+        assess_plan_sufficiency,
+    )
+    from src.polaris_graph.generator.multi_section_generator import (
+        _assign_evidence_to_planned_outline,
+    )
+    n = 31
+    sub = [f"facet {k} unique terms" for k in range(n)]
+    outline = [_section("S0", n, list(range(n)))]
+    evidence = [_row(f"ev_{k:02d}", f"facet {k} unique terms", 0.9) for k in range(n)]
+    report = assess_plan_sufficiency(
+        plan=_plan(sub, outline), corpus_rows=evidence,
+        authority_floor=0.3, round_index=0, max_rounds=0,
+    )
+    assert report.verdict == "proceed"
+    plans = _assign_evidence_to_planned_outline(
+        outline, evidence, sub_queries=sub, authority_floor=0.3,
+        max_ev_per_section=30,
+    )
+    billed = set(plans[0].ev_ids)
+    # Every facet's only row must be billed — none truncated by the size cap.
+    missing = [f"ev_{k:02d}" for k in range(n) if f"ev_{k:02d}" not in billed]
+    assert not missing, (
+        f"SIZE-CAP TRUNCATION REGRESSION: {missing} dropped; a certified facet "
+        f"has ZERO evidence in the billed set. billed={len(billed)}/{n}"
+    )
+
+
 def test_p3_15d_off_path_round_robin_ignores_authority():
     """Off-path (sub_queries=None) assignment is byte-identical round-robin —
     it must NOT read authority at all (no sidecar on off-mode rows)."""

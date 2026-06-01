@@ -695,12 +695,17 @@ def _assign_evidence_to_planned_outline(
             # 2. Fill the rest: remaining above-floor, then below-floor as filler.
             rest = [e for e in section_above_any[i] if e not in reserved]
             rest += [e for e in section_below_any[i] if e not in reserved]
-            # cap = evidence_target, but NEVER below the reserved set (the
-            # certified-facet rows MUST reach the generator); hard ceiling at
-            # max_ev_per_section.
+            # cap = evidence_target, clamped to the soft section size cap FIRST,
+            # then raised to never drop the RESERVED set (architect/Codex P1: the
+            # max_ev_per_section ceiling must apply only to the FILLER — the
+            # per-facet reserved rows are SACRED, never truncated, else a section
+            # mapped to MORE facets than max_ev_per_section would silently drop a
+            # certified facet's only row, billing a section whose sub-question has
+            # ZERO evidence. Repro: 31 facets, target 31, cap 30 -> facet 30
+            # dropped. Clamp ORDER guarantees len(reserved) survives.).
             cap = target if target > 0 else max_ev_per_section
-            cap = max(cap, len(reserved))
             cap = min(cap, max_ev_per_section)
+            cap = max(cap, len(reserved))
             ordered_ev = reserved + rest
             plans.append(SectionPlan(
                 title=title,
