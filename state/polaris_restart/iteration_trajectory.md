@@ -1216,3 +1216,12 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **iter 2** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
   Both iter-1 P2s confirmed closed. FULLY CONVERGED. Merge authorized by Codex
   written APPROVE.
+
+## I-meta-005 Phase 6 (#990) — brief gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 3 non-blocking P2,
+  accept_remaining. Design ruling B2: synthesis = evidence-fed planned section
+  verified via strict_verify; analyst block retired/demoted to non-verified appendix.
+  P2s folded to build_spec: (1) clinical trigger must be clinically-distinctive
+  entity signal, not generic intervention/population/outcome; (2) explicit
+  partial_saturation smoke for the integrative section's pruning; (3) no-literal grep
+  targets on-path code, not config filenames. Proceed to B2 build.
