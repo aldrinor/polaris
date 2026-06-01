@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 2 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
+# Codex BRIEF gate iter 3 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 51. Phase 3 closes the "trap": today the
 adequacy gate is domain-keyed + AGGREGATE-count only, so a broad-but-shallow corpus PASSES, BILLS the
@@ -51,8 +51,14 @@ is billed.
 - `assess_plan_sufficiency(*, plan, corpus_rows, authority_floor, round_index, max_rounds) ->
   PlanSufficiencyReport`. Pure, no-network, no-LLM, over rows that ALREADY carry the §2.3a authority sidecar +
   `query_origin`. For EACH section (its `evidence_target` + `sub_query_indices`) count the corpus rows that
-  (a) are RELEVANT to that section (provenance-first, §2.2) AND (b) have `authority_score ≥ authority_floor`; a unit
-  is SUFFICIENT iff covered_count ≥ its evidence_target, else UNDER_COVERED. Overall verdict:
+  (a) are RELEVANT to that section (provenance-first, §2.2) AND (b) have `authority_score ≥ authority_floor`.
+  A section is SUFFICIENT iff **BOTH (iter-2 P1 #1 — facet-level, not section-aggregate):**
+    (i) total above-floor covered_count ≥ `evidence_target`, AND
+    (ii) EVERY mapped `sub_query_index` has ≥ `PG_PLAN_SUFFICIENCY_MIN_PER_FACET` above-floor relevant rows
+        (default 1) — so a section mapped to sub-queries [4,5,6] CANNOT pass on rows from sub-query 4 alone
+        while 5 and 6 are empty. This is the actual "cover EVERY planned sub-question" guarantee; section
+        total alone would reopen the trap at a finer grain.
+  Else UNDER_COVERED (with the specific empty/under facets named). Overall verdict:
   - **PROCEED** — every unit SUFFICIENT → the generator may be billed.
   - **EXPAND** — ≥1 unit UNDER_COVERED AND `round_index < max_rounds` → return the under-covered units (+
     their gap) so Phase 4 saturation can target new sub-queries; NO generator bill this round.
@@ -85,13 +91,22 @@ is billed.
   query_origin only). So §2.3a ADDS the per-row authority sidecar the gate reads. A relevant-but-below-floor
   row is counted separately (reported, not credited).
 
-### 2.3a Persist the per-row authority result (iter-1 P1 #1 — the missing data)
+### 2.3a Persist the per-row authority result (iter-1 P1 #1 + iter-2 P1 #2 — guaranteed in planner mode)
 - At the on-mode evidence-row build (`live_retriever.py:2222-2230`), ADD additive fields
-  `authority_score: float` and `authority_confidence: str` to each row, populated from
-  `score_source_authority(...)` (the Phase-0a model already runs on the live path). Additive, default
-  `0.0`/`""` → OFF rows unchanged (the legacy adequacy gate ignores them; byte-identical). The plan-
-  sufficiency gate reads `row["authority_score"]`. Pure-function note: the gate is pure over rows that
-  ALREADY carry the sidecar — the sidecar is written at retrieval time, not by the gate.
+  `authority_score: float` and `authority_confidence: str` to each row.
+- **CRITICAL (iter-2 P1 #2): the sidecar is computed DIRECTLY via `score_source_authority(...)` whenever
+  `PG_USE_RESEARCH_PLANNER` is ON, INDEPENDENT of the legacy `PG_USE_AUTHORITY_MODEL` tier switch.** Today the
+  tier_classifier only computes authority when `PG_USE_AUTHORITY_MODEL` is on (`tier_classifier.py:1099`); so
+  planner mode must call the Phase-0a `score_source_authority` pure function ITSELF for the sidecar — else
+  every row reads `authority_score=0.0` and the gate aborts every planner-mode corpus. If the authority
+  computation genuinely cannot run (missing inputs), it returns an HONEST low score with
+  `authority_confidence=LOW` (per the Phase-0a honest-confidence contract), NOT a silent 0.0 default — and
+  the gate treats LOW-confidence-but-scored rows per the floor. Additive, default `0.0`/`""` → OFF rows
+  unchanged (legacy gate ignores them; byte-identical). The gate is pure over rows that already carry the
+  sidecar (written at retrieval time, not by the gate).
+- **Canonical serialization (iter-2 P2):** `SectionOutlineItem.sub_query_indices` is ADDED to
+  `to_canonical_dict()` (`research_planner.py:271`) + the SHA-pinned `research_plan.json`, so the sufficiency
+  contract is reproducible from the pinned plan artifact (gap #19 audit trail).
 
 ### 2.3 Wiring into the sweep (the money gate)
 - `run_honest_sweep_r3.py`: on-mode, BEFORE `generate_multi_section_report`, call
@@ -127,8 +142,17 @@ is billed.
   units); under-covered + rounds exhausted → ABORT.
 - **P3-7 field-agnostic guard:** a grep-style test asserts the on-path sufficiency code consults NO
   `_DEFAULT_DOMAIN_THRESHOLDS` / `if domain ==` / domain key; the legacy domain dict is whitelisted off-path.
-- **P3-8 zero generator bill on hold:** the strongest assertion — across P3-3/P3-4/P3-6-ABORT, the generator
-  (and any LLM client) is never constructed/called when the verdict is EXPAND or ABORT.
+- **P3-8 zero GENERATOR bill on hold (iter-2 P2 scoped):** the strongest assertion — across P3-3/P3-4/
+  P3-6-ABORT, the GENERATOR (`generate_multi_section_report`) + downstream evaluator LLM clients are NEVER
+  constructed/called when the verdict is EXPAND or ABORT. (The pre-retrieval PLANNER is faked/injected in
+  smoke per the spend-free rule; the assertion is scoped to the generator/downstream, not the planner.)
+- **P3-9 facet-level (iter-2 P1 #1):** a section mapped to sub-queries [4,5,6] with 5 above-floor rows ALL
+  from sub-query 4 → UNDER_COVERED (sub-queries 5,6 empty), even though total (5) ≥ evidence_target (e.g. 3).
+  Proves section-total alone cannot hide an empty facet.
+- **P3-10 authority in planner mode (iter-2 P1 #2):** with PG_USE_RESEARCH_PLANNER on + PG_USE_AUTHORITY_MODEL
+  OFF, the evidence rows STILL carry a real numeric `authority_score` (computed directly), NOT 0.0.
+- **P3-11 canonical pin (iter-2 P2):** `to_canonical_dict()` + `research_plan.json` include `sub_query_indices`;
+  re-serializing reproduces the same SHA.
 - Plus a regression subset confirming OFF byte-identity didn't break existing corpus_adequacy tests.
 
 ## 4. EXIT CRITERIA (issue #987)
