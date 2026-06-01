@@ -611,6 +611,13 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
         "- Choose archetypes that fit the question's claim_type. A decision / "
         "comparison question needs a Decision archetype; an explanatory "
         "question needs a Mechanism archetype; etc.\n"
+        "- ALWAYS include EXACTLY ONE \"Integrative\" archetype section LAST "
+        "(title e.g. \"Integrative findings\" or a question-specific synthesis "
+        "heading). It is the cross-cutting synthesis that ties the report "
+        "together. Allocate the BROAD / overview / cross-cutting sub_query "
+        "indices to it (the ones that span multiple facets) — it must have a "
+        "non-empty sub_query_indices and a reasonable evidence_target so it is "
+        "grounded in real evidence, NOT a free-form essay.\n"
         "- Output ONLY the JSON object. No preamble, no markdown fence, no "
         "sign-off.\n"
     )

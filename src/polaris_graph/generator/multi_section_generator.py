@@ -89,6 +89,14 @@ SECTION_ARCHETYPES: list[str] = [
     "Decision",
     "Uncertainty",
     "Methodology",
+    # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1 / shape 1): VERIFIED
+    # cross-cutting synthesis. A normal planned outline section — generated +
+    # strict_verified like any other (emits [ev_XXX] tokens; ungrounded
+    # synthesis sentences are DROPPED, never laundered into verified). The
+    # planner allocates broad/cross-cutting evidence to it and it synthesizes
+    # ONLY from its allocated evidence. This REPLACES the unverified
+    # analyst_synthesis block on-mode (which is demoted).
+    "Integrative",
     "Limitations",
 ]
 
@@ -1756,6 +1764,7 @@ async def _run_section(
     contradictions: list[dict[str, Any]] | None = None,
     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
     use_field_agnostic_prompt: bool = False,
+    advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -1806,6 +1815,7 @@ async def _run_section(
         contradictions=contradictions,
         cross_trial_block=cross_trial_block,
         use_field_agnostic_prompt=use_field_agnostic_prompt,
+        advisory_text=advisory_text,
     )
     total_in_tok += in_tok
     total_out_tok += out_tok
@@ -1909,6 +1919,7 @@ async def _run_section(
             contradictions=contradictions,
             cross_trial_block=cross_trial_block,
             use_field_agnostic_prompt=use_field_agnostic_prompt,
+            advisory_text=advisory_text,
         )
         total_in_tok += in_tok2
         total_out_tok += out_tok2
@@ -4123,6 +4134,22 @@ async def generate_multi_section_report(
     from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL
     gen_model = model or PG_GENERATOR_MODEL
 
+    # I-meta-005 Phase 6 (#990, Codex ruling A1): resolve the domain advisory
+    # writing-guidance ONCE from the frame's answer_type (the explicit domain
+    # signal) + claim_type. ON-mode only (research_plan present); OFF -> "" (no
+    # append, byte-identical). Computed here so all nested section closures
+    # (_run_legacy_bounded / _bounded_run, incl. the M-44/M-47 regen paths)
+    # capture the SAME value. Fail-soft: a missing frame/registry -> "".
+    _p6_frame = getattr(research_plan, "frame", None) if research_plan else None
+    advisory_text = (
+        select_advisory_prompt_text(
+            getattr(_p6_frame, "claim_type", ""),
+            getattr(_p6_frame, "answer_type", "general"),
+        )
+        if (research_plan is not None and _p6_frame is not None)
+        else ""
+    )
+
     # Stage 1: outline
     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
     # rest of the body (section generation, M-44/M-47, assembly) is shared and
@@ -4408,6 +4435,9 @@ async def generate_multi_section_report(
                 # on-mode the base section prompt is field-agnostic. OFF:
                 # research_plan is None -> the unchanged clinical template.
                 use_field_agnostic_prompt=research_plan is not None,
+                # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
+                # resolved once above (closure-captured; "" OFF -> no append).
+                advisory_text=advisory_text,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers
@@ -5043,7 +5073,19 @@ async def generate_multi_section_report(
     analyst_synth_text = ""
     analyst_synth_in_tok = 0
     analyst_synth_out_tok = 0
-    if not partial_mode and section_results and global_biblio:
+    # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1): DEMOTE the unverified
+    # analyst-synthesis block ON-MODE (research_plan is not None). On-mode the
+    # VERIFIED "Integrative" outline section (strict_verify'd, counts toward
+    # verified_words) is the synthesis; the legacy unverified analyst block must
+    # NOT also run (it would add a second, ungrounded interpretive layer to
+    # total_words). OFF-mode (research_plan is None) keeps the legacy analyst
+    # block byte-identical. partial_mode already disables it.
+    if (
+        not partial_mode
+        and research_plan is None
+        and section_results
+        and global_biblio
+    ):
         try:
             from src.polaris_graph.generator.analyst_synthesis import (
                 generate_analyst_synthesis,
