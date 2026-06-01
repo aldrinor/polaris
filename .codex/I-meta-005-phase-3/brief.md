@@ -90,6 +90,10 @@ is billed.
   - **Fallback (tightly specified, iter-3 P2):** a row is FALLBACK-ELIGIBLE iff its `query_origin` is EMPTY
     OR is one of the explicit NON-QUERY SENTINEL origins that legitimately carry no sub-query text:
     `{primary_trial_doi_seed, need_type_backend, domain_backend}` (`live_retriever.py:1774,1849,1885`) —
+    **concrete floor (iter-5 P2 #2):** reuse the EXISTING `_content_words` tokenization (alphabetic, ≥3
+    chars, stopword-stripped — the same primitive the verifier uses) and the EXISTING
+    `MIN_CONTENT_WORD_OVERLAP` constant (default 2) between the row's content words and the UNION of the
+    section's sub-query-text content words; ≥ the constant ⇒ relevant. No new heuristic, no new magic number —
     these lanes (seed DOIs, the Phase-2 need-type registry, legacy domain backend) surface AUTHORITATIVE
     evidence with no originating sub-query, so they must be creditable, not silently abort an otherwise-
     sufficient corpus. For a fallback-eligible row, use `_content_words` overlap floored against the
@@ -107,6 +111,13 @@ is billed.
 ### 2.3a Persist the per-row authority result (iter-1 P1 #1 + iter-2 P1 #2 — guaranteed in planner mode)
 - At the on-mode evidence-row build (`live_retriever.py:2222-2230`), ADD additive fields
   `authority_score: float` and `authority_confidence: str` to each row.
+- **Post-selection injected rows (iter-5 P2 #1):** V30 contract rows (`:2674`/`:2719`) and uploaded-document
+  rows (`:2747`/`:2749`) are added to `evidence_for_gen` AFTER live_retriever, so they lack `query_origin` +
+  the sidecar. Policy: at the single final gate, on-mode ENRICHES every billed row missing the sidecar by
+  computing `score_source_authority(...)` for it (so contract/upload rows carry a real `authority_score`),
+  and treats their empty `query_origin` as FALLBACK-ELIGIBLE (§2.2 content-word overlap against the
+  section's sub-query texts). So an authoritative contract/upload row CAN credit a section it genuinely
+  covers and CANNOT credit one it doesn't — never silently dropped, never blindly credited.
 - **CRITICAL (iter-2 P1 #2): the sidecar is computed DIRECTLY via `score_source_authority(...)` whenever
   `PG_USE_RESEARCH_PLANNER` is ON, INDEPENDENT of the legacy `PG_USE_AUTHORITY_MODEL` tier switch.** Today the
   tier_classifier only computes authority when `PG_USE_AUTHORITY_MODEL` is on (`tier_classifier.py:1099`); so
@@ -137,9 +148,16 @@ coupled fixes make the certification carry through to what's billed:
   path is unchanged (byte-identical). This guarantees the gate's per-section/per-facet PROCEED means the
   generator actually receives the credited rows for each section.
 
-### 2.3 Wiring into the sweep (the money gate)
-- `run_honest_sweep_r3.py`: on-mode, AFTER `select_evidence_for_generation` and BEFORE
-  `generate_multi_section_report`, call `assess_plan_sufficiency(...)` ON `evidence_for_gen`:
+### 2.3 Wiring into the sweep — ONE FINAL gate, fully-constructed billed set (iter-5 P1 — resolved)
+- **The binding money gate runs EXACTLY ONCE on-mode**, at the SINGLE point where `evidence_for_gen` is FULLY
+  constructed and nothing further mutates it before billing: AFTER `select_evidence_for_generation`
+  (`:2560`/`:2568`) AND AFTER the V30 contract-row prepend (`:2719`) AND AFTER the upload-row prepend
+  (`:2749`), IMMEDIATELY BEFORE `generate_multi_section_report` (`:2805`). It calls `assess_plan_sufficiency`
+  on the FINAL `evidence_for_gen` — the exact set that will be billed.
+- **The legacy adequacy call sites (`:2001`/`:2152`/`:2249`) are NOT the binding gate on-mode** — on-mode they
+  are provisional/telemetry-only (they do NOT abort; the single final gate is authoritative). OFF-mode they
+  run unchanged (byte-identical) — legacy `assess_corpus_adequacy` is the off-mode gate as today.
+- At the single final gate, `assess_plan_sufficiency(...)` ON the final `evidence_for_gen`:
   - PROCEED → continue to the generator (as today).
   - EXPAND → (Phase 3 scope) record status + the under-covered units; for THIS phase, EXPAND with no
     further retrieval loop available behaves as a documented hold → `abort_corpus_inadequate` (the actual
@@ -194,6 +212,13 @@ coupled fixes make the certification carry through to what's billed:
   (the selected billed set), and on-mode `_assign_evidence_to_planned_outline` assigns each section its
   `query_origin`-matched rows (NOT round-robin); a section certified SUFFICIENT actually receives its credited
   rows in the generator's `ev_ids`. Off-mode the round-robin assignment is byte-identical.
+- **P3-16 ONE final gate after all mutations (iter-5 P1):** the binding gate sees `evidence_for_gen` INCLUDING
+  the post-selection V30 contract + upload injections (a contract row that covers an under-covered facet flips
+  it to SUFFICIENT; the legacy `:2001/:2152/:2249` sites do NOT abort on-mode). Assert the gate's certified
+  set == the exact `evidence_for_gen` passed to `generate_multi_section_report`.
+- **P3-17 injected-row enrichment (iter-5 P2 #1):** a contract/upload row (no query_origin) gets a real
+  `authority_score` computed at gate time and credits a section ONLY via content-word overlap with that
+  section's sub-queries.
 - Plus a regression subset confirming OFF byte-identity didn't break existing corpus_adequacy tests.
 
 ## 4. EXIT CRITERIA (issue #987)

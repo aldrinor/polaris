@@ -1,0 +1,9 @@
+CAP EXCEPTION (CLAUDE.md §-1.2 point 6): iter-5 returned a REAL correctness blocker — the binding money gate
+was specified at two incompatible locations (legacy pre-selection sites vs the final billed evidence_for_gen),
+which would certify the wrong set and reopen the handoff bug P3-15 closes. §-1.2.6 forbids cap-5
+force-approving a real production blocker. The fix is DETERMINISTIC (Codex prescribed the exact resolution:
+one final gate after all evidence_for_gen mutations at :2719/:2749, before generate_multi_section_report at
+:2805; legacy :2001/:2152/:2249 sites telemetry-only on-mode). All three iter-5 findings (1 P1 + 2 P2) resolved
+per Codex's prescription. ONE confirmatory re-gate (iter 6) to verify the contradiction is gone — converging
+(each iter found NEW genuine issues, counts 2,2,1,2,1 decreasing), not asymptoting/toothpaste-squeezing.
+Operator standing directive this turn: no circle-jerking, no subpar.
