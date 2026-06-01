@@ -4140,43 +4140,55 @@ async def run_one_query(
             if not r.passed:
                 _log(f"                FAIL {r.item_id}: {r.details[:100]}")
 
-        # Judge
+        # Judge — LEGACY single-judge path. I-meta-007: SKIP entirely when the 4-role
+        # seam will run (PG_FOUR_ROLE_MODE on AND a transport injected). Running both
+        # would DOUBLE-JUDGE with DIFFERENT models (legacy Mirror/Gemma here vs the
+        # 4-role Qwen Judge in the seam) and produce conflicting verdicts; the seam's
+        # D8 decision is the SINGLE binding gate. When the seam is OFF (default), the
+        # legacy judge runs exactly as before (byte-identical).
+        _seam_will_run = (
+            os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in ("1", "true", "True")
+            and four_role_transport is not None
+        )
         jr = None
-        try:
-            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
-            _pathb_jr_tok = _pathb.set_role("evaluator")
+        if _seam_will_run:
+            _log("[judge]       skipped — 4-role seam (D8) is the binding gate")
+        else:
             try:
-                jr = await judge_report(
-                    report_text=final_report,
-                    research_question=q["question"],
-                    temperature=0.2,
-                    max_tokens=800,
+                # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
+                _pathb_jr_tok = _pathb.set_role("evaluator")
+                try:
+                    jr = await judge_report(
+                        report_text=final_report,
+                        research_question=q["question"],
+                        temperature=0.2,
+                        max_tokens=800,
+                    )
+                finally:
+                    _pathb.reset_role(_pathb_jr_tok)
+                if jr.parse_ok:
+                    vcounts = {
+                        v: sum(1 for j in jr.verdicts.values()
+                               if j["verdict"] == v)
+                        for v in ("good", "acceptable", "needs_revision", "unknown")
+                    }
+                    _log(f"[judge]       {vcounts}")
+                    for axis, v in jr.verdicts.items():
+                        _log(f"              [{v['verdict'].upper():>15}] "
+                             f"{axis}: {v['note'][:80]}")
+                else:
+                    _log(f"[judge]       PARSE ERROR: {jr.error}")
+                (run_dir / "judge_output.json").write_text(
+                    json.dumps({
+                        "model": jr.model, "parse_ok": jr.parse_ok,
+                        "verdicts": jr.verdicts, "raw": jr.raw_response,
+                        "input_tokens": jr.input_tokens,
+                        "output_tokens": jr.output_tokens,
+                    }, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
                 )
-            finally:
-                _pathb.reset_role(_pathb_jr_tok)
-            if jr.parse_ok:
-                vcounts = {
-                    v: sum(1 for j in jr.verdicts.values()
-                           if j["verdict"] == v)
-                    for v in ("good", "acceptable", "needs_revision", "unknown")
-                }
-                _log(f"[judge]       {vcounts}")
-                for axis, v in jr.verdicts.items():
-                    _log(f"              [{v['verdict'].upper():>15}] "
-                         f"{axis}: {v['note'][:80]}")
-            else:
-                _log(f"[judge]       PARSE ERROR: {jr.error}")
-            (run_dir / "judge_output.json").write_text(
-                json.dumps({
-                    "model": jr.model, "parse_ok": jr.parse_ok,
-                    "verdicts": jr.verdicts, "raw": jr.raw_response,
-                    "input_tokens": jr.input_tokens,
-                    "output_tokens": jr.output_tokens,
-                }, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            _log(f"[judge]       FAILED: {exc}")
+            except Exception as exc:
+                _log(f"[judge]       FAILED: {exc}")
 
         # Manifest — compute unified status BEFORE the write
         # so manifest.status is authoritative (BUG-B-101 fix).
@@ -4318,7 +4330,12 @@ async def run_one_query(
                 {v: sum(1 for j in jr.verdicts.values()
                         if j["verdict"] == v)
                  for v in ("good", "acceptable", "needs_revision", "unknown")}
-                if jr and jr.parse_ok else {"error": "failed"}
+                if jr and jr.parse_ok
+                # I-meta-007: when the 4-role seam ran, the legacy judge was
+                # deliberately skipped (D8 is the binding gate) — say so, don't
+                # mislabel it "failed".
+                else ({"superseded_by_four_role_seam": True} if _seam_will_run
+                      else {"error": "failed"})
             ),
             "cost_usd": run_cost,
             "budget_cap_usd": PG_MAX_COST_PER_RUN,

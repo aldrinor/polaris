@@ -123,6 +123,40 @@ def enable_four_role_mode() -> None:
     os.environ[_FOUR_ROLE_MODE_ENV] = "1"
 
 
+def assert_four_role_families_distinct() -> dict[str, str]:
+    """Assert the 4 roles (generator + the 3 verifiers) are all DISTINCT lineages per
+    the lock (the N-way two-family invariant, CLAUDE.md §9.1 / family_policy:
+    all_distinct). Fails LOUD (I-meta-007) — a collision would let one family
+    self-verify. Returns the `{role: family}` map for telemetry.
+    """
+    lock = load_lock()
+    roles = ("generator", *_VERIFIER_ROLES)
+    fams = {r: str(lock["required_roles"][r]["family"]) for r in roles}
+    if len(set(fams.values())) != len(fams):
+        raise RuntimeError(
+            "Gate-B preflight: 4-role family collision — all roles must be distinct "
+            f"lineages per the lock, got {fams}"
+        )
+    return fams
+
+
+def preflight_self_host_roles() -> dict[str, str]:
+    """LIVE-run preflight: resolve each self-hosted verifier endpoint up front so a
+    missing `PG_<ROLE>_BASE_URL` fails BEFORE the sweep starts (not mid-run on the
+    first claim's Mirror call), AND assert the 4 families are distinct. Returns the
+    `{role: base_url}` map. ONLY called when building the real transport (skipped
+    when a fake transport is injected for offline tests). I-meta-007.
+    """
+    from src.polaris_graph.roles.openai_compatible_transport import role_endpoint
+
+    assert_four_role_families_distinct()
+    endpoints: dict[str, str] = {}
+    for role in _VERIFIER_ROLES:
+        base_url, _api_key, _slug = role_endpoint(role)  # raises LOUD if unset
+        endpoints[role] = base_url
+    return endpoints
+
+
 async def run_gate_b_query(
     q: dict,
     out_root: Path,
@@ -145,7 +179,17 @@ async def run_gate_b_query(
     from scripts.run_honest_sweep_r3 import run_one_query
 
     enable_four_role_mode()
-    active_transport = transport if transport is not None else build_gate_b_transport()
+    # I-meta-007: enable the verifiable quantified-trade-off calculator for the
+    # benchmark/paid run ONLY here (gate-B entry), never globally — so the Phase-7
+    # Regime-C-verified quantified section actually fires on the paid run.
+    os.environ["PG_ENABLE_QUANTIFIED_ANALYSIS"] = "1"
+    if transport is not None:
+        active_transport = transport               # offline/test: injected fake
+    else:
+        # LIVE run: fail-fast if a self-host endpoint is unset or the 4 families
+        # collide, BEFORE the sweep spends a token.
+        preflight_self_host_roles()
+        active_transport = build_gate_b_transport()
     builder = make_gate_b_input_builder(d8_config_path=d8_config_path)
     return await run_one_query(
         q,
