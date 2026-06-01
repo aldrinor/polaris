@@ -1290,3 +1290,15 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   convergence_call accept_remaining. Wedge holds: no false-accept (suffix/magnitude
   closed iter1) AND no false-drop (sci-notation closed iter2). MERGE AUTHORIZED.
   Trajectory P1: diff 2->1->0. Brief: 4->4->2->1->2->2 (force-APPROVE). Phase 7 COMPLETE.
+
+## I-meta-006 — cash-free benchmark scorer (FACT claim-by-claim)
+- **DESIGN-gate iter 1** (2026-06-01): REQUEST_CHANGES, 5 P1 (judge contract too loose / not
+  atomic / no severity / most-specific-span / lane2 rubrics don't exist) + 3 P2. Rulings:
+  injected judge OK only if evidence-locked + ClaimRow-traceable (reconciled-audit adapter);
+  unresolved cite → UNREACHABLE in denominator; same most-specific-span path per system;
+  RACE out (follow-up); lane2 rubrics need authoring+hash-pin.
+- **DESIGN-gate iter 2**: REQUEST_CHANGES, 1 P1 (lane2_pending vs PASS contradiction) + 2 P2
+  (metadata_only subtype; uncited severity source). All adopted.
+- **DESIGN-gate iter 3**: **APPROVE** clean (0 P0/P1/P2, accept_remaining). Methodology LOCKED.
+  Build: report_claim_extractor + fact_scorer (evidence-locked judge) + benchmark_scorecard
+  (lane1-only + lane2_pending) + run wiring; reuse claim_audit_scorer; metadata_only subtype.
