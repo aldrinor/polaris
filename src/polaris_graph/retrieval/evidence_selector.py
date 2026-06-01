@@ -881,6 +881,64 @@ def _m46_short_pool_ordered_selection(
     )
 
 
+def _relevance_floor_selection(
+    *,
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    relevance_floor: float,
+    full_counts: dict[str, int],
+    primary_trial_anchors: list[str] | None,
+) -> EvidenceSelection:
+    """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
+
+    Keep EVERY row whose lexical relevance >= ``relevance_floor``, PLUS any row
+    matching a primary trial anchor (floor-EXEMPT — a relevant primary RCT must
+    never be dropped on a low lexical score). Ranked by ``relevance x authority``
+    (authority = the row's ``authority_score`` sidecar, default 1.0). Each kept
+    row is stamped with the additive ``selection_relevance`` float so
+    ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
+    drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
+    """
+    anchors = list(primary_trial_anchors or [])
+
+    def _is_anchor(row: dict[str, Any]) -> bool:
+        return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
+
+    kept = [
+        item for item in scored
+        if item[1] >= relevance_floor or _is_anchor(item[3])
+    ]
+    kept.sort(
+        key=lambda s: (
+            -(s[1] * float(s[3].get("authority_score", 1.0) or 1.0)),
+            _TIER_PRIORITY.get(s[2], 9),
+            s[0],
+        )
+    )
+    selected_rows: list[dict[str, Any]] = []
+    selected_counts: dict[str, int] = {}
+    for idx, score, tier, row in kept:
+        new_row = dict(row)
+        new_row["selection_relevance"] = float(score)
+        selected_rows.append(new_row)
+        selected_counts[tier] = selected_counts.get(tier, 0) + 1
+    anchor_exempt = sum(
+        1 for item in kept
+        if item[1] < relevance_floor and _is_anchor(item[3])
+    )
+    return EvidenceSelection(
+        selected_rows=selected_rows,
+        full_counts=full_counts,
+        selected_counts=selected_counts,
+        dropped_count=len(scored) - len(kept),
+        selection_strategy="relevance_floor_v1",
+        notes=[
+            f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
+            f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
+            f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
+        ],
+    )
+
+
 def select_evidence_for_generation(
     *,
     research_question: str,
@@ -889,6 +947,7 @@ def select_evidence_for_generation(
     evidence_rows: list[dict[str, Any]],
     max_rows: int,
     primary_trial_anchors: list[str] | None = None,
+    relevance_floor: float | None = None,
 ) -> EvidenceSelection:
     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
 
@@ -957,6 +1016,19 @@ def select_evidence_for_generation(
     full_counts: dict[str, int] = {}
     for _, _, tier, _ in scored:
         full_counts[tier] = full_counts.get(tier, 0) + 1
+
+    # I-meta-005 Phase 5 (#989): relevance-floor mode (PG_USE_FINDING_DEDUP). Keep
+    # EVERY row at/above the relevance floor (no max_rows cap), ranked
+    # relevance x authority. ON-mode only; `relevance_floor is None` on the legacy
+    # path -> the tier-balanced max_rows selection below is byte-identical (and
+    # adds NO new row key).
+    if relevance_floor is not None:
+        return _relevance_floor_selection(
+            scored=scored,
+            relevance_floor=relevance_floor,
+            full_counts=full_counts,
+            primary_trial_anchors=primary_trial_anchors,
+        )
 
     # M-46 (2026-04-22): when total <= max_rows, still keep everything,
     # BUT compute floor-detection + deterministic priority ordering
