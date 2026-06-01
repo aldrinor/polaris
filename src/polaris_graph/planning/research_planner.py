@@ -63,6 +63,26 @@ CLAIM_TYPES: frozenset[str] = frozenset({
     "descriptive",
 })
 
+# I-meta-005 Phase 6 (#990, Codex ruling A1): field-invariant ANSWER-TYPE — the
+# explicit domain-category signal `claim_type` could not carry (empirical is shared
+# by physics/battery/epidemiology). It drives ADVISORY section-writing-guidance
+# selection ONLY (the `_registry.yaml` `by_answer_type` map), never routing/
+# archetypes/verification. Default "general" = no domain-specific advisory. An
+# unknown value fails SOFT to "general" (advisory enrichment must never abort a
+# run), UNLIKE the strict `claim_type` contract.
+ANSWER_TYPES: frozenset[str] = frozenset({
+    "clinical",
+    "policy",
+    "economics",
+    "legal",
+    "materials",
+    "engineering",
+    "environmental",
+    "social-science",
+    "general",
+})
+_DEFAULT_ANSWER_TYPE = "general"
+
 
 # ── I-meta-005 Phase 2 (#986): field-agnostic EVIDENCE-NEED taxonomy ─────────
 # A field-INVARIANT enum (10 needs, brief §2.1) that declares WHAT KINDS of
@@ -206,6 +226,11 @@ class ResearchFrame:
     # membership). Empty `evidence_needs` -> the router's safe generic fallback.
     evidence_needs: list[str] = field(default_factory=list)
     jurisdictions: list[str] = field(default_factory=list)
+    # I-meta-005 Phase 6 (#990, Codex ruling A1): explicit domain-category for
+    # ADVISORY section-prompt selection. Default "general" -> no domain advisory
+    # (OFF/legacy plans without the field deserialize to "general"). NEVER a
+    # routing/archetype/verification control.
+    answer_type: str = _DEFAULT_ANSWER_TYPE
 
     def to_anchor_protocol(self, research_question: str) -> dict[str, Any]:
         """Produce an anchor-protocol dict for `validate_amplified_queries`
@@ -274,6 +299,9 @@ class ResearchPlan:
                 # declared evidence-needs + jurisdictions.
                 "evidence_needs": list(self.frame.evidence_needs),
                 "jurisdictions": list(self.frame.jurisdictions),
+                # I-meta-005 Phase 6 (#990): answer_type in the SHA-pinned plan so
+                # the advisory-selection signal is reproducible from the artifact.
+                "answer_type": self.frame.answer_type,
             },
             "sub_queries": list(self.sub_queries),
             "outline": [
@@ -398,6 +426,12 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
     jurisdictions = validate_jurisdiction_shapes(
         _as_str_list_strict(raw_frame.get("jurisdictions"), "jurisdictions")
     )
+    # I-meta-005 Phase 6 (#990, Codex ruling A1): answer_type drives ADVISORY
+    # prompt selection only, so an unknown/absent value fails SOFT to "general"
+    # (never aborts a run) — UNLIKE the strict claim_type contract above.
+    answer_type = str(raw_frame.get("answer_type", "")).strip().lower()
+    if answer_type not in ANSWER_TYPES:
+        answer_type = _DEFAULT_ANSWER_TYPE
     return ResearchFrame(
         entities=_as_str_list(raw_frame.get("entities")),
         relations=_as_str_list(raw_frame.get("relations")),
@@ -407,6 +441,7 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
         claim_type=claim_type,
         evidence_needs=evidence_needs,
         jurisdictions=jurisdictions,
+        answer_type=answer_type,
     )
 
 
@@ -522,6 +557,7 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
     archetype_list = ", ".join(SECTION_ARCHETYPES)
     claim_type_list = ", ".join(sorted(CLAIM_TYPES))
     evidence_need_list = ", ".join(sorted(EVIDENCE_NEEDS))
+    answer_type_list = ", ".join(sorted(ANSWER_TYPES))
     base = (
         "You are a field-agnostic research planner. Decompose the research "
         "question into a structured plan. The question may be from ANY field "
@@ -545,7 +581,13 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
         '     "jurisdictions": [NORMALIZED codes for any country/region the '
         "question is scoped to — ISO-3166 alpha-2 (e.g. \"US\",\"CA\",\"GB\","
         "\"JP\",\"AU\") or \"EU\"/\"INTL\"; EMPTY if the question is not "
-        "jurisdiction-specific. Use the CODE, never a country name]\n"
+        "jurisdiction-specific. Use the CODE, never a country name],\n"
+        f'     "answer_type": one of [{answer_type_list}] — the SUBJECT DOMAIN of '
+        "the answer, used ONLY to pick domain-appropriate writing guidance (e.g. "
+        "\"clinical\" for a medical/drug/trial question; \"economics\" for a "
+        "macro/finance question; \"materials\" for a battery/chemistry question; "
+        "\"general\" when no single domain dominates). Default to \"general\" if "
+        "unsure\n"
         "  },\n"
         '  "sub_queries": [faceted search queries, each a focused phrase that '
         "covers ONE facet of the question — collectively spanning every "

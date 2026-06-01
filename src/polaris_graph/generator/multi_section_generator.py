@@ -107,11 +107,19 @@ _SECTION_PROMPTS_REGISTRY_PATH = os.getenv(
 )
 
 
-def select_advisory_prompt_text(claim_type: str) -> str:
-    """Return the advisory prompt-text for a frame's `claim_type`, or "" when
-    no family is registered. Pure config lookup — no clinical literal as a
-    control value; fail-soft to "" when the registry is absent (advisory text
-    is enrichment, not a gate)."""
+def select_advisory_prompt_text(
+    claim_type: str, answer_type: str = "general",
+) -> str:
+    """Return the advisory prompt-text for a frame, or "" when no family is
+    registered. Pure config lookup — no clinical literal as a control value;
+    fail-soft to "" when the registry is absent (advisory text is enrichment,
+    not a gate).
+
+    I-meta-005 Phase 6 (#990, Codex ruling A1): consult `by_answer_type` FIRST
+    (the explicit domain-category the planner now emits), then `by_claim_type`
+    (Phase 1, currently unmapped), then `default`. So clinical writing guidance
+    is appended ONLY for a clinical answer_type — a non-clinical empirical
+    question gets none."""
     import yaml  # local import: advisory enrichment, keep module surface lean
 
     registry_path = _SECTION_PROMPTS_REGISTRY_PATH
@@ -125,9 +133,16 @@ def select_advisory_prompt_text(claim_type: str) -> str:
             "[multi_section] advisory prompt registry load failed: %s", exc,
         )
         return ""
+    by_answer_type = registry.get("by_answer_type") or {}
     by_claim_type = registry.get("by_claim_type") or {}
-    key = (claim_type or "").strip().lower()
-    filename = by_claim_type.get(key) or registry.get("default")
+    akey = (answer_type or "").strip().lower()
+    ckey = (claim_type or "").strip().lower()
+    # answer_type (explicit domain) wins over claim_type (generic shape).
+    filename = (
+        by_answer_type.get(akey)
+        or by_claim_type.get(ckey)
+        or registry.get("default")
+    )
     if not filename:
         return ""
     family_path = os.path.join(os.path.dirname(registry_path), str(filename))
@@ -1156,6 +1171,7 @@ async def _call_section(
     contradictions: list[dict[str, Any]] | None = None,
     cross_trial_block: Any = None,
     use_field_agnostic_prompt: bool = False,
+    advisory_text: str = "",
 ) -> tuple[str, int, int, dict[str, Any]]:
     """Single LLM call for one section.
 
@@ -1207,6 +1223,13 @@ async def _call_section(
     system = _select_section_system_prompt(use_field_agnostic_prompt).format(
         title=section.title, focus=section.focus,
     )
+    # I-meta-005 Phase 6 (#990, Codex ruling A1): append the domain advisory
+    # writing-guidance ONLY on-mode and ONLY when the registry selected one for
+    # the frame's answer_type (the caller resolved it once via
+    # select_advisory_prompt_text). Advisory-only: it changes prose guidance, NOT
+    # routing/archetypes/verification. OFF / empty -> system unchanged.
+    if use_field_agnostic_prompt and advisory_text:
+        system = f"{system}\n\n{advisory_text}"
 
     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
     # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
