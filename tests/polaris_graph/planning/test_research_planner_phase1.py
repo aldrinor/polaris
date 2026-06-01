@@ -1,16 +1,28 @@
 """Phase 1 smoke — research planner + archetype sections (I-meta-005 #985).
 
-Implements ALL 17 brief cases P1-1..P1-17. Spend-free + serialized (§8.4):
+Implements ALL 21 brief cases P1-1..P1-21. Spend-free + serialized (§8.4):
 every fake is a plain function/class (NO `unittest.mock`), every evidence pool
 is a real dict, and the planner LLM is an INJECTED callable. P1-11 asserts no
 `OpenRouterClient` / live httpx client is constructed anywhere on the exercised
 on-path.
 
+P1-18..P1-21 are the Codex diff-gate iter-1 FIX cases (4 P1):
+- P1-18 (FIX 1): on-mode bypasses ALL domain/template effects — no
+  `load_scope_template`, no `check_completeness`, no checklist label into
+  generation (neutral `CompletenessReport` yields uncovered == []).
+- P1-19 (FIX 2): on-mode the M-44 PRE-generation injection routes on archetype
+  (a planner-titled non-clinical Quantitative-Comparison section receives its
+  primary ev injection); off-mode title routing unchanged.
+- P1-20 (FIX 3): the planner Writer thread propagates cost ContextVars
+  (`copy_context()` + write-back; no bare context-less `asyncio.run` pool).
+- P1-21 (FIX 4): on-mode the base section system prompt is field-agnostic
+  (zero clinical/RCT/drug literal); off-mode is the unchanged clinical one.
+
 The two non-relaxable walls:
 - P1-1 OFF byte-identity (pins asdict/manifest-style section output — Codex P2
   note A — proving the additive `archetype` field is inert in OFF).
 - the field-agnostic guards P1-4 (zero clinical labels on physics/ag-policy),
-  P1-15/16/17 (on-mode suppresses every domain router).
+  P1-15/16/17/18/21 (on-mode suppresses every domain router + clinical literal).
 """
 
 from __future__ import annotations
@@ -34,6 +46,8 @@ from src.polaris_graph.planning.research_planner import (
 )
 from src.polaris_graph.generator.multi_section_generator import (
     SECTION_ARCHETYPES,
+    SECTION_SYSTEM_PROMPT_TEMPLATE,
+    SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC,
     SectionPlan,
     SectionResult,
     _ALLOWED_SECTIONS,
@@ -44,6 +58,7 @@ from src.polaris_graph.generator.multi_section_generator import (
     _parse_outline,
     _section_is_mechanism,
     _section_is_primary_eligible,
+    _select_section_system_prompt,
     select_advisory_prompt_text,
 )
 from src.polaris_graph.retrieval.scope_query_validator import (
@@ -643,6 +658,157 @@ def test_p1_17_on_mode_disables_r6_domain_yaml_expansion() -> None:
     src = inspect.getsource(sweep.run_one_query)
     assert "not _use_research_planner" in src
     assert "enable_expansion" in src
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-18 (FIX 1) on-mode bypasses ALL domain/template effects.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_p1_18_on_mode_bypasses_domain_template() -> None:
+    # The sweep source gates the M-28/M-35 template-load + expander block AND
+    # the R-6 check_completeness block on `if not _use_research_planner:`, so
+    # on-mode `load_scope_template` + `check_completeness` are NEVER called and
+    # no checklist label feeds generation.
+    import inspect
+    import scripts.run_honest_sweep_r3 as sweep
+    src = inspect.getsource(sweep.run_one_query)
+    # The template-load + expander block is gated.
+    assert "if not _use_research_planner:" in src
+    # load_scope_template only appears INSIDE the gated (off) branch — the
+    # on-branch sets `_template = None`. Verify the on-branch neutralizers
+    # exist (no expander compute / no row labeling from template).
+    assert "_template = None" in src
+    assert "_reg_queries = []" in src
+    assert "_trial_queries = []" in src
+    # check_completeness is gated; on-mode substitutes a neutral report.
+    assert "completeness = CompletenessReport(domain=q[\"domain\"])" in src
+
+    # The neutral CompletenessReport yields ZERO uncovered topic ids, so the
+    # uncovered-label -> generation hand-off produces NO checklist label.
+    from src.polaris_graph.nodes.completeness_checker import CompletenessReport
+    neutral = CompletenessReport(domain="clinical")
+    assert neutral.total_applicable == 0
+    assert neutral.total_covered == 0
+    assert neutral.uncovered_topic_ids() == []
+    assert neutral.covered_fraction == 1.0
+    # Mirror the sweep's uncovered_labels comprehension: empty on-mode.
+    uncovered_labels = [
+        next(
+            (tc.topic.label for tc in neutral.topics
+             if tc.topic.id == tid),
+            tid,
+        )
+        for tid in neutral.uncovered_topic_ids()
+    ]
+    assert uncovered_labels == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-19 (FIX 2) M-44 PRE-generation injection routes on archetype on-mode.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_p1_19_on_mode_m44_pregen_archetype_injection() -> None:
+    # ON-mode: a planner-titled Quantitative-Comparison section with a NON-
+    # clinical title receives its primary ev injection (routing keys on the
+    # archetype tag, not the clinical title).
+    plans = [SectionPlan(
+        title="How carbon pricing shifts investment",
+        focus="comparing the alternatives",
+        ev_ids=["ev_001"],
+        archetype="Quantitative-Comparison",
+    )]
+    on_updated, on_log = _m44_inject_primaries_into_outline(
+        plans, {"CARBON-PRICE-2024": ["ev_999"]}, use_archetype=True,
+    )
+    assert "ev_999" in on_updated[0].ev_ids, (
+        f"on-mode QC injection failed: {on_updated[0].ev_ids}"
+    )
+    assert on_updated[0].archetype == "Quantitative-Comparison"
+
+    # OFF-mode: the SAME non-clinical title is NOT primary-eligible (title
+    # routing unchanged), so no primary is injected — byte-identical to today.
+    off_updated, _ = _m44_inject_primaries_into_outline(
+        plans, {"CARBON-PRICE-2024": ["ev_999"]}, use_archetype=False,
+    )
+    assert "ev_999" not in off_updated[0].ev_ids, (
+        f"off-mode must NOT inject (non-clinical title not eligible): "
+        f"{off_updated[0].ev_ids}"
+    )
+
+    # OFF-mode: a clinically-titled "Efficacy" section IS eligible and gets
+    # the primary — proving off-mode title routing is intact.
+    clinical_plans = [SectionPlan(
+        title="Efficacy", focus="weight outcomes",
+        ev_ids=["ev_001"], archetype="",
+    )]
+    off_clinical, _ = _m44_inject_primaries_into_outline(
+        clinical_plans, {"SURMOUNT-2": ["ev_999"]}, use_archetype=False,
+    )
+    assert "ev_999" in off_clinical[0].ev_ids
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-20 (FIX 3) planner Writer thread propagates cost ContextVars.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_p1_20_planner_cost_context_propagation() -> None:
+    # `_planner_llm` is a closure inside `run_one_query` under the on-mode
+    # `if _use_research_planner:` block — not importable for a direct unit
+    # (per FIX SPEC P1-20, source-inspection is the prescribed fallback).
+    import inspect
+    import re
+    import scripts.run_honest_sweep_r3 as sweep
+    src = inspect.getsource(sweep.run_one_query)
+    # The fix captures the parent context and runs the worker inside it.
+    assert "copy_context" in src, "missing contextvars.copy_context()"
+    assert "parent_ctx.run" in src, "missing parent_ctx.run(...) execution"
+    # The cost delta is written back to the parent context (mutating
+    # `_RUN_COST_CTX.set` from a worker snapshot does NOT propagate without
+    # an explicit write-back; FIX 3 mirrors auto_induction rounds 3-4).
+    assert "_RUN_COST_CTX" in src
+    assert "_cost_delta" in src and "_worker_cost_after_holder" in src
+    # No bare context-LESS `submit(asyncio.run, ...)` pool remains (the prior
+    # bug that dropped the planner Writer cost from the parent run).
+    assert not re.search(r"submit\(\s*_asyncio\.run\s*,", src), (
+        "bare context-less submit(asyncio.run, ...) still present"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P1-21 (FIX 4) on-mode section system prompt is FIELD-AGNOSTIC.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_p1_21_on_mode_section_prompt_field_agnostic() -> None:
+    # ON-mode: the formatted base section system prompt carries NO clinical /
+    # RCT / drug literal.
+    on_prompt = _select_section_system_prompt(True).format(
+        title="How carbon pricing shifts investment",
+        focus="comparing carbon-tax versus cap-and-trade outcomes",
+    )
+    lowered = on_prompt.lower()
+    for literal in ("tirzepatide", "hba1c", "clinical", "trial", "guideline"):
+        assert literal not in lowered, (
+            f"on-mode field-agnostic prompt leaked clinical literal {literal!r}"
+        )
+    # It still carries the structural rules (evidence-only, every-sentence
+    # cited, >=5 distinct sources).
+    assert "[ev_XXX] marker" in on_prompt
+    assert "5 DISTINCT sources" in on_prompt
+
+    # OFF-mode: the prompt is the unchanged clinical template (byte-identical).
+    off_prompt_template = _select_section_system_prompt(False)
+    assert off_prompt_template is SECTION_SYSTEM_PROMPT_TEMPLATE
+    off_prompt = off_prompt_template.format(
+        title="Efficacy", focus="HbA1c reduction in adults with T2D",
+    )
+    # The clinical template DOES carry the clinical worked example + framing.
+    assert "Tirzepatide" in off_prompt or "tirzepatide" in off_prompt.lower()
+
+    # The two templates are distinct objects.
+    assert (
+        SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
+        is not SECTION_SYSTEM_PROMPT_TEMPLATE
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
