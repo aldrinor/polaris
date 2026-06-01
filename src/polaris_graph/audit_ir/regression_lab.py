@@ -596,6 +596,7 @@ _STATUS_TIERS: dict[str, int] = {
     "partial_outline_fallback": 1,
     "partial_evaluator_advisory": 1,
     "partial_qwen_advisory": 1,  # legacy alias (I-modref-004 #530)
+    "partial_saturation": 1,  # I-meta-005 Phase 4 (#988): pruned partial report
     # abort — pipeline refused to produce a report
     "abort_scope_rejected": 2,
     "abort_no_sources": 2,

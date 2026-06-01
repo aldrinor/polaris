@@ -1,0 +1,2305 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e8243-f9fb-7130-a2fd-a93788755ada
+--------
+user
+REVIEW DISCIPLINE (read first): FOCUSED DIFF REVIEW. Review ONLY the diff in
+`.codex/I-meta-005-phase-4/codex_diff.patch` against the brief
+`.codex/I-meta-005-phase-4/brief.md`. Do NOT run a repo-wide audit. Open at most
+the 7 changed files + the brief. This is iter 3: your iter-1 P1 + iter-1 P2b are
+already APPROVE-confirmed; your job now is to confirm the iter-2 residual P2a is
+fully closed, and surface any NEW real blocker.
+
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Status: iter-2 APPROVE'd. This iter only confirms the residual P2a fix.
+
+Iter 2 verdict: APPROVE (0 P0, 0 P1), one accept_remaining P2a:
+"`summary["saturation"]` is populated but the final success/partial manifest does
+not copy it to `manifest["saturation"]`, and the patch records dropped section
+titles/shortfall but not the uncovered sub-query TEXT."
+
+### P2a — now COMPLETED (verify), run_honest_sweep_r3.py:
+1. The partial branch's `_dropped_detail` now includes
+   `"uncovered_sub_queries"` for each dropped section = the TEXT of the uncovered
+   planned sub-questions (the unit's `empty_facets` if any, else the unit's full
+   `sub_query_indices`), resolved against `_research_plan.sub_queries` with a
+   bounds guard.
+2. After the `research_plan` manifest block, the success/partial manifest now does
+   `if summary.get("saturation"): manifest["saturation"] = summary["saturation"]`
+   — ON-mode only, so the OFF manifest shape is byte-preserved.
+
+VERIFY: (a) `manifest["saturation"]` is present on BOTH success and
+partial_saturation runs and absent in OFF; (b) `uncovered_sub_queries` resolves the
+correct plan sub-query text with no index error; (c) no double-write / shape drift;
+(d) nothing else changed since the iter-2 APPROVE (P1 V30 re-inject, P2b early-break
+gate, degenerate-novelty fix all unchanged).
+
+## Unchanged (already APPROVE-confirmed at iter 2 — do NOT re-litigate unless a NEW defect)
+- P1: gap-round re-injects the round-0 prepend (upload + V30 contract) via suffix-diff.
+- P2b: need-type early-break gated on anchor_seed; legacy domain-runner :555 untouched.
+- Degenerate-novelty fix: RoundOutcome.prev_corpus_rows + raw new_round_rows.
+- OFF byte-identity: anchor_seed/partial_mode default legacy; loop only under
+  PG_USE_RESEARCH_PLANNER. Money: zero generator tokens until PROCEED/partial.
+
+## Smoke (committed tree, HEAD 2e3ede33)
+- test_saturation_phase4.py: 27 passed. Regression (adequacy+planning+discovery+md9
+  + retrieval): 153 passed.
+
+## Output schema (REQUIRED — loose prose rejected)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll do the focused diff review exactly against the patch and brief, limited to the changed files plus the brief, and check only the residual saturation-manifest/sub-query detail fix plus any new blocker visible in this diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath .codex/I-meta-005-phase-4/brief.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '(Get-Item -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch).Length; (Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch | Measure-Object -Line).Lines' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch -Pattern '"'^diff --git '"'" in C:\POLARIS
+ succeeded in 1347ms:
+HARD ITERATION CAP: 5. iter 1 of 5. Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+Front-load ALL real findings. Reserve P0/P1 for real execution risks; P2/P3 for the rest.
+
+Output the §8.3.9 YAML verdict FIRST:
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# Codex BRIEF gate iter 6 (confirm) — I-meta-005 Phase 4 (#988): multi-round saturation search
+
+Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 50. Phase 4 closes gap #3 (search depth):
+single-pass retrieval → a gap-targeted SATURATION LOOP that, when Phase 3's plan-sufficiency gate returns
+EXPAND, fires another retrieval round for ONLY the under-covered sub-questions, re-gates, and stops on
+gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL report (not a blind abort).
+
+## 0. HARD CONSTRAINTS (operator-locked — NOT Codex-consultable; do not offer the relaxed option)
+- **NO per-domain / `if domain ==` / clinical literal as a control value on the on-path.** The loop targets
+  the plan's under-covered sub-queries (field-agnostic), never a domain.
+- **OFF byte-identical.** Gated on `PG_USE_RESEARCH_PLANNER` (default off). Off = today's SINGLE-PASS
+  `run_live_retrieval` → select → (legacy gate), byte-for-byte. On = the saturation loop.
+- **MONEY: zero generator tokens until PROCEED.** The loop runs retrieval+selection+Phase-3-gate; the
+  generator is billed ONCE, only on the final PROCEED. EXPAND rounds spend retrieval (Serper/S2 calls), NOT
+  generator tokens. A budget cap bounds the retrieval rounds.
+- **BUILD + SMOKE spend-free.** The loop DECISION logic (novelty metric, stop conditions, gap-query
+  selection) is a PURE function tested with stubbed per-round evidence; the live `run_live_retrieval` round
+  is exercised only live (Gate-B/Phase-8). Smoke asserts no live client constructed.
+
+## 1. THE PROBLEM (grounded in running code)
+- Retrieval is SINGLE-PASS: `run_live_retrieval` (`live_retriever.py:1676`) runs once with a fixed
+  `fetch_cap` (`PG_SWEEP_FETCH_CAP`); there is no gap-analysis re-query.
+- Phase 3's gate (`run_honest_sweep_r3.py:2776-2819`) computes EXPAND when sections are under-covered, but
+  `PG_PLAN_SUFFICIENCY_MAX_ROUNDS` defaults to 0 (`:2785`), so EXPAND collapses to `abort_corpus_inadequate`
+  — the gate identifies the gap but cannot CLOSE it. Phase 4 owns the close-the-gap loop.
+
+## 2. THE BUILD (behind PG_USE_RESEARCH_PLANNER)
+
+### 2.1 NEW `src/polaris_graph/retrieval/saturation.py` (pure decision logic)
+- `marginal_novelty(prev_evidence_rows, new_round_rows) -> float`: the fraction of the new round's rows that
+  are NOVEL. **Single dedup identity = canonical URL via the EXISTING `run_diff` canonicalizer (iter-2 P2):**
+  reuse `audit_ir/run_diff.py:220` `_normalize_url` (the existing private helper — add a thin public wrapper if importing a private name is undesirable) which lowercases host, strips `www.`, DROPS tracking
+  params (utm_*/fbclid/gclid/ref/...) but PRESERVES + sorts identifier query params — so two distinct
+  query-addressed sources (`?abstract_id=123` vs `?abstract_id=456`, `?doi=...`) stay DISTINCT while only
+  tracking noise collapses. (eTLD+1+path alone would wrongly merge distinct identifier-addressed pages — the
+  `corroboration` host-only primitive is too coarse here.) A new row is NOVEL iff its canonical URL is not in
+  `prev_evidence_rows`. **Row URL field = `source_url` (iter-4 P2 — live rows carry `source_url`, not `url`,
+  `live_retriever.py:2221`); intra-round duplicates ALSO collapse (two rows in the SAME new round with the
+  same canonical URL count as one novel).** Returns `len(novel) / max(1, len(new_round_rows))`.
+- `gap_sub_queries(sufficiency_report, plan) -> list[str]`: the sub-query TEXTS to fire next, covering BOTH
+  shortfall modes (iter-1 P1 #2 — the gate fails on `covered_count < evidence_target` OR `empty_facets`,
+  `plan_sufficiency_gate.py:308`):
+  - for an under-covered section with `empty_facets` → the sub-query texts at those empty facet indices;
+  - for an under-covered section with `covered_count < evidence_target` but NO empty facets (total shortfall)
+    → ALL the section's mapped sub-query texts (fire the whole section to raise total coverage).
+  Deduped, field-agnostic, derived from the plan. NEVER empty when a section is under-covered (else the loop
+  would have no query to fire — the exact gap Codex flagged).
+- `saturation_decision(*, verdict, round_index, max_rounds, novelty, eps) -> Decision` where Decision ∈
+  {CONTINUE, STOP_SUFFICIENT, STOP_NOVELTY, STOP_BUDGET}:
+  - verdict == proceed → STOP_SUFFICIENT (gap closed).
+  - **verdict == abort → STOP_BUDGET (iter-1 P1 #3):** the Phase-3 gate returns `abort` when
+    `round_index >= max_rounds` (`plan_sufficiency_gate.py:332`); that is an explicit terminal — map it to
+    STOP_BUDGET (rounds/budget exhausted, the loop must terminate; never an unhandled verdict).
+  - verdict == expand AND round_index+1 >= max_rounds → STOP_BUDGET (rounds exhausted).
+  - verdict == expand AND round_index >= 1 AND novelty < eps → STOP_NOVELTY (the last round added < eps
+    novel rows — the findings-per-round curve flattened; more rounds won't help).
+  - else (expand, rounds left, novelty ≥ eps) → CONTINUE.
+
+### 2.2 Sweep wiring — the loop (`run_honest_sweep_r3.py`)
+- On-mode, wrap retrieval → `select_evidence_for_generation` → Phase-3 `assess_plan_sufficiency` in a loop:
+  - round 0 = today's retrieval (unchanged).
+  - compute the gate verdict on the round's `evidence_for_gen`. `saturation_decision`:
+    - STOP_SUFFICIENT → break to the generator (PROCEED).
+    - STOP_NOVELTY / STOP_BUDGET → break to a PARTIAL report (status `partial_saturation` — see 2.3).
+    - CONTINUE → fire round N+1: a GAP-ONLY retrieval round that fires ONLY `gap_sub_queries(...)` and does
+      NOT re-fire the broad anchor (iter-1 P1 #1 — `run_live_retrieval` always prepends `research_question`
+      to `all_queries` at `live_retriever.py:1741`, so a naive `amplified_queries=` call would re-run the
+      anchor and waste budget). FIX: add an additive `anchor_seed: bool = True` param to `run_live_retrieval`;
+      a gap round calls it with `anchor_seed=False` so `all_queries = gap_sub_queries` only. **AND propagate
+      it to the need-type backend (iter-2 P1):** the on-mode seam ALSO calls `run_need_type_backends(...,
+      research_question=research_question)` (`live_retriever.py:1839`), and that dispatcher independently
+      builds `queries = [research_question]` (`domain_backends.py:648`) — so anchor-suppression must reach
+      BOTH. Add `anchor_seed: bool = True` to `run_need_type_backends` too; when False its `queries =
+      amplified_queries` ONLY (no `research_question` prepend). The gap round threads `anchor_seed=False`
+      through to both the core Serper/S2 path AND the need-type adapters. Then MERGE the
+      new rows into the cumulative corpus, **renumbering evidence_ids globally (iter-1 P1 #5):** each
+      `run_live_retrieval` call restarts ids at `ev_000`, which would COLLIDE/overwrite in the evidence pool;
+      reuse the EXISTING legacy-expansion renumber pattern (`run_honest_sweep_r3.py:2128` — `base =
+      len(cumulative_rows); new_id = f"ev_{base+i:03d}"`) so ids are globally unique across rounds. Then
+      re-select + re-gate; track `novelty` vs the prior cumulative corpus; increment `round_index`.
+  - `PG_SATURATION_MAX_ROUNDS` (default e.g. 3) bounds the rounds; `PG_SATURATION_NOVELTY_EPS` (default e.g.
+    0.10) is ε.
+  - **Cumulative retrieval-budget cap — PRE-SPEND enforcement (iter-3 P1):** rounds spend per effective query
+    INSIDE `run_live_retrieval` (Serper `:1790`, S2 `:1806`, over `effective_queries`), so a post-round
+    counter OVERSHOOTS (cumulative 1 below cap + a 40-gap-query round = overspend before STOP_BUDGET). FIX:
+    PREFLIGHT before firing round N+1. **Exact accounting (iter-4 P1 #2):** `PG_SATURATION_MAX_RETRIEVAL_CALLS`
+    counts DISCOVERY calls. **Per-query WORST-CASE cost — the need-type adapters loop PER QUERY (iter-5 P1
+    #1):** core Serper + core S2 (`live_retriever.py:1790`,`:1806`) = 2 calls/query, PLUS the need-type
+    dispatcher which calls EACH routed adapter inside `for q in queries` (`domain_backends.py:660`) =
+    `adapter_count` calls PER gap query (NOT once per backend — the live result undercounts by recording each
+    backend once at `live_retriever.py:1857`; that is the bug, so use the worst-case for the cap).
+    `per_query_discovery_cost = 2 + adapter_count` (`adapter_count` from the routed need-type registry,
+    `source_adapter_registry.py:247`). (Fetch + OpenAlex `:2085`,`:2100` are bounded by `fetch_cap`, not
+    multiplied per gap query — out of this cap's scope.) PREFLIGHT: `remaining = MAX -
+    cumulative_discovery_calls`; if `remaining <= 0` → STOP_BUDGET; else the round may fire at most
+    `floor(remaining / per_query_discovery_cost)` gap queries — TRUNCATE `gap_sub_queries` to that many so
+    the round's WORST-CASE discovery spend (`fired_queries * per_query_discovery_cost`) CANNOT exceed
+    `remaining`. After the round, add the WORST-CASE `fired_queries * per_query_discovery_cost` (NOT the
+    undercounting observed `api_calls`) to the cumulative counter. INVARIANT (P4-14):
+    `cumulative_discovery_calls <= MAX` at ALL times.
+  - **Re-gate on the BILLED set each round (iter-3 P2):** every round's re-gate uses the SAME generator-visible
+    `evidence_for_gen` Phase 3 certifies — i.e. AFTER the round's selection AND the V30 contract-row
+    (`:2719`) + upload-row (`:2749`) injections, immediately before the generator. So the loop wraps
+    retrieval → select → [V30/upload inject] → `assess_plan_sufficiency` each round, preserving the Phase-3
+    billed-set invariant (the gate always certifies exactly what would be billed).
+- Off-mode: the single-pass path runs unchanged (byte-identical); no loop.
+
+### 2.3 PARTIAL report — PRUNED-PLAN generator contract (iter-1 P1 #4)
+- When the loop stops at STOP_NOVELTY / STOP_BUDGET with SOME sections still under-covered, Phase 4 emits
+  status `partial_saturation`. The generator fixes its output structure to `research_plan.outline`
+  (`multi_section_generator.py:4098`), so passing the FULL plan would still RENDER the under-covered sections
+  (the exact bug Codex flagged). FIX: build a **PRUNED ResearchPlan** containing ONLY the sufficient sections.
+  **Index remap (iter-2 P2):** `ResearchPlan` is index-based (`SectionOutlineItem.sub_query_indices` point
+  into `plan.sub_queries`), and the whole-plan facet-union invariant requires
+  `union(retained sub_query_indices) == range(len(pruned.sub_queries))`. So the prune MUST: (1) drop the
+  under-covered `SectionOutlineItem`s; (2) drop the now-ORPHANED `sub_queries` (those mapped by no retained
+  section); (3) REMAP the retained sections' `sub_query_indices` to the compacted `sub_queries` list, so all
+  indices stay in-range and the union invariant holds on the pruned plan. Pass THAT pruned plan to
+  `generate_multi_section_report` (`run_honest_sweep_r3.py:3012`). So the generator structurally CANNOT
+  render an under-covered SECTION. The manifest names the dropped sections + their shortfall + the
+  `partial_saturation` status.
+- **Disable EVERY out-of-plan generator addition in partial mode (iter-4/5 P1 #1 — EXHAUSTIVE):** the pruned
+  plan controls `research_plan.outline`, but the report assembly ALSO appends content OUTSIDE the plan that
+  the prune does not reach. In `partial_saturation` mode a single `partial_mode` flag MUST DISABLE ALL of
+  these out-of-plan appenders (a fixture that would otherwise trigger each must produce NONE):
+  - V30 contract-plan sections (`multi_section_generator.py:4167`, fed from `run_honest_sweep_r3.py:3002`);
+  - M50 per-trial summary appendices (`run_honest_sweep_r3.py:3073`, `multi_section_generator.py:5177`);
+  - the `### Trial Summary` + timeline (`run_honest_sweep_r3.py:3057`, builder `multi_section_generator.py:4972`);
+  - the `## Analyst Synthesis` (`run_honest_sweep_r3.py:3190`, generator-side `multi_section_generator.py:4998`);
+  - the `### Limitations` (`run_honest_sweep_r3.py:3199`, builder `multi_section_generator.py:5034`).
+  So the FINAL RENDERED report's headings == ONLY the pruned sufficient sections — NO out-of-plan content for
+  an under-covered topic. (PROCEED/full mode is UNCHANGED — all of these still render.) Smoke P4-7c uses a
+  fixture that would otherwise trigger Trial Summary + Analyst Synthesis + Limitations + V30 + M50, and
+  asserts the partial report's headings equal exactly the pruned plan's sections.
+- **Money rule (iter-1 P2 — exact wording):** the generator is billed EXACTLY when the final verdict is
+  PROCEED (full plan) OR `partial_saturation` (pruned plan = sufficient sections ONLY) — NEVER on an
+  under-covered section. If ZERO sections are sufficient → `abort_corpus_inadequate`, no generator bill.
+- **Status taxonomy registration (iter-3 P1 #2):** `partial_saturation` is a NEW manifest status — it MUST
+  be registered in the runner's known-status set + summary mapping (`run_honest_sweep_r3.py:173`,`:194`) AND
+  the regression-lab status mirror (`audit_ir/regression_lab.py:589`) AND the taxonomy-drift guard
+  (`tests/polaris_graph/test_md9_regression_lab.py:280`) is updated to include it — else a partial run
+  surfaces as unknown/error downstream or breaks the drift test.
+
+## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/retrieval/test_saturation_phase4.py`
+- **P4-1 OFF byte-identity:** off → the single-pass retrieval path is unchanged (no loop); pin the existing
+  retrieval-trace shape on a fixture.
+- **P4-2 novelty metric:** `marginal_novelty` returns 1.0 for all-new, 0.0 for all-duplicate, 0.5 for half.
+- **P4-2b identifier-vs-tracking canonicalization (iter-2 P2):** two rows with `?abstract_id=123` and
+  `?abstract_id=456` (same host+path) are DISTINCT (both novel); two rows differing only by `?utm_source=x`
+  collapse to ONE (the second is a duplicate). Uses the run_diff canonicalizer.
+- **P4-3 gap_sub_queries:** an under-covered section mapped to sub-queries [2,4] with facet 4 under-covered →
+  returns exactly `[plan.sub_queries[4]]` (the gap facet's text), NOT the whole plan.
+- **P4-4 saturation_decision:** proceed→STOP_SUFFICIENT; expand+rounds-exhausted→STOP_BUDGET; expand+round≥1
+  +novelty<eps→STOP_NOVELTY; expand+rounds-left+novelty≥eps→CONTINUE.
+- **P4-5 loop convergence (the EXIT — findings-per-round flattens):** drive the loop with a STUB retrieval
+  that returns decreasing novel rows per round (round0: 5 new, round1: 3 new, round2: 0 new); assert the
+  loop STOPS at STOP_NOVELTY when novelty < eps, and the findings-per-round curve flattens (round novelty
+  monotonically decreasing to < eps). NO live client constructed.
+- **P4-6 gap-closure stop:** stub retrieval that CLOSES the gap on round 1 → STOP_SUFFICIENT → generator
+  billed once (spy: generator called exactly once, on PROCEED).
+- **P4-7 partial report:** stub where section A stays covered, section B never closes after max_rounds →
+  status `partial_saturation`, generator billed ONLY for section A, section B named in the shortfall.
+- **P4-8 budget bound:** the loop never exceeds `PG_SATURATION_MAX_ROUNDS`; hitting the cap = STOP_BUDGET.
+- **P4-9 spend-free guard:** no live HTTP client constructed in the decision-logic smoke.
+- **P4-10 gap-round anchor-suppressed BOTH seams (iter-2 P1):** a gap round with `anchor_seed=False` → the
+  effective query list at the CORE Serper/S2 seam AND at the need-type adapters (`run_need_type_backends`) is
+  EXACTLY `gap_sub_queries`; the `research_question` anchor is NOT in EITHER (assert adapter-level queries
+  too). USE >3 GAP QUERIES (iter-4 P2 — the need-type adapter caps amplified to 3 at `domain_backends.py:650`;
+  >3 pins that gap rounds aren't silently truncated to 3 + that the cap is lifted/bypassed for gap rounds).
+  ALSO `anchor_seed=False` must defeat the scope-validator anchor reinsertion (`scope_query_validator.py:182`
+  `always_keep_anchor`) — a gap round passes `always_keep_anchor=False` so the validator does not re-add the
+  research_question.
+- **P4-11 total-shortfall gap queries (iter-1 P1 #2):** an under-covered section with `covered_count <
+  evidence_target` but `empty_facets == []` → `gap_sub_queries` returns ALL the section's sub-query texts
+  (non-empty), so the loop has a query to fire.
+- **P4-12 abort → STOP_BUDGET (iter-1 P1 #3):** `saturation_decision(verdict="abort", ...)` → STOP_BUDGET
+  (terminal, never unhandled).
+- **P4-13 global evidence_id renumber (iter-1 P1 #5):** merging round-1 rows (`ev_000..`) with round-2 rows
+  (also `ev_000..`) renumbers so the cumulative pool has globally-unique ids (no overwrite); the merged
+  count == sum of round counts (after canonical-URL dedup).
+- **P4-14 cumulative retrieval budget NEVER exceeded (iter-3 P1):** drive a loop where rounds spend N
+  api_calls each; assert `cumulative_calls <= PG_SATURATION_MAX_RETRIEVAL_CALLS` at EVERY step (pre-spend
+  truncation/refusal), and STOP_BUDGET fires when remaining hits 0 — even if `max_rounds` is not reached. A
+  round is truncated/refused so it can NEVER push cumulative over the cap.
+- **P4-15 partial_saturation taxonomy (iter-3 P1 #2):** `partial_saturation` is in the runner known-status
+  set + summary map + regression_lab mirror; the md9 taxonomy-drift test passes WITH it registered (a partial
+  run does not surface as unknown/error).
+- **P4-16 re-gate on billed set (iter-3 P2):** each round's gate is assessed on the post-V30/upload
+  `evidence_for_gen` (the billed set), preserving the Phase-3 invariant across rounds.
+- **P4-7 strengthened (pruned plan, iter-1 P1 #4):** the generator receives a PRUNED plan whose outline
+  contains ONLY the sufficient sections — the under-covered section is NOT in the plan passed to
+  `generate_multi_section_report` (structurally cannot be rendered).
+- **P4-7c partial-mode out-of-plan disabled EXHAUSTIVE (iter-5 P1 #1):** a fixture that would otherwise emit
+  Trial Summary + Analyst Synthesis + Limitations + V30 contract sections + M50 appendices → in
+  `partial_saturation` mode the rendered report's headings == EXACTLY the pruned sufficient sections (none of
+  the five out-of-plan appenders fire); PROCEED/full mode still emits them.
+- **P4-7b pruned-plan index remap invariant (iter-2 P2):** after pruning, the pruned plan's orphaned
+  sub_queries are dropped, the retained sections' sub_query_indices are REMAPPED to the compacted
+  sub_queries, ALL indices are in-range, and `union(sub_query_indices)==range(len(pruned.sub_queries))` holds
+  (the pruned plan re-passes the Phase-3 fail-closed facet-union validation).
+- Plus a regression subset confirming OFF single-pass byte-identity.
+
+## 4. EXIT CRITERIA (issue #988)
+On-mode, the saturation loop fires gap-targeted rounds for under-covered sub-questions, the findings-per-round
+curve FLATTENS, and the loop STOPS on gap-closure OR marginal-novelty < ε (ε validated) OR budget → a partial
+report naming the uncovered sub-questions (via a PRUNED plan, structurally excluding them); gap rounds fire
+ONLY the gap sub-queries (anchor-suppressed); evidence_ids globally unique across rounds; cumulative
+retrieval spend bounded (not just round count); OFF single-pass byte-identical; zero generator tokens until
+PROCEED/partial; all smoke green; spend-free build.
+
+## 5. WHAT I HAVE ALSO CHECKED
+- Phase 3 gate (`:2776-2819`) returns `under_covered_units` + per-unit per-facet shortfall — the exact input
+  `gap_sub_queries` needs.
+- `run_live_retrieval(amplified_queries=...)` (`:1676`) already accepts an amplified-query list (Phase 1/2
+  wiring) — the gap round reuses it with the gap sub-queries.
+- `PG_PLAN_SUFFICIENCY_MAX_ROUNDS` is the Phase-3 hook Phase 4 drives (rename/alias to PG_SATURATION_MAX_ROUNDS).
+
+## 6. REVIEW QUESTIONS FOR CODEX
+1. Is the novelty metric (fraction of new rows that are non-duplicate, canonical-URL dedup) the right
+   "marginal-novelty < ε" signal, vs a finding/number-level dedup? Is ε default 0.10 sound?
+2. Is gap-targeted re-query (only the under-covered facets' sub-queries) correct, vs re-running all
+   sub-queries? Could a gap facet be genuinely un-closable (no such evidence exists) → STOP_NOVELTY is the
+   honest stop?
+3. Is the PARTIAL report (bill only the sufficient sections, name the uncovered ones) the right honest
+   behavior, vs aborting? Does it preserve the money rule (no generator bill on uncovered sections)?
+4. Is "decision logic pure + smoke-tested, live retrieval round live-only" the right spend-free boundary?
+5. Scope: is the loop the right Phase-4 boundary, with relevance-floor/dedup (Phase 5) + domain-general
+   sections (Phase 6) still separate?
+
+APPROVE iff the acceptance criteria are correct, the saturation loop closes gaps / stops honestly on
+novelty/budget, the money rule (no generator bill until PROCEED/partial) holds, and OFF stays byte-identical.
+This is the build contract.
+
+ succeeded in 1816ms:
+
+.codex\I-meta-005-phase-4\codex_diff.patch:1:[7mdiff [0m[7m--git [0m[7m[0ma/scripts/run_honest_sweep_r3.py [0m
+[7m[0mb/scripts/run_honest_sweep_r3.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:490:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/audit_ir/regression_lab.py [0m
+[7m[0mb/src/polaris_graph/audit_ir/regression_lab.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:502:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/generator/multi_section_generator.py [0m
+[7m[0mb/src/polaris_graph/generator/multi_section_generator.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:591:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/retrieval/domain_backends.py [0m
+[7m[0mb/src/polaris_graph/retrieval/domain_backends.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:650:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/retrieval/live_retriever.py [0m
+[7m[0mb/src/polaris_graph/retrieval/live_retriever.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:707:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/retrieval/saturation.py [0m
+[7m[0mb/src/polaris_graph/retrieval/saturation.py[0m
+.codex\I-meta-005-phase-4\codex_diff.patch:1139:[7mdiff [0m[7m--git [0m[7m[0ma/tests/polaris_graph/retrieval/test_saturation_phase4.py [0m
+[7m[0mb/tests/polaris_graph/retrieval/test_saturation_phase4.py[0m
+
+
+ succeeded in 2302ms:
+97923
+2128
+
+codex
+The patch changes exactly seven files. I’m narrowing the review to the manifest/detail hunk in `run_honest_sweep_r3.py` and nearby test coverage, then I’ll only branch out if that exposes a new execution blocker.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch -Pattern 'uncovered_sub_queries|_dropped_detail|manifest\\[\"saturation\"\\]|summary\\[\"saturation\"\\]|partial_saturation|def _' -Context 5,12" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch -Pattern 'test_.*saturation|uncovered_sub_queries|manifest\\[\"saturation\"\\]|partial_saturation' -Context 3,8" in C:\POLARIS
+ succeeded in 1393ms:
+
+  .codex\I-meta-005-phase-4\codex_diff.patch:4:+++ b/scripts/run_honest_sweep_r3.py
+  .codex\I-meta-005-phase-4\codex_diff.patch:5:@@ -180,6 +180,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+  .codex\I-meta-005-phase-4\codex_diff.patch:6:     "partial_outline_fallback",      # BUG-M-203: planner failed, 
+fallback used
+  .codex\I-meta-005-phase-4\codex_diff.patch:7:     "partial_evaluator_advisory",    # BUG-M-205: judge flagged 
+critical axes
+  .codex\I-meta-005-phase-4\codex_diff.patch:8:     "partial_qwen_advisory",         # I-modref-004 (#530): legacy 
+alias, historical manifests
+> .codex\I-meta-005-phase-4\codex_diff.patch:9:+    "[7mpartial_saturation[0m", [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m
+[7m[0mpruned [0m[7m[0mreport, [0m[7m[0msome [0m[7m[0msections [0m[7m[0munder-covered[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:10:     # abort — pipeline refused to produce a report[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:11:     "abort_scope_rejected",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:12:     "abort_no_sources",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:13:@@ -207,6 +208,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:14:     "abort_corpus_approval_denied": "abort_corpus_approval_denied",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:15:     "abort_no_verified_sections": "abort_no_verified_sections",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:16:     "abort_evaluator_critical": "abort_evaluator_critical",[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:17:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mpruned [0m[7m[0mpartial [0m[7m[0mreport [0m[7m[0m(some [0m[7m[0msections [0m
+[7m[0munder-covered).[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:18:+    "[7mpartial_saturation[0m": "partial_saturation",[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:19: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-002 [0m[7m[0msub-PR-6: [0m[7m[0m4-role [0m[7m[0mD8 [0m[7m[0mrelease [0m[7m[0mdecision [0m[7m[0m(single [0m[7m[0mbinding [0m
+[7m[0mgate). [0m[7m[0mReleased [0m[7m[0m=>[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:20: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msuccess; [0m[7m[0mheld [0m[7m[0m=> [0m[7m[0ma [0m[7m[0mrelease-blocking [0m[7m[0mabort [0m[7m[0m(D8 [0m[7m[0mheld: [0m[7m[0mfabricated [0m
+[7m[0moccurrence [0m[7m[0m/ [0m[7m[0mcoverage[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:21: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mshortfall [0m[7m[0m/ [0m[7m[0mS0 [0m[7m[0mmust-cover [0m[7m[0mmissing [0m[7m[0m/ [0m[7m[0mpending [0m[7m[0mrewrite). [0m[7m[0mOnly [0m[7m[0mset [0m
+[7m[0mon [0m[7m[0mthe [0m[7m[0mguarded [0m[7m[0m4-role [0m[7m[0mpath.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:22:@@ -223,6 +226,85 @@ def to_unified_status(summary_status: str) -> str:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:23:     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:24: [0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:25: [0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:26:+[7mdef [0m[7m_[0mprune_plan_to_sufficient_sections(research_plan, [0m
+[7m[0msufficiency_report):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:27:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""I-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mbuild [0m[7m[0ma [0m[7m[0mPRUNED [0m[7m[0m`ResearchPlan` [0m[7m[0mwhose [0m
+[7m[0moutline[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:28:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mcontains [0m[7m[0mONLY [0m[7m[0mthe [0m[7m[0mSUFFICIENT [0m[7m[0msections, [0m[7m[0mso [0m[7m[0mthe [0m[7m[0mgenerator [0m[7m[0m(which [0m
+[7m[0mfixes [0m[7m[0mits[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:29:+ [0m[7m [0m[7m [0m[7m [0m[7m[0moutput [0m[7m[0mstructure [0m[7m[0mto [0m[7m[0m`research_plan.outline`) [0m[7m[0mstructurally [0m[7m[0mCANNOT [0m
+[7m[0mrender [0m[7m[0man[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:30:+    under-covered section in a `[7mpartial_saturation[0m` report.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:31:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:32:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mThe [0m[7m[0mplan [0m[7m[0mis [0m[7m[0mindex-based [0m[7m[0m(`SectionOutlineItem.sub_query_indices` [0m
+[7m[0mpoint [0m[7m[0minto[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:33:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m`plan.sub_queries`), [0m[7m[0mand [0m[7m[0mthe [0m[7m[0mwhole-plan [0m[7m[0mfacet-union [0m[7m[0minvariant [0m
+[7m[0mrequires[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:34:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m`union(retained [0m[7m[0msub_query_indices) [0m[7m[0m== [0m
+[7m[0mrange(len(pruned.sub_queries))`. [0m[7m[0mSo [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:35:+    prune MUST:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:36:+      (1) drop the under-covered `SectionOutlineItem`s;[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:37:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m(2) [0m[7m[0mdrop [0m[7m[0mthe [0m[7m[0mnow-ORPHANED [0m[7m[0m`sub_queries` [0m[7m[0m(mapped [0m[7m[0mby [0m[7m[0mno [0m[7m[0mretained [0m
+[7m[0msection);[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:38:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m(3) [0m[7m[0mREMAP [0m[7m[0mthe [0m[7m[0mretained [0m[7m[0msections' [0m[7m[0m`sub_query_indices` [0m[7m[0mto [0m[7m[0mthe [0m
+[7m[0mcompacted[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:39:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m`sub_queries` [0m[7m[0mlist, [0m[7m[0mso [0m[7m[0mall [0m[7m[0mindices [0m[7m[0mstay [0m[7m[0min-range [0m[7m[0mand [0m[7m[0mthe [0m
+[7m[0munion [0m[7m[0minvariant[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:40:+          holds on the pruned plan.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:41:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:42:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mReturns [0m[7m[0m`(pruned_plan, [0m[7m[0mdropped_section_titles)`. [0m[7m[0m`pruned_plan` [0m[7m[0mis [0m
+[7m[0mNone [0m[7m[0mwhen[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:211:+                    )
+  .codex\I-meta-005-phase-4\codex_diff.patch:212:+                except Exception:
+  .codex\I-meta-005-phase-4\codex_diff.patch:213:+                    _adapter_count = 0
+  .codex\I-meta-005-phase-4\codex_diff.patch:214:+                _cost_per_query = 
+per_query_discovery_cost(_adapter_count)
+  .codex\I-meta-005-phase-4\codex_diff.patch:215:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:216:+                [7mdef [0m[7m_[0mrun_gap_round(gap_queries: [0m[7m[0mlist[str]) [0m[7m[0m-> [0m
+[7m[0mRoundOutcome:[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:217:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"""On-mode [0m[7m[0mgap-retrieval [0m[7m[0mclosure. [0m[7m[0mFires [0m[7m[0mONLY [0m[7m[0mthe [0m
+[7m[0mgap[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:218:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0msub-queries [0m[7m[0m(anchor-suppressed [0m[7m[0mBOTH [0m[7m[0mseams), [0m
+[7m[0mmerges [0m[7m[0mwith[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:219:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mglobal [0m[7m[0mevidence_id [0m[7m[0mrenumber, [0m[7m[0mre-selects, [0m
+[7m[0mre-injects [0m[7m[0mupload[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:220:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mrows, [0m[7m[0mand [0m[7m[0mre-gates [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mbilled [0m[7m[0mset. [0m[7m[0mCloses [0m
+[7m[0mover [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:221:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0menclosing [0m[7m[0m`retrieval` [0m[7m[0m/ [0m[7m[0m`evidence_for_gen` [0m[7m[0m/ [0m
+[7m[0m`_suff` [0m[7m[0mso [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:222:+                    final round's state flows to the generator."""[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:223:+                    nonlocal retrieval, evidence_for_gen, _suff[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:224:+                    _gap_ret = run_live_retrieval([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:225:+                        research_question=q["question"],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:226:+                        amplified_queries=list(gap_queries),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:227:+                        protocol=_retrieval_protocol,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:228:+                        max_serper=_max_serper,[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:344:+                )
+  .codex\I-meta-005-phase-4\codex_diff.patch:345:+                # I-meta-005 Phase 4 (#988) — Codex diff-gate P2: 
+persist the
+  .codex\I-meta-005-phase-4\codex_diff.patch:346:+                # saturation trajectory into the manifest (summary 
+-> manifest) so
+  .codex\I-meta-005-phase-4\codex_diff.patch:347:+                # a partial/success run is observable WITHOUT 
+re-reading run_log:
+  .codex\I-meta-005-phase-4\codex_diff.patch:348:+                # decision, rounds fired, discovery spend, per-round 
+novelty.
+> .codex\I-meta-005-phase-4\codex_diff.patch:349:+                [7msummary["saturation"][0m = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:350:+                    "decision": _sat.decision,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:351:+                    "rounds_fired": _sat.rounds_fired,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:352:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"discovery_calls": [0m
+[7m[0m_sat.cumulative_discovery_calls,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:353:+                    "max_discovery_calls": _sat_max_calls,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:354:+                    "novelty_trajectory": [[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:355:+                        round(x, 4) for x in _sat.novelty_trajectory[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:356:+                    ],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:357:+                    "truncated_any_round": _sat.truncated_any_round,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:358:+                }[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:359:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m`_suff` [0m[7m[0m/ [0m[7m[0m`evidence_for_gen` [0m[7m[0m/ [0m[7m[0m`retrieval` [0m[7m[0mnow [0m
+[7m[0mhold [0m[7m[0mthe [0m[7m[0mFINAL[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:360:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mround's [0m[7m[0mstate [0m[7m[0m(the [0m[7m[0mclosure [0m[7m[0mmutated [0m[7m[0mthem [0m[7m[0mvia [0m
+[7m[0mnonlocal).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:361:+                if _sat.decision == STOP_SUFFICIENT:[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:370:+                        
+_prune_plan_to_sufficient_sections(_research_plan, _suff)
+  .codex\I-meta-005-phase-4\codex_diff.patch:371:+                    )
+  .codex\I-meta-005-phase-4\codex_diff.patch:372:+                    if _pruned_plan is not None:
+  .codex\I-meta-005-phase-4\codex_diff.patch:373:+                        _gen_plan = _pruned_plan
+  .codex\I-meta-005-phase-4\codex_diff.patch:374:+                        _partial_mode = True
+> .codex\I-meta-005-phase-4\codex_diff.patch:375:+                        summary["status"] = "[7mpartial_saturation[0m"[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:376:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mCodex [0m[7m[0mdiff-gate [0m[7m[0mP2: [0m[7m[0mname [0m[7m[0mthe [0m[7m[0mDROPPED [0m
+[7m[0m(under-covered)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:377:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msections [0m[7m[0m+ [0m[7m[0mtheir [0m[7m[0mshortfall [0m[7m[0min [0m[7m[0mthe [0m[7m[0mmanifest [0m
+[7m[0mso [0m[7m[0mthe [0m[7m[0mpartial[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:378:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0martifact [0m[7m[0mdiscloses [0m[7m[0mexactly [0m[7m[0mwhich [0m[7m[0mplanned [0m
+[7m[0msub-questions [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:379:+                        # corpus could not cover, and by how much.[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:380:+                        [7mdef _[0muncovered_sub_query_text(_unit):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:381:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mThe [0m[7m[0mTEXT [0m[7m[0mof [0m[7m[0mthe [0m[7m[0muncovered [0m
+[7m[0msub-questions: [0m[7m[0mthe [0m[7m[0mempty[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:382:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfacets [0m[7m[0mif [0m[7m[0many, [0m[7m[0melse [0m[7m[0m(total-shortfall) [0m
+[7m[0mall [0m[7m[0mthe [0m[7m[0munit's[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:383:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmapped [0m[7m[0msub-queries. [0m[7m[0mResolved [0m[7m[0magainst [0m
+[7m[0mthe [0m[7m[0mpinned [0m[7m[0mplan.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:384:+                            _idx = ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:385:+                                list(_unit.empty_facets)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:386:+                                or list(_unit.sub_query_indices)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:387:+                            )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:388:+                            _sq = _research_plan.sub_queries[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:389:+                            return [[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:390:+                                _sq[_i] for _i in _idx[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:391:+                                if 0 <= _i < len(_sq)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:392:+                            ][0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:393:+                        [7m_dropped_detail[0m = [[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:394:+                            {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:395:+                                "unit_id": _u.unit_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:396:+                                "title": _u.title,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:397:+                                "covered_count": _u.covered_count,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:398:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"evidence_target": [0m
+[7m[0m_u.evidence_target,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:399:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"empty_facets": [0m
+[7m[0mlist(_u.empty_facets),[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:400:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"below_floor_count": [0m
+[7m[0m_u.below_floor_count,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:401:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mCodex [0m[7m[0mdiff-gate [0m[7m[0miter-2 [0m[7m[0mP2a: [0m[7m[0mthe [0m
+[7m[0mactual [0m[7m[0mTEXT [0m[7m[0mof [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:402:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mplanned [0m[7m[0msub-questions [0m[7m[0mthe [0m[7m[0mcorpus [0m
+[7m[0mcould [0m[7m[0mnot [0m[7m[0mcover.[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:403:+                                "[7muncovered_sub_queries[0m": [0m
+[7m[0m_uncovered_sub_query_text([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:404:+                                    _u[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:405:+                                ),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:406:+                            }[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:407:+                            for _u in _suff.per_unit[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:408:+                            if not _u.sufficient[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:409:+                        ][0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:410:+                        [7msummary["saturation"][0m["sections_kept"] = len([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:411:+                            _pruned_plan.outline[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:412:+                        )[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:413:+                        [7msummary["saturation"][0m["sections_dropped"] [0m[7m[0m= [0m
+[7m[0mlist([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:414:+                            _dropped_sections[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:415:+                        )[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:416:+                        
+[7msummary["saturation"][0m["dropped_sections_detail"] [0m[7m[0m= [0m[7m[0m([0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:417:+                            [7m_dropped_detail[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:418:+                        )[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:419:+                        [7msummary["saturation"][0m["authority_floor"] = ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:420:+                            _suff.authority_floor[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:421:+                        )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:422:+                        _log([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:423:+                            f"[saturation]  PARTIAL report: "[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:424:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mf"{len(_pruned_plan.outline)} [0m[7m[0msufficient [0m
+[7m[0msection(s) [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:425:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mf"kept; [0m[7m[0mdropped [0m[7m[0m{len(_dropped_sections)} [0m
+[7m[0munder-"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:426:+                            f"covered: {_dropped_sections}"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:427:+                        )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:428:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:429:+            if _suff.verdict != "proceed" and _partial_mode is False:[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:430: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mEXPAND [0m[7m[0mor [0m[7m[0mABORT [0m[7m[0m-> [0m[7m[0mhold [0m[7m[0mBEFORE [0m[7m[0mthe [0m[7m[0mgenerator [0m[7m[0mbills [0m
+[7m[0m(Phase [0m[7m[0m3[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:431: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mguarantee: [0m[7m[0ma [0m[7m[0mshallow [0m[7m[0mcorpus [0m[7m[0mNEVER [0m[7m[0mspends [0m[7m[0ma [0m
+[7m[0mgenerator [0m[7m[0mtoken).[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:438:             # structure to `research_plan.outline`, assigns 
+retrieved evidence
+  .codex\I-meta-005-phase-4\codex_diff.patch:439:             # to those sections post-retrieval, and routes M-44/M-47 
+on the
+  .codex\I-meta-005-phase-4\codex_diff.patch:440:             # archetype tag (not a clinical title).
+  .codex\I-meta-005-phase-4\codex_diff.patch:441:-            research_plan=_research_plan,
+  .codex\I-meta-005-phase-4\codex_diff.patch:442:+            # I-meta-005 Phase 4 (#988): `_gen_plan` is the FULL 
+plan on PROCEED
+> .codex\I-meta-005-phase-4\codex_diff.patch:443:+            # and the PRUNED plan (sufficient sections only) in 
+[7mpartial_saturation[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:444:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmode; [0m[7m[0m`_partial_mode` [0m[7m[0mthen [0m[7m[0mdisables [0m[7m[0mALL [0m[7m[0mFIVE [0m
+[7m[0mout-of-plan [0m[7m[0mappenders [0m[7m[0mso[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:445:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0mrendered [0m[7m[0mheadings [0m[7m[0m== [0m[7m[0mexactly [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msufficient [0m
+[7m[0msections.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:446:+            research_plan=_gen_plan,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:447:+            partial_mode=_partial_mode,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:448:             )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:449:         finally:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:450:             _pathb.reset_role(_pathb_gen_tok)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:451:@@ -3707,6 +4078,22 @@ async def run_one_query([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:452:         else:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:453:             summary_status = "ok"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:454:         unified_status = to_unified_status(summary_status)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:455:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0ma [0m[7m[0mpruned [0m[7m[0mpartial-saturation [0m
+[7m[0mreport [0m[7m[0mSURFACES[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:456:+        # as `[7mpartial_saturation[0m` [0m[7m[0m(tier-1 [0m[7m[0mpartial) [0m[7m[0m— [0m[7m[0mit [0m[7m[0mOVERRIDES [0m
+[7m[0mthe [0m[7m[0msuccess-[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:457:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mpath [0m[7m[0mheuristics [0m[7m[0m(ok/ok_thin_corpus/...), [0m[7m[0mbut [0m[7m[0mNOT [0m[7m[0ma [0m[7m[0mgenuine [0m
+[7m[0mintegrity[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:458:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfailure [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msections [0m[7m[0m(abort_*/fail_* [0m[7m[0mstill [0m[7m[0mwin, [0m
+[7m[0msince [0m[7m[0mthose[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:459:+        # mean the kept sections themselves did not verify/release).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:460:+        if _partial_mode and unified_status in ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:461:+            "success",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:462:+            "partial_thin_corpus",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:463:+            "partial_incomplete_corpus",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:464:+            "partial_rule_check_warnings",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:465:+            "partial_outline_fallback",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:466:+            "partial_evaluator_advisory",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:467:+            "partial_qwen_advisory",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:468:+        ):[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:469:+            summary_status = "[7mpartial_saturation[0m"
+> .codex\I-meta-005-phase-4\codex_diff.patch:470:+            unified_status = "[7mpartial_saturation[0m"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:471:         manifest = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:472:             "run_id": run_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:473:             "slug": q["slug"],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:474:@@ -3807,6 +4194,15 @@ async def run_one_query([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:475:                 ],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:476:             }[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:477: [0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:478:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988) [0m[7m[0m— [0m[7m[0mCodex [0m[7m[0mdiff-gate [0m[7m[0miter-2 [0m[7m[0mP2a: [0m
+[7m[0msurface [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:479:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msaturation [0m[7m[0mtrajectory [0m[7m[0m+ [0m[7m[0mper-section [0m[7m[0mshortfall [0m[7m[0m(incl. [0m
+[7m[0muncovered [0m[7m[0msub-query[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:480:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mtext) [0m[7m[0min [0m[7m[0mthe [0m[7m[0mper-run [0m[7m[0mmanifest [0m[7m[0mtoo. [0m[7m[0mIt [0m[7m[0malready [0m[7m[0mlands [0m[7m[0min [0m
+[7m[0msweep_summary.json[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:481:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mvia [0m[7m[0m`summary`; [0m[7m[0mthis [0m[7m[0mmakes [0m[7m[0mthe [0m[7m[0mPER-RUN [0m[7m[0maudit [0m[7m[0martifact [0m
+[7m[0mself-contained [0m[7m[0mfor [0m[7m[0ma[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:482:+        # [7mpartial_saturation [0m[7m[0mresult. [0m[7m[0mON-mode [0m[7m[0monly [0m[7m[0m(key [0m[7m[0mabsent [0m[7m[0min [0m[7m[0mOFF [0m
+[7m[0m-> [0m[7m[0mlegacy[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:483:+        # manifest shape preserved).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:484:+        if summary.get("saturation"):[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:485:+            [7mmanifest["saturation"][0m = summary["saturation"][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:486:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:487: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-002 [0m[7m[0msub-PR-6: [0m[7m[0mGUARDED [0m[7m[0m4-role [0m[7m[0mevaluation [0m[7m[0mseam [0m
+[7m[0m(default [0m[7m[0mOFF, [0m[7m[0mNO [0m[7m[0mspend).[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:488: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mActivates [0m[7m[0mONLY [0m[7m[0mwhen [0m[7m[0man [0m[7m[0mexplicit [0m[7m[0mRoleTransport [0m[7m[0mis [0m[7m[0mINJECTED [0m
+[7m[0m(four_role_transport)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:489: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mAND [0m[7m[0mPG_FOUR_ROLE_MODE [0m[7m[0mis [0m[7m[0menabled. [0m[7m[0mThere [0m[7m[0mis [0m[7m[0mNO [0m[7m[0mdefault [0m[7m[0mreal [0m
+[7m[0mtransport: [0m[7m[0mthe [0m[7m[0mlive[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:490:diff [0m[7m[0m--git [0m[7m[0ma/src/polaris_graph/audit_ir/regression_lab.py [0m
+[7m[0mb/src/polaris_graph/audit_ir/regression_lab.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:491:index 486b2b1a..15894402 100644[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:492:--- a/src/polaris_graph/audit_ir/regression_lab.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:493:+++ b/src/polaris_graph/audit_ir/regression_lab.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:494:@@ -596,6 +596,7 @@ _STATUS_TIERS: dict[str, int] = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:495:     "partial_outline_fallback": 1,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:496:     "partial_evaluator_advisory": 1,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:497:     "partial_qwen_advisory": 1,  # legacy alias (I-modref-004 #530)[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:498:+    "[7mpartial_saturation[0m": [0m[7m[0m1, [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mpruned [0m
+[7m[0mpartial [0m[7m[0mreport[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:499:     # abort — pipeline refused to produce a report[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:500:     "abort_scope_rejected": 2,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:501:     "abort_no_sources": 2,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:502:diff [0m[7m[0m--git [0m[7m[0ma/src/polaris_graph/generator/multi_section_generator.py [0m
+[7m[0mb/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:503:index 78ca1ca8..a677c9eb 100644[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:504:--- a/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:505:+++ b/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:506:@@ -4071,6 +4071,19 @@ async def generate_multi_section_report([0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:507: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mASSIGNS [0m[7m[0mretrieved [0m[7m[0mevidence [0m[7m[0mto [0m[7m[0mthose [0m[7m[0msections [0m[7m[0m(no [0m[7m[0msecond [0m[7m[0mLLM [0m
+[7m[0moutline[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:508:     # call). Routing of M-44/M-47 then keys on archetype, not title.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:509:     research_plan: Any | None = None,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:510:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mPARTIAL-saturation [0m[7m[0mmode. [0m[7m[0mWhen [0m[7m[0mTrue [0m
+[7m[0m(status[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:511:+    # `[7mpartial_saturation[0m`), [0m[7m[0mthe [0m[7m[0mreport [0m[7m[0mstructure [0m[7m[0mis [0m[7m[0mFIXED [0m[7m[0mto [0m[7m[0mthe [0m
+[7m[0mPRUNED [0m[7m[0mplan's[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:512:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msufficient [0m[7m[0msections [0m[7m[0mONLY, [0m[7m[0mand [0m[7m[0mEVERY [0m[7m[0mout-of-plan [0m[7m[0mappender [0m[7m[0mis [0m
+[7m[0mDISABLED [0m[7m[0mso [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:513:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mrendered [0m[7m[0mreport's [0m[7m[0mheadings [0m[7m[0m== [0m[7m[0mexactly [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msufficient [0m
+[7m[0msections:[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:514:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0mV30 [0m[7m[0mcontract-plan [0m[7m[0msections [0m[7m[0m(`v30_contract_plans` [0m[7m[0moutline [0m
+[7m[0minjection),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:515:+    #   - M50 per-trial summary appendices,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:516:+    #   - the Trial Summary table + timeline,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:517:+    #   - the Analyst Synthesis,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:518:+    #   - the Limitations.[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:519:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mEach [0m[7m[0mbuilder [0m[7m[0mis [0m[7m[0mhard-gated [0m[7m[0mon [0m[7m[0m`partial_mode` [0m[7m[0mat [0m[7m[0mthe [0m[7m[0mtop [0m[7m[0m(NOT [0m
+[7m[0mon [0m[7m[0mincidental[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:520:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mempty [0m[7m[0minputs) [0m[7m[0mso [0m[7m[0ma [0m[7m[0mfixture [0m[7m[0mthat [0m[7m[0mwould [0m[7m[0motherwise [0m[7m[0mtrigger [0m[7m[0meach [0m
+[7m[0mproduces [0m[7m[0mNONE.[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:521:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mDefault [0m[7m[0mFalse [0m[7m[0m= [0m[7m[0mPROCEED/full [0m[7m[0mmode [0m[7m[0mUNCHANGED [0m[7m[0m(all [0m[7m[0mfive [0m[7m[0mstill [0m
+[7m[0mrender).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:522:+    partial_mode: bool = False,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:523: ) -> MultiSectionResult:[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:767:+    the public seam — it delegates verbatim (no reimplementation).
+  .codex\I-meta-005-phase-4\codex_diff.patch:768:+    """
+  .codex\I-meta-005-phase-4\codex_diff.patch:769:+    return _normalize_url(url or "")
+  .codex\I-meta-005-phase-4\codex_diff.patch:770:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:771:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:772:+[7mdef _[0mrow_source_url(row: Any) -> str:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:773:+    """Extract the row's canonical URL field (brief §2.1).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:774:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:775:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mLive [0m[7m[0mrows [0m[7m[0mcarry [0m[7m[0m`source_url` [0m[7m[0m(NOT [0m[7m[0m`url`), [0m
+[7m[0m`live_retriever.py:2221`. [0m[7m[0mAccepts[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:776:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mdict [0m[7m[0mrows [0m[7m[0m(the [0m[7m[0mlive [0m[7m[0mshape) [0m[7m[0mand [0m[7m[0mfalls [0m[7m[0mback [0m[7m[0mto [0m[7m[0mobject [0m[7m[0mattributes [0m
+[7m[0mdefensively.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:777:+    """[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:778:+    if isinstance(row, dict):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:779:+        return row.get("source_url") or row.get("url") or ""[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:780:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mreturn [0m[7m[0mgetattr(row, [0m[7m[0m"source_url", [0m[7m[0m"") [0m[7m[0mor [0m[7m[0mgetattr(row, [0m[7m[0m"url", [0m[7m[0m"") [0m
+[7m[0mor [0m[7m[0m""[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:781:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:782:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:783:+def marginal_novelty([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:784:+    prev_evidence_rows: list[Any],[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:833:+    per_unit = list(getattr(sufficiency_report, "per_unit", []) or 
+[])
+  .codex\I-meta-005-phase-4\codex_diff.patch:834:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:835:+    out: list[str] = []
+  .codex\I-meta-005-phase-4\codex_diff.patch:836:+    seen: set[str] = set()
+  .codex\I-meta-005-phase-4\codex_diff.patch:837:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:838:+    [7mdef _[0madd(idx: int) -> None:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:839:+        if 0 <= idx < n_sub:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:840:+            text = sub_queries[idx][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:841:+            key = " ".join(str(text or "").split()).strip().lower()[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:842:+            if text and key and key not in seen:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:843:+                seen.add(key)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:844:+                out.append(text)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:845:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:846:+    for unit in per_unit:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:847:+        if getattr(unit, "sufficient", True):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:848:+            continue[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:849:+        empty_facets = list(getattr(unit, "empty_facets", []) or [])[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:850:+        mapped = list(getattr(unit, "sub_query_indices", []) or [])[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1185:+)
+  .codex\I-meta-005-phase-4\codex_diff.patch:1186:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1187:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1188:+# ── fixtures / helpers (real objects, no mocks) 
+──────────────────────────────
+  .codex\I-meta-005-phase-4\codex_diff.patch:1189:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1190:+[7mdef _[0mplan(sub_queries, outline, *, frame=None):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1191:+    return ResearchPlan([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1192:+        research_question="q",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1193:+        frame=frame or ResearchFrame(),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1194:+        sub_queries=list(sub_queries),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1195:+        outline=list(outline),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1196:+    )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1197:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1198:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:1199:+[7mdef _[0msection(title, target, indices, archetype="Background"):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1200:+    return SectionOutlineItem([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1201:+        archetype=archetype,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1202:+        title=title,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1203:+        evidence_target=target,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1204:+        sub_query_indices=list(indices),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1205:+    )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1206:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1207:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:1208:+[7mdef _[0mrow(ev_id, url, origin, score):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1209:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""A [0m[7m[0mlive-shaped [0m[7m[0mevidence [0m[7m[0mrow: [0m[7m[0mcarries [0m[7m[0m`source_url` [0m[7m[0m(NOT [0m[7m[0m`url`) [0m
+[7m[0m+ [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1210:+    authority sidecar fields the Phase-3 gate reads."""[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1211:+    return {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1212:+        "evidence_id": ev_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1213:+        "source_url": url,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1214:+        "query_origin": origin,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1215:+        "statement": "",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1216:+        "direct_quote": "",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1217:+        "authority_score": score,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1218:+        "authority_confidence": "HIGH",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1219:+    }[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1220:+[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1223:+    """Asserts no live HTTP client is constructed inside the 
+decision-logic
+  .codex\I-meta-005-phase-4\codex_diff.patch:1224:+    smoke. The orchestrator only ever calls the INJECTED 
+`run_round_fn` /
+  .codex\I-meta-005-phase-4\codex_diff.patch:1225:+    `generator_fn`; if anything tries to build a live retriever the 
+test stubs
+  .codex\I-meta-005-phase-4\codex_diff.patch:1226:+    record it and the assertion fails."""
+  .codex\I-meta-005-phase-4\codex_diff.patch:1227:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1228:+    [7mdef _[0m_init__(self) -> None:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1229:+        self.live_client_built = False[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1230:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1231:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1232:+# [0m[7m[0m── [0m[7m[0mP4-2 [0m[7m[0m/ [0m[7m[0mP4-2b [0m[7m[0mnovelty [0m[7m[0mmetric [0m[7m[0m+ [0m[7m[0midentifier-vs-tracking [0m
+[7m[0mcanonicalization [0m[7m[0m────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1233:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1234:+def test_p4_2_marginal_novelty_all_new_all_dup_half():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1235:+    prev = [_row("ev_000", "https://a.org/p1", "q", 0.9)][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1236:+    all_new = [[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1237:+        _row("ev_001", "https://b.org/p2", "q", 0.9),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1238:+        _row("ev_002", "https://c.org/p3", "q", 0.9),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1239:+    ][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1240:+    assert marginal_novelty(prev, all_new) == 1.0[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1357:+    """Capture-only stub for `run_round_fn`. Each round returns a 
+controlled
+  .codex\I-meta-005-phase-4\codex_diff.patch:1358:+    RoundOutcome built from a scripted list of per-round NEW rows + 
+a scripted
+  .codex\I-meta-005-phase-4\codex_diff.patch:1359:+    sufficiency verdict. Records the gap queries it was asked to 
+fire and proves
+  .codex\I-meta-005-phase-4\codex_diff.patch:1360:+    NO live HTTP client is ever constructed."""
+  .codex\I-meta-005-phase-4\codex_diff.patch:1361:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1362:+    [7mdef _[0m_init__(self, *, round_specs, plan, sentinel):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1363:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mround_specs: [0m[7m[0mlist [0m[7m[0mof [0m[7m[0m(new_rows, [0m[7m[0mverdict, [0m[7m[0mper_unit) [0m[7m[0mfor [0m
+[7m[0mrounds [0m[7m[0m1..N.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1364:+        self._specs = list(round_specs)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1365:+        self._plan = plan[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1366:+        self._sentinel = sentinel[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1367:+        self.cumulative_rows: list = [][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1368:+        self.fired_gap_queries: list[list[str]] = [][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1369:+        self.calls = 0[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1370:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1371:+    def seed_round0(self, rows):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1372:+        self.cumulative_rows = list(rows)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1373:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:1374:+    [7mdef _[0m_call__(self, gap_queries: list[str]) -> RoundOutcome:[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1375:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mThe [0m[7m[0morchestrator [0m[7m[0mmust [0m[7m[0mNEVER [0m[7m[0mconstruct [0m[7m[0ma [0m[7m[0mlive [0m[7m[0mclient; [0m[7m[0mit [0m
+[7m[0monly [0m[7m[0mcalls [0m[7m[0mus.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1376:+        assert self._sentinel.live_client_built is False[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1377:+        self.fired_gap_queries.append(list(gap_queries))[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1378:+        new_rows, verdict, per_unit = self._specs[self.calls][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1379:+        self.calls += 1[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1380:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mShape-faithful [0m[7m[0mto [0m[7m[0mproduction [0m[7m[0m`_run_gap_round`: [0m[7m[0msnapshot [0m
+[7m[0mthe [0m[7m[0mcorpus[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1381:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mBEFORE [0m[7m[0mthe [0m[7m[0mmerge [0m[7m[0m(the [0m[7m[0mnovelty [0m[7m[0mBASELINE), [0m[7m[0mthen [0m[7m[0mhand [0m[7m[0mthe [0m
+[7m[0mRAW [0m[7m[0mscripted[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1382:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mround [0m[7m[0mrows [0m[7m[0m-- [0m[7m[0mwhich [0m[7m[0mmay [0m[7m[0minclude [0m[7m[0mcanonical-URL [0m[7m[0mdups [0m
+[7m[0malready [0m[7m[0min [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1383:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mcorpus [0m[7m[0m-- [0m[7m[0mas [0m[7m[0m`new_round_rows` [0m[7m[0m(the [0m[7m[0mnovelty [0m[7m[0mDENOMINATOR). [0m
+[7m[0mThis [0m[7m[0mis [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1384:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mEXACT [0m[7m[0mshape [0m[7m[0m`_run_gap_round` [0m[7m[0memits [0m
+[7m[0m(`prev_corpus_rows=_prev_corpus`,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1385:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m`new_round_rows=list(_gap_ret.evidence_rows)`); [0m[7m[0mthe [0m[7m[0mloop [0m
+[7m[0mscores[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1386:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m`marginal_novelty(prev_corpus_rows, [0m[7m[0mnew_round_rows)` [0m
+[7m[0mdirectly.[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1401:+            new_round_rows=list(new_rows),
+  .codex\I-meta-005-phase-4\codex_diff.patch:1402:+            prev_corpus_rows=prev_corpus,
+  .codex\I-meta-005-phase-4\codex_diff.patch:1403:+        )
+  .codex\I-meta-005-phase-4\codex_diff.patch:1404:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1405:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1406:+[7mdef _[0munit(unit_id, sufficient, indices=(0,), empty=()):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1407:+    return type("U", (), {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1408:+        "unit_id": unit_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1409:+        "title": unit_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1410:+        "sufficient": sufficient,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1411:+        "sub_query_indices": list(indices),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1412:+        "empty_facets": list(empty),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1413:+        "covered_count": 0,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1414:+        "evidence_target": 2,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1415:+        "below_floor_count": 0,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1416:+    })()[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1417:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1418:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:1419:+[7mdef _[0mreport(verdict, per_unit, round_index=0):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1420:+    return type("R", (), {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1421:+        "verdict": verdict,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1422:+        "round_index": round_index,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1423:+        "per_unit": per_unit,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1424:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"under_covered_units": [0m[7m[0m[u.unit_id [0m[7m[0mfor [0m[7m[0mu [0m[7m[0min [0m[7m[0mper_unit [0m[7m[0mif [0m[7m[0mnot [0m
+[7m[0mu.sufficient],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1425:+    })()[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1426:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1427:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1428:+# [0m[7m[0m── [0m[7m[0mP4-5 [0m[7m[0mloop [0m[7m[0mconvergence: [0m[7m[0mnovelty [0m[7m[0mflattens [0m[7m[0m-> [0m[7m[0mSTOP_NOVELTY [0m
+[7m[0m──────────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1429:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1430:+def test_p4_5_loop_stops_on_novelty_flatten():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1431:+    sentinel = _NoLiveClientSentinel()[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1541:+    assert result.decision == STOP_SUFFICIENT
+  .codex\I-meta-005-phase-4\codex_diff.patch:1542:+    # generator-billing simulation: PROCEED -> the caller bills the 
+generator
+  .codex\I-meta-005-phase-4\codex_diff.patch:1543:+    # exactly once. Prove the loop signalled PROCEED (not 
+partial/abort).
+  .codex\I-meta-005-phase-4\codex_diff.patch:1544:+    gen_calls = {"n": 0}
+  .codex\I-meta-005-phase-4\codex_diff.patch:1545:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1546:+    [7mdef _[0mgenerator_fn(_plan, partial_mode):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1547:+        gen_calls["n"] += 1[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1548:+        return "report"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1549:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1550:+    if result.decision == STOP_SUFFICIENT:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1551:+        _generator_fn(plan, partial_mode=False)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1552:+    assert gen_calls["n"] == 1[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1553:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1554:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1555:+# [0m[7m[0m── [0m[7m[0mP4-8 [0m[7m[0mbudget [0m[7m[0mbound: [0m[7m[0mnever [0m[7m[0mexceeds [0m[7m[0mmax [0m[7m[0mrounds; [0m[7m[0mcap [0m[7m[0m= [0m[7m[0mSTOP_BUDGET [0m
+[7m[0m────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1556:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1557:+def test_p4_8_loop_never_exceeds_max_rounds():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1558:+    sentinel = _NoLiveClientSentinel()[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1612:+# ── P4-10 gap-round anchor-suppressed on BOTH seams 
+──────────────────────────
+  .codex\I-meta-005-phase-4\codex_diff.patch:1613:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1614:+class _CaptureAdapter:
+  .codex\I-meta-005-phase-4\codex_diff.patch:1615:+    """A stub discovery adapter that records every query it is 
+asked to run."""
+  .codex\I-meta-005-phase-4\codex_diff.patch:1616:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1617:+    [7mdef _[0m_init__(self, name, sink):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1618:+        self.name = name[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1619:+        self.need = "primary_literature"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1620:+        self.scoped = False[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1621:+        self._sink = sink[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1622:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1623:+    def run(self, query, *, limit):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1624:+        self._sink.append(query)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1625:+        return [][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1626:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1627:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1628:+def test_p4_10_gap_round_anchor_suppressed_both_seams():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1629:+    from src.polaris_graph.retrieval.domain_backends import ([0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1684:+class _HighYieldAdapter:
+  .codex\I-meta-005-phase-4\codex_diff.patch:1685:+    """A stub adapter that records every query AND returns 2*limit 
+candidates on
+  .codex\I-meta-005-phase-4\codex_diff.patch:1686:+    EVERY call, so the legacy result-count early-break (`len(got) 
+>= 2*limit`)
+  .codex\I-meta-005-phase-4\codex_diff.patch:1687:+    would fire after the FIRST query if it were still active."""
+  .codex\I-meta-005-phase-4\codex_diff.patch:1688:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1689:+    [7mdef _[0m_init__(self, name, sink):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1690:+        self.name = name[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1691:+        self.need = "primary_literature"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1692:+        self.scoped = False[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1693:+        self._sink = sink[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1694:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1695:+    def run(self, query, *, limit):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1696:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mfrom [0m[7m[0msrc.polaris_graph.retrieval.domain_backends [0m[7m[0mimport [0m
+[7m[0mSearchCandidate[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1697:+        self._sink.append(query)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1698:+        return [[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1699:+            SearchCandidate([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1700:+                url=f"https://hit/{query}/{i}",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1701:+                title="t", snippet="s", source="src",[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1842:+    assert per_query_discovery_cost(3) == 5
+  .codex\I-meta-005-phase-4\codex_diff.patch:1843:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1844:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1845:+# ── P4-7 / P4-7b / P4-7c partial report (pruned plan + index remap 
++ appenders)
+  .codex\I-meta-005-phase-4\codex_diff.patch:1846:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1847:+[7mdef _[0mprune_plan(research_plan, sufficiency_report):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1848:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Mirror [0m[7m[0mof [0m[7m[0mthe [0m[7m[0mrunner's [0m[7m[0m`_prune_plan_to_sufficient_sections` [0m
+[7m[0mso [0m[7m[0mthe [0m[7m[0msmoke[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1849:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mtests [0m[7m[0mthe [0m[7m[0mSAME [0m[7m[0mprune+remap [0m[7m[0minvariant [0m[7m[0mthe [0m[7m[0mrunner [0m[7m[0mrelies [0m[7m[0mon [0m
+[7m[0m(imported [0m[7m[0mfrom [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1850:+    runner to avoid drift)."""[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1851:+    import importlib[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1852:+    runner = importlib.import_module("scripts.run_honest_sweep_r3")[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1853:+    return runner._prune_plan_to_sufficient_sections([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1854:+        research_plan, sufficiency_report[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1855:+    )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1856:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1857:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1858:+def test_p4_7_partial_report_pruned_plan_excludes_undercovered():[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1859:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Section [0m[7m[0mA [0m[7m[0mcovered, [0m[7m[0msection [0m[7m[0mB [0m[7m[0mnever [0m[7m[0mcloses [0m[7m[0m-> [0m[7m[0mthe [0m[7m[0mPRUNED [0m
+[7m[0mplan's [0m[7m[0moutline[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1965:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1966:+        title = "CONTRACT SECTION SHOULD NOT RENDER"
+  .codex\I-meta-005-phase-4\codex_diff.patch:1967:+        focus = "x"
+  .codex\I-meta-005-phase-4\codex_diff.patch:1968:+        slots = ()
+  .codex\I-meta-005-phase-4\codex_diff.patch:1969:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1970:+    async [7mdef _[0mrun():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1971:+        return await generate_multi_section_report([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1972:+            research_question="q",[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1973:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mevidence=[], [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mEMPTY [0m[7m[0mpool [0m[7m[0m-> [0m
+[7m[0msections [0m[7m[0mdrop, [0m[7m[0mno [0m[7m[0mspend[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1974:+            research_plan=plan,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1975:+            partial_mode=True,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1976:+            # ── all five triggering inputs PRESENT ──[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1977:+            tier_fractions={"T1": 0.5, "T2": 0.5},[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1978:+            contradictions=[{"a": 1}],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1979:+            date_range={"start": "2020", "end": "2024"},[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1980:+            uncovered_topics=["something uncovered"],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1981:+            primary_trial_anchors=["TRIAL-A", "TRIAL-B"],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1982:+            direct_trial_anchors=["TRIAL-A", "TRIAL-B"],[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:2012:+    sig = inspect.signature(msg.generate_multi_section_report)
+  .codex\I-meta-005-phase-4\codex_diff.patch:2013:+    assert "partial_mode" in sig.parameters
+  .codex\I-meta-005-phase-4\codex_diff.patch:2014:+    assert sig.parameters["partial_mode"].default is False
+  .codex\I-meta-005-phase-4\codex_diff.patch:2015:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:2016:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:2017:+# ── P4-15 [7mpartial_saturation [0m[7m[0mtaxonomy [0m[7m[0mregistration [0m
+[7m[0m───────────────────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2018:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2019:+def test_p4_15_[7mpartial_saturation[0m_taxonomy_registered():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2020:+    import importlib[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2021:+    runner = importlib.import_module("scripts.run_honest_sweep_r3")[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2022:+    from src.polaris_graph.audit_ir.regression_lab import ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2023:+        KNOWN_STATUS_VALUES,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2024:+    )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2025:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2026:+    assert "[7mpartial_saturation[0m" in runner.UNIFIED_STATUS_VALUES
+> .codex\I-meta-005-phase-4\codex_diff.patch:2027:+    assert "[7mpartial_saturation[0m" in KNOWN_STATUS_VALUES[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2028:+    # summary->unified self-map present.[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2029:+    assert runner._SUMMARY_TO_UNIFIED["[7mpartial_saturation[0m"] [0m[7m[0m== [0m
+[7m[0m"partial_saturation"[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2030:+    assert runner.to_unified_status("[7mpartial_saturation[0m") [0m[7m[0m== [0m
+[7m[0m"partial_saturation"[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2031:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mThe [0m[7m[0mmd9 [0m[7m[0mtaxonomy-drift [0m[7m[0mguard [0m[7m[0mholds [0m[7m[0mWITH [0m[7m[0mthe [0m[7m[0mnew [0m[7m[0mstatus [0m
+[7m[0mregistered.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2032:+    assert KNOWN_STATUS_VALUES == runner.UNIFIED_STATUS_VALUES[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2033:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2034:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2035:+# [0m[7m[0m── [0m[7m[0mP4-16 [0m[7m[0mre-gate [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mBILLED [0m[7m[0mset [0m[7m[0meach [0m[7m[0mround [0m
+[7m[0m───────────────────────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2036:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2037:+def test_p4_16_regate_on_billed_set_each_round():[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2038:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Each [0m[7m[0mround's [0m[7m[0mgate [0m[7m[0mis [0m[7m[0massessed [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mpost-select/V30/upload [0m
+[7m[0mbilled [0m[7m[0mset[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2039:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m(`evidence_for_gen`), [0m[7m[0mNOT [0m[7m[0mthe [0m[7m[0mraw [0m[7m[0mretrieved [0m[7m[0mcorpus. [0m[7m[0mThe [0m[7m[0mstub [0m
+[7m[0mdriver [0m[7m[0mreturns [0m[7m[0ma[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2040:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mRoundOutcome [0m[7m[0mwhose [0m[7m[0m`sufficiency_report` [0m[7m[0mwas [0m[7m[0mcomputed [0m[7m[0mfrom [0m
+[7m[0m`evidence_for_gen`;[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2041:+ [0m[7m [0m[7m [0m[7m [0m[7m[0massert [0m[7m[0mthe [0m[7m[0mloop's [0m[7m[0mterminal [0m[7m[0m`_suff` [0m[7m[0mcorresponds [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mbilled [0m
+[7m[0mset."""[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2042:+    sentinel = _NoLiveClientSentinel()[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:2046:+    # exactly those. We model the gate result via 
+assess_plan_sufficiency over
+  .codex\I-meta-005-phase-4\codex_diff.patch:2047:+    # the billed rows so the report is the REAL gate output on the 
+billed set.
+  .codex\I-meta-005-phase-4\codex_diff.patch:2048:+    billed_round1 = r0_rows + [_row("ev_100", "https://s/1", "sq0", 
+0.9)]
+  .codex\I-meta-005-phase-4\codex_diff.patch:2049:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:2050:+    class _BilledDriver:
+> .codex\I-meta-005-phase-4\codex_diff.patch:2051:+        [7mdef _[0m_init__(self):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2052:+            self.calls = 0[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2053:+            self.last_billed = None[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2054:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2055:+        [7mdef _[0m_call__(self, gap_queries):[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2056:+            assert sentinel.live_client_built is False[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2057:+            self.calls += 1[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2058:+            self.last_billed = list(billed_round1)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2059:+            rep = assess_plan_sufficiency([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2060:+                plan=plan, corpus_rows=self.last_billed,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2061:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mauthority_floor=0.3, [0m[7m[0mround_index=self.calls, [0m
+[7m[0mmax_rounds=5,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2062:+            )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2063:+            return RoundOutcome([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2064:+                cumulative_retrieved_rows=list(billed_round1),[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2065:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mevidence_for_gen=list(billed_round1), [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m
+[7m[0mBILLED [0m[7m[0mset[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2066:+                sufficiency_report=rep,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2067:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mnew_round_rows=[_row("ev_100", [0m[7m[0m"https://s/1", [0m
+[7m[0m"sq0", [0m[7m[0m0.9)],[0m
+
+
+ succeeded in 1705ms:
+
+  .codex\I-meta-005-phase-4\codex_diff.patch:6:     "partial_outline_fallback",      # BUG-M-203: planner failed, 
+fallback used
+  .codex\I-meta-005-phase-4\codex_diff.patch:7:     "partial_evaluator_advisory",    # BUG-M-205: judge flagged 
+critical axes
+  .codex\I-meta-005-phase-4\codex_diff.patch:8:     "partial_qwen_advisory",         # I-modref-004 (#530): legacy 
+alias, historical manifests
+> .codex\I-meta-005-phase-4\codex_diff.patch:9:+    "[7mpartial_saturation[0m", [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m
+[7m[0mpruned [0m[7m[0mreport, [0m[7m[0msome [0m[7m[0msections [0m[7m[0munder-covered[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:10:     # abort — pipeline refused to produce a report[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:11:     "abort_scope_rejected",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:12:     "abort_no_sources",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:13:@@ -207,6 +208,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:14:     "abort_corpus_approval_denied": "abort_corpus_approval_denied",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:15:     "abort_no_verified_sections": "abort_no_verified_sections",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:16:     "abort_evaluator_critical": "abort_evaluator_critical",[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:17:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mpruned [0m[7m[0mpartial [0m[7m[0mreport [0m[7m[0m(some [0m[7m[0msections [0m
+[7m[0munder-covered).[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:18:+    "[7mpartial_saturation[0m": "partial_saturation",[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:19: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-002 [0m[7m[0msub-PR-6: [0m[7m[0m4-role [0m[7m[0mD8 [0m[7m[0mrelease [0m[7m[0mdecision [0m[7m[0m(single [0m[7m[0mbinding [0m
+[7m[0mgate). [0m[7m[0mReleased [0m[7m[0m=>[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:20: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msuccess; [0m[7m[0mheld [0m[7m[0m=> [0m[7m[0ma [0m[7m[0mrelease-blocking [0m[7m[0mabort [0m[7m[0m(D8 [0m[7m[0mheld: [0m[7m[0mfabricated [0m
+[7m[0moccurrence [0m[7m[0m/ [0m[7m[0mcoverage[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:21: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mshortfall [0m[7m[0m/ [0m[7m[0mS0 [0m[7m[0mmust-cover [0m[7m[0mmissing [0m[7m[0m/ [0m[7m[0mpending [0m[7m[0mrewrite). [0m[7m[0mOnly [0m[7m[0mset [0m
+[7m[0mon [0m[7m[0mthe [0m[7m[0mguarded [0m[7m[0m4-role [0m[7m[0mpath.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:22:@@ -223,6 +226,85 @@ def to_unified_status(summary_status: str) -> str:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:23:     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:24: [0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:25: [0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:26:+def [0m[7m[0m_prune_plan_to_sufficient_sections(research_plan, [0m
+[7m[0msufficiency_report):[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:27:+    """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose 
+outline
+  .codex\I-meta-005-phase-4\codex_diff.patch:28:+    contains ONLY the SUFFICIENT sections, so the generator (which 
+fixes its
+  .codex\I-meta-005-phase-4\codex_diff.patch:29:+    output structure to `research_plan.outline`) structurally CANNOT 
+render an
+> .codex\I-meta-005-phase-4\codex_diff.patch:30:+    under-covered section in a `[7mpartial_saturation[0m` report.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:31:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:32:+ [0m[7m [0m[7m [0m[7m [0m[7m[0mThe [0m[7m[0mplan [0m[7m[0mis [0m[7m[0mindex-based [0m[7m[0m(`SectionOutlineItem.sub_query_indices` [0m
+[7m[0mpoint [0m[7m[0minto[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:33:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m`plan.sub_queries`), [0m[7m[0mand [0m[7m[0mthe [0m[7m[0mwhole-plan [0m[7m[0mfacet-union [0m[7m[0minvariant [0m
+[7m[0mrequires[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:34:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m`union(retained [0m[7m[0msub_query_indices) [0m[7m[0m== [0m
+[7m[0mrange(len(pruned.sub_queries))`. [0m[7m[0mSo [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:35:+    prune MUST:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:36:+      (1) drop the under-covered `SectionOutlineItem`s;[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:37:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m(2) [0m[7m[0mdrop [0m[7m[0mthe [0m[7m[0mnow-ORPHANED [0m[7m[0m`sub_queries` [0m[7m[0m(mapped [0m[7m[0mby [0m[7m[0mno [0m[7m[0mretained [0m
+[7m[0msection);[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:38:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m(3) [0m[7m[0mREMAP [0m[7m[0mthe [0m[7m[0mretained [0m[7m[0msections' [0m[7m[0m`sub_query_indices` [0m[7m[0mto [0m[7m[0mthe [0m
+[7m[0mcompacted[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:372:+                    if _pruned_plan is not None:
+  .codex\I-meta-005-phase-4\codex_diff.patch:373:+                        _gen_plan = _pruned_plan
+  .codex\I-meta-005-phase-4\codex_diff.patch:374:+                        _partial_mode = True
+> .codex\I-meta-005-phase-4\codex_diff.patch:375:+                        summary["status"] = "[7mpartial_saturation[0m"[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:376:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mCodex [0m[7m[0mdiff-gate [0m[7m[0mP2: [0m[7m[0mname [0m[7m[0mthe [0m[7m[0mDROPPED [0m
+[7m[0m(under-covered)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:377:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msections [0m[7m[0m+ [0m[7m[0mtheir [0m[7m[0mshortfall [0m[7m[0min [0m[7m[0mthe [0m[7m[0mmanifest [0m
+[7m[0mso [0m[7m[0mthe [0m[7m[0mpartial[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:378:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0martifact [0m[7m[0mdiscloses [0m[7m[0mexactly [0m[7m[0mwhich [0m[7m[0mplanned [0m
+[7m[0msub-questions [0m[7m[0mthe[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:379:+                        # corpus could not cover, and by how much.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:380:+                        def _uncovered_sub_query_text(_unit):[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:381:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mThe [0m[7m[0mTEXT [0m[7m[0mof [0m[7m[0mthe [0m[7m[0muncovered [0m
+[7m[0msub-questions: [0m[7m[0mthe [0m[7m[0mempty[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:382:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfacets [0m[7m[0mif [0m[7m[0many, [0m[7m[0melse [0m[7m[0m(total-shortfall) [0m
+[7m[0mall [0m[7m[0mthe [0m[7m[0munit's[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:383:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmapped [0m[7m[0msub-queries. [0m[7m[0mResolved [0m[7m[0magainst [0m
+[7m[0mthe [0m[7m[0mpinned [0m[7m[0mplan.[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:400:+                                "below_floor_count": 
+_u.below_floor_count,
+  .codex\I-meta-005-phase-4\codex_diff.patch:401:+                                # Codex diff-gate iter-2 P2a: the 
+actual TEXT of the
+  .codex\I-meta-005-phase-4\codex_diff.patch:402:+                                # planned sub-questions the corpus 
+could not cover.
+> .codex\I-meta-005-phase-4\codex_diff.patch:403:+                                "[7muncovered_sub_queries[0m": [0m
+[7m[0m_uncovered_sub_query_text([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:404:+                                    _u[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:405:+                                ),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:406:+                            }[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:407:+                            for _u in _suff.per_unit[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:408:+                            if not _u.sufficient[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:409:+                        ][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:410:+                        summary["saturation"]["sections_kept"] = len([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:411:+                            _pruned_plan.outline[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:440:             # archetype tag (not a clinical title).
+  .codex\I-meta-005-phase-4\codex_diff.patch:441:-            research_plan=_research_plan,
+  .codex\I-meta-005-phase-4\codex_diff.patch:442:+            # I-meta-005 Phase 4 (#988): `_gen_plan` is the FULL 
+plan on PROCEED
+> .codex\I-meta-005-phase-4\codex_diff.patch:443:+            # and the PRUNED plan (sufficient sections only) in 
+[7mpartial_saturation[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:444:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmode; [0m[7m[0m`_partial_mode` [0m[7m[0mthen [0m[7m[0mdisables [0m[7m[0mALL [0m[7m[0mFIVE [0m
+[7m[0mout-of-plan [0m[7m[0mappenders [0m[7m[0mso[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:445:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0mrendered [0m[7m[0mheadings [0m[7m[0m== [0m[7m[0mexactly [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msufficient [0m
+[7m[0msections.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:446:+            research_plan=_gen_plan,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:447:+            partial_mode=_partial_mode,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:448:             )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:449:         finally:[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:450:             _pathb.reset_role(_pathb_gen_tok)[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:451:@@ -3707,6 +4078,22 @@ async def run_one_query([0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:453:             summary_status = "ok"
+  .codex\I-meta-005-phase-4\codex_diff.patch:454:         unified_status = to_unified_status(summary_status)
+  .codex\I-meta-005-phase-4\codex_diff.patch:455:+        # I-meta-005 Phase 4 (#988): a pruned partial-saturation 
+report SURFACES
+> .codex\I-meta-005-phase-4\codex_diff.patch:456:+        # as `[7mpartial_saturation[0m` [0m[7m[0m(tier-1 [0m[7m[0mpartial) [0m[7m[0m— [0m[7m[0mit [0m[7m[0mOVERRIDES [0m
+[7m[0mthe [0m[7m[0msuccess-[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:457:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mpath [0m[7m[0mheuristics [0m[7m[0m(ok/ok_thin_corpus/...), [0m[7m[0mbut [0m[7m[0mNOT [0m[7m[0ma [0m[7m[0mgenuine [0m
+[7m[0mintegrity[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:458:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfailure [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msections [0m[7m[0m(abort_*/fail_* [0m[7m[0mstill [0m[7m[0mwin, [0m
+[7m[0msince [0m[7m[0mthose[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:459:+        # mean the kept sections themselves did not verify/release).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:460:+        if _partial_mode and unified_status in ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:461:+            "success",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:462:+            "partial_thin_corpus",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:463:+            "partial_incomplete_corpus",[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:464:+            "partial_rule_check_warnings",[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:466:+            "partial_evaluator_advisory",
+  .codex\I-meta-005-phase-4\codex_diff.patch:467:+            "partial_qwen_advisory",
+  .codex\I-meta-005-phase-4\codex_diff.patch:468:+        ):
+> .codex\I-meta-005-phase-4\codex_diff.patch:469:+            summary_status = "[7mpartial_saturation[0m"[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:470:+            unified_status = "[7mpartial_saturation[0m"[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:471:         manifest = {[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:472:             "run_id": run_id,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:473:             "slug": q["slug"],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:474:@@ -3807,6 +4194,15 @@ async def run_one_query([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:475:                 ],[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:476:             }[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:477: [0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:478:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988) [0m[7m[0m— [0m[7m[0mCodex [0m[7m[0mdiff-gate [0m[7m[0miter-2 [0m[7m[0mP2a: [0m
+[7m[0msurface [0m[7m[0mthe[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:479:+        # saturation trajectory + per-section shortfall (incl. 
+uncovered sub-query
+  .codex\I-meta-005-phase-4\codex_diff.patch:480:+        # text) in the per-run manifest too. It already lands in 
+sweep_summary.json
+  .codex\I-meta-005-phase-4\codex_diff.patch:481:+        # via `summary`; this makes the PER-RUN audit artifact 
+self-contained for a
+> .codex\I-meta-005-phase-4\codex_diff.patch:482:+        # [7mpartial_saturation [0m[7m[0mresult. [0m[7m[0mON-mode [0m[7m[0monly [0m[7m[0m(key [0m[7m[0mabsent [0m[7m[0min [0m[7m[0mOFF [0m
+[7m[0m-> [0m[7m[0mlegacy[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:483:+        # manifest shape preserved).[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:484:+        if summary.get("saturation"):[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:485:+            [7mmanifest["saturation"][0m = summary["saturation"][0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:486:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:487: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-002 [0m[7m[0msub-PR-6: [0m[7m[0mGUARDED [0m[7m[0m4-role [0m[7m[0mevaluation [0m[7m[0mseam [0m
+[7m[0m(default [0m[7m[0mOFF, [0m[7m[0mNO [0m[7m[0mspend).[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:488: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mActivates [0m[7m[0mONLY [0m[7m[0mwhen [0m[7m[0man [0m[7m[0mexplicit [0m[7m[0mRoleTransport [0m[7m[0mis [0m[7m[0mINJECTED [0m
+[7m[0m(four_role_transport)[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:489: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mAND [0m[7m[0mPG_FOUR_ROLE_MODE [0m[7m[0mis [0m[7m[0menabled. [0m[7m[0mThere [0m[7m[0mis [0m[7m[0mNO [0m[7m[0mdefault [0m[7m[0mreal [0m
+[7m[0mtransport: [0m[7m[0mthe [0m[7m[0mlive[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:490:diff [0m[7m[0m--git [0m[7m[0ma/src/polaris_graph/audit_ir/regression_lab.py [0m
+[7m[0mb/src/polaris_graph/audit_ir/regression_lab.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:491:index 486b2b1a..15894402 100644[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:492:--- a/src/polaris_graph/audit_ir/regression_lab.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:493:+++ b/src/polaris_graph/audit_ir/regression_lab.py[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:495:     "partial_outline_fallback": 1,
+  .codex\I-meta-005-phase-4\codex_diff.patch:496:     "partial_evaluator_advisory": 1,
+  .codex\I-meta-005-phase-4\codex_diff.patch:497:     "partial_qwen_advisory": 1,  # legacy alias (I-modref-004 #530)
+> .codex\I-meta-005-phase-4\codex_diff.patch:498:+    "[7mpartial_saturation[0m": [0m[7m[0m1, [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m4 [0m[7m[0m(#988): [0m[7m[0mpruned [0m
+[7m[0mpartial [0m[7m[0mreport[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:499:     # abort — pipeline refused to produce a report[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:500:     "abort_scope_rejected": 2,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:501:     "abort_no_sources": 2,[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:502:diff [0m[7m[0m--git [0m[7m[0ma/src/polaris_graph/generator/multi_section_generator.py [0m
+[7m[0mb/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:503:index 78ca1ca8..a677c9eb 100644[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:504:--- a/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:505:+++ b/src/polaris_graph/generator/multi_section_generator.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:506:@@ -4071,6 +4071,19 @@ async def generate_multi_section_report([0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:508:     # call). Routing of M-44/M-47 then keys on archetype, not title.
+  .codex\I-meta-005-phase-4\codex_diff.patch:509:     research_plan: Any | None = None,
+  .codex\I-meta-005-phase-4\codex_diff.patch:510:+    # I-meta-005 Phase 4 (#988): PARTIAL-saturation mode. When True 
+(status
+> .codex\I-meta-005-phase-4\codex_diff.patch:511:+    # `[7mpartial_saturation[0m`), [0m[7m[0mthe [0m[7m[0mreport [0m[7m[0mstructure [0m[7m[0mis [0m[7m[0mFIXED [0m[7m[0mto [0m[7m[0mthe [0m
+[7m[0mPRUNED [0m[7m[0mplan's[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:512:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msufficient [0m[7m[0msections [0m[7m[0mONLY, [0m[7m[0mand [0m[7m[0mEVERY [0m[7m[0mout-of-plan [0m[7m[0mappender [0m[7m[0mis [0m
+[7m[0mDISABLED [0m[7m[0mso [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:513:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mrendered [0m[7m[0mreport's [0m[7m[0mheadings [0m[7m[0m== [0m[7m[0mexactly [0m[7m[0mthe [0m[7m[0mpruned [0m[7m[0msufficient [0m
+[7m[0msections:[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:514:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0mV30 [0m[7m[0mcontract-plan [0m[7m[0msections [0m[7m[0m(`v30_contract_plans` [0m[7m[0moutline [0m
+[7m[0minjection),[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:515:+    #   - M50 per-trial summary appendices,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:516:+    #   - the Trial Summary table + timeline,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:517:+    #   - the Analyst Synthesis,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:518:+    #   - the Limitations.[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:519:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mEach [0m[7m[0mbuilder [0m[7m[0mis [0m[7m[0mhard-gated [0m[7m[0mon [0m[7m[0m`partial_mode` [0m[7m[0mat [0m[7m[0mthe [0m[7m[0mtop [0m[7m[0m(NOT [0m
+[7m[0mon [0m[7m[0mincidental[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1136:+        )
+  .codex\I-meta-005-phase-4\codex_diff.patch:1137:+        current = run_round_fn(preflight.allowed_queries)
+  .codex\I-meta-005-phase-4\codex_diff.patch:1138:+        round_index += 1
+> .codex\I-meta-005-phase-4\codex_diff.patch:1139:diff --git a/tests/polaris_graph/retrieval/[7mtest_saturation_phase4.py [0m
+[7mb/tests/polaris_graph/retrieval/test_saturation[0m_phase4.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1140:new file mode 100644[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1141:index 00000000..9e9de658[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1142:--- /dev/null[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:1143:+++ b/tests/polaris_graph/retrieval/[7mtest_saturation[0m_phase4.py[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1144:@@ -0,0 +1,984 @@[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1145:+"""I-meta-005 Phase 4 (#988) smoke — multi-round saturation search.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1146:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1147:+Cases [0m[7m[0mP4-1..P4-16 [0m[7m[0mfrom [0m[7m[0mthe [0m[7m[0mCodex-APPROVED [0m[7m[0mbrief [0m
+[7m[0m`.codex/I-meta-005-phase-4/[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1148:+brief.md` [0m[7m[0m§3. [0m[7m[0mSPEND-FREE: [0m[7m[0mthe [0m[7m[0mloop [0m[7m[0mDECISION [0m[7m[0mlogic [0m[7m[0m(`saturation.py`) [0m
+[7m[0mis [0m[7m[0mPURE [0m[7m[0mand[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1149:+exercised [0m[7m[0mwith [0m[7m[0mSTUB [0m[7m[0mper-round [0m[7m[0mevidence; [0m[7m[0mthe [0m[7m[0mlive [0m
+[7m[0m`run_live_retrieval` [0m[7m[0mround [0m[7m[0mis[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1150:+INJECTED [0m[7m[0mas [0m[7m[0ma [0m[7m[0mcapture-only [0m[7m[0mcallable [0m[7m[0mso [0m[7m[0mNO [0m[7m[0mlive [0m[7m[0mHTTP [0m[7m[0mclient [0m[7m[0mis [0m
+[7m[0mconstructed [0m[7m[0mand [0m[7m[0mNO[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1151:+generator [0m[7m[0mtoken [0m[7m[0mis [0m[7m[0mbilled [0m[7m[0muntil [0m[7m[0mPROCEED/partial. [0m[7m[0mPlain-class [0m[7m[0mstubs [0m
+[7m[0m— [0m[7m[0mNO[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:1324:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:1325:+# ── P4-4 saturation_decision (the priority ladder) 
+───────────────────────────
+  .codex\I-meta-005-phase-4\codex_diff.patch:1326:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:1327:+def [7mtest_p4_4_saturation[0m_decision_ladder():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1328:+    # proceed -> STOP_SUFFICIENT[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1329:+    assert saturation_decision([0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1330:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mverdict="proceed", [0m[7m[0mround_index=0, [0m[7m[0mmax_rounds=3, [0m
+[7m[0mnovelty=0.0, [0m[7m[0meps=0.1,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1331:+    ) == STOP_SUFFICIENT[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1332:+    # expand + rounds exhausted (round+1>=max) -> STOP_BUDGET[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1333:+    assert saturation_decision([0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:1334:+ [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mverdict="expand", [0m[7m[0mround_index=2, [0m[7m[0mmax_rounds=3, [0m[7m[0mnovelty=0.9, [0m
+[7m[0meps=0.1,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:1335:+    ) == STOP_BUDGET[0m
+  .codex\I-meta-005-phase-4\codex_diff.patch:2014:+    assert sig.parameters["partial_mode"].default is False
+  .codex\I-meta-005-phase-4\codex_diff.patch:2015:+
+  .codex\I-meta-005-phase-4\codex_diff.patch:2016:+
+> .codex\I-meta-005-phase-4\codex_diff.patch:2017:+# ── P4-15 [7mpartial_saturation [0m[7m[0mtaxonomy [0m[7m[0mregistration [0m
+[7m[0m───────────────────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2018:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2019:+def [7mtest_p4_15_partial_saturation[0m_taxonomy_registered():[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2020:+    import importlib[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2021:+    runner = importlib.import_module("scripts.run_honest_sweep_r3")[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2022:+    from src.polaris_graph.audit_ir.regression_lab import ([0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2023:+        KNOWN_STATUS_VALUES,[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2024:+    )[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2025:+[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2026:+    assert "[7mpartial_saturation[0m" in runner.UNIFIED_STATUS_VALUES
+> .codex\I-meta-005-phase-4\codex_diff.patch:2027:+    assert "[7mpartial_saturation[0m" in KNOWN_STATUS_VALUES[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2028:+    # summary->unified self-map present.[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2029:+    assert runner._SUMMARY_TO_UNIFIED["[7mpartial_saturation[0m"] [0m[7m[0m== [0m
+[7m[0m"partial_saturation"[0m
+> .codex\I-meta-005-phase-4\codex_diff.patch:2030:+    assert runner.to_unified_status("[7mpartial_saturation[0m") [0m[7m[0m== [0m
+[7m[0m"partial_saturation"[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2031:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mThe [0m[7m[0mmd9 [0m[7m[0mtaxonomy-drift [0m[7m[0mguard [0m[7m[0mholds [0m[7m[0mWITH [0m[7m[0mthe [0m[7m[0mnew [0m[7m[0mstatus [0m
+[7m[0mregistered.[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2032:+    assert KNOWN_STATUS_VALUES == runner.UNIFIED_STATUS_VALUES[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2033:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2034:+[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2035:+# [0m[7m[0m── [0m[7m[0mP4-16 [0m[7m[0mre-gate [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mBILLED [0m[7m[0mset [0m[7m[0meach [0m[7m[0mround [0m
+[7m[0m───────────────────────────────[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2036:+[0m
+[7m[0m  .codex\I-meta-005-phase-4\codex_diff.patch:2037:+def test_p4_16_regate_on_billed_set_each_round():[0m
+[7m [0m[7m [0m[7m[0m.codex\I-meta-005-phase-4\codex_diff.patch:2038:+ [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Each [0m[7m[0mround's [0m[7m[0mgate [0m[7m[0mis [0m[7m[0massessed [0m[7m[0mon [0m[7m[0mthe [0m[7m[0mpost-select/V30/upload [0m
+[7m[0mbilled [0m[7m[0mset[0m
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch; for ($i=330; $i -le 488; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch; for ($i=1100; $i -le 1138; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch -Pattern 'manifest\\[\"saturation\"\\]|summary\\[\"saturation\"\\]|uncovered_sub_queries|partial_saturation' | ForEach-Object { \"{0}: {1}\" -f "'$_.LineNumber, $_.Line }' in C:\POLARIS
+ succeeded in 1406ms:
+  330: +                    run_round_fn=_run_gap_round,
+  331: +                    max_rounds=_suff_max_rounds,
+  332: +                    novelty_eps=_sat_eps,
+  333: +                    max_discovery_calls=_sat_max_calls,
+  334: +                    cost_per_query=_cost_per_query,
+  335: +                    plan=_research_plan,
+  336: +                    log=_log,
+  337: +                )
+  338: +                _log(
+  339: +                    f"[saturation]  TERMINAL decision={_sat.decision} "
+  340: +                    f"rounds_fired={_sat.rounds_fired} "
+  341: +                    f"discovery_calls={_sat.cumulative_discovery_calls}/"
+  342: +                    f"{_sat_max_calls} "
+  343: +                    f"novelty_trajectory={[round(x, 3) for x in _sat.novelty_trajectory]}"
+  344: +                )
+  345: +                # I-meta-005 Phase 4 (#988) — Codex diff-gate P2: persist the
+  346: +                # saturation trajectory into the manifest (summary -> manifest) so
+  347: +                # a partial/success run is observable WITHOUT re-reading run_log:
+  348: +                # decision, rounds fired, discovery spend, per-round novelty.
+  349: +                summary["saturation"] = {
+  350: +                    "decision": _sat.decision,
+  351: +                    "rounds_fired": _sat.rounds_fired,
+  352: +                    "discovery_calls": _sat.cumulative_discovery_calls,
+  353: +                    "max_discovery_calls": _sat_max_calls,
+  354: +                    "novelty_trajectory": [
+  355: +                        round(x, 4) for x in _sat.novelty_trajectory
+  356: +                    ],
+  357: +                    "truncated_any_round": _sat.truncated_any_round,
+  358: +                }
+  359: +                # `_suff` / `evidence_for_gen` / `retrieval` now hold the FINAL
+  360: +                # round's state (the closure mutated them via nonlocal).
+  361: +                if _sat.decision == STOP_SUFFICIENT:
+  362: +                    # Gap closed during the loop -> PROCEED on the full plan.
+  363: +                    _gen_plan = _research_plan
+  364: +                    _partial_mode = False
+  365: +                else:
+  366: +                    # STOP_NOVELTY / STOP_BUDGET with sections still under-covered
+  367: +                    # -> a PARTIAL report on a PRUNED plan (sufficient sections
+  368: +                    # ONLY). Zero sufficient sections -> abort_corpus_inadequate.
+  369: +                    _pruned_plan, _dropped_sections = (
+  370: +                        _prune_plan_to_sufficient_sections(_research_plan, _suff)
+  371: +                    )
+  372: +                    if _pruned_plan is not None:
+  373: +                        _gen_plan = _pruned_plan
+  374: +                        _partial_mode = True
+  375: +                        summary["status"] = "partial_saturation"
+  376: +                        # Codex diff-gate P2: name the DROPPED (under-covered)
+  377: +                        # sections + their shortfall in the manifest so the partial
+  378: +                        # artifact discloses exactly which planned sub-questions the
+  379: +                        # corpus could not cover, and by how much.
+  380: +                        def _uncovered_sub_query_text(_unit):
+  381: +                            # The TEXT of the uncovered sub-questions: the empty
+  382: +                            # facets if any, else (total-shortfall) all the unit's
+  383: +                            # mapped sub-queries. Resolved against the pinned plan.
+  384: +                            _idx = (
+  385: +                                list(_unit.empty_facets)
+  386: +                                or list(_unit.sub_query_indices)
+  387: +                            )
+  388: +                            _sq = _research_plan.sub_queries
+  389: +                            return [
+  390: +                                _sq[_i] for _i in _idx
+  391: +                                if 0 <= _i < len(_sq)
+  392: +                            ]
+  393: +                        _dropped_detail = [
+  394: +                            {
+  395: +                                "unit_id": _u.unit_id,
+  396: +                                "title": _u.title,
+  397: +                                "covered_count": _u.covered_count,
+  398: +                                "evidence_target": _u.evidence_target,
+  399: +                                "empty_facets": list(_u.empty_facets),
+  400: +                                "below_floor_count": _u.below_floor_count,
+  401: +                                # Codex diff-gate iter-2 P2a: the actual TEXT of the
+  402: +                                # planned sub-questions the corpus could not cover.
+  403: +                                "uncovered_sub_queries": _uncovered_sub_query_text(
+  404: +                                    _u
+  405: +                                ),
+  406: +                            }
+  407: +                            for _u in _suff.per_unit
+  408: +                            if not _u.sufficient
+  409: +                        ]
+  410: +                        summary["saturation"]["sections_kept"] = len(
+  411: +                            _pruned_plan.outline
+  412: +                        )
+  413: +                        summary["saturation"]["sections_dropped"] = list(
+  414: +                            _dropped_sections
+  415: +                        )
+  416: +                        summary["saturation"]["dropped_sections_detail"] = (
+  417: +                            _dropped_detail
+  418: +                        )
+  419: +                        summary["saturation"]["authority_floor"] = (
+  420: +                            _suff.authority_floor
+  421: +                        )
+  422: +                        _log(
+  423: +                            f"[saturation]  PARTIAL report: "
+  424: +                            f"{len(_pruned_plan.outline)} sufficient section(s) "
+  425: +                            f"kept; dropped {len(_dropped_sections)} under-"
+  426: +                            f"covered: {_dropped_sections}"
+  427: +                        )
+  428: +
+  429: +            if _suff.verdict != "proceed" and _partial_mode is False:
+  430:                  # EXPAND or ABORT -> hold BEFORE the generator bills (Phase 3
+  431:                  # guarantee: a shallow corpus NEVER spends a generator token).
+  432: +                # Reached only when the saturation loop found ZERO sufficient
+  433: +                # sections (pruned plan empty) -> abort_corpus_inadequate.
+  434:                  _log(
+  435:                      f"[ABORT]       Plan-sufficiency {_suff.verdict.upper()}: "
+  436:                      f"{len(_suff.under_covered_units)} planned section(s) under-"
+  437: @@ -3015,7 +3381,12 @@ async def run_one_query(
+  438:              # structure to `research_plan.outline`, assigns retrieved evidence
+  439:              # to those sections post-retrieval, and routes M-44/M-47 on the
+  440:              # archetype tag (not a clinical title).
+  441: -            research_plan=_research_plan,
+  442: +            # I-meta-005 Phase 4 (#988): `_gen_plan` is the FULL plan on PROCEED
+  443: +            # and the PRUNED plan (sufficient sections only) in partial_saturation
+  444: +            # mode; `_partial_mode` then disables ALL FIVE out-of-plan appenders so
+  445: +            # the rendered headings == exactly the pruned sufficient sections.
+  446: +            research_plan=_gen_plan,
+  447: +            partial_mode=_partial_mode,
+  448:              )
+  449:          finally:
+  450:              _pathb.reset_role(_pathb_gen_tok)
+  451: @@ -3707,6 +4078,22 @@ async def run_one_query(
+  452:          else:
+  453:              summary_status = "ok"
+  454:          unified_status = to_unified_status(summary_status)
+  455: +        # I-meta-005 Phase 4 (#988): a pruned partial-saturation report SURFACES
+  456: +        # as `partial_saturation` (tier-1 partial) — it OVERRIDES the success-
+  457: +        # path heuristics (ok/ok_thin_corpus/...), but NOT a genuine integrity
+  458: +        # failure on the pruned sections (abort_*/fail_* still win, since those
+  459: +        # mean the kept sections themselves did not verify/release).
+  460: +        if _partial_mode and unified_status in (
+  461: +            "success",
+  462: +            "partial_thin_corpus",
+  463: +            "partial_incomplete_corpus",
+  464: +            "partial_rule_check_warnings",
+  465: +            "partial_outline_fallback",
+  466: +            "partial_evaluator_advisory",
+  467: +            "partial_qwen_advisory",
+  468: +        ):
+  469: +            summary_status = "partial_saturation"
+  470: +            unified_status = "partial_saturation"
+  471:          manifest = {
+  472:              "run_id": run_id,
+  473:              "slug": q["slug"],
+  474: @@ -3807,6 +4194,15 @@ async def run_one_query(
+  475:                  ],
+  476:              }
+  477:  
+  478: +        # I-meta-005 Phase 4 (#988) — Codex diff-gate iter-2 P2a: surface the
+  479: +        # saturation trajectory + per-section shortfall (incl. uncovered sub-query
+  480: +        # text) in the per-run manifest too. It already lands in sweep_summary.json
+  481: +        # via `summary`; this makes the PER-RUN audit artifact self-contained for a
+  482: +        # partial_saturation result. ON-mode only (key absent in OFF -> legacy
+  483: +        # manifest shape preserved).
+  484: +        if summary.get("saturation"):
+  485: +            manifest["saturation"] = summary["saturation"]
+  486: +
+  487:          # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+  488:          # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+
+ succeeded in 1748ms:
+9: +    "partial_saturation",            # I-meta-005 Phase 4 (#988): pruned report, some sections under-covered
+18: +    "partial_saturation": "partial_saturation",
+30: +    under-covered section in a `partial_saturation` report.
+349: +                summary["saturation"] = {
+375: +                        summary["status"] = "partial_saturation"
+403: +                                "uncovered_sub_queries": _uncovered_sub_query_text(
+410: +                        summary["saturation"]["sections_kept"] = len(
+413: +                        summary["saturation"]["sections_dropped"] = list(
+416: +                        summary["saturation"]["dropped_sections_detail"] = (
+419: +                        summary["saturation"]["authority_floor"] = (
+443: +            # and the PRUNED plan (sufficient sections only) in partial_saturation
+456: +        # as `partial_saturation` (tier-1 partial) — it OVERRIDES the success-
+469: +            summary_status = "partial_saturation"
+470: +            unified_status = "partial_saturation"
+482: +        # partial_saturation result. ON-mode only (key absent in OFF -> legacy
+485: +            manifest["saturation"] = summary["saturation"]
+498: +    "partial_saturation": 1,  # I-meta-005 Phase 4 (#988): pruned partial report
+511: +    # `partial_saturation`), the report structure is FIXED to the PRUNED plan's
+2017: +# ── P4-15 partial_saturation taxonomy registration ───────────────────────────
+2019: +def test_p4_15_partial_saturation_taxonomy_registered():
+2026: +    assert "partial_saturation" in runner.UNIFIED_STATUS_VALUES
+2027: +    assert "partial_saturation" in KNOWN_STATUS_VALUES
+2029: +    assert runner._SUMMARY_TO_UNIFIED["partial_saturation"] == "partial_saturation"
+2030: +    assert runner.to_unified_status("partial_saturation") == "partial_saturation"
+
+ succeeded in 2216ms:
+ 1100: +                final_round=current,
+ 1101: +                cumulative_discovery_calls=cumulative_calls,
+ 1102: +                novelty_trajectory=novelty_trajectory,
+ 1103: +                truncated_any_round=truncated_any,
+ 1104: +            )
+ 1105: +
+ 1106: +        preflight = preflight_round_budget(
+ 1107: +            gap_queries=gaps,
+ 1108: +            cumulative_discovery_calls=cumulative_calls,
+ 1109: +            max_discovery_calls=max_discovery_calls,
+ 1110: +            cost_per_query=cost_per_query,
+ 1111: +        )
+ 1112: +        truncated_any = truncated_any or preflight.truncated
+ 1113: +        if preflight.exhausted:
+ 1114: +            _log(
+ 1115: +                "[saturation]  retrieval budget exhausted "
+ 1116: +                f"(cumulative={cumulative_calls}/{max_discovery_calls}); "
+ 1117: +                "STOP_BUDGET before firing"
+ 1118: +            )
+ 1119: +            return SaturationResult(
+ 1120: +                decision=STOP_BUDGET,
+ 1121: +                rounds_fired=round_index,
+ 1122: +                final_round=current,
+ 1123: +                cumulative_discovery_calls=cumulative_calls,
+ 1124: +                novelty_trajectory=novelty_trajectory,
+ 1125: +                truncated_any_round=truncated_any,
+ 1126: +            )
+ 1127: +
+ 1128: +        # Charge the WORST-CASE spend PRE-SPEND so the cumulative counter can
+ 1129: +        # NEVER exceed MAX (INVARIANT P4-14), then fire the round.
+ 1130: +        cumulative_calls += preflight.fired_cost
+ 1131: +        _log(
+ 1132: +            f"[saturation]  firing round {round_index + 1} with "
+ 1133: +            f"{len(preflight.allowed_queries)} gap queries "
+ 1134: +            f"(worst-case +{preflight.fired_cost} calls; "
+ 1135: +            f"cumulative={cumulative_calls}/{max_discovery_calls})"
+ 1136: +        )
+ 1137: +        current = run_round_fn(preflight.allowed_queries)
+ 1138: +        round_index += 1
+
+codex
+The residual fix is in the expected place: the runner now copies `summary["saturation"]` into the per-run manifest after the `research_plan` block, and the partial detail adds text-bearing `uncovered_sub_queries`. I’m checking the pure helper’s index semantics so the runner’s direct resolution matches the loop’s gap-query semantics.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch; for ($i=707; $i -le 860; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch; for ($i=1250; $i -le 1326; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath .codex/I-meta-005-phase-4/codex_diff.patch; for ($i=1845; $i -le 1925; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+ succeeded in 1477ms:
+  707: diff --git a/src/polaris_graph/retrieval/saturation.py b/src/polaris_graph/retrieval/saturation.py
+  708: new file mode 100644
+  709: index 00000000..de774a69
+  710: --- /dev/null
+  711: +++ b/src/polaris_graph/retrieval/saturation.py
+  712: @@ -0,0 +1,426 @@
+  713: +"""Multi-round saturation search — I-meta-005 Phase 4 (#988). PURE decision logic.
+  714: +
+  715: +Phase 4 closes gap #3 (search depth): the single-pass retrieval becomes a
+  716: +GAP-TARGETED SATURATION LOOP. When the Phase-3 plan-sufficiency gate returns
+  717: +EXPAND, this module decides whether to fire another retrieval round for ONLY the
+  718: +under-covered sub-questions, re-gate, and stop on gap-closure OR
+  719: +marginal-novelty < epsilon OR round/budget exhaustion -> a PARTIAL report (not a
+  720: +blind abort).
+  721: +
+  722: +KEY DESIGN (brief §2.1 / §2.2):
+  723: +- Everything here is PURE / no-network / spend-free. The live retrieval round and
+  724: +  the generator are INJECTED as callables by the sweep runner, so this orchestrator
+  725: +  constructs NO HTTP client and bills NO generator token. The build + smoke drive
+  726: +  the loop with STUB callables (capture-only, controlled per-round evidence).
+  727: +- `marginal_novelty`: the fraction of a new round's rows that are NOVEL by
+  728: +  canonical URL (the EXISTING `run_diff` canonicalizer over `source_url`), with
+  729: +  intra-round duplicates collapsed.
+  730: +- `gap_sub_queries`: the sub-query TEXTS to fire next, covering BOTH shortfall
+  731: +  modes (empty-facet AND total-shortfall). NEVER empty when a section is
+  732: +  under-covered (else the loop would have no query to fire).
+  733: +- `saturation_decision`: a PRIORITY LADDER over {CONTINUE, STOP_SUFFICIENT,
+  734: +  STOP_NOVELTY, STOP_BUDGET}. Budget is checked BEFORE novelty.
+  735: +
+  736: +NO `if domain ==` / NO clinical literal on this path — the loop targets the
+  737: +plan's under-covered sub-queries (field-agnostic), never a domain.
+  738: +"""
+  739: +from __future__ import annotations
+  740: +
+  741: +import logging
+  742: +from dataclasses import dataclass, field
+  743: +from typing import Any, Callable, Optional
+  744: +
+  745: +# Reuse the EXISTING canonical-URL helper from run_diff (iter-2 P2). A thin
+  746: +# PUBLIC wrapper avoids importing a private name across modules while keeping a
+  747: +# single source of truth for canonicalization (lowercases host, strips www.,
+  748: +# DROPS tracking params utm_*/fbclid/gclid/ref/..., but PRESERVES + sorts
+  749: +# identifier query params so `?abstract_id=123` vs `?abstract_id=456` stay
+  750: +# DISTINCT while only tracking noise collapses).
+  751: +from src.polaris_graph.audit_ir.run_diff import _normalize_url
+  752: +
+  753: +logger = logging.getLogger("polaris_graph.saturation")
+  754: +
+  755: +# ── saturation decisions (module-level constants; allowed per CLAUDE.md §4.1) ──
+  756: +CONTINUE = "CONTINUE"
+  757: +STOP_SUFFICIENT = "STOP_SUFFICIENT"
+  758: +STOP_NOVELTY = "STOP_NOVELTY"
+  759: +STOP_BUDGET = "STOP_BUDGET"
+  760: +
+  761: +
+  762: +def canonical_source_url(url: str) -> str:
+  763: +    """PUBLIC wrapper over `run_diff._normalize_url` (brief §2.1).
+  764: +
+  765: +    Single dedup identity for the saturation novelty metric. Importing the
+  766: +    private `_normalize_url` directly is undesirable across modules, so this is
+  767: +    the public seam — it delegates verbatim (no reimplementation).
+  768: +    """
+  769: +    return _normalize_url(url or "")
+  770: +
+  771: +
+  772: +def _row_source_url(row: Any) -> str:
+  773: +    """Extract the row's canonical URL field (brief §2.1).
+  774: +
+  775: +    Live rows carry `source_url` (NOT `url`), `live_retriever.py:2221`. Accepts
+  776: +    dict rows (the live shape) and falls back to object attributes defensively.
+  777: +    """
+  778: +    if isinstance(row, dict):
+  779: +        return row.get("source_url") or row.get("url") or ""
+  780: +    return getattr(row, "source_url", "") or getattr(row, "url", "") or ""
+  781: +
+  782: +
+  783: +def marginal_novelty(
+  784: +    prev_evidence_rows: list[Any],
+  785: +    new_round_rows: list[Any],
+  786: +) -> float:
+  787: +    """Fraction of `new_round_rows` that are NOVEL vs `prev_evidence_rows`.
+  788: +
+  789: +    Single dedup identity = canonical URL via `canonical_source_url`
+  790: +    (run_diff canonicalizer over `source_url`). A new row is NOVEL iff its
+  791: +    canonical URL is not already present in `prev_evidence_rows`. Intra-round
+  792: +    duplicates collapse too — two rows in the SAME new round with the same
+  793: +    canonical URL count as ONE novel (brief §2.1).
+  794: +
+  795: +    Returns `len(novel) / max(1, len(new_round_rows))`.
+  796: +    """
+  797: +    prev_canon: set[str] = set()
+  798: +    for row in prev_evidence_rows or []:
+  799: +        canon = canonical_source_url(_row_source_url(row))
+  800: +        if canon:
+  801: +            prev_canon.add(canon)
+  802: +
+  803: +    seen_this_round: set[str] = set()
+  804: +    novel = 0
+  805: +    for row in new_round_rows or []:
+  806: +        canon = canonical_source_url(_row_source_url(row))
+  807: +        # A row with no usable URL cannot be deduped — count it as novel once
+  808: +        # only if its (empty) canon hasn't been seen this round.
+  809: +        if canon in prev_canon or canon in seen_this_round:
+  810: +            continue
+  811: +        seen_this_round.add(canon)
+  812: +        novel += 1
+  813: +    return novel / max(1, len(new_round_rows or []))
+  814: +
+  815: +
+  816: +def gap_sub_queries(sufficiency_report: Any, plan: Any) -> list[str]:
+  817: +    """The sub-query TEXTS to fire next for the under-covered sections (brief §2.1).
+  818: +
+  819: +    Covers BOTH shortfall modes the Phase-3 gate fails on (`plan_sufficiency_gate
+  820: +    .py:308`): `covered_count < evidence_target` OR `empty_facets`:
+  821: +      - under-covered section with `empty_facets` -> the sub-query texts at those
+  822: +        empty facet indices;
+  823: +      - under-covered section with `covered_count < evidence_target` but NO empty
+  824: +        facets (total shortfall) -> ALL the section's mapped sub-query texts (fire
+  825: +        the whole section to raise total coverage).
+  826: +
+  827: +    Deduped (order-preserving), field-agnostic, derived from the plan. NEVER
+  828: +    empty when a section is under-covered — else the loop would have no query to
+  829: +    fire (the exact gap Codex flagged).
+  830: +    """
+  831: +    sub_queries = list(getattr(plan, "sub_queries", []) or [])
+  832: +    n_sub = len(sub_queries)
+  833: +    per_unit = list(getattr(sufficiency_report, "per_unit", []) or [])
+  834: +
+  835: +    out: list[str] = []
+  836: +    seen: set[str] = set()
+  837: +
+  838: +    def _add(idx: int) -> None:
+  839: +        if 0 <= idx < n_sub:
+  840: +            text = sub_queries[idx]
+  841: +            key = " ".join(str(text or "").split()).strip().lower()
+  842: +            if text and key and key not in seen:
+  843: +                seen.add(key)
+  844: +                out.append(text)
+  845: +
+  846: +    for unit in per_unit:
+  847: +        if getattr(unit, "sufficient", True):
+  848: +            continue
+  849: +        empty_facets = list(getattr(unit, "empty_facets", []) or [])
+  850: +        mapped = list(getattr(unit, "sub_query_indices", []) or [])
+  851: +        if empty_facets:
+  852: +            # Empty-facet mode: fire ONLY the under-covered facets' texts.
+  853: +            for idx in empty_facets:
+  854: +                _add(idx)
+  855: +        else:
+  856: +            # Total-shortfall mode (covered < target, no empty facet): fire the
+  857: +            # WHOLE section's mapped facets to raise total coverage.
+  858: +            for idx in mapped:
+  859: +                _add(idx)
+  860: +    return out
+
+ succeeded in 1991ms:
+ 1845: +# ── P4-7 / P4-7b / P4-7c partial report (pruned plan + index remap + appenders)
+ 1846: +
+ 1847: +def _prune_plan(research_plan, sufficiency_report):
+ 1848: +    """Mirror of the runner's `_prune_plan_to_sufficient_sections` so the smoke
+ 1849: +    tests the SAME prune+remap invariant the runner relies on (imported from the
+ 1850: +    runner to avoid drift)."""
+ 1851: +    import importlib
+ 1852: +    runner = importlib.import_module("scripts.run_honest_sweep_r3")
+ 1853: +    return runner._prune_plan_to_sufficient_sections(
+ 1854: +        research_plan, sufficiency_report
+ 1855: +    )
+ 1856: +
+ 1857: +
+ 1858: +def test_p4_7_partial_report_pruned_plan_excludes_undercovered():
+ 1859: +    """Section A covered, section B never closes -> the PRUNED plan's outline
+ 1860: +    contains ONLY section A (B is structurally absent)."""
+ 1861: +    plan = _plan(
+ 1862: +        ["sqA0", "sqA1", "sqB0", "sqB1"],
+ 1863: +        [_section("A", 2, [0, 1]), _section("B", 2, [2, 3])],
+ 1864: +    )
+ 1865: +    # Real gate: A covered (2 above-floor rows on each facet), B empty.
+ 1866: +    rows = [
+ 1867: +        _row("ev_000", "https://a/0", "sqA0", 0.9),
+ 1868: +        _row("ev_001", "https://a/1", "sqA1", 0.9),
+ 1869: +    ]
+ 1870: +    rep = assess_plan_sufficiency(
+ 1871: +        plan=plan, corpus_rows=rows, authority_floor=0.3,
+ 1872: +        round_index=1, max_rounds=1,
+ 1873: +    )
+ 1874: +    assert rep.verdict == "abort"   # B under-covered, rounds exhausted
+ 1875: +    pruned, dropped = _prune_plan(plan, rep)
+ 1876: +    assert pruned is not None
+ 1877: +    titles = [s.title for s in pruned.outline]
+ 1878: +    assert titles == ["A"]
+ 1879: +    assert "B" in dropped
+ 1880: +
+ 1881: +
+ 1882: +def test_p4_7b_pruned_plan_index_remap_invariant():
+ 1883: +    """After pruning, orphaned sub_queries are dropped, retained sections'
+ 1884: +    sub_query_indices are REMAPPED to the compacted list, ALL indices in-range,
+ 1885: +    and union(indices) == range(len(pruned.sub_queries))."""
+ 1886: +    plan = _plan(
+ 1887: +        ["sqA0", "sqA1", "sqB0", "sqB1", "sqC0"],
+ 1888: +        [
+ 1889: +            _section("A", 1, [0, 1]),   # sufficient
+ 1890: +            _section("B", 1, [2, 3]),   # under-covered -> dropped
+ 1891: +            _section("C", 1, [4]),      # sufficient
+ 1892: +        ],
+ 1893: +    )
+ 1894: +    # A + C covered, B empty.
+ 1895: +    rows = [
+ 1896: +        _row("ev_000", "https://a/0", "sqA0", 0.9),
+ 1897: +        _row("ev_001", "https://a/1", "sqA1", 0.9),
+ 1898: +        _row("ev_002", "https://c/0", "sqC0", 0.9),
+ 1899: +    ]
+ 1900: +    rep = assess_plan_sufficiency(
+ 1901: +        plan=plan, corpus_rows=rows, authority_floor=0.3,
+ 1902: +        round_index=1, max_rounds=1,
+ 1903: +    )
+ 1904: +    pruned, dropped = _prune_plan(plan, rep)
+ 1905: +    assert pruned is not None
+ 1906: +    assert [s.title for s in pruned.outline] == ["A", "C"]
+ 1907: +    # orphaned sqB0/sqB1 dropped; sub_queries compacted to A's + C's facets.
+ 1908: +    assert pruned.sub_queries == ["sqA0", "sqA1", "sqC0"]
+ 1909: +    # remapped indices: A -> [0,1], C -> [2]; all in-range; union == full range.
+ 1910: +    union = set()
+ 1911: +    n = len(pruned.sub_queries)
+ 1912: +    for s in pruned.outline:
+ 1913: +        for idx in s.sub_query_indices:
+ 1914: +            assert 0 <= idx < n
+ 1915: +            union.add(idx)
+ 1916: +    assert union == set(range(n))
+ 1917: +    # The pruned plan re-passes the Phase-3 fail-closed facet-union validation.
+ 1918: +    from src.polaris_graph.planning.research_planner import (
+ 1919: +        _validate_outline_facet_mapping,
+ 1920: +    )
+ 1921: +    _validate_outline_facet_mapping(pruned)   # must not raise
+ 1922: +
+ 1923: +
+ 1924: +def test_p4_7_zero_sufficient_returns_none():
+ 1925: +    """Zero sufficient sections -> pruned plan is None (caller aborts
+
+ succeeded in 2569ms:
+ 1250: +        _row("ev_006", "https://d.org/p4", "q", 0.9),   # new
+ 1251: +    ]
+ 1252: +    assert marginal_novelty(prev, half) == 0.5
+ 1253: +
+ 1254: +
+ 1255: +def test_p4_2b_identifier_vs_tracking_canonicalization():
+ 1256: +    """Two rows differing only by an IDENTIFIER query param stay DISTINCT; two
+ 1257: +    rows differing only by a TRACKING param collapse to ONE (run_diff
+ 1258: +    canonicalizer)."""
+ 1259: +    prev: list = []
+ 1260: +    # ?abstract_id=123 vs ?abstract_id=456 — distinct identifier-addressed pages.
+ 1261: +    ids = [
+ 1262: +        _row("ev_000", "https://ssrn.com/paper?abstract_id=123", "q", 0.9),
+ 1263: +        _row("ev_001", "https://ssrn.com/paper?abstract_id=456", "q", 0.9),
+ 1264: +    ]
+ 1265: +    assert marginal_novelty(prev, ids) == 1.0  # both novel
+ 1266: +
+ 1267: +    # base vs base?utm_source=x — same page, tracking noise only.
+ 1268: +    track = [
+ 1269: +        _row("ev_002", "https://x.org/p", "q", 0.9),
+ 1270: +        _row("ev_003", "https://x.org/p?utm_source=newsletter", "q", 0.9),
+ 1271: +    ]
+ 1272: +    # 2 rows, 1 unique canonical -> 1 novel / 2 = 0.5
+ 1273: +    assert marginal_novelty(prev, track) == 0.5
+ 1274: +    # the canonicalizer collapses them:
+ 1275: +    assert canonical_source_url("https://x.org/p") == canonical_source_url(
+ 1276: +        "https://x.org/p?utm_source=newsletter"
+ 1277: +    )
+ 1278: +    assert canonical_source_url(
+ 1279: +        "https://ssrn.com/paper?abstract_id=123"
+ 1280: +    ) != canonical_source_url("https://ssrn.com/paper?abstract_id=456")
+ 1281: +
+ 1282: +
+ 1283: +# ── P4-3 gap_sub_queries (empty-facet mode) ──────────────────────────────────
+ 1284: +
+ 1285: +def test_p4_3_gap_sub_queries_empty_facet_returns_only_gap_text():
+ 1286: +    plan = _plan(
+ 1287: +        ["sq0", "sq1", "sq2", "sq3", "sq4"],
+ 1288: +        [_section("S0", 2, [2, 4])],
+ 1289: +    )
+ 1290: +    # Section mapped to [2,4]; facet 4 under-covered (empty), facet 2 fine.
+ 1291: +    rep = type("R", (), {
+ 1292: +        "per_unit": [
+ 1293: +            type("U", (), {
+ 1294: +                "sufficient": False,
+ 1295: +                "sub_query_indices": [2, 4],
+ 1296: +                "empty_facets": [4],
+ 1297: +            })()
+ 1298: +        ]
+ 1299: +    })()
+ 1300: +    assert gap_sub_queries(rep, plan) == ["sq4"]
+ 1301: +
+ 1302: +
+ 1303: +# ── P4-11 total-shortfall gap queries (no empty facet) ───────────────────────
+ 1304: +
+ 1305: +def test_p4_11_gap_sub_queries_total_shortfall_returns_all_section_texts():
+ 1306: +    plan = _plan(
+ 1307: +        ["sq0", "sq1", "sq2"],
+ 1308: +        [_section("S0", 5, [0, 1, 2])],
+ 1309: +    )
+ 1310: +    # covered < target but NO empty facets -> ALL mapped texts (non-empty).
+ 1311: +    rep = type("R", (), {
+ 1312: +        "per_unit": [
+ 1313: +            type("U", (), {
+ 1314: +                "sufficient": False,
+ 1315: +                "sub_query_indices": [0, 1, 2],
+ 1316: +                "empty_facets": [],
+ 1317: +            })()
+ 1318: +        ]
+ 1319: +    })()
+ 1320: +    got = gap_sub_queries(rep, plan)
+ 1321: +    assert got == ["sq0", "sq1", "sq2"]
+ 1322: +    assert got  # NEVER empty when a section is under-covered
+ 1323: +
+ 1324: +
+ 1325: +# ── P4-4 saturation_decision (the priority ladder) ───────────────────────────
+ 1326: +
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath scripts/run_honest_sweep_r3.py -Pattern 'summary\\[\"saturation\"\\]|manifest\\[\"saturation\"\\]|uncovered_sub_queries|def _uncovered_sub_query_text' | ForEach-Object { \"{0}: {1}\" -f "'$_.LineNumber, $_.Line }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath scripts/run_honest_sweep_r3.py; for ($i=3205; $i -le 3285; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath scripts/run_honest_sweep_r3.py; for ($i=4088; $i -le 4210; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+ succeeded in 1460ms:
+3090:                 summary["saturation"] = {
+3121:                         def _uncovered_sub_query_text(_unit):
+3144:                                 "uncovered_sub_queries": _uncovered_sub_query_text(
+3151:                         summary["saturation"]["sections_kept"] = len(
+3154:                         summary["saturation"]["sections_dropped"] = list(
+3157:                         summary["saturation"]["dropped_sections_detail"] = (
+3160:                         summary["saturation"]["authority_floor"] = (
+4204:             manifest["saturation"] = summary["saturation"]
+
+ succeeded in 1958ms:
+ 3205:                     f"Verdict: **{_suff.verdict.upper()}** "
+ 3206:                     f"(authority floor {_suff.authority_floor}).\n\n"
+ 3207:                     "### Under-covered planned sections\n\n"
+ 3208:                     + "\n".join(_shortfall_lines)
+ 3209:                     + "\n\n### Suggested next steps\n\n"
+ 3210:                     "- Saturate retrieval on the under-covered sub-questions "
+ 3211:                     "(Phase 4 expansion loop).\n"
+ 3212:                     "- Verify the planned evidence targets match what the "
+ 3213:                     "literature can support for each facet.\n",
+ 3214:                     encoding="utf-8",
+ 3215:                 )
+ 3216:                 # NOTE: the retrieval trace was already flushed unconditionally
+ 3217:                 # at the post-deepener checkpoint (mirrors the legacy abort at
+ 3218:                 # :2273, which does not re-flush) — do NOT re-flush here.
+ 3219:                 run_cost = current_run_cost()
+ 3220:                 manifest = _base_manifest_envelope(
+ 3221:                     run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+ 3222:                 )
+ 3223:                 manifest.update({
+ 3224:                     "status": "abort_corpus_inadequate",
+ 3225:                     "plan_sufficiency": asdict(_suff),
+ 3226:                     "corpus": {
+ 3227:                         "count": dist.total_sources,
+ 3228:                         "tier_fractions": dist.tier_fractions,
+ 3229:                     },
+ 3230:                 })
+ 3231:                 manifest = augment_v6_manifest(
+ 3232:                     manifest,
+ 3233:                     external_run_id=q.get("external_run_id"),
+ 3234:                     decision_id=q.get("decision_id"),
+ 3235:                     query_slug=q.get("slug"),
+ 3236:                 )
+ 3237:                 (run_dir / "manifest.json").write_text(
+ 3238:                     json.dumps(manifest, indent=2, sort_keys=True, default=str)
+ 3239:                     + "\n",
+ 3240:                     encoding="utf-8",
+ 3241:                 )
+ 3242:                 summary["manifest"] = manifest
+ 3243:                 summary["cost_usd"] = run_cost
+ 3244:                 try:
+ 3245:                     write_per_run_cost_ledger(run_dir, run_id)
+ 3246:                 except Exception:
+ 3247:                     pass
+ 3248:                 if q.get("v6_mode") and q.get("external_run_id"):
+ 3249:                     emit_terminal_event(
+ 3250:                         q.get("external_run_id"),
+ 3251:                         "abort_corpus_inadequate",
+ 3252:                         error_msg=summary.get("error"),
+ 3253:                     )
+ 3254:                 set_current_run_id(None)
+ 3255:                 set_reasoning_sink(None)
+ 3256:                 log_f.close()
+ 3257:                 return summary
+ 3258: 
+ 3259:         # I-cd-706: SSE evidence-id events over the FINAL evidence_for_gen set
+ 3260:         # (NOT inside retrieval loops — bounded to the selected rows, tens to
+ 3261:         # low-hundreds). Rows are dicts; guard for any object rows defensively.
+ 3262:         if q.get("v6_mode") and q.get("external_run_id"):
+ 3263:             _ext = q.get("external_run_id")
+ 3264:             _seen_evidence_ids: set[str] = set()
+ 3265:             for _row in evidence_for_gen:
+ 3266:                 if isinstance(_row, dict):
+ 3267:                     _eid = _row.get("evidence_id", "") or ""
+ 3268:                     _eurl = _row.get("source_url") or _row.get("url") or ""
+ 3269:                 else:
+ 3270:                     _eid = getattr(_row, "evidence_id", "") or ""
+ 3271:                     _eurl = getattr(_row, "source_url", "") or getattr(_row, "url", "") or ""
+ 3272:                 # Codex iter-1 P2: dedup by evidence_id so the UI gets one
+ 3273:                 # event per unique source, not one per row.
+ 3274:                 if _eid and _eid not in _seen_evidence_ids:
+ 3275:                     _seen_evidence_ids.add(_eid)
+ 3276:                     emit_event(_ext, "evidence.id_assigned", {"id": _eid, "url": _eurl})
+ 3277: 
+ 3278:         # I-rdy-011 (#507): cooperative cancel checkpoint — before the
+ 3279:         # generator stage (the most expensive stage).
+ 3280:         if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+ 3281:             return summary
+ 3282: 
+ 3283:         # I-safety-002b (#925) PR-2: tag this entire call as the report-generator role
+ 3284:         # so the Path-B gate captures every nested LLM completion (multi-section + analyst
+ 3285:         # + retries + reason) under role="generator". No-op when the gate is inactive.
+
+ succeeded in 2356ms:
+ 4088:             "partial_thin_corpus",
+ 4089:             "partial_incomplete_corpus",
+ 4090:             "partial_rule_check_warnings",
+ 4091:             "partial_outline_fallback",
+ 4092:             "partial_evaluator_advisory",
+ 4093:             "partial_qwen_advisory",
+ 4094:         ):
+ 4095:             summary_status = "partial_saturation"
+ 4096:             unified_status = "partial_saturation"
+ 4097:         manifest = {
+ 4098:             "run_id": run_id,
+ 4099:             "slug": q["slug"],
+ 4100:             "domain": q["domain"],
+ 4101:             "question": q["question"],
+ 4102:             "status": unified_status,
+ 4103:             # I-rdy-010 (#506): uploaded-document grounding + sovereignty proof.
+ 4104:             "uploaded_documents_used": summary.get("uploaded_documents_used", 0),
+ 4105:             "uploaded_documents_blocked": summary.get(
+ 4106:                 "uploaded_documents_blocked", 0
+ 4107:             ),
+ 4108:             # BUG-M-205: evaluator gate decision surfaced to downstream
+ 4109:             "release_allowed": eval_gate.release_allowed,
+ 4110:             "evaluator_gate": eval_gate.to_dict(),
+ 4111:             # BUG-M-201: generator-visible evidence provenance.
+ 4112:             "evidence_selection": evidence_selection.to_dict(),
+ 4113:             "protocol_sha256": scope.protocol_sha256,
+ 4114:             # #958 (S2): use the shared retrieval-section writer so the
+ 4115:             # corpus-truncation flag + counts land on the SUCCESS path too
+ 4116:             # (this inline block previously bypassed _base_manifest_envelope).
+ 4117:             "retrieval": _retrieval_manifest_section(retrieval),
+ 4118:             "corpus": {
+ 4119:                 "count": dist.total_sources,
+ 4120:                 "tier_fractions": dist.tier_fractions,
+ 4121:                 "material_deviation": dist.has_material_deviation,
+ 4122:                 "approved": approved,
+ 4123:             },
+ 4124:             "adequacy": {
+ 4125:                 "decision": adequacy.decision,
+ 4126:                 "findings_ok": sum(1 for f in adequacy.findings if f.ok),
+ 4127:                 "findings_total": len(adequacy.findings),
+ 4128:                 "critical_count": sum(
+ 4129:                     1 for f in adequacy.findings
+ 4130:                     if f.severity == "critical"
+ 4131:                 ),
+ 4132:             },
+ 4133:             "completeness": {
+ 4134:                 "total_applicable": completeness.total_applicable,
+ 4135:                 "total_covered": completeness.total_covered,
+ 4136:                 "total_uncovered": completeness.total_uncovered,
+ 4137:                 "covered_fraction": round(completeness.covered_fraction, 3),
+ 4138:                 "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+ 4139:             },
+ 4140:             "contradictions_found": len(contradictions),
+ 4141:             "generator": {
+ 4142:                 "outline_sections": [p.title for p in multi.outline],
+ 4143:                 "sections_kept": sum(1 for s in multi.sections
+ 4144:                                      if not s.dropped_due_to_failure),
+ 4145:                 "words": multi.total_words,
+ 4146:                 # I-bug-105 two-layer reporting: distinguish verified
+ 4147:                 # word count from analyst-synthesis word count so
+ 4148:                 # downstream consumers cannot mistake total length for
+ 4149:                 # audited length (per Codex iter-1 brief P0).
+ 4150:                 "verified_words": (
+ 4151:                     multi.total_words
+ 4152:                     - getattr(multi, "analyst_synthesis_words", 0)
+ 4153:                 ),
+ 4154:                 "analyst_synthesis_words": getattr(
+ 4155:                     multi, "analyst_synthesis_words", 0
+ 4156:                 ),
+ 4157:                 "analyst_synthesis_input_tokens": getattr(
+ 4158:                     multi, "analyst_synthesis_input_tokens", 0
+ 4159:                 ),
+ 4160:                 "analyst_synthesis_output_tokens": getattr(
+ 4161:                     multi, "analyst_synthesis_output_tokens", 0
+ 4162:                 ),
+ 4163:                 "sentences_verified": multi.total_sentences_verified,
+ 4164:                 "sentences_dropped": multi.total_sentences_dropped,
+ 4165:                 "limitations_words": len(multi.limitations_text.split()),
+ 4166:             },
+ 4167:             "evaluator_rule_pass": ev_out.rule_check_pass_count,
+ 4168:             "evaluator_rule_fail": ev_out.rule_check_fail_count,
+ 4169:             "judge_verdicts": (
+ 4170:                 {v: sum(1 for j in jr.verdicts.values()
+ 4171:                         if j["verdict"] == v)
+ 4172:                  for v in ("good", "acceptable", "needs_revision", "unknown")}
+ 4173:                 if jr and jr.parse_ok else {"error": "failed"}
+ 4174:             ),
+ 4175:             "cost_usd": run_cost,
+ 4176:             "budget_cap_usd": PG_MAX_COST_PER_RUN,
+ 4177:             # GH#423 I-gen-002: cross-section fact-dedup telemetry.
+ 4178:             # Persists fact_dedup pass results (groups, redundants,
+ 4179:             # rewrites_applied, drops) so observability + auditability
+ 4180:             # of the dedup behavior survives into manifest.json.
+ 4181:             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
+ 4182:         }
+ 4183: 
+ 4184:         # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
+ 4185:         # in the manifest (gap #19 extension). ON-mode only — the key is absent
+ 4186:         # in OFF, preserving the legacy manifest shape byte-for-byte.
+ 4187:         if _use_research_planner and _research_plan is not None:
+ 4188:             manifest["research_plan"] = {
+ 4189:                 "plan_path": str((run_dir / "research_plan.json").name),
+ 4190:                 "plan_sha256": _plan_sha,
+ 4191:                 "sub_query_count": len(_research_plan.sub_queries),
+ 4192:                 "outline_archetypes": [
+ 4193:                     item.archetype for item in _research_plan.outline
+ 4194:                 ],
+ 4195:             }
+ 4196: 
+ 4197:         # I-meta-005 Phase 4 (#988) — Codex diff-gate iter-2 P2a: surface the
+ 4198:         # saturation trajectory + per-section shortfall (incl. uncovered sub-query
+ 4199:         # text) in the per-run manifest too. It already lands in sweep_summary.json
+ 4200:         # via `summary`; this makes the PER-RUN audit artifact self-contained for a
+ 4201:         # partial_saturation result. ON-mode only (key absent in OFF -> legacy
+ 4202:         # manifest shape preserved).
+ 4203:         if summary.get("saturation"):
+ 4204:             manifest["saturation"] = summary["saturation"]
+ 4205: 
+ 4206:         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+ 4207:         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+ 4208:         # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
+ 4209:         # 4-role sweep is Gate-B (after lock promotion + operator spend authorization). When
+ 4210:         # this branch is OFF (the default), every line below is the unchanged legacy path —
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath scripts/run_honest_sweep_r3.py; for ($i=3040; $i -le 3170; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -LiteralPath scripts/run_honest_sweep_r3.py -Pattern '_use_research_planner|PG_USE_RESEARCH_PLANNER|run_saturation_loop|_gen_plan|_partial_mode' | ForEach-Object { if ("'$_.LineNumber -ge 2850 -and $_.LineNumber -le 3185) { "{0}: {1}" -f $_.LineNumber, $_.Line } }' in C:\POLARIS
+ succeeded in 1471ms:
+ 3040:                         max_rounds=_suff_max_rounds,
+ 3041:                     )
+ 3042:                     return RoundOutcome(
+ 3043:                         cumulative_retrieved_rows=list(retrieval.evidence_rows),
+ 3044:                         evidence_for_gen=evidence_for_gen,
+ 3045:                         sufficiency_report=_suff,
+ 3046:                         # Novelty DENOMINATOR = the RAW rows this round RETRIEVED
+ 3047:                         # (`_gap_ret.evidence_rows`), INCLUDING canonical-URL
+ 3048:                         # duplicates already in the corpus -- so a gap round that
+ 3049:                         # mostly re-fetches seen sources reads a LOW novelty
+ 3050:                         # fraction and the `< eps` flatten stop can fire. Only the
+ 3051:                         # deduped `_new_rows` were appended to the cumulative
+ 3052:                         # corpus above; the denominator must NOT be that deduped
+ 3053:                         # set or novelty degenerates to 1.0-or-0.0.
+ 3054:                         new_round_rows=list(_gap_ret.evidence_rows),
+ 3055:                         prev_corpus_rows=_prev_corpus,
+ 3056:                     )
+ 3057: 
+ 3058:                 _round0 = RoundOutcome(
+ 3059:                     cumulative_retrieved_rows=list(retrieval.evidence_rows),
+ 3060:                     evidence_for_gen=evidence_for_gen,
+ 3061:                     sufficiency_report=_suff,
+ 3062:                     # Round 0 has no prior corpus: every retrieved row is novel,
+ 3063:                     # so the raw denominator == the whole round-0 corpus and the
+ 3064:                     # baseline is empty. `saturation_decision`'s round>=1 guard
+ 3065:                     # ignores round-0 novelty anyway.
+ 3066:                     new_round_rows=list(retrieval.evidence_rows),
+ 3067:                     prev_corpus_rows=[],
+ 3068:                 )
+ 3069:                 _sat = run_saturation_loop(
+ 3070:                     round0=_round0,
+ 3071:                     run_round_fn=_run_gap_round,
+ 3072:                     max_rounds=_suff_max_rounds,
+ 3073:                     novelty_eps=_sat_eps,
+ 3074:                     max_discovery_calls=_sat_max_calls,
+ 3075:                     cost_per_query=_cost_per_query,
+ 3076:                     plan=_research_plan,
+ 3077:                     log=_log,
+ 3078:                 )
+ 3079:                 _log(
+ 3080:                     f"[saturation]  TERMINAL decision={_sat.decision} "
+ 3081:                     f"rounds_fired={_sat.rounds_fired} "
+ 3082:                     f"discovery_calls={_sat.cumulative_discovery_calls}/"
+ 3083:                     f"{_sat_max_calls} "
+ 3084:                     f"novelty_trajectory={[round(x, 3) for x in _sat.novelty_trajectory]}"
+ 3085:                 )
+ 3086:                 # I-meta-005 Phase 4 (#988) — Codex diff-gate P2: persist the
+ 3087:                 # saturation trajectory into the manifest (summary -> manifest) so
+ 3088:                 # a partial/success run is observable WITHOUT re-reading run_log:
+ 3089:                 # decision, rounds fired, discovery spend, per-round novelty.
+ 3090:                 summary["saturation"] = {
+ 3091:                     "decision": _sat.decision,
+ 3092:                     "rounds_fired": _sat.rounds_fired,
+ 3093:                     "discovery_calls": _sat.cumulative_discovery_calls,
+ 3094:                     "max_discovery_calls": _sat_max_calls,
+ 3095:                     "novelty_trajectory": [
+ 3096:                         round(x, 4) for x in _sat.novelty_trajectory
+ 3097:                     ],
+ 3098:                     "truncated_any_round": _sat.truncated_any_round,
+ 3099:                 }
+ 3100:                 # `_suff` / `evidence_for_gen` / `retrieval` now hold the FINAL
+ 3101:                 # round's state (the closure mutated them via nonlocal).
+ 3102:                 if _sat.decision == STOP_SUFFICIENT:
+ 3103:                     # Gap closed during the loop -> PROCEED on the full plan.
+ 3104:                     _gen_plan = _research_plan
+ 3105:                     _partial_mode = False
+ 3106:                 else:
+ 3107:                     # STOP_NOVELTY / STOP_BUDGET with sections still under-covered
+ 3108:                     # -> a PARTIAL report on a PRUNED plan (sufficient sections
+ 3109:                     # ONLY). Zero sufficient sections -> abort_corpus_inadequate.
+ 3110:                     _pruned_plan, _dropped_sections = (
+ 3111:                         _prune_plan_to_sufficient_sections(_research_plan, _suff)
+ 3112:                     )
+ 3113:                     if _pruned_plan is not None:
+ 3114:                         _gen_plan = _pruned_plan
+ 3115:                         _partial_mode = True
+ 3116:                         summary["status"] = "partial_saturation"
+ 3117:                         # Codex diff-gate P2: name the DROPPED (under-covered)
+ 3118:                         # sections + their shortfall in the manifest so the partial
+ 3119:                         # artifact discloses exactly which planned sub-questions the
+ 3120:                         # corpus could not cover, and by how much.
+ 3121:                         def _uncovered_sub_query_text(_unit):
+ 3122:                             # The TEXT of the uncovered sub-questions: the empty
+ 3123:                             # facets if any, else (total-shortfall) all the unit's
+ 3124:                             # mapped sub-queries. Resolved against the pinned plan.
+ 3125:                             _idx = (
+ 3126:                                 list(_unit.empty_facets)
+ 3127:                                 or list(_unit.sub_query_indices)
+ 3128:                             )
+ 3129:                             _sq = _research_plan.sub_queries
+ 3130:                             return [
+ 3131:                                 _sq[_i] for _i in _idx
+ 3132:                                 if 0 <= _i < len(_sq)
+ 3133:                             ]
+ 3134:                         _dropped_detail = [
+ 3135:                             {
+ 3136:                                 "unit_id": _u.unit_id,
+ 3137:                                 "title": _u.title,
+ 3138:                                 "covered_count": _u.covered_count,
+ 3139:                                 "evidence_target": _u.evidence_target,
+ 3140:                                 "empty_facets": list(_u.empty_facets),
+ 3141:                                 "below_floor_count": _u.below_floor_count,
+ 3142:                                 # Codex diff-gate iter-2 P2a: the actual TEXT of the
+ 3143:                                 # planned sub-questions the corpus could not cover.
+ 3144:                                 "uncovered_sub_queries": _uncovered_sub_query_text(
+ 3145:                                     _u
+ 3146:                                 ),
+ 3147:                             }
+ 3148:                             for _u in _suff.per_unit
+ 3149:                             if not _u.sufficient
+ 3150:                         ]
+ 3151:                         summary["saturation"]["sections_kept"] = len(
+ 3152:                             _pruned_plan.outline
+ 3153:                         )
+ 3154:                         summary["saturation"]["sections_dropped"] = list(
+ 3155:                             _dropped_sections
+ 3156:                         )
+ 3157:                         summary["saturation"]["dropped_sections_detail"] = (
+ 3158:                             _dropped_detail
+ 3159:                         )
+ 3160:                         summary["saturation"]["authority_floor"] = (
+ 3161:                             _suff.authority_floor
+ 3162:                         )
+ 3163:                         _log(
+ 3164:                             f"[saturation]  PARTIAL report: "
+ 3165:                             f"{len(_pruned_plan.outline)} sufficient section(s) "
+ 3166:                             f"kept; dropped {len(_dropped_sections)} under-"
+ 3167:                             f"covered: {_dropped_sections}"
+ 3168:                         )
+ 3169: 
+ 3170:             if _suff.verdict != "proceed" and _partial_mode is False:
+
+ succeeded in 1926ms:
+2882:         if _use_research_planner and _research_plan is not None:
+2922:             # (this whole on-mode block only runs when PG_USE_RESEARCH_PLANNER is
+2923:             # set). The loop DECISION logic is the PURE `run_saturation_loop` over
+2928:             _gen_plan = _research_plan          # full plan on PROCEED.
+2929:             _partial_mode = False
+2936:                     run_saturation_loop,
+3069:                 _sat = run_saturation_loop(
+3104:                     _gen_plan = _research_plan
+3105:                     _partial_mode = False
+3114:                         _gen_plan = _pruned_plan
+3115:                         _partial_mode = True
+3170:             if _suff.verdict != "proceed" and _partial_mode is False:
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p = Get-Content -LiteralPath scripts/run_honest_sweep_r3.py; for ($i=2858; $i -le 2938; $i++) { '"'{0,5}: {1}' -f "'$i, $p[$i-1] }' in C:\POLARIS
+ succeeded in 1367ms:
+ 2858:         # injected prepend (upload rows OUTERMOST, then V30 contract rows), in the
+ 2859:         # SAME order applied to round 0 above, is everything ahead of the captured
+ 2860:         # selection baseline. Gap rounds re-inject THIS identical block before
+ 2861:         # re-gating AND the generator, so an expansion round never drops the V30
+ 2862:         # contract evidence and the gate/generator stay in lockstep with round 0
+ 2863:         # on the billed set. Derived by suffix-diff (robust to which of the V30 /
+ 2864:         # upload branches actually ran) rather than re-referencing branch-local
+ 2865:         # vars that may be undefined.
+ 2866:         _gate_injected_prepend_rows = list(
+ 2867:             evidence_for_gen[: len(evidence_for_gen) - len(_selection_base_rows)]
+ 2868:         )
+ 2869: 
+ 2870:         # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
+ 2871:         # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
+ 2872:         # the V30 contract-row prepend (:2719) + the upload-row prepend (:2754)
+ 2873:         # have all run and NOTHING further mutates it before the generator bills
+ 2874:         # at `generate_multi_section_report` below. The plan-sufficiency gate
+ 2875:         # certifies EXACTLY the rows that will be billed: does the corpus cover
+ 2876:         # EVERY planned sub-question to its per-section evidence_target at the
+ 2877:         # numeric authority floor? PROCEED -> generator; EXPAND/ABORT collapse to
+ 2878:         # `abort_corpus_inadequate` with ZERO generator tokens (Phase 4 owns the
+ 2879:         # actual saturation EXPANSION loop). Pure / no-network / spend-free. OFF-
+ 2880:         # mode this whole block is skipped (the legacy domain-keyed gate aborted
+ 2881:         # earlier, byte-identically).
+ 2882:         if _use_research_planner and _research_plan is not None:
+ 2883:             from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+ 2884:                 assess_plan_sufficiency,
+ 2885:             )
+ 2886:             _suff_floor_env = os.getenv(
+ 2887:                 "PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", ""
+ 2888:             ).strip()
+ 2889:             _suff_floor = float(_suff_floor_env) if _suff_floor_env else None
+ 2890:             # I-meta-005 Phase 4 (#988): PG_SATURATION_MAX_ROUNDS aliases the
+ 2891:             # Phase-3 gate's `max_rounds` (default 3) so round 0 returns EXPAND
+ 2892:             # (not ABORT) when sections are under-covered, letting the saturation
+ 2893:             # loop fire gap-targeted rounds. PG_PLAN_SUFFICIENCY_MAX_ROUNDS is
+ 2894:             # honored as a legacy override (still 0 if explicitly set).
+ 2895:             _sat_max_rounds = int(
+ 2896:                 os.getenv(
+ 2897:                     "PG_PLAN_SUFFICIENCY_MAX_ROUNDS",
+ 2898:                     os.getenv("PG_SATURATION_MAX_ROUNDS", "3"),
+ 2899:                 )
+ 2900:             )
+ 2901:             _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
+ 2902:             _suff_max_rounds = _sat_max_rounds
+ 2903:             _suff = assess_plan_sufficiency(
+ 2904:                 plan=_research_plan,
+ 2905:                 corpus_rows=evidence_for_gen,
+ 2906:                 authority_floor=_suff_floor,
+ 2907:                 round_index=_suff_round,
+ 2908:                 max_rounds=_suff_max_rounds,
+ 2909:             )
+ 2910:             (run_dir / "plan_sufficiency.json").write_text(
+ 2911:                 json.dumps(asdict(_suff), indent=2, sort_keys=True, default=str)
+ 2912:                 + "\n",
+ 2913:                 encoding="utf-8",
+ 2914:             )
+ 2915:             _log(
+ 2916:                 f"[sufficiency] verdict={_suff.verdict} "
+ 2917:                 f"floor={_suff.authority_floor} "
+ 2918:                 f"sections={len(_suff.per_unit)} "
+ 2919:                 f"under_covered={len(_suff.under_covered_units)}"
+ 2920:             )
+ 2921:             # I-meta-005 Phase 4 (#988): the SATURATION LOOP. Default-OFF body
+ 2922:             # (this whole on-mode block only runs when PG_USE_RESEARCH_PLANNER is
+ 2923:             # set). The loop DECISION logic is the PURE `run_saturation_loop` over
+ 2924:             # an injected gap-retrieval closure; it constructs NO HTTP client and
+ 2925:             # bills NO generator token. Round 0 already ran above; rounds >=1 fire
+ 2926:             # GAP-ONLY retrieval (anchor-suppressed), merge with global evidence_id
+ 2927:             # renumber, re-select, re-inject upload rows, and re-gate.
+ 2928:             _gen_plan = _research_plan          # full plan on PROCEED.
+ 2929:             _partial_mode = False
+ 2930:             _dropped_sections: list[str] = []
+ 2931:             if _suff.verdict != "proceed":
+ 2932:                 from src.polaris_graph.retrieval.saturation import (
+ 2933:                     RoundOutcome,
+ 2934:                     canonical_source_url,
+ 2935:                     per_query_discovery_cost,
+ 2936:                     run_saturation_loop,
+ 2937:                     STOP_SUFFICIENT,
+ 2938:                 )
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+94,536
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

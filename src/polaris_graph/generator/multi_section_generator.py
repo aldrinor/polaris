@@ -4071,6 +4071,19 @@ async def generate_multi_section_report(
     # ASSIGNS retrieved evidence to those sections (no second LLM outline
     # call). Routing of M-44/M-47 then keys on archetype, not title.
     research_plan: Any | None = None,
+    # I-meta-005 Phase 4 (#988): PARTIAL-saturation mode. When True (status
+    # `partial_saturation`), the report structure is FIXED to the PRUNED plan's
+    # sufficient sections ONLY, and EVERY out-of-plan appender is DISABLED so the
+    # rendered report's headings == exactly the pruned sufficient sections:
+    #   - V30 contract-plan sections (`v30_contract_plans` outline injection),
+    #   - M50 per-trial summary appendices,
+    #   - the Trial Summary table + timeline,
+    #   - the Analyst Synthesis,
+    #   - the Limitations.
+    # Each builder is hard-gated on `partial_mode` at the top (NOT on incidental
+    # empty inputs) so a fixture that would otherwise trigger each produces NONE.
+    # Default False = PROCEED/full mode UNCHANGED (all five still render).
+    partial_mode: bool = False,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -4164,7 +4177,12 @@ async def generate_multi_section_report(
     # Limitations, etc.). Contract sections run via
     # `_run_contract_section` (M-58 slot-bound). Legacy sections
     # run via `_run_section` (existing LLM path).
-    if v30_contract_plans:
+    # I-meta-005 Phase 4 (#988): in partial_mode, V30 contract sections are an
+    # OUT-OF-PLAN appender (they enter the outline `plans`, not appended text, so
+    # the runner's `if getattr(multi, ...):` guards cannot suppress them). Hard-
+    # skip the injection here so the partial report renders ONLY the pruned plan's
+    # sufficient sections.
+    if v30_contract_plans and not partial_mode:
         _contract_titles = {p.title for p in v30_contract_plans}
         _enrichment_plans = [
             p for p in plans if p.title not in _contract_titles
@@ -4174,6 +4192,11 @@ async def generate_multi_section_report(
             "[multi_section] V30-P2: %d contract sections + %d "
             "enrichment sections",
             len(v30_contract_plans), len(_enrichment_plans),
+        )
+    elif v30_contract_plans and partial_mode:
+        logger.info(
+            "[multi_section] Phase-4 partial_mode: V30 contract section "
+            "injection DISABLED (pruned-plan sections only)",
         )
 
     logger.info(
@@ -4969,7 +4992,9 @@ async def generate_multi_section_report(
     lim_text = ""
     lim_in_tok = 0
     lim_out_tok = 0
-    if any([tier_fractions, contradictions, date_range, uncovered_topics]):
+    if not partial_mode and any(
+        [tier_fractions, contradictions, date_range, uncovered_topics]
+    ):
         lim_text, lim_in_tok, lim_out_tok = await _call_limitations(
             tier_fractions=tier_fractions,
             contradictions=contradictions,
@@ -4995,7 +5020,7 @@ async def generate_multi_section_report(
     analyst_synth_text = ""
     analyst_synth_in_tok = 0
     analyst_synth_out_tok = 0
-    if section_results and global_biblio:
+    if not partial_mode and section_results and global_biblio:
         try:
             from src.polaris_graph.generator.analyst_synthesis import (
                 generate_analyst_synthesis,
@@ -5045,7 +5070,7 @@ async def generate_multi_section_report(
     # even when the M-42b builder doesn't run (empty list = no builder
     # activity, not a missing field).
     m45_refetch_diagnostics: list[dict[str, Any]] = []
-    if trial_summary_table_max_tokens > 0 and global_biblio:
+    if not partial_mode and trial_summary_table_max_tokens > 0 and global_biblio:
         # Try M-42b deterministic path first.
         # The generator sees `evidence` as a flat list of row dicts —
         # this is the selected subset passed by the orchestrator.
@@ -5131,7 +5156,8 @@ async def generate_multi_section_report(
     m50_in_tok = 0
     m50_out_tok = 0
     if (
-        primary_trial_anchors
+        not partial_mode
+        and primary_trial_anchors
         and m44_primary_by_anchor
         and direct_trial_anchors is not None
         and m50_subsection_max_tokens > 0

@@ -1,0 +1,8 @@
+CAP EXCEPTION (CLAUDE.md §-1.2 point 6): iter-5 returned TWO REAL correctness blockers — (1) the retrieval
+budget still undercounts need-type adapter calls (loop PER query but counted once -> overspend possible),
+(2) partial-mode disabled only 2 of 5 out-of-plan appenders (Trial Summary/Analyst Synthesis/Limitations
+still rendered -> out-of-plan content for under-covered topics). §-1.2.6 forbids cap-5 force-approving a real
+production blocker. Both fixes are DETERMINISTIC (Codex prescribed: worst-case per_query_discovery_cost =
+2 + adapter_count; partial_mode disables ALL five appenders). P2 canonicalizer name corrected to _normalize_url.
+ONE confirmatory re-gate (iter 6). Converging: iter4+5 are the SAME two themes (budget accounting + partial
+out-of-plan) narrowing, not new scope. Operator standing directive: no circle-jerking, no subpar.
