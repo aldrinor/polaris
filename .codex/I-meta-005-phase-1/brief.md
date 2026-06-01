@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5 (CAP).
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -17,7 +17,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 4 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
+# Codex BRIEF gate iter 5 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
 
 ITER-1 = REQUEST_CHANGES (5 P1, 4 P2). This rewrite addresses each. Parent plan #982 rows 47/57/78.
 Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #10 (decision seed).
@@ -54,11 +54,12 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
 - `ResearchFrame` dataclass (generalized PICO, field-invariant): `entities`, `relations`, `metrics`,
   `comparators`, `constraints`, `claim_type` ∈ {empirical, policy-comparison, forecast, mechanism,
   descriptive}. No clinical fields.
-- `plan_research(question, *, planner_llm) -> ResearchPlan` makes ONE Writer call emitting JSON: frame +
-  faceted sub-queries + a section outline (each = an archetype TAG + a question-specific title + a
-  per-section evidence target). `planner_llm: Callable[[str], str]` injected (fake in tests; production
-  passes the Writer via the existing `openrouter_client`). Strict JSON parse; malformed → **raise**
-  (LAW II), NO silent fallback to the clause-splitter.
+- `plan_research(question, *, planner_llm) -> ResearchPlan` makes ONE normal Writer call (plus AT MOST ONE
+  bounded retry per the lower-bound policy below — never more) emitting JSON: frame + faceted sub-queries +
+  a section outline (each = an archetype TAG + a question-specific title + a per-section evidence target).
+  `planner_llm: Callable[[str], str]` injected (fake in tests; production passes the Writer via the existing
+  `openrouter_client`). Strict JSON parse; malformed → **raise** (LAW II), NO silent fallback to the
+  clause-splitter.
 - **Sub-query count (honest, iter-1 P2 fix):** UPPER bound 40 (merge/truncate deterministically if >40).
   LOWER bound is a **fail-loud retry**, not deterministic padding: if <`MIN_SUBQUERIES` (e.g. 12), retry
   the planner once asking for more facets; if still short for a genuinely narrow question, ACCEPT the
@@ -105,6 +106,21 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
   `decomposed=plan.sub_queries`, `regulatory=[]`, `trial=[]`, `hand_authored=[]` (the planner's 20-40
   facets ARE the regulatory/primary-evidence expansion, field-agnostically). OFF: all legacy expanders run
   byte-identically.
+- **ON-mode also bypasses the two remaining live-path domain routers (iter-4 P1).** Beyond the query
+  expanders, two more non-planner sources route on `domain`:
+  (a) `run_honest_sweep_r3.py:1708` passes `domain=q["domain"]` into `run_live_retrieval`, which calls
+  `run_domain_backends` (`live_retriever.py:1806`) → `domain_backends.py:433` `if domain ==
+  "tech"/"policy"/"clinical"` per-domain candidate router; and
+  (b) R-6 completeness expansion (default-on, `run_honest_sweep_r3.py:1889`) `check_completeness(domain=…)`
+  loads `config/completeness_checklists/{domain}.yaml` and can emit `expand_queries` (and uses
+  `_DRUG_NAME_RE` at `completeness_checker.py:158`).
+  Both are `if domain ==` / `{domain}.yaml` routers — forbidden on the field-agnostic on-path. Under ON:
+  the `domain_backends` router is bypassed (pass a sentinel/None so no per-domain branch runs) AND R-6
+  domain-YAML expansion is disabled. ON-mode discovery = the GENERIC Serper/S2/OpenAlex fan-out over the
+  planner's sub-queries ONLY. The richer field-agnostic discovery (a need-type adapter registry replacing
+  `domain_backends`) is **Phase 2**; field-agnostic gap-coverage expansion is **Phase 4 saturation**. OFF:
+  both run byte-identically. (On-mode is a shadow build; weaker-than-off discovery is acceptable until
+  Phases 2+4 land, because the operator only flips on-mode ON after all phases + Gate-A.)
 - **Validator adapter (iter-3 P1 #1).** `validate_amplified_queries`'s `_build_anchor_tokens`
   (`scope_query_validator.py:85`) reads only clinical PICO fields (`research_question`, `population`,
   `intervention`, `comparator`, `outcome`). The new `ResearchFrame` (entities/relations/metrics/
@@ -166,13 +182,20 @@ fallback (`:436`), M-44 primary injection (`:3012`), and regen plans (`:4183`,`:
   capture stubs, NO regulatory (M-28) / primary-trial (M-35) / trial-DOI / per-slug hand-authored query
   reaches `effective_queries` — only planner sub-queries + the anchor. Off-flag: the legacy expanders run
   and their queries appear, unchanged.
+- **P1-16 on-mode bypasses the domain_backends router (iter-4 P1):** with on-flag, `run_domain_backends`'s
+  per-domain `if domain ==` branch is NOT taken (assert via a spy/sentinel that no per-domain candidate
+  source is invoked); off-flag, the router runs as today.
+- **P1-17 on-mode disables R-6 domain-YAML completeness expansion (iter-4 P1):** with on-flag, R-6 does NOT
+  load `{domain}.yaml` and emits no `expand_queries` into retrieval; off-flag, R-6 runs unchanged.
 - **P1-9 _DRUG_NAME_RE compat:** `completeness_checker` + `contradiction_detector` still import + use
   `_DRUG_NAME_RE` from `scope_gate` (no breakage).
-- **P1-10 no-clinical-literal code guard (ON-PATH scoped, iter-2 P2):** a grep-style test asserts the
-  on-mode planner/archetype code contains no clinical title/drug literals as control values (Phase-0a-style
-  zero-literal sweep). The RETAINED legacy off-path block (`_ALLOWED_SECTIONS` + clinical outline prompt +
-  `extract_pico_heuristic` + `_DRUG_NAME_RE`) is explicitly whitelisted — it must stay clinical for OFF
-  byte-identity. The guard fails only on clinical literals in the NEW on-mode paths.
+- **P1-10 no-clinical-literal code guard (ON-PATH scoped, iter-2 P2 + iter-4 P2):** a grep-style test
+  asserts the on-mode code — the planner, the archetype outline prompt/parser/fallback, the on-mode
+  section-writing prompt selection, AND the validator adapter — contains no clinical title/drug literal as
+  a CONTROL value (Phase-0a-style zero-literal sweep). The RETAINED legacy off-path block
+  (`_ALLOWED_SECTIONS` + clinical outline prompt + `extract_pico_heuristic` + `_DRUG_NAME_RE`) and the
+  advisory `clinical.yaml` prompt-TEXT are explicitly whitelisted (off-path + advisory-only). The guard
+  fails only on a clinical literal used as a routing/control value on the on-path.
 - **P1-11 spend-free guard:** smoke asserts no `OpenRouterClient` / live httpx client is constructed.
 - **P1-12 outline handoff (iter-2 P1 #1):** on-mode, with a fake planner outline (e.g. archetype Decision,
   title "Which carbon-pricing path minimizes cost") + a small retrieved evidence pool, the final
