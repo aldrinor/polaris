@@ -1626,6 +1626,78 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
+        # I-meta-005 Phase 1 (#985): field-agnostic research planner (shadow
+        # build, default OFF). When PG_USE_RESEARCH_PLANNER is on, the planner
+        # produces the frame + faceted sub-queries + archetype outline; the
+        # plan is SHA-pinned BEFORE retrieval (gap #19 extension) and its
+        # sub-queries are the ONLY non-anchor query source — the legacy
+        # domain-keyed expanders (M-28/M-35/trial-DOI/hand-authored) are NOT
+        # invoked, the domain_backends router is bypassed (domain=None), and
+        # R-6 {domain}.yaml completeness expansion is disabled. OFF: every
+        # legacy path runs byte-identically.
+        _use_research_planner = (
+            os.getenv("PG_USE_RESEARCH_PLANNER", "0").strip()
+            in ("1", "true", "True")
+        )
+        _research_plan = None
+        _planner_protocol = None
+        if _use_research_planner:
+            from src.polaris_graph.planning.research_planner import (
+                plan_research,
+                plan_sha256,
+                serialize_plan_canonical,
+            )
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient,
+                PG_GENERATOR_MODEL,
+            )
+
+            def _planner_llm(prompt: str) -> str:
+                # Production Writer call. Build + smoke NEVER reach this path
+                # (the planner callable is injected/faked there). One Writer
+                # call (plus at most one bounded retry inside plan_research).
+                #
+                # `run_one_query` is async — the sweep event loop is already
+                # running here — so the coroutine is driven on a SEPARATE
+                # thread with its own loop (thread-safe; never touches the
+                # running loop, which `run_until_complete` would crash on).
+                import asyncio as _asyncio
+                import concurrent.futures as _futures
+
+                async def _run() -> str:
+                    _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    try:
+                        _resp = await _client.generate(
+                            prompt=prompt, max_tokens=2000, temperature=0.2,
+                        )
+                        return (_resp.content or "").strip()
+                    finally:
+                        if hasattr(_client, "close"):
+                            try:
+                                await _client.close()
+                            except Exception:
+                                pass
+
+                with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                    return _pool.submit(_asyncio.run, _run()).result()
+
+            _research_plan = plan_research(
+                q["question"], planner_llm=_planner_llm,
+            )
+            # Pre-register + SHA-pin the plan BEFORE retrieval (gap #19).
+            _plan_canonical = serialize_plan_canonical(_research_plan)
+            _plan_path = run_dir / "research_plan.json"
+            _plan_path.write_text(_plan_canonical + "\n", encoding="utf-8")
+            _plan_sha = plan_sha256(_research_plan)
+            _log(f"[planner]     research_plan pinned sha256={_plan_sha[:12]} "
+                 f"sub_queries={len(_research_plan.sub_queries)} "
+                 f"outline={len(_research_plan.outline)}")
+            # Frame-derived anchor protocol so planner sub-queries validate
+            # against the frame's OWN tokens (brief §2.4 validator adapter).
+            _planner_protocol = _research_plan.frame.to_anchor_protocol(
+                q["question"]
+            )
+
         # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
         # the scope template for this domain and — if the template has
         # a `regulatory_anchors` list — emits one extra amplified query
@@ -1684,12 +1756,25 @@ async def run_one_query(
         from src.polaris_graph.retrieval.query_decomposer import (
             build_amplified_query_list,
         )
-        _amplified_effective = build_amplified_query_list(
-            hand_authored=list(q.get("amplified", [])),
-            decomposed=_decomposed,
-            regulatory=_reg_queries,
-            trial=_trial_queries,
-        )
+        if _use_research_planner and _research_plan is not None:
+            # ON-mode: the planner's faceted sub-queries are the ONLY
+            # non-anchor query source. The legacy domain-keyed expanders are
+            # NOT invoked (regulatory/trial/hand_authored all empty); the
+            # planner's facets ARE the field-agnostic regulatory/primary-
+            # evidence expansion (brief §2.4).
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=[],
+                decomposed=list(_research_plan.sub_queries),
+                regulatory=[],
+                trial=[],
+            )
+        else:
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=list(q.get("amplified", [])),
+                decomposed=_decomposed,
+                regulatory=_reg_queries,
+                trial=_trial_queries,
+            )
 
         # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
         # seed candidates. Search-expansion (M-35 above) does not surface the
@@ -1705,17 +1790,31 @@ async def run_one_query(
                  f"direct candidates (slug={q['slug']})")
 
         t0 = time.time()
+        # I-meta-005 Phase 1 (#985): ON-mode bypasses the two live-path domain
+        # routers (brief §2.4) — `domain=None` skips the domain_backends
+        # per-domain `if domain ==` candidate router (live_retriever:1795
+        # guards `if domain and not seed_only`), and the frame-derived protocol
+        # replaces the clinical PICO protocol so planner sub-queries validate
+        # against the frame's own tokens. No trial-DOI seeds on-mode. OFF: the
+        # legacy domain + PICO protocol + DOI seeds run byte-identically.
+        _retrieval_domain = None if _use_research_planner else q["domain"]
+        _retrieval_protocol = (
+            _planner_protocol
+            if (_use_research_planner and _planner_protocol is not None)
+            else protocol
+        )
+        _retrieval_seed_urls = [] if _use_research_planner else _trial_doi_seeds
         retrieval = run_live_retrieval(
             research_question=q["question"],
             amplified_queries=_amplified_effective,
-            protocol=protocol,
+            protocol=_retrieval_protocol,
             max_serper=_max_serper,
             max_s2=_max_s2,
             fetch_cap=_fetch_cap,
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
-            domain=q["domain"],   # R-6 Gap-2 domain backends
-            seed_urls=_trial_doi_seeds,   # #817 layer-4 direct DOI candidates
+            domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
+            seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -1882,7 +1981,15 @@ async def run_one_query(
         # R-6 Gap-3: gap-triggered expansion. If uncovered topics and
         # we have enable_expansion, fire another retrieval pass with
         # the expansion queries, then re-classify + re-check.
-        enable_expansion = os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+        # I-meta-005 Phase 1 (#985): ON-mode disables R-6 {domain}.yaml
+        # completeness expansion (brief §2.4) — it is a `{domain}.yaml` router
+        # forbidden on the field-agnostic on-path. The completeness CHECK still
+        # runs for telemetry, but no domain-keyed expand_queries are fired into
+        # retrieval. OFF: R-6 expansion runs byte-identically.
+        enable_expansion = (
+            os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+            and not _use_research_planner
+        )
         if (enable_expansion and completeness.expand_queries
                 and completeness.total_uncovered > 0):
             _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
@@ -2650,6 +2757,13 @@ async def run_one_query(
             m50_skip_anchors=_compute_m50_skip_anchors(
                 _phase2_contract_plans, _primary_anchors,
             ) if _phase2_contract_plans else None,
+            # I-meta-005 Phase 1 (#985): pre-registered ResearchPlan. None in
+            # OFF mode (legacy `_call_outline` / `_ALLOWED_SECTIONS` path runs
+            # byte-identically). When set, the generator FIXES the section
+            # structure to `research_plan.outline`, assigns retrieved evidence
+            # to those sections post-retrieval, and routes M-44/M-47 on the
+            # archetype tag (not a clinical title).
+            research_plan=_research_plan,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
@@ -3427,6 +3541,19 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
+        # in the manifest (gap #19 extension). ON-mode only — the key is absent
+        # in OFF, preserving the legacy manifest shape byte-for-byte.
+        if _use_research_planner and _research_plan is not None:
+            manifest["research_plan"] = {
+                "plan_path": str((run_dir / "research_plan.json").name),
+                "plan_sha256": _plan_sha,
+                "sub_query_count": len(_research_plan.sub_queries),
+                "outline_archetypes": [
+                    item.archetype for item in _research_plan.outline
+                ],
+            }
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)

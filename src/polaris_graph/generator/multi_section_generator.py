@@ -56,6 +56,10 @@ logger = logging.getLogger("polaris_graph.multi_section")
 
 # Allowed section labels. The outline call is constrained to pick from
 # this list; prevents the model from inventing off-topic section titles.
+# OFF-PATH ONLY (legacy clinical path, retained byte-identically for the true
+# dual path — I-meta-005 Phase 1 #985). On the field-agnostic on-path the
+# planner-driven archetype outline replaces this list; selection happens at
+# the caller via `PG_USE_RESEARCH_PLANNER`.
 _ALLOWED_SECTIONS: list[str] = [
     "Efficacy",
     "Safety",
@@ -68,11 +72,88 @@ _ALLOWED_SECTIONS: list[str] = [
 ]
 
 
+# Field-invariant section archetypes (I-meta-005 Phase 1 #985, brief §2.3).
+# These TAGS are the on-path control-flow key — a non-clinical question gets a
+# question-specific TITLE plus one of these tags, and on-mode audit routing
+# (M-44 / M-47) consults the tag, never a clinical title literal. The set is
+# domain-agnostic: a housing, physics, or trade question maps cleanly onto it.
+SECTION_ARCHETYPES: list[str] = [
+    "Background",
+    "Mechanism",
+    "Quantitative-Comparison",
+    "Cost-Economics",
+    "Risk",
+    "Jurisdiction",
+    "Stakeholders",
+    "Scenarios",
+    "Decision",
+    "Uncertainty",
+    "Methodology",
+    "Limitations",
+]
+
+
+# I-meta-005 Phase 1 (#985, brief §2.3): config-driven advisory prompt-text
+# selector for the on-path. A frame's field-invariant `claim_type` selects an
+# advisory prose family from the `config/section_prompts/_registry.yaml`
+# mapping. This is the ONLY clinical-prose seam, and it is NOT a control value:
+# the registry is config (LAW VI), the appended text is advisory-only, and the
+# archetype outline / parser / fallback / routing are byte-identical regardless
+# of which (if any) family is appended. There is no `if claim_type ==
+# "clinical"` literal in this code.
+_SECTION_PROMPTS_REGISTRY_PATH = os.getenv(
+    "PG_SECTION_PROMPTS_REGISTRY",
+    os.path.join("config", "section_prompts", "_registry.yaml"),
+)
+
+
+def select_advisory_prompt_text(claim_type: str) -> str:
+    """Return the advisory prompt-text for a frame's `claim_type`, or "" when
+    no family is registered. Pure config lookup — no clinical literal as a
+    control value; fail-soft to "" when the registry is absent (advisory text
+    is enrichment, not a gate)."""
+    import yaml  # local import: advisory enrichment, keep module surface lean
+
+    registry_path = _SECTION_PROMPTS_REGISTRY_PATH
+    if not os.path.isfile(registry_path):
+        return ""
+    try:
+        with open(registry_path, "r", encoding="utf-8") as fh:
+            registry = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning(
+            "[multi_section] advisory prompt registry load failed: %s", exc,
+        )
+        return ""
+    by_claim_type = registry.get("by_claim_type") or {}
+    key = (claim_type or "").strip().lower()
+    filename = by_claim_type.get(key) or registry.get("default")
+    if not filename:
+        return ""
+    family_path = os.path.join(os.path.dirname(registry_path), str(filename))
+    if not os.path.isfile(family_path):
+        return ""
+    try:
+        with open(family_path, "r", encoding="utf-8") as fh:
+            family = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError):
+        return ""
+    return str(family.get("advisory_prompt_text", "") or "")
+
+
 @dataclass
 class SectionPlan:
-    title: str            # one of _ALLOWED_SECTIONS
+    title: str            # one of _ALLOWED_SECTIONS (off-mode) or a
+                          # question-specific heading (on-mode)
     focus: str            # one-sentence focus statement for the prompt
     ev_ids: list[str]     # evidence rows the section should draw from
+    # I-meta-005 Phase 1 (#985): field-invariant archetype tag. Default "" so
+    # OFF mode is unchanged — no existing serialization path emits this field
+    # in OFF (repo-wide check: SectionPlan is never `asdict`-ed; the manifest
+    # uses `[p.title for p in multi.outline]`). On-mode carries the planner's
+    # tag here so M-44/M-47 route on archetype, not on a clinical title.
+    # Appended LAST in the field list to preserve positional construction.
+    archetype: str = ""
 
 
 @dataclass
@@ -133,6 +214,13 @@ class SectionResult:
     refusal_count: int = 0
     soft_mismatch_count: int = 0
     atom_validation_mode: str = "off"
+    # I-meta-005 Phase 1 (#985, Codex P2 build-note B): field-invariant
+    # archetype tag carried from the originating SectionPlan so the on-mode
+    # post-generation M-44/M-47 checks resolve the archetype from the plan
+    # (not from a clinical title literal). Default "" so OFF is unchanged —
+    # SectionResult is never `asdict`-ed in any OFF artifact path. Appended
+    # LAST to preserve positional construction at the existing call sites.
+    archetype: str = ""
 
 
 @dataclass
@@ -481,6 +569,91 @@ def _build_deterministic_fallback_outline(
             title=title,
             focus=focuses[title],
             ev_ids=section_ev,
+        ))
+    return plans
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-meta-005 Phase 1 (#985): ON-MODE archetype outline (field-agnostic).
+#
+# This is the dual-path's ON branch (brief §2.3 + §2.5). It is LLM-FREE: the
+# section STRUCTURE (titles + archetype tags + count) is FIXED by the
+# pre-retrieval, SHA-pinned `ResearchPlan.outline`; this code only ASSIGNS
+# retrieved evidence rows to those pre-declared sections (populate `ev_ids`).
+# It constructs NO OpenRouterClient and makes NO LLM call — so on-mode outline
+# is spend-free (P1-11) and the handoff is deterministically testable (P1-12).
+# OFF mode never reaches here; the legacy `_call_outline` / `_parse_outline` /
+# `_build_deterministic_fallback_outline` run byte-identically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Archetype-driven deterministic fallback titles (field-invariant). Used only
+# when an on-mode plan outline is empty AND we still need a minimal structure.
+_ARCHETYPE_FALLBACK: list[tuple[str, str]] = [
+    ("Background", "Background and Context"),
+    ("Quantitative-Comparison", "Quantitative Comparison"),
+    ("Decision", "Decision Synthesis"),
+]
+
+
+def _assign_evidence_to_planned_outline(
+    planned_outline: list[Any],
+    evidence: list[dict[str, Any]],
+    *,
+    max_ev_per_section: int = 30,
+) -> list[SectionPlan]:
+    """Assign retrieved evidence rows to the planner's pre-declared sections
+    (brief §2.5). The titles + archetype tags + section COUNT come from
+    `planned_outline` (each item exposes `.archetype`, `.title`, and optionally
+    `.evidence_target`); this function only distributes `ev_ids` round-robin so
+    every section draws from the retrieved pool. Pure / no-LLM / no-network.
+
+    `planned_outline` items are `planning.SectionOutlineItem` instances (or any
+    object with `.archetype` / `.title` attributes). Returns on-mode
+    `SectionPlan`s carrying the question-specific title + archetype tag.
+    """
+    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+    ev_ids = [e for e in ev_ids if e]
+    n_sections = len(planned_outline)
+    plans: list[SectionPlan] = []
+    for i, item in enumerate(planned_outline):
+        archetype = getattr(item, "archetype", "") or ""
+        title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
+        target = int(getattr(item, "evidence_target", 0) or 0)
+        # Round-robin slice for this section, then honor the per-section
+        # evidence target as an upper cap (falls back to the global cap).
+        section_ev = ev_ids[i::n_sections] if n_sections else []
+        cap = target if target > 0 else max_ev_per_section
+        cap = min(cap, max_ev_per_section)
+        section_ev = section_ev[:cap]
+        plans.append(SectionPlan(
+            title=title,
+            focus=title,
+            ev_ids=section_ev,
+            archetype=archetype,
+        ))
+    return plans
+
+
+def _build_archetype_fallback_outline(
+    evidence: list[dict[str, Any]],
+) -> list[SectionPlan]:
+    """On-mode deterministic fallback (brief §2.3): when the planner outline is
+    unusable, build a minimal archetype-driven structure (Background +
+    Quantitative-Comparison + Decision) over the retrieved evidence. Field-
+    invariant — contains no clinical title literal. Returns [] when evidence is
+    too thin to populate the three sections."""
+    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+    ev_ids = [e for e in ev_ids if e]
+    if len(set(ev_ids)) < 6:
+        return []
+    plans: list[SectionPlan] = []
+    n = len(_ARCHETYPE_FALLBACK)
+    for i, (archetype, title) in enumerate(_ARCHETYPE_FALLBACK):
+        section_ev = ev_ids[i::n][:30]
+        if len(section_ev) < 2:
+            return []
+        plans.append(SectionPlan(
+            title=title, focus=title, ev_ids=section_ev, archetype=archetype,
         ))
     return plans
 
@@ -1445,6 +1618,9 @@ async def _run_section(
             sentences_verified=0, sentences_dropped=0,
             regen_attempted=False, dropped_due_to_failure=True,
             error="no_evidence_in_pool",
+            # I-meta-005 Phase 1 (#985, P2 note B): carry the plan's archetype
+            # onto the result so on-mode audit routing keys on the tag.
+            archetype=getattr(section, "archetype", ""),
         )
 
     total_in_tok = 0
@@ -1641,6 +1817,9 @@ async def _run_section(
         # the orchestrator's final-remap-hook validator uses the same
         # numbering V4 Pro saw in the prompt.
         atom_catalog=dict(section_atom_catalog),
+        # I-meta-005 Phase 1 (#985, P2 note B): carry the plan's archetype
+        # onto the result so on-mode M-44/M-47 route on the tag, not title.
+        archetype=getattr(section, "archetype", ""),
     )
 
 
@@ -2642,6 +2821,42 @@ def _m44_section_is_primary_eligible(section_title: str) -> bool:
     return any(tok in t for tok in _M44_WEIGHT_TOKENS)
 
 
+# I-meta-005 Phase 1 (#985, P2 note B): on-mode archetype-keyed routing for the
+# post-generation primary-trial validator. The archetypes that carry
+# quantitative empirical claims (where named-study same-sentence citation
+# matters) are field-invariant tags — NOT clinical title literals — so the
+# zero-clinical-literal guard (P1-10) whitelists them.
+_M44_PRIMARY_ELIGIBLE_ARCHETYPES: frozenset[str] = frozenset({
+    "Quantitative-Comparison",
+    "Risk",
+    "Mechanism",
+})
+# The archetype that triggers the M-47 quantitative-extraction validator.
+_M47_ARCHETYPE: str = "Mechanism"
+
+
+def _section_is_primary_eligible(
+    *, title: str, archetype: str, use_archetype: bool,
+) -> bool:
+    """Dual-path primary-eligibility check (P2 note B). ON-mode keys on the
+    field-invariant archetype tag; OFF-mode keys on the legacy title (byte-
+    identical to today)."""
+    if use_archetype:
+        return (archetype or "").strip() in _M44_PRIMARY_ELIGIBLE_ARCHETYPES
+    return _m44_section_is_primary_eligible(title)
+
+
+def _section_is_mechanism(
+    *, title: str, archetype: str, use_archetype: bool,
+) -> bool:
+    """Dual-path Mechanism check for the M-47 validator (P2 note B). ON-mode
+    keys on `archetype == "Mechanism"`; OFF-mode keys on the legacy
+    `title.lower() == "mechanism"` (byte-identical to today)."""
+    if use_archetype:
+        return (archetype or "").strip() == _M47_ARCHETYPE
+    return (title or "").lower() == "mechanism"
+
+
 def _m53_compute_primary_custody_log(
     primary_trial_anchors: list[str] | None,
     live_corpus: list[dict[str, Any]] | None,
@@ -3079,6 +3294,9 @@ def _m44_inject_primaries_into_outline(
             # Pass through unchanged.
             updated.append(SectionPlan(
                 title=plan.title, focus=plan.focus, ev_ids=new_ev_ids,
+                # I-meta-005 Phase 1 (#985, P1-13): preserve archetype on
+                # rebuild so on-mode routing never re-leaks to title.
+                archetype=getattr(plan, "archetype", ""),
             ))
             continue
 
@@ -3125,6 +3343,8 @@ def _m44_inject_primaries_into_outline(
 
         updated.append(SectionPlan(
             title=plan.title, focus=plan.focus, ev_ids=new_ev_ids,
+            # I-meta-005 Phase 1 (#985, P1-13): preserve archetype on rebuild.
+            archetype=getattr(plan, "archetype", ""),
         ))
     return updated, log
 
@@ -3664,6 +3884,14 @@ async def generate_multi_section_report(
     # sections (Contradictions, Limitations) if any. When empty
     # or None, Phase-1 or pre-V30 behavior (legacy outline only).
     v30_contract_plans: list[Any] | None = None,
+    # I-meta-005 Phase 1 (#985): pre-registered, SHA-pinned ResearchPlan from
+    # the field-agnostic planner. When None (default) the legacy LLM outline
+    # path (`_call_outline` / `_ALLOWED_SECTIONS`) runs BYTE-IDENTICALLY (OFF
+    # dual path). When provided, the section STRUCTURE (titles + archetype
+    # tags + count) is FIXED by `research_plan.outline` and this function only
+    # ASSIGNS retrieved evidence to those sections (no second LLM outline
+    # call). Routing of M-44/M-47 then keys on archetype, not title.
+    research_plan: Any | None = None,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -3681,22 +3909,52 @@ async def generate_multi_section_report(
     gen_model = model or PG_GENERATOR_MODEL
 
     # Stage 1: outline
-    outline_parse, retry_attempted, outline_in_tok, outline_out_tok = \
-        await _call_outline(
-            research_question, evidence, gen_model,
-            outline_temperature, outline_max_tokens,
-        )
-    plans = outline_parse.plans
-    outline_ok = outline_parse.ok
-    outline_reason_codes = list(outline_parse.reason_codes)
-    outline_fallback_used = False
+    # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
+    # rest of the body (section generation, M-44/M-47, assembly) is shared and
+    # routes on `research_plan is not None`. ON branch: the section structure
+    # is FIXED by `research_plan.outline` and we ASSIGN retrieved evidence to
+    # those pre-declared sections with NO LLM outline call (spend-free,
+    # P1-11/P1-12). OFF branch (`research_plan is None`): the legacy
+    # `_call_outline` path runs BYTE-IDENTICALLY (P1-1).
+    if research_plan is not None:
+        retry_attempted = False
+        outline_in_tok = 0
+        outline_out_tok = 0
+        planned_outline = list(getattr(research_plan, "outline", []) or [])
+        plans = _assign_evidence_to_planned_outline(planned_outline, evidence)
+        outline_ok = bool(plans)
+        outline_reason_codes = [] if plans else ["planner_outline_empty"]
+        outline_fallback_used = False
+        if not plans:
+            logger.warning(
+                "[multi_section] on-mode planner outline empty; using "
+                "archetype-driven deterministic fallback",
+            )
+            fallback_plans = _build_archetype_fallback_outline(evidence)
+            if fallback_plans:
+                plans = fallback_plans
+                outline_fallback_used = True
+                if not outline_reason_codes:
+                    outline_reason_codes = ["planner_outline_empty"]
+    else:
+        outline_parse, retry_attempted, outline_in_tok, outline_out_tok = \
+            await _call_outline(
+                research_question, evidence, gen_model,
+                outline_temperature, outline_max_tokens,
+            )
+        plans = outline_parse.plans
+        outline_ok = outline_parse.ok
+        outline_reason_codes = list(outline_parse.reason_codes)
+        outline_fallback_used = False
 
     # BUG-M-203 fix (deep-dive R4): if the planner (plus retry) did not
     # produce a valid 3-5 section plan, build a DETERMINISTIC 3-section
     # fallback from the evidence pool instead of a single generic
     # "Efficacy" section. Record the fallback so the orchestrator can
     # emit manifest.status=partial_outline_fallback.
-    if not plans or not outline_ok:
+    # ON-mode (research_plan set) uses the archetype fallback above and skips
+    # the legacy `_ALLOWED_SECTIONS` deterministic fallback.
+    if research_plan is None and (not plans or not outline_ok):
         logger.warning(
             "[multi_section] outline invalid (reasons=%s); using "
             "deterministic fallback",
@@ -4110,6 +4368,12 @@ async def generate_multi_section_report(
         )
         fact_dedup_telemetry = {"error": str(exc)}
 
+    # I-meta-005 Phase 1 (#985, P2 note B): in on-mode (a ResearchPlan was
+    # supplied) the M-44/M-47 post-generation validators route on the field-
+    # invariant archetype tag carried on each SectionResult, NOT on a clinical
+    # title literal. OFF-mode keeps title-keyed routing byte-identically.
+    _use_archetype = research_plan is not None
+
     # M-44 (2026-04-22): post-generation same-sentence validator +
     # one-shot regeneration. For each primary-eligible section, scan
     # verified prose for named-trial tokens; each trial mention must
@@ -4131,7 +4395,10 @@ async def generate_multi_section_report(
         for idx, sr in enumerate(section_results):
             if sr.dropped_due_to_failure or not sr.verified_text:
                 continue
-            if not _m44_section_is_primary_eligible(sr.title):
+            if not _section_is_primary_eligible(
+                title=sr.title, archetype=sr.archetype,
+                use_archetype=_use_archetype,
+            ):
                 continue
             viols = _m44_validate_primary_same_sentence(
                 sr.verified_text,
@@ -4184,6 +4451,8 @@ async def generate_multi_section_report(
                     title=orig_plan.title,
                     focus=orig_plan.focus + hint,
                     ev_ids=orig_plan.ev_ids,
+                    # I-meta-005 Phase 1 (#985, P1-13): preserve archetype.
+                    archetype=getattr(orig_plan, "archetype", ""),
                 )
             # Run regens in parallel with the same semaphore.
             regen_items = list(regen_plans_by_idx.items())
@@ -4230,7 +4499,10 @@ async def generate_multi_section_report(
         for sr in section_results:
             if sr.dropped_due_to_failure or not sr.verified_text:
                 continue
-            if not _m44_section_is_primary_eligible(sr.title):
+            if not _section_is_primary_eligible(
+                title=sr.title, archetype=sr.archetype,
+                use_archetype=_use_archetype,
+            ):
                 continue
             viols = _m44_validate_primary_same_sentence(
                 sr.verified_text,
@@ -4257,7 +4529,10 @@ async def generate_multi_section_report(
     m47_incomplete: bool = False
     mechanism_section_idx = None
     for _idx, sr in enumerate(section_results):
-        if (sr.title.lower() == "mechanism"
+        if (_section_is_mechanism(
+                title=sr.title, archetype=sr.archetype,
+                use_archetype=_use_archetype,
+            )
                 and not sr.dropped_due_to_failure
                 and sr.verified_text):
             mechanism_section_idx = _idx
@@ -4294,7 +4569,11 @@ async def generate_multi_section_report(
             if not passed:
                 orig_plan = next(
                     (p for p in plans
-                     if p.title.lower() == "mechanism"),
+                     if _section_is_mechanism(
+                         title=p.title,
+                         archetype=getattr(p, "archetype", ""),
+                         use_archetype=_use_archetype,
+                     )),
                     None,
                 )
                 if orig_plan is not None:
@@ -4330,6 +4609,8 @@ async def generate_multi_section_report(
                             title=orig_plan.title,
                             focus=orig_plan.focus + hint,
                             ev_ids=orig_plan.ev_ids,
+                            # I-meta-005 Phase 1 (#985, P1-13): preserve tag.
+                            archetype=getattr(orig_plan, "archetype", ""),
                         )
                         try:
                             regen_result = await _bounded_run(regen_plan)
