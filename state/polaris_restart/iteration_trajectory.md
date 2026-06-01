@@ -1321,3 +1321,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   "Surname, Year" / "& Author" / "et al" / DOI; prose ("Semaglutide reduced...") can't match.
   Broadened to cover author-year-no-initials + multi-author. +2 smoke (proper-noun prose kept;
   author-initials list stripped). 23 scorer + 12 claim_audit green. Re-gate iter4.
+- **I-meta-006 DIFF-gate iter 5 (cap)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0/P2. Codex:
+  "denominator-bypass P1, NOT a false faithfulness-credit P0." Residual: front-loaded-year
+  acronym prose ("HPV DNA testing in 2020 improved...") matched author-initials. §-1.2.6
+  cap-exception (real P1 + deterministic fix): require the surname TITLE-CASE
+  (`[A-Z][a-z]...`) so ALL-CAPS acronyms (HPV/DNA/US/AI) are not surnames. +1 smoke
+  (front-loaded acronym prose kept). 24 scorer + 12 claim_audit green. ONE confirmatory re-gate.

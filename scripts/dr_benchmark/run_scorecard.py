@@ -49,14 +49,20 @@ _URL_RE = re.compile(r"https?://\S+")
 # A NEGATIVE (not-prose) test is leaky — a drug/proper-noun-led sentence dodges it;
 # requiring the POSITIVE shape closes that. Erring here over-includes a few real
 # references as atoms (the acceptable minor lane1 distortion) but NEVER drops prose.
+# A surname is TITLE-CASE (capital then LOWERCASE): "Smith", "Acemoglu", "McKinsey".
+# An ALL-CAPS acronym ("HPV", "DNA", "US", "AI") is NOT a surname — requiring the
+# second char to be lowercase rejects acronym-led prose ("HPV DNA testing in 2020
+# improved ...") that would otherwise match the author-initials branch (Codex
+# diff-gate iter5 P1). A genuine reference's author is Title-Case.
+_SURNAME = r"[A-Z][a-z][A-Za-z'\-]*"
 _CITATION_SHAPE_RE = re.compile(
     r"^(?:"
-    r"[A-Z][A-Za-z'\-]+,\s+(?:19|20)\d{2}\b"             # Smith, 2020
-    r"|[A-Z][A-Za-z'\-]+,?\s+[A-Z]{1,3}\b\.?"            # Smith J.  / Doe A,  / Smith, JA.
-    r"|[A-Z][A-Za-z'\-]+\s+(?:and|&)\s+[A-Z][A-Za-z'\-]+"  # Acemoglu and Restrepo / Smith & Doe
-    r"|[A-Z][A-Za-z'\-]+\s+et\s+al"                       # Smith et al
-    r"|doi:|https?://(?:dx\.)?doi\.org"                   # a DOI line
-    r")"
+    + _SURNAME + r",\s+(?:19|20)\d{2}\b"                  # Smith, 2020
+    + r"|" + _SURNAME + r",?\s+[A-Z]{1,3}\b\.?"           # Smith J.  / Doe A,  / Smith, JA.
+    + r"|" + _SURNAME + r"\s+(?:and|&)\s+" + _SURNAME     # Acemoglu and Restrepo / Smith & Doe
+    + r"|" + _SURNAME + r"\s+et\s+al"                      # Smith et al
+    + r"|doi:|https?://(?:dx\.)?doi\.org"                  # a DOI line
+    + r")"
 )
 
 

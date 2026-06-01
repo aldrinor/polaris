@@ -299,6 +299,15 @@ def test_split_body_keeps_acronym_led_prose_under_references():
     )
     body, refs = split_body_and_references(report)
     assert "HPV DNA testing improved" in body and refs == ""
+    # Codex diff-gate iter5: front-loaded-year acronym prose ("HPV DNA testing in
+    # 2020 improved ...") must ALSO be kept (surname must be Title-Case, not ALL-CAPS).
+    report2 = (
+        "Summary.\n\nReferences\n\n"
+        "1. HPV DNA testing in 2020 improved cervical precancer detection in the "
+        "screened cohort.\n"
+    )
+    body2, refs2 = split_body_and_references(report2)
+    assert "HPV DNA testing in 2020 improved" in body2 and refs2 == ""
 
 
 def test_split_body_strips_author_initial_reference_list():
