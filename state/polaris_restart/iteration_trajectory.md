@@ -1225,3 +1225,10 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   entity signal, not generic intervention/population/outcome; (2) explicit
   partial_saturation smoke for the integrative section's pruning; (3) no-literal grep
   targets on-path code, not config filenames. Proceed to B2 build.
+
+## I-meta-005 Phase 6 (#990) — diff gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  CLEAN on first pass. 3 open items ruled acceptable (V30 advisory out-of-scope;
+  Integrative prompt-mandate ok for shape-1; answer_type plan_sha change ok).
+  Preceded by: 4-scout build-map workflow + Part-B shape consult (shape 1) + 5-lens
+  adversarial architect review (40 findings, 0 real defects). Merge authorized.
