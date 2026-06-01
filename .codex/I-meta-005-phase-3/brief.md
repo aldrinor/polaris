@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 4 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
+# Codex BRIEF gate iter 5 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 51. Phase 3 closes the "trap": today the
 adequacy gate is domain-keyed + AGGREGATE-count only, so a broad-but-shallow corpus PASSES, BILLS the
@@ -77,7 +77,9 @@ is billed.
   `plan.sub_queries` via `_merge_truncate_subqueries` (`research_planner.py:596`), so an index valid at parse
   time can go stale. So AFTER the sub_queries list is FINAL (post-truncation/retry-winner selection), the
   builder re-validates EVERY outline section: each section MUST have ≥1 sub_query_index, ALL indices in-range
-  of the FINAL `sub_queries`, AND `evidence_target ≥ 1` (today `_parse_outline` allows `evidence_target=0` at
+  of the FINAL `sub_queries`, AND `evidence_target ≥ 1`, AND (iter-4 P1 #1 — WHOLE-PLAN coverage) the UNION
+  of all sections' `sub_query_indices` MUST equal `set(range(len(final sub_queries)))` — EVERY planned
+  sub-query is mapped to some section, so no orphaned facet escapes the gate (today `_parse_outline` allows `evidence_target=0` at
   `:437-445` → a vacuous section; planner mode forbids it). Any empty/stale/invalid mapping → raise
   `MalformedPlanError` BEFORE retrieval/generation (fail closed, zero spend). A `[]` default is fine ONLY
   off-mode; on-mode a section with `[]` is malformed.
@@ -119,9 +121,25 @@ is billed.
   `to_canonical_dict()` (`research_planner.py:271`) + the SHA-pinned `research_plan.json`, so the sufficiency
   contract is reproducible from the pinned plan artifact (gap #19 audit trail).
 
+### 2.2b Gate the BILLED evidence set + provenance-first assignment (iter-4 P1 #2 — the handoff)
+The generator does NOT bill on the raw corpus — it bills on `evidence_for_gen`, the SELECTED subset from
+`select_evidence_for_generation` (`run_honest_sweep_r3.py:2560`), assigned to sections ROUND-ROBIN
+(`_assign_evidence_to_planned_outline`, `multi_section_generator.py:618` `ev_ids[i::n_sections]`) — NOT by
+facet. So a full-corpus certification can PROCEED while the generator gets OFF-facet rows per section. Two
+coupled fixes make the certification carry through to what's billed:
+- **The sufficiency gate assesses the FINAL `evidence_for_gen` (the billed set), NOT `retrieval.evidence_rows`.**
+  The gate runs AFTER `select_evidence_for_generation` (which is cheap — relevance/authority ranking, NO
+  generator bill) and BEFORE `generate_multi_section_report`. So it certifies exactly the rows that will be
+  billed.
+- **On-mode `_assign_evidence_to_planned_outline` becomes PROVENANCE-FIRST, not round-robin:** each row is
+  assigned to the section(s) whose `sub_query_indices` its `query_origin` matches (sentinel/empty origins use
+  the §2.2 content-word fallback). So each section's `ev_ids` = ITS credited rows. Off-mode: the round-robin
+  path is unchanged (byte-identical). This guarantees the gate's per-section/per-facet PROCEED means the
+  generator actually receives the credited rows for each section.
+
 ### 2.3 Wiring into the sweep (the money gate)
-- `run_honest_sweep_r3.py`: on-mode, BEFORE `generate_multi_section_report`, call
-  `assess_plan_sufficiency(...)`:
+- `run_honest_sweep_r3.py`: on-mode, AFTER `select_evidence_for_generation` and BEFORE
+  `generate_multi_section_report`, call `assess_plan_sufficiency(...)` ON `evidence_for_gen`:
   - PROCEED → continue to the generator (as today).
   - EXPAND → (Phase 3 scope) record status + the under-covered units; for THIS phase, EXPAND with no
     further retrieval loop available behaves as a documented hold → `abort_corpus_inadequate` (the actual
@@ -170,6 +188,12 @@ is billed.
 - **P3-13 sentinel fallback (iter-3 P2):** a `need_type_backend` (or `domain_backend`/`primary_trial_doi_seed`)
   row whose content overlaps a section's sub-query texts is CREDITED via the fallback (not falsely abort); a
   real-sub-query row that doesn't match the section is NOT credited to it.
+- **P3-14 whole-plan facet union (iter-4 P1 #1):** a plan where sub-query #7 is mapped to NO section →
+  `plan_research` raises `MalformedPlanError` (orphaned planned facet forbidden) before spend.
+- **P3-15 gate the BILLED set + provenance assignment (iter-4 P1 #2):** the gate runs on `evidence_for_gen`
+  (the selected billed set), and on-mode `_assign_evidence_to_planned_outline` assigns each section its
+  `query_origin`-matched rows (NOT round-robin); a section certified SUFFICIENT actually receives its credited
+  rows in the generator's `ev_ids`. Off-mode the round-robin assignment is byte-identical.
 - Plus a regression subset confirming OFF byte-identity didn't break existing corpus_adequacy tests.
 
 ## 4. EXIT CRITERIA (issue #987)
@@ -183,8 +207,8 @@ authority sidecar (no domain dict); OFF byte-identical; all smoke green; spend-f
   pre-generator; on-mode must gate all three.
 - Phase 1 `SectionOutlineItem.evidence_target` is the done-definition; Phase 2 retrieval provenance maps
   rows→sub-queries→sections.
-- Phase 0a `authority_confidence` is the per-source floor signal (a single global float threshold, NOT a
-  per-domain dict).
+- Phase 0a authority: the floor signal is the NUMERIC `AuthorityResult.authority_score` (float [0,1], a
+  single global env threshold) — NOT the `authority_confidence` HIGH/MED/LOW enum (corrected iter-4 P2).
 
 ## 5b RESOLVED FROM ITER-1 (Codex answers folded in)
 - Unit = section, with the plan now recording the section's facets via `sub_query_indices` (Codex: "section
