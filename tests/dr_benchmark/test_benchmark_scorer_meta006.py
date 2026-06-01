@@ -257,6 +257,32 @@ def test_split_body_strips_terminal_reference_list():
     assert "Smith" not in body and "Smith" in refs          # terminal list stripped
 
 
+def test_split_body_keeps_numbered_prose_under_references_header():
+    # Codex diff-gate iter2 P1: numbered PROSE claims under a "References" header
+    # must NOT be stripped (they are claims, not citations).
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Summary paragraph.\n\n"
+        "References\n\n"
+        "1. The drug reduced cardiovascular events by 20% in the 2020 cohort.\n"
+        "2. A second study confirmed wage compression in 2019.\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "reduced cardiovascular events by 20%" in body   # prose NOT excluded
+    assert refs == ""
+
+
+def test_split_body_sources_header_not_a_strip_trigger():
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Body.\n\n## Sources\n\n"
+        "Smith J. 2020. https://example.org/smith\n"   # looks reference-like...
+    )
+    # "Sources" is NOT a strong strip header -> not stripped (fail-safe inclusion).
+    body, refs = split_body_and_references(report)
+    assert "Smith J. 2020" in body and refs == ""
+
+
 def test_run_scorecard_end_to_end_cash_free(tmp_path):
     from scripts.dr_benchmark.run_scorecard import run_scorecard
     ext = tmp_path / "external_outputs"

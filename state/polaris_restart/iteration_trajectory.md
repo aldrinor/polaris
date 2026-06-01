@@ -1308,3 +1308,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   escape scoring. FIX: strip ONLY the LAST header AND only when the trailing block is ≥60%
   reference-list-like; else fail-safe toward inclusion. P2-1 (bare/bold "References" heading)
   + P2-2 (unicode superscript citations) FIXED. +3 smoke. 19 scorer + 12 claim_audit green. Re-gate.
+- **I-meta-006 DIFF-gate iter 2** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing
+  denominator-exclusion), 0 P0/P2. The ≥60% heuristic still stripped numbered PROSE claims
+  under a References header. FIX: strip ONLY under a STRONG header (References/Bibliography/
+  Works Cited, NOT "Sources") AND only when EVERY trailing line is an unambiguous citation
+  entry (year-bearing, not a prose sentence-starter) — any prose line → no strip (fail-safe
+  inclusion). +2 smoke (numbered prose kept; Sources not a trigger). 21 scorer + 12 green.

@@ -22,45 +22,65 @@ from src.polaris_graph.benchmark.benchmark_scorecard import build_scorecard
 from src.polaris_graph.benchmark.fact_scorer import Judge, SpanFetcher, score_atoms
 from src.polaris_graph.benchmark.report_claim_extractor import extract_atoms
 
-# References / Sources / Bibliography header — bare, ## heading, or **bold**
-# (Codex diff-gate P2-1: a plain "References" line must also split).
+# BROAD references-header (incl. Sources/Citations) — used ONLY by parse_references
+# to find a source list to resolve citations against (Codex diff-gate P2-1).
 _REFERENCES_HEADER_RE = re.compile(
     r"^\s*(?:#{1,4}\s*)?(?:\*\*)?"
     r"(references|sources|bibliography|works cited|citations)"
     r"(?:\*\*)?\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+# STRICT strip-trigger header — only a STRONG reference-list header (NOT "Sources",
+# which is routinely prose like "Sources of evidence"). Used to DECIDE stripping.
+_STRIP_HEADER_RE = re.compile(
+    r"^\s*(?:#{1,4}\s*)?(?:\*\*)?"
+    r"(references|bibliography|works cited)"
+    r"(?:\*\*)?\s*:?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 # a numbered reference line "12. Author ... https://url"
 _NUMBERED_REF_RE = re.compile(r"^\s*\[?(\d{1,3})[\].]\s+(.*)$")
 _URL_RE = re.compile(r"https?://\S+")
+# common prose sentence-starters — a trailing line beginning with one of these is
+# answer PROSE, not a citation entry, so the block is NOT stripped (fail-safe).
+_SENTENCE_STARTERS = frozenset(
+    "the a an this that these those it its in on at we our us they their there "
+    "he she his her according studies study research evidence overall furthermore "
+    "however moreover thus therefore because based using while although despite "
+    "notably importantly conversely additionally first second third finally".split()
+)
 
 
-def _looks_like_reference_line(line: str) -> bool:
-    s = line.strip()
+def _is_citation_entry(line: str) -> bool:
+    """True only for an UNAMBIGUOUS citation entry: a year-bearing line that does
+    NOT read as a prose sentence (after dropping any leading enumerator). A
+    numbered PROSE claim like '1. The drug reduced events by 20%' is NOT a citation
+    entry, so its presence prevents stripping (Codex diff-gate iter2 P1)."""
+    s = re.sub(r"^\s*(?:\[?\d{1,3}[\].]|[-*•])\s*", "", line.strip()).strip()
     if not s:
         return False
-    if _URL_RE.search(s):
-        return True
-    if re.match(r"^\[?\d{1,3}[\].]\s", s):
-        return True
-    # "Author, 2015 ..." / "Acemoglu & Restrepo (2018) ..."
-    if re.match(r"^[A-Z][A-Za-z.\-]+[,&\s].*\(?(?:19|20)\d{2}", s):
-        return True
-    return False
+    if not re.search(r"\b(?:19|20)\d{2}\b", s):       # a reference entry has a year
+        return False
+    first = re.match(r"([A-Za-z]+)", s)
+    if first and first.group(1).lower() in _SENTENCE_STARTERS:
+        return False                                   # reads as prose → not a citation
+    return True
 
 
 def split_body_and_references(report_text: str) -> tuple[str, str]:
     """Split a report into (body, references_section). Claims are extracted from
     the BODY only.
 
-    Codex diff-gate P1: strip ONLY a TERMINAL, reference-list-like section, never a
-    mid-report ``## Sources`` or a header followed by answer prose — silently
-    dropping prose claims would let a report ESCAPE the denominator. Uses the LAST
-    matching header and strips only when the trailing block is mostly reference
-    lines; otherwise FAILS SAFE toward inclusion (over-including a few reference
-    lines as uncited atoms is a minor lane1 distortion, NOT a denominator bypass).
+    Codex diff-gate iter1+iter2 P1 (denominator-exclusion): strip the trailing
+    block ONLY when (a) it follows the LAST STRONG reference header
+    (References/Bibliography/Works Cited — NOT 'Sources', which is routinely prose)
+    AND (b) EVERY non-empty trailing line is an unambiguous citation entry. If ANY
+    line reads as a prose claim (numbered bullet prose, URL-bearing prose, etc.),
+    the block is NOT stripped — fail-safe toward INCLUSION so prose claims can never
+    be silently dropped from the denominator. (Over-including a true reference list
+    as uncited atoms is the acceptable minor lane1 distortion, not a bypass.)
     """
-    matches = list(_REFERENCES_HEADER_RE.finditer(report_text))
+    matches = list(_STRIP_HEADER_RE.finditer(report_text))
     if not matches:
         return report_text, ""
     m = matches[-1]
@@ -68,10 +88,8 @@ def split_body_and_references(report_text: str) -> tuple[str, str]:
     nonempty = [ln for ln in after.splitlines() if ln.strip()]
     if not nonempty:
         return report_text[: m.start()], after
-    ref_like = sum(1 for ln in nonempty if _looks_like_reference_line(ln))
-    if ref_like / len(nonempty) >= 0.6:
+    if all(_is_citation_entry(ln) for ln in nonempty):
         return report_text[: m.start()], after
-    # substantial prose after the (last) header → do NOT strip (fail-safe).
     return report_text, ""
 
 
