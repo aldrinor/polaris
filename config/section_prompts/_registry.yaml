@@ -24,5 +24,16 @@
 # Phase 1; the registry default is null (no advisory append).
 by_claim_type: {}
 
-# Default when a claim_type has no specific mapping: no advisory append.
+# I-meta-005 Phase 6 (#990, Codex ruling A1): answer_type -> advisory family.
+# answer_type is the EXPLICIT domain-category the planner now emits (the
+# ENTITY/domain signal claim_type could not carry — Phase 1's deferred "later
+# phase"). The selector consults `by_answer_type` FIRST, then `by_claim_type`,
+# then `default`. A clinical answer_type selects the clinical advisory family;
+# every other answer_type (policy/economics/materials/general/...) selects nothing
+# here -> no domain-specific advisory append. Config-driven (LAW VI): adding a
+# family is a config edit, never a Python literal on the on-path.
+by_answer_type:
+  clinical: clinical.yaml
+
+# Default when neither map matches: no advisory append.
 default: null
