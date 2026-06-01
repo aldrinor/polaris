@@ -1,0 +1,738 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 14a247d9..1c844fe0 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1729,6 +1729,7 @@ async def run_one_query(
+         # every path; the saturation loop reassigns them on-mode when it prunes.
+         _gen_plan = None
+         _partial_mode = False
++        _finding_dedup_telemetry = None   # Phase 5 (#989); set just before generator
+         if _use_research_planner:
+             from src.polaris_graph.planning.research_planner import (
+                 plan_research,
+@@ -2581,6 +2582,23 @@ async def run_one_query(
+             select_evidence_for_generation,
+         )
+         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
++        # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
++        # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
++        # a relevance floor (keep every row >= floor, no cap) and dedups by finding
++        # before the generator. PG_RELEVANCE_FLOOR default 0.30, range (0.0, 1.0];
++        # invalid/out-of-range fails LOUD (never silently send an unbounded pool).
++        _use_finding_dedup = (
++            os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
++            in ("1", "true", "True")
++        )
++        _relevance_floor: float | None = None
++        if _use_finding_dedup:
++            from src.polaris_graph.retrieval.evidence_selector import (
++                parse_relevance_floor,
++            )
++            _relevance_floor = parse_relevance_floor(
++                os.getenv("PG_RELEVANCE_FLOOR")
++            )
+         # M-42e (2026-04-22): pass primary_trial_anchors to the
+         # selector so it can reserve T1 slots for named-trial
+         # primary papers. Anchors come from the loaded scope
+@@ -2656,6 +2674,7 @@ async def run_one_query(
+             evidence_rows=retrieval.evidence_rows,
+             max_rows=max_ev,
+             primary_trial_anchors=_primary_anchors,
++            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+         )
+         evidence_for_gen = evidence_selection.selected_rows
+         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+@@ -3026,6 +3045,7 @@ async def run_one_query(
+                         evidence_rows=retrieval.evidence_rows,
+                         max_rows=max_ev,
+                         primary_trial_anchors=_primary_anchors,
++                        relevance_floor=_relevance_floor,   # Phase 5 (#989)
+                     )
+                     _billed = (
+                         list(_gate_injected_prepend_rows)
+@@ -3300,6 +3320,45 @@ async def run_one_query(
+         except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
+             _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
+ 
++        # I-meta-005 Phase 5 (#989): dedup-by-finding on the FINAL generator-visible
++        # pool. Runs AFTER the Phase-3 plan-sufficiency gate (which certified the
++        # full PRE-dedup billed set) and AFTER the terminal proceed/partial decision,
++        # so the gate is never fed a shrunken corpus. Collapses rehashes of the same
++        # finding to one representative + corroboration_count (independent
++        # registrable-domains); applies to the full-plan AND the partial pruned pool.
++        # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
++        if _use_finding_dedup:
++            from src.polaris_graph.authority.data_loader import (
++                load_authority_data,
++            )
++            from src.polaris_graph.synthesis.finding_dedup import (
++                dedup_by_finding,
++            )
++            _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
++            _dedup = dedup_by_finding(
++                evidence_for_gen, gov_suffixes=_gov_suffixes
++            )
++            evidence_for_gen = _dedup.deduped_rows
++            _finding_dedup_telemetry = {
++                "raw_row_count": _dedup.raw_row_count,
++                "distinct_finding_count": _dedup.distinct_finding_count,
++                "collapsed_row_count": _dedup.collapsed_row_count,
++                "clusters": [
++                    {
++                        "finding_key": list(c.finding_key),
++                        "corroboration_count": c.corroboration_count,
++                        "member_hosts": c.member_hosts,
++                    }
++                    for c in _dedup.clusters
++                ],
++            }
++            _log(
++                f"[finding-dedup] raw={_dedup.raw_row_count} "
++                f"distinct={_dedup.distinct_finding_count} "
++                f"collapsed={_dedup.collapsed_row_count} "
++                f"-> {len(evidence_for_gen)} generator rows"
++            )
++
+         _pathb_gen_tok = _pathb.set_role("generator")
+         try:
+             multi = await generate_multi_section_report(
+@@ -4203,6 +4262,12 @@ async def run_one_query(
+         if summary.get("saturation"):
+             manifest["saturation"] = summary["saturation"]
+ 
++        # I-meta-005 Phase 5 (#989): finding-dedup telemetry + per-cluster
++        # corroboration (independent hosts) in the per-run manifest. ON-mode only
++        # (key absent in OFF -> legacy manifest shape preserved).
++        if _finding_dedup_telemetry is not None:
++            manifest["finding_dedup"] = _finding_dedup_telemetry
++
+         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+         # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index c25df449..e4c566ef 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -28,6 +28,35 @@ _TIER_PRIORITY: dict[str, int] = {
+     "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
+ }
+ 
++# I-meta-005 Phase 5 (#989): default relevance floor for `PG_RELEVANCE_FLOOR`.
++_DEFAULT_RELEVANCE_FLOOR = 0.30
++
++
++def parse_relevance_floor(
++    raw: str | None, *, default: float = _DEFAULT_RELEVANCE_FLOOR,
++) -> float:
++    """Parse + validate ``PG_RELEVANCE_FLOOR`` (I-meta-005 Phase 5 #989).
++
++    Range is (0.0, 1.0]. Empty/None -> ``default``. An unparseable float OR an
++    out-of-range value raises ``ValueError`` (FAIL LOUD) — a missing/garbage floor
++    must never silently send an unbounded, unfiltered pool to the generator.
++    """
++    if raw is None or not str(raw).strip():
++        value = default
++    else:
++        try:
++            value = float(str(raw).strip())
++        except ValueError as exc:
++            raise ValueError(
++                "PG_RELEVANCE_FLOOR must be a float in (0.0, 1.0]; got "
++                f"{raw!r}"
++            ) from exc
++    if not (0.0 < value <= 1.0):
++        raise ValueError(
++            f"PG_RELEVANCE_FLOOR out of range (0.0, 1.0]: {value}"
++        )
++    return value
++
+ _STOPWORDS = frozenset({
+     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
+     "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
+@@ -881,6 +910,64 @@ def _m46_short_pool_ordered_selection(
+     )
+ 
+ 
++def _relevance_floor_selection(
++    *,
++    scored: list[tuple[int, float, str, dict[str, Any]]],
++    relevance_floor: float,
++    full_counts: dict[str, int],
++    primary_trial_anchors: list[str] | None,
++) -> EvidenceSelection:
++    """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
++
++    Keep EVERY row whose lexical relevance >= ``relevance_floor``, PLUS any row
++    matching a primary trial anchor (floor-EXEMPT — a relevant primary RCT must
++    never be dropped on a low lexical score). Ranked by ``relevance x authority``
++    (authority = the row's ``authority_score`` sidecar, default 1.0). Each kept
++    row is stamped with the additive ``selection_relevance`` float so
++    ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
++    drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
++    """
++    anchors = list(primary_trial_anchors or [])
++
++    def _is_anchor(row: dict[str, Any]) -> bool:
++        return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
++
++    kept = [
++        item for item in scored
++        if item[1] >= relevance_floor or _is_anchor(item[3])
++    ]
++    kept.sort(
++        key=lambda s: (
++            -(s[1] * float(s[3].get("authority_score", 1.0) or 1.0)),
++            _TIER_PRIORITY.get(s[2], 9),
++            s[0],
++        )
++    )
++    selected_rows: list[dict[str, Any]] = []
++    selected_counts: dict[str, int] = {}
++    for idx, score, tier, row in kept:
++        new_row = dict(row)
++        new_row["selection_relevance"] = float(score)
++        selected_rows.append(new_row)
++        selected_counts[tier] = selected_counts.get(tier, 0) + 1
++    anchor_exempt = sum(
++        1 for item in kept
++        if item[1] < relevance_floor and _is_anchor(item[3])
++    )
++    return EvidenceSelection(
++        selected_rows=selected_rows,
++        full_counts=full_counts,
++        selected_counts=selected_counts,
++        dropped_count=len(scored) - len(kept),
++        selection_strategy="relevance_floor_v1",
++        notes=[
++            f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
++            f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
++            f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
++        ],
++    )
++
++
+ def select_evidence_for_generation(
+     *,
+     research_question: str,
+@@ -889,6 +976,7 @@ def select_evidence_for_generation(
+     evidence_rows: list[dict[str, Any]],
+     max_rows: int,
+     primary_trial_anchors: list[str] | None = None,
++    relevance_floor: float | None = None,
+ ) -> EvidenceSelection:
+     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+ 
+@@ -958,6 +1046,19 @@ def select_evidence_for_generation(
+     for _, _, tier, _ in scored:
+         full_counts[tier] = full_counts.get(tier, 0) + 1
+ 
++    # I-meta-005 Phase 5 (#989): relevance-floor mode (PG_USE_FINDING_DEDUP). Keep
++    # EVERY row at/above the relevance floor (no max_rows cap), ranked
++    # relevance x authority. ON-mode only; `relevance_floor is None` on the legacy
++    # path -> the tier-balanced max_rows selection below is byte-identical (and
++    # adds NO new row key).
++    if relevance_floor is not None:
++        return _relevance_floor_selection(
++            scored=scored,
++            relevance_floor=relevance_floor,
++            full_counts=full_counts,
++            primary_trial_anchors=primary_trial_anchors,
++        )
++
+     # M-46 (2026-04-22): when total <= max_rows, still keep everything,
+     # BUT compute floor-detection + deterministic priority ordering
+     # + telemetry so downstream consumers see the same reservation
+diff --git a/src/polaris_graph/synthesis/finding_dedup.py b/src/polaris_graph/synthesis/finding_dedup.py
+new file mode 100644
+index 00000000..e0ecc86b
+--- /dev/null
++++ b/src/polaris_graph/synthesis/finding_dedup.py
+@@ -0,0 +1,218 @@
++"""I-meta-005 Phase 5 (#989) — dedup-by-finding + corroboration.
++
++Clusters generator-visible evidence rows by the numeric FINDING they assert,
++collapses rehashes of the SAME finding to one representative row, and attaches
++``corroboration_count`` = the number of INDEPENDENT registrable-domains carrying
++that finding. This is Knowledge-Based Trust (gap D of the re-architecture plan):
++the sovereign, domain-general, self-computed trust signal — trust a finding the
++rest of the corpus independently confirms, with no external authority service.
++
++CONSERVATIVE-SINGLETON safety rule (brief §2.4 — clinical-lethal if violated):
++two findings merge ONLY when subject is KNOWN (not the ``"unknown"`` fallback)
++and equal, predicate equal, value (rounded) + unit equal, AND every qualifier the
++extractor exposes (dose, arm, endpoint_phrase) is equal — comparing raw field
++values so ABSENT==ABSENT matches but ABSENT-vs-PRESENT does not. Any unknown
++subject or any qualifier difference keeps the findings SEPARATE. The default on
++ambiguity is always "keep separate" — we never drop a distinct finding.
++
++DOCUMENTED RESIDUAL 1 (over-merge bound): ``ExtractedNumericClaim`` does NOT
++extract population or comparator. Two findings identical on every extracted field
++but differing only in an UNEXTRACTED qualifier (e.g. a T2D vs an obesity
++population that share "-2.1%") could merge. This is bounded to a corroboration
++OVER-count — a TRUST signal, never a safety gate — and NEVER causes unique-claim
++LOSS: the finding the representative asserts (subject/predicate/value/unit/dose/
++arm/endpoint) is identical across all members by construction, and all
++``member_indices`` + ``member_hosts`` are preserved on the cluster for audit
++(manifest + conflict surfacing). A future phase may add a population/comparator
++extractor to tighten the key.
++
++DOCUMENTED RESIDUAL 2 (extraction coverage — clinical-tuned): the reused
++``extract_numeric_claims`` is clinical-pattern-tuned. Empirically it (a) emits AT
++MOST ONE claim per row, and (b) returns NOTHING for non-clinical numerics (GDP,
++emissions, model-accuracy, etc.). Consequently a non-clinical numeric row yields
++ZERO findings and is kept as a SAFE SINGLETON — never falsely merged, never
++dropped — but its finding is NOT clustered and earns NO corroboration_count. So
++dedup + corroboration are EFFECTIVE for clinical corpora and INERT-but-SAFE for
++non-clinical ones. This is a coverage limitation, not a correctness bug: it can
++never cause unique-claim loss or a wrong merge. Gap D's domain-general
++corroboration ambition requires a field-agnostic numeric-finding extractor, which
++is deliberately deferred to a follow-up rather than risking an over-merging
++heuristic here. (The multi-claim-per-row retention logic below is therefore
++defensive/future-proof against an extractor that later emits >1 claim per row.)
++
++Pure: constructs no client, no network, no LLM. snake_case; explicit imports.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any
++from urllib.parse import urlparse
++
++from src.polaris_graph.authority.corroboration import (
++    count_independent_hosts,
++    registrable_domain,
++)
++from src.polaris_graph.retrieval.contradiction_detector import (
++    extract_numeric_claims,
++)
++
++# The fallback subject `extract_numeric_claims` returns when it cannot identify
++# the entity nearest the numeric value. Such claims are NEVER mergeable.
++_UNKNOWN_SUBJECT = "unknown"
++
++
++def _host_of(url: str) -> str:
++    """Bare hostname for independent-host counting: urlparse → lowercase →
++    strip leading ``www.``. Empty string on an unparseable/missing URL.
++
++    `count_independent_hosts` / `registrable_domain` expect HOSTS, not full
++    URLs, so this reduction MUST happen before they are called (else two paths
++    on the same domain would count as separate institutions).
++    """
++    if not url:
++        return ""
++    host = (urlparse(url).hostname or "").lower().strip()
++    if host.startswith("www."):
++        host = host[4:]
++    return host
++
++
++def _finding_key(claim: Any, evidence_id: str, claim_index: int) -> tuple:
++    """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
++    sentinel (evidence_id + claim_index) so it can never collide — even two
++    unknown claims on the SAME row stay distinct singletons.
++    """
++    subject = getattr(claim, "subject", "") or ""
++    if not subject or subject == _UNKNOWN_SUBJECT:
++        return ("__unknown__", evidence_id, claim_index)
++    return (
++        subject,
++        getattr(claim, "predicate", "") or "",
++        round(float(getattr(claim, "value", 0.0) or 0.0), 3),
++        getattr(claim, "unit", "") or "",
++        getattr(claim, "dose", "") or "",
++        getattr(claim, "arm", "") or "",
++        getattr(claim, "endpoint_phrase", "") or "",
++    )
++
++
++@dataclass
++class FindingCluster:
++    """One cluster of rows asserting the same finding."""
++
++    finding_key: tuple
++    representative_index: int           # row index of the chosen representative
++    member_indices: list[int]           # all distinct row indices in the cluster
++    member_hosts: list[str]             # sorted unique registrable-domains
++    corroboration_count: int            # independent registrable-domains
++
++
++@dataclass
++class FindingDedupResult:
++    """Result of `dedup_by_finding`."""
++
++    deduped_rows: list[dict[str, Any]]  # representatives + qualitative rows, in order
++    clusters: list[FindingCluster]
++    raw_row_count: int
++    distinct_finding_count: int
++    collapsed_row_count: int
++
++
++def dedup_by_finding(
++    rows: list[dict[str, Any]],
++    *,
++    gov_suffixes: tuple[str, ...],
++) -> FindingDedupResult:
++    """Cluster `rows` by numeric finding, collapse rehashes, count corroboration.
++
++    Args:
++        rows: generator-visible evidence rows (each a dict carrying at least
++            `evidence_id`, `source_url`, and `direct_quote`/`statement`; plus the
++            `authority_score` + `selection_relevance` sidecars for representative
++            ranking).
++        gov_suffixes: the PSL multi-level gov-suffix tuple from
++            `authority.data_loader.load_authority_data()["psl_gov_suffixes"]` —
++            passed in so this module hardcodes NO host/TLD literals.
++
++    Returns:
++        FindingDedupResult. `deduped_rows` are SHALLOW COPIES (the caller's rows
++        are never mutated); representative copies carry additive
++        `corroboration_count` / `independent_hosts` / `finding_keys` keys.
++    """
++    rows = list(rows or [])
++
++    # 1. Extract claims per row, group by conservative finding key.
++    groups: dict[tuple, list[int]] = {}
++    row_has_finding: list[bool] = [False] * len(rows)
++    for ri, row in enumerate(rows):
++        claims = extract_numeric_claims([row])
++        if claims:
++            row_has_finding[ri] = True
++        ev_id = str(row.get("evidence_id", ri))
++        for cj, claim in enumerate(claims):
++            key = _finding_key(claim, ev_id, cj)
++            groups.setdefault(key, []).append(ri)
++
++    def _rank(ri: int) -> tuple:
++        r = rows[ri]
++        return (
++            float(r.get("authority_score", 0.0) or 0.0),
++            float(r.get("selection_relevance", 0.0) or 0.0),
++            -ri,
++        )
++
++    # 2. Per cluster: representative + corroboration over INDEPENDENT hosts.
++    clusters: list[FindingCluster] = []
++    rep_indices: set[int] = set()
++    rep_meta: dict[int, dict[str, Any]] = {}
++    for key, member_ris in groups.items():
++        distinct_ris = sorted(set(member_ris))
++        rep_ri = max(distinct_ris, key=_rank)
++        hosts_raw = [
++            _host_of(str(rows[ri].get("source_url", "")))
++            for ri in distinct_ris
++        ]
++        member_hosts = sorted(
++            {registrable_domain(h, gov_suffixes) for h in hosts_raw} - {""}
++        )
++        corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
++        clusters.append(
++            FindingCluster(
++                finding_key=key,
++                representative_index=rep_ri,
++                member_indices=distinct_ris,
++                member_hosts=member_hosts,
++                corroboration_count=corroboration,
++            )
++        )
++        rep_indices.add(rep_ri)
++        meta = rep_meta.setdefault(
++            rep_ri, {"corr": 0, "hosts": set(), "keys": []}
++        )
++        meta["corr"] = max(meta["corr"], corroboration)
++        meta["hosts"].update(member_hosts)
++        meta["keys"].append(list(key))
++
++    # 3. Retain: every row that is the rep of >=1 cluster, plus every row with NO
++    #    extractable finding (qualitative rows are never rehashes). Original order.
++    #    A finding-bearing row that is the rep of nothing is REDUNDANT -> dropped;
++    #    every distinct finding it carried survives on that finding's rep row.
++    deduped_rows: list[dict[str, Any]] = []
++    for ri, row in enumerate(rows):
++        if not (ri in rep_indices or not row_has_finding[ri]):
++            continue
++        new_row = dict(row)  # shallow copy — never mutate the caller's row
++        if ri in rep_meta:
++            meta = rep_meta[ri]
++            new_row["corroboration_count"] = meta["corr"]
++            new_row["independent_hosts"] = sorted(meta["hosts"])
++            new_row["finding_keys"] = meta["keys"]
++        deduped_rows.append(new_row)
++
++    return FindingDedupResult(
++        deduped_rows=deduped_rows,
++        clusters=clusters,
++        raw_row_count=len(rows),
++        distinct_finding_count=len(groups),
++        collapsed_row_count=len(rows) - len(deduped_rows),
++    )
+diff --git a/tests/polaris_graph/synthesis/__init__.py b/tests/polaris_graph/synthesis/__init__.py
+new file mode 100644
+index 00000000..8b137891
+--- /dev/null
++++ b/tests/polaris_graph/synthesis/__init__.py
+@@ -0,0 +1 @@
++
+diff --git a/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
+new file mode 100644
+index 00000000..480eec47
+--- /dev/null
++++ b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
+@@ -0,0 +1,257 @@
++"""I-meta-005 Phase 5 (#989) smoke — finding-dedup + relevance-floor corpus.
++
++Cases P5-1..P5-9 (+ P5-3b) from the Codex-APPROVED brief
++`.codex/I-meta-005-phase-5/brief.md` §5. SPEND-FREE: pure CPU clustering +
++selection; no network, no LLM. Plain-class fixtures — NO unittest.mock.
++
++The sweep-level cases (P5-10 gate-before-dedup ordering, P5-11 floor fail-loud)
++live with the sweep wiring; this module pins the pure `finding_dedup` +
++`evidence_selector` relevance-floor behaviour.
++
++Serialized per CLAUDE.md §8.4 (pure-python).
++"""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.authority.data_loader import load_authority_data
++from src.polaris_graph.retrieval.evidence_selector import (
++    parse_relevance_floor,
++    select_evidence_for_generation,
++)
++from src.polaris_graph.synthesis.finding_dedup import (
++    _host_of,
++    dedup_by_finding,
++)
++
++_GOV = load_authority_data()["psl_gov_suffixes"]
++
++
++def _row(eid, url, quote, *, authority=0.5, tier="T1"):
++    """A live-shaped evidence row carrying the fields the dedup + selector read.
++
++    NOTE: `selection_relevance` is deliberately NOT set here — it is a sidecar the
++    SELECTOR stamps in relevance-floor mode; the dedup representative pick falls
++    back to `authority_score` when it is absent.
++    """
++    return {
++        "evidence_id": eid,
++        "source_url": url,
++        "url": url,
++        "direct_quote": quote,
++        "statement": quote,
++        "tier": tier,
++        "authority_score": authority,
++    }
++
++
++# Clinical quotes VERIFIED to extract via contradiction_detector.
++_WL72 = "Tirzepatide produced a mean weight loss of 20.9% at week 72."
++_WL72_B = "Tirzepatide achieved a mean weight loss of 20.9% at week 72."
++_WL20 = "Tirzepatide produced a mean weight loss of 20.9% at week 20."
++
++
++# ── P5-2 collapse rehashes from independent hosts ────────────────────────────
++
++def test_p5_2_collapse_rehashes_three_independent_hosts():
++    rows = [
++        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
++        _row("ev1", "https://thelancet.com/b", _WL72, authority=0.7),
++        _row("ev2", "https://nih.gov/c", _WL72, authority=0.6),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 1
++    assert len(res.deduped_rows) == 1
++    rep = res.deduped_rows[0]
++    assert rep["evidence_id"] == "ev0"            # highest authority -> rep
++    assert rep["corroboration_count"] == 3        # 3 independent registrable domains
++    assert rep["independent_hosts"] == ["nejm.org", "nih.gov", "thelancet.com"]
++    assert res.collapsed_row_count == 2
++
++
++# ── P5-3 NO unique-claim loss (clinical-lethal) ──────────────────────────────
++
++def test_p5_3_different_endpoint_stays_separate():
++    rows = [
++        _row("ev0", "https://a.org/x", _WL72),
++        _row("ev1", "https://b.org/y", _WL20),   # same value, DIFFERENT endpoint
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 2
++    assert len(res.deduped_rows) == 2             # both findings survive
++
++
++def test_p5_3_unknown_subject_never_merges():
++    # A quote whose numeric subject the extractor cannot resolve must never merge
++    # with another unknown-subject row, even with identical numbers.
++    q = "A mean reduction of 20.9% at week 72 was observed."
++    rows = [
++        _row("ev0", "https://a.org/x", q),
++        _row("ev1", "https://b.org/y", q),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    # Either no numeric finding extracts (qualitative singletons) OR the unknown
++    # subject forces per-claim singletons. Both keep BOTH rows -> never merged.
++    assert len(res.deduped_rows) == 2
++
++
++# ── P5-3b multi-claim row retention (defensive / future-proof) ───────────────
++
++def test_p5_3b_multi_claim_row_retained_via_helper():
++    # The clinical extractor currently emits <=1 claim/row, so we validate the
++    # retention rule at the dedup level: a row that is the representative of its
++    # OWN finding is always kept even when it shares another finding with a
++    # higher-authority row. Two rows, one shared finding: the lower-authority row
++    # is collapsed; the higher-authority rep survives carrying the finding.
++    rows = [
++        _row("ev_hi", "https://a.org/x", _WL72, authority=0.9),
++        _row("ev_lo", "https://b.org/y", _WL72_B, authority=0.4),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 1
++    ids = [r["evidence_id"] for r in res.deduped_rows]
++    assert ids == ["ev_hi"]                       # higher-authority rep kept
++    assert res.deduped_rows[0]["corroboration_count"] == 2
++
++
++# ── P5-6 / P5-7 corroboration counts INDEPENDENT hosts ───────────────────────
++
++def test_p5_6_single_host_corroboration_one():
++    rows = [_row("ev0", "https://nejm.org/a", _WL72)]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.deduped_rows[0]["corroboration_count"] == 1
++
++
++def test_p5_7_same_domain_paths_corroboration_one():
++    rows = [
++        _row("ev0", "https://nih.gov/a", _WL72),
++        _row("ev1", "https://nih.gov/b", _WL72),
++        _row("ev2", "https://www.nih.gov/c", _WL72),   # www. + different path
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 1
++    assert res.deduped_rows[0]["corroboration_count"] == 1   # one registrable domain
++
++
++def test_p5_7b_host_of_strips_www_and_path():
++    assert _host_of("https://www.NIH.gov/abc?x=1") == "nih.gov"
++    assert _host_of("https://nih.gov/abc") == "nih.gov"
++    assert _host_of("") == ""
++    assert _host_of("not a url") == ""
++
++
++# ── P5-8 field-agnostic SAFE: non-clinical numeric -> safe singleton ─────────
++
++def test_p5_8_non_clinical_numeric_is_safe_singleton():
++    # DOCUMENTED RESIDUAL 2: the clinical extractor returns nothing for these, so
++    # they are kept as SAFE singletons (never falsely merged, never dropped, no
++    # corroboration). This pins the SAFE behaviour, not domain-general clustering
++    # (deferred to the follow-up extractor issue).
++    rows = [
++        _row("ev0", "https://a.org/x", "The intervention increased GDP by 3.2% in 2024."),
++        _row("ev1", "https://b.org/y", "The intervention increased GDP by 3.2% in 2024."),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 2             # both kept; never falsely merged
++    # no corroboration attached (no finding extracted)
++    assert "corroboration_count" not in res.deduped_rows[0]
++
++
++# ── P5-9 qualitative rows never merged/dropped ───────────────────────────────
++
++def test_p5_9_qualitative_rows_kept_as_singletons():
++    rows = [
++        _row("ev0", "https://a.org/x", "The therapy was generally well tolerated."),
++        _row("ev1", "https://b.org/y", "A favorable safety profile was reported."),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 2
++    assert res.distinct_finding_count == 0
++
++
++def test_p5_purity_does_not_mutate_input_rows():
++    rows = [
++        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
++        _row("ev1", "https://nih.gov/b", _WL72, authority=0.6),
++    ]
++    dedup_by_finding(rows, gov_suffixes=_GOV)
++    # Caller's rows must NOT gain corroboration keys (we return shallow copies).
++    assert "corroboration_count" not in rows[0]
++    assert "independent_hosts" not in rows[0]
++
++
++# ── P5-1 / P5-4 / P5-5 evidence_selector relevance-floor mode ────────────────
++
++def _sel_rows(n_relevant, n_irrelevant, *, authorities=None):
++    rows = []
++    for i in range(n_relevant):
++        auth = authorities[i] if authorities else 0.5
++        rows.append(_row(
++            f"ev{i}", f"https://h{i}.org/x",
++            "tirzepatide weight loss type 2 diabetes trial", authority=auth,
++        ))
++    for i in range(n_irrelevant):
++        rows.append(_row(
++            f"ir{i}", f"https://z{i}.org/x",
++            "unrelated cooking recipe content here", authority=0.5,
++        ))
++    return rows
++
++
++def test_p5_1_off_mode_byte_identical_no_new_key():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(30, 5)
++    off = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20,
++    )
++    assert off.selection_strategy == "tier_balanced_v1"
++    assert len(off.selected_rows) == 20                    # the legacy 20-cap
++    # OFF must NOT add the selection_relevance key (strict byte-identity).
++    assert all("selection_relevance" not in r for r in off.selected_rows)
++
++
++def test_p5_4_floor_mode_no_cap_drops_sub_floor():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(30, 5)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    assert on.selection_strategy == "relevance_floor_v1"
++    assert len(on.selected_rows) == 30                     # no 20-cap; sub-floor dropped
++    assert all("selection_relevance" in r for r in on.selected_rows)
++
++
++def test_p5_5_relevance_times_authority_ranking():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    # equal-relevance rows -> authority breaks the tie (relevance*authority desc)
++    auths = [0.50 + i * 0.01 for i in range(10)]
++    rows = _sel_rows(10, 0, authorities=auths)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    top_auth = [r["authority_score"] for r in on.selected_rows[:3]]
++    assert top_auth == sorted(top_auth, reverse=True)      # highest authority first
++    assert top_auth[0] == max(auths)
++
++
++# ── P5-11 PG_RELEVANCE_FLOOR fail-loud (the sweep's gate before sending a pool) ──
++
++def test_p5_11_relevance_floor_default_and_valid():
++    assert parse_relevance_floor(None) == pytest.approx(0.30)   # default
++    assert parse_relevance_floor("") == pytest.approx(0.30)     # blank -> default
++    assert parse_relevance_floor("0.5") == pytest.approx(0.5)
++    assert parse_relevance_floor("1.0") == pytest.approx(1.0)   # inclusive upper
++
++
++def test_p5_11_relevance_floor_fails_loud_on_invalid():
++    with pytest.raises(ValueError):
++        parse_relevance_floor("not_a_number")
++    with pytest.raises(ValueError):
++        parse_relevance_floor("0.0")          # exclusive lower bound
++    with pytest.raises(ValueError):
++        parse_relevance_floor("-0.1")
++    with pytest.raises(ValueError):
++        parse_relevance_floor("1.5")          # above range
