@@ -46,6 +46,7 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
 from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
+from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
@@ -2215,7 +2216,7 @@ def run_live_retrieval(
                 direct_quote = _build_provenance_quote(
                     content, head_chars=1500, window_chars=500,
                 )
-                evidence_rows.append({
+                _row = {
                     "evidence_id": f"ev_{i:03d}",
                     "source_url": cand.url,
                     "statement": cand.title[:300],
@@ -2227,7 +2228,21 @@ def run_live_retrieval(
                     # the evidence selector can reserve per-sub-topic diversity.
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
-                })
+                }
+                # I-meta-005 Phase 3 (#987): per-row AUTHORITY sidecar. ON-mode
+                # ONLY (research_frame present), and INDEPENDENT of the legacy
+                # `PG_USE_AUTHORITY_MODEL` tier switch — the plan-sufficiency gate
+                # reads the NUMERIC `authority_score`, so planner mode computes it
+                # DIRECTLY via the Phase-0a pure function over the SAME `signals`
+                # already built for tier classification (no network, spend-free).
+                # Honest LOW score/confidence when signals are thin (never a
+                # silent 0.0). OFF-mode the keys are ABSENT -> rows byte-identical
+                # (the legacy domain-keyed gate never reads them).
+                if research_frame is not None:
+                    _auth = score_source_authority(signals)
+                    _row["authority_score"] = float(_auth.authority_score)
+                    _row["authority_confidence"] = _auth.authority_confidence.value
+                evidence_rows.append(_row)
                 _trace_kept(cand.url, cand.source)
 
     return LiveRetrievalResult(

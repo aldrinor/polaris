@@ -2270,7 +2270,12 @@ async def run_one_query(
         # R-6 Gap-1: if adequacy still says ABORT after optional
         # expansion, refuse to synthesize — emit a short "corpus
         # inadequate" manifest and return status=abort_corpus_inadequate.
-        if adequacy.decision == "abort":
+        # I-meta-005 Phase 3 (#987): ON-mode this legacy domain-keyed adequacy
+        # is TELEMETRY-ONLY — it must NOT abort here, or an on-mode thin corpus
+        # would exit via the aggregate-count gate BEFORE the binding plan-
+        # sufficiency gate (the single final gate on `evidence_for_gen`) ever
+        # runs. OFF-mode this aborts byte-identically (the off-mode gate as today).
+        if not _use_research_planner and adequacy.decision == "abort":
             _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
                  f"Refusing to ship a misleading short report.")
             summary["status"] = "abort_corpus_inadequate"
@@ -2755,6 +2760,135 @@ async def run_one_query(
         summary["uploaded_documents_blocked"] = int(
             q.get("uploaded_documents_blocked_count", 0) or 0
         )
+
+        # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
+        # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
+        # the V30 contract-row prepend (:2719) + the upload-row prepend (:2754)
+        # have all run and NOTHING further mutates it before the generator bills
+        # at `generate_multi_section_report` below. The plan-sufficiency gate
+        # certifies EXACTLY the rows that will be billed: does the corpus cover
+        # EVERY planned sub-question to its per-section evidence_target at the
+        # numeric authority floor? PROCEED -> generator; EXPAND/ABORT collapse to
+        # `abort_corpus_inadequate` with ZERO generator tokens (Phase 4 owns the
+        # actual saturation EXPANSION loop). Pure / no-network / spend-free. OFF-
+        # mode this whole block is skipped (the legacy domain-keyed gate aborted
+        # earlier, byte-identically).
+        if _use_research_planner and _research_plan is not None:
+            from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+                assess_plan_sufficiency,
+            )
+            _suff_floor_env = os.getenv(
+                "PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", ""
+            ).strip()
+            _suff_floor = float(_suff_floor_env) if _suff_floor_env else None
+            _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
+            _suff_max_rounds = int(
+                os.getenv("PG_PLAN_SUFFICIENCY_MAX_ROUNDS", "0")
+            )
+            _suff = assess_plan_sufficiency(
+                plan=_research_plan,
+                corpus_rows=evidence_for_gen,
+                authority_floor=_suff_floor,
+                round_index=_suff_round,
+                max_rounds=_suff_max_rounds,
+            )
+            (run_dir / "plan_sufficiency.json").write_text(
+                json.dumps(asdict(_suff), indent=2, sort_keys=True, default=str)
+                + "\n",
+                encoding="utf-8",
+            )
+            _log(
+                f"[sufficiency] verdict={_suff.verdict} "
+                f"floor={_suff.authority_floor} "
+                f"sections={len(_suff.per_unit)} "
+                f"under_covered={len(_suff.under_covered_units)}"
+            )
+            if _suff.verdict != "proceed":
+                # EXPAND or ABORT -> hold BEFORE the generator bills (Phase 3
+                # guarantee: a shallow corpus NEVER spends a generator token).
+                _log(
+                    f"[ABORT]       Plan-sufficiency {_suff.verdict.upper()}: "
+                    f"{len(_suff.under_covered_units)} planned section(s) under-"
+                    f"covered. Refusing to bill the generator on a corpus that "
+                    f"does not cover every planned sub-question."
+                )
+                summary["status"] = "abort_corpus_inadequate"
+                summary["error"] = (
+                    f"plan_sufficiency_{_suff.verdict}: "
+                    f"{','.join(_suff.under_covered_units)}"
+                )
+                _shortfall_lines = []
+                for _u in _suff.per_unit:
+                    if _u.sufficient:
+                        continue
+                    _shortfall_lines.append(
+                        f"- **{_u.unit_id}** {_u.title!r}: "
+                        f"covered={_u.covered_count}/target={_u.evidence_target} "
+                        f"above floor; empty facets="
+                        f"{_u.empty_facets}; below-floor relevant="
+                        f"{_u.below_floor_count}"
+                    )
+                (run_dir / "report.md").write_text(
+                    f"# Research report: {q['question']}\n\n"
+                    "## Pipeline verdict\n\n"
+                    "The corpus retrieved for this query did not cover every "
+                    "planned sub-question to its per-section evidence target at "
+                    "the authority floor. The pipeline is holding BEFORE billing "
+                    "the report generator (zero generator tokens spent) rather "
+                    "than synthesizing a report with uncovered planned facets.\n\n"
+                    f"Verdict: **{_suff.verdict.upper()}** "
+                    f"(authority floor {_suff.authority_floor}).\n\n"
+                    "### Under-covered planned sections\n\n"
+                    + "\n".join(_shortfall_lines)
+                    + "\n\n### Suggested next steps\n\n"
+                    "- Saturate retrieval on the under-covered sub-questions "
+                    "(Phase 4 expansion loop).\n"
+                    "- Verify the planned evidence targets match what the "
+                    "literature can support for each facet.\n",
+                    encoding="utf-8",
+                )
+                # NOTE: the retrieval trace was already flushed unconditionally
+                # at the post-deepener checkpoint (mirrors the legacy abort at
+                # :2273, which does not re-flush) — do NOT re-flush here.
+                run_cost = current_run_cost()
+                manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                manifest.update({
+                    "status": "abort_corpus_inadequate",
+                    "plan_sufficiency": asdict(_suff),
+                    "corpus": {
+                        "count": dist.total_sources,
+                        "tier_fractions": dist.tier_fractions,
+                    },
+                })
+                manifest = augment_v6_manifest(
+                    manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True, default=str)
+                    + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = manifest
+                summary["cost_usd"] = run_cost
+                try:
+                    write_per_run_cost_ledger(run_dir, run_id)
+                except Exception:
+                    pass
+                if q.get("v6_mode") and q.get("external_run_id"):
+                    emit_terminal_event(
+                        q.get("external_run_id"),
+                        "abort_corpus_inadequate",
+                        error_msg=summary.get("error"),
+                    )
+                set_current_run_id(None)
+                set_reasoning_sink(None)
+                log_f.close()
+                return summary
 
         # I-cd-706: SSE evidence-id events over the FINAL evidence_for_gen set
         # (NOT inside retrieval loops — bounded to the selected rows, tens to
