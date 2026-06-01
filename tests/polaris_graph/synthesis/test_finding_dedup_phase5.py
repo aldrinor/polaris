@@ -255,3 +255,41 @@ def test_p5_11_relevance_floor_fails_loud_on_invalid():
         parse_relevance_floor("-0.1")
     with pytest.raises(ValueError):
         parse_relevance_floor("1.5")          # above range
+
+
+# ── diff-gate P2 fixes ───────────────────────────────────────────────────────
+
+def test_p5_explicit_zero_authority_ranks_below_positive():
+    # Codex diff-gate P2: an EXPLICIT authority_score=0.0 must NOT be laundered to
+    # 1.0 by `or`. A zero-authority row ranks BELOW an equal-relevance positive row.
+    q = "tirzepatide weight loss in type 2 diabetes"
+    rows = [
+        _row("zero", "https://a.org/x",
+             "tirzepatide weight loss type 2 diabetes trial", authority=0.0),
+        _row("pos", "https://b.org/y",
+             "tirzepatide weight loss type 2 diabetes trial", authority=0.6),
+    ]
+    on = select_evidence_for_generation(
+        research_question=q, protocol=None, classified_sources=[],
+        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
+    )
+    ids = [r["evidence_id"] for r in on.selected_rows]
+    assert ids == ["pos", "zero"]            # positive authority ranks first
+
+
+def test_p5_floor_mode_ignores_zero_max_rows():
+    # Codex diff-gate P2: in floor mode the max_rows cap is replaced by the floor,
+    # so max_rows=0 (a legacy PG_LIVE_MAX_EV_TO_GEN=0) must NOT empty the pool.
+    q = "tirzepatide weight loss in type 2 diabetes"
+    rows = _sel_rows(5, 0)
+    on = select_evidence_for_generation(
+        research_question=q, protocol=None, classified_sources=[],
+        evidence_rows=rows, max_rows=0, relevance_floor=0.30,
+    )
+    assert len(on.selected_rows) == 5        # floor kept all above-floor rows
+    # OFF-mode with max_rows=0 still short-circuits to empty (unchanged).
+    off = select_evidence_for_generation(
+        research_question=q, protocol=None, classified_sources=[],
+        evidence_rows=rows, max_rows=0,
+    )
+    assert off.selected_rows == []

@@ -932,13 +932,20 @@ def _relevance_floor_selection(
     def _is_anchor(row: dict[str, Any]) -> bool:
         return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
 
+    def _authority(row: dict[str, Any]) -> float:
+        # Default 1.0 ONLY when authority_score is absent/None — an EXPLICIT 0.0
+        # (genuinely zero-authority row) must rank as 0.0, not be laundered to 1.0
+        # by a falsy `or` (Codex diff-gate P2).
+        a = row.get("authority_score")
+        return 1.0 if a is None else float(a)
+
     kept = [
         item for item in scored
         if item[1] >= relevance_floor or _is_anchor(item[3])
     ]
     kept.sort(
         key=lambda s: (
-            -(s[1] * float(s[3].get("authority_score", 1.0) or 1.0)),
+            -(s[1] * _authority(s[3])),
             _TIER_PRIORITY.get(s[2], 9),
             s[0],
         )
@@ -1005,7 +1012,10 @@ def select_evidence_for_generation(
     Returns:
         EvidenceSelection with selected_rows + telemetry.
     """
-    if max_rows <= 0 or not evidence_rows:
+    # I-meta-005 Phase 5 (#989) — Codex diff-gate P2: in relevance-floor mode the
+    # `max_rows` cap is REPLACED by the floor, so a legacy `max_rows <= 0` must NOT
+    # empty the ON-mode pool. The empty-corpus guard still applies in both modes.
+    if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:
         return EvidenceSelection(
             selected_rows=[], full_counts={}, selected_counts={},
             dropped_count=0, selection_strategy="tier_balanced_v1",
