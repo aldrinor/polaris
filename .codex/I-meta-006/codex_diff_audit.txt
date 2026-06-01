@@ -1,0 +1,23 @@
+# FORCE-APPROVE per CLAUDE.md §8.3.1 — I-meta-006 (#1006) diff-gate
+# Cap-hit: 2026-06-01. 5 diff iters + 1 §-1.2.6 confirmatory re-gate exhausted.
+# Trajectory P1: 1 -> 1 -> 1 -> 1 -> 1 -> 1 (six instances of the SAME class: the
+# reference-vs-prose regex heuristic in split_body_and_references mis-classifying a
+# prose claim under a References header as a citation, dropping it from the lane1
+# denominator). EVERY round: zero P0 (Codex explicitly: "denominator-bypass P1, NOT a
+# false faithfulness-credit P0"). The wedge/scoring integrity (no false grade for any
+# system) is sound across all rounds.
+# Residual (Codex iter5+confirmatory): "Vitamin D supplementation in 2020 reduced falls."
+# / "HPV DNA testing in 2020..." — a Title-Case-word + short-token prose claim with a
+# front-loaded year matches the author-initials shape. Perfect deterministic
+# reference-vs-prose classification is not achievable with a regex.
+# MITIGATION shipped: split-stripping is now NON-SILENT — run_scorecard records every
+# stripped block in card["reference_stripping"], so the §-1.1 dual audit / operator
+# sees exactly what was removed and catches any wrongly-stripped claim. This downgrades
+# the residual from a SILENT denominator bypass to a VISIBLE, audit-catchable note. The
+# real benchmark run is operator-gated + §-1.1-dual-audit-supervised (humans review the
+# extracted claims), so a stripped claim is caught in the loop.
+# PROPER FIX captured as follow-up Issue #1007 (eliminate the regex heuristic; let the
+# evidence-locked judge rate citation lines as non-material S3, which claim_audit_scorer
+# already excludes from lane1 — removes the ambiguity class permanently).
+# Per §8.3.1 + §8.3.6: cap reached, ship with the residual captured as a follow-up.
+verdict: APPROVE

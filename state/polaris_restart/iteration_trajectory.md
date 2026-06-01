@@ -1327,3 +1327,10 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   cap-exception (real P1 + deterministic fix): require the surname TITLE-CASE
   (`[A-Z][a-z]...`) so ALL-CAPS acronyms (HPV/DNA/US/AI) are not surnames. +1 smoke
   (front-loaded acronym prose kept). 24 scorer + 12 claim_audit green. ONE confirmatory re-gate.
+- **I-meta-006 DIFF-gate confirmatory (iter6)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0.
+  "Vitamin D supplementation in 2020 reduced falls" matched (Title-word + "D" initial +
+  front-year). Perfect regex reference-vs-prose classification is unachievable; all 6 rounds
+  0 P0 (no false credit). FORCE-APPROVE per §8.3.1 (cap + confirmatory exhausted) WITH
+  mitigation: non-silent reference-stripping audit trail (card["reference_stripping"]) so a
+  wrongly-stripped claim is visible to the §-1.1 audit, not a silent bypass. Proper fix
+  (judge-rated S3 exclusion) = follow-up #1007. 25 scorer + 208 dr_benchmark green. Scorer COMPLETE.
