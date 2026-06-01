@@ -1171,3 +1171,25 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **Pipeline end-to-end functional**: preflight ✓, retrieval ✓, corpus adequacy ✓, generator ✓ (one section), evaluator never reached.
 - **Operator action required**: top up the OpenRouter account billing. The $40 PG_MAX_COST_PER_RUN cap isn't the wall; OpenRouter's account-level 402 is.
 - Total real cost on this smoke (#10 only): $0.021. Total this campaign: $0.021 + $0.015 (#9) + $0.010 (#8) = ~$0.046.
+
+## I-meta-005 Phase 4 (#988) — diff gate
+
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 1 P1, 2 P2.
+  - P1: gap rounds re-injected only upload rows, dropping V30 contract evidence
+    after expansion → gate/generator disagree with round 0 on the billed set.
+  - P2a: partial_saturation only logged dropped sections (no manifest shortfall).
+  - P2b: anchor_seed=False lifted the 3-query cap but the legacy result-count
+    early-break could still starve later gap facets.
+  - convergence_call: continue. ALL 3 resolved deterministically (V30 suffix-diff
+    re-inject; summary["saturation"] shortfall persistence; break gated on
+    anchor_seed). NEW test P4-10b. 27 saturation + 153 regression green.
+  - This is converging (each finding genuine, specificity increasing), not
+    toothpaste-squeezing. Re-gate iter 2 to confirm the P1 is closed.
+- **iter 2** (2026-06-01): `verdict: APPROVE` (0 P0, 0 P1, 1 accept_remaining P2a).
+  P1 (V30 re-inject) + P2b (early-break) CONFIRMED closed. Residual P2a: saturation
+  telemetry reached sweep_summary.json but not the per-run manifest, and lacked the
+  uncovered sub-query text.
+- **iter 3** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  P2a COMPLETED (manifest["saturation"] copy + uncovered_sub_queries text). FULLY
+  CONVERGED. Trajectory 1P1+2P2 → 0P1+1P2 → 0P1+0P2 (monotone decreasing, genuine
+  findings each round). Merge authorized by Codex written APPROVE.
