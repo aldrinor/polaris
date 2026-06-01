@@ -180,6 +180,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
     "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
     "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
+    "partial_saturation",            # I-meta-005 Phase 4 (#988): pruned report, some sections under-covered
     # abort — pipeline refused to produce a report
     "abort_scope_rejected",
     "abort_no_sources",
@@ -207,6 +208,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
     "abort_evaluator_critical": "abort_evaluator_critical",
+    # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
+    "partial_saturation": "partial_saturation",
     # I-meta-002 sub-PR-6: 4-role D8 release decision (single binding gate). Released =>
     # success; held => a release-blocking abort (D8 held: fabricated occurrence / coverage
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
@@ -221,6 +224,85 @@ def to_unified_status(summary_status: str) -> str:
     manifest.status taxonomy. Unknown labels become error_unexpected
     (fail loudly for the reader; still a valid taxonomy value)."""
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
+    """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
+    contains ONLY the SUFFICIENT sections, so the generator (which fixes its
+    output structure to `research_plan.outline`) structurally CANNOT render an
+    under-covered section in a `partial_saturation` report.
+
+    The plan is index-based (`SectionOutlineItem.sub_query_indices` point into
+    `plan.sub_queries`), and the whole-plan facet-union invariant requires
+    `union(retained sub_query_indices) == range(len(pruned.sub_queries))`. So the
+    prune MUST:
+      (1) drop the under-covered `SectionOutlineItem`s;
+      (2) drop the now-ORPHANED `sub_queries` (mapped by no retained section);
+      (3) REMAP the retained sections' `sub_query_indices` to the compacted
+          `sub_queries` list, so all indices stay in-range and the union invariant
+          holds on the pruned plan.
+
+    Returns `(pruned_plan, dropped_section_titles)`. `pruned_plan` is None when
+    ZERO sections are sufficient (caller aborts `abort_corpus_inadequate`).
+    """
+    from src.polaris_graph.planning.research_planner import (
+        ResearchPlan,
+        SectionOutlineItem,
+    )
+
+    sub_queries = list(getattr(research_plan, "sub_queries", []) or [])
+    outline = list(getattr(research_plan, "outline", []) or [])
+    suff_by_unit = {
+        u.unit_id: bool(getattr(u, "sufficient", False))
+        for u in getattr(sufficiency_report, "per_unit", []) or []
+    }
+
+    retained: list = []
+    dropped_titles: list[str] = []
+    for sec_idx, section in enumerate(outline):
+        unit_id = f"section_{sec_idx}"
+        if suff_by_unit.get(unit_id, False):
+            retained.append(section)
+        else:
+            dropped_titles.append(getattr(section, "title", "") or unit_id)
+
+    if not retained:
+        return None, dropped_titles
+
+    # (2) collect the sub_query indices any retained section maps; (3) build a
+    # compaction map old_idx -> new_idx over the retained-and-in-range indices.
+    used_old_indices = sorted({
+        idx
+        for section in retained
+        for idx in (getattr(section, "sub_query_indices", []) or [])
+        if 0 <= idx < len(sub_queries)
+    })
+    remap = {old: new for new, old in enumerate(used_old_indices)}
+    pruned_sub_queries = [sub_queries[old] for old in used_old_indices]
+
+    pruned_outline: list = []
+    for section in retained:
+        new_indices = [
+            remap[idx]
+            for idx in (getattr(section, "sub_query_indices", []) or [])
+            if idx in remap
+        ]
+        pruned_outline.append(
+            SectionOutlineItem(
+                archetype=getattr(section, "archetype", "") or "Background",
+                title=getattr(section, "title", "") or "",
+                evidence_target=int(getattr(section, "evidence_target", 0) or 0),
+                sub_query_indices=new_indices,
+            )
+        )
+
+    pruned_plan = ResearchPlan(
+        research_question=getattr(research_plan, "research_question", ""),
+        frame=getattr(research_plan, "frame", None),
+        sub_queries=pruned_sub_queries,
+        outline=pruned_outline,
+    )
+    return pruned_plan, dropped_titles
 
 
 def expected_str_for_abort(protocol: dict) -> str:
@@ -1642,6 +1724,11 @@ async def run_one_query(
         )
         _research_plan = None
         _planner_protocol = None
+        # I-meta-005 Phase 4 (#988): the generator-bound plan + partial flag.
+        # Initialized here (OFF + ON) so the generator call is NameError-safe on
+        # every path; the saturation loop reassigns them on-mode when it prunes.
+        _gen_plan = None
+        _partial_mode = False
         if _use_research_planner:
             from src.polaris_graph.planning.research_planner import (
                 plan_research,
@@ -2781,10 +2868,19 @@ async def run_one_query(
                 "PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", ""
             ).strip()
             _suff_floor = float(_suff_floor_env) if _suff_floor_env else None
-            _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
-            _suff_max_rounds = int(
-                os.getenv("PG_PLAN_SUFFICIENCY_MAX_ROUNDS", "0")
+            # I-meta-005 Phase 4 (#988): PG_SATURATION_MAX_ROUNDS aliases the
+            # Phase-3 gate's `max_rounds` (default 3) so round 0 returns EXPAND
+            # (not ABORT) when sections are under-covered, letting the saturation
+            # loop fire gap-targeted rounds. PG_PLAN_SUFFICIENCY_MAX_ROUNDS is
+            # honored as a legacy override (still 0 if explicitly set).
+            _sat_max_rounds = int(
+                os.getenv(
+                    "PG_PLAN_SUFFICIENCY_MAX_ROUNDS",
+                    os.getenv("PG_SATURATION_MAX_ROUNDS", "3"),
+                )
             )
+            _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
+            _suff_max_rounds = _sat_max_rounds
             _suff = assess_plan_sufficiency(
                 plan=_research_plan,
                 corpus_rows=evidence_for_gen,
@@ -2803,9 +2899,193 @@ async def run_one_query(
                 f"sections={len(_suff.per_unit)} "
                 f"under_covered={len(_suff.under_covered_units)}"
             )
+            # I-meta-005 Phase 4 (#988): the SATURATION LOOP. Default-OFF body
+            # (this whole on-mode block only runs when PG_USE_RESEARCH_PLANNER is
+            # set). The loop DECISION logic is the PURE `run_saturation_loop` over
+            # an injected gap-retrieval closure; it constructs NO HTTP client and
+            # bills NO generator token. Round 0 already ran above; rounds >=1 fire
+            # GAP-ONLY retrieval (anchor-suppressed), merge with global evidence_id
+            # renumber, re-select, re-inject upload rows, and re-gate.
+            _gen_plan = _research_plan          # full plan on PROCEED.
+            _partial_mode = False
+            _dropped_sections: list[str] = []
             if _suff.verdict != "proceed":
+                from src.polaris_graph.retrieval.saturation import (
+                    RoundOutcome,
+                    canonical_source_url,
+                    per_query_discovery_cost,
+                    run_saturation_loop,
+                    STOP_SUFFICIENT,
+                )
+                from src.polaris_graph.discovery.need_type_router import (
+                    route_needs_to_adapters,
+                )
+                _sat_eps = float(os.getenv("PG_SATURATION_NOVELTY_EPS", "0.10"))
+                _sat_max_calls = int(
+                    os.getenv("PG_SATURATION_MAX_RETRIEVAL_CALLS", "120")
+                )
+                # Worst-case per-gap-query DISCOVERY cost: core Serper + core S2
+                # (2) PLUS one call per routed need-type adapter (the dispatcher
+                # loops PER query). adapter_count from the routed registry.
+                try:
+                    _adapter_count = len(
+                        route_needs_to_adapters(_research_plan.frame)
+                    )
+                except Exception:
+                    _adapter_count = 0
+                _cost_per_query = per_query_discovery_cost(_adapter_count)
+
+                def _run_gap_round(gap_queries: list[str]) -> RoundOutcome:
+                    """On-mode gap-retrieval closure. Fires ONLY the gap
+                    sub-queries (anchor-suppressed BOTH seams), merges with
+                    global evidence_id renumber, re-selects, re-injects upload
+                    rows, and re-gates on the billed set. Closes over the
+                    enclosing `retrieval` / `evidence_for_gen` / `_suff` so the
+                    final round's state flows to the generator."""
+                    nonlocal retrieval, evidence_for_gen, _suff
+                    _gap_ret = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=list(gap_queries),
+                        protocol=_retrieval_protocol,
+                        max_serper=_max_serper,
+                        max_s2=_max_s2,
+                        fetch_cap=_fetch_cap,
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        domain=None,
+                        seed_urls=[],
+                        research_frame=_retrieval_frame,
+                        anchor_seed=False,   # GAP round: no broad anchor re-run
+                    )
+                    # Merge new sources + GLOBAL evidence_id renumber (reuse the
+                    # legacy-expansion pattern) so ids never collide/overwrite.
+                    # Dedup on the SAME canonical-URL identity the novelty metric
+                    # uses, so the billed pool never double-counts a source that
+                    # `marginal_novelty` already collapsed (e.g. a ?utm_ variant
+                    # of an existing source).
+                    _existing_urls = {
+                        s.url for s in retrieval.classified_sources
+                    }
+                    for _src in _gap_ret.classified_sources:
+                        if _src.url not in _existing_urls:
+                            retrieval.classified_sources.append(_src)
+                            _existing_urls.add(_src.url)
+                    # Snapshot the corpus BEFORE the merge: this is the novelty
+                    # BASELINE the round's raw retrieved rows are scored against.
+                    _prev_corpus = list(retrieval.evidence_rows)
+                    _existing_canon = {
+                        canonical_source_url(
+                            _r.get("source_url") or _r.get("url") or ""
+                        )
+                        for _r in retrieval.evidence_rows
+                    }
+                    _new_rows: list = []
+                    for _ev in _gap_ret.evidence_rows:
+                        _canon = canonical_source_url(
+                            _ev.get("source_url") or _ev.get("url") or ""
+                        )
+                        if _canon and _canon in _existing_canon:
+                            continue   # canonical-URL duplicate of an existing row
+                        _existing_canon.add(_canon)
+                        _ev["evidence_id"] = (
+                            f"ev_{len(retrieval.evidence_rows):03d}"
+                        )
+                        retrieval.evidence_rows.append(_ev)
+                        _new_rows.append(_ev)
+                    # Re-select over the merged corpus, then re-inject upload rows
+                    # so the re-gate certifies EXACTLY the billed set (P4-16).
+                    _resel = select_evidence_for_generation(
+                        research_question=q["question"],
+                        protocol=protocol,
+                        classified_sources=retrieval.classified_sources,
+                        evidence_rows=retrieval.evidence_rows,
+                        max_rows=max_ev,
+                        primary_trial_anchors=_primary_anchors,
+                    )
+                    _billed = list(_resel.selected_rows)
+                    if _upload_docs:
+                        _billed = list(_upload_rows) + _billed
+                    evidence_for_gen = _billed
+                    _suff = assess_plan_sufficiency(
+                        plan=_research_plan,
+                        corpus_rows=evidence_for_gen,
+                        authority_floor=_suff_floor,
+                        round_index=_suff.round_index + 1,
+                        max_rounds=_suff_max_rounds,
+                    )
+                    return RoundOutcome(
+                        cumulative_retrieved_rows=list(retrieval.evidence_rows),
+                        evidence_for_gen=evidence_for_gen,
+                        sufficiency_report=_suff,
+                        # Novelty DENOMINATOR = the RAW rows this round RETRIEVED
+                        # (`_gap_ret.evidence_rows`), INCLUDING canonical-URL
+                        # duplicates already in the corpus -- so a gap round that
+                        # mostly re-fetches seen sources reads a LOW novelty
+                        # fraction and the `< eps` flatten stop can fire. Only the
+                        # deduped `_new_rows` were appended to the cumulative
+                        # corpus above; the denominator must NOT be that deduped
+                        # set or novelty degenerates to 1.0-or-0.0.
+                        new_round_rows=list(_gap_ret.evidence_rows),
+                        prev_corpus_rows=_prev_corpus,
+                    )
+
+                _round0 = RoundOutcome(
+                    cumulative_retrieved_rows=list(retrieval.evidence_rows),
+                    evidence_for_gen=evidence_for_gen,
+                    sufficiency_report=_suff,
+                    # Round 0 has no prior corpus: every retrieved row is novel,
+                    # so the raw denominator == the whole round-0 corpus and the
+                    # baseline is empty. `saturation_decision`'s round>=1 guard
+                    # ignores round-0 novelty anyway.
+                    new_round_rows=list(retrieval.evidence_rows),
+                    prev_corpus_rows=[],
+                )
+                _sat = run_saturation_loop(
+                    round0=_round0,
+                    run_round_fn=_run_gap_round,
+                    max_rounds=_suff_max_rounds,
+                    novelty_eps=_sat_eps,
+                    max_discovery_calls=_sat_max_calls,
+                    cost_per_query=_cost_per_query,
+                    plan=_research_plan,
+                    log=_log,
+                )
+                _log(
+                    f"[saturation]  TERMINAL decision={_sat.decision} "
+                    f"rounds_fired={_sat.rounds_fired} "
+                    f"discovery_calls={_sat.cumulative_discovery_calls}/"
+                    f"{_sat_max_calls} "
+                    f"novelty_trajectory={[round(x, 3) for x in _sat.novelty_trajectory]}"
+                )
+                # `_suff` / `evidence_for_gen` / `retrieval` now hold the FINAL
+                # round's state (the closure mutated them via nonlocal).
+                if _sat.decision == STOP_SUFFICIENT:
+                    # Gap closed during the loop -> PROCEED on the full plan.
+                    _gen_plan = _research_plan
+                    _partial_mode = False
+                else:
+                    # STOP_NOVELTY / STOP_BUDGET with sections still under-covered
+                    # -> a PARTIAL report on a PRUNED plan (sufficient sections
+                    # ONLY). Zero sufficient sections -> abort_corpus_inadequate.
+                    _pruned_plan, _dropped_sections = (
+                        _prune_plan_to_sufficient_sections(_research_plan, _suff)
+                    )
+                    if _pruned_plan is not None:
+                        _gen_plan = _pruned_plan
+                        _partial_mode = True
+                        summary["status"] = "partial_saturation"
+                        _log(
+                            f"[saturation]  PARTIAL report: "
+                            f"{len(_pruned_plan.outline)} sufficient section(s) "
+                            f"kept; dropped {len(_dropped_sections)} under-"
+                            f"covered: {_dropped_sections}"
+                        )
+
+            if _suff.verdict != "proceed" and _partial_mode is False:
                 # EXPAND or ABORT -> hold BEFORE the generator bills (Phase 3
                 # guarantee: a shallow corpus NEVER spends a generator token).
+                # Reached only when the saturation loop found ZERO sufficient
+                # sections (pruned plan empty) -> abort_corpus_inadequate.
                 _log(
                     f"[ABORT]       Plan-sufficiency {_suff.verdict.upper()}: "
                     f"{len(_suff.under_covered_units)} planned section(s) under-"
@@ -3015,7 +3295,12 @@ async def run_one_query(
             # structure to `research_plan.outline`, assigns retrieved evidence
             # to those sections post-retrieval, and routes M-44/M-47 on the
             # archetype tag (not a clinical title).
-            research_plan=_research_plan,
+            # I-meta-005 Phase 4 (#988): `_gen_plan` is the FULL plan on PROCEED
+            # and the PRUNED plan (sufficient sections only) in partial_saturation
+            # mode; `_partial_mode` then disables ALL FIVE out-of-plan appenders so
+            # the rendered headings == exactly the pruned sufficient sections.
+            research_plan=_gen_plan,
+            partial_mode=_partial_mode,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
@@ -3707,6 +3992,22 @@ async def run_one_query(
         else:
             summary_status = "ok"
         unified_status = to_unified_status(summary_status)
+        # I-meta-005 Phase 4 (#988): a pruned partial-saturation report SURFACES
+        # as `partial_saturation` (tier-1 partial) — it OVERRIDES the success-
+        # path heuristics (ok/ok_thin_corpus/...), but NOT a genuine integrity
+        # failure on the pruned sections (abort_*/fail_* still win, since those
+        # mean the kept sections themselves did not verify/release).
+        if _partial_mode and unified_status in (
+            "success",
+            "partial_thin_corpus",
+            "partial_incomplete_corpus",
+            "partial_rule_check_warnings",
+            "partial_outline_fallback",
+            "partial_evaluator_advisory",
+            "partial_qwen_advisory",
+        ):
+            summary_status = "partial_saturation"
+            unified_status = "partial_saturation"
         manifest = {
             "run_id": run_id,
             "slug": q["slug"],
