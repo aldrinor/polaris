@@ -98,6 +98,7 @@ from src.polaris_v6.queue.run_events import (  # noqa: E402
     emit_terminal_event,
 )
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
+    CompletenessReport,
     check_completeness,
 )
 from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
@@ -1626,49 +1627,185 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
-        # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
-        # the scope template for this domain and — if the template has
-        # a `regulatory_anchors` list — emits one extra amplified query
-        # per anchor of the form `{question} site:{anchor}`. No hard-
-        # coded agency list in Python; template-driven so each domain
-        # controls its own anchors. Empty/missing list = no-op.
-        from src.polaris_graph.nodes.scope_gate import load_scope_template
-        from src.polaris_graph.retrieval.regulatory_expander import (
-            expand_regulatory_queries,
+        # I-meta-005 Phase 1 (#985): field-agnostic research planner (shadow
+        # build, default OFF). When PG_USE_RESEARCH_PLANNER is on, the planner
+        # produces the frame + faceted sub-queries + archetype outline; the
+        # plan is SHA-pinned BEFORE retrieval (gap #19 extension) and its
+        # sub-queries are the ONLY non-anchor query source — the legacy
+        # domain-keyed expanders (M-28/M-35/trial-DOI/hand-authored) are NOT
+        # invoked, the domain_backends router is bypassed (domain=None), and
+        # R-6 {domain}.yaml completeness expansion is disabled. OFF: every
+        # legacy path runs byte-identically.
+        _use_research_planner = (
+            os.getenv("PG_USE_RESEARCH_PLANNER", "0").strip()
+            in ("1", "true", "True")
         )
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            expand_primary_trial_queries,
-        )
-        try:
-            _template = load_scope_template(q["domain"])
-        except Exception as _ex:
-            _log(
-                f"[M-28/M-35 warn] could not load template for domain="
-                f"{q['domain']!r}: {_ex} — continuing without regulatory "
-                f"(M-28) OR primary-trial (M-35) expansion"
+        _research_plan = None
+        _planner_protocol = None
+        if _use_research_planner:
+            from src.polaris_graph.planning.research_planner import (
+                plan_research,
+                plan_sha256,
+                serialize_plan_canonical,
             )
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient,
+                PG_GENERATOR_MODEL,
+            )
+
+            def _planner_llm(prompt: str) -> str:
+                # Production Writer call. Build + smoke NEVER reach this path
+                # (the planner callable is injected/faked there). One Writer
+                # call (plus at most one bounded retry inside plan_research).
+                #
+                # `run_one_query` is async — the sweep event loop is already
+                # running here — so the coroutine is driven on a SEPARATE
+                # thread with its own loop (thread-safe; never touches the
+                # running loop, which `run_until_complete` would crash on).
+                #
+                # I-meta-005 Phase 1 FIX 3 (Codex diff-gate iter-1 P1 #3): the
+                # prior bare `ThreadPoolExecutor(...).submit(asyncio.run, ...)`
+                # ran with the worker's OWN empty ContextVar state, so the
+                # planner Writer call's billed cost accumulated in
+                # `_RUN_COST_CTX` only inside the worker snapshot and was LOST
+                # to the parent run (`current_run_cost()` / `manifest.cost_usd`
+                # under-reported live planner spend — a budget-cap integrity
+                # LAW violation). Fix mirrors `auto_induction.llm_inductor`
+                # rounds 3-4 (and `scope_classifier_llm._run_async_in_isolated_
+                # thread`): capture the parent context with
+                # `contextvars.copy_context()` and run the worker inside that
+                # snapshot via `parent_ctx.run()` (READ visibility), THEN apply
+                # the worker's cost delta back to the parent context via a
+                # closure-shared holder (write-back, fires whether or not the
+                # call raised — the OpenRouter client bills partial cost before
+                # raising on empty-content/retry).
+                import asyncio as _asyncio
+                import concurrent.futures as _futures
+                import contextvars as _contextvars
+                from src.polaris_graph.llm.openrouter_client import (
+                    _RUN_COST_CTX,
+                )
+
+                _parent_cost_before = _RUN_COST_CTX.get()
+                _worker_cost_after_holder: list[float] = [_parent_cost_before]
+
+                async def _run() -> str:
+                    _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    try:
+                        _resp = await _client.generate(
+                            prompt=prompt, max_tokens=2000, temperature=0.2,
+                        )
+                        return (_resp.content or "").strip()
+                    finally:
+                        # Capture the worker snapshot's accumulated cost even
+                        # on raise (OpenRouter bills partial cost before
+                        # raising on empty-content/retry paths).
+                        _worker_cost_after_holder[0] = _RUN_COST_CTX.get()
+                        if hasattr(_client, "close"):
+                            try:
+                                await _client.close()
+                            except Exception:
+                                pass
+
+                _parent_ctx = _contextvars.copy_context()
+
+                def _worker() -> str:
+                    def _run_under_ctx() -> str:
+                        return _asyncio.run(_run())
+                    return _parent_ctx.run(_run_under_ctx)
+
+                try:
+                    with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                        return _pool.submit(_worker).result()
+                finally:
+                    # Apply the worker's cost delta to the parent context so
+                    # the planner Writer spend merges into the parent run cost
+                    # (whether or not the worker raised).
+                    _cost_delta = (
+                        _worker_cost_after_holder[0] - _parent_cost_before
+                    )
+                    if _cost_delta > 0:
+                        _RUN_COST_CTX.set(_parent_cost_before + _cost_delta)
+
+            _research_plan = plan_research(
+                q["question"], planner_llm=_planner_llm,
+            )
+            # Pre-register + SHA-pin the plan BEFORE retrieval (gap #19).
+            _plan_canonical = serialize_plan_canonical(_research_plan)
+            _plan_path = run_dir / "research_plan.json"
+            _plan_path.write_text(_plan_canonical + "\n", encoding="utf-8")
+            _plan_sha = plan_sha256(_research_plan)
+            _log(f"[planner]     research_plan pinned sha256={_plan_sha[:12]} "
+                 f"sub_queries={len(_research_plan.sub_queries)} "
+                 f"outline={len(_research_plan.outline)}")
+            # Frame-derived anchor protocol so planner sub-queries validate
+            # against the frame's OWN tokens (brief §2.4 validator adapter).
+            _planner_protocol = _research_plan.frame.to_anchor_protocol(
+                q["question"]
+            )
+
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # bypasses ALL domain/template effects — not just query expansion.
+        # The whole M-28/M-35 template-load + regulatory/trial expander block
+        # is gated on `if not _use_research_planner:`. ON-mode the planner's
+        # field-agnostic facets (Phase 2) + saturation (Phase 4) replace the
+        # domain-keyed scope template, so `load_scope_template` is NEVER
+        # called, no expander is computed, and `_template` stays None. Every
+        # downstream `_template` consumer is already None-tolerant — the
+        # legacy `except: _template = None` fallback below proves it. OFF: the
+        # block runs byte-identically (re-indented verbatim, zero refactor).
+        if not _use_research_planner:
+            # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+            # the scope template for this domain and — if the template has
+            # a `regulatory_anchors` list — emits one extra amplified query
+            # per anchor of the form `{question} site:{anchor}`. No hard-
+            # coded agency list in Python; template-driven so each domain
+            # controls its own anchors. Empty/missing list = no-op.
+            from src.polaris_graph.nodes.scope_gate import load_scope_template
+            from src.polaris_graph.retrieval.regulatory_expander import (
+                expand_regulatory_queries,
+            )
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                expand_primary_trial_queries,
+            )
+            try:
+                _template = load_scope_template(q["domain"])
+            except Exception as _ex:
+                _log(
+                    f"[M-28/M-35 warn] could not load template for domain="
+                    f"{q['domain']!r}: {_ex} — continuing without regulatory "
+                    f"(M-28) OR primary-trial (M-35) expansion"
+                )
+                _template = None
+            # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
+            # the v6 template's frame_manifest and passes it through q. Merge it
+            # into the scope template so M-55 compile_frame and
+            # load_report_contract_for_slug see the synthesized contract for this
+            # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+            _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+            if _v30_patch and isinstance(_template, dict):
+                _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+            _reg_queries = expand_regulatory_queries(q["question"], _template)
+            if _reg_queries:
+                _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+                     f"queries (domain={q['domain']})")
+            # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
+            # sweep slug (trial names are query-specific). Missing slug or
+            # missing `per_query_primary_trial_anchors` key = no-op.
+            _trial_queries = expand_primary_trial_queries(
+                q["question"], _template, q["slug"]
+            )
+            if _trial_queries:
+                _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+                     f"queries (slug={q['slug']})")
+        else:
+            # ON-mode: NO load_scope_template, NO expander compute, NO row
+            # labeling from template (the planner facets replace them).
             _template = None
-        # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
-        # the v6 template's frame_manifest and passes it through q. Merge it
-        # into the scope template so M-55 compile_frame and
-        # load_report_contract_for_slug see the synthesized contract for this
-        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
-        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
-        if _v30_patch and isinstance(_template, dict):
-            _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
-        _reg_queries = expand_regulatory_queries(q["question"], _template)
-        if _reg_queries:
-            _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
-                 f"queries (domain={q['domain']})")
-        # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
-        # sweep slug (trial names are query-specific). Missing slug or
-        # missing `per_query_primary_trial_anchors` key = no-op.
-        _trial_queries = expand_primary_trial_queries(
-            q["question"], _template, q["slug"]
-        )
-        if _trial_queries:
-            _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
-                 f"queries (slug={q['slug']})")
+            _reg_queries = []
+            _trial_queries = []
+            _log("[planner]     domain template + M-28/M-35 expanders "
+                 "bypassed (field-agnostic planner facets replace them)")
         # I-meta-002-q1d (#951 q1d-a): decompose the multi-clause question into focused
         # sub-queries (pure, no-network) so a 40-70-word golden question is not fired as
         # ~one keyword query. Flag-gated (default ON); falls back to [] for short questions.
@@ -1684,38 +1821,74 @@ async def run_one_query(
         from src.polaris_graph.retrieval.query_decomposer import (
             build_amplified_query_list,
         )
-        _amplified_effective = build_amplified_query_list(
-            hand_authored=list(q.get("amplified", [])),
-            decomposed=_decomposed,
-            regulatory=_reg_queries,
-            trial=_trial_queries,
-        )
+        if _use_research_planner and _research_plan is not None:
+            # ON-mode: the planner's faceted sub-queries are the ONLY
+            # non-anchor query source. The legacy domain-keyed expanders are
+            # NOT invoked (regulatory/trial/hand_authored all empty); the
+            # planner's facets ARE the field-agnostic regulatory/primary-
+            # evidence expansion (brief §2.4).
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=[],
+                decomposed=list(_research_plan.sub_queries),
+                regulatory=[],
+                trial=[],
+            )
+        else:
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=list(q.get("amplified", [])),
+                decomposed=_decomposed,
+                regulatory=_reg_queries,
+                trial=_trial_queries,
+            )
 
-        # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
-        # seed candidates. Search-expansion (M-35 above) does not surface the
-        # pivotal OA primaries for guideline-dominated questions, so inject the
-        # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
-        # when `per_query_primary_trial_dois` is absent for the slug.
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            expand_primary_trial_dois,
-        )
-        _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
-        if _trial_doi_seeds:
-            _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
-                 f"direct candidates (slug={q['slug']})")
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # computes NO template-keyed expander. The #817-L4 DOI-seed expander
+        # reads the domain scope template (None on-mode); it is gated on
+        # `if not _use_research_planner:` so no expander is computed on-mode
+        # (the on-path already passes `_retrieval_seed_urls = []`). OFF: runs
+        # byte-identically.
+        if not _use_research_planner:
+            # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
+            # seed candidates. Search-expansion (M-35 above) does not surface the
+            # pivotal OA primaries for guideline-dominated questions, so inject the
+            # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
+            # when `per_query_primary_trial_dois` is absent for the slug.
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                expand_primary_trial_dois,
+            )
+            _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
+            if _trial_doi_seeds:
+                _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
+                     f"direct candidates (slug={q['slug']})")
+        else:
+            _trial_doi_seeds = []
 
         t0 = time.time()
+        # I-meta-005 Phase 1 (#985): ON-mode bypasses the two live-path domain
+        # routers (brief §2.4) — `domain=None` skips the domain_backends
+        # per-domain `if domain ==` candidate router (live_retriever:1795
+        # guards `if domain and not seed_only`), and the frame-derived protocol
+        # replaces the clinical PICO protocol so planner sub-queries validate
+        # against the frame's own tokens. No trial-DOI seeds on-mode. OFF: the
+        # legacy domain + PICO protocol + DOI seeds run byte-identically.
+        _retrieval_domain = None if _use_research_planner else q["domain"]
+        _retrieval_protocol = (
+            _planner_protocol
+            if (_use_research_planner and _planner_protocol is not None)
+            else protocol
+        )
+        _retrieval_seed_urls = [] if _use_research_planner else _trial_doi_seeds
         retrieval = run_live_retrieval(
             research_question=q["question"],
             amplified_queries=_amplified_effective,
-            protocol=protocol,
+            protocol=_retrieval_protocol,
             max_serper=_max_serper,
             max_s2=_max_s2,
             fetch_cap=_fetch_cap,
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
-            domain=q["domain"],   # R-6 Gap-2 domain backends
-            seed_urls=_trial_doi_seeds,   # #817 layer-4 direct DOI candidates
+            domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
+            seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -1723,32 +1896,38 @@ async def run_one_query(
              f"failed={retrieval.candidates_failed_fetch}, "
              f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
 
-        # M-48 (2026-04-22): tag evidence rows with per-anchor
-        # population-scope labels from the scope template. For a T2D
-        # research question, SURMOUNT-2 is direct (T2D+obesity) while
-        # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
-        # generator reads these tags to avoid merging obesity-only
-        # weight-loss estimates into direct T2D efficacy claims.
-        # No-op when the template defines no labels for this slug.
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            label_rows_with_population_scope,
-        )
-        _m48_labeled_count = sum(
-            1 for r in retrieval.evidence_rows
-            if r.get("population_scope")
-        )
-        label_rows_with_population_scope(
-            retrieval.evidence_rows, _template, q["slug"],
-        )
-        _m48_labeled_count_after = sum(
-            1 for r in retrieval.evidence_rows
-            if r.get("population_scope")
-        )
-        if _m48_labeled_count_after > _m48_labeled_count:
-            _log(
-                f"[m48]         population_scope labeled "
-                f"{_m48_labeled_count_after - _m48_labeled_count} row(s)"
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # does NO template-driven row labeling. The M-48 population-scope
+        # labeler reads the domain scope template (None on-mode), so it is
+        # gated on `if not _use_research_planner:` to be literal about "no
+        # row labeling from template." OFF: runs byte-identically.
+        if not _use_research_planner:
+            # M-48 (2026-04-22): tag evidence rows with per-anchor
+            # population-scope labels from the scope template. For a T2D
+            # research question, SURMOUNT-2 is direct (T2D+obesity) while
+            # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
+            # generator reads these tags to avoid merging obesity-only
+            # weight-loss estimates into direct T2D efficacy claims.
+            # No-op when the template defines no labels for this slug.
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                label_rows_with_population_scope,
             )
+            _m48_labeled_count = sum(
+                1 for r in retrieval.evidence_rows
+                if r.get("population_scope")
+            )
+            label_rows_with_population_scope(
+                retrieval.evidence_rows, _template, q["slug"],
+            )
+            _m48_labeled_count_after = sum(
+                1 for r in retrieval.evidence_rows
+                if r.get("population_scope")
+            )
+            if _m48_labeled_count_after > _m48_labeled_count:
+                _log(
+                    f"[m48]         population_scope labeled "
+                    f"{_m48_labeled_count_after - _m48_labeled_count} row(s)"
+                )
 
         if len(retrieval.classified_sources) == 0:
             # BUG-B-101 fix: previously returned without any manifest,
@@ -1843,11 +2022,25 @@ async def run_one_query(
 
         # R-6 Gap-3: completeness check (before synthesis so gaps can
         # trigger expansion).
-        completeness = check_completeness(
-            domain=q["domain"],
-            research_question=q["question"],
-            evidence_rows=retrieval.evidence_rows,
-        )
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # NEVER calls `check_completeness` — it loads a `{domain}.yaml`
+        # checklist, and feeding its uncovered checklist labels into the
+        # generator (the uncovered-label -> generation hand-off below) shapes
+        # written artifacts (the Limitations paragraph) with domain-keyed
+        # framing. The field-agnostic planner facets (Phase 2) + saturation
+        # (Phase 4) replace the domain checklist. ON-mode substitutes a
+        # NEUTRAL `CompletenessReport` (total_applicable=0 -> covered_fraction
+        # 1.0, uncovered_topic_ids() == [], so the downstream label hand-off
+        # yields []). The telemetry write + log below run on the neutral
+        # object (honest 0/0). OFF: `check_completeness` runs byte-identically.
+        if not _use_research_planner:
+            completeness = check_completeness(
+                domain=q["domain"],
+                research_question=q["question"],
+                evidence_rows=retrieval.evidence_rows,
+            )
+        else:
+            completeness = CompletenessReport(domain=q["domain"])
         (run_dir / "completeness.json").write_text(
             json.dumps(
                 {
@@ -1882,7 +2075,15 @@ async def run_one_query(
         # R-6 Gap-3: gap-triggered expansion. If uncovered topics and
         # we have enable_expansion, fire another retrieval pass with
         # the expansion queries, then re-classify + re-check.
-        enable_expansion = os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+        # I-meta-005 Phase 1 (#985): ON-mode disables R-6 {domain}.yaml
+        # completeness expansion (brief §2.4) — it is a `{domain}.yaml` router
+        # forbidden on the field-agnostic on-path. The completeness CHECK still
+        # runs for telemetry, but no domain-keyed expand_queries are fired into
+        # retrieval. OFF: R-6 expansion runs byte-identically.
+        enable_expansion = (
+            os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+            and not _use_research_planner
+        )
         if (enable_expansion and completeness.expand_queries
                 and completeness.total_uncovered > 0):
             _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
@@ -2016,11 +2217,25 @@ async def run_one_query(
                         _staged_rows.append(ev)
                         _accepted += 1
                     _staged_dist = compute_tier_distribution(_staged_sources, protocol)
-                    _staged_completeness = check_completeness(
-                        domain=q["domain"],
-                        research_question=q["question"],
-                        evidence_rows=_staged_rows,
-                    )
+                    # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1):
+                    # the deepener staged re-check ALSO loads the domain
+                    # `{domain}.yaml` checklist via `check_completeness`, then
+                    # reassigns `completeness = _staged_completeness` below.
+                    # On-mode that would OVERWRITE the neutral report with a
+                    # domain-keyed one and re-introduce the banned checklist
+                    # label -> generation leak (the deepener can fire on-mode on
+                    # a BORDERLINE adequacy decision even with
+                    # total_uncovered==0, since adequacy is not gated on-mode).
+                    # Gate the re-check: on-mode keep the neutral report (the
+                    # merge stays atomic). OFF: re-check runs byte-identically.
+                    if not _use_research_planner:
+                        _staged_completeness = check_completeness(
+                            domain=q["domain"],
+                            research_question=q["question"],
+                            evidence_rows=_staged_rows,
+                        )
+                    else:
+                        _staged_completeness = completeness
                     _staged_adequacy = assess_corpus_adequacy(
                         tier_counts=_staged_dist.tier_counts,
                         evidence_row_count=len(_staged_rows),
@@ -2650,6 +2865,13 @@ async def run_one_query(
             m50_skip_anchors=_compute_m50_skip_anchors(
                 _phase2_contract_plans, _primary_anchors,
             ) if _phase2_contract_plans else None,
+            # I-meta-005 Phase 1 (#985): pre-registered ResearchPlan. None in
+            # OFF mode (legacy `_call_outline` / `_ALLOWED_SECTIONS` path runs
+            # byte-identically). When set, the generator FIXES the section
+            # structure to `research_plan.outline`, assigns retrieved evidence
+            # to those sections post-retrieval, and routes M-44/M-47 on the
+            # archetype tag (not a clinical title).
+            research_plan=_research_plan,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
@@ -3427,6 +3649,19 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
+        # in the manifest (gap #19 extension). ON-mode only — the key is absent
+        # in OFF, preserving the legacy manifest shape byte-for-byte.
+        if _use_research_planner and _research_plan is not None:
+            manifest["research_plan"] = {
+                "plan_path": str((run_dir / "research_plan.json").name),
+                "plan_sha256": _plan_sha,
+                "sub_query_count": len(_research_plan.sub_queries),
+                "outline_archetypes": [
+                    item.archetype for item in _research_plan.outline
+                ],
+            }
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)

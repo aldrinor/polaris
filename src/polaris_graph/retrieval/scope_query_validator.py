@@ -83,18 +83,41 @@ class ValidationResult:
 
 
 def _build_anchor_tokens(protocol: dict[str, Any]) -> set[str]:
-    """Merge research_question + PICO tokens into one anchor set.
+    """Merge research_question + anchor tokens into one anchor set.
 
-    Accepts either a ProtocolDocument dict (from scope_gate) or any
-    dict with similar fields. Missing fields are skipped gracefully.
+    Accepts either a ProtocolDocument dict (from scope_gate) or any dict with
+    similar fields. Missing fields are skipped gracefully.
+
+    Clinical PICO fields (population / intervention / comparator / outcome) are
+    string-valued and tokenized as before — OFF byte-identical.
+
+    I-meta-005 Phase 1 (#985, brief §2.4): ADDITIVELY also merge the field-
+    agnostic `ResearchFrame` anchor fields (entities / relations / metrics /
+    comparators / constraints) when present, so planner sub-queries derived
+    from a non-clinical frame validate against the frame's OWN tokens. These
+    fields may be list-valued (from `ResearchFrame.to_anchor_protocol`); each
+    element is tokenized. A clinical PICO protocol carries none of them, so
+    this extension does not change PICO behavior.
     """
     bag: set[str] = set()
+    # Legacy clinical PICO anchors (string-valued). Unchanged.
     for field in (
         "research_question", "population", "intervention",
         "comparator", "outcome",
     ):
         val = protocol.get(field) or ""
         bag |= _tokenize(str(val))
+    # I-meta-005 Phase 1: field-agnostic frame anchors (list-valued). Skipped
+    # gracefully when absent (clinical PICO protocols), so OFF is unchanged.
+    for field in (
+        "entities", "relations", "metrics", "comparators", "constraints",
+    ):
+        val = protocol.get(field)
+        if isinstance(val, (list, tuple, set)):
+            for item in val:
+                bag |= _tokenize(str(item))
+        elif val:
+            bag |= _tokenize(str(val))
     return bag
 
 
