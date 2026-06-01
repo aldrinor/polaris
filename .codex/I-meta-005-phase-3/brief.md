@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
+# Codex BRIEF gate iter 2 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 51. Phase 3 closes the "trap": today the
 adequacy gate is domain-keyed + AGGREGATE-count only, so a broad-but-shallow corpus PASSES, BILLS the
@@ -49,8 +49,9 @@ is billed.
 
 ### 2.1 NEW `src/polaris_graph/adequacy/plan_sufficiency_gate.py`
 - `assess_plan_sufficiency(*, plan, corpus_rows, authority_floor, round_index, max_rounds) ->
-  PlanSufficiencyReport`. Pure, no-network, no-LLM. For EACH planned coverage UNIT (see 2.2 for the unit
-  choice) count the corpus rows that (a) are RELEVANT to that unit AND (b) meet the AUTHORITY floor; a unit
+  PlanSufficiencyReport`. Pure, no-network, no-LLM, over rows that ALREADY carry the §2.3a authority sidecar +
+  `query_origin`. For EACH section (its `evidence_target` + `sub_query_indices`) count the corpus rows that
+  (a) are RELEVANT to that section (provenance-first, §2.2) AND (b) have `authority_score ≥ authority_floor`; a unit
   is SUFFICIENT iff covered_count ≥ its evidence_target, else UNDER_COVERED. Overall verdict:
   - **PROCEED** — every unit SUFFICIENT → the generator may be billed.
   - **EXPAND** — ≥1 unit UNDER_COVERED AND `round_index < max_rounds` → return the under-covered units (+
@@ -60,19 +61,37 @@ is billed.
 - `PlanSufficiencyReport`: `verdict` (PROCEED/EXPAND/ABORT) + `per_unit` (unit id, evidence_target,
   covered_count, sufficient: bool, relevant-but-below-authority count) + `under_covered_units` (for EXPAND).
 
-### 2.2 THE COVERAGE UNIT + RELEVANCE (the hard design point — Codex please probe)
-- **Unit = the section outline item** (each `SectionOutlineItem` has an `evidence_target`). (Sub-queries are
-  the discovery facets; the SECTION is the done-definition unit per plan row 47. Confirm this is the right
-  unit, vs per-sub-query.)
-- **Relevance signal (field-agnostic, no LLM, no domain):** a corpus row is RELEVANT to a section iff its
-  retrieval-provenance maps to that section OR its content-word overlap with the section's
-  title/focus/its sub-queries clears a floor (reuse the existing `_content_words` overlap primitive — the
-  same one the verifier uses; NO new heuristic). Each retrieved row already carries WHICH sub-query/need
-  surfaced it (Phase 2 provenance); the plan maps sub-queries→sections at planning time. So coverage is
-  computed from real provenance + a deterministic overlap floor, not an LLM relevance call.
-- **Authority floor:** a row counts toward coverage iff `score_source_authority(...).authority_confidence ≥
-  authority_floor` (env `PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR`, a single global float — NOT a per-domain
-  dict). A relevant-but-below-floor row is counted separately (reported, not credited).
+### 2.2 THE COVERAGE UNIT + RELEVANCE (iter-1 P1 #2 — provenance-first, executable)
+- **Unit = the section outline item.** Each `SectionOutlineItem` has an `evidence_target`. But today it has
+  ONLY `archetype`/`title`/`evidence_target` (`research_planner.py:227`) — NO facet mapping, so title-overlap
+  alone could credit OFF-facet rows to a section (the partial money-trap Codex flagged). FIX: ADD
+  `sub_query_indices: list[int]` to `SectionOutlineItem` (additive, default `[]`). The planner declares, per
+  section, WHICH of the 20-40 `sub_queries` (by index) make that section complete. The planner prompt emits
+  it; parse validates each index is in-range of `sub_queries`.
+- **Relevance = PROVENANCE-FIRST (iter-1 P1 #2):** each evidence row already persists `query_origin` (the
+  sub-query text that surfaced it — `live_retriever.py:2226`). A row is RELEVANT to a section iff its
+  `query_origin` matches (normalized-equality) one of the sub-query texts at that section's
+  `sub_query_indices`. This is the real retrieval provenance, NOT a heuristic.
+  - **Fallback (tightly specified):** ONLY when a row has an EMPTY `query_origin` (seed-lane / legacy rows),
+    fall back to `_content_words` overlap — and the overlap floor is computed against the section's OWN
+    sub-query texts (the ones at `sub_query_indices`), NOT just the title, so a section's facets must be
+    present. A row with a non-empty `query_origin` that doesn't match the section is NOT relevant (no
+    title-overlap rescue) — provenance is authoritative.
+- **Authority floor (iter-1 P1 #1 — numeric, persisted):** the numeric authority strength is
+  `AuthorityResult.authority_score: float [0,1]` (`source_class.py:75`), NOT the `authority_confidence`
+  HIGH/MEDIUM/LOW enum. A row counts toward coverage iff its `authority_score ≥
+  PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR` (a single global float in [0,1], NOT a per-domain dict). BUT evidence
+  rows do NOT persist any authority field today (`live_retriever.py:2222-2230` persists tier/source/
+  query_origin only). So §2.3a ADDS the per-row authority sidecar the gate reads. A relevant-but-below-floor
+  row is counted separately (reported, not credited).
+
+### 2.3a Persist the per-row authority result (iter-1 P1 #1 — the missing data)
+- At the on-mode evidence-row build (`live_retriever.py:2222-2230`), ADD additive fields
+  `authority_score: float` and `authority_confidence: str` to each row, populated from
+  `score_source_authority(...)` (the Phase-0a model already runs on the live path). Additive, default
+  `0.0`/`""` → OFF rows unchanged (the legacy adequacy gate ignores them; byte-identical). The plan-
+  sufficiency gate reads `row["authority_score"]`. Pure-function note: the gate is pure over rows that
+  ALREADY carry the sidecar — the sidecar is written at retrieval time, not by the gate.
 
 ### 2.3 Wiring into the sweep (the money gate)
 - `run_honest_sweep_r3.py`: on-mode, BEFORE `generate_multi_section_report`, call
@@ -96,8 +115,14 @@ is billed.
   but section #5 has 0 relevant above-floor rows) → verdict EXPAND/ABORT, and assert ZERO generator call
   (spy on `generate_multi_section_report` — it must NOT be invoked). This is the money-trap EXIT.
 - **P3-4 THE TRAP (sovereignty):** same shape for an ai-sovereignty plan → held before billing.
-- **P3-5 authority floor bites:** a section with 3 relevant rows ALL below the authority floor → UNDER_
-  COVERED (relevant-but-below-floor counted separately, not credited).
+- **P3-5 authority floor bites (numeric):** a section with 3 relevant rows ALL with `authority_score` below
+  `PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR` → UNDER_COVERED (relevant-but-below-floor counted separately).
+- **P3-5b provenance-first mapping:** a row whose `query_origin` matches a section's `sub_query_indices`
+  counts toward THAT section; a row with a non-empty `query_origin` that matches a DIFFERENT section's
+  sub-queries does NOT count toward this section even if its title-words overlap (no off-facet credit). An
+  empty-`query_origin` row uses the content-word fallback against the section's sub-query texts.
+- **P3-5c authority sidecar persisted:** the on-mode evidence row built by live_retriever carries
+  `authority_score` (float) + `authority_confidence` (str); off-mode rows are unchanged (no sidecar).
 - **P3-6 EXPAND vs ABORT:** under-covered + round_index < max_rounds → EXPAND (returns the under-covered
   units); under-covered + rounds exhausted → ABORT.
 - **P3-7 field-agnostic guard:** a grep-style test asserts the on-path sufficiency code consults NO
@@ -108,8 +133,9 @@ is billed.
 
 ## 4. EXIT CRITERIA (issue #987)
 On-mode, a broad/shallow corpus is held at EXPAND/abort BEFORE a generator token is billed; the housing +
-sovereignty trap cases replay with ZERO generator bill; sufficiency = per-section evidence_target × authority
-floor, computed from the plan + authority (no domain dict); OFF byte-identical; all smoke green; spend-free.
+sovereignty trap cases replay with ZERO generator bill; sufficiency = per-section evidence_target coverage (provenance-first row→section mapping via query_origin ×
+`sub_query_indices`) × the NUMERIC authority_score floor; computed from the plan + the persisted per-row
+authority sidecar (no domain dict); OFF byte-identical; all smoke green; spend-free.
 
 ## 5. WHAT I HAVE ALSO CHECKED
 - `assess_corpus_adequacy` call sites: `:2001` (main), `:2152` (staged), `:2249` (deepener) — all
@@ -119,7 +145,16 @@ floor, computed from the plan + authority (no domain dict); OFF byte-identical; 
 - Phase 0a `authority_confidence` is the per-source floor signal (a single global float threshold, NOT a
   per-domain dict).
 
-## 6. REVIEW QUESTIONS FOR CODEX
+## 5b RESOLVED FROM ITER-1 (Codex answers folded in)
+- Unit = section, with the plan now recording the section's facets via `sub_query_indices` (Codex: "section
+  can be the reporting unit only if the plan records the facets/sub-queries that make that section complete").
+- Relevance = provenance-first (query_origin × sub_query_indices), content-word overlap ONLY as the
+  empty-provenance fallback, floored against the section's sub-query texts (Codex: "acceptable only with
+  provenance-first mapping and a tightly specified overlap fallback").
+- Authority = the NUMERIC `authority_score` (not the confidence enum), persisted per row by live_retriever.
+- EXPAND→ABORT in Phase 3 + gate on PG_USE_RESEARCH_PLANNER: Codex confirmed both correct.
+
+## 6. REVIEW QUESTIONS FOR CODEX (iter 2)
 1. Is the coverage UNIT = section (with its evidence_target) the right grain, vs per-sub-query? (The plan's
    done-definition is per-section; but a section may span several sub-questions.)
 2. Is the relevance signal (retrieval-provenance + deterministic content-word overlap floor, NO LLM) sound
