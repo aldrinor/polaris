@@ -1322,6 +1322,27 @@ def _capture_run_pin(
         return None
 
 
+def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
+    """I-meta-007b (#meta-007) P1: attach the per-run tool-utilization summary
+    to ``manifest`` (and write ``run_dir/tool_summary.json``) immediately before
+    EVERY ``manifest.json`` write — success AND all abort/error paths.
+
+    Thin fail-safe wrapper around
+    :func:`src.polaris_graph.telemetry.tool_tracer.attach_tool_utilization`.
+    Pure no-op when PG_ENABLE_TOOL_TRACKER selects OFF (manifest unchanged, no
+    file written), so OFF-mode manifest.json stays byte-identical. Any telemetry
+    or import error is swallowed + logged so it can never abort the run.
+    """
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            attach_tool_utilization as _attach,
+        )
+        return _attach(manifest, run_dir)
+    except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
+        print(f"[tool_tracker] utilization attach skipped: {_tt_exc}")
+        return manifest
+
+
 def _abort_if_cancelled(
     q: dict,
     run_dir: Path,
@@ -1357,6 +1378,7 @@ def _abort_if_cancelled(
         "question": q.get("question", ""),
         "status": "cancelled",
     }
+    manifest = _attach_tool_utilization(manifest, run_dir)
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1457,6 +1479,28 @@ async def run_one_query(
             print(f"[retrieval_trace] flush error (skipped): {_exc}")
 
     _flush_retrieval_trace()
+
+    # I-meta-007b (#meta-007): per-tool utilization tracer. ON-mode additive,
+    # record-only, spend-free. Reset the process-global singleton FIRST so a
+    # multi-query sweep binds each query's tracer to its OWN run_dir (and never
+    # accumulates calls across queries), then bind to this run_dir. Guarded by
+    # PG_ENABLE_TOOL_TRACKER (default "1"): when OFF we reset to a fresh
+    # in-memory tracer with NO run_dir, so no tool_trace.jsonl is written and
+    # the manifest stays byte-identical (the tool_utilization key is gated on
+    # _tool_tracker_on below). Best-effort — a telemetry import error must not
+    # abort the run.
+    _tool_tracker_on = os.environ.get("PG_ENABLE_TOOL_TRACKER", "1").strip() in (
+        "1", "true", "True",
+    )
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            get_tool_tracer as _get_tool_tracer,
+            reset_tool_tracer as _reset_tool_tracer,
+        )
+        _reset_tool_tracer()
+        _get_tool_tracer(run_dir if _tool_tracker_on else None)
+    except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
+        print(f"[tool_tracker] init skipped: {_tt_exc}")
 
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
@@ -1676,6 +1720,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            abort_manifest = _attach_tool_utilization(abort_manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -2046,6 +2091,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            abort_manifest = _attach_tool_utilization(abort_manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -2416,6 +2462,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -2508,6 +2555,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -3254,6 +3302,7 @@ async def run_one_query(
                     decision_id=q.get("decision_id"),
                     query_slug=q.get("slug"),
                 )
+                manifest = _attach_tool_utilization(manifest, run_dir)
                 (run_dir / "manifest.json").write_text(
                     json.dumps(manifest, indent=2, sort_keys=True, default=str)
                     + "\n",
@@ -3759,6 +3808,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -4140,43 +4190,55 @@ async def run_one_query(
             if not r.passed:
                 _log(f"                FAIL {r.item_id}: {r.details[:100]}")
 
-        # Judge
+        # Judge — LEGACY single-judge path. I-meta-007: SKIP entirely when the 4-role
+        # seam will run (PG_FOUR_ROLE_MODE on AND a transport injected). Running both
+        # would DOUBLE-JUDGE with DIFFERENT models (legacy Mirror/Gemma here vs the
+        # 4-role Qwen Judge in the seam) and produce conflicting verdicts; the seam's
+        # D8 decision is the SINGLE binding gate. When the seam is OFF (default), the
+        # legacy judge runs exactly as before (byte-identical).
+        _seam_will_run = (
+            os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in ("1", "true", "True")
+            and four_role_transport is not None
+        )
         jr = None
-        try:
-            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
-            _pathb_jr_tok = _pathb.set_role("evaluator")
+        if _seam_will_run:
+            _log("[judge]       skipped — 4-role seam (D8) is the binding gate")
+        else:
             try:
-                jr = await judge_report(
-                    report_text=final_report,
-                    research_question=q["question"],
-                    temperature=0.2,
-                    max_tokens=800,
+                # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
+                _pathb_jr_tok = _pathb.set_role("evaluator")
+                try:
+                    jr = await judge_report(
+                        report_text=final_report,
+                        research_question=q["question"],
+                        temperature=0.2,
+                        max_tokens=800,
+                    )
+                finally:
+                    _pathb.reset_role(_pathb_jr_tok)
+                if jr.parse_ok:
+                    vcounts = {
+                        v: sum(1 for j in jr.verdicts.values()
+                               if j["verdict"] == v)
+                        for v in ("good", "acceptable", "needs_revision", "unknown")
+                    }
+                    _log(f"[judge]       {vcounts}")
+                    for axis, v in jr.verdicts.items():
+                        _log(f"              [{v['verdict'].upper():>15}] "
+                             f"{axis}: {v['note'][:80]}")
+                else:
+                    _log(f"[judge]       PARSE ERROR: {jr.error}")
+                (run_dir / "judge_output.json").write_text(
+                    json.dumps({
+                        "model": jr.model, "parse_ok": jr.parse_ok,
+                        "verdicts": jr.verdicts, "raw": jr.raw_response,
+                        "input_tokens": jr.input_tokens,
+                        "output_tokens": jr.output_tokens,
+                    }, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
                 )
-            finally:
-                _pathb.reset_role(_pathb_jr_tok)
-            if jr.parse_ok:
-                vcounts = {
-                    v: sum(1 for j in jr.verdicts.values()
-                           if j["verdict"] == v)
-                    for v in ("good", "acceptable", "needs_revision", "unknown")
-                }
-                _log(f"[judge]       {vcounts}")
-                for axis, v in jr.verdicts.items():
-                    _log(f"              [{v['verdict'].upper():>15}] "
-                         f"{axis}: {v['note'][:80]}")
-            else:
-                _log(f"[judge]       PARSE ERROR: {jr.error}")
-            (run_dir / "judge_output.json").write_text(
-                json.dumps({
-                    "model": jr.model, "parse_ok": jr.parse_ok,
-                    "verdicts": jr.verdicts, "raw": jr.raw_response,
-                    "input_tokens": jr.input_tokens,
-                    "output_tokens": jr.output_tokens,
-                }, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            _log(f"[judge]       FAILED: {exc}")
+            except Exception as exc:
+                _log(f"[judge]       FAILED: {exc}")
 
         # Manifest — compute unified status BEFORE the write
         # so manifest.status is authoritative (BUG-B-101 fix).
@@ -4318,7 +4380,12 @@ async def run_one_query(
                 {v: sum(1 for j in jr.verdicts.values()
                         if j["verdict"] == v)
                  for v in ("good", "acceptable", "needs_revision", "unknown")}
-                if jr and jr.parse_ok else {"error": "failed"}
+                if jr and jr.parse_ok
+                # I-meta-007: when the 4-role seam ran, the legacy judge was
+                # deliberately skipped (D8 is the binding gate) — say so, don't
+                # mislabel it "failed".
+                else ({"superseded_by_four_role_seam": True} if _seam_will_run
+                      else {"error": "failed"})
             ),
             "cost_usd": run_cost,
             "budget_cap_usd": PG_MAX_COST_PER_RUN,
@@ -4552,6 +4619,14 @@ async def run_one_query(
         except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
             pass
 
+        # I-meta-007b (#meta-007): write run_dir/tool_summary.json and add the
+        # additive manifest['tool_utilization'] summary via the shared helper
+        # (same helper now called on every abort/error path — single source of
+        # truth, identical shape). ON-mode only (gated on PG_ENABLE_TOOL_TRACKER
+        # inside the helper): when OFF, neither the file nor the key is produced,
+        # so manifest.json is byte-identical to the pre-I-meta-007b output.
+        manifest = _attach_tool_utilization(manifest, run_dir)
+
         manifest = augment_v6_manifest(
             manifest,
             external_run_id=q.get("external_run_id"),
@@ -4600,6 +4675,7 @@ async def run_one_query(
                     decision_id=q.get("decision_id"),
                     query_slug=q.get("slug"),
                 )
+                error_manifest = _attach_tool_utilization(error_manifest, run_dir)
                 (run_dir / "manifest.json").write_text(
                     json.dumps(error_manifest, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",

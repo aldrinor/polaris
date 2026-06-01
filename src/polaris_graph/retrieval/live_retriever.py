@@ -138,6 +138,63 @@ def _trace_drop(url: str, reason: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-meta-007b (#meta-007): per-tool utilization tracer. Record-only + fail-safe.
+# The tracer NEVER changes retrieval behavior or return values; any tracer error
+# (import failure, None tracer, disk error) is swallowed here so a telemetry bug
+# can never break retrieval. Lazy import keeps the dependency one-directional.
+# ─────────────────────────────────────────────────────────────────────────────
+def _trace_tool(
+    tool_name: str,
+    target: str = "",
+    status: str = "ok",
+    latency_ms: float = 0.0,
+    bytes_sent: int = 0,
+    bytes_received: int = 0,
+    backend_used: str = "",
+    error: str = "",
+    **metadata: Any,
+) -> None:
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            get_tool_tracer,
+            tool_tracker_enabled,
+        )
+        # I-meta-007b P2b: gate on PG_ENABLE_TOOL_TRACKER (default ON) so a
+        # direct caller OUTSIDE run_one_query (which never ran the per-query
+        # reset/bind) cannot append to a stale ON singleton when tracking is
+        # disabled. When OFF this is a pure no-op.
+        if not tool_tracker_enabled():
+            return
+        get_tool_tracer().record(
+            tool_name=tool_name,
+            target=target,
+            status=status,
+            latency_ms=latency_ms,
+            bytes_sent=bytes_sent,
+            bytes_received=bytes_received,
+            backend_used=backend_used,
+            error=error,
+            **metadata,
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break retrieval
+        pass
+
+
+def _resp_content_len(resp: Any) -> int:
+    """Best-effort byte length of an httpx response body for telemetry.
+
+    Returns 0 when the response object lacks a measurable ``content`` (e.g. a
+    lightweight test double). NEVER raises — record-only telemetry must not
+    depend on the response's concrete shape.
+    """
+    try:
+        content = getattr(resp, "content", None)
+        return len(content) if content else 0
+    except Exception:  # noqa: BLE001 — telemetry must never break retrieval
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API clients
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,10 +214,20 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
         pass
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     payload = {"q": query, "num": max(1, min(num, 20))}
+    # I-meta-007b: wall-clock for the tool tracer (record-only).
+    _t0 = time.time()
+    _bytes_sent = len(str(payload))
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             r = c.post(SERPER_ENDPOINT, json=payload, headers=headers)
+        _latency_ms = (time.time() - _t0) * 1000.0
         if r.status_code != 200:
+            _trace_tool(
+                "serper", target=query, status="fail", latency_ms=_latency_ms,
+                bytes_sent=_bytes_sent,
+                bytes_received=_resp_content_len(r),
+                backend_used="serper_api_v1", error=f"HTTP {r.status_code}",
+            )
             logger.warning(
                 "[live_retriever] Serper returned %s for %r",
                 r.status_code, query[:60],
@@ -169,6 +236,11 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             return []
         data = r.json()
     except Exception as exc:
+        _trace_tool(
+            "serper", target=query, status="fail",
+            latency_ms=(time.time() - _t0) * 1000.0, bytes_sent=_bytes_sent,
+            backend_used="serper_api_v1", error=str(exc),
+        )
         logger.warning("[live_retriever] Serper exception: %s", exc)
         _trace_query("serper", query, [])
         return []
@@ -181,6 +253,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             "snippet": item.get("snippet", ""),
             "source": "serper",
         })
+    _trace_tool(
+        "serper", target=query, status="ok", latency_ms=_latency_ms,
+        bytes_sent=_bytes_sent,
+        bytes_received=_resp_content_len(r),
+        backend_used="serper_api_v1", result_count=len(out),
+    )
     _trace_query("serper", query, [o["url"] for o in out])
     return out
 
@@ -201,10 +279,18 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
         "limit": max(1, min(limit, 100)),
     }
+    # I-meta-007b: wall-clock for the tool tracer (record-only).
+    _t0 = time.time()
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             r = c.get(S2_BULK_ENDPOINT, params=params, headers=headers)
+        _latency_ms = (time.time() - _t0) * 1000.0
         if r.status_code != 200:
+            _trace_tool(
+                "s2", target=query, status="fail", latency_ms=_latency_ms,
+                bytes_received=_resp_content_len(r),
+                backend_used="semantic_scholar_api", error=f"HTTP {r.status_code}",
+            )
             logger.warning(
                 "[live_retriever] S2 returned %s for %r",
                 r.status_code, query[:60],
@@ -213,6 +299,11 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             return []
         data = r.json()
     except Exception as exc:
+        _trace_tool(
+            "s2", target=query, status="fail",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used="semantic_scholar_api", error=str(exc),
+        )
         logger.warning("[live_retriever] S2 exception: %s", exc)
         _trace_query("semantic_scholar", query, [])
         return []
@@ -246,6 +337,11 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             "year": p.get("year"),
             "venue": p.get("venue"),
         })
+    _trace_tool(
+        "s2", target=query, status="ok", latency_ms=_latency_ms,
+        bytes_received=_resp_content_len(r),
+        backend_used="semantic_scholar_api", result_count=len(out),
+    )
     _trace_query("semantic_scholar", query, [o["url"] for o in out])
     return out
 
@@ -1133,6 +1229,47 @@ def _fetch_content_httpx_naive(
         return "", False, "", "", ""
 
 
+def _fallback_naive_fetch(
+    url: str,
+    max_chars: int,
+    t0: float,
+    primary_reason: str,
+) -> tuple[str, bool, str, str, str]:
+    """Run the naive-httpx fallback and record its FINAL outcome (I-meta-007b P2a).
+
+    Every content-fetch fallback in :func:`_fetch_content` (AccessBypass
+    disabled / unavailable / timed out / raised / produced no result) ends by
+    delegating to :func:`_fetch_content_httpx_naive`. The pre-fix code traced
+    ``fail``/``timeout`` BEFORE that delegation, so a SUCCESSFUL fallback was
+    still recorded as a failure. This helper traces the ACTUAL result instead:
+
+    * ``status="ok"`` + real ``bytes_received`` (length of fetched content) when
+      the naive fetch returned content,
+    * ``status="fail"`` otherwise — carrying ``primary_reason`` (the reason the
+      primary path fell back, e.g. ``access_bypass_timeout_90s``) in ``error``
+      for diagnostics.
+
+    ``backend_used="httpx_naive"`` uniformly because the naive fetcher is what
+    actually ran. ``t0`` is the single wall-clock start captured at the top of
+    :func:`_fetch_content` so latency reflects total fetch time. Record-only +
+    fail-safe (``_trace_tool`` swallows its own errors); returns the naive
+    fetcher's tuple unchanged so retrieval behavior is identical to before.
+    """
+    result = _fetch_content_httpx_naive(url, max_chars)
+    content, ok = result[0], result[1]
+    _trace_tool(
+        "fetch_content",
+        target=url,
+        status="ok" if ok else "fail",
+        latency_ms=(time.time() - t0) * 1000.0,
+        backend_used="httpx_naive",
+        bytes_received=len(content) if ok else 0,
+        error="" if ok else str(primary_reason),
+        primary_reason=str(primary_reason),
+    )
+    return result
+
+
 def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
     """M-42b (2026-04-22): re-fetch source content for deterministic
     trial-table / timeline extraction when the evidence row's
@@ -1324,12 +1461,20 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
     Env opt-out: set PG_DISABLE_ACCESS_BYPASS=1 to fall back to the
     naive httpx path (useful when Playwright/Crawl4AI is unavailable).
     """
+    # I-meta-007b: single wall-clock for the tool tracer (record-only). The
+    # naive-httpx fallbacks below are recorded as the content-fetch outcome so
+    # the per-run summary reflects every fetch attempt's path + latency.
+    _t0 = time.time()
     if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
         # M-45 pass-2: record env-opt-out so diagnostics can see it.
         _m45_record_fetch_telemetry(
             url, "httpx_naive", "pg_disable_access_bypass=1"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail), not the
+        # pre-fallback "fail" — a successful naive fetch must be recorded ok.
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, "pg_disable_access_bypass=1"
+        )
     try:
         from src.tools.access_bypass import AccessBypass
     except Exception as exc:
@@ -1340,7 +1485,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", f"access_bypass_import_failed: {exc}"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_import_failed: {exc}"
+        )
 
     # Run AccessBypass in a dedicated thread so each call gets its own
     # fresh event loop. This works whether we're called from sync or
@@ -1382,7 +1530,11 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail). The
+        # backend that actually ran is httpx_naive, not access_bypass.
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_timeout_{int(deadline)}s"
+        )
 
     if "error" in result_holder:
         exc = result_holder["error"]
@@ -1394,7 +1546,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
             url, "httpx_naive",
             f"access_bypass_raised_{type(exc).__name__}",
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_raised_{type(exc).__name__}"
+        )
     if "value" not in result_holder:
         logger.warning(
             "[live_retriever] AccessBypass produced no result for %s",
@@ -1403,7 +1558,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", "access_bypass_no_result"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, "access_bypass_no_result"
+        )
     result = result_holder["value"]
 
     method = getattr(result, "access_method", "unknown") or "unknown"
@@ -1416,6 +1574,11 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
         # M-45 pass-2: record the winning backend + reason even on miss
         # so downstream audits can see which backend was last invoked.
         _m45_record_fetch_telemetry(url, method, reason or "no_content")
+        _trace_tool(
+            "fetch_content", target=url, status="stub",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used=method, error=str(reason or "no_content"),
+        )
         return "", False, "", "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
@@ -1438,6 +1601,12 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
     )
     # M-45 pass-2: record winning backend for diagnostics.
     _m45_record_fetch_telemetry(url, method, "")
+    _trace_tool(
+        "fetch_content", target=url, status="ok",
+        latency_ms=(time.time() - _t0) * 1000.0,
+        backend_used=method, bytes_received=len(content),
+        content_length=len(content),
+    )
     return content, bool(content), extracted_title, body_type, jsonld
 
 
