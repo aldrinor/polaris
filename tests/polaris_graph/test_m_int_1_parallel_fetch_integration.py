@@ -99,7 +99,7 @@ def test_parallel_fetch_invoked_when_flag_default(
 
     # Stub `_fetch_content` to return deterministic results
     # without hitting the network.
-    def _stub_fetch_content(url, max_chars):
+    def _stub_fetch_content(url, max_chars, doi_hint="", pmid_hint=""):
         return (f"content of {url}", True, f"title of {url}", "article", "")
 
     monkeypatch.setattr(lr_mod, "_fetch_content", _stub_fetch_content)
@@ -129,7 +129,9 @@ def test_parallel_fetch_imported_in_live_retriever_block(
     monkeypatch.setenv("PG_USE_PARALLEL_FETCH", "1")
     monkeypatch.setattr(
         lr_mod, "_fetch_content",
-        lambda url, n: (f"hello {url}", True, "T", "article", ""),
+        lambda url, n, doi_hint="", pmid_hint="": (
+            f"hello {url}", True, "T", "article", "",
+        ),
     )
 
     # Spy on parallel_fetch at the substrate import site.
@@ -191,7 +193,9 @@ def test_disabled_flag_falls_back_to_serial(
     monkeypatch.setenv("PG_USE_PARALLEL_FETCH", "0")
     monkeypatch.setattr(
         lr_mod, "_fetch_content",
-        lambda url, n: (f"serial {url}", True, "T", "article", ""),
+        lambda url, n, doi_hint="", pmid_hint="": (
+            f"serial {url}", True, "T", "article", "",
+        ),
     )
     monkeypatch.setattr(
         lr_mod, "_serper_search",

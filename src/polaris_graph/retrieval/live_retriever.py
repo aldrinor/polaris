@@ -691,6 +691,26 @@ def _extract_doi_from_url(url: str) -> str:
     return ""
 
 
+def _candidate_oa_hints(metadata: Any) -> tuple[str, str]:
+    """I-meta-007c: pull (doi, pmid) hints from a candidate's metadata dict.
+
+    S2 candidates carry ``metadata["doi"]`` (line ~2001); PMIDs are not in the
+    S2 dict today but the slot is honoured for forward-compat / testability.
+    Returns ("", "") for non-dict / missing metadata. NEVER raises.
+
+    Diff-gate P2a: the whole body is wrapped in a fail-open try/except returning
+    ("", "") on ANY error, matching the resolver helpers' fail-open contract —
+    a malformed metadata object must never break the retrieval loop."""
+    try:
+        if not isinstance(metadata, dict):
+            return "", ""
+        doi = str(metadata.get("doi") or "").strip()
+        pmid = str(metadata.get("pmid") or "").strip()
+        return doi, pmid
+    except Exception:  # noqa: BLE001 — fail-OPEN, never break retrieval.
+        return "", ""
+
+
 def _authority_cache_init() -> None:
     """Create the authority-enrich cache with a VERSIONED migration (C5).
 
@@ -1432,7 +1452,211 @@ def refetch_for_extraction_with_diagnostics(
     return quote, diagnostics
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
+# ─────────────────────────────────────────────────────────────────────────────
+# I-meta-007c: OPEN-ACCESS resolver for the LIVE retrieval loop.
+#
+# When AccessBypass returns a stub/empty/paywalled result for a candidate that
+# carries a DOI (from S2 metadata or embedded in the URL), resolve the
+# best open-access full text BEFORE giving up. Fail-OPEN: any resolver error
+# returns "" and the caller falls through to its existing path — retrieval is
+# NEVER broken by a resolver failure.
+#
+# Fallback order (exact, per `.codex/I-meta-007/_wiring_specs.txt`
+# LANE wire:unpaywall-live-path):
+#   1. Unpaywall v2 best-OA URL  -> fetch via AccessBypass
+#   2. PubMed EFetch abstract (only when a PMID is available)
+#   3. else "" (caller keeps its existing stub/fallback behaviour)
+#
+# The OA fetch REUSES the existing AccessBypass stack (already budgeted in the
+# per-candidate fetch timeout) and the existing frame_fetcher parsers — no new
+# network budget, no duplicated parsing. All helpers are module-level so tests
+# can monkeypatch each seam independently (no real network, no spend).
+#
+# Env gates (LAW VI):
+#   PG_ENABLE_LIVE_OA_RESOLVER  default "1"  — master on/off switch.
+#   PG_UNPAYWALL_EMAIL          default placeholder — Unpaywall ToS email.
+# ─────────────────────────────────────────────────────────────────────────────
+def _oa_resolver_enabled() -> bool:
+    """True iff the live OA resolver is enabled. Off iff the env var is set to
+    a recognized falsey value ("0" / "false" / "no"); default ON."""
+    raw = os.getenv("PG_ENABLE_LIVE_OA_RESOLVER", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _try_oa_resolution(
+    url: str,
+    extracted_doi: str = "",
+    pmid: str = "",
+    max_chars: int = DEFAULT_CONTENT_MAX_CHARS,
+) -> str:
+    """Resolve open-access full text for a paywalled/stub candidate.
+
+    Public entry point called from :func:`_fetch_content` when AccessBypass
+    returns stub/empty content AND a DOI is available. Returns upgraded content
+    (str, capped at ``max_chars``) or "" on any failure / when disabled.
+
+    Fail-OPEN by contract: every internal failure mode returns "" so the caller
+    falls through to its existing behaviour. NEVER raises.
+
+    Diff-gate P1: a DOI is REQUIRED to do anything. The PubMed EFetch abstract
+    is only a SECONDARY fallback AFTER a DOI-keyed Unpaywall miss — a PMID-only,
+    no-DOI candidate must NOT be upgraded (Europe-PMC can emit metadata with
+    doi=None + pmid set; that record must stay a miss, not become PubMed text).
+
+    Fallback order (DOI required throughout):
+      1. Unpaywall v2 best-OA URL  -> AccessBypass fetch
+      2. PubMed EFetch abstract    (only after a DOI-keyed Unpaywall miss AND
+                                     when ``pmid`` is present)
+      3. ""
+    """
+    if not _oa_resolver_enabled():
+        return ""
+    doi = (extracted_doi or "").strip()
+    # Diff-gate P1: DOI-present gate. Without a DOI the resolver does nothing —
+    # the PMID is only a secondary fallback after a DOI-keyed Unpaywall miss.
+    if not doi:
+        return ""
+    try:
+        # Step 1: Unpaywall best-OA URL(s), prioritized pdf > html.
+        if doi:
+            for oa_url in _unpaywall_get_oa_urls(doi):
+                if not oa_url:
+                    continue
+                content = _fetch_oa_url_via_bypass(oa_url, max_chars)
+                if content:
+                    logger.info(
+                        "[live_retriever] OA resolver: Unpaywall hit for "
+                        "doi=%s url=%r (%d chars)",
+                        doi, oa_url[:80], len(content),
+                    )
+                    return content[:max_chars]
+        # Step 2: PubMed EFetch abstract when a PMID is available.
+        if pmid:
+            abstract = _pubmed_fetch_abstract(pmid)
+            if abstract:
+                logger.info(
+                    "[live_retriever] OA resolver: PubMed EFetch fallback "
+                    "for pmid=%s (%d chars)",
+                    pmid, len(abstract),
+                )
+                return abstract[:max_chars]
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN, never break retrieval.
+        logger.debug(
+            "[live_retriever] OA resolver error for doi=%s url=%r: %s",
+            doi, url[:80], exc,
+        )
+        return ""
+    return ""
+
+
+def _unpaywall_get_oa_urls(doi: str) -> list[str]:
+    """Query the Unpaywall v2 API for OA location URLs.
+
+    Returns an ordered list ``[pdf_url, html_url]`` (each may be absent; the
+    list is empty when the work is not OA or the lookup fails). Fail-OPEN: any
+    error returns ``[]`` so the caller falls back to PubMed / its existing path.
+
+    Reuses ``frame_fetcher._parse_unpaywall_response`` for the OA-URL parse so
+    the live path and the M-56 frame path share one parser.
+    """
+    if not doi:
+        return []
+    try:
+        import httpx as _httpx
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _parse_unpaywall_response,
+        )
+
+        email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+        endpoint = "https://api.unpaywall.org/v2/" + doi.strip()
+        with _httpx.Client(timeout=10.0) as client:
+            response = client.get(endpoint, params={"email": email})
+        if response.status_code != 200:
+            return []
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001 — malformed JSON => no OA.
+            return []
+        parsed = _parse_unpaywall_response(data if isinstance(data, dict) else {})
+        if not parsed.get("is_oa"):
+            return []
+        # Prioritize PDF over landing-page HTML (PDF is full text; HTML may be
+        # an abstract-only shell).
+        urls = [parsed.get("oa_pdf_url") or "", parsed.get("oa_html_url") or ""]
+        return [u for u in urls if u]
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] Unpaywall OA query failed for doi=%s: %s",
+            doi, exc,
+        )
+        return []
+
+
+def _fetch_oa_url_via_bypass(oa_url: str, max_chars: int) -> str:
+    """Fetch an OA URL via the existing AccessBypass stack.
+
+    Reuses ``frame_fetcher._fetch_url_pattern`` — the proven sync/async-safe
+    AccessBypass wrapper (also the documented monkeypatch seam) — so the live
+    path does not re-implement the event-loop juggling. Returns content (str,
+    capped at ``max_chars``) or "" on failure. Fail-OPEN.
+    """
+    if not oa_url:
+        return ""
+    try:
+        from src.polaris_graph.retrieval.frame_fetcher import _fetch_url_pattern
+
+        content, _final_url = _fetch_url_pattern(oa_url)
+        if content:
+            return content[:max_chars]
+        return ""
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] OA bypass fetch failed for %r: %s",
+            oa_url[:80], exc,
+        )
+        return ""
+
+
+def _pubmed_fetch_abstract(pmid: str) -> str:
+    """Fetch an abstract from PubMed EFetch for ``pmid``.
+
+    Reuses ``frame_fetcher._parse_pubmed_xml`` for the XML -> abstract parse so
+    the live path and the M-56 frame path share one parser. Returns the
+    abstract text or "" on failure. Fail-OPEN.
+    """
+    if not pmid:
+        return ""
+    try:
+        import httpx as _httpx
+        from src.polaris_graph.retrieval.frame_fetcher import _parse_pubmed_xml
+
+        endpoint = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        params = {
+            "db": "pubmed",
+            "id": str(pmid).strip(),
+            "rettype": "abstract",
+            "retmode": "xml",
+        }
+        with _httpx.Client(timeout=15.0) as client:
+            response = client.get(endpoint, params=params)
+        if response.status_code != 200 or not (response.text or "").strip():
+            return ""
+        parsed = _parse_pubmed_xml(response.text)
+        return parsed.get("abstract") or ""
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] PubMed abstract fetch failed for pmid=%s: %s",
+            pmid, exc,
+        )
+        return ""
+
+
+def _fetch_content(
+    url: str,
+    max_chars: int,
+    doi_hint: str = "",
+    pmid_hint: str = "",
+) -> tuple[str, bool, str, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
@@ -1460,6 +1684,13 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
 
     Env opt-out: set PG_DISABLE_ACCESS_BYPASS=1 to fall back to the
     naive httpx path (useful when Playwright/Crawl4AI is unavailable).
+
+    I-meta-007c: ``doi_hint`` / ``pmid_hint`` are optional identifiers carried
+    from the candidate's S2 metadata. When AccessBypass returns stub/empty/
+    paywalled content AND a DOI is resolvable (hint or extracted from the URL),
+    the OPEN-ACCESS resolver (Unpaywall v2 -> AccessBypass; else PubMed EFetch
+    abstract) is tried BEFORE giving up. Gated by PG_ENABLE_LIVE_OA_RESOLVER
+    (default "1"); fail-OPEN (resolver errors never break retrieval).
     """
     # I-meta-007b: single wall-clock for the tool tracer (record-only). The
     # naive-httpx fallbacks below are recorded as the content-fetch outcome so
@@ -1574,6 +1805,45 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str, str]:
         # M-45 pass-2: record the winning backend + reason even on miss
         # so downstream audits can see which backend was last invoked.
         _m45_record_fetch_telemetry(url, method, reason or "no_content")
+        # I-meta-007c: AccessBypass returned a stub/empty/paywalled result.
+        # Before giving up, try the OPEN-ACCESS resolver when a DOI is
+        # available (from S2 metadata hint or embedded in the URL). On a hit
+        # we return the upgraded content with ok=True so the longer body
+        # re-tiers above T7 downstream. Fail-OPEN: an empty resolver result
+        # leaves the existing stub return path untouched.
+        #
+        # Diff-gate P2b: when the resolver is gated OFF, do NOT compute the DOI
+        # and do NOT call _try_oa_resolution — the OFF path is byte-identical to
+        # the pre-existing stub control flow (resolver never invoked).
+        # Diff-gate P1: enforce the DOI-present gate at the CALL SITE. Only enter
+        # the OA-resolver branch when a non-empty DOI is resolvable (hint or
+        # embedded in the URL). An empty-DOI candidate (e.g. an Europe-PMC record
+        # with doi=None + pmid set) must NOT be upgraded via a PMID-only PubMed
+        # fetch — it falls straight through to the pre-existing miss tuple.
+        if _oa_resolver_enabled():
+            oa_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+            if oa_doi:
+                oa_content = _try_oa_resolution(
+                    url=url,
+                    extracted_doi=oa_doi,
+                    pmid=(pmid_hint or "").strip(),
+                    max_chars=max_chars,
+                )
+                if oa_content:
+                    logger.info(
+                        "[live_retriever] fetch_oa %s (doi=%s chars=%d) — "
+                        "upgraded from stub via OA resolver",
+                        url[:80], oa_doi, len(oa_content),
+                    )
+                    _m45_record_fetch_telemetry(url, "oa_resolver", "")
+                    _trace_tool(
+                        "fetch_content", target=url, status="ok",
+                        latency_ms=(time.time() - _t0) * 1000.0,
+                        backend_used="oa_resolver",
+                        bytes_received=len(oa_content),
+                        content_length=len(oa_content),
+                    )
+                    return oa_content, True, "", "", ""
         _trace_tool(
             "fetch_content", target=url, status="stub",
             latency_ms=(time.time() - _t0) * 1000.0,
@@ -2160,8 +2430,15 @@ def run_live_retrieval(
             def fetch(
                 self, task: "FetchTask"
             ) -> tuple[bytes, str, int]:
+                # I-meta-007c: surface the per-candidate DOI/PMID hints
+                # (stashed in task_metadata at task construction) so the OA
+                # resolver can fire on the DEFAULT parallel path, not just the
+                # serial fallback.
+                _meta = task.task_metadata or {}
                 content, ok, title, body_type, jsonld = _fetch_content(
                     task.source_url, self.max_chars,
+                    doi_hint=str(_meta.get("doi") or ""),
+                    pmid_hint=str(_meta.get("pmid") or ""),
                 )
                 with self._lock:
                     self.results[task.source_url] = (
@@ -2183,14 +2460,19 @@ def run_live_retrieval(
         except ValueError:
             per_task_timeout = 120.0
 
-        fetch_tasks = [
-            FetchTask(
-                source_url=c.url,
-                backend_id="default",
-                task_metadata={"index": idx},
+        fetch_tasks = []
+        for idx, c in enumerate(candidates):
+            # I-meta-007c: carry the candidate's DOI/PMID hints into the
+            # FetchTask so _LiveContentParallelFetcher.fetch can pass them to
+            # _fetch_content for the OA resolver (default = parallel path).
+            _doi, _pmid = _candidate_oa_hints(getattr(c, "metadata", None))
+            fetch_tasks.append(
+                FetchTask(
+                    source_url=c.url,
+                    backend_id="default",
+                    task_metadata={"index": idx, "doi": _doi, "pmid": _pmid},
+                )
             )
-            for idx, c in enumerate(candidates)
-        ]
         fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
         parallel_report = parallel_fetch(
             fetch_tasks, fetcher,
@@ -2263,9 +2545,17 @@ def run_live_retrieval(
             # Rate-limit gently (Serper doesn't but S2 prefers <= 1rps)
             if i > 0 and i % 5 == 0:
                 time.sleep(0.2)
+            # I-meta-007c: thread the DOI/PMID hints from S2 metadata so the
+            # OA resolver can fire when AccessBypass returns a stub/paywall.
+            _cand_doi, _cand_pmid = _candidate_oa_hints(
+                getattr(cand, "metadata", None)
+            )
             # Fetch content (for tier classification + evidence)
             content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
-                _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+                _fetch_content(
+                    cand.url, DEFAULT_CONTENT_MAX_CHARS,
+                    doi_hint=_cand_doi, pmid_hint=_cand_pmid,
+                )
             )
         api_calls["fetch"] += 1
         if not ok:
