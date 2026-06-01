@@ -232,11 +232,19 @@ class SectionOutlineItem:
     question-specific TITLE, and a per-section evidence TARGET. It carries NO
     evidence IDs — no evidence exists yet at planning time; the generator's
     on-mode handoff assigns `ev_ids` post-retrieval (brief §2.5).
+
+    I-meta-005 Phase 3 (#987): `sub_query_indices` declares WHICH of the plan's
+    `sub_queries` (by index) make THIS section complete — the per-section facet
+    mapping the plan-sufficiency gate reads (brief §2.2). Additive, default `[]`
+    so OFF / direct construction is inert; on-mode `plan_research` validates
+    (≥1 in-range index + evidence_target ≥ 1 + whole-plan facet union) and
+    raises `MalformedPlanError` for any empty/stale/orphaned mapping.
     """
 
     archetype: str
     title: str
     evidence_target: int = 0
+    sub_query_indices: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -273,6 +281,10 @@ class ResearchPlan:
                     "archetype": item.archetype,
                     "title": item.title,
                     "evidence_target": item.evidence_target,
+                    # I-meta-005 Phase 3 (#987): the per-section facet mapping is
+                    # part of the SHA-pinned plan so the sufficiency contract is
+                    # reproducible from the pinned artifact (gap #19 audit trail).
+                    "sub_query_indices": list(item.sub_query_indices),
                 }
                 for item in self.outline
             ],
@@ -439,10 +451,22 @@ def _parse_outline(obj: dict[str, Any]) -> list[SectionOutlineItem]:
             evidence_target = int(target_raw)
         except (TypeError, ValueError):
             evidence_target = 0
+        # I-meta-005 Phase 3 (#987): parse the per-section facet mapping. SHAPE
+        # only here (coerce int-like entries, drop non-ints); the FAIL-CLOSED
+        # range/union validation runs in `plan_research` AFTER the sub_queries
+        # list is FINAL (post-truncation), so a parse-time-valid index that goes
+        # stale is still caught. Absent/empty -> [] (inert off-mode).
+        sub_query_indices: list[int] = []
+        for raw_idx in entry.get("sub_query_indices", []) or []:
+            try:
+                sub_query_indices.append(int(raw_idx))
+            except (TypeError, ValueError):
+                continue
         items.append(SectionOutlineItem(
             archetype=valid_tags[tag_raw],
             title=title,
             evidence_target=max(0, evidence_target),
+            sub_query_indices=sub_query_indices,
         ))
     if not items:
         raise PlannerError(
@@ -531,7 +555,11 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
         '  "outline": [section objects, each with:\n'
         '       "archetype": one of the field-invariant tags below,\n'
         '       "title":     a QUESTION-SPECIFIC section heading (not a generic label),\n'
-        '       "evidence_target": an integer target number of sources for the section\n'
+        '       "evidence_target": an integer target number of sources for the section,\n'
+        '       "sub_query_indices": [the 0-based indices into "sub_queries" '
+        "whose evidence makes THIS section complete — list every sub_query the "
+        "section depends on; EVERY sub_query index must appear in some section, "
+        "and every section must list at least one]\n"
         "  ]\n\n"
         f"ALLOWED ARCHETYPE TAGS (pick the ones the question needs): {archetype_list}\n\n"
         "RULES:\n"
@@ -623,4 +651,50 @@ def plan_research(
                 "(< min %d) after retry — NOT padding",
                 len(plan.sub_queries), min_subqueries,
             )
+    # I-meta-005 Phase 3 (#987): FAIL-CLOSED post-finalization facet validation.
+    # The sub_queries list is now FINAL (post-truncation / retry-winner). Any
+    # outline section whose facet mapping is empty / stale / out-of-range, OR a
+    # planned sub_query mapped to NO section, makes the plan-sufficiency contract
+    # vacuous — so refuse the plan BEFORE any retrieval/generation spend.
+    _validate_outline_facet_mapping(plan)
     return plan
+
+
+def _validate_outline_facet_mapping(plan: ResearchPlan) -> None:
+    """FAIL-CLOSED on-mode facet-mapping validation (brief §2.1b / §2.3a),
+    run AFTER `plan.sub_queries` is FINAL. Every section MUST:
+      * declare ≥1 `sub_query_index`,
+      * have every index in range of the FINAL `sub_queries`, AND
+      * carry `evidence_target ≥ 1`,
+    and the UNION of all sections' `sub_query_indices` MUST equal
+    `set(range(len(sub_queries)))` (no orphaned planned facet escapes the gate).
+    Any violation raises `MalformedPlanError` (zero spend). Pure / no-network.
+    """
+    n_sub = len(plan.sub_queries)
+    covered: set[int] = set()
+    for section in plan.outline:
+        indices = list(section.sub_query_indices)
+        if not indices:
+            raise MalformedPlanError(
+                f"outline section {section.title!r} has no sub_query_indices "
+                "(every on-mode section must map ≥1 planned sub-query)"
+            )
+        if int(section.evidence_target) < 1:
+            raise MalformedPlanError(
+                f"outline section {section.title!r} has evidence_target="
+                f"{section.evidence_target} (on-mode requires ≥1)"
+            )
+        for idx in indices:
+            if idx < 0 or idx >= n_sub:
+                raise MalformedPlanError(
+                    f"outline section {section.title!r} maps sub_query_index "
+                    f"{idx} out of range for {n_sub} final sub_queries"
+                )
+            covered.add(idx)
+    expected = set(range(n_sub))
+    if covered != expected:
+        orphaned = sorted(expected - covered)
+        raise MalformedPlanError(
+            f"planned sub_queries {orphaned} are mapped to no outline section "
+            "(every planned facet must be covered by some section)"
+        )

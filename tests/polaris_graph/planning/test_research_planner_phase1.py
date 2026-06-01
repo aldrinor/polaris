@@ -90,14 +90,31 @@ def make_fake_planner(*, n_subqueries=20, claim_type="empirical",
     `second_n` is set, the SECOND call returns that many sub_queries (used to
     exercise the lower-bound retry)."""
     state = {"calls": 0}
-    default_outline = outline or [
-        {"archetype": "Background", "title": "How the system behaves",
-         "evidence_target": 8},
-        {"archetype": "Quantitative-Comparison",
-         "title": "Comparing the alternatives", "evidence_target": 10},
-        {"archetype": "Decision", "title": "Which path is best",
-         "evidence_target": 6},
-    ]
+
+    def _default_outline_for(count: int):
+        # I-meta-005 Phase 3 (#987): on-mode plans MUST map every planned
+        # sub-query to some section (fail-closed whole-plan union). Distribute
+        # the `count` facet indices round-robin across the 3 default sections so
+        # the union == range(count) and each section has ≥1 in-range index.
+        clamped = min(count, DEFAULT_MAX_SUBQUERIES)
+        buckets: list[list[int]] = [[], [], []]
+        for i in range(clamped):
+            buckets[i % 3].append(i)
+        # If a section bucket is empty (count < 3), give it the first index so
+        # every section still maps ≥1 (the union is unchanged: it already
+        # contains 0..count-1).
+        for b in buckets:
+            if not b and clamped:
+                b.append(0)
+        return [
+            {"archetype": "Background", "title": "How the system behaves",
+             "evidence_target": 8, "sub_query_indices": buckets[0]},
+            {"archetype": "Quantitative-Comparison",
+             "title": "Comparing the alternatives", "evidence_target": 10,
+             "sub_query_indices": buckets[1]},
+            {"archetype": "Decision", "title": "Which path is best",
+             "evidence_target": 6, "sub_query_indices": buckets[2]},
+        ]
 
     def _fake(prompt: str) -> str:
         state["calls"] += 1
@@ -110,7 +127,7 @@ def make_fake_planner(*, n_subqueries=20, claim_type="empirical",
             "sub_queries": [
                 f"facet {i} alpha beta gamma" for i in range(count)
             ],
-            "outline": default_outline,
+            "outline": outline if outline is not None else _default_outline_for(count),
         }
         return json.dumps(payload)
 
@@ -213,7 +230,11 @@ def test_p1_2_planner_subqueries_reach_search_calls(monkeypatch) -> None:
         entities=["solar", "panel", "efficiency"],
         metrics=["efficiency", "cost"],
         outline=[{"archetype": "Background", "title": "T",
-                  "evidence_target": 8}],
+                  "evidence_target": 8,
+                  # Phase 3: map ALL 14 facets to the single section so the
+                  # whole-plan union holds (this test cares about search wiring,
+                  # not facet distribution).
+                  "sub_query_indices": list(range(14))}],
     )
 
     def _on_scope_planner(prompt: str) -> str:
@@ -285,11 +306,14 @@ def test_p1_4_off_domain_no_clinical_section_labels() -> None:
             n_subqueries=22,
             outline=[
                 {"archetype": "Background", "title": f"{name} background",
-                 "evidence_target": 8},
+                 "evidence_target": 8,
+                 "sub_query_indices": list(range(0, 8))},
                 {"archetype": "Quantitative-Comparison",
-                 "title": f"{name} comparison", "evidence_target": 10},
+                 "title": f"{name} comparison", "evidence_target": 10,
+                 "sub_query_indices": list(range(8, 15))},
                 {"archetype": "Decision", "title": f"{name} decision",
-                 "evidence_target": 6},
+                 "evidence_target": 6,
+                 "sub_query_indices": list(range(15, 22))},
             ],
         )
         plan = plan_research(q, planner_llm=planner)

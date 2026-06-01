@@ -600,21 +600,124 @@ def _assign_evidence_to_planned_outline(
     evidence: list[dict[str, Any]],
     *,
     max_ev_per_section: int = 30,
+    sub_queries: list[str] | None = None,
+    authority_floor: float | None = None,
 ) -> list[SectionPlan]:
     """Assign retrieved evidence rows to the planner's pre-declared sections
-    (brief §2.5). The titles + archetype tags + section COUNT come from
+    (brief §2.5 / §2.2b). The titles + archetype tags + section COUNT come from
     `planned_outline` (each item exposes `.archetype`, `.title`, and optionally
-    `.evidence_target`); this function only distributes `ev_ids` round-robin so
-    every section draws from the retrieved pool. Pure / no-LLM / no-network.
+    `.evidence_target`). Pure / no-LLM / no-network.
 
     `planned_outline` items are `planning.SectionOutlineItem` instances (or any
     object with `.archetype` / `.title` attributes). Returns on-mode
     `SectionPlan`s carrying the question-specific title + archetype tag.
+
+    I-meta-005 Phase 3 (#987): when `sub_queries` is provided (on-mode plan
+    present), assignment is PROVENANCE-FIRST — each row goes to the section(s)
+    whose `sub_query_indices` its `query_origin` matches (sentinel/empty origins
+    use the content-word fallback), via the SAME `relevant_section_indices`
+    mapping the plan-sufficiency gate uses to COUNT coverage. So a section the
+    gate certified SUFFICIENT actually RECEIVES its credited rows. When
+    `sub_queries` is None (off-path / legacy callers), the byte-identical
+    round-robin `ev_ids[i::n_sections]` slice is used.
     """
-    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
-    ev_ids = [e for e in ev_ids if e]
     n_sections = len(planned_outline)
     plans: list[SectionPlan] = []
+
+    if sub_queries is not None:
+        # PROVENANCE-FIRST (on-mode). Shared mapping + floor imported lazily to
+        # avoid a module-load cycle (adequacy -> generator.provenance_generator).
+        from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+            _authority_floor_default,
+            _enrich_authority_if_missing,
+            _facets_matched_for_row,
+            _min_per_facet_default,
+            relevant_section_indices,
+        )
+        # Use the SAME floor the gate used (threaded by the caller; default env)
+        # so the assignment's above/below bucketing matches the gate's coverage
+        # decision exactly (architect P3 — gate/assignment floor consistency).
+        floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
+        min_per_facet = _min_per_facet_default()
+        # PER-SECTION, PER-FACET buckets of above-floor matched rows (architect
+        # P1): a section the gate certified SUFFICIENT requires EVERY mapped
+        # sub_query_index to have >= min_per_facet above-floor rows. A flat
+        # concat-then-slice at evidence_target could truncate out a facet's only
+        # credited row, billing the generator a section whose certified facet has
+        # ZERO evidence in the billed set — the facet-level money-trap at the cap
+        # boundary. So we RESERVE min_per_facet from each mapped facet first.
+        section_facet_above: list[dict[int, list[str]]] = [
+            {} for _ in planned_outline
+        ]
+        section_above_any: list[list[str]] = [[] for _ in planned_outline]
+        section_below_any: list[list[str]] = [[] for _ in planned_outline]
+        for row in evidence:
+            ev_id = row.get("evidence_id", "")
+            if not ev_id:
+                continue
+            matched = [
+                s for s in relevant_section_indices(
+                    row, planned_outline, sub_queries
+                )
+                if 0 <= s < n_sections
+            ]
+            if not matched:
+                continue
+            above = _enrich_authority_if_missing(row) >= floor
+            for sec_idx in matched:
+                if above:
+                    section_above_any[sec_idx].append(ev_id)
+                    for f in _facets_matched_for_row(
+                        row, planned_outline[sec_idx], sub_queries
+                    ):
+                        section_facet_above[sec_idx].setdefault(f, []).append(ev_id)
+                else:
+                    section_below_any[sec_idx].append(ev_id)
+        for i, item in enumerate(planned_outline):
+            archetype = getattr(item, "archetype", "") or ""
+            title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
+            target = int(getattr(item, "evidence_target", 0) or 0)
+            mapped_facets = [
+                q for q in (getattr(item, "sub_query_indices", []) or [])
+                if 0 <= q < len(sub_queries)
+            ]
+            # 1. Reserve min_per_facet above-floor rows from EACH mapped facet
+            #    (deduped, order-preserving) so no certified facet is truncated.
+            reserved: list[str] = []
+            for f in mapped_facets:
+                taken = 0
+                for ev_id in section_facet_above[i].get(f, []):
+                    if ev_id not in reserved:
+                        reserved.append(ev_id)
+                        taken += 1
+                    if taken >= min_per_facet:
+                        break
+            # 2. Fill the rest: remaining above-floor, then below-floor as filler.
+            rest = [e for e in section_above_any[i] if e not in reserved]
+            rest += [e for e in section_below_any[i] if e not in reserved]
+            # cap = evidence_target, clamped to the soft section size cap FIRST,
+            # then raised to never drop the RESERVED set (architect/Codex P1: the
+            # max_ev_per_section ceiling must apply only to the FILLER — the
+            # per-facet reserved rows are SACRED, never truncated, else a section
+            # mapped to MORE facets than max_ev_per_section would silently drop a
+            # certified facet's only row, billing a section whose sub-question has
+            # ZERO evidence. Repro: 31 facets, target 31, cap 30 -> facet 30
+            # dropped. Clamp ORDER guarantees len(reserved) survives.).
+            cap = target if target > 0 else max_ev_per_section
+            cap = min(cap, max_ev_per_section)
+            cap = max(cap, len(reserved))
+            ordered_ev = reserved + rest
+            plans.append(SectionPlan(
+                title=title,
+                focus=title,
+                ev_ids=ordered_ev[:cap],
+                archetype=archetype,
+            ))
+        return plans
+
+    # ROUND-ROBIN (off-path / legacy callers) — byte-identical.
+    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+    ev_ids = [e for e in ev_ids if e]
     for i, item in enumerate(planned_outline):
         archetype = getattr(item, "archetype", "") or ""
         title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
@@ -3997,7 +4100,13 @@ async def generate_multi_section_report(
         outline_in_tok = 0
         outline_out_tok = 0
         planned_outline = list(getattr(research_plan, "outline", []) or [])
-        plans = _assign_evidence_to_planned_outline(planned_outline, evidence)
+        # I-meta-005 Phase 3 (#987): pass the plan's sub_queries so assignment is
+        # PROVENANCE-FIRST (query_origin x sub_query_indices), matching the
+        # plan-sufficiency gate's coverage mapping. None -> round-robin (legacy).
+        plans = _assign_evidence_to_planned_outline(
+            planned_outline, evidence,
+            sub_queries=list(getattr(research_plan, "sub_queries", []) or []),
+        )
         outline_ok = bool(plans)
         outline_reason_codes = [] if plans else ["planner_outline_empty"]
         outline_fallback_used = False
