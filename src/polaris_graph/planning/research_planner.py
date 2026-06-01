@@ -318,7 +318,8 @@ def _strip_code_fence(raw: str) -> str:
 
 def _as_str_list(value: Any) -> list[str]:
     """Coerce a JSON value into a clean list[str] (drop empties, dedup
-    case-insensitively, preserve order)."""
+    case-insensitively, preserve order). A non-list value coerces to []
+    (lenient — used for the soft frame fields)."""
     if not isinstance(value, list):
         return []
     out: list[str] = []
@@ -335,6 +336,28 @@ def _as_str_list(value: Any) -> list[str]:
         seen.add(key)
         out.append(text)
     return out
+
+
+def _as_str_list_strict(value: Any, field_name: str) -> list[str]:
+    """Coerce a JSON value into list[str] for the HARD-VALIDATED Phase-2 fields
+    (`evidence_needs`, `jurisdictions`). Distinguishes ABSENT from MALFORMED
+    (Codex diff-gate P1):
+      - absent (None / key missing) → [] (legacy/OFF plan; the router's safe
+        empty-needs fallback applies). NOT an error.
+      - a LIST → coerced like `_as_str_list` (per-element membership/shape is
+        then validated downstream, which fails loud on a bad element).
+      - any OTHER present shape (a scalar str/int, a dict, a bool) → FAIL LOUD
+        with `MalformedPlanError`. A scalar `"evidence_needs": "totally_made_up"`
+        must NOT silently coerce to [] and slip into the safe fallback.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise MalformedPlanError(
+            f"planner emitted non-list {field_name}={value!r}; "
+            f"{field_name} must be a JSON array of strings (or absent)"
+        )
+    return _as_str_list(value)
 
 
 def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
@@ -358,10 +381,10 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
     # generic fallback. A valid-shape-unknown jurisdiction is kept (membership
     # is a non-fatal scope-loader concern).
     evidence_needs = validate_evidence_needs(
-        _as_str_list(raw_frame.get("evidence_needs"))
+        _as_str_list_strict(raw_frame.get("evidence_needs"), "evidence_needs")
     )
     jurisdictions = validate_jurisdiction_shapes(
-        _as_str_list(raw_frame.get("jurisdictions"))
+        _as_str_list_strict(raw_frame.get("jurisdictions"), "jurisdictions")
     )
     return ResearchFrame(
         entities=_as_str_list(raw_frame.get("entities")),

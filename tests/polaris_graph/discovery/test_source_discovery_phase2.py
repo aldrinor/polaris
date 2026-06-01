@@ -314,6 +314,31 @@ def test_p2_4_legacy_domain_branch_is_offpath_only():
     assert _count_domain_eq_branches(inspect.getsource(db.run_need_type_backends)) == 0
 
 
+def test_p2_4_sweep_seam_passes_domain_none_on_mode():
+    """Whole-wiring (Codex diff-gate P2): the live_retriever + sweep seam cannot
+    consult q['domain'] on-mode. The legacy live_retriever domain branch is
+    gated on `domain` being truthy; the sweep sets domain=None on-mode, so the
+    legacy branch is structurally unreachable when the research planner is on.
+    Asserted on the real sweep source (the seam the brief requires P2-4 to cover
+    beyond the discovery package)."""
+    sweep_src = (
+        _REPO_ROOT / "scripts" / "run_honest_sweep_r3.py"
+    ).read_text(encoding="utf-8")
+    # On-mode the retrieval domain passed to run_live_retrieval is None.
+    assert "None if _use_research_planner else q[\"domain\"]" in sweep_src or \
+           "None if _use_research_planner else q['domain']" in sweep_src, \
+        "sweep must pass domain=None into run_live_retrieval on-mode"
+    # The live_retriever on-mode registry seam is gated on research_frame, and
+    # the legacy domain backend dispatch is gated on `domain` truthiness.
+    import inspect
+
+    from src.polaris_graph.retrieval import live_retriever as lr
+    rlr_src = inspect.getsource(lr.run_live_retrieval)
+    assert "research_frame is not None and not seed_only" in rlr_src, \
+        "on-mode need-type seam must be gated on research_frame"
+    assert "run_need_type_backends" in rlr_src
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # P2-5 — jurisdiction-scoped gov from the NEW versioned data file
 # ─────────────────────────────────────────────────────────────────────────────
@@ -453,6 +478,48 @@ def test_p2_8_malformed_shape_fails_loud():
         validate_frame_needs(_frame(["regulatory"], ["Canada"]))  # not a code
     with pytest.raises(MalformedPlanError):
         validate_frame_needs(_frame(["regulatory"], ["123"]))
+
+
+def test_p2_malformed_scalar_evidence_needs_fails_loud(monkeypatch):
+    """Codex diff-gate P1: a planner-emitted SCALAR evidence_needs (not a list)
+    must FAIL LOUD up-front, NOT silently coerce to [] and slip into the safe
+    empty-needs fallback. `_parse_frame` calls `_as_str_list_strict` which raises
+    MalformedPlanError on a present-but-non-list value."""
+    import json as _json
+
+    from src.polaris_graph.planning import research_planner as rp
+
+    # A well-formed plan EXCEPT evidence_needs is a scalar string, not a list.
+    bad_plan = {
+        "frame": {
+            "entities": ["x"], "claim_type": "descriptive",
+            "evidence_needs": "totally_made_up_need",  # SCALAR, not a list
+            "jurisdictions": [],
+        },
+        "sub_queries": ["q1", "q2"],
+        "outline": [{"archetype": "Background", "title": "T", "evidence_target": 1}],
+    }
+    with pytest.raises(rp.MalformedPlanError):
+        rp.plan_research("any question", planner_llm=lambda _p: _json.dumps(bad_plan))
+
+
+def test_p2_malformed_scalar_jurisdictions_fails_loud():
+    """Same as above for a scalar `jurisdictions` (e.g. 'Canada' not ['CA'])."""
+    import json as _json
+
+    from src.polaris_graph.planning import research_planner as rp
+
+    bad_plan = {
+        "frame": {
+            "entities": ["x"], "claim_type": "descriptive",
+            "evidence_needs": ["regulatory"],
+            "jurisdictions": "Canada",  # SCALAR, not a list
+        },
+        "sub_queries": ["q1", "q2"],
+        "outline": [{"archetype": "Background", "title": "T", "evidence_target": 1}],
+    }
+    with pytest.raises(rp.MalformedPlanError):
+        rp.plan_research("any question", planner_llm=lambda _p: _json.dumps(bad_plan))
 
 
 def test_p2_8_eu_and_intl_shape_valid():
