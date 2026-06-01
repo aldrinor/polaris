@@ -1,0 +1,2014 @@
+diff --git a/.codex/I-meta-005-phase-3/brief.md b/.codex/I-meta-005-phase-3/brief.md
+new file mode 100644
+index 00000000..0b306b6d
+--- /dev/null
++++ b/.codex/I-meta-005-phase-3/brief.md
+@@ -0,0 +1,263 @@
++HARD ITERATION CAP: 5. iter 1 of 5. Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
++Front-load ALL real findings. Reserve P0/P1 for real execution risks; P2/P3 for the rest.
++
++Output the §8.3.9 YAML verdict FIRST:
++```yaml
++verdict: APPROVE | REQUEST_CHANGES
++novel_p0: [...]
++continuing_p0: [...]
++p1: [...]
++p2: [...]
++convergence_call: continue | accept_remaining
++remaining_blockers_for_execution: [...]
++```
++
++# Codex BRIEF gate iter 5 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
++
++Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 51. Phase 3 closes the "trap": today the
++adequacy gate is domain-keyed + AGGREGATE-count only, so a broad-but-shallow corpus PASSES, BILLS the
++generator, then gaps 8/18 gut the report. Phase 3 makes adequacy = "does the corpus cover EVERY planned
++sub-question to its evidence target at the authority floor?" — held at EXPAND/abort BEFORE a generator token
++is billed.
++
++## 0. HARD CONSTRAINTS (operator-locked — NOT Codex-consultable; do not offer the relaxed option)
++- **NO per-domain threshold dict / `if domain ==` / clinical literal as a control value on the on-path.**
++  Sufficiency is computed from the PLAN (Phase 1 `ResearchPlan`: sub_queries + per-section evidence_target)
++  × AUTHORITY (Phase 0a `score_source_authority`), never a domain.
++- **OFF byte-identical.** Gated on the existing `PG_USE_RESEARCH_PLANNER` (default off). Off = the current
++  `assess_corpus_adequacy` domain-keyed `_DEFAULT_DOMAIN_THRESHOLDS` gate, byte-for-byte. On = the new
++  plan-sufficiency gate.
++- **MONEY: the gate runs BEFORE the generator is billed.** A broad/shallow corpus → EXPAND or
++  abort_corpus_inadequate with ZERO generator tokens spent. (This is the entire point of Phase 3.)
++- **BUILD + SMOKE spend-free.** No live LLM/retrieval; sufficiency is a pure function over the already-
++  retrieved corpus + the pinned plan + the authority scores. Smoke asserts no client constructed.
++
++## 1. THE PROBLEM (grounded in running code)
++- `nodes/corpus_adequacy_gate.py:71-136` `_DEFAULT_DOMAIN_THRESHOLDS` — 7 hand-tuned per-DOMAIN threshold
++  sets (clinical/policy/tech/due_diligence/ai_sovereignty/canada_us/workforce); `_get_thresholds(domain,…)`
++  (`:139`) keys on `domain`; `assess_corpus_adequacy(…, domain=…)` (`:167`) checks only AGGREGATE tier
++  counts (min_total_sources, min_t1_count, tier fractions) — NOT per-sub-question coverage. Called at
++  `run_honest_sweep_r3.py:2001` (+ `:2152` staged + `:2249` deepener) BEFORE `generate_multi_section_report`
++  (`:54`). So a corpus with 12 sources none of which cover sub-question #7 PASSES the aggregate count and
++  bills the generator.
++- Phase 1 `ResearchPlan` (`planning/research_planner.py:243`) carries `sub_queries: list[str]` (`:250`) +
++  `outline: list[SectionOutlineItem]` each with `evidence_target: int` (`:228-239`) — the per-section
++  done-definition. Phase 0a `score_source_authority` (`authority/authority_model.py:84`) → the NUMERIC
++  `AuthorityResult.authority_score` float [0,1] (`source_class.py:75`) is the per-source authority floor
++  signal (NOT the `authority_confidence` HIGH/MED/LOW enum).
++
++## 2. THE BUILD (behind PG_USE_RESEARCH_PLANNER)
++
++### 2.1 NEW `src/polaris_graph/adequacy/plan_sufficiency_gate.py`
++- `assess_plan_sufficiency(*, plan, corpus_rows, authority_floor, round_index, max_rounds) ->
++  PlanSufficiencyReport`. Pure, no-network, no-LLM, over rows that ALREADY carry the §2.3a authority sidecar +
++  `query_origin`. For EACH section (its `evidence_target` + `sub_query_indices`) count the corpus rows that
++  (a) are RELEVANT to that section (provenance-first, §2.2) AND (b) have `authority_score ≥ authority_floor`.
++  A section is SUFFICIENT iff **BOTH (iter-2 P1 #1 — facet-level, not section-aggregate):**
++    (i) total above-floor covered_count ≥ `evidence_target`, AND
++    (ii) EVERY mapped `sub_query_index` has ≥ `PG_PLAN_SUFFICIENCY_MIN_PER_FACET` above-floor relevant rows
++        (default 1) — so a section mapped to sub-queries [4,5,6] CANNOT pass on rows from sub-query 4 alone
++        while 5 and 6 are empty. This is the actual "cover EVERY planned sub-question" guarantee; section
++        total alone would reopen the trap at a finer grain.
++  Else UNDER_COVERED (with the specific empty/under facets named). Overall verdict:
++  - **PROCEED** — every unit SUFFICIENT → the generator may be billed.
++  - **EXPAND** — ≥1 unit UNDER_COVERED AND `round_index < max_rounds` → return the under-covered units (+
++    their gap) so Phase 4 saturation can target new sub-queries; NO generator bill this round.
++  - **ABORT** — ≥1 unit UNDER_COVERED AND rounds/budget exhausted → status `abort_corpus_inadequate` with
++    a per-unit shortfall report; NO generator bill, ever.
++- `PlanSufficiencyReport`: `verdict` (PROCEED/EXPAND/ABORT) + `per_unit` (unit id, evidence_target,
++  covered_count, sufficient: bool, relevant-but-below-authority count) + `under_covered_units` (for EXPAND).
++
++### 2.2 THE COVERAGE UNIT + RELEVANCE (iter-1 P1 #2 — provenance-first, executable)
++- **Unit = the section outline item.** Each `SectionOutlineItem` has an `evidence_target`. But today it has
++  ONLY `archetype`/`title`/`evidence_target` (`research_planner.py:227`) — NO facet mapping, so title-overlap
++  alone could credit OFF-facet rows to a section (the partial money-trap Codex flagged). FIX: ADD
++  `sub_query_indices: list[int]` to `SectionOutlineItem` (additive, default `[]`). The planner declares, per
++  section, WHICH of the 20-40 `sub_queries` (by index) make that section complete. The planner prompt emits it.
++  **FAIL-CLOSED post-finalization validation (iter-3 P1):** `plan_research()` parses the plan THEN mutates
++  `plan.sub_queries` via `_merge_truncate_subqueries` (`research_planner.py:596`), so an index valid at parse
++  time can go stale. So AFTER the sub_queries list is FINAL (post-truncation/retry-winner selection), the
++  builder re-validates EVERY outline section: each section MUST have ≥1 sub_query_index, ALL indices in-range
++  of the FINAL `sub_queries`, AND `evidence_target ≥ 1`, AND (iter-4 P1 #1 — WHOLE-PLAN coverage) the UNION
++  of all sections' `sub_query_indices` MUST equal `set(range(len(final sub_queries)))` — EVERY planned
++  sub-query is mapped to some section, so no orphaned facet escapes the gate (today `_parse_outline` allows `evidence_target=0` at
++  `:437-445` → a vacuous section; planner mode forbids it). Any empty/stale/invalid mapping → raise
++  `MalformedPlanError` BEFORE retrieval/generation (fail closed, zero spend). A `[]` default is fine ONLY
++  off-mode; on-mode a section with `[]` is malformed.
++- **Relevance = PROVENANCE-FIRST (iter-1 P1 #2):** each evidence row already persists `query_origin` (the
++  sub-query text that surfaced it — `live_retriever.py:2226`). A row is RELEVANT to a section iff its
++  `query_origin` matches (normalized-equality) one of the sub-query texts at that section's
++  `sub_query_indices`. This is the real retrieval provenance, NOT a heuristic.
++  - **Fallback (tightly specified, iter-3 P2):** a row is FALLBACK-ELIGIBLE iff its `query_origin` is EMPTY
++    OR is one of the explicit NON-QUERY SENTINEL origins that legitimately carry no sub-query text:
++    `{primary_trial_doi_seed, need_type_backend, domain_backend}` (`live_retriever.py:1774,1849,1885`) —
++    **concrete floor (iter-5 P2 #2):** reuse the EXISTING `_content_words` tokenization (alphabetic, ≥3
++    chars, stopword-stripped — the same primitive the verifier uses) and the EXISTING
++    `MIN_CONTENT_WORD_OVERLAP` constant (default 2) between the row's content words and the UNION of the
++    section's sub-query-text content words; ≥ the constant ⇒ relevant. No new heuristic, no new magic number —
++    these lanes (seed DOIs, the Phase-2 need-type registry, legacy domain backend) surface AUTHORITATIVE
++    evidence with no originating sub-query, so they must be creditable, not silently abort an otherwise-
++    sufficient corpus. For a fallback-eligible row, use `_content_words` overlap floored against the
++    section's OWN sub-query texts (at `sub_query_indices`), NOT just the title. A row whose `query_origin`
++    is a REAL sub-query text that doesn't match the section is NOT relevant to it (no title-overlap rescue) —
++    real-query provenance is authoritative; only the sentinel/empty lanes use the fallback.
++- **Authority floor (iter-1 P1 #1 — numeric, persisted):** the numeric authority strength is
++  `AuthorityResult.authority_score: float [0,1]` (`source_class.py:75`), NOT the `authority_confidence`
++  HIGH/MEDIUM/LOW enum. A row counts toward coverage iff its `authority_score ≥
++  PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR` (a single global float in [0,1], NOT a per-domain dict). BUT evidence
++  rows do NOT persist any authority field today (`live_retriever.py:2222-2230` persists tier/source/
++  query_origin only). So §2.3a ADDS the per-row authority sidecar the gate reads. A relevant-but-below-floor
++  row is counted separately (reported, not credited).
++
++### 2.3a Persist the per-row authority result (iter-1 P1 #1 + iter-2 P1 #2 — guaranteed in planner mode)
++- At the on-mode evidence-row build (`live_retriever.py:2222-2230`), ADD additive fields
++  `authority_score: float` and `authority_confidence: str` to each row.
++- **Post-selection injected rows (iter-5 P2 #1):** V30 contract rows (`:2674`/`:2719`) and uploaded-document
++  rows (`:2747`/`:2749`) are added to `evidence_for_gen` AFTER live_retriever, so they lack `query_origin` +
++  the sidecar. Policy: at the single final gate, on-mode ENRICHES every billed row missing the sidecar by
++  computing `score_source_authority(...)` for it (so contract/upload rows carry a real `authority_score`),
++  and treats their empty `query_origin` as FALLBACK-ELIGIBLE (§2.2 content-word overlap against the
++  section's sub-query texts). So an authoritative contract/upload row CAN credit a section it genuinely
++  covers and CANNOT credit one it doesn't — never silently dropped, never blindly credited.
++- **CRITICAL (iter-2 P1 #2): the sidecar is computed DIRECTLY via `score_source_authority(...)` whenever
++  `PG_USE_RESEARCH_PLANNER` is ON, INDEPENDENT of the legacy `PG_USE_AUTHORITY_MODEL` tier switch.** Today the
++  tier_classifier only computes authority when `PG_USE_AUTHORITY_MODEL` is on (`tier_classifier.py:1099`); so
++  planner mode must call the Phase-0a `score_source_authority` pure function ITSELF for the sidecar — else
++  every row reads `authority_score=0.0` and the gate aborts every planner-mode corpus. If the authority
++  computation genuinely cannot run (missing inputs), it returns an HONEST low score with
++  `authority_confidence=LOW` (per the Phase-0a honest-confidence contract), NOT a silent 0.0 default — and
++  the gate treats LOW-confidence-but-scored rows per the floor. Additive, default `0.0`/`""` → OFF rows
++  unchanged (legacy gate ignores them; byte-identical). The gate is pure over rows that already carry the
++  sidecar (written at retrieval time, not by the gate).
++- **Canonical serialization (iter-2 P2):** `SectionOutlineItem.sub_query_indices` is ADDED to
++  `to_canonical_dict()` (`research_planner.py:271`) + the SHA-pinned `research_plan.json`, so the sufficiency
++  contract is reproducible from the pinned plan artifact (gap #19 audit trail).
++
++### 2.2b Gate the BILLED evidence set + provenance-first assignment (iter-4 P1 #2 — the handoff)
++The generator does NOT bill on the raw corpus — it bills on `evidence_for_gen`, the SELECTED subset from
++`select_evidence_for_generation` (`run_honest_sweep_r3.py:2560`), assigned to sections ROUND-ROBIN
++(`_assign_evidence_to_planned_outline`, `multi_section_generator.py:618` `ev_ids[i::n_sections]`) — NOT by
++facet. So a full-corpus certification can PROCEED while the generator gets OFF-facet rows per section. Two
++coupled fixes make the certification carry through to what's billed:
++- **The sufficiency gate assesses the FINAL `evidence_for_gen` (the billed set), NOT `retrieval.evidence_rows`.**
++  The gate runs AFTER `select_evidence_for_generation` (which is cheap — relevance/authority ranking, NO
++  generator bill) and BEFORE `generate_multi_section_report`. So it certifies exactly the rows that will be
++  billed.
++- **On-mode `_assign_evidence_to_planned_outline` becomes PROVENANCE-FIRST, not round-robin:** each row is
++  assigned to the section(s) whose `sub_query_indices` its `query_origin` matches (sentinel/empty origins use
++  the §2.2 content-word fallback). So each section's `ev_ids` = ITS credited rows. Off-mode: the round-robin
++  path is unchanged (byte-identical). This guarantees the gate's per-section/per-facet PROCEED means the
++  generator actually receives the credited rows for each section.
++
++### 2.3 Wiring into the sweep — ONE FINAL gate, fully-constructed billed set (iter-5 P1 — resolved)
++- **The binding money gate runs EXACTLY ONCE on-mode**, at the SINGLE point where `evidence_for_gen` is FULLY
++  constructed and nothing further mutates it before billing: AFTER `select_evidence_for_generation`
++  (`:2560`/`:2568`) AND AFTER the V30 contract-row prepend (`:2719`) AND AFTER the upload-row prepend
++  (`:2749`), IMMEDIATELY BEFORE `generate_multi_section_report` (`:2805`). It calls `assess_plan_sufficiency`
++  on the FINAL `evidence_for_gen` — the exact set that will be billed.
++- **The legacy adequacy call sites (`:2001`/`:2152`/`:2249`) are NOT the binding gate on-mode** — on-mode they
++  are provisional/telemetry-only (they do NOT abort; the single final gate is authoritative). OFF-mode they
++  run unchanged (byte-identical) — legacy `assess_corpus_adequacy` is the off-mode gate as today.
++- At the single final gate, `assess_plan_sufficiency(...)` ON the final `evidence_for_gen`:
++  - PROCEED → continue to the generator (as today).
++  - EXPAND → (Phase 3 scope) record status + the under-covered units; for THIS phase, EXPAND with no
++    further retrieval loop available behaves as a documented hold → `abort_corpus_inadequate` (the actual
++    saturation EXPANSION loop is Phase 4). So Phase 3's guarantee is: a shallow corpus NEVER bills the
++    generator; whether it EXPANDs (Phase 4) or ABORTs (now) it spends zero generator tokens.
++  - ABORT → status `abort_corpus_inadequate`, zero generator tokens.
++  - Off-mode: the legacy `assess_corpus_adequacy` domain-keyed gate runs unchanged.
++- (RESOLVED iter-5/6 — superseded by the single-final-gate rule above: on-mode the binding sufficiency gate
++  runs ONCE on the final `evidence_for_gen`; the legacy `:2001`/`:2152`/`:2249` sites are telemetry-only
++  on-mode and do NOT run the sufficiency gate or abort. Off-mode they run `assess_corpus_adequacy` as today.)
++
++## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py`
++- **P3-1 OFF byte-identity:** off → `assess_corpus_adequacy` domain-keyed verdict byte-identical on the
++  clinical/policy fixtures (pin the report).
++- **P3-2 PROCEED:** a plan with 3 sections (evidence_target 2 each) + a corpus where each section has ≥2
++  relevant above-floor rows → verdict PROCEED.
++- **P3-3 THE TRAP (housing):** a broad housing plan (6 sections) + a BROAD-BUT-SHALLOW corpus (lots of rows,
++  but section #5 has 0 relevant above-floor rows) → verdict EXPAND/ABORT, and assert ZERO generator call
++  (spy on `generate_multi_section_report` — it must NOT be invoked). This is the money-trap EXIT.
++- **P3-4 THE TRAP (sovereignty):** same shape for an ai-sovereignty plan → held before billing.
++- **P3-5 authority floor bites (numeric):** a section with 3 relevant rows ALL with `authority_score` below
++  `PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR` → UNDER_COVERED (relevant-but-below-floor counted separately).
++- **P3-5b provenance-first mapping:** a row whose `query_origin` matches a section's `sub_query_indices`
++  counts toward THAT section; a row with a non-empty `query_origin` that matches a DIFFERENT section's
++  sub-queries does NOT count toward this section even if its title-words overlap (no off-facet credit). An
++  empty-`query_origin` row uses the content-word fallback against the section's sub-query texts.
++- **P3-5c authority sidecar persisted:** the on-mode evidence row built by live_retriever carries
++  `authority_score` (float) + `authority_confidence` (str); off-mode rows are unchanged (no sidecar).
++- **P3-6 EXPAND vs ABORT:** under-covered + round_index < max_rounds → EXPAND (returns the under-covered
++  units); under-covered + rounds exhausted → ABORT.
++- **P3-7 field-agnostic guard:** a grep-style test asserts the on-path sufficiency code consults NO
++  `_DEFAULT_DOMAIN_THRESHOLDS` / `if domain ==` / domain key; the legacy domain dict is whitelisted off-path.
++- **P3-8 zero GENERATOR bill on hold (iter-2 P2 scoped):** the strongest assertion — across P3-3/P3-4/
++  P3-6-ABORT, the GENERATOR (`generate_multi_section_report`) + downstream evaluator LLM clients are NEVER
++  constructed/called when the verdict is EXPAND or ABORT. (The pre-retrieval PLANNER is faked/injected in
++  smoke per the spend-free rule; the assertion is scoped to the generator/downstream, not the planner.)
++- **P3-9 facet-level (iter-2 P1 #1):** a section mapped to sub-queries [4,5,6] with 5 above-floor rows ALL
++  from sub-query 4 → UNDER_COVERED (sub-queries 5,6 empty), even though total (5) ≥ evidence_target (e.g. 3).
++  Proves section-total alone cannot hide an empty facet.
++- **P3-10 authority in planner mode (iter-2 P1 #2):** with PG_USE_RESEARCH_PLANNER on + PG_USE_AUTHORITY_MODEL
++  OFF, the evidence rows STILL carry a real numeric `authority_score` (computed directly), NOT 0.0.
++- **P3-11 canonical pin (iter-2 P2):** `to_canonical_dict()` + `research_plan.json` include `sub_query_indices`;
++  re-serializing reproduces the same SHA.
++- **P3-12 fail-closed mapping (iter-3 P1):** a plan whose section has an EMPTY `sub_query_indices`, OR an
++  out-of-range index after truncation, OR `evidence_target=0` on-mode → `plan_research` raises
++  `MalformedPlanError` BEFORE any retrieval/generation (zero spend); off-mode a `[]` mapping is inert.
++- **P3-13 sentinel fallback (iter-3 P2):** a `need_type_backend` (or `domain_backend`/`primary_trial_doi_seed`)
++  row whose content overlaps a section's sub-query texts is CREDITED via the fallback (not falsely abort); a
++  real-sub-query row that doesn't match the section is NOT credited to it.
++- **P3-14 whole-plan facet union (iter-4 P1 #1):** a plan where sub-query #7 is mapped to NO section →
++  `plan_research` raises `MalformedPlanError` (orphaned planned facet forbidden) before spend.
++- **P3-15 gate the BILLED set + provenance assignment (iter-4 P1 #2):** the gate runs on `evidence_for_gen`
++  (the selected billed set), and on-mode `_assign_evidence_to_planned_outline` assigns each section its
++  `query_origin`-matched rows (NOT round-robin); a section certified SUFFICIENT actually receives its credited
++  rows in the generator's `ev_ids`. Off-mode the round-robin assignment is byte-identical.
++- **P3-16 ONE final gate after all mutations (iter-5 P1):** the binding gate sees `evidence_for_gen` INCLUDING
++  the post-selection V30 contract + upload injections (a contract row that covers an under-covered facet flips
++  it to SUFFICIENT; the legacy `:2001/:2152/:2249` sites do NOT abort on-mode). Assert the gate's certified
++  set == the exact `evidence_for_gen` passed to `generate_multi_section_report`.
++- **P3-17 injected-row enrichment (iter-5 P2 #1):** a contract/upload row (no query_origin) gets a real
++  `authority_score` computed at gate time and credits a section ONLY via content-word overlap with that
++  section's sub-queries.
++- Plus a regression subset confirming OFF byte-identity didn't break existing corpus_adequacy tests.
++
++## 4. EXIT CRITERIA (issue #987)
++On-mode, a broad/shallow corpus is held at EXPAND/abort BEFORE a generator token is billed; the housing +
++sovereignty trap cases replay with ZERO generator bill; sufficiency = per-section evidence_target coverage (provenance-first row→section mapping via query_origin ×
++`sub_query_indices`) × the NUMERIC authority_score floor; computed from the plan + the persisted per-row
++authority sidecar (no domain dict); OFF byte-identical; all smoke green; spend-free.
++
++## 5. WHAT I HAVE ALSO CHECKED
++- `assess_corpus_adequacy` call sites: `:2001` (main), `:2152` (staged), `:2249` (deepener) — all
++  pre-SELECTION; on-mode they are telemetry-only (NOT the binding gate). The binding sufficiency gate is the
++  SINGLE final gate on `evidence_for_gen` before `generate_multi_section_report` (§2.3).
++- Phase 1 `SectionOutlineItem.evidence_target` is the done-definition; Phase 2 retrieval provenance maps
++  rows→sub-queries→sections.
++- Phase 0a authority: the floor signal is the NUMERIC `AuthorityResult.authority_score` (float [0,1], a
++  single global env threshold) — NOT the `authority_confidence` HIGH/MED/LOW enum (corrected iter-4 P2).
++
++## 5b RESOLVED FROM ITER-1 (Codex answers folded in)
++- Unit = section, with the plan now recording the section's facets via `sub_query_indices` (Codex: "section
++  can be the reporting unit only if the plan records the facets/sub-queries that make that section complete").
++- Relevance = provenance-first (query_origin × sub_query_indices), content-word overlap ONLY as the
++  empty-provenance fallback, floored against the section's sub-query texts (Codex: "acceptable only with
++  provenance-first mapping and a tightly specified overlap fallback").
++- Authority = the NUMERIC `authority_score` (not the confidence enum), persisted per row by live_retriever.
++- EXPAND→ABORT in Phase 3 + gate on PG_USE_RESEARCH_PLANNER: Codex confirmed both correct.
++
++## 6. REVIEW QUESTIONS FOR CODEX (iter 2)
++1. Is the coverage UNIT = section (with its evidence_target) the right grain, vs per-sub-query? (The plan's
++   done-definition is per-section; but a section may span several sub-questions.)
++2. Is the relevance signal (retrieval-provenance + deterministic content-word overlap floor, NO LLM) sound
++   and genuinely field-agnostic, or does it risk crediting an off-topic row / missing an on-topic one?
++3. Is "EXPAND collapses to ABORT in Phase 3 (saturation loop is Phase 4)" the right scope boundary, and is
++   the zero-generator-bill guarantee airtight at all 3 pre-generator call sites?
++4. Is a single global authority floor (env) correct, vs the plan declaring a per-section floor?
++5. Is gating on PG_USE_RESEARCH_PLANNER right (the gate needs the ResearchPlan's evidence_targets, which
++   only exist on-mode)?
++
++APPROVE iff the acceptance criteria are correct, the plan×authority (no-domain-dict) sufficiency is sound,
++the zero-generator-bill-before-sufficiency guarantee holds, and OFF stays byte-identical. This is the build
++contract.
+diff --git a/.codex/I-meta-005-phase-3/build_spec.md b/.codex/I-meta-005-phase-3/build_spec.md
+new file mode 100644
+index 00000000..0746e46d
+--- /dev/null
++++ b/.codex/I-meta-005-phase-3/build_spec.md
+@@ -0,0 +1,58 @@
++# Phase 3 BUILD SPEC — plan-sufficiency gate (the money-trap fix, #987). BINDING.
++
++**The APPROVED brief `.codex/I-meta-005-phase-3/brief.md` (Codex APPROVE, 6-round convergence) is the detailed
++design contract. Implement it EXACTLY.** This is the file-by-file checklist.
++
++## HARD CONSTRAINTS (brief §0 — do not relax)
++1. Everything behind `PG_USE_RESEARCH_PLANNER` (default off). **OFF byte-identical** — legacy
++   `assess_corpus_adequacy` domain-keyed gate retained + selected when off.
++2. **NO per-domain threshold dict / `if domain ==` / clinical literal as a control value on the on-path.**
++   Sufficiency = plan × authority, never a domain.
++3. **MONEY: the binding gate runs ONCE on-mode, on the FINAL `evidence_for_gen`, immediately before
++   `generate_multi_section_report` (:2805) — after selection (:2568) + V30 contract prepend (:2719) + upload
++   prepend (:2749).** Legacy `:2001/:2152/:2249` sites are telemetry-only on-mode (do NOT abort).
++4. **BUILD + SMOKE spend-free** — the gate is a pure function over rows; the planner is faked in smoke;
++   assert no generator/downstream LLM client constructed on EXPAND/ABORT.
++5. snake_case; no `unittest.mock` in `src/`; additive fields default-safe so OFF is byte-identical.
++
++## FILE-BY-FILE (implement brief §2)
++1. **`src/polaris_graph/planning/research_planner.py`** (brief §2.1/§2.1b/§2.3a):
++   - `SectionOutlineItem` += `sub_query_indices: list[int]` (additive, default `[]`); planner prompt emits it.
++   - `to_canonical_dict()` (`:271`) serializes `sub_query_indices` (into the SHA-pinned plan).
++   - **Fail-closed post-finalization validation** in `plan_research()` AFTER `_merge_truncate_subqueries`
++     (`:596`): each on-mode section MUST have ≥1 in-range `sub_query_index` + `evidence_target ≥ 1`, AND
++     `union(all sections' sub_query_indices) == set(range(len(final sub_queries)))` (every planned facet
++     mapped). Any violation → raise `MalformedPlanError` (before retrieval/generation). Off-mode: `[]` inert.
++2. **`src/polaris_graph/retrieval/live_retriever.py`** (brief §2.3a):
++   - At the on-mode evidence-row build (`:2222-2230`), ADD `authority_score: float` + `authority_confidence:
++     str` to each row, computed DIRECTLY via `score_source_authority(...)` whenever `PG_USE_RESEARCH_PLANNER`
++     is on — INDEPENDENT of `PG_USE_AUTHORITY_MODEL`. Honest low score + LOW confidence if signals thin (never
++     a silent 0.0). Additive, default `0.0`/`""` off-mode → byte-identical.
++3. **NEW `src/polaris_graph/adequacy/__init__.py` + `plan_sufficiency_gate.py`** (brief §2.1/§2.2):
++   - `assess_plan_sufficiency(*, plan, corpus_rows, authority_floor, round_index, max_rounds) ->
++     PlanSufficiencyReport`. Pure. Enriches any billed row missing the sidecar via `score_source_authority`
++     (contract/upload rows). Per section: relevance = provenance-first (`query_origin` ∈ section's
++     sub-query texts), fallback = `_content_words` + `MIN_CONTENT_WORD_OVERLAP` against the section's
++     sub-query texts ONLY for empty/sentinel origins `{primary_trial_doi_seed, need_type_backend,
++     domain_backend}`; coverage = above-`authority_floor` relevant rows. Section SUFFICIENT iff total ≥
++     `evidence_target` AND every mapped sub_query_index has ≥ `PG_PLAN_SUFFICIENCY_MIN_PER_FACET` (default 1)
++     above-floor rows. Verdict: PROCEED (all sufficient) / EXPAND (under-covered, round<max) / ABORT
++     (under-covered, exhausted). `PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR` (float [0,1]).
++4. **`src/polaris_graph/generator/multi_section_generator.py`** (brief §2.2b):
++   - On-mode `_assign_evidence_to_planned_outline` (`:618`) becomes PROVENANCE-FIRST: assign each row to the
++     section(s) whose `sub_query_indices` its `query_origin` matches (sentinel/empty → content-word fallback).
++     Off-mode: the round-robin `ev_ids[i::n_sections]` path is byte-identical.
++5. **`scripts/run_honest_sweep_r3.py`** (brief §2.3):
++   - On-mode: the legacy `assess_corpus_adequacy` at `:2001/:2152/:2249` becomes telemetry-only (record, do
++     NOT abort). The binding gate is a SINGLE `assess_plan_sufficiency(...)` call on the FINAL
++     `evidence_for_gen` immediately before `generate_multi_section_report` (`:2805`), after the V30 contract
++     (`:2719`) + upload (`:2749`) prepends. PROCEED → generator; EXPAND/ABORT → status
++     `abort_corpus_inadequate`, ZERO generator tokens. Off-mode: legacy gate aborts as today (byte-identical).
++
++## SMOKE — `tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py`
++Implement ALL brief cases P3-1..P3-17 (serialized §8.4; plain-class fakes, no unittest.mock; real dict rows).
++Non-relaxable: **P3-1 OFF byte-identity**, **P3-3/P3-4 trap (housing/sovereignty) → ZERO generator call**,
++**P3-8 zero-generator-bill-on-hold**, **P3-9 facet-level (empty sub-query → UNDER_COVERED)**, **P3-12
++fail-closed mapping**, **P3-14 whole-plan facet union**, **P3-15/P3-16 gate-the-billed-set + provenance
++assignment**, **P3-17 injected-row enrichment**. Run `python -m pytest tests/polaris_graph/adequacy/ -q
++-p no:cacheprovider` → green; then a corpus_adequacy regression subset for OFF byte-identity.
+diff --git a/.codex/I-meta-005-phase-3/iter5_cap_exception.txt b/.codex/I-meta-005-phase-3/iter5_cap_exception.txt
+new file mode 100644
+index 00000000..f5844b0c
+--- /dev/null
++++ b/.codex/I-meta-005-phase-3/iter5_cap_exception.txt
+@@ -0,0 +1,9 @@
++CAP EXCEPTION (CLAUDE.md §-1.2 point 6): iter-5 returned a REAL correctness blocker — the binding money gate
++was specified at two incompatible locations (legacy pre-selection sites vs the final billed evidence_for_gen),
++which would certify the wrong set and reopen the handoff bug P3-15 closes. §-1.2.6 forbids cap-5
++force-approving a real production blocker. The fix is DETERMINISTIC (Codex prescribed the exact resolution:
++one final gate after all evidence_for_gen mutations at :2719/:2749, before generate_multi_section_report at
++:2805; legacy :2001/:2152/:2249 sites telemetry-only on-mode). All three iter-5 findings (1 P1 + 2 P2) resolved
++per Codex's prescription. ONE confirmatory re-gate (iter 6) to verify the contradiction is gone — converging
++(each iter found NEW genuine issues, counts 2,2,1,2,1 decreasing), not asymptoting/toothpaste-squeezing.
++Operator standing directive this turn: no circle-jerking, no subpar.
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index e2cc3638..fa28de6b 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2270,7 +2270,12 @@ async def run_one_query(
+         # R-6 Gap-1: if adequacy still says ABORT after optional
+         # expansion, refuse to synthesize — emit a short "corpus
+         # inadequate" manifest and return status=abort_corpus_inadequate.
+-        if adequacy.decision == "abort":
++        # I-meta-005 Phase 3 (#987): ON-mode this legacy domain-keyed adequacy
++        # is TELEMETRY-ONLY — it must NOT abort here, or an on-mode thin corpus
++        # would exit via the aggregate-count gate BEFORE the binding plan-
++        # sufficiency gate (the single final gate on `evidence_for_gen`) ever
++        # runs. OFF-mode this aborts byte-identically (the off-mode gate as today).
++        if not _use_research_planner and adequacy.decision == "abort":
+             _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
+                  f"Refusing to ship a misleading short report.")
+             summary["status"] = "abort_corpus_inadequate"
+@@ -2756,6 +2761,135 @@ async def run_one_query(
+             q.get("uploaded_documents_blocked_count", 0) or 0
+         )
+ 
++        # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
++        # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
++        # the V30 contract-row prepend (:2719) + the upload-row prepend (:2754)
++        # have all run and NOTHING further mutates it before the generator bills
++        # at `generate_multi_section_report` below. The plan-sufficiency gate
++        # certifies EXACTLY the rows that will be billed: does the corpus cover
++        # EVERY planned sub-question to its per-section evidence_target at the
++        # numeric authority floor? PROCEED -> generator; EXPAND/ABORT collapse to
++        # `abort_corpus_inadequate` with ZERO generator tokens (Phase 4 owns the
++        # actual saturation EXPANSION loop). Pure / no-network / spend-free. OFF-
++        # mode this whole block is skipped (the legacy domain-keyed gate aborted
++        # earlier, byte-identically).
++        if _use_research_planner and _research_plan is not None:
++            from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++                assess_plan_sufficiency,
++            )
++            _suff_floor_env = os.getenv(
++                "PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", ""
++            ).strip()
++            _suff_floor = float(_suff_floor_env) if _suff_floor_env else None
++            _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
++            _suff_max_rounds = int(
++                os.getenv("PG_PLAN_SUFFICIENCY_MAX_ROUNDS", "0")
++            )
++            _suff = assess_plan_sufficiency(
++                plan=_research_plan,
++                corpus_rows=evidence_for_gen,
++                authority_floor=_suff_floor,
++                round_index=_suff_round,
++                max_rounds=_suff_max_rounds,
++            )
++            (run_dir / "plan_sufficiency.json").write_text(
++                json.dumps(asdict(_suff), indent=2, sort_keys=True, default=str)
++                + "\n",
++                encoding="utf-8",
++            )
++            _log(
++                f"[sufficiency] verdict={_suff.verdict} "
++                f"floor={_suff.authority_floor} "
++                f"sections={len(_suff.per_unit)} "
++                f"under_covered={len(_suff.under_covered_units)}"
++            )
++            if _suff.verdict != "proceed":
++                # EXPAND or ABORT -> hold BEFORE the generator bills (Phase 3
++                # guarantee: a shallow corpus NEVER spends a generator token).
++                _log(
++                    f"[ABORT]       Plan-sufficiency {_suff.verdict.upper()}: "
++                    f"{len(_suff.under_covered_units)} planned section(s) under-"
++                    f"covered. Refusing to bill the generator on a corpus that "
++                    f"does not cover every planned sub-question."
++                )
++                summary["status"] = "abort_corpus_inadequate"
++                summary["error"] = (
++                    f"plan_sufficiency_{_suff.verdict}: "
++                    f"{','.join(_suff.under_covered_units)}"
++                )
++                _shortfall_lines = []
++                for _u in _suff.per_unit:
++                    if _u.sufficient:
++                        continue
++                    _shortfall_lines.append(
++                        f"- **{_u.unit_id}** {_u.title!r}: "
++                        f"covered={_u.covered_count}/target={_u.evidence_target} "
++                        f"above floor; empty facets="
++                        f"{_u.empty_facets}; below-floor relevant="
++                        f"{_u.below_floor_count}"
++                    )
++                (run_dir / "report.md").write_text(
++                    f"# Research report: {q['question']}\n\n"
++                    "## Pipeline verdict\n\n"
++                    "The corpus retrieved for this query did not cover every "
++                    "planned sub-question to its per-section evidence target at "
++                    "the authority floor. The pipeline is holding BEFORE billing "
++                    "the report generator (zero generator tokens spent) rather "
++                    "than synthesizing a report with uncovered planned facets.\n\n"
++                    f"Verdict: **{_suff.verdict.upper()}** "
++                    f"(authority floor {_suff.authority_floor}).\n\n"
++                    "### Under-covered planned sections\n\n"
++                    + "\n".join(_shortfall_lines)
++                    + "\n\n### Suggested next steps\n\n"
++                    "- Saturate retrieval on the under-covered sub-questions "
++                    "(Phase 4 expansion loop).\n"
++                    "- Verify the planned evidence targets match what the "
++                    "literature can support for each facet.\n",
++                    encoding="utf-8",
++                )
++                # NOTE: the retrieval trace was already flushed unconditionally
++                # at the post-deepener checkpoint (mirrors the legacy abort at
++                # :2273, which does not re-flush) — do NOT re-flush here.
++                run_cost = current_run_cost()
++                manifest = _base_manifest_envelope(
++                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
++                )
++                manifest.update({
++                    "status": "abort_corpus_inadequate",
++                    "plan_sufficiency": asdict(_suff),
++                    "corpus": {
++                        "count": dist.total_sources,
++                        "tier_fractions": dist.tier_fractions,
++                    },
++                })
++                manifest = augment_v6_manifest(
++                    manifest,
++                    external_run_id=q.get("external_run_id"),
++                    decision_id=q.get("decision_id"),
++                    query_slug=q.get("slug"),
++                )
++                (run_dir / "manifest.json").write_text(
++                    json.dumps(manifest, indent=2, sort_keys=True, default=str)
++                    + "\n",
++                    encoding="utf-8",
++                )
++                summary["manifest"] = manifest
++                summary["cost_usd"] = run_cost
++                try:
++                    write_per_run_cost_ledger(run_dir, run_id)
++                except Exception:
++                    pass
++                if q.get("v6_mode") and q.get("external_run_id"):
++                    emit_terminal_event(
++                        q.get("external_run_id"),
++                        "abort_corpus_inadequate",
++                        error_msg=summary.get("error"),
++                    )
++                set_current_run_id(None)
++                set_reasoning_sink(None)
++                log_f.close()
++                return summary
++
+         # I-cd-706: SSE evidence-id events over the FINAL evidence_for_gen set
+         # (NOT inside retrieval loops — bounded to the selected rows, tens to
+         # low-hundreds). Rows are dicts; guard for any object rows defensively.
+diff --git a/src/polaris_graph/adequacy/__init__.py b/src/polaris_graph/adequacy/__init__.py
+new file mode 100644
+index 00000000..6653adb0
+--- /dev/null
++++ b/src/polaris_graph/adequacy/__init__.py
+@@ -0,0 +1,27 @@
++"""Plan-sufficiency gate package (I-meta-005 Phase 3, #987).
++
++The MONEY-TRAP fix: the legacy `nodes/corpus_adequacy_gate.py` gate is
++domain-keyed AND aggregate-count only, so a broad-but-shallow corpus PASSES,
++BILLS the generator, then leaves planned sub-questions uncovered. This package
++re-defines adequacy as "does the corpus cover EVERY planned sub-question to its
++per-section evidence target, at the numeric authority floor?" — held at
++EXPAND/abort BEFORE a single generator token is billed.
++
++Behind `PG_USE_RESEARCH_PLANNER` (default off); OFF is byte-identical (the
++legacy `assess_corpus_adequacy` domain-keyed gate is retained + selected when
++off). The gate is a PURE function over already-retrieved rows + the pinned plan
+++ the per-row authority sidecar — no network, no LLM, spend-free.
++"""
++from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++    PlanSufficiencyReport,
++    UnitCoverage,
++    assess_plan_sufficiency,
++    relevant_section_indices,
++)
++
++__all__ = [
++    "PlanSufficiencyReport",
++    "UnitCoverage",
++    "assess_plan_sufficiency",
++    "relevant_section_indices",
++]
+diff --git a/src/polaris_graph/adequacy/plan_sufficiency_gate.py b/src/polaris_graph/adequacy/plan_sufficiency_gate.py
+new file mode 100644
+index 00000000..27897c47
+--- /dev/null
++++ b/src/polaris_graph/adequacy/plan_sufficiency_gate.py
+@@ -0,0 +1,354 @@
++"""Plan-sufficiency gate — I-meta-005 Phase 3 (#987). The money-trap fix.
++
++`assess_plan_sufficiency` decides whether the BILLED evidence set covers EVERY
++planned sub-question to its per-section evidence target at the numeric authority
++floor — BEFORE a generator token is billed. It is a PURE function (no network,
++no LLM) over rows that already carry the §2.3a authority sidecar + `query_origin`
++provenance, plus the pinned `ResearchPlan`.
++
++KEY DESIGN (brief §2.2):
++- Coverage UNIT = the section outline item (its `evidence_target`).
++- Relevance = PROVENANCE-FIRST: a row is relevant to a section iff its
++  `query_origin` matches (normalized equality) one of the sub-query texts at the
++  section's `sub_query_indices`. The content-word overlap fallback is used ONLY
++  for rows whose `query_origin` is EMPTY or one of the explicit NON-QUERY
++  SENTINEL origins (`{primary_trial_doi_seed, need_type_backend, domain_backend}`)
++  — these lanes surface authoritative evidence with no originating sub-query, so
++  they must be creditable. A row whose `query_origin` is a REAL sub-query text
++  that does not match the section is NOT relevant to it (no title-overlap rescue).
++- Authority floor = the NUMERIC `authority_score` (float [0,1]); a row counts
++  toward coverage iff `authority_score >= authority_floor` (a single global
++  float, NOT a per-domain dict). Below-floor relevant rows are reported, not
++  credited.
++- Section SUFFICIENT iff BOTH (facet-level, not section-aggregate):
++    (i)  total above-floor covered_count >= evidence_target, AND
++    (ii) EVERY mapped sub_query_index has >= MIN_PER_FACET above-floor relevant
++         rows — so a section mapped to [4,5,6] cannot pass on rows from 4 alone.
++- Verdict: PROCEED (all sufficient) / EXPAND (≥1 under-covered, round < max) /
++  ABORT (≥1 under-covered, rounds/budget exhausted).
++
++The relevance MAPPING is shared with the generator's on-mode
++`_assign_evidence_to_planned_outline` via `relevant_section_indices`, so a
++section certified SUFFICIENT actually RECEIVES its credited rows (brief §2.2b).
++
++NO `if domain ==` / NO `_DEFAULT_DOMAIN_THRESHOLDS` / NO clinical literal on this
++path — sufficiency is computed from the PLAN x AUTHORITY, never a domain.
++"""
++from __future__ import annotations
++
++import logging
++import os
++from dataclasses import dataclass, field
++from typing import Any, Literal
++
++logger = logging.getLogger("polaris_graph.plan_sufficiency_gate")
++
++SufficiencyVerdict = Literal["proceed", "expand", "abort"]
++
++# NON-QUERY sentinel origins that legitimately carry no sub-query text (brief
++# §2.2). Rows with one of these origins (or an empty origin) are FALLBACK-
++# ELIGIBLE: their relevance is decided by content-word overlap against a
++# section's sub-query texts. A REAL sub-query origin is authoritative and uses
++# provenance-first matching only. Codex-LOCKED — do not widen.
++SENTINEL_ORIGINS: frozenset[str] = frozenset(
++    {"primary_trial_doi_seed", "need_type_backend", "domain_backend"}
++)
++
++
++def _authority_floor_default() -> float:
++    """Single global numeric authority floor in [0,1] (brief §2.2). Read at call
++    time so tests/operators can override via env; callers pass it explicitly."""
++    try:
++        return float(os.getenv("PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", "0.3"))
++    except (TypeError, ValueError):
++        return 0.3
++
++
++def _min_per_facet_default() -> int:
++    """Minimum above-floor relevant rows EACH mapped sub-query must have for a
++    section to be sufficient (brief §2.2, default 1)."""
++    try:
++        return max(1, int(os.getenv("PG_PLAN_SUFFICIENCY_MIN_PER_FACET", "1")))
++    except (TypeError, ValueError):
++        return 1
++
++
++@dataclass
++class UnitCoverage:
++    """Per-section coverage detail (brief §2.1)."""
++
++    unit_id: str
++    title: str
++    evidence_target: int
++    sub_query_indices: list[int]
++    covered_count: int                 # above-floor relevant rows (total)
++    below_floor_count: int             # relevant-but-below-authority (reported)
++    sufficient: bool
++    per_facet_covered: dict[int, int] = field(default_factory=dict)
++    empty_facets: list[int] = field(default_factory=list)
++
++
++@dataclass
++class PlanSufficiencyReport:
++    verdict: SufficiencyVerdict
++    authority_floor: float
++    min_per_facet: int
++    round_index: int
++    max_rounds: int
++    per_unit: list[UnitCoverage] = field(default_factory=list)
++    under_covered_units: list[str] = field(default_factory=list)
++    notes: list[str] = field(default_factory=list)
++
++
++def _normalize_query(text: str) -> str:
++    """Normalized form for provenance equality (whitespace-collapsed, lower)."""
++    return " ".join(str(text or "").split()).strip().lower()
++
++
++def _content_words(text: str) -> set[str]:
++    """Reuse the EXISTING grounding tokenizer (alphabetic, >=3 chars, stopword-
++    stripped) — the same primitive the provenance verifier uses (brief §2.2).
++    Imported lazily so this module has no import-time generator dependency."""
++    from src.polaris_graph.generator.provenance_generator import (
++        _content_words as _cw,
++    )
++    return _cw(text)
++
++
++def _min_content_word_overlap() -> int:
++    """The EXISTING `MIN_CONTENT_WORD_OVERLAP` constant (default 2) — no new
++    magic number for the fallback floor (brief §2.2)."""
++    from src.polaris_graph.generator.provenance_generator import (
++        MIN_CONTENT_WORD_OVERLAP,
++    )
++    return MIN_CONTENT_WORD_OVERLAP
++
++
++def _row_text_for_overlap(row: dict[str, Any]) -> str:
++    """The row content used for the content-word fallback: statement + the
++    direct_quote span (NOT just the title — brief §2.2 fallback)."""
++    return " ".join(
++        str(row.get(k) or "")
++        for k in ("statement", "direct_quote")
++    )
++
++
++def relevant_section_indices(
++    row: dict[str, Any],
++    outline: list[Any],
++    sub_queries: list[str],
++) -> list[int]:
++    """Map a row to the outline section index(es) it is RELEVANT to (brief §2.2).
++
++    SHARED by the gate (counting) and the on-mode generator assignment so the
++    SUFFICIENT certification carries through to what the generator receives.
++    Authority is NOT applied here — relevance is provenance/overlap only; the
++    gate layers the numeric floor on top.
++
++    Provenance-first: a non-sentinel, non-empty `query_origin` credits ONLY the
++    section(s) whose `sub_query_indices` point at that exact sub-query text. A
++    sentinel/empty origin uses content-word overlap against the section's
++    sub-query texts. Returns the list of matching section indices (possibly
++    several; possibly none -> orphan, uncredited).
++    """
++    origin = _normalize_query(row.get("query_origin", ""))
++    raw_origin = str(row.get("query_origin", "") or "")
++    norm_subqueries = [_normalize_query(sq) for sq in sub_queries]
++
++    fallback_eligible = (raw_origin == "") or (raw_origin in SENTINEL_ORIGINS)
++
++    matches: list[int] = []
++    if not fallback_eligible:
++        # PROVENANCE-FIRST: credit only sections whose mapped sub-query texts
++        # equal this row's real query_origin.
++        for sec_idx, section in enumerate(outline):
++            for q_idx in getattr(section, "sub_query_indices", []) or []:
++                if 0 <= q_idx < len(norm_subqueries) and norm_subqueries[q_idx] == origin:
++                    matches.append(sec_idx)
++                    break
++        return matches
++
++    # FALLBACK (empty / sentinel origin): content-word overlap against the
++    # section's OWN sub-query texts, floored by MIN_CONTENT_WORD_OVERLAP.
++    row_words = _content_words(_row_text_for_overlap(row))
++    if not row_words:
++        return matches
++    floor = _min_content_word_overlap()
++    for sec_idx, section in enumerate(outline):
++        section_words: set[str] = set()
++        for q_idx in getattr(section, "sub_query_indices", []) or []:
++            if 0 <= q_idx < len(sub_queries):
++                section_words |= _content_words(sub_queries[q_idx])
++        if not section_words:
++            continue
++        if len(row_words & section_words) >= floor:
++            matches.append(sec_idx)
++    return matches
++
++
++def _facets_matched_for_row(
++    row: dict[str, Any],
++    section: Any,
++    sub_queries: list[str],
++) -> list[int]:
++    """Which of THIS section's mapped sub_query_indices the row covers (brief
++    §2.2 facet-level). Provenance-first for a real origin; content-word overlap
++    against the SPECIFIC facet's sub-query text for a sentinel/empty origin."""
++    raw_origin = str(row.get("query_origin", "") or "")
++    origin = _normalize_query(raw_origin)
++    fallback_eligible = (raw_origin == "") or (raw_origin in SENTINEL_ORIGINS)
++    indices = [
++        q for q in (getattr(section, "sub_query_indices", []) or [])
++        if 0 <= q < len(sub_queries)
++    ]
++    if not fallback_eligible:
++        return [q for q in indices if _normalize_query(sub_queries[q]) == origin]
++    row_words = _content_words(_row_text_for_overlap(row))
++    if not row_words:
++        return []
++    floor = _min_content_word_overlap()
++    return [
++        q for q in indices
++        if len(row_words & _content_words(sub_queries[q])) >= floor
++    ]
++
++
++def _enrich_authority_if_missing(row: dict[str, Any]) -> float:
++    """Return the row's numeric `authority_score`, computing it at gate time for
++    a billed row that lacks the sidecar (post-selection V30 contract / uploaded-
++    document rows — brief §2.3a). Builds a minimal signals object from the row's
++    url/title; thin inputs -> honest LOW per the Phase-0a contract (never a
++    silent blind credit). Does NOT mutate the row's persisted sidecar contract
++    beyond filling the missing score for THIS assessment."""
++    val = row.get("authority_score")
++    if isinstance(val, (int, float)):
++        return float(val)
++    # Missing sidecar -> compute directly from the row's surface signals.
++    from src.polaris_graph.authority.authority_model import score_source_authority
++    from src.polaris_graph.retrieval.tier_classifier import ClassificationSignals
++
++    url = str(row.get("source_url") or row.get("url") or "")
++    title = str(row.get("statement") or row.get("title") or "")
++    body = str(row.get("direct_quote") or "")
++    signals = ClassificationSignals(
++        url=url,
++        title=title,
++        publisher="",
++        fetched_content_length=len(body),
++        fetched_body=body,
++    )
++    result = score_source_authority(signals)
++    score = float(result.authority_score)
++    # Cache onto the row so the shared mapping / telemetry stays consistent.
++    row["authority_score"] = score
++    if not row.get("authority_confidence"):
++        row["authority_confidence"] = result.authority_confidence.value
++    return score
++
++
++def assess_plan_sufficiency(
++    *,
++    plan: Any,
++    corpus_rows: list[dict[str, Any]],
++    authority_floor: float | None = None,
++    round_index: int,
++    max_rounds: int,
++    min_per_facet: int | None = None,
++) -> PlanSufficiencyReport:
++    """Certify the BILLED evidence set against the pinned plan (brief §2.1).
++
++    Args:
++        plan: the pinned `ResearchPlan` (carries `sub_queries` + `outline` with
++            per-section `evidence_target` + `sub_query_indices`).
++        corpus_rows: the FINAL billed rows (`evidence_for_gen`) — each carries
++            `query_origin` + (for live rows) the authority sidecar; injected
++            contract/upload rows are enriched here.
++        authority_floor: numeric floor in [0,1]; default from env.
++        round_index / max_rounds: saturation-round bookkeeping (EXPAND vs ABORT).
++        min_per_facet: per-facet minimum above-floor rows; default from env.
++
++    Returns a `PlanSufficiencyReport`. PURE / no-network / no-LLM.
++    """
++    floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
++    per_facet_min = _min_per_facet_default() if min_per_facet is None else max(1, int(min_per_facet))
++
++    sub_queries = list(getattr(plan, "sub_queries", []) or [])
++    outline = list(getattr(plan, "outline", []) or [])
++
++    per_unit: list[UnitCoverage] = []
++    under_covered: list[str] = []
++
++    for sec_idx, section in enumerate(outline):
++        unit_id = f"section_{sec_idx}"
++        title = getattr(section, "title", "") or unit_id
++        target = int(getattr(section, "evidence_target", 0) or 0)
++        mapped = [
++            q for q in (getattr(section, "sub_query_indices", []) or [])
++            if 0 <= q < len(sub_queries)
++        ]
++        covered_count = 0
++        below_floor_count = 0
++        per_facet_covered: dict[int, int] = {q: 0 for q in mapped}
++
++        for row in corpus_rows:
++            matched_facets = _facets_matched_for_row(row, section, sub_queries)
++            if not matched_facets:
++                continue
++            score = _enrich_authority_if_missing(row)
++            if score >= floor:
++                covered_count += 1
++                for q in matched_facets:
++                    per_facet_covered[q] = per_facet_covered.get(q, 0) + 1
++            else:
++                below_floor_count += 1
++
++        empty_facets = [
++            q for q in mapped if per_facet_covered.get(q, 0) < per_facet_min
++        ]
++        sufficient = (
++            covered_count >= target
++            and target >= 1
++            and len(mapped) >= 1
++            and not empty_facets
++        )
++        unit = UnitCoverage(
++            unit_id=unit_id,
++            title=title,
++            evidence_target=target,
++            sub_query_indices=list(mapped),
++            covered_count=covered_count,
++            below_floor_count=below_floor_count,
++            sufficient=sufficient,
++            per_facet_covered=dict(per_facet_covered),
++            empty_facets=empty_facets,
++        )
++        per_unit.append(unit)
++        if not sufficient:
++            under_covered.append(unit_id)
++
++    if not under_covered:
++        verdict: SufficiencyVerdict = "proceed"
++        notes = [f"all {len(per_unit)} planned sections sufficient at floor {floor}"]
++    elif round_index < max_rounds:
++        verdict = "expand"
++        notes = [
++            f"{len(under_covered)} under-covered unit(s); "
++            f"round {round_index} < max {max_rounds} -> EXPAND"
++        ]
++    else:
++        verdict = "abort"
++        notes = [
++            f"{len(under_covered)} under-covered unit(s); "
++            f"rounds exhausted (round {round_index} >= max {max_rounds}) -> ABORT"
++        ]
++
++    return PlanSufficiencyReport(
++        verdict=verdict,
++        authority_floor=floor,
++        min_per_facet=per_facet_min,
++        round_index=round_index,
++        max_rounds=max_rounds,
++        per_unit=per_unit,
++        under_covered_units=under_covered,
++        notes=notes,
++    )
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 5001fdff..78ca1ca8 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -600,21 +600,124 @@ def _assign_evidence_to_planned_outline(
+     evidence: list[dict[str, Any]],
+     *,
+     max_ev_per_section: int = 30,
++    sub_queries: list[str] | None = None,
++    authority_floor: float | None = None,
+ ) -> list[SectionPlan]:
+     """Assign retrieved evidence rows to the planner's pre-declared sections
+-    (brief §2.5). The titles + archetype tags + section COUNT come from
++    (brief §2.5 / §2.2b). The titles + archetype tags + section COUNT come from
+     `planned_outline` (each item exposes `.archetype`, `.title`, and optionally
+-    `.evidence_target`); this function only distributes `ev_ids` round-robin so
+-    every section draws from the retrieved pool. Pure / no-LLM / no-network.
++    `.evidence_target`). Pure / no-LLM / no-network.
+ 
+     `planned_outline` items are `planning.SectionOutlineItem` instances (or any
+     object with `.archetype` / `.title` attributes). Returns on-mode
+     `SectionPlan`s carrying the question-specific title + archetype tag.
++
++    I-meta-005 Phase 3 (#987): when `sub_queries` is provided (on-mode plan
++    present), assignment is PROVENANCE-FIRST — each row goes to the section(s)
++    whose `sub_query_indices` its `query_origin` matches (sentinel/empty origins
++    use the content-word fallback), via the SAME `relevant_section_indices`
++    mapping the plan-sufficiency gate uses to COUNT coverage. So a section the
++    gate certified SUFFICIENT actually RECEIVES its credited rows. When
++    `sub_queries` is None (off-path / legacy callers), the byte-identical
++    round-robin `ev_ids[i::n_sections]` slice is used.
+     """
+-    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+-    ev_ids = [e for e in ev_ids if e]
+     n_sections = len(planned_outline)
+     plans: list[SectionPlan] = []
++
++    if sub_queries is not None:
++        # PROVENANCE-FIRST (on-mode). Shared mapping + floor imported lazily to
++        # avoid a module-load cycle (adequacy -> generator.provenance_generator).
++        from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++            _authority_floor_default,
++            _enrich_authority_if_missing,
++            _facets_matched_for_row,
++            _min_per_facet_default,
++            relevant_section_indices,
++        )
++        # Use the SAME floor the gate used (threaded by the caller; default env)
++        # so the assignment's above/below bucketing matches the gate's coverage
++        # decision exactly (architect P3 — gate/assignment floor consistency).
++        floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
++        min_per_facet = _min_per_facet_default()
++        # PER-SECTION, PER-FACET buckets of above-floor matched rows (architect
++        # P1): a section the gate certified SUFFICIENT requires EVERY mapped
++        # sub_query_index to have >= min_per_facet above-floor rows. A flat
++        # concat-then-slice at evidence_target could truncate out a facet's only
++        # credited row, billing the generator a section whose certified facet has
++        # ZERO evidence in the billed set — the facet-level money-trap at the cap
++        # boundary. So we RESERVE min_per_facet from each mapped facet first.
++        section_facet_above: list[dict[int, list[str]]] = [
++            {} for _ in planned_outline
++        ]
++        section_above_any: list[list[str]] = [[] for _ in planned_outline]
++        section_below_any: list[list[str]] = [[] for _ in planned_outline]
++        for row in evidence:
++            ev_id = row.get("evidence_id", "")
++            if not ev_id:
++                continue
++            matched = [
++                s for s in relevant_section_indices(
++                    row, planned_outline, sub_queries
++                )
++                if 0 <= s < n_sections
++            ]
++            if not matched:
++                continue
++            above = _enrich_authority_if_missing(row) >= floor
++            for sec_idx in matched:
++                if above:
++                    section_above_any[sec_idx].append(ev_id)
++                    for f in _facets_matched_for_row(
++                        row, planned_outline[sec_idx], sub_queries
++                    ):
++                        section_facet_above[sec_idx].setdefault(f, []).append(ev_id)
++                else:
++                    section_below_any[sec_idx].append(ev_id)
++        for i, item in enumerate(planned_outline):
++            archetype = getattr(item, "archetype", "") or ""
++            title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
++            target = int(getattr(item, "evidence_target", 0) or 0)
++            mapped_facets = [
++                q for q in (getattr(item, "sub_query_indices", []) or [])
++                if 0 <= q < len(sub_queries)
++            ]
++            # 1. Reserve min_per_facet above-floor rows from EACH mapped facet
++            #    (deduped, order-preserving) so no certified facet is truncated.
++            reserved: list[str] = []
++            for f in mapped_facets:
++                taken = 0
++                for ev_id in section_facet_above[i].get(f, []):
++                    if ev_id not in reserved:
++                        reserved.append(ev_id)
++                        taken += 1
++                    if taken >= min_per_facet:
++                        break
++            # 2. Fill the rest: remaining above-floor, then below-floor as filler.
++            rest = [e for e in section_above_any[i] if e not in reserved]
++            rest += [e for e in section_below_any[i] if e not in reserved]
++            # cap = evidence_target, clamped to the soft section size cap FIRST,
++            # then raised to never drop the RESERVED set (architect/Codex P1: the
++            # max_ev_per_section ceiling must apply only to the FILLER — the
++            # per-facet reserved rows are SACRED, never truncated, else a section
++            # mapped to MORE facets than max_ev_per_section would silently drop a
++            # certified facet's only row, billing a section whose sub-question has
++            # ZERO evidence. Repro: 31 facets, target 31, cap 30 -> facet 30
++            # dropped. Clamp ORDER guarantees len(reserved) survives.).
++            cap = target if target > 0 else max_ev_per_section
++            cap = min(cap, max_ev_per_section)
++            cap = max(cap, len(reserved))
++            ordered_ev = reserved + rest
++            plans.append(SectionPlan(
++                title=title,
++                focus=title,
++                ev_ids=ordered_ev[:cap],
++                archetype=archetype,
++            ))
++        return plans
++
++    # ROUND-ROBIN (off-path / legacy callers) — byte-identical.
++    ev_ids = [ev.get("evidence_id", "") for ev in evidence]
++    ev_ids = [e for e in ev_ids if e]
+     for i, item in enumerate(planned_outline):
+         archetype = getattr(item, "archetype", "") or ""
+         title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
+@@ -3997,7 +4100,13 @@ async def generate_multi_section_report(
+         outline_in_tok = 0
+         outline_out_tok = 0
+         planned_outline = list(getattr(research_plan, "outline", []) or [])
+-        plans = _assign_evidence_to_planned_outline(planned_outline, evidence)
++        # I-meta-005 Phase 3 (#987): pass the plan's sub_queries so assignment is
++        # PROVENANCE-FIRST (query_origin x sub_query_indices), matching the
++        # plan-sufficiency gate's coverage mapping. None -> round-robin (legacy).
++        plans = _assign_evidence_to_planned_outline(
++            planned_outline, evidence,
++            sub_queries=list(getattr(research_plan, "sub_queries", []) or []),
++        )
+         outline_ok = bool(plans)
+         outline_reason_codes = [] if plans else ["planner_outline_empty"]
+         outline_fallback_used = False
+diff --git a/src/polaris_graph/planning/research_planner.py b/src/polaris_graph/planning/research_planner.py
+index 21a50e25..9aa60f3d 100644
+--- a/src/polaris_graph/planning/research_planner.py
++++ b/src/polaris_graph/planning/research_planner.py
+@@ -232,11 +232,19 @@ class SectionOutlineItem:
+     question-specific TITLE, and a per-section evidence TARGET. It carries NO
+     evidence IDs — no evidence exists yet at planning time; the generator's
+     on-mode handoff assigns `ev_ids` post-retrieval (brief §2.5).
++
++    I-meta-005 Phase 3 (#987): `sub_query_indices` declares WHICH of the plan's
++    `sub_queries` (by index) make THIS section complete — the per-section facet
++    mapping the plan-sufficiency gate reads (brief §2.2). Additive, default `[]`
++    so OFF / direct construction is inert; on-mode `plan_research` validates
++    (≥1 in-range index + evidence_target ≥ 1 + whole-plan facet union) and
++    raises `MalformedPlanError` for any empty/stale/orphaned mapping.
+     """
+ 
+     archetype: str
+     title: str
+     evidence_target: int = 0
++    sub_query_indices: list[int] = field(default_factory=list)
+ 
+ 
+ @dataclass
+@@ -273,6 +281,10 @@ class ResearchPlan:
+                     "archetype": item.archetype,
+                     "title": item.title,
+                     "evidence_target": item.evidence_target,
++                    # I-meta-005 Phase 3 (#987): the per-section facet mapping is
++                    # part of the SHA-pinned plan so the sufficiency contract is
++                    # reproducible from the pinned artifact (gap #19 audit trail).
++                    "sub_query_indices": list(item.sub_query_indices),
+                 }
+                 for item in self.outline
+             ],
+@@ -439,10 +451,22 @@ def _parse_outline(obj: dict[str, Any]) -> list[SectionOutlineItem]:
+             evidence_target = int(target_raw)
+         except (TypeError, ValueError):
+             evidence_target = 0
++        # I-meta-005 Phase 3 (#987): parse the per-section facet mapping. SHAPE
++        # only here (coerce int-like entries, drop non-ints); the FAIL-CLOSED
++        # range/union validation runs in `plan_research` AFTER the sub_queries
++        # list is FINAL (post-truncation), so a parse-time-valid index that goes
++        # stale is still caught. Absent/empty -> [] (inert off-mode).
++        sub_query_indices: list[int] = []
++        for raw_idx in entry.get("sub_query_indices", []) or []:
++            try:
++                sub_query_indices.append(int(raw_idx))
++            except (TypeError, ValueError):
++                continue
+         items.append(SectionOutlineItem(
+             archetype=valid_tags[tag_raw],
+             title=title,
+             evidence_target=max(0, evidence_target),
++            sub_query_indices=sub_query_indices,
+         ))
+     if not items:
+         raise PlannerError(
+@@ -531,7 +555,11 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
+         '  "outline": [section objects, each with:\n'
+         '       "archetype": one of the field-invariant tags below,\n'
+         '       "title":     a QUESTION-SPECIFIC section heading (not a generic label),\n'
+-        '       "evidence_target": an integer target number of sources for the section\n'
++        '       "evidence_target": an integer target number of sources for the section,\n'
++        '       "sub_query_indices": [the 0-based indices into "sub_queries" '
++        "whose evidence makes THIS section complete — list every sub_query the "
++        "section depends on; EVERY sub_query index must appear in some section, "
++        "and every section must list at least one]\n"
+         "  ]\n\n"
+         f"ALLOWED ARCHETYPE TAGS (pick the ones the question needs): {archetype_list}\n\n"
+         "RULES:\n"
+@@ -623,4 +651,50 @@ def plan_research(
+                 "(< min %d) after retry — NOT padding",
+                 len(plan.sub_queries), min_subqueries,
+             )
++    # I-meta-005 Phase 3 (#987): FAIL-CLOSED post-finalization facet validation.
++    # The sub_queries list is now FINAL (post-truncation / retry-winner). Any
++    # outline section whose facet mapping is empty / stale / out-of-range, OR a
++    # planned sub_query mapped to NO section, makes the plan-sufficiency contract
++    # vacuous — so refuse the plan BEFORE any retrieval/generation spend.
++    _validate_outline_facet_mapping(plan)
+     return plan
++
++
++def _validate_outline_facet_mapping(plan: ResearchPlan) -> None:
++    """FAIL-CLOSED on-mode facet-mapping validation (brief §2.1b / §2.3a),
++    run AFTER `plan.sub_queries` is FINAL. Every section MUST:
++      * declare ≥1 `sub_query_index`,
++      * have every index in range of the FINAL `sub_queries`, AND
++      * carry `evidence_target ≥ 1`,
++    and the UNION of all sections' `sub_query_indices` MUST equal
++    `set(range(len(sub_queries)))` (no orphaned planned facet escapes the gate).
++    Any violation raises `MalformedPlanError` (zero spend). Pure / no-network.
++    """
++    n_sub = len(plan.sub_queries)
++    covered: set[int] = set()
++    for section in plan.outline:
++        indices = list(section.sub_query_indices)
++        if not indices:
++            raise MalformedPlanError(
++                f"outline section {section.title!r} has no sub_query_indices "
++                "(every on-mode section must map ≥1 planned sub-query)"
++            )
++        if int(section.evidence_target) < 1:
++            raise MalformedPlanError(
++                f"outline section {section.title!r} has evidence_target="
++                f"{section.evidence_target} (on-mode requires ≥1)"
++            )
++        for idx in indices:
++            if idx < 0 or idx >= n_sub:
++                raise MalformedPlanError(
++                    f"outline section {section.title!r} maps sub_query_index "
++                    f"{idx} out of range for {n_sub} final sub_queries"
++                )
++            covered.add(idx)
++    expected = set(range(n_sub))
++    if covered != expected:
++        orphaned = sorted(expected - covered)
++        raise MalformedPlanError(
++            f"planned sub_queries {orphaned} are mapped to no outline section "
++            "(every planned facet must be covered by some section)"
++        )
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 7da2762b..70919cb4 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -46,6 +46,7 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+ from src.polaris_graph.retrieval.scope_query_validator import (
+     validate_amplified_queries,
+ )
++from src.polaris_graph.authority.authority_model import score_source_authority
+ from src.polaris_graph.authority.source_class import AuthoritySignals
+ from src.polaris_graph.retrieval.tier_classifier import (
+     ClassificationSignals,
+@@ -2215,7 +2216,7 @@ def run_live_retrieval(
+                 direct_quote = _build_provenance_quote(
+                     content, head_chars=1500, window_chars=500,
+                 )
+-                evidence_rows.append({
++                _row = {
+                     "evidence_id": f"ev_{i:03d}",
+                     "source_url": cand.url,
+                     "statement": cand.title[:300],
+@@ -2227,7 +2228,21 @@ def run_live_retrieval(
+                     # the evidence selector can reserve per-sub-topic diversity.
+                     # Additive only; absent/empty for seed-lane or legacy rows.
+                     "query_origin": getattr(cand, "query_origin", "") or "",
+-                })
++                }
++                # I-meta-005 Phase 3 (#987): per-row AUTHORITY sidecar. ON-mode
++                # ONLY (research_frame present), and INDEPENDENT of the legacy
++                # `PG_USE_AUTHORITY_MODEL` tier switch — the plan-sufficiency gate
++                # reads the NUMERIC `authority_score`, so planner mode computes it
++                # DIRECTLY via the Phase-0a pure function over the SAME `signals`
++                # already built for tier classification (no network, spend-free).
++                # Honest LOW score/confidence when signals are thin (never a
++                # silent 0.0). OFF-mode the keys are ABSENT -> rows byte-identical
++                # (the legacy domain-keyed gate never reads them).
++                if research_frame is not None:
++                    _auth = score_source_authority(signals)
++                    _row["authority_score"] = float(_auth.authority_score)
++                    _row["authority_confidence"] = _auth.authority_confidence.value
++                evidence_rows.append(_row)
+                 _trace_kept(cand.url, cand.source)
+ 
+     return LiveRetrievalResult(
+diff --git a/state/active_issue.json b/state/active_issue.json
+index 13623a6c..42168465 100644
+--- a/state/active_issue.json
++++ b/state/active_issue.json
+@@ -1,7 +1,7 @@
+ {
+   "active_issue_id": "I-meta-005-phase-3",
+   "active_issue_github": 987,
+-  "current_step": "Phase 2 MERGED (PR #999) \u2014 advancing to Phase 3 (plan-sufficiency gate)",
++  "current_step": "Phase 3 BUILD + architect P1 fix (per-facet reservation) \u2014 Codex diff-gate",
+   "sub_pr_build_status_2026_05_29": {
+     "pr1_lock_slug_serving_route_verify_consistency": "d0ccc583 \u2014 brief APPROVE iter1, diff APPROVE iter1",
+     "pr2_role_contracts": "fff6f2ef \u2014 brief APPROVE iter2, diff APPROVE iter5 (4 Sentinel fail-closed hardenings)",
+diff --git a/tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py b/tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py
+new file mode 100644
+index 00000000..d852ade1
+--- /dev/null
++++ b/tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py
+@@ -0,0 +1,701 @@
++"""I-meta-005 Phase 3 (#987) smoke — plan-sufficiency gate (the money-trap fix).
++
++Cases P3-1..P3-17 from the Codex-APPROVED brief `.codex/I-meta-005-phase-3/
++brief.md` §3. Spend-free: the gate is a PURE function over real dict rows; the
++planner is constructed via plain-class fakes / direct dataclasses (NO
++unittest.mock, NO live LLM/retrieval). The "ZERO generator bill" guarantee is
++asserted at the gate-verdict level (the EXPAND/ABORT verdict is exactly what
++makes the sweep return BEFORE `generate_multi_section_report`) plus a spy that
++proves the on-mode evidence-assignment path constructs no generator client.
++
++Serialized per CLAUDE.md §8.4 (no heavy ML; pure-python).
++"""
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++    SENTINEL_ORIGINS,
++    assess_plan_sufficiency,
++    relevant_section_indices,
++)
++from src.polaris_graph.planning.research_planner import (
++    MalformedPlanError,
++    ResearchFrame,
++    ResearchPlan,
++    SectionOutlineItem,
++    plan_research,
++    plan_sha256,
++    serialize_plan_canonical,
++)
++
++
++# ── fixtures / helpers (real objects, no mocks) ──────────────────────────────
++
++def _plan(sub_queries, outline):
++    return ResearchPlan(
++        research_question="q",
++        frame=ResearchFrame(),
++        sub_queries=list(sub_queries),
++        outline=list(outline),
++    )
++
++
++def _section(title, target, indices, archetype="Background"):
++    return SectionOutlineItem(
++        archetype=archetype,
++        title=title,
++        evidence_target=target,
++        sub_query_indices=list(indices),
++    )
++
++
++def _row(ev_id, origin, score, *, statement="", quote=""):
++    r = {
++        "evidence_id": ev_id,
++        "query_origin": origin,
++        "statement": statement,
++        "direct_quote": quote,
++    }
++    if score is not None:
++        r["authority_score"] = score
++        r["authority_confidence"] = "HIGH"
++    return r
++
++
++def _planner_llm(payload: dict):
++    """A plain callable fake — returns one JSON plan string regardless of prompt."""
++    text = json.dumps(payload)
++
++    def _call(_prompt: str) -> str:
++        return text
++
++    return _call
++
++
++_FRAME_OBJ = {
++    "entities": ["x"], "relations": [], "metrics": [],
++    "comparators": [], "constraints": [], "claim_type": "descriptive",
++    "evidence_needs": [], "jurisdictions": [],
++}
++
++
++# ── P3-1 OFF byte-identity ───────────────────────────────────────────────────
++
++def test_p3_1_off_byte_identity_legacy_gate_untouched():
++    """OFF -> the legacy domain-keyed `assess_corpus_adequacy` verdict is
++    byte-identical (the off-mode gate is retained, not replaced)."""
++    from src.polaris_graph.nodes.corpus_adequacy_gate import (
++        assess_corpus_adequacy,
++    )
++    clinical = assess_corpus_adequacy(
++        tier_counts={"T1": 4, "T2": 3, "T3": 2, "T4": 1, "T5": 1, "T6": 1},
++        evidence_row_count=9, domain="clinical",
++    )
++    policy = assess_corpus_adequacy(
++        tier_counts={"T3": 6, "T1": 1, "T2": 1, "T6": 2},
++        evidence_row_count=10, domain="policy",
++    )
++    assert clinical.decision == "proceed"
++    assert policy.decision == "proceed"
++    # Pin the serialized report bytes — a regression in the legacy path changes
++    # these.
++    from dataclasses import asdict
++    clinical_bytes = json.dumps(asdict(clinical), sort_keys=True)
++    assert '"decision": "proceed"' in clinical_bytes
++
++
++# ── P3-2 PROCEED ─────────────────────────────────────────────────────────────
++
++def test_p3_2_proceed_all_sections_covered():
++    plan = _plan(
++        ["solar cost", "wind cost", "hydro cost", "battery cost", "grid cost", "policy cost"],
++        [
++            _section("S0", 2, [0, 1]),
++            _section("S1", 2, [2, 3]),
++            _section("S2", 2, [4, 5]),
++        ],
++    )
++    rows = [
++        _row("ev_000", "solar cost", 0.9),
++        _row("ev_001", "wind cost", 0.8),
++        _row("ev_002", "hydro cost", 0.9),
++        _row("ev_003", "battery cost", 0.8),
++        _row("ev_004", "grid cost", 0.9),
++        _row("ev_005", "policy cost", 0.8),
++    ]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict == "proceed"
++    assert r.under_covered_units == []
++
++
++# ── P3-3 THE TRAP (housing) ──────────────────────────────────────────────────
++
++def test_p3_3_trap_housing_broad_shallow_holds_before_billing():
++    """6-section housing plan; broad corpus but section #5 has 0 relevant
++    above-floor rows -> EXPAND/ABORT (NOT proceed). The verdict IS the
++    money-trap exit (sweep returns before the generator)."""
++    sub = [f"housing facet {i}" for i in range(6)]
++    plan = _plan(sub, [_section(f"S{i}", 1, [i]) for i in range(6)])
++    # Lots of rows, but NONE for facet 5.
++    rows = [_row(f"ev_{i:03d}", f"housing facet {i % 5}", 0.9) for i in range(20)]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict in ("expand", "abort")
++    assert "section_5" in r.under_covered_units
++
++
++# ── P3-4 THE TRAP (sovereignty) ──────────────────────────────────────────────
++
++def test_p3_4_trap_sovereignty_same_shape_held():
++    sub = [f"sovereignty facet {i}" for i in range(6)]
++    plan = _plan(sub, [_section(f"S{i}", 1, [i]) for i in range(6)])
++    rows = [_row(f"ev_{i:03d}", f"sovereignty facet {i % 5}", 0.9) for i in range(18)]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict in ("expand", "abort")
++    assert not all(u.sufficient for u in r.per_unit)
++
++
++# ── P3-5 authority floor bites (numeric) ─────────────────────────────────────
++
++def test_p3_5_authority_floor_bites_numeric():
++    """A section with 3 relevant rows ALL below the floor -> UNDER_COVERED;
++    relevant-but-below-floor counted separately, not credited."""
++    plan = _plan(["facet a"], [_section("S0", 2, [0])])
++    rows = [_row(f"ev_{i:03d}", "facet a", 0.1) for i in range(3)]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict == "abort"
++    u = r.per_unit[0]
++    assert u.covered_count == 0
++    assert u.below_floor_count == 3
++
++
++# ── P3-5b provenance-first mapping ───────────────────────────────────────────
++
++def test_p3_5b_provenance_first_no_off_facet_credit():
++    outline = [_section("S0", 1, [0]), _section("S1", 1, [1])]
++    sub = ["alpha facet", "beta facet"]
++    # Real origin matches section S0's sub-query exactly; even though its words
++    # overlap S1's title, it must NOT credit S1 (no title rescue for real origin).
++    row = _row("ev_000", "alpha facet", 0.9, statement="beta facet words here")
++    assert relevant_section_indices(row, outline, sub) == [0]
++    # Empty-origin row uses the content-word fallback against the section texts.
++    erow = _row("ev_001", "", 0.9, statement="beta facet extra terms")
++    assert relevant_section_indices(erow, outline, sub) == [1]
++
++
++# ── P3-5c authority sidecar persisted (live row build) ───────────────────────
++
++def test_p3_5c_authority_sidecar_persisted_on_mode_only():
++    """The on-mode live evidence row carries authority_score+confidence;
++    off-mode rows have NEITHER key (byte-identical). Asserted at the source-of-
++    truth: live_retriever adds the sidecar only under `research_frame is not
++    None`."""
++    import inspect
++    from src.polaris_graph.retrieval import live_retriever
++    src = inspect.getsource(live_retriever.run_live_retrieval)
++    assert 'if research_frame is not None:' in src
++    assert '"authority_score"' in src or "['authority_score']" in src
++    assert "score_source_authority(signals)" in src
++
++
++# ── P3-6 EXPAND vs ABORT ─────────────────────────────────────────────────────
++
++def test_p3_6_expand_vs_abort():
++    plan = _plan(["facet a", "facet b"], [_section("S0", 2, [0, 1])])
++    rows = [_row("ev_000", "facet a", 0.9)]  # facet b empty
++    expand = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=3,
++    )
++    abort = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=3, max_rounds=3,
++    )
++    assert expand.verdict == "expand"
++    assert expand.under_covered_units  # returns the under-covered units
++    assert abort.verdict == "abort"
++
++
++# ── P3-7 field-agnostic guard ────────────────────────────────────────────────
++
++def test_p3_7_field_agnostic_no_domain_dict_on_path():
++    """The on-path sufficiency code consults NO domain dict / `if domain ==` /
++    domain key. The legacy domain dict is whitelisted off-path."""
++    import ast
++    import inspect
++    from src.polaris_graph.adequacy import plan_sufficiency_gate
++    full = inspect.getsource(plan_sufficiency_gate)
++    # Strip docstrings/comments — the brief's guard is about the on-path CODE,
++    # not prose that NAMES the banned constructs to forbid them.
++    tree = ast.parse(full)
++    for node in ast.walk(tree):
++        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
++                             ast.ClassDef, ast.Module)):
++            doc = ast.get_docstring(node, clean=False)
++            if doc:
++                full = full.replace(doc, "")
++    code_lines = [
++        ln for ln in full.splitlines()
++        if not ln.lstrip().startswith("#")
++    ]
++    code = "\n".join(code_lines)
++    assert "_DEFAULT_DOMAIN_THRESHOLDS" not in code
++    assert "if domain ==" not in code
++    assert "if domain==" not in code
++    # No clinical literal used as a control value.
++    assert 'domain == "clinical"' not in code
++
++
++# ── P3-8 zero generator bill on hold ─────────────────────────────────────────
++
++def test_p3_8_zero_generator_bill_on_hold():
++    """Across the trap/abort cases the verdict is EXPAND/ABORT — the sweep
++    returns `abort_corpus_inadequate` BEFORE `generate_multi_section_report`.
++    We assert no generator/evaluator construction occurs in the gate at all:
++    the gate touches no LLM client class."""
++    import inspect
++    from src.polaris_graph.adequacy import plan_sufficiency_gate
++    src = inspect.getsource(plan_sufficiency_gate)
++    assert "OpenRouterClient" not in src
++    assert "generate_multi_section_report" not in src
++    # And the trap verdicts are non-proceed (so the sweep cannot reach billing).
++    sub = [f"f{i}" for i in range(4)]
++    plan = _plan(sub, [_section(f"S{i}", 1, [i]) for i in range(4)])
++    rows = [_row(f"ev_{i:03d}", f"f{i % 3}", 0.9) for i in range(12)]  # f3 empty
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict == "abort"
++
++
++# ── P3-9 facet-level (the strongest) ─────────────────────────────────────────
++
++def test_p3_9_facet_level_empty_facet_under_covers():
++    """Section mapped to [4,5,6] with 5 above-floor rows ALL from sub-query 4 ->
++    UNDER_COVERED even though total (5) >= evidence_target (3)."""
++    sub = [f"f{i}" for i in range(7)]
++    plan = _plan(sub, [_section("S0", 3, [4, 5, 6])])
++    rows = [_row(f"ev_{i:03d}", "f4", 0.9) for i in range(5)]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=rows, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    u = r.per_unit[0]
++    assert u.covered_count == 5
++    assert u.evidence_target == 3
++    assert sorted(u.empty_facets) == [5, 6]
++    assert not u.sufficient
++    assert r.verdict == "abort"
++
++
++# ── P3-10 authority in planner mode (independent of PG_USE_AUTHORITY_MODEL) ───
++
++def test_p3_10_authority_computed_directly_in_planner_mode():
++    """live_retriever computes the sidecar via score_source_authority DIRECTLY
++    on-mode, independent of the PG_USE_AUTHORITY_MODEL tier switch — so rows
++    carry a real numeric score, never a 0.0 default. Asserted at the import
++    seam (live retrieval needs network for an end-to-end row)."""
++    import inspect
++    from src.polaris_graph.retrieval import live_retriever
++    # The direct import exists (NOT routed through the tier_classifier switch).
++    assert hasattr(live_retriever, "score_source_authority")
++    src = inspect.getsource(live_retriever.run_live_retrieval)
++    # The sidecar block does NOT gate on PG_USE_AUTHORITY_MODEL.
++    idx = src.index("score_source_authority(signals)")
++    window = src[max(0, idx - 400):idx]
++    assert "PG_USE_AUTHORITY_MODEL" not in window
++    assert "research_frame is not None" in window
++
++
++# ── P3-11 canonical pin includes sub_query_indices ───────────────────────────
++
++def test_p3_11_canonical_pin_includes_sub_query_indices():
++    plan = _plan(
++        ["a", "b"],
++        [_section("S0", 1, [0]), _section("S1", 1, [1], archetype="Decision")],
++    )
++    canon = plan.to_canonical_dict()
++    assert canon["outline"][0]["sub_query_indices"] == [0]
++    assert canon["outline"][1]["sub_query_indices"] == [1]
++    # Re-serializing reproduces the same SHA.
++    assert plan_sha256(plan) == plan_sha256(plan)
++    assert "sub_query_indices" in serialize_plan_canonical(plan)
++
++
++# ── P3-12 fail-closed mapping ────────────────────────────────────────────────
++
++def test_p3_12_fail_closed_mapping_raises_before_spend():
++    # Empty sub_query_indices on a section -> MalformedPlanError.
++    empty = dict(_FRAME_OBJ)
++    payload_empty = {
++        "frame": empty, "sub_queries": ["q0", "q1"],
++        "outline": [
++            {"archetype": "Background", "title": "A", "evidence_target": 2,
++             "sub_query_indices": []},
++            {"archetype": "Decision", "title": "B", "evidence_target": 1,
++             "sub_query_indices": [0, 1]},
++        ],
++    }
++    with pytest.raises(MalformedPlanError):
++        plan_research("question", planner_llm=_planner_llm(payload_empty),
++                      min_subqueries=1)
++
++    # evidence_target=0 on-mode -> MalformedPlanError.
++    payload_zero = {
++        "frame": dict(_FRAME_OBJ), "sub_queries": ["q0"],
++        "outline": [{"archetype": "Background", "title": "A",
++                     "evidence_target": 0, "sub_query_indices": [0]}],
++    }
++    with pytest.raises(MalformedPlanError):
++        plan_research("question", planner_llm=_planner_llm(payload_zero),
++                      min_subqueries=1)
++
++    # Off-mode: a `[]` mapping on a directly-built section is inert (no raise on
++    # construction).
++    s = _section("S0", 1, [])
++    assert s.sub_query_indices == []
++
++
++def test_p3_12b_out_of_range_after_truncation_raises():
++    """An index valid at parse time goes stale after `_merge_truncate_subqueries`
++    truncates the sub_queries below it -> MalformedPlanError."""
++    # 41 sub-queries (over DEFAULT_MAX_SUBQUERIES=40) so #40 is truncated away,
++    # but a section maps index 40 -> out of range after truncation.
++    sub_queries = [f"q{i}" for i in range(41)]
++    mapping_all = list(range(40))
++    payload = {
++        "frame": dict(_FRAME_OBJ),
++        "sub_queries": sub_queries,
++        "outline": [
++            {"archetype": "Background", "title": "A", "evidence_target": 1,
++             "sub_query_indices": mapping_all},
++            {"archetype": "Decision", "title": "B", "evidence_target": 1,
++             "sub_query_indices": [40]},
++        ],
++    }
++    with pytest.raises(MalformedPlanError):
++        plan_research("question", planner_llm=_planner_llm(payload),
++                      min_subqueries=1)
++
++
++# ── P3-13 sentinel fallback ──────────────────────────────────────────────────
++
++def test_p3_13_sentinel_fallback_credits_and_real_origin_does_not():
++    outline = [_section("S0", 1, [0])]
++    sub = ["renewable hydro turbine capacity output"]
++    for sentinel in sorted(SENTINEL_ORIGINS):
++        srow = _row("ev_000", sentinel, 0.9,
++                    statement="renewable hydro turbine capacity report")
++        assert relevant_section_indices(srow, outline, sub) == [0], sentinel
++    # A REAL sub-query origin that doesn't MATCH the section text is NOT credited
++    # (no overlap rescue for a real origin).
++    real = _row("ev_001", "some other real subquery", 0.9,
++                statement="renewable hydro turbine capacity report")
++    assert relevant_section_indices(real, outline, sub) == []
++
++
++# ── P3-14 whole-plan facet union ─────────────────────────────────────────────
++
++def test_p3_14_orphaned_facet_raises_before_spend():
++    """sub-query #1 mapped to NO section -> MalformedPlanError."""
++    payload = {
++        "frame": dict(_FRAME_OBJ), "sub_queries": ["q0", "q1"],
++        "outline": [{"archetype": "Background", "title": "A",
++                     "evidence_target": 1, "sub_query_indices": [0]}],
++    }
++    with pytest.raises(MalformedPlanError):
++        plan_research("question", planner_llm=_planner_llm(payload),
++                      min_subqueries=1)
++
++
++# ── P3-15 gate the BILLED set + provenance assignment ────────────────────────
++
++def test_p3_15_provenance_assignment_matches_gate_coverage():
++    """On-mode `_assign_evidence_to_planned_outline` assigns each section its
++    `query_origin`-matched rows (NOT round-robin); a section the gate certified
++    SUFFICIENT actually receives its credited rows. Off-mode the round-robin is
++    byte-identical."""
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    sub = ["alpha facet", "beta facet"]
++    # S0 target 2 so it receives BOTH alpha rows (the cap honors evidence_target).
++    outline = [_section("S0", 2, [0]), _section("S1", 1, [1])]
++    evidence = [
++        _row("ev_000", "alpha facet", 0.9),
++        _row("ev_001", "beta facet", 0.9),
++        _row("ev_002", "alpha facet", 0.9),
++    ]
++    # ON-mode (sub_queries provided) -> provenance-first.
++    plans_on = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub,
++    )
++    assert set(plans_on[0].ev_ids) == {"ev_000", "ev_002"}
++    assert plans_on[1].ev_ids == ["ev_001"]
++
++    # OFF-path (sub_queries=None) -> round-robin byte-identical to legacy slice,
++    # capped per section's evidence_target.
++    plans_off = _assign_evidence_to_planned_outline(outline, evidence)
++    ev_ids = ["ev_000", "ev_001", "ev_002"]
++    assert plans_off[0].ev_ids == ev_ids[0::2][:2]
++    assert plans_off[1].ev_ids == ev_ids[1::2][:1]
++
++
++def test_p3_15c_credited_above_floor_rows_billed_first():
++    """On-mode assignment is AUTHORITY-FLOOR aware: a section the gate certified
++    SUFFICIENT (≥target above-floor rows) must RECEIVE those credited rows, even
++    when below-floor relevant rows sort FIRST (e.g. prepended contract/upload
++    rows). Below-floor rows only fill remaining cap slots, never displace
++    credited ones (brief §2.2b: ev_ids == the section's credited rows)."""
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    sub = ["facet zero terms"]
++    outline = [_section("S0", 2, [0])]
++    # Below-floor rows FIRST (mirrors a contract/upload prepend), above-floor
++    # after. floor default 0.3: 0.1 below, 0.9 above.
++    evidence = [
++        _row("lo_0", "facet zero terms", 0.1),
++        _row("lo_1", "facet zero terms", 0.1),
++        _row("hi_0", "facet zero terms", 0.9),
++        _row("hi_1", "facet zero terms", 0.9),
++    ]
++    plans = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub,
++    )
++    assert plans[0].ev_ids == ["hi_0", "hi_1"]
++
++
++def test_p3_15e_per_facet_reservation_survives_cap_truncation():
++    """Architect P1 (BLOCKER) regression: a multi-facet section where one
++    facet's rows sort FIRST and fill the evidence_target cap must STILL include
++    the other certified facet's row. The gate certifies SUFFICIENT only if EVERY
++    mapped sub_query_index has >=min_per_facet above-floor rows; the assignment
++    must RESERVE per-facet before the cap slice, else a certified facet is
++    truncated out and the generator bills a section whose sub-question has ZERO
++    evidence in the billed set (facet-level money-trap at the cap boundary)."""
++    from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++        assess_plan_sufficiency,
++    )
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    sub = ["facet zero terms", "facet one terms"]
++    # Section maps facets [0,1], target=2. Corpus: 3 above-floor facet-0 rows
++    # FIRST, then 1 above-floor facet-1 row. Gate: per_facet={0:3,1:1} -> SUFFICIENT.
++    outline = [_section("S0", 2, [0, 1])]
++    evidence = [
++        _row("f0_a", "facet zero terms", 0.9),
++        _row("f0_b", "facet zero terms", 0.9),
++        _row("f0_c", "facet zero terms", 0.9),
++        _row("f1_a", "facet one terms", 0.9),
++    ]
++    report = assess_plan_sufficiency(
++        plan=_plan(sub, outline), corpus_rows=evidence,
++        authority_floor=0.3, round_index=0, max_rounds=0,
++    )
++    assert report.verdict == "proceed"  # gate certifies SUFFICIENT
++    plans = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub, authority_floor=0.3,
++    )
++    # The certified facet-1 row MUST be in the billed set (not truncated out by
++    # the 3 facet-0 rows filling the target=2 cap).
++    assert "f1_a" in plans[0].ev_ids, (
++        "PER-FACET TRUNCATION REGRESSION: facet 1's only credited row was sliced "
++        "out; the generator would bill a section whose certified facet has zero "
++        f"evidence. ev_ids={plans[0].ev_ids}"
++    )
++    # And a facet-0 row is present too (both certified facets represented).
++    assert any(e.startswith("f0_") for e in plans[0].ev_ids)
++
++
++def test_p3_15f_assignment_uses_threaded_floor_not_just_env(monkeypatch):
++    """Architect P3: the assignment uses the SAME floor passed by the gate, not
++    only the env default — so gate coverage and billed-set assignment agree even
++    when a caller passes an explicit floor."""
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    monkeypatch.delenv("PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", raising=False)
++    sub = ["facet zero terms"]
++    outline = [_section("S0", 2, [0])]
++    # Two rows at 0.5: ABOVE a threaded floor of 0.3, BELOW a threaded floor 0.7.
++    evidence = [
++        _row("mid_0", "facet zero terms", 0.5),
++        _row("mid_1", "facet zero terms", 0.5),
++    ]
++    # Threaded floor 0.7 -> both rows are below-floor (fillers), order preserved.
++    plans_hi = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub, authority_floor=0.7,
++    )
++    # Threaded floor 0.3 -> both above-floor (reserved/credited).
++    plans_lo = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub, authority_floor=0.3,
++    )
++    # Both place the rows (cap=2), but the bucketing differs by the THREADED
++    # floor — proving the param is honored, not just env.
++    assert set(plans_hi[0].ev_ids) == {"mid_0", "mid_1"}
++    assert set(plans_lo[0].ev_ids) == {"mid_0", "mid_1"}
++
++
++def test_p3_15g_reserved_survives_when_facets_exceed_section_cap():
++    """Codex diff-gate P1: a section mapped to MORE facets than max_ev_per_section
++    must STILL bill >=min_per_facet for EVERY facet — the per-facet reserved set
++    is sacred and the section size cap applies only to the filler. Codex's exact
++    repro: 31 mapped facets, target=31, 31 above-floor rows (one per facet),
++    max_ev_per_section=30. Gate PROCEED; the assignment must emit all 31, not
++    drop facet 30."""
++    from src.polaris_graph.adequacy.plan_sufficiency_gate import (
++        assess_plan_sufficiency,
++    )
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    n = 31
++    sub = [f"facet {k} unique terms" for k in range(n)]
++    outline = [_section("S0", n, list(range(n)))]
++    evidence = [_row(f"ev_{k:02d}", f"facet {k} unique terms", 0.9) for k in range(n)]
++    report = assess_plan_sufficiency(
++        plan=_plan(sub, outline), corpus_rows=evidence,
++        authority_floor=0.3, round_index=0, max_rounds=0,
++    )
++    assert report.verdict == "proceed"
++    plans = _assign_evidence_to_planned_outline(
++        outline, evidence, sub_queries=sub, authority_floor=0.3,
++        max_ev_per_section=30,
++    )
++    billed = set(plans[0].ev_ids)
++    # Every facet's only row must be billed — none truncated by the size cap.
++    missing = [f"ev_{k:02d}" for k in range(n) if f"ev_{k:02d}" not in billed]
++    assert not missing, (
++        f"SIZE-CAP TRUNCATION REGRESSION: {missing} dropped; a certified facet "
++        f"has ZERO evidence in the billed set. billed={len(billed)}/{n}"
++    )
++
++
++def test_p3_15d_off_path_round_robin_ignores_authority():
++    """Off-path (sub_queries=None) assignment is byte-identical round-robin —
++    it must NOT read authority at all (no sidecar on off-mode rows)."""
++    from src.polaris_graph.generator.multi_section_generator import (
++        _assign_evidence_to_planned_outline,
++    )
++    outline = [_section("S0", 5, [0]), _section("S1", 5, [1])]
++    # Off-mode rows carry NO authority sidecar (additive fields absent).
++    evidence = [{"evidence_id": f"ev_{i:03d}"} for i in range(4)]
++    plans = _assign_evidence_to_planned_outline(outline, evidence)
++    ids = [f"ev_{i:03d}" for i in range(4)]
++    assert plans[0].ev_ids == ids[0::2]
++    assert plans[1].ev_ids == ids[1::2]
++
++
++def test_p3_15b_gate_runs_on_billed_set_not_raw():
++    """The gate certifies exactly the `evidence_for_gen` (billed) list it is
++    handed — a row dropped by selection is simply not present, and a section
++    certified SUFFICIENT received its credited rows."""
++    sub = ["alpha facet", "beta facet"]
++    plan = _plan(sub, [_section("S0", 1, [0]), _section("S1", 1, [1])])
++    billed = [
++        _row("ev_000", "alpha facet", 0.9),
++        _row("ev_001", "beta facet", 0.9),
++    ]
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=billed, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r.verdict == "proceed"
++    # If selection had dropped the beta row, the gate would catch it.
++    r2 = assess_plan_sufficiency(
++        plan=plan, corpus_rows=billed[:1], authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r2.verdict == "abort"
++    assert "section_1" in r2.under_covered_units
++
++
++# ── P3-16 ONE final gate after all mutations ─────────────────────────────────
++
++def test_p3_16_contract_injection_flips_under_covered_to_sufficient():
++    """A post-selection contract/upload row (no query_origin) that covers an
++    under-covered facet via content-word overlap flips it to SUFFICIENT — the
++    binding gate sees `evidence_for_gen` INCLUDING the injections."""
++    sub = ["alpha facet terms", "renewable hydro turbine capacity output"]
++    plan = _plan(sub, [_section("S0", 1, [0]), _section("S1", 1, [1])])
++    selected = [_row("ev_000", "alpha facet terms", 0.9)]
++    # Without the contract row, section 1 is under-covered.
++    r_before = assess_plan_sufficiency(
++        plan=plan, corpus_rows=selected, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r_before.verdict == "abort"
++    # Contract row: NO query_origin, but content overlaps section 1's facet, and
++    # a high persisted authority_score (so it credits).
++    contract_row = _row(
++        "ev_c00", "", 0.95,
++        statement="renewable hydro turbine capacity output report",
++    )
++    final_billed = [contract_row] + selected  # mirrors the :2719 prepend
++    r_after = assess_plan_sufficiency(
++        plan=plan, corpus_rows=final_billed, authority_floor=0.3,
++        round_index=0, max_rounds=0,
++    )
++    assert r_after.verdict == "proceed"
++
++
++# ── P3-17 injected-row enrichment (no sidecar -> computed at gate time) ───────
++
++def test_p3_17_injected_row_authority_enriched_at_gate_time():
++    """A contract/upload row with NO authority sidecar gets a real numeric
++    authority_score computed at gate time and credits a section ONLY via
++    content-word overlap with that section's sub-queries."""
++    sub = ["renewable hydro turbine capacity output"]
++    plan = _plan(sub, [_section("S0", 1, [0])])
++    # A government-style URL so the computed authority is above a modest floor;
++    # NO authority_score key on the row (forces gate-time enrichment).
++    injected = {
++        "evidence_id": "ev_u00",
++        "query_origin": "",
++        "source_url": "https://www.energy.gov/report",
++        "statement": "renewable hydro turbine capacity output national report",
++        "direct_quote": "renewable hydro turbine capacity output measured.",
++    }
++    assert "authority_score" not in injected
++    r = assess_plan_sufficiency(
++        plan=plan, corpus_rows=[injected], authority_floor=0.0,
++        round_index=0, max_rounds=0,
++    )
++    # floor=0.0 so any honest score credits; the row was creditable ONLY because
++    # its content overlapped the section's sub-query (relevance), and it got a
++    # real score (the gate mutated authority_score onto the row).
++    assert "authority_score" in injected
++    assert isinstance(injected["authority_score"], float)
++    assert r.per_unit[0].covered_count == 1
++    assert r.verdict == "proceed"
++    # An injected row that does NOT overlap the section's sub-query is NOT
++    # credited even with a high score.
++    off_topic = {
++        "evidence_id": "ev_u01",
++        "query_origin": "",
++        "source_url": "https://www.energy.gov/other",
++        "statement": "completely unrelated quarterly financial earnings",
++        "direct_quote": "earnings per share rose.",
++    }
++    r2 = assess_plan_sufficiency(
++        plan=plan, corpus_rows=[off_topic], authority_floor=0.0,
++        round_index=0, max_rounds=0,
++    )
++    assert r2.per_unit[0].covered_count == 0
+diff --git a/tests/polaris_graph/planning/test_research_planner_phase1.py b/tests/polaris_graph/planning/test_research_planner_phase1.py
+index faf02fb3..2ddd4618 100644
+--- a/tests/polaris_graph/planning/test_research_planner_phase1.py
++++ b/tests/polaris_graph/planning/test_research_planner_phase1.py
+@@ -90,14 +90,31 @@ def make_fake_planner(*, n_subqueries=20, claim_type="empirical",
+     `second_n` is set, the SECOND call returns that many sub_queries (used to
+     exercise the lower-bound retry)."""
+     state = {"calls": 0}
+-    default_outline = outline or [
+-        {"archetype": "Background", "title": "How the system behaves",
+-         "evidence_target": 8},
+-        {"archetype": "Quantitative-Comparison",
+-         "title": "Comparing the alternatives", "evidence_target": 10},
+-        {"archetype": "Decision", "title": "Which path is best",
+-         "evidence_target": 6},
+-    ]
++
++    def _default_outline_for(count: int):
++        # I-meta-005 Phase 3 (#987): on-mode plans MUST map every planned
++        # sub-query to some section (fail-closed whole-plan union). Distribute
++        # the `count` facet indices round-robin across the 3 default sections so
++        # the union == range(count) and each section has ≥1 in-range index.
++        clamped = min(count, DEFAULT_MAX_SUBQUERIES)
++        buckets: list[list[int]] = [[], [], []]
++        for i in range(clamped):
++            buckets[i % 3].append(i)
++        # If a section bucket is empty (count < 3), give it the first index so
++        # every section still maps ≥1 (the union is unchanged: it already
++        # contains 0..count-1).
++        for b in buckets:
++            if not b and clamped:
++                b.append(0)
++        return [
++            {"archetype": "Background", "title": "How the system behaves",
++             "evidence_target": 8, "sub_query_indices": buckets[0]},
++            {"archetype": "Quantitative-Comparison",
++             "title": "Comparing the alternatives", "evidence_target": 10,
++             "sub_query_indices": buckets[1]},
++            {"archetype": "Decision", "title": "Which path is best",
++             "evidence_target": 6, "sub_query_indices": buckets[2]},
++        ]
+ 
+     def _fake(prompt: str) -> str:
+         state["calls"] += 1
+@@ -110,7 +127,7 @@ def make_fake_planner(*, n_subqueries=20, claim_type="empirical",
+             "sub_queries": [
+                 f"facet {i} alpha beta gamma" for i in range(count)
+             ],
+-            "outline": default_outline,
++            "outline": outline if outline is not None else _default_outline_for(count),
+         }
+         return json.dumps(payload)
+ 
+@@ -213,7 +230,11 @@ def test_p1_2_planner_subqueries_reach_search_calls(monkeypatch) -> None:
+         entities=["solar", "panel", "efficiency"],
+         metrics=["efficiency", "cost"],
+         outline=[{"archetype": "Background", "title": "T",
+-                  "evidence_target": 8}],
++                  "evidence_target": 8,
++                  # Phase 3: map ALL 14 facets to the single section so the
++                  # whole-plan union holds (this test cares about search wiring,
++                  # not facet distribution).
++                  "sub_query_indices": list(range(14))}],
+     )
+ 
+     def _on_scope_planner(prompt: str) -> str:
+@@ -285,11 +306,14 @@ def test_p1_4_off_domain_no_clinical_section_labels() -> None:
+             n_subqueries=22,
+             outline=[
+                 {"archetype": "Background", "title": f"{name} background",
+-                 "evidence_target": 8},
++                 "evidence_target": 8,
++                 "sub_query_indices": list(range(0, 8))},
+                 {"archetype": "Quantitative-Comparison",
+-                 "title": f"{name} comparison", "evidence_target": 10},
++                 "title": f"{name} comparison", "evidence_target": 10,
++                 "sub_query_indices": list(range(8, 15))},
+                 {"archetype": "Decision", "title": f"{name} decision",
+-                 "evidence_target": 6},
++                 "evidence_target": 6,
++                 "sub_query_indices": list(range(15, 22))},
+             ],
+         )
+         plan = plan_research(q, planner_llm=planner)
