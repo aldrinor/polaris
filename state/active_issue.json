@@ -1,7 +1,7 @@
 {
   "active_issue_id": "I-meta-005-phase-0b",
   "active_issue_github": 935,
-  "current_step": "BUILD (verification-mode deltas 1-3) \u2014 brief APPROVE iter3",
+  "current_step": "SMOKE green (20/20) + architect P1 fixed \u2014 Codex diff-gate",
   "sub_pr_build_status_2026_05_29": {
     "pr1_lock_slug_serving_route_verify_consistency": "d0ccc583 \u2014 brief APPROVE iter1, diff APPROVE iter1",
     "pr2_role_contracts": "fff6f2ef \u2014 brief APPROVE iter2, diff APPROVE iter5 (4 Sentinel fail-closed hardenings)",
