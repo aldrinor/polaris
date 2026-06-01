@@ -405,6 +405,12 @@ class SentenceVerification:
     # Gap-2: soft warnings that don't trigger a drop but get surfaced
     # to the evaluator (stored as PT13 in external_evaluator).
     soft_warnings: list[str] = field(default_factory=list)
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): True when the entailment judge
+    # failed OPEN ((ENTAILED,"judge_error: ...")). Additive, default False —
+    # inert in off mode (is_verified unchanged). ON mode (enforce) reads this
+    # to fail-closed. OFF byte-identity is defined over behavioral/output
+    # fields + rendered artifacts, NOT raw dataclass asdict (Codex iter-3 P2).
+    judge_error: bool = False
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
@@ -771,6 +777,51 @@ def _find_local_support_window(
     return None
 
 
+def _find_local_content_window(
+    needed_content_words: set[str],
+    direct_quote: str,
+    window: int = 400,
+    min_content_overlap: int = 2,
+) -> Optional[tuple[int, int]]:
+    """Phase 0b Delta 1/2 (I-meta-005, gap-#18): content-word analog of
+    _find_local_support_window. Find a BOUNDED contiguous window (<= `window`
+    chars) inside `direct_quote` that contains at least `min_content_overlap`
+    of the sentence's content words (word-boundary, token-exact). Returns
+    (start, end) or None.
+
+    Bounded + fail-closed BY CONSTRUCTION: never returns the whole document —
+    only a <=window-char slice clustering the required content words. Same
+    safety shape as the numeric I-gen-005 finder: a grounded sentence whose
+    FULL cited row supports it is rescued, while a sentence whose content
+    words are SCATTERED beyond `window` chars is NOT (true fabrication stays
+    dropped). The window is anchored at each content-word match position and
+    extended forward, so any cluster of >=min words spanning <=window chars is
+    discovered when anchored at its leftmost member.
+    """
+    if not needed_content_words or not direct_quote:
+        return None
+    norm = direct_quote.lower()
+    n = len(norm)
+    positions: list[int] = []
+    for w in needed_content_words:
+        for m in re.finditer(r"\b" + re.escape(w) + r"\b", norm):
+            positions.append(m.start())
+    if len(positions) < min_content_overlap:
+        return None
+    positions.sort()
+    for anchor in positions:
+        ws = max(0, anchor)
+        we = min(n, ws + window)
+        window_text = norm[ws:we]
+        hits = sum(
+            1 for w in needed_content_words
+            if re.search(r"\b" + re.escape(w) + r"\b", window_text)
+        )
+        if hits >= min_content_overlap:
+            return (ws, we)
+    return None
+
+
 # Codex round 1 B-1: content-word overlap check for non-numeric claims.
 # Stopwords are the "grammatical connective tissue" — if the only overlap
 # between a sentence and its cited span is "the" and "of", that's not
@@ -813,6 +864,22 @@ def _content_words(text: str) -> set[str]:
 MIN_CONTENT_WORD_OVERLAP = int(
     os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
 )
+
+
+def _verification_mode() -> str:
+    """Phase 0b (I-meta-005, gap-#18): verification-mode router for the three
+    grounded-prose deltas. Read at call time so tests can override.
+
+      off (default) — byte-identical to pre-0b behavior; no delta fires.
+      shadow        — deltas DETECT + log telemetry but do NOT change
+                      is_verified, and make NO extra judge calls (spend-
+                      neutral free Gate-A measurement).
+      enforce       — deltas change is_verified (rescue grounded prose via a
+                      BOUNDED local content window; drop the judge-error
+                      fail-open sentinel).
+    """
+    v = os.getenv("PG_VERIFICATION_MODE", "off").strip().lower()
+    return v if v in ("off", "shadow", "enforce") else "off"
 
 
 # M-25a: trial-name match for strict_verify.
@@ -943,6 +1010,16 @@ def verify_sentence_provenance(
     """
     tokens = parse_provenance_tokens(sentence)
     failures: list[str] = []
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): tracks whether the entailment
+    # judge failed OPEN ((ENTAILED,"judge_error: ...")). Set in either judge
+    # call below; consumed by the ON-mode fail-closed gate near the return.
+    # HOISTED to function-body top (build agent EDIT-8 scope check): the
+    # entailment block is nested inside `if require_number_match and
+    # valid_token_found:`, so an init at the `if not failures:` site would NOT
+    # be in scope at the return when valid_token_found is False (e.g. all
+    # tokens fail evidence_not_in_pool) -> NameError. Init here so it is always
+    # defined at the return.
+    judge_error_flag = False
 
     # I-gen-005 Step 3b commit 1: verifier_text strips ALL citation
     # artifacts (provenance tokens + atom_NNN + bare [ev_XXX]) for ALL
@@ -1138,10 +1215,60 @@ def verify_sentence_provenance(
             overlap = sentence_content & span_content
             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-                failures.append(
-                    f"no_content_word_overlap_any_cited_span:{ev_ids}:"
-                    f"sentence_words={sorted(sentence_content)[:5]}"
-                )
+                # Phase 0b Delta 1 (I-meta-005, gap-#18): the narrow cited
+                # byte-range may miss content words the FULL cited row supports
+                # (the gap-#18 grounded-prose drop). Per brief §3.3 + R1: the
+                # floor-clear only PROPOSES a candidate (a bounded <=400-char
+                # window in a cited row holding >=MIN content words); the
+                # entailment BIND happens DOWNSTREAM — the entailment block
+                # below judges the narrow span, and on NEUTRAL the Delta-2
+                # bounded-window re-judge accepts iff ENTAILED (else fail-closed).
+                #
+                # HARD GATE (Codex diff-gate P1 + architect P1, brief HARD
+                # CONSTRAINT #5): the floor-clear is gated on the entailment
+                # judge being in ENFORCE mode — the ONLY mode where the
+                # downstream NEUTRAL/CONTRADICTED bind actually DROPS. Under
+                # PG_STRICT_VERIFY_ENTAILMENT=off the judge never runs, and under
+                # =warn the judge runs but NEVER drops (log-only). In both, a
+                # content-words-only floor-clear would be the SOLE gate —
+                # laundering a drop into a pass with no enforced bind. So Delta 1
+                # proposes ONLY when entailment is enforce; otherwise the pre-0b
+                # content-floor drop stays (fail-closed). off = no rescue
+                # (byte-identical). shadow = log would-propose, still fail
+                # (output + spend neutral, NO judge call). enforce-verification +
+                # enforce-entailment + window = clear, deferring to the bind.
+                _vmode_c = _verification_mode()
+                _rescued_c = False
+                if _vmode_c in ("shadow", "enforce"):
+                    from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+                        _entailment_mode as _emode_c,
+                    )
+                    if _emode_c() == "enforce":
+                        for tok in tokens:
+                            ev = evidence_pool.get(tok.evidence_id)
+                            if ev is None:
+                                continue
+                            dq_c = ev.get("direct_quote") or ev.get("statement") or ""
+                            if _find_local_content_window(
+                                sentence_content, dq_c, window=400,
+                                min_content_overlap=MIN_CONTENT_WORD_OVERLAP,
+                            ):
+                                _rescued_c = True
+                                logger.warning(
+                                    "[provenance] %s content_floor_full_row "
+                                    "ev=%s — narrow span missed content words; "
+                                    "bounded full-row window exists, deferring "
+                                    "to the downstream entailment bind",
+                                    "ENFORCE_propose" if _vmode_c == "enforce"
+                                    else "SHADOW_would_propose",
+                                    tok.evidence_id,
+                                )
+                                break
+                if not (_vmode_c == "enforce" and _rescued_c):
+                    failures.append(
+                        f"no_content_word_overlap_any_cited_span:{ev_ids}:"
+                        f"sentence_words={sorted(sentence_content)[:5]}"
+                    )
 
         # M-25a: trial-name match. If the sentence names a specific
         # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least
@@ -1201,6 +1328,12 @@ def verify_sentence_provenance(
                     sentence_clean, combined_span,
                 )
                 _record_judge_outcome(verdict, reason)
+                # Phase 0b Delta 3: the judge fails OPEN (entailment_judge.py:147)
+                # returning ("ENTAILED","judge_error: ..."). Flag it; ON mode
+                # fails-closed near the return. OFF leaves is_verified unchanged
+                # (pre-0b fail-open preserved — filed as a separate gated issue).
+                if verdict == "ENTAILED" and reason.startswith("judge_error:"):
+                    judge_error_flag = True
                 if verdict in ("NEUTRAL", "CONTRADICTED"):
                     # I-gen-005 Step 1 (Codex iter 1 P1 #3): localize
                     # entailment fallback. Codex iter 1 caught that
@@ -1242,6 +1375,35 @@ def verify_sentence_provenance(
                         # to anchor, so skip and fail-closed at the
                         # end (don't silently pass).
                         if not sentence_dec_local:
+                            # Phase 0b Delta 2 (I-meta-005, gap-#18): non-numeric
+                            # NEUTRAL had NO local-window second chance (the
+                            # second-chance was decimal-gated). off = unchanged
+                            # (continue -> fail-closed). enforce = recover a
+                            # BOUNDED content-word window from this cited row and
+                            # re-judge against it. shadow = log would-attempt, no
+                            # extra judge call (spend-neutral), output unchanged.
+                            # GATED on mode == "enforce" (Codex diff-gate P1):
+                            # under warn the bind never drops, so a recover+
+                            # re-judge would be an unbacked rescue — Delta 2 fires
+                            # ONLY when the entailment bind can actually fail-closed.
+                            _vmode_n = _verification_mode()
+                            if mode == "enforce" and _vmode_n in ("shadow", "enforce") and sentence_content_local:
+                                cwin = _find_local_content_window(
+                                    sentence_content_local,
+                                    direct_quote,
+                                    window=400,
+                                    min_content_overlap=2,
+                                )
+                                if cwin:
+                                    if _vmode_n == "enforce":
+                                        local_window_text = direct_quote[cwin[0]:cwin[1]]
+                                        local_ev_id = tok.evidence_id
+                                        break
+                                    logger.warning(
+                                        "[provenance] SHADOW "
+                                        "would_attempt_nonnumeric_window_rescue "
+                                        "ev=%s", tok.evidence_id,
+                                    )
                             continue
                         win = _find_local_support_window(
                             sentence_dec_local,
@@ -1260,6 +1422,8 @@ def verify_sentence_provenance(
                             sentence_clean, local_window_text,
                         )
                         _record_judge_outcome(verdict2, reason2)
+                        if verdict2 == "ENTAILED" and reason2.startswith("judge_error:"):
+                            judge_error_flag = True
                         if verdict2 in ("NEUTRAL", "CONTRADICTED"):
                             if mode == "enforce":
                                 ev_ids = ",".join(
@@ -1298,6 +1462,20 @@ def verify_sentence_provenance(
     if unhedged:
         soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
 
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the
+    # judge-error sentinel. off = flag set but is_verified UNCHANGED (pre-0b
+    # fail-open preserved, byte-identical). shadow = log only. enforce = DROP.
+    if judge_error_flag:
+        _vmode_j = _verification_mode()
+        if _vmode_j == "enforce":
+            ev_ids = ",".join(sorted({t.evidence_id for t in tokens})) if tokens else ""
+            failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
+        elif _vmode_j == "shadow":
+            logger.warning(
+                "[provenance] SHADOW would_fail_closed_on_judge_error "
+                "(enforce-mode would drop this sentence)",
+            )
+
     is_verified = len(failures) == 0
     return SentenceVerification(
         sentence=sentence,
@@ -1305,6 +1483,7 @@ def verify_sentence_provenance(
         is_verified=is_verified,
         failure_reasons=failures,
         soft_warnings=soft_warnings,
+        judge_error=judge_error_flag,
     )
 
 
