@@ -1729,6 +1729,7 @@ async def run_one_query(
         # every path; the saturation loop reassigns them on-mode when it prunes.
         _gen_plan = None
         _partial_mode = False
+        _finding_dedup_telemetry = None   # Phase 5 (#989); set just before generator
         if _use_research_planner:
             from src.polaris_graph.planning.research_planner import (
                 plan_research,
@@ -2581,6 +2582,23 @@ async def run_one_query(
             select_evidence_for_generation,
         )
         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+        # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
+        # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
+        # a relevance floor (keep every row >= floor, no cap) and dedups by finding
+        # before the generator. PG_RELEVANCE_FLOOR default 0.30, range (0.0, 1.0];
+        # invalid/out-of-range fails LOUD (never silently send an unbounded pool).
+        _use_finding_dedup = (
+            os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
+            in ("1", "true", "True")
+        )
+        _relevance_floor: float | None = None
+        if _use_finding_dedup:
+            from src.polaris_graph.retrieval.evidence_selector import (
+                parse_relevance_floor,
+            )
+            _relevance_floor = parse_relevance_floor(
+                os.getenv("PG_RELEVANCE_FLOOR")
+            )
         # M-42e (2026-04-22): pass primary_trial_anchors to the
         # selector so it can reserve T1 slots for named-trial
         # primary papers. Anchors come from the loaded scope
@@ -2656,6 +2674,7 @@ async def run_one_query(
             evidence_rows=retrieval.evidence_rows,
             max_rows=max_ev,
             primary_trial_anchors=_primary_anchors,
+            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
         )
         evidence_for_gen = evidence_selection.selected_rows
         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
@@ -3026,6 +3045,7 @@ async def run_one_query(
                         evidence_rows=retrieval.evidence_rows,
                         max_rows=max_ev,
                         primary_trial_anchors=_primary_anchors,
+                        relevance_floor=_relevance_floor,   # Phase 5 (#989)
                     )
                     _billed = (
                         list(_gate_injected_prepend_rows)
@@ -3299,6 +3319,45 @@ async def run_one_query(
                      f"in current corpus → analyst advisory")
         except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
             _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
+
+        # I-meta-005 Phase 5 (#989): dedup-by-finding on the FINAL generator-visible
+        # pool. Runs AFTER the Phase-3 plan-sufficiency gate (which certified the
+        # full PRE-dedup billed set) and AFTER the terminal proceed/partial decision,
+        # so the gate is never fed a shrunken corpus. Collapses rehashes of the same
+        # finding to one representative + corroboration_count (independent
+        # registrable-domains); applies to the full-plan AND the partial pruned pool.
+        # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
+        if _use_finding_dedup:
+            from src.polaris_graph.authority.data_loader import (
+                load_authority_data,
+            )
+            from src.polaris_graph.synthesis.finding_dedup import (
+                dedup_by_finding,
+            )
+            _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
+            _dedup = dedup_by_finding(
+                evidence_for_gen, gov_suffixes=_gov_suffixes
+            )
+            evidence_for_gen = _dedup.deduped_rows
+            _finding_dedup_telemetry = {
+                "raw_row_count": _dedup.raw_row_count,
+                "distinct_finding_count": _dedup.distinct_finding_count,
+                "collapsed_row_count": _dedup.collapsed_row_count,
+                "clusters": [
+                    {
+                        "finding_key": list(c.finding_key),
+                        "corroboration_count": c.corroboration_count,
+                        "member_hosts": c.member_hosts,
+                    }
+                    for c in _dedup.clusters
+                ],
+            }
+            _log(
+                f"[finding-dedup] raw={_dedup.raw_row_count} "
+                f"distinct={_dedup.distinct_finding_count} "
+                f"collapsed={_dedup.collapsed_row_count} "
+                f"-> {len(evidence_for_gen)} generator rows"
+            )
 
         _pathb_gen_tok = _pathb.set_role("generator")
         try:
@@ -4202,6 +4261,12 @@ async def run_one_query(
         # manifest shape preserved).
         if summary.get("saturation"):
             manifest["saturation"] = summary["saturation"]
+
+        # I-meta-005 Phase 5 (#989): finding-dedup telemetry + per-cluster
+        # corroboration (independent hosts) in the per-run manifest. ON-mode only
+        # (key absent in OFF -> legacy manifest shape preserved).
+        if _finding_dedup_telemetry is not None:
+            manifest["finding_dedup"] = _finding_dedup_telemetry
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
