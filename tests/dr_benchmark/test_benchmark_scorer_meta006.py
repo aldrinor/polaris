@@ -272,6 +272,33 @@ def test_split_body_keeps_numbered_prose_under_references_header():
     assert refs == ""
 
 
+def test_split_body_keeps_proper_noun_led_prose_under_references():
+    # Codex diff-gate iter3 P1: a prose claim that STARTS with a proper noun (drug
+    # name) and bears a year must NOT be classified as a citation / stripped.
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Summary.\n\nReferences\n\n"
+        "1. Semaglutide reduced cardiovascular events by 20% in the 2020 cohort.\n"
+        "2. Dapagliflozin reduced HF hospitalization in the 2019 trial.\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "Semaglutide reduced cardiovascular events by 20%" in body
+    assert "Dapagliflozin reduced HF hospitalization" in body
+    assert refs == ""
+
+
+def test_split_body_strips_author_initial_reference_list():
+    # genuine author-initials reference list (Smith J. / Doe A.) IS stripped.
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Finding: the drug cut events by 20%.\n\nReferences\n\n"
+        "1. Smith J. 2020. Cardiovascular outcomes. https://example.org/smith\n"
+        "2. Doe A, Roe B. 2019. Heart failure trial. https://example.org/doe\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "cut events by 20%" in body and "Smith" not in body and "Smith" in refs
+
+
 def test_split_body_sources_header_not_a_strip_trigger():
     from scripts.dr_benchmark.run_scorecard import split_body_and_references
     report = (

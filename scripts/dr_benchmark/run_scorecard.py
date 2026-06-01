@@ -41,30 +41,37 @@ _STRIP_HEADER_RE = re.compile(
 # a numbered reference line "12. Author ... https://url"
 _NUMBERED_REF_RE = re.compile(r"^\s*\[?(\d{1,3})[\].]\s+(.*)$")
 _URL_RE = re.compile(r"https?://\S+")
-# common prose sentence-starters — a trailing line beginning with one of these is
-# answer PROSE, not a citation entry, so the block is NOT stripped (fail-safe).
-_SENTENCE_STARTERS = frozenset(
-    "the a an this that these those it its in on at we our us they their there "
-    "he she his her according studies study research evidence overall furthermore "
-    "however moreover thus therefore because based using while although despite "
-    "notably importantly conversely additionally first second third finally".split()
+# POSITIVE bibliographic-entry shape (Codex diff-gate iter3): a citation entry
+# STARTS with an author-list signature — "Surname I." / "Surname, I. A." /
+# "Surname & Surname" / "Surname and Surname" / "Surname et al" — or is a DOI line.
+# A prose claim ("Semaglutide reduced cardiovascular events by 20% in 2020") lacks
+# this author-initials/et-al structure and so is NEVER classified as a citation.
+# A NEGATIVE (not-prose) test is leaky — a drug/proper-noun-led sentence dodges it;
+# requiring the POSITIVE shape closes that. Erring here over-includes a few real
+# references as atoms (the acceptable minor lane1 distortion) but NEVER drops prose.
+_CITATION_SHAPE_RE = re.compile(
+    r"^(?:"
+    r"[A-Z][A-Za-z'\-]+,\s+(?:19|20)\d{2}\b"             # Smith, 2020
+    r"|[A-Z][A-Za-z'\-]+,?\s+[A-Z]{1,3}\b\.?"            # Smith J.  / Doe A,  / Smith, JA.
+    r"|[A-Z][A-Za-z'\-]+\s+(?:and|&)\s+[A-Z][A-Za-z'\-]+"  # Acemoglu and Restrepo / Smith & Doe
+    r"|[A-Z][A-Za-z'\-]+\s+et\s+al"                       # Smith et al
+    r"|doi:|https?://(?:dx\.)?doi\.org"                   # a DOI line
+    r")"
 )
 
 
 def _is_citation_entry(line: str) -> bool:
-    """True only for an UNAMBIGUOUS citation entry: a year-bearing line that does
-    NOT read as a prose sentence (after dropping any leading enumerator). A
-    numbered PROSE claim like '1. The drug reduced events by 20%' is NOT a citation
-    entry, so its presence prevents stripping (Codex diff-gate iter2 P1)."""
+    """True ONLY for a positively-shaped bibliographic entry (author-initials /
+    et al / "& Author" / DOI) that also bears a year — after dropping any leading
+    enumerator. A numbered PROSE claim ('1. Semaglutide reduced events by 20% in
+    the 2020 cohort') has no author-initials shape → NOT a citation entry, so its
+    presence prevents the block from being stripped (Codex diff-gate iter1-3 P1)."""
     s = re.sub(r"^\s*(?:\[?\d{1,3}[\].]|[-*•])\s*", "", line.strip()).strip()
     if not s:
         return False
     if not re.search(r"\b(?:19|20)\d{2}\b", s):       # a reference entry has a year
         return False
-    first = re.match(r"([A-Za-z]+)", s)
-    if first and first.group(1).lower() in _SENTENCE_STARTERS:
-        return False                                   # reads as prose → not a citation
-    return True
+    return bool(_CITATION_SHAPE_RE.match(s))           # AND the positive author shape
 
 
 def split_body_and_references(report_text: str) -> tuple[str, str]:

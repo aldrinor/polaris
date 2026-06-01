@@ -1314,3 +1314,10 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   Works Cited, NOT "Sources") AND only when EVERY trailing line is an unambiguous citation
   entry (year-bearing, not a prose sentence-starter) — any prose line → no strip (fail-safe
   inclusion). +2 smoke (numbered prose kept; Sources not a trigger). 21 scorer + 12 green.
+- **I-meta-006 DIFF-gate iter 3** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing — the
+  not-prose denylist leaked: a drug-name-led numbered prose claim with a year was misread as
+  a citation). FIX (Codex-prescribed): replace the NEGATIVE detector with a POSITIVE
+  bibliographic-shape requirement — a citation entry must start with author-initials /
+  "Surname, Year" / "& Author" / "et al" / DOI; prose ("Semaglutide reduced...") can't match.
+  Broadened to cover author-year-no-initials + multi-author. +2 smoke (proper-noun prose kept;
+  author-initials list stripped). 23 scorer + 12 claim_audit green. Re-gate iter4.
