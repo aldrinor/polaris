@@ -1864,13 +1864,17 @@ async def run_one_query(
             _trial_doi_seeds = []
 
         t0 = time.time()
-        # I-meta-005 Phase 1 (#985): ON-mode bypasses the two live-path domain
-        # routers (brief §2.4) — `domain=None` skips the domain_backends
-        # per-domain `if domain ==` candidate router (live_retriever:1795
-        # guards `if domain and not seed_only`), and the frame-derived protocol
-        # replaces the clinical PICO protocol so planner sub-queries validate
-        # against the frame's own tokens. No trial-DOI seeds on-mode. OFF: the
-        # legacy domain + PICO protocol + DOI seeds run byte-identically.
+        # I-meta-005 Phase 1 (#985) + Phase 2 (#986): ON-mode bypasses the
+        # legacy domain router (brief §2.4) — `domain=None` skips the
+        # domain_backends per-domain `if domain ==` candidate router. Phase 2
+        # threads the planner FRAME so the field-agnostic NEED-TYPE registry
+        # (keyed on the frame's declared evidence_needs + jurisdictions, NO
+        # domain literal) REPLACES the domain backends at the live seam. The
+        # frame-derived protocol replaces the clinical PICO protocol so planner
+        # sub-queries validate against the frame's own tokens. No trial-DOI
+        # seeds on-mode. OFF: the legacy domain + PICO protocol + DOI seeds run
+        # byte-identically (research_frame=None -> the legacy `if domain ==`
+        # seam is taken).
         _retrieval_domain = None if _use_research_planner else q["domain"]
         _retrieval_protocol = (
             _planner_protocol
@@ -1878,6 +1882,11 @@ async def run_one_query(
             else protocol
         )
         _retrieval_seed_urls = [] if _use_research_planner else _trial_doi_seeds
+        _retrieval_frame = (
+            _research_plan.frame
+            if (_use_research_planner and _research_plan is not None)
+            else None
+        )
         retrieval = run_live_retrieval(
             research_question=q["question"],
             amplified_queries=_amplified_effective,
@@ -1889,6 +1898,7 @@ async def run_one_query(
             enable_prefetch_filter=False,
             domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
             seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
+            research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "

@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -61,6 +62,114 @@ CLAIM_TYPES: frozenset[str] = frozenset({
     "mechanism",
     "descriptive",
 })
+
+
+# ── I-meta-005 Phase 2 (#986): field-agnostic EVIDENCE-NEED taxonomy ─────────
+# A field-INVARIANT enum (10 needs, brief §2.1) that declares WHAT KINDS of
+# evidence the question needs — NOT a domain. The planner emits these on the
+# frame; source discovery (the need-type registry) routes adapters off these,
+# never off a domain enum. `company_filings` keeps the legacy
+# due_diligence/sec_edgar capability reachable on-mode; standards/datasets/
+# news_press cover engineering bodies / official data portals / institutional
+# statements so "any field, any region" reaches the right issuer, never a bare
+# open_web fallback.
+EVIDENCE_NEEDS: frozenset[str] = frozenset({
+    "primary_literature",
+    "regulatory",
+    "legal",
+    "statistical",
+    "standards",
+    "datasets",
+    "news_press",
+    "company_filings",
+    "code",
+    "open_web",
+})
+
+# Normalized JURISDICTION code SHAPE (brief §2.1b). ISO-3166 alpha-2 (e.g.
+# "CA", "JP") plus the two pseudo-codes "EU" and "INTL". The PARSER validates
+# SHAPE only; the scope LOADER validates MEMBERSHIP non-fatally (a valid-shape
+# code absent from `jurisdiction_scopes.yaml` logs + yields no scope and is
+# NEVER parser-fatal). "EU" matches `^[A-Z]{2}$`; "INTL" is the only 4-letter
+# member, allowed explicitly.
+_JURISDICTION_ALPHA2_RE = re.compile(r"^[A-Z]{2}$")
+_JURISDICTION_EXTRA_CODES: frozenset[str] = frozenset({"EU", "INTL"})
+
+
+class MalformedPlanError(RuntimeError):
+    """Raised when the planner emits a STRUCTURALLY malformed need/jurisdiction
+    frame (I-meta-005 Phase 2, brief §2.1/2.1b): an `evidence_needs` value not
+    in `EVIDENCE_NEEDS`, or a `jurisdictions` value whose SHAPE is not a valid
+    code (`^[A-Z]{2}$` / "EU" / "INTL").
+
+    Distinct from `PlannerError` (unusable LLM output) AND from a fail-OPEN
+    adapter/network error: a malformed plan FAILS LOUD before ANY live
+    discovery and is re-raised PAST the fail-open dispatch wrapper at the live
+    seam — it NEVER silently degrades to core Serper/S2 (brief §2.4 P2-note-1).
+    A valid-shape-but-unknown jurisdiction code is NOT malformed (membership is
+    a non-fatal scope-loader concern); only a bad SHAPE raises here.
+    """
+
+
+def is_valid_jurisdiction_shape(code: str) -> bool:
+    """True iff `code` is a SHAPE-valid normalized jurisdiction code
+    (`^[A-Z]{2}$` or "EU"/"INTL"). MEMBERSHIP (presence in the data file) is a
+    separate, non-fatal scope-loader concern."""
+    if not isinstance(code, str):
+        return False
+    token = code.strip()
+    if not token:
+        return False
+    if token in _JURISDICTION_EXTRA_CODES:
+        return True
+    return bool(_JURISDICTION_ALPHA2_RE.match(token))
+
+
+def validate_evidence_needs(values: list[str]) -> list[str]:
+    """Validate + normalize `evidence_needs` (brief §2.1). Each value must be in
+    `EVIDENCE_NEEDS` (case-insensitive); an unknown value FAILS LOUD with
+    `MalformedPlanError` (NOT a silent fallback — only an EMPTY list is the safe
+    older-plan fallback, handled by the router). Returns the normalized,
+    order-preserving, deduped lowercased list."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values or []:
+        token = str(raw).strip().lower()
+        if not token:
+            continue
+        if token not in EVIDENCE_NEEDS:
+            raise MalformedPlanError(
+                f"malformed evidence_need={raw!r}; allowed={sorted(EVIDENCE_NEEDS)}"
+            )
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def validate_jurisdiction_shapes(values: list[str]) -> list[str]:
+    """Validate + normalize `jurisdictions` SHAPE (brief §2.1b). Each value must
+    be a SHAPE-valid normalized code; a malformed SHAPE FAILS LOUD with
+    `MalformedPlanError`. A valid-shape-but-unknown code is KEPT (membership is
+    checked non-fatally later by the scope loader). Returns the normalized,
+    order-preserving, deduped UPPERCASED list."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values or []:
+        token = str(raw).strip().upper()
+        if not token:
+            continue
+        if not is_valid_jurisdiction_shape(token):
+            raise MalformedPlanError(
+                f"malformed jurisdiction code={raw!r}; expected ISO-3166 "
+                f"alpha-2 / 'EU' / 'INTL'"
+            )
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
 
 # UPPER bound on emitted sub-queries (brief §2.1). >40 is merged/truncated
 # deterministically. The fetch cap (`PG_SWEEP_FETCH_CAP`) bounds FETCHED URLs
@@ -89,6 +198,14 @@ class ResearchFrame:
     comparators: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
     claim_type: str = "descriptive"
+    # I-meta-005 Phase 2 (#986): additive, default [] -> OFF unaffected.
+    # `evidence_needs` = the field-agnostic EvidenceNeed values the question
+    # needs (brief §2.1). `jurisdictions` = normalized codes for scope routing
+    # (brief §2.1b). Both validated at parse time (malformed value/SHAPE ->
+    # MalformedPlanError); a valid-shape-unknown jurisdiction is kept (non-fatal
+    # membership). Empty `evidence_needs` -> the router's safe generic fallback.
+    evidence_needs: list[str] = field(default_factory=list)
+    jurisdictions: list[str] = field(default_factory=list)
 
     def to_anchor_protocol(self, research_question: str) -> dict[str, Any]:
         """Produce an anchor-protocol dict for `validate_amplified_queries`
@@ -144,6 +261,11 @@ class ResearchPlan:
                 "comparators": list(self.frame.comparators),
                 "constraints": list(self.frame.constraints),
                 "claim_type": self.frame.claim_type,
+                # I-meta-005 Phase 2 (#986): additive frame fields included in
+                # the canonical projection so the SHA-pinned plan covers the
+                # declared evidence-needs + jurisdictions.
+                "evidence_needs": list(self.frame.evidence_needs),
+                "jurisdictions": list(self.frame.jurisdictions),
             },
             "sub_queries": list(self.sub_queries),
             "outline": [
@@ -196,7 +318,8 @@ def _strip_code_fence(raw: str) -> str:
 
 def _as_str_list(value: Any) -> list[str]:
     """Coerce a JSON value into a clean list[str] (drop empties, dedup
-    case-insensitively, preserve order)."""
+    case-insensitively, preserve order). A non-list value coerces to []
+    (lenient — used for the soft frame fields)."""
     if not isinstance(value, list):
         return []
     out: list[str] = []
@@ -215,6 +338,28 @@ def _as_str_list(value: Any) -> list[str]:
     return out
 
 
+def _as_str_list_strict(value: Any, field_name: str) -> list[str]:
+    """Coerce a JSON value into list[str] for the HARD-VALIDATED Phase-2 fields
+    (`evidence_needs`, `jurisdictions`). Distinguishes ABSENT from MALFORMED
+    (Codex diff-gate P1):
+      - absent (None / key missing) → [] (legacy/OFF plan; the router's safe
+        empty-needs fallback applies). NOT an error.
+      - a LIST → coerced like `_as_str_list` (per-element membership/shape is
+        then validated downstream, which fails loud on a bad element).
+      - any OTHER present shape (a scalar str/int, a dict, a bool) → FAIL LOUD
+        with `MalformedPlanError`. A scalar `"evidence_needs": "totally_made_up"`
+        must NOT silently coerce to [] and slip into the safe fallback.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise MalformedPlanError(
+            f"planner emitted non-list {field_name}={value!r}; "
+            f"{field_name} must be a JSON array of strings (or absent)"
+        )
+    return _as_str_list(value)
+
+
 def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
     """Build a `ResearchFrame` from the parsed JSON. Unknown `claim_type`
     raises (LAW II) — the planner must commit to a field-invariant claim
@@ -228,6 +373,19 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
             f"planner emitted unknown claim_type={claim_type!r}; "
             f"allowed={sorted(CLAIM_TYPES)}"
         )
+    # I-meta-005 Phase 2 (#986): additive evidence_needs + jurisdictions.
+    # Validated HERE at parse time (brief §2.1/2.1b): a malformed evidence_need
+    # value OR a malformed jurisdiction SHAPE raises MalformedPlanError (fail
+    # loud, NOT a silent fallback). A missing/empty list is fine (older legacy
+    # plan / OFF) — only the router treats empty evidence_needs as the safe
+    # generic fallback. A valid-shape-unknown jurisdiction is kept (membership
+    # is a non-fatal scope-loader concern).
+    evidence_needs = validate_evidence_needs(
+        _as_str_list_strict(raw_frame.get("evidence_needs"), "evidence_needs")
+    )
+    jurisdictions = validate_jurisdiction_shapes(
+        _as_str_list_strict(raw_frame.get("jurisdictions"), "jurisdictions")
+    )
     return ResearchFrame(
         entities=_as_str_list(raw_frame.get("entities")),
         relations=_as_str_list(raw_frame.get("relations")),
@@ -235,6 +393,8 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
         comparators=_as_str_list(raw_frame.get("comparators")),
         constraints=_as_str_list(raw_frame.get("constraints")),
         claim_type=claim_type,
+        evidence_needs=evidence_needs,
+        jurisdictions=jurisdictions,
     )
 
 
@@ -337,6 +497,7 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
     facets + archetype outline."""
     archetype_list = ", ".join(SECTION_ARCHETYPES)
     claim_type_list = ", ".join(sorted(CLAIM_TYPES))
+    evidence_need_list = ", ".join(sorted(EVIDENCE_NEEDS))
     base = (
         "You are a field-agnostic research planner. Decompose the research "
         "question into a structured plan. The question may be from ANY field "
@@ -350,7 +511,17 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
         '     "metrics":    [the quantities / outcomes / measures of interest],\n'
         '     "comparators":[the alternatives / baselines / counterfactuals],\n'
         '     "constraints":[scope limits: population, jurisdiction, timeframe, setting],\n'
-        f'     "claim_type": one of [{claim_type_list}]\n'
+        f'     "claim_type": one of [{claim_type_list}],\n'
+        '     "evidence_needs": [the KINDS of evidence this question needs — '
+        f"choose from: {evidence_need_list}; pick every kind the question "
+        "genuinely requires, e.g. a regulatory question needs 'regulatory' "
+        "(and likely 'legal'/'statistical'); a software question needs 'code'; "
+        "a company question needs 'company_filings'; an engineering-standards "
+        "question needs 'standards'; leave EMPTY only if truly generic],\n"
+        '     "jurisdictions": [NORMALIZED codes for any country/region the '
+        "question is scoped to — ISO-3166 alpha-2 (e.g. \"US\",\"CA\",\"GB\","
+        "\"JP\",\"AU\") or \"EU\"/\"INTL\"; EMPTY if the question is not "
+        "jurisdiction-specific. Use the CODE, never a country name]\n"
         "  },\n"
         '  "sub_queries": [faceted search queries, each a focused phrase that '
         "covers ONE facet of the question — collectively spanning every "
