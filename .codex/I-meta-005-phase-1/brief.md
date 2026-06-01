@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -17,7 +17,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 3 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
+# Codex BRIEF gate iter 4 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
 
 ITER-1 = REQUEST_CHANGES (5 P1, 4 P2). This rewrite addresses each. Parent plan #982 rows 47/57/78.
 Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #10 (decision seed).
@@ -64,9 +64,11 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
   the planner once asking for more facets; if still short for a genuinely narrow question, ACCEPT the
   smaller honest count + log (do NOT fabricate). The "20-40" EXIT target is for the broad golden/probe Qs;
   a narrow question may legitimately have fewer.
-- **Persist + SHA-pin (iter-1 P1 #4):** serialize the `ResearchPlan` (frame + sub-queries + outline +
-  evidence targets) to the run artifacts and compute a SHA pin BEFORE retrieval — the gap-#19 pre-
-  registration now covers the plan, so the audit trail proves the plan was declared before running.
+- **Persist + SHA-pin (iter-1 P1 #4; canonical, iter-3 P2):** serialize the `ResearchPlan` (frame +
+  sub-queries + outline + evidence targets) as **canonical JSON** (`sort_keys=True`, fixed separators) to a
+  run artifact BEFORE retrieval, compute `sha256` of those canonical bytes, and record `{plan_path,
+  plan_sha256}` in the run `manifest`. The gap-#19 pre-registration now covers the plan — the audit trail
+  proves the exact plan was declared before running (not merely "an artifact exists somewhere").
 
 ### 2.2 `nodes/scope_gate.py` — ADDITIVE, no removals (iter-1 P1 #3 fix)
 - ADD a field-agnostic frame extractor for the on-path. **KEEP** `extract_pico_heuristic` AND
@@ -86,21 +88,36 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
   contract/enrichment title-matching consult `SectionPlan.archetype` (e.g. M-47 `archetype ==
   "Mechanism"`) in on-mode; off-mode keeps title-keyed behavior untouched. This prevents archetype mode
   from breaking clinical audit logic AND prevents leakage into off mode.
-- Clinical prompt rules → `config/section_prompts/clinical.yaml`, selected only when the frame indicates
-  clinical — advisory config, NOT a code lock.
+- Clinical prompt rules → `config/section_prompts/clinical.yaml` as ADVISORY PROMPT-TEXT only (extra
+  writing guidance appended to the section prompt), NOT a control branch (iter-3 P2). The archetype outline
+  prompt, parser, tag-validation, and fallback are byte-identical regardless of which prompt-text file is
+  appended; selecting clinical.yaml does NOT change routing, archetypes, or section structure — it only
+  enriches prose guidance when `frame.claim_type`/`entities` read clinical. No `if domain ==` branch.
 
-### 2.4 Query wiring — to the EFFECTIVE-QUERY seam (iter-2 P1 #2 fix)
-- `run_honest_sweep_r3.py:1677`: when `PG_USE_RESEARCH_PLANNER` on, the sub-queries fed to
-  `build_amplified_query_list` come from `plan_research(...).sub_queries`; when off, today's
-  `decompose_question` path runs unchanged.
+### 2.4 Query wiring — ON-mode is planner-only; to the EFFECTIVE-QUERY seam (iter-2 P1 #2 + iter-3 P1 #2)
+- **ON-mode is the ONLY non-anchor query source = the planner (iter-3 P1 #2).** Today the sweep also runs
+  domain-keyed expanders: `expand_regulatory_queries` (M-28) + `expand_primary_trial_queries` (M-35), both
+  keyed on `q["domain"]` + `load_scope_template(q["domain"])` (`run_honest_sweep_r3.py:1635-1648`), plus
+  `expand_primary_trial_dois` (I-bug-776), and per-slug hand-authored `q["amplified"]`; all four feed
+  `build_amplified_query_list(hand_authored, decomposed, regulatory, trial)` (`:1687`). These are the exact
+  CLINICAL/domain-keyed machinery the field-agnostic re-architecture replaces. So under
+  `PG_USE_RESEARCH_PLANNER` ON: the domain-keyed expanders are **NOT invoked**; the amplified list is fed
+  `decomposed=plan.sub_queries`, `regulatory=[]`, `trial=[]`, `hand_authored=[]` (the planner's 20-40
+  facets ARE the regulatory/primary-evidence expansion, field-agnostically). OFF: all legacy expanders run
+  byte-identically.
+- **Validator adapter (iter-3 P1 #1).** `validate_amplified_queries`'s `_build_anchor_tokens`
+  (`scope_query_validator.py:85`) reads only clinical PICO fields (`research_question`, `population`,
+  `intervention`, `comparator`, `outcome`). The new `ResearchFrame` (entities/relations/metrics/
+  comparators/constraints) won't validate through that. Fix: (a) ADD `ResearchFrame.to_anchor_protocol()`
+  producing a dict with `research_question` + the frame's tokens, AND (b) extend `_build_anchor_tokens`
+  ADDITIVELY to also merge `entities`/`relations`/`metrics`/`comparators`/`constraints` when present (it
+  already "skips missing fields gracefully", so clinical PICO protocols are unaffected = OFF byte-
+  identical). Then planner sub-queries validate against the frame's OWN tokens.
 - **The planner sub-queries must survive to the actual search calls.** `run_live_retrieval`
-  (`live_retriever.py:1675`) builds `all_queries = [research_question] + amplified` then runs
-  `validate_amplified_queries(... protocol ...)` → `effective_queries = valid.kept` (`:1720`); ONLY
-  `effective_queries` reach the search loop (`:1757`) → `_serper_search`/`_s2_bulk_search`
-  (`:144`,`:187`). So the planner sub-queries must pass the scope validator against the pinned plan's own
-  protocol — acceptance asserts at the `effective_queries`/search seam, NOT merely
-  `build_amplified_query_list`. (Co-design: the plan's frame IS the protocol the validator checks against,
-  so planner sub-queries are scope-consistent by construction — confirm this is coherent.)
+  (`live_retriever.py:1675`) → `validate_amplified_queries(... protocol ...)` → `effective_queries`
+  (`:1720`) → search loop (`:1757`) → `_serper_search`/`_s2_bulk_search` (`:144`,`:187`). Acceptance
+  asserts planner sub-queries reach the `effective_queries`/search seam (using the frame-derived protocol),
+  NOT merely `build_amplified_query_list`.
 - **Runtime fanout note (corrected, iter-2 P2):** `PG_SWEEP_FETCH_CAP` limits FETCHED URLs, NOT the number
   of Serper/S2 query CALLS. 20-40 planner sub-queries → up to ~20-40 Serper + S2 calls per round vs today's
   handful — a real per-run API-call increase (governed later by Phase-4 saturation, not Phase 1). Phase 1
@@ -137,8 +154,18 @@ fallback (`:436`), M-44 primary injection (`:3012`), and regen plans (`:4183`,`:
 - **P1-6 fail-loud:** malformed planner JSON → `plan_research` raises (no clause-splitter fallback).
 - **P1-7 honest count:** fake returning 60 → ≤40 by merge/truncate; fake returning 5 → retry once, then
   accept honest small count + log (NO deterministic padding to 20).
-- **P1-8 gap-19 plan pin:** the `ResearchPlan` is serialized + SHA-pinned before retrieval AND the existing
-  scope pre-registration SHA still matches.
+- **P1-8 gap-19 plan pin (canonical):** the `ResearchPlan` is serialized as canonical JSON, sha256-pinned,
+  and `{plan_path, plan_sha256}` recorded in the manifest BEFORE retrieval; re-serializing the same plan
+  reproduces the identical sha256; the existing scope pre-registration SHA still matches.
+- **P1-14 validator adapter (iter-3 P1 #1):** a `ResearchFrame` for a non-clinical question →
+  `to_anchor_protocol()` → `validate_amplified_queries(planner_subqueries, protocol)` KEEPS the on-scope
+  planner sub-queries (they validate against the frame's entities/metrics/comparators tokens), and a
+  genuinely off-scope query is dropped. A clinical PICO protocol still validates byte-identically (additive
+  `_build_anchor_tokens` extension does not change PICO behavior).
+- **P1-15 on-mode suppresses legacy domain expanders (iter-3 P1 #2):** with on-flag + fake planner +
+  capture stubs, NO regulatory (M-28) / primary-trial (M-35) / trial-DOI / per-slug hand-authored query
+  reaches `effective_queries` — only planner sub-queries + the anchor. Off-flag: the legacy expanders run
+  and their queries appear, unchanged.
 - **P1-9 _DRUG_NAME_RE compat:** `completeness_checker` + `contradiction_detector` still import + use
   `_DRUG_NAME_RE` from `scope_gate` (no breakage).
 - **P1-10 no-clinical-literal code guard (ON-PATH scoped, iter-2 P2):** a grep-style test asserts the
