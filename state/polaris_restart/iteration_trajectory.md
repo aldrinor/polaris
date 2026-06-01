@@ -1270,3 +1270,13 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   dependency) — applied to brief. FORCE-APPROVE per §8.3.1 (6 iters; confirmatory exception
   used; design correct+complete+wedge-safe; diff-gate verifies the real-code implementation).
   codex_brief_verdict_iter6_force_approve.txt. Proceed to BUILD.
+- **Phase-7 DIFF-gate iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`, 2 P1 + 2 P2,
+  0 P0. Both P1 were REAL false-number-survives holes (the wedge class): P1-1
+  `before.endswith(display_value)` accepts "123.40%" for a "23.40%" field; P1-2
+  rel_tol=1e-9 numeric backstop accepts "$1,000,000,000,999" for a "$1e12" field.
+  FIX (deterministic, §-1.2.6): canonicalize-and-compare — parse the adjacent number,
+  re-format through the SAME pinned `_canonical_display`, require exact string match;
+  removed endswith + the rel/abs tol + `_is_calc_equal`. P2-1 (persist modeled_used +
+  sourced_tokens in quantified_model.json) FIXED. P2-2 (per-input modeled label) ACCEPTED
+  as disclosure-completeness (Codex: "not a wedge failure"; number is executor-correct).
+  +P7-23/P7-24 smoke (the exact Codex examples). 29 P7 + 39 regression green. Re-gate iter 2.

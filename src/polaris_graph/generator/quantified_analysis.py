@@ -175,14 +175,20 @@ async def execute_quantified_model(
         # break-even renders the solve-var VALUE (a threshold), not the output's
         # currency/percent — display it as a plain number.
         if is_break_even:
-            display = _canonical_display(fval, "", "number")
+            disp_unit, disp_kind = "", "number"
         else:
-            display = _canonical_display(fval, out.unit, out.display_kind)
+            disp_unit, disp_kind = out.unit, out.display_kind
+        display = _canonical_display(fval, disp_unit, disp_kind)
         refs = output_referenced_inputs(spec, out_name)
         modeled_used = sorted((refs & modeled_names) - ({exclude} if exclude else set()))
         fields[field_id] = {
             "value": fval,
             "display_value": display,
+            # display_kind + unit let Regime C RE-CANONICALIZE the adjacent number
+            # (Codex diff-gate P1-1/P1-2): the parsed adjacent value must format to
+            # EXACTLY display_value — no suffix-match, no magnitude-scaled drift.
+            "display_kind": disp_kind,
+            "unit": disp_unit,
             "modeled_used": modeled_used,
             "sourced_tokens": _sourced_tokens_for(spec, refs),
         }
@@ -240,7 +246,14 @@ def _persist(result: QuantifiedResult, run_dir: str) -> str:
             for o in spec.outputs
         ],
         "fields": {
-            fid: {"value": f["value"], "display_value": f["display_value"]}
+            fid: {
+                "value": f["value"], "display_value": f["display_value"],
+                "display_kind": f.get("display_kind"), "unit": f.get("unit"),
+                # Codex diff-gate P2-1: persist the full per-field audit record
+                # (modeled inputs that must be labeled + the source-input spans).
+                "modeled_used": f.get("modeled_used", []),
+                "sourced_tokens": f.get("sourced_tokens", []),
+            }
             for fid, f in result.fields.items()
         },
     }

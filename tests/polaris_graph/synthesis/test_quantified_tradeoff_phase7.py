@@ -433,6 +433,46 @@ def test_p7_22_mixed_calc_and_ev_token_dropped():
                for r in report.dropped_sentences[0].failure_reasons)
 
 
+# ── P7-23 / P7-24 canonicalize-and-compare (Codex diff-gate P1-1 / P1-2) ─────
+def _hand_result(fields):
+    from src.polaris_graph.synthesis.tradeoff_modeler import ModelSpec
+    spec = ModelSpec(model_id="m", title="t", sourced_inputs=[],
+                     modeled_inputs=[], outputs=[], spec_hash="abc123")
+    return QuantifiedResult("m", "abc123", spec, "script", fields=fields)
+
+
+def test_p7_23_suffix_number_not_accepted():
+    # P1-1: a field displaying "23.40%" must NOT verify "123.40%" (the wrong
+    # number ends with the canonical string — endswith would have accepted it).
+    result = _hand_result({
+        "pct": {"value": 23.4, "display_value": "23.40%", "display_kind": "percent",
+                "unit": "%", "modeled_used": [], "sourced_tokens": []},
+    })
+    reg = {result.key(): result}
+    bad = "The margin is 123.40%[#calc:m:abc123:pct]."
+    assert pg.strict_verify(bad, {}, quantified_models=reg).total_kept == 0
+    good = "The margin is 23.40%[#calc:m:abc123:pct]."
+    assert pg.strict_verify(good, {}, quantified_models=reg).total_kept == 1
+
+
+def test_p7_24_large_magnitude_drift_not_accepted():
+    # P1-2: a field displaying "$1,000,000,000,000.00" must NOT verify a number
+    # off by $999 (rel diff < 1e-9 — the old tolerance would have accepted it).
+    result = _hand_result({
+        "big": {"value": 1e12, "display_value": "$1,000,000,000,000.00",
+                "display_kind": "currency", "unit": "USD",
+                "modeled_used": [], "sourced_tokens": []},
+    })
+    reg = {result.key(): result}
+    drift = "The total is $1,000,000,000,999.00[#calc:m:abc123:big]."
+    assert pg.strict_verify(drift, {}, quantified_models=reg).total_kept == 0
+    exact = "The total is $1,000,000,000,000.00[#calc:m:abc123:big]."
+    assert pg.strict_verify(exact, {}, quantified_models=reg).total_kept == 1
+    # a benign reformat (no commas) that re-canonicalizes to the same string PASSES
+    reformat = "The total is $1000000000000.00[#calc:m:abc123:big]."
+    assert pg.strict_verify(reformat, {}, quantified_models=reg).total_kept == 1
+
+
 # ── P7-1 OFF byte-identity ───────────────────────────────────────────────────
 def test_p7_1_off_byte_identity():
     rows = _evidence_rows()

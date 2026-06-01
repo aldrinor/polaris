@@ -1078,25 +1078,40 @@ def verify_modeled_atom(
         )
 
     display_value = str(fld.get("display_value", ""))
-    field_value = fld.get("value")
 
-    # (c) adjacency + equality
+    # (c) adjacency + equality (Codex diff-gate P1-1/P1-2). The rendered number
+    # IMMEDIATELY before the token must canonicalize to EXACTLY the field's
+    # display_value. Two fail-closed properties:
+    #   - FULL-number compare (not `before.endswith(display_value)`, which would
+    #     accept "123.40%" for a "23.40%" field — the wrong number ends with the
+    #     canonical string).
+    #   - RE-CANONICALIZE the parsed adjacent value through the SAME pinned
+    #     formatter and require an exact string match (no magnitude-scaled rel-tol
+    #     drift, which would accept "$1,000,000,000,999.00" for a
+    #     "$1,000,000,000,000.00" field). A benign reformat (missing $/commas) that
+    #     canonicalizes to the same string still passes; any real numeric
+    #     difference fails.
     before = sentence[: calc_match.start()]
     adj = _CALC_ADJACENT_NUMBER_RE.search(before)
     if adj is None:
         failures.append("calc_no_adjacent_number")
     else:
         adj_str = adj.group(1).strip()
-        exact = before.endswith(display_value) or adj_str == display_value
-        adj_val = _calc_parse_number(adj_str)
-        numeric_ok = (
-            adj_val is not None and field_value is not None
-            and _is_calc_equal(adj_val, float(field_value))
-        )
-        if not (exact or numeric_ok):
-            failures.append(
-                f"calc_number_mismatch:{adj_str}!={display_value}"
-            )
+        ok = adj_str == display_value
+        if not ok:
+            adj_val = _calc_parse_number(adj_str)
+            if adj_val is not None:
+                from src.polaris_graph.synthesis.tradeoff_modeler import (
+                    _canonical_display,
+                )
+                recanon = _canonical_display(
+                    adj_val,
+                    str(fld.get("unit", "")),
+                    str(fld.get("display_kind", "number")),
+                )
+                ok = recanon == display_value
+        if not ok:
+            failures.append(f"calc_number_mismatch:{adj_str}!={display_value}")
 
     # (d) modeled-assumption labeling
     modeled_used = fld.get("modeled_used") or []
@@ -1128,12 +1143,6 @@ def verify_modeled_atom(
         sentence=sentence, tokens=src_tokens, is_verified=True,
         failure_reasons=[], soft_warnings=["regime_c_modeled_verified"],
     )
-
-
-def _is_calc_equal(a: float, b: float) -> bool:
-    """Tight relative/absolute equality for the Regime C numeric backstop."""
-    import math as _math
-    return _math.isclose(a, b, rel_tol=_CALC_EQ_REL_TOL, abs_tol=_CALC_EQ_ABS_TOL)
 
 
 def verify_sentence_provenance(
