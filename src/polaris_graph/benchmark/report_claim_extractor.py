@@ -35,11 +35,21 @@ SYSTEMS = ("polaris", "chatgpt", "gemini")
 
 # academic "(Author, 2015)" / "(Acemoglu & Restrepo, 2018, 2019)" inline keys.
 _AUTHOR_YEAR_RE = re.compile(r"\(([^()]*?\b(?:19|20)\d{2}[a-z]?[^()]*?)\)")
-# bare numbered citation markers: [1], [12], or a trailing superscript-ish "¹²".
+# bare numbered citation markers: [1], [12].
 _NUMBERED_RE = re.compile(r"\[(\d{1,3})\]")
+# unicode superscript citation markers (Gemini-style), e.g. "churn²⁷".
+_SUPERSCRIPT_RE = re.compile(r"[⁰¹²³⁴-⁹]+")
+_SUPERSCRIPT_MAP = {
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+}
 # strip POLARIS provenance + bare numbered markers from the rendered atom text.
 _POLARIS_TOKEN_RE = re.compile(r"\[#ev:[A-Za-z0-9_]+:\d+-\d+\]")
 _ATOM_HAS_ALPHA_RE = re.compile(r"[A-Za-z]")
+
+
+def _superscript_to_number(run: str) -> str:
+    return "".join(_SUPERSCRIPT_MAP.get(c, "") for c in run)
 
 
 @dataclass(frozen=True)
@@ -78,6 +88,7 @@ def _strip_markers(text: str, system: str) -> str:
     s = _NUMBERED_RE.sub("", s)
     if system != "polaris":
         s = _AUTHOR_YEAR_RE.sub("", s)
+        s = _SUPERSCRIPT_RE.sub("", s)
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -110,6 +121,13 @@ def _extract_citations(
                 system=system, kind="numbered", raw_key=m.group(0),
                 resolved=references.get(num),
             ))
+        for m in _SUPERSCRIPT_RE.finditer(sentence):
+            num = _superscript_to_number(m.group(0))
+            if num:
+                refs.append(CitationRef(
+                    system=system, kind="numbered", raw_key=m.group(0),
+                    resolved=references.get(num),
+                ))
     if not refs:
         refs.append(CitationRef(system=system, kind="uncited", raw_key=""))
     return refs

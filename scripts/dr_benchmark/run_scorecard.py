@@ -22,9 +22,12 @@ from src.polaris_graph.benchmark.benchmark_scorecard import build_scorecard
 from src.polaris_graph.benchmark.fact_scorer import Judge, SpanFetcher, score_atoms
 from src.polaris_graph.benchmark.report_claim_extractor import extract_atoms
 
-# "## References" / "## Sources" / "Bibliography" section header.
+# References / Sources / Bibliography header — bare, ## heading, or **bold**
+# (Codex diff-gate P2-1: a plain "References" line must also split).
 _REFERENCES_HEADER_RE = re.compile(
-    r"^#{1,4}\s*(references|sources|bibliography|works cited)\s*$",
+    r"^\s*(?:#{1,4}\s*)?(?:\*\*)?"
+    r"(references|sources|bibliography|works cited|citations)"
+    r"(?:\*\*)?\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 # a numbered reference line "12. Author ... https://url"
@@ -32,14 +35,44 @@ _NUMBERED_REF_RE = re.compile(r"^\s*\[?(\d{1,3})[\].]\s+(.*)$")
 _URL_RE = re.compile(r"https?://\S+")
 
 
+def _looks_like_reference_line(line: str) -> bool:
+    s = line.strip()
+    if not s:
+        return False
+    if _URL_RE.search(s):
+        return True
+    if re.match(r"^\[?\d{1,3}[\].]\s", s):
+        return True
+    # "Author, 2015 ..." / "Acemoglu & Restrepo (2018) ..."
+    if re.match(r"^[A-Z][A-Za-z.\-]+[,&\s].*\(?(?:19|20)\d{2}", s):
+        return True
+    return False
+
+
 def split_body_and_references(report_text: str) -> tuple[str, str]:
     """Split a report into (body, references_section). Claims are extracted from
-    the BODY only — the References/Bibliography list is not prose claims and must
-    not be scored as uncited atoms."""
-    m = _REFERENCES_HEADER_RE.search(report_text)
-    if not m:
+    the BODY only.
+
+    Codex diff-gate P1: strip ONLY a TERMINAL, reference-list-like section, never a
+    mid-report ``## Sources`` or a header followed by answer prose — silently
+    dropping prose claims would let a report ESCAPE the denominator. Uses the LAST
+    matching header and strips only when the trailing block is mostly reference
+    lines; otherwise FAILS SAFE toward inclusion (over-including a few reference
+    lines as uncited atoms is a minor lane1 distortion, NOT a denominator bypass).
+    """
+    matches = list(_REFERENCES_HEADER_RE.finditer(report_text))
+    if not matches:
         return report_text, ""
-    return report_text[: m.start()], report_text[m.end():]
+    m = matches[-1]
+    after = report_text[m.end():]
+    nonempty = [ln for ln in after.splitlines() if ln.strip()]
+    if not nonempty:
+        return report_text[: m.start()], after
+    ref_like = sum(1 for ln in nonempty if _looks_like_reference_line(ln))
+    if ref_like / len(nonempty) >= 0.6:
+        return report_text[: m.start()], after
+    # substantial prose after the (last) header → do NOT strip (fail-safe).
+    return report_text, ""
 
 
 def parse_references(report_text: str) -> dict[str, str]:

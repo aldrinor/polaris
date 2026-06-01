@@ -221,6 +221,42 @@ def test_parse_references_numbered_and_author_year():
     assert refs.get("acemoglu, 2018") == "https://nber.org/w24196"
 
 
+def test_gemini_unicode_superscript_citation():
+    # Codex diff-gate P2-2: unicode superscripts resolve to numbered citations.
+    txt = "Generative AI accelerates occupational churn²⁷."
+    atoms = extract_atoms(txt, "gemini", {"27": "https://example.org/ref27"})
+    kinds = {(c.kind, c.resolved) for c in atoms[0].citation_refs}
+    assert ("numbered", "https://example.org/ref27") in kinds
+    assert "²⁷" not in atoms[0].text                       # superscript stripped
+
+
+def test_split_body_keeps_prose_after_nonterminal_header(tmp_path):
+    # Codex diff-gate P1: a "## Sources" header followed by ANSWER PROSE must NOT be
+    # stripped — those claims must stay in the denominator.
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "## Sources of evidence\n\n"
+        "The strongest causal study finds a 12% local employment decline. "
+        "A second cohort shows wage compression in routine tasks.\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "12% local employment decline" in body          # prose NOT excluded
+    assert refs == ""
+
+
+def test_split_body_strips_terminal_reference_list():
+    from scripts.dr_benchmark.run_scorecard import split_body_and_references
+    report = (
+        "Main finding: the drug cut events by 20%.\n\n"
+        "References\n\n"
+        "1. Smith J. 2020. https://example.org/smith\n"
+        "2. Doe A. 2019. https://example.org/doe\n"
+    )
+    body, refs = split_body_and_references(report)
+    assert "cut events by 20%" in body
+    assert "Smith" not in body and "Smith" in refs          # terminal list stripped
+
+
 def test_run_scorecard_end_to_end_cash_free(tmp_path):
     from scripts.dr_benchmark.run_scorecard import run_scorecard
     ext = tmp_path / "external_outputs"

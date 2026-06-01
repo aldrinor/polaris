@@ -1302,3 +1302,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **DESIGN-gate iter 3**: **APPROVE** clean (0 P0/P1/P2, accept_remaining). Methodology LOCKED.
   Build: report_claim_extractor + fact_scorer (evidence-locked judge) + benchmark_scorecard
   (lane1-only + lane2_pending) + run wiring; reuse claim_audit_scorer; metadata_only subtype.
+- **I-meta-006 DIFF-gate iter 1** (2026-06-01): REQUEST_CHANGES, 1 P1 + 2 P2, 0 P0. P1 (REAL
+  denominator-exclusion bypass): split_body_and_references stripped everything after the FIRST
+  references header without checking it's terminal → prose after a mid-report ## Sources would
+  escape scoring. FIX: strip ONLY the LAST header AND only when the trailing block is ≥60%
+  reference-list-like; else fail-safe toward inclusion. P2-1 (bare/bold "References" heading)
+  + P2-2 (unicode superscript citations) FIXED. +3 smoke. 19 scorer + 12 claim_audit green. Re-gate.
