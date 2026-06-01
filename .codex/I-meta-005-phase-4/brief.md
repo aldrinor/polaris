@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 2 — I-meta-005 Phase 4 (#988): multi-round saturation search
+# Codex BRIEF gate iter 3 — I-meta-005 Phase 4 (#988): multi-round saturation search
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 50. Phase 4 closes gap #3 (search depth):
 single-pass retrieval → a gap-targeted SATURATION LOOP that, when Phase 3's plan-sufficiency gate returns
@@ -42,9 +42,13 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 
 ### 2.1 NEW `src/polaris_graph/retrieval/saturation.py` (pure decision logic)
 - `marginal_novelty(prev_evidence_rows, new_round_rows) -> float`: the fraction of the new round's rows that
-  are NOVEL. **Single dedup identity (iter-1 P2): canonical URL** = eTLD+1 + normalized path (reuse the
-  Phase-0a `corroboration` canonical-host primitive; NOT an ambiguous URL-AND/OR-finding mix). A new row is
-  NOVEL iff its canonical URL is not in `prev_evidence_rows`. Returns `len(novel) / max(1, len(new_round_rows))`.
+  are NOVEL. **Single dedup identity = canonical URL via the EXISTING `run_diff` canonicalizer (iter-2 P2):**
+  reuse `audit_ir/run_diff.py:222-251` (`canonical_url`) which lowercases host, strips `www.`, DROPS tracking
+  params (utm_*/fbclid/gclid/ref/...) but PRESERVES + sorts identifier query params — so two distinct
+  query-addressed sources (`?abstract_id=123` vs `?abstract_id=456`, `?doi=...`) stay DISTINCT while only
+  tracking noise collapses. (eTLD+1+path alone would wrongly merge distinct identifier-addressed pages — the
+  `corroboration` host-only primitive is too coarse here.) A new row is NOVEL iff its canonical URL is not in
+  `prev_evidence_rows`. Returns `len(novel) / max(1, len(new_round_rows))`.
 - `gap_sub_queries(sufficiency_report, plan) -> list[str]`: the sub-query TEXTS to fire next, covering BOTH
   shortfall modes (iter-1 P1 #2 — the gate fails on `covered_count < evidence_target` OR `empty_facets`,
   `plan_sufficiency_gate.py:308`):
@@ -74,7 +78,13 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
       NOT re-fire the broad anchor (iter-1 P1 #1 — `run_live_retrieval` always prepends `research_question`
       to `all_queries` at `live_retriever.py:1741`, so a naive `amplified_queries=` call would re-run the
       anchor and waste budget). FIX: add an additive `anchor_seed: bool = True` param to `run_live_retrieval`;
-      a gap round calls it with `anchor_seed=False` so `all_queries = gap_sub_queries` only. Then MERGE the
+      a gap round calls it with `anchor_seed=False` so `all_queries = gap_sub_queries` only. **AND propagate
+      it to the need-type backend (iter-2 P1):** the on-mode seam ALSO calls `run_need_type_backends(...,
+      research_question=research_question)` (`live_retriever.py:1839`), and that dispatcher independently
+      builds `queries = [research_question]` (`domain_backends.py:648`) — so anchor-suppression must reach
+      BOTH. Add `anchor_seed: bool = True` to `run_need_type_backends` too; when False its `queries =
+      amplified_queries` ONLY (no `research_question` prepend). The gap round threads `anchor_seed=False`
+      through to both the core Serper/S2 path AND the need-type adapters. Then MERGE the
       new rows into the cumulative corpus, **renumbering evidence_ids globally (iter-1 P1 #5):** each
       `run_live_retrieval` call restarts ids at `ev_000`, which would COLLIDE/overwrite in the evidence pool;
       reuse the EXISTING legacy-expansion renumber pattern (`run_honest_sweep_r3.py:2128` — `base =
@@ -93,9 +103,13 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 - When the loop stops at STOP_NOVELTY / STOP_BUDGET with SOME sections still under-covered, Phase 4 emits
   status `partial_saturation`. The generator fixes its output structure to `research_plan.outline`
   (`multi_section_generator.py:4098`), so passing the FULL plan would still RENDER the under-covered sections
-  (the exact bug Codex flagged). FIX: build a **PRUNED ResearchPlan** containing ONLY the sufficient sections
-  (drop the under-covered `SectionOutlineItem`s; keep their sub_query_indices coherent / re-validate the
-  pruned plan's facet-union over the RETAINED sections) and pass THAT pruned plan to
+  (the exact bug Codex flagged). FIX: build a **PRUNED ResearchPlan** containing ONLY the sufficient sections.
+  **Index remap (iter-2 P2):** `ResearchPlan` is index-based (`SectionOutlineItem.sub_query_indices` point
+  into `plan.sub_queries`), and the whole-plan facet-union invariant requires
+  `union(retained sub_query_indices) == range(len(pruned.sub_queries))`. So the prune MUST: (1) drop the
+  under-covered `SectionOutlineItem`s; (2) drop the now-ORPHANED `sub_queries` (those mapped by no retained
+  section); (3) REMAP the retained sections' `sub_query_indices` to the compacted `sub_queries` list, so all
+  indices stay in-range and the union invariant holds on the pruned plan. Pass THAT pruned plan to
   `generate_multi_section_report` (`run_honest_sweep_r3.py:3012`). So the generator structurally CANNOT
   render an under-covered section. The manifest names the dropped sections + their shortfall + the
   `partial_saturation` status, so the user gets a verified partial answer + an explicit "these sub-questions
@@ -107,8 +121,10 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 ## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/retrieval/test_saturation_phase4.py`
 - **P4-1 OFF byte-identity:** off → the single-pass retrieval path is unchanged (no loop); pin the existing
   retrieval-trace shape on a fixture.
-- **P4-2 novelty metric:** `marginal_novelty` returns 1.0 for all-new rows, 0.0 for all-duplicate, 0.5 for
-  half; canonical-URL dedup (same URL different path = distinct; same URL = dup).
+- **P4-2 novelty metric:** `marginal_novelty` returns 1.0 for all-new, 0.0 for all-duplicate, 0.5 for half.
+- **P4-2b identifier-vs-tracking canonicalization (iter-2 P2):** two rows with `?abstract_id=123` and
+  `?abstract_id=456` (same host+path) are DISTINCT (both novel); two rows differing only by `?utm_source=x`
+  collapse to ONE (the second is a duplicate). Uses the run_diff canonicalizer.
 - **P4-3 gap_sub_queries:** an under-covered section mapped to sub-queries [2,4] with facet 4 under-covered →
   returns exactly `[plan.sub_queries[4]]` (the gap facet's text), NOT the whole plan.
 - **P4-4 saturation_decision:** proceed→STOP_SUFFICIENT; expand+rounds-exhausted→STOP_BUDGET; expand+round≥1
@@ -123,9 +139,10 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
   status `partial_saturation`, generator billed ONLY for section A, section B named in the shortfall.
 - **P4-8 budget bound:** the loop never exceeds `PG_SATURATION_MAX_ROUNDS`; hitting the cap = STOP_BUDGET.
 - **P4-9 spend-free guard:** no live HTTP client constructed in the decision-logic smoke.
-- **P4-10 gap-round anchor-suppressed (iter-1 P1 #1):** a gap round calls `run_live_retrieval` with
-  `anchor_seed=False` → the effective query list is EXACTLY `gap_sub_queries`, the `research_question` anchor
-  is NOT in it (assert the queries reaching the search seam are only the gap queries).
+- **P4-10 gap-round anchor-suppressed BOTH seams (iter-2 P1):** a gap round with `anchor_seed=False` → the
+  effective query list at the CORE Serper/S2 seam AND at the need-type adapters (`run_need_type_backends`) is
+  EXACTLY `gap_sub_queries`; the `research_question` anchor is NOT in EITHER (assert adapter-level queries
+  too, not only the core seam — the need-type backend independently prepends the anchor).
 - **P4-11 total-shortfall gap queries (iter-1 P1 #2):** an under-covered section with `covered_count <
   evidence_target` but `empty_facets == []` → `gap_sub_queries` returns ALL the section's sub-query texts
   (non-empty), so the loop has a query to fire.
@@ -137,9 +154,13 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 - **P4-14 cumulative retrieval budget (iter-1 P1 #6):** a loop where each round spends N api_calls hits
   STOP_BUDGET when cumulative calls reach `PG_SATURATION_MAX_RETRIEVAL_CALLS`, EVEN IF `max_rounds` is not
   yet reached.
-- **P4-7 strengthened (pruned plan, iter-1 P1 #4):** assert the generator receives a PRUNED plan whose
-  outline contains ONLY the sufficient sections — the under-covered section is NOT in the plan passed to
+- **P4-7 strengthened (pruned plan, iter-1 P1 #4):** the generator receives a PRUNED plan whose outline
+  contains ONLY the sufficient sections — the under-covered section is NOT in the plan passed to
   `generate_multi_section_report` (structurally cannot be rendered).
+- **P4-7b pruned-plan index remap invariant (iter-2 P2):** after pruning, the pruned plan's orphaned
+  sub_queries are dropped, the retained sections' sub_query_indices are REMAPPED to the compacted
+  sub_queries, ALL indices are in-range, and `union(sub_query_indices)==range(len(pruned.sub_queries))` holds
+  (the pruned plan re-passes the Phase-3 fail-closed facet-union validation).
 - Plus a regression subset confirming OFF single-pass byte-identity.
 
 ## 4. EXIT CRITERIA (issue #988)
