@@ -401,6 +401,38 @@ def test_p7_20_token_binds_to_adjacent_number():
                for r in report.dropped_sentences[0].failure_reasons)
 
 
+# ── P7-21 / P7-22 fail-closed sentence-shape (wedge hardening) ───────────────
+def test_p7_21_multiple_calc_tokens_dropped():
+    spec = _build_tco()
+    result = _exec(spec)
+    t = result.calc_token("tco")
+    # two calc tokens in one sentence -> only the 1st would verify -> drop whole
+    sent = (f"TCO is $2,148,000,000.00{t} and again $2,148,000,000.00{t} "
+            f"(modeled assumption).")
+    report = pg.strict_verify(
+        sent, _evidence_rows(), quantified_models={result.key(): result},
+    )
+    assert report.total_kept == 0
+    assert any("calc_multiple_tokens_in_sentence" in r
+               for r in report.dropped_sentences[0].failure_reasons)
+
+
+def test_p7_22_mixed_calc_and_ev_token_dropped():
+    spec = _build_tco()
+    result = _exec(spec)
+    t = result.calc_token("tco")
+    # a [#calc:] sentence that ALSO carries an [#ev:] token would launder the
+    # unverified Regime-A claim through the calc path -> fail-closed drop.
+    sent = (f"Cost rose 14.9% [#ev:ev_017:0-20] to $2,148,000,000.00{t} "
+            f"(modeled assumption).")
+    report = pg.strict_verify(
+        sent, _evidence_rows(), quantified_models={result.key(): result},
+    )
+    assert report.total_kept == 0
+    assert any("calc_mixed_with_ev_token" in r
+               for r in report.dropped_sentences[0].failure_reasons)
+
+
 # ── P7-1 OFF byte-identity ───────────────────────────────────────────────────
 def test_p7_1_off_byte_identity():
     rows = _evidence_rows()

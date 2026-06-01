@@ -1159,10 +1159,25 @@ def verify_sentence_provenance(
     Regime A is byte-identical.
     """
     if quantified_models is not None:
-        _calc_match = _CALC_TOKEN_RE.search(sentence)
-        if _calc_match is not None:
+        _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
+        if _calc_matches:
+            # Fail-closed sentence-shape rules (brief §1.5: AT MOST one calc number
+            # per sentence). >1 calc token would leave the 2nd..Nth number
+            # unverified after the 1st is checked; a MIXED [#calc:]+[#ev:] sentence
+            # would launder an unverified Regime-A numeric claim through the calc
+            # path. Both drop the whole sentence.
+            if len(_calc_matches) > 1:
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_multiple_tokens_in_sentence"],
+                )
+            if _PROVENANCE_TOKEN_RE.search(sentence):
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_mixed_with_ev_token"],
+                )
             return verify_modeled_atom(
-                sentence, _calc_match, quantified_models, evidence_pool,
+                sentence, _calc_matches[0], quantified_models, evidence_pool,
             )
 
     tokens = parse_provenance_tokens(sentence)
