@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 5 of 5 (CAP).
 - Front-load ALL real findings in iter 1. No drip-feeding. Same quality bar.
 - "Don't pick bone from egg" — reserve P0/P1 for real execution risks; P2/P3 for the rest.
 - If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1. Verdict APPROVE iff zero P0 AND zero P1.
@@ -14,7 +14,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 4 — I-meta-005 Phase 2 (#986): source discovery by NEED-TYPE (not domain)
+# Codex BRIEF gate iter 5 — I-meta-005 Phase 2 (#986): source discovery by NEED-TYPE (not domain)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 48. Phase 2 closes gap #4 (source reach).
 Phase 1 (#985, merged PR #998) on-mode currently passes `domain=None` into `run_live_retrieval`, BYPASSING
@@ -73,8 +73,10 @@ WITHOUT a domain enum.
 ### 2.2 NEW `src/polaris_graph/discovery/source_adapter_registry.py`
 - A registry mapping each `EvidenceNeed` → a set of discovery adapter callables (the EXISTING functions,
   re-keyed off the NEED, NOT the domain), covering ALL 10 needs:
-  - `primary_literature` → OpenAlex-SEARCH (the /works keyword-search discovery adapter, DISTINCT
-    from the existing OpenAlex enrichment /works/{id} path — iter-3 P2) + S2 + arxiv + europe_pmc
+  - `primary_literature` → OpenAlex-SEARCH (the /works keyword-search discovery adapter, DISTINCT from the
+    existing OpenAlex enrichment /works/{id} path) + arxiv + europe_pmc. **S2 is NOT in the registry set**
+    (iter-4 P2 — single source of truth): the CORE baseline already runs S2 over the sub-queries, so the
+    registry adds only the NON-baseline primary-lit adapters (no duplicate S2 call)
   - `code` → github
   - `company_filings` → sec_edgar (+ jurisdiction-scoped issuer-filing sites from 2.4 for non-US, e.g.
     `sedarplus.ca`) — **keeps the legacy due_diligence/sec_edgar capability reachable on-mode (iter-2 P1 #2)**
@@ -98,6 +100,12 @@ WITHOUT a domain enum.
 - ON-mode: `run_domain_backends` is replaced on the on-path by the need-type registry dispatch
   (`route_needs_to_adapters(frame)` → run those adapters). The `if domain ==` switch is NOT reached on-mode
   → on-path `if domain ==` count = 0. OFF-mode: the legacy `if domain ==` switch runs byte-identical.
+- **Fail-loud vs fail-open at the live seam (iter-4 P1 #2):** `run_live_retrieval` wraps backend dispatch in
+  a broad fail-OPEN `except` (adapter/network errors degrade gracefully — KEEP that for adapter/HTTP
+  errors). But PLANNER/ROUTER VALIDATION errors (malformed `evidence_needs`, malformed jurisdiction SHAPE)
+  are a distinct `MalformedPlanError` that is raised/validated BEFORE the fail-open dispatch (or explicitly
+  re-raised past it) → a malformed plan FAILS LOUD / records a terminal malformed-plan state, and NEVER
+  silently degrades to core Serper/S2. Adapter exceptions stay fail-open; validation exceptions propagate.
 - **Jurisdiction-scoped gov discovery — NEW versioned data contract (iter-1 P1 fix):** the flat
   `config/authority/psl_gov_suffixes.txt` is a DNS-suffix pre-filter and CANNOT produce `canada.ca`/
   statistical-agency/legal-issuer scopes (its own header says so: "a gov-style suffix MISSES canada.ca …
@@ -142,8 +150,8 @@ WITHOUT a domain enum.
   `backends_used` + `per_backend_counts`, the unknown-domain empty-result behavior, AND the clinical
   Europe-PMC `PG_CLINICAL_EUROPE_PMC` kill-switch. Pin all of these on the frozen fixture.
 - **P2-2 need-type routing (the field-agnostic core):** stub adapters; a frame with
-  `evidence_needs=[primary_literature, code]` → exactly {OpenAlex,S2,arxiv,europe_pmc,github} adapters
-  selected, NO domain consulted.
+  `evidence_needs=[primary_literature, code]` → registry selects exactly {OpenAlex-search, arxiv,
+  europe_pmc, github} (NOT S2 — S2 is the core baseline, not a registry adapter), NO domain consulted.
 - **P2-3 EXIT issuer-class breadth:** a NON-CLINICAL frame (housing-policy: regulatory+statistical+legal+
   open_web) → ≥3 DISTINCT authoritative issuer-classes selected (gov-regulatory, statistical-agency,
   legal-issuer). A physics frame (primary_literature+code) → ≥3 (scholarly-graph, preprint, code-host).
@@ -162,15 +170,20 @@ WITHOUT a domain enum.
 - **P2-8 jurisdiction contract (iter-2 P1 #1):** a frame with `jurisdictions=["CA"]` resolves CA scopes from
   `jurisdiction_scopes.yaml`; `jurisdictions=[]` → no scope (open_web+scholarly); an UNKNOWN code (e.g.
   `["ZZ"]`) → that code contributes no scope (logged, not fabricated); a MALFORMED value (non-code junk) →
-  fail loud. Planner-parse validates codes against the data-file key set.
+  fail loud (malformed SHAPE only). The PARSER validates SHAPE (`^[A-Z]{2}$`/`EU`/`INTL`); the SCOPE LOADER
+  validates MEMBERSHIP non-fatally — a valid-shape code absent from the data file logs + yields no scope and
+  is NEVER parser-fatal (iter-4 P1 #1).
 - **P2-9 company_filings reachable on-mode (iter-2 P1 #2):** a frame with `company_filings` →
   `sec_edgar` (US) selected; a non-US `company_filings`+`jurisdictions=["CA"]` → the CA issuer-filing scope.
   Proves the legacy due_diligence/sec_edgar capability is NOT lost on-mode.
 - **P2-10 new-needs routing (iter-2 P2):** frames exercising `standards`, `datasets`, `news_press` each
   route to their mapped adapter/scope (standards→iso/iec + jurisdiction standards; datasets→data-portal
   scope; news_press→issuer newsroom+Serper), NOT a bare open_web fallback.
-- **P2-malformed (iter-2 P2):** an explicit planner-parse/router test — a plan with an evidence_need NOT in
-  the 10-enum raises/records malformed (not silent fallback); only empty `evidence_needs` → safe fallback.
+- **P2-malformed (iter-2 P2 + iter-4 P1 #2):** an explicit WHOLE-WIRING test — with a plan carrying a
+  malformed `evidence_need` (not in the 10-enum) OR a malformed jurisdiction SHAPE, `run_live_retrieval`
+  on-mode raises/records the terminal MalformedPlanError and is NOT swallowed by the adapter fail-open
+  wrapper (assert it does NOT silently degrade to core Serper/S2). A valid-shape unknown jurisdiction code
+  is NON-fatal (logs, no scope). Only empty `evidence_needs` → safe fallback.
 - **P2-11 whole-wiring actual-invocation (iter-3 P1 #2):** stub the core Serper/S2 + every registry adapter
   (capture-only). For a `code`-only frame, assert the ACTUAL adapters invoked on-mode = {core Serper, core
   S2 (baseline over sub-queries), github} and NOTHING else (no regulatory/clinical/sec_edgar); for a
