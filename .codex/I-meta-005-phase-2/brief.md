@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding. Same quality bar.
 - "Don't pick bone from egg" — reserve P0/P1 for real execution risks; P2/P3 for the rest.
 - If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining non-P0/P1. Verdict APPROVE iff zero P0 AND zero P1.
@@ -14,7 +14,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 3 — I-meta-005 Phase 2 (#986): source discovery by NEED-TYPE (not domain)
+# Codex BRIEF gate iter 4 — I-meta-005 Phase 2 (#986): source discovery by NEED-TYPE (not domain)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 48. Phase 2 closes gap #4 (source reach).
 Phase 1 (#985, merged PR #998) on-mode currently passes `domain=None` into `run_live_retrieval`, BYPASSING
@@ -64,15 +64,17 @@ WITHOUT a domain enum.
   in the router would be a heuristic (the very thing we forbid) OR silently miss the scope file. So the
   planner ALSO emits an additive `jurisdictions: list[str]` of **normalized codes** (ISO-3166 alpha-2 +
   `EU`/`INTL`; e.g. `["CA"]`, `["JP","US"]`). The planner prompt specifies the code set; the parser
-  VALIDATES each code against the `jurisdiction_scopes.yaml` key set. Semantics: **absent/empty** → no
-  jurisdiction scoping (issuer-need adapters emit no site filter, open_web+scholarly only); **unknown code**
-  (not in the data file) → that code contributes NO scope (logged, not fabricated); **malformed** (non-code
-  junk) → fail loud. Additive field, default `[]` → OFF unaffected.
+  VALIDATES each code's SHAPE. Semantics (iter-3 P2 — distinguish shape vs membership): **absent/empty** →
+  no jurisdiction scoping (issuer-need adapters emit no site filter, open_web+scholarly only);
+  **valid-shape-but-unknown** code (e.g. `"ZZ"` — a well-formed alpha-2 not present in the data file) →
+  that code contributes NO scope (logged, NOT parser-fatal); **malformed SHAPE** (non-code junk, not
+  `^[A-Z]{2}$`/`EU`/`INTL`) → fail loud. Additive field, default `[]` → OFF unaffected.
 
 ### 2.2 NEW `src/polaris_graph/discovery/source_adapter_registry.py`
 - A registry mapping each `EvidenceNeed` → a set of discovery adapter callables (the EXISTING functions,
   re-keyed off the NEED, NOT the domain), covering ALL 10 needs:
-  - `primary_literature` → OpenAlex + S2 + arxiv + europe_pmc
+  - `primary_literature` → OpenAlex-SEARCH (the /works keyword-search discovery adapter, DISTINCT
+    from the existing OpenAlex enrichment /works/{id} path — iter-3 P2) + S2 + arxiv + europe_pmc
   - `code` → github
   - `company_filings` → sec_edgar (+ jurisdiction-scoped issuer-filing sites from 2.4 for non-US, e.g.
     `sedarplus.ca`) — **keeps the legacy due_diligence/sec_edgar capability reachable on-mode (iter-2 P1 #2)**
@@ -100,21 +102,38 @@ WITHOUT a domain enum.
   `config/authority/psl_gov_suffixes.txt` is a DNS-suffix pre-filter and CANNOT produce `canada.ca`/
   statistical-agency/legal-issuer scopes (its own header says so: "a gov-style suffix MISSES canada.ca …
   resolve via ROR institution-type"). So Phase 2 adds a NEW versioned data file
-  `config/discovery/jurisdiction_scopes.yaml` (+ a `VERSION`), mapping each jurisdiction code (US/CA/GB/EU/
-  JP/AU/… ; extensible by editing the DATA, not code) → per-need `site:` scope patterns:
-  `{regulatory: [...], legal: [...], statistical: [...], standards: [...]}` (e.g. CA → regulatory
-  `canada.ca`,`*.gc.ca`; statistical `statcan.gc.ca`; legal `canlii.org`,`laws-lois.justice.gc.ca`). The
+  `config/discovery/jurisdiction_scopes.yaml` (with `schema_version`, `provenance`, `fetch_date`, and a
+  `config/discovery/VERSION` — iter-3 P2), mapping each jurisdiction code (US/CA/GB/EU/JP/AU/… ; extensible
+  by editing the DATA, not code) → per-need `site:` scope arrays covering ALL SCOPED needs (iter-3 P1 #1):
+  `{regulatory: [...], legal: [...], statistical: [...], standards: [...], company_filings: [...],
+  datasets: [...], news_press: [...]}` (e.g. CA → regulatory `canada.ca`,`*.gc.ca`; statistical
+  `statcan.gc.ca`; legal `canlii.org`,`laws-lois.justice.gc.ca`; company_filings `sedarplus.ca`; datasets
+  `open.canada.ca`; news_press the issuer newsroom). A `INTL` key holds cross-jurisdiction bodies
+  (iso.org/iec.ch for standards). A scoped need with NO entry for a jurisdiction → no scope for that need
+  (never collapses silently to a fabricated default; logged). The
   regulatory/legal/statistical/standards adapters read THIS file scoped to the jurisdiction(s) the planner
   extracted into the frame. Provenance + fetch_date + VERSION in the file (LAW VI: knowledge in versioned
   DATA, zero on-path host literals in code). Unknown/absent jurisdiction → those issuer-need adapters emit
   NO site filter (fall back to open_web + scholarly), never a fabricated/US-default scope. Off-path keeps
   the legacy US-only `_POLICY_SITE_FILTERS` byte-identical.
 
-### 2.5 Wiring into the sweep
-- `run_honest_sweep_r3.py` on-mode (Phase 1 set `domain=None` to bypass `run_domain_backends`): now passes
-  the frame's `evidence_needs` + normalized `jurisdictions` so the need-type registry runs the right
-  adapters with the right jurisdiction scopes. Off-mode:
-  unchanged (`domain=q["domain"]` → legacy switch).
+### 2.5 Wiring into the sweep + ON-MODE COMPOSITION (iter-3 P1 #2 — pin the actual invocation)
+- **Composition (explicit baseline + need-keyed adds):** `run_live_retrieval` runs the CORE Serper+S2
+  search over the planner sub-queries (`live_retriever.py:1728`) — this is the ALWAYS-ON baseline open-web +
+  scholarly search of the actual queries (the universal {open_web, primary_literature(S2)} needs), UNCHANGED
+  and intentional. The need-type registry REPLACES `run_domain_backends` (`:1795`) and ADDS the SPECIALIZED
+  issuer-class adapters for the frame's declared needs BEYOND that baseline: primary_literature →
+  arxiv+europe_pmc+OpenAlex-search (S2 already in core); code → github; company_filings → sec_edgar/issuer;
+  regulatory/legal/statistical/standards/datasets/news_press → jurisdiction-scoped Serper site-queries (a
+  DIFFERENT query than the core, so no double-count). So a `code`-only frame's ACTUAL on-mode discovery =
+  core Serper+S2-over-sub-queries (baseline) + github (the declared need) — pinned, not "open-web leaking
+  outside the need set."
+- `run_honest_sweep_r3.py` on-mode (Phase 1 set `domain=None`): passes `evidence_needs` + normalized
+  `jurisdictions` so the registry runs the right specialized adapters with the right jurisdiction scopes.
+  Off-mode: unchanged (`domain=q["domain"]` → legacy switch).
+- **Pin order/dedupe/caps/api_calls:** the on-mode path preserves the existing dedupe-by-URL, per-backend
+  caps, and `api_calls` accounting; the registry adapters' candidates merge into the same candidate list
+  with the same dedupe/cap discipline.
 
 ## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/discovery/test_source_discovery_phase2.py`
 - **P2-1 OFF byte-identity (strengthened, iter-1 P2):** off → `run_domain_backends` is byte-identical to
@@ -152,6 +171,11 @@ WITHOUT a domain enum.
   scope; news_press→issuer newsroom+Serper), NOT a bare open_web fallback.
 - **P2-malformed (iter-2 P2):** an explicit planner-parse/router test — a plan with an evidence_need NOT in
   the 10-enum raises/records malformed (not silent fallback); only empty `evidence_needs` → safe fallback.
+- **P2-11 whole-wiring actual-invocation (iter-3 P1 #2):** stub the core Serper/S2 + every registry adapter
+  (capture-only). For a `code`-only frame, assert the ACTUAL adapters invoked on-mode = {core Serper, core
+  S2 (baseline over sub-queries), github} and NOTHING else (no regulatory/clinical/sec_edgar); for a
+  `regulatory`+`jurisdictions=["CA"]` frame, assert the CA-scoped Serper site-queries fire. Pin the merged
+  candidate dedupe-by-URL order + `api_calls` counts. This tests REAL invocation, not just router selection.
 - Plus a regression subset confirming OFF byte-identity didn't break existing domain_backends tests.
 
 ## 4. EXIT CRITERIA (issue #986)
