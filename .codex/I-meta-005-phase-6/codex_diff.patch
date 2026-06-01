@@ -1,0 +1,458 @@
+diff --git a/config/section_prompts/_registry.yaml b/config/section_prompts/_registry.yaml
+index 9e037c7e..dbe25d46 100644
+--- a/config/section_prompts/_registry.yaml
++++ b/config/section_prompts/_registry.yaml
+@@ -24,5 +24,16 @@
+ # Phase 1; the registry default is null (no advisory append).
+ by_claim_type: {}
+ 
+-# Default when a claim_type has no specific mapping: no advisory append.
++# I-meta-005 Phase 6 (#990, Codex ruling A1): answer_type -> advisory family.
++# answer_type is the EXPLICIT domain-category the planner now emits (the
++# ENTITY/domain signal claim_type could not carry — Phase 1's deferred "later
++# phase"). The selector consults `by_answer_type` FIRST, then `by_claim_type`,
++# then `default`. A clinical answer_type selects the clinical advisory family;
++# every other answer_type (policy/economics/materials/general/...) selects nothing
++# here -> no domain-specific advisory append. Config-driven (LAW VI): adding a
++# family is a config edit, never a Python literal on the on-path.
++by_answer_type:
++  clinical: clinical.yaml
++
++# Default when neither map matches: no advisory append.
+ default: null
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index a677c9eb..3a54ee6a 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -89,6 +89,14 @@ SECTION_ARCHETYPES: list[str] = [
+     "Decision",
+     "Uncertainty",
+     "Methodology",
++    # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1 / shape 1): VERIFIED
++    # cross-cutting synthesis. A normal planned outline section — generated +
++    # strict_verified like any other (emits [ev_XXX] tokens; ungrounded
++    # synthesis sentences are DROPPED, never laundered into verified). The
++    # planner allocates broad/cross-cutting evidence to it and it synthesizes
++    # ONLY from its allocated evidence. This REPLACES the unverified
++    # analyst_synthesis block on-mode (which is demoted).
++    "Integrative",
+     "Limitations",
+ ]
+ 
+@@ -107,11 +115,19 @@ _SECTION_PROMPTS_REGISTRY_PATH = os.getenv(
+ )
+ 
+ 
+-def select_advisory_prompt_text(claim_type: str) -> str:
+-    """Return the advisory prompt-text for a frame's `claim_type`, or "" when
+-    no family is registered. Pure config lookup — no clinical literal as a
+-    control value; fail-soft to "" when the registry is absent (advisory text
+-    is enrichment, not a gate)."""
++def select_advisory_prompt_text(
++    claim_type: str, answer_type: str = "general",
++) -> str:
++    """Return the advisory prompt-text for a frame, or "" when no family is
++    registered. Pure config lookup — no clinical literal as a control value;
++    fail-soft to "" when the registry is absent (advisory text is enrichment,
++    not a gate).
++
++    I-meta-005 Phase 6 (#990, Codex ruling A1): consult `by_answer_type` FIRST
++    (the explicit domain-category the planner now emits), then `by_claim_type`
++    (Phase 1, currently unmapped), then `default`. So clinical writing guidance
++    is appended ONLY for a clinical answer_type — a non-clinical empirical
++    question gets none."""
+     import yaml  # local import: advisory enrichment, keep module surface lean
+ 
+     registry_path = _SECTION_PROMPTS_REGISTRY_PATH
+@@ -125,9 +141,16 @@ def select_advisory_prompt_text(claim_type: str) -> str:
+             "[multi_section] advisory prompt registry load failed: %s", exc,
+         )
+         return ""
++    by_answer_type = registry.get("by_answer_type") or {}
+     by_claim_type = registry.get("by_claim_type") or {}
+-    key = (claim_type or "").strip().lower()
+-    filename = by_claim_type.get(key) or registry.get("default")
++    akey = (answer_type or "").strip().lower()
++    ckey = (claim_type or "").strip().lower()
++    # answer_type (explicit domain) wins over claim_type (generic shape).
++    filename = (
++        by_answer_type.get(akey)
++        or by_claim_type.get(ckey)
++        or registry.get("default")
++    )
+     if not filename:
+         return ""
+     family_path = os.path.join(os.path.dirname(registry_path), str(filename))
+@@ -1156,6 +1179,7 @@ async def _call_section(
+     contradictions: list[dict[str, Any]] | None = None,
+     cross_trial_block: Any = None,
+     use_field_agnostic_prompt: bool = False,
++    advisory_text: str = "",
+ ) -> tuple[str, int, int, dict[str, Any]]:
+     """Single LLM call for one section.
+ 
+@@ -1207,6 +1231,13 @@ async def _call_section(
+     system = _select_section_system_prompt(use_field_agnostic_prompt).format(
+         title=section.title, focus=section.focus,
+     )
++    # I-meta-005 Phase 6 (#990, Codex ruling A1): append the domain advisory
++    # writing-guidance ONLY on-mode and ONLY when the registry selected one for
++    # the frame's answer_type (the caller resolved it once via
++    # select_advisory_prompt_text). Advisory-only: it changes prose guidance, NOT
++    # routing/archetypes/verification. OFF / empty -> system unchanged.
++    if use_field_agnostic_prompt and advisory_text:
++        system = f"{system}\n\n{advisory_text}"
+ 
+     # I-gen-005 Pattern A (#904): for reasoning-first models (V4 Pro),
+     # append a per-evidence allow-list of NUMBERS, TRIAL NAMES, DRUG
+@@ -1733,6 +1764,7 @@ async def _run_section(
+     contradictions: list[dict[str, Any]] | None = None,
+     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
+     use_field_agnostic_prompt: bool = False,
++    advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
+ ) -> SectionResult:
+     """Run one section: generate, rewrite, verify, optionally regenerate.
+ 
+@@ -1783,6 +1815,7 @@ async def _run_section(
+         contradictions=contradictions,
+         cross_trial_block=cross_trial_block,
+         use_field_agnostic_prompt=use_field_agnostic_prompt,
++        advisory_text=advisory_text,
+     )
+     total_in_tok += in_tok
+     total_out_tok += out_tok
+@@ -1886,6 +1919,7 @@ async def _run_section(
+             contradictions=contradictions,
+             cross_trial_block=cross_trial_block,
+             use_field_agnostic_prompt=use_field_agnostic_prompt,
++            advisory_text=advisory_text,
+         )
+         total_in_tok += in_tok2
+         total_out_tok += out_tok2
+@@ -4100,6 +4134,22 @@ async def generate_multi_section_report(
+     from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL
+     gen_model = model or PG_GENERATOR_MODEL
+ 
++    # I-meta-005 Phase 6 (#990, Codex ruling A1): resolve the domain advisory
++    # writing-guidance ONCE from the frame's answer_type (the explicit domain
++    # signal) + claim_type. ON-mode only (research_plan present); OFF -> "" (no
++    # append, byte-identical). Computed here so all nested section closures
++    # (_run_legacy_bounded / _bounded_run, incl. the M-44/M-47 regen paths)
++    # capture the SAME value. Fail-soft: a missing frame/registry -> "".
++    _p6_frame = getattr(research_plan, "frame", None) if research_plan else None
++    advisory_text = (
++        select_advisory_prompt_text(
++            getattr(_p6_frame, "claim_type", ""),
++            getattr(_p6_frame, "answer_type", "general"),
++        )
++        if (research_plan is not None and _p6_frame is not None)
++        else ""
++    )
++
+     # Stage 1: outline
+     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
+     # rest of the body (section generation, M-44/M-47, assembly) is shared and
+@@ -4385,6 +4435,9 @@ async def generate_multi_section_report(
+                 # on-mode the base section prompt is field-agnostic. OFF:
+                 # research_plan is None -> the unchanged clinical template.
+                 use_field_agnostic_prompt=research_plan is not None,
++                # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
++                # resolved once above (closure-captured; "" OFF -> no append).
++                advisory_text=advisory_text,
+             )
+ 
+     # V33 unified dispatch helper for downstream (M-44 regen) callers
+@@ -5020,7 +5073,19 @@ async def generate_multi_section_report(
+     analyst_synth_text = ""
+     analyst_synth_in_tok = 0
+     analyst_synth_out_tok = 0
+-    if not partial_mode and section_results and global_biblio:
++    # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1): DEMOTE the unverified
++    # analyst-synthesis block ON-MODE (research_plan is not None). On-mode the
++    # VERIFIED "Integrative" outline section (strict_verify'd, counts toward
++    # verified_words) is the synthesis; the legacy unverified analyst block must
++    # NOT also run (it would add a second, ungrounded interpretive layer to
++    # total_words). OFF-mode (research_plan is None) keeps the legacy analyst
++    # block byte-identical. partial_mode already disables it.
++    if (
++        not partial_mode
++        and research_plan is None
++        and section_results
++        and global_biblio
++    ):
+         try:
+             from src.polaris_graph.generator.analyst_synthesis import (
+                 generate_analyst_synthesis,
+diff --git a/src/polaris_graph/planning/research_planner.py b/src/polaris_graph/planning/research_planner.py
+index 9aa60f3d..e6ea25cc 100644
+--- a/src/polaris_graph/planning/research_planner.py
++++ b/src/polaris_graph/planning/research_planner.py
+@@ -63,6 +63,26 @@ CLAIM_TYPES: frozenset[str] = frozenset({
+     "descriptive",
+ })
+ 
++# I-meta-005 Phase 6 (#990, Codex ruling A1): field-invariant ANSWER-TYPE — the
++# explicit domain-category signal `claim_type` could not carry (empirical is shared
++# by physics/battery/epidemiology). It drives ADVISORY section-writing-guidance
++# selection ONLY (the `_registry.yaml` `by_answer_type` map), never routing/
++# archetypes/verification. Default "general" = no domain-specific advisory. An
++# unknown value fails SOFT to "general" (advisory enrichment must never abort a
++# run), UNLIKE the strict `claim_type` contract.
++ANSWER_TYPES: frozenset[str] = frozenset({
++    "clinical",
++    "policy",
++    "economics",
++    "legal",
++    "materials",
++    "engineering",
++    "environmental",
++    "social-science",
++    "general",
++})
++_DEFAULT_ANSWER_TYPE = "general"
++
+ 
+ # ── I-meta-005 Phase 2 (#986): field-agnostic EVIDENCE-NEED taxonomy ─────────
+ # A field-INVARIANT enum (10 needs, brief §2.1) that declares WHAT KINDS of
+@@ -206,6 +226,11 @@ class ResearchFrame:
+     # membership). Empty `evidence_needs` -> the router's safe generic fallback.
+     evidence_needs: list[str] = field(default_factory=list)
+     jurisdictions: list[str] = field(default_factory=list)
++    # I-meta-005 Phase 6 (#990, Codex ruling A1): explicit domain-category for
++    # ADVISORY section-prompt selection. Default "general" -> no domain advisory
++    # (OFF/legacy plans without the field deserialize to "general"). NEVER a
++    # routing/archetype/verification control.
++    answer_type: str = _DEFAULT_ANSWER_TYPE
+ 
+     def to_anchor_protocol(self, research_question: str) -> dict[str, Any]:
+         """Produce an anchor-protocol dict for `validate_amplified_queries`
+@@ -274,6 +299,9 @@ class ResearchPlan:
+                 # declared evidence-needs + jurisdictions.
+                 "evidence_needs": list(self.frame.evidence_needs),
+                 "jurisdictions": list(self.frame.jurisdictions),
++                # I-meta-005 Phase 6 (#990): answer_type in the SHA-pinned plan so
++                # the advisory-selection signal is reproducible from the artifact.
++                "answer_type": self.frame.answer_type,
+             },
+             "sub_queries": list(self.sub_queries),
+             "outline": [
+@@ -398,6 +426,12 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
+     jurisdictions = validate_jurisdiction_shapes(
+         _as_str_list_strict(raw_frame.get("jurisdictions"), "jurisdictions")
+     )
++    # I-meta-005 Phase 6 (#990, Codex ruling A1): answer_type drives ADVISORY
++    # prompt selection only, so an unknown/absent value fails SOFT to "general"
++    # (never aborts a run) — UNLIKE the strict claim_type contract above.
++    answer_type = str(raw_frame.get("answer_type", "")).strip().lower()
++    if answer_type not in ANSWER_TYPES:
++        answer_type = _DEFAULT_ANSWER_TYPE
+     return ResearchFrame(
+         entities=_as_str_list(raw_frame.get("entities")),
+         relations=_as_str_list(raw_frame.get("relations")),
+@@ -407,6 +441,7 @@ def _parse_frame(obj: dict[str, Any]) -> ResearchFrame:
+         claim_type=claim_type,
+         evidence_needs=evidence_needs,
+         jurisdictions=jurisdictions,
++        answer_type=answer_type,
+     )
+ 
+ 
+@@ -522,6 +557,7 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
+     archetype_list = ", ".join(SECTION_ARCHETYPES)
+     claim_type_list = ", ".join(sorted(CLAIM_TYPES))
+     evidence_need_list = ", ".join(sorted(EVIDENCE_NEEDS))
++    answer_type_list = ", ".join(sorted(ANSWER_TYPES))
+     base = (
+         "You are a field-agnostic research planner. Decompose the research "
+         "question into a structured plan. The question may be from ANY field "
+@@ -545,7 +581,13 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
+         '     "jurisdictions": [NORMALIZED codes for any country/region the '
+         "question is scoped to — ISO-3166 alpha-2 (e.g. \"US\",\"CA\",\"GB\","
+         "\"JP\",\"AU\") or \"EU\"/\"INTL\"; EMPTY if the question is not "
+-        "jurisdiction-specific. Use the CODE, never a country name]\n"
++        "jurisdiction-specific. Use the CODE, never a country name],\n"
++        f'     "answer_type": one of [{answer_type_list}] — the SUBJECT DOMAIN of '
++        "the answer, used ONLY to pick domain-appropriate writing guidance (e.g. "
++        "\"clinical\" for a medical/drug/trial question; \"economics\" for a "
++        "macro/finance question; \"materials\" for a battery/chemistry question; "
++        "\"general\" when no single domain dominates). Default to \"general\" if "
++        "unsure\n"
+         "  },\n"
+         '  "sub_queries": [faceted search queries, each a focused phrase that '
+         "covers ONE facet of the question — collectively spanning every "
+@@ -569,6 +611,13 @@ def _build_prompt(question: str, *, more_facets: bool, min_subqueries: int) -> s
+         "- Choose archetypes that fit the question's claim_type. A decision / "
+         "comparison question needs a Decision archetype; an explanatory "
+         "question needs a Mechanism archetype; etc.\n"
++        "- ALWAYS include EXACTLY ONE \"Integrative\" archetype section LAST "
++        "(title e.g. \"Integrative findings\" or a question-specific synthesis "
++        "heading). It is the cross-cutting synthesis that ties the report "
++        "together. Allocate the BROAD / overview / cross-cutting sub_query "
++        "indices to it (the ones that span multiple facets) — it must have a "
++        "non-empty sub_query_indices and a reasonable evidence_target so it is "
++        "grounded in real evidence, NOT a free-form essay.\n"
+         "- Output ONLY the JSON object. No preamble, no markdown fence, no "
+         "sign-off.\n"
+     )
+diff --git a/tests/polaris_graph/generator/test_domain_general_sections_phase6.py b/tests/polaris_graph/generator/test_domain_general_sections_phase6.py
+new file mode 100644
+index 00000000..20853623
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_domain_general_sections_phase6.py
+@@ -0,0 +1,156 @@
++"""I-meta-005 Phase 6 (#990) smoke — domain-general section prompts + verified
++synthesis.
++
++Codex rulings: A1 (planner `answer_type` -> registry-driven advisory selection;
++clinical guidance loads ONLY for a clinical frame) + B-impl-1 / shape 1 (the
++"Integrative" synthesis is a NORMAL planned outline section, generated +
++strict_verified like any other; the unverified analyst block is demoted on-mode).
++
++SPEND-FREE: pure config/parse/structural assertions — no LLM, no network. The live
++generator behaviour (advisory append, integrative verification, analyst demotion)
++is exercised by the generator regression suite + the Codex diff-gate; here we pin
++the deterministic surface + the by-construction structural guarantees.
++
++Plain assertions, no unittest.mock.
++"""
++from __future__ import annotations
++
++import inspect
++
++from src.polaris_graph.generator import multi_section_generator as msg
++from src.polaris_graph.generator.multi_section_generator import (
++    SECTION_ARCHETYPES,
++    select_advisory_prompt_text,
++)
++from src.polaris_graph.planning.research_planner import (
++    ANSWER_TYPES,
++    ResearchFrame,
++    ResearchPlan,
++    SectionOutlineItem,
++    _parse_frame,
++    plan_sha256,
++)
++
++
++# ── P6-2 / P6-3 advisory selection by answer_type (the A1 clinical trigger) ───
++
++def test_p6_2_clinical_answer_type_loads_clinical_advisory():
++    # answer_type "clinical" selects the clinical advisory family REGARDLESS of the
++    # generic claim_type (empirical is shared by physics/econ/clinical).
++    text = select_advisory_prompt_text("empirical", "clinical")
++    assert text  # non-empty
++    assert "CLINICAL WRITING GUIDANCE" in text or "clinical" in text.lower()
++
++
++def test_p6_3_non_clinical_answer_type_gets_no_clinical_advisory():
++    # Non-clinical domains + general -> no advisory append (empty).
++    for at in ("economics", "policy", "materials", "engineering", "general"):
++        assert select_advisory_prompt_text("empirical", at) == "", at
++
++
++def test_p6_3b_answer_type_wins_over_claim_type():
++    # claim_type alone never selects clinical (by_claim_type is unmapped); only the
++    # explicit answer_type does. A non-clinical answer_type with ANY claim_type ->
++    # no clinical advisory.
++    assert select_advisory_prompt_text("mechanism", "general") == ""
++    assert select_advisory_prompt_text("policy-comparison", "economics") == ""
++    # clinical answer_type with any claim_type -> clinical advisory.
++    assert select_advisory_prompt_text("descriptive", "clinical")
++
++
++def test_p6_off_default_general_no_advisory():
++    # Default/absent answer_type ("general") -> no append (OFF-mode byte-identity:
++    # the on-path computes advisory_text="" so the section prompt is unchanged).
++    assert select_advisory_prompt_text("empirical") == ""        # default arg
++    assert select_advisory_prompt_text("", "") == ""
++
++
++# ── answer_type machinery (A1): parse fail-soft + canonical pin ──────────────
++
++def _frame_obj(answer_type):
++    return {
++        "frame": {
++            "entities": ["x"], "relations": [], "metrics": [], "comparators": [],
++            "constraints": [], "claim_type": "empirical",
++            "evidence_needs": [], "jurisdictions": [],
++            "answer_type": answer_type,
++        }
++    }
++
++
++def test_p6_answer_type_parse_and_fail_soft():
++    assert _parse_frame(_frame_obj("clinical")).answer_type == "clinical"
++    # unknown -> "general" (fail-soft; advisory routing never aborts a run)
++    assert _parse_frame(_frame_obj("made_up_domain")).answer_type == "general"
++    # absent -> "general"
++    raw = _frame_obj("clinical")
++    del raw["frame"]["answer_type"]
++    assert _parse_frame(raw).answer_type == "general"
++    assert "clinical" in ANSWER_TYPES and "general" in ANSWER_TYPES
++
++
++def test_p6_answer_type_in_canonical_pin():
++    def _plan(at):
++        return ResearchPlan(
++            research_question="q",
++            frame=ResearchFrame(entities=["x"], claim_type="empirical",
++                                answer_type=at),
++            sub_queries=["sq0"],
++            outline=[SectionOutlineItem(archetype="Background", title="T",
++                                        evidence_target=1, sub_query_indices=[0])],
++        )
++    # answer_type is in the SHA-pinned canonical projection -> different
++    # answer_type yields a different plan_sha (reproducible from the artifact).
++    assert "answer_type" in _plan("clinical").to_canonical_dict()["frame"]
++    assert plan_sha256(_plan("clinical")) != plan_sha256(_plan("economics"))
++    # ...but identical answer_type reproduces the identical sha (stability).
++    assert plan_sha256(_plan("clinical")) == plan_sha256(_plan("clinical"))
++
++
++# ── P6-4 / P6-5 Integrative section is a NORMAL outline section ───────────────
++
++def test_p6_4_integrative_archetype_registered():
++    assert "Integrative" in SECTION_ARCHETYPES
++
++
++def test_p6_4_integrative_not_special_cased_to_bypass_verify():
++    # B-impl-1 safety: the Integrative section must be VERIFIED like any section.
++    # Structural guarantee — there is NO code branch on the "Integrative" archetype
++    # that would skip strict_verify or treat it as an unverified appender. (The
++    # only place an archetype string appears as a control value would be such a
++    # branch; assert none reference "Integrative" as a verify/append special-case.)
++    src = inspect.getsource(msg)
++    # The archetype appears ONLY in the SECTION_ARCHETYPES list (a data tag), never
++    # as an `if ... == "Integrative"` / `archetype == 'Integrative'` control branch.
++    assert 'archetype == "Integrative"' not in src
++    assert "archetype == 'Integrative'" not in src
++    assert '"Integrative":' not in src  # not a dispatch-dict key either
++
++
++def test_p6_5_integrative_is_outline_section_not_appender():
++    # P2-2: the Integrative section respects pruning because it is a PLANNED
++    # outline item (subject to the Phase-4 pruned plan), NOT one of the five
++    # out-of-plan appenders that are hard-gated off in partial_mode. Assert it is
++    # generated through the normal section path (no force-append). The five
++    # appenders (V30 plans, M50, trial table, analyst synthesis, limitations) are
++    # the only `not partial_mode` out-of-plan blocks; Integrative is not among
++    # them — it flows from research_plan.outline.
++    src = inspect.getsource(msg)
++    # Integrative must NOT be appended in a `not partial_mode` appender block.
++    # (If it were, partial_saturation would force-append it, bypassing pruning.)
++    assert "Integrative" in src  # present as an archetype
++    # The analyst-synthesis demotion gate now includes `research_plan is None`.
++    assert "research_plan is None" in src
++
++
++# ── P6-6 no clinical literal as an on-path control value ─────────────────────
++
++def test_p6_6_no_clinical_literal_on_advisory_path():
++    # The advisory selection + append are registry/param driven. There is NO
++    # `if ... == "clinical"` / `if domain == "clinical"` literal controlling the
++    # on-path in the generator. ("clinical.yaml" as a registry VALUE / config
++    # filename is allowed — it is data, not a control literal.)
++    src = inspect.getsource(msg)
++    assert '== "clinical"' not in src
++    assert "== 'clinical'" not in src
++    assert 'domain == "clinical"' not in src
