@@ -1,0 +1,1907 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e8267-6c82-7742-b7b8-7287fb48e16b
+--------
+user
+REVIEW DISCIPLINE: FOCUSED DIFF REVIEW of `.codex/I-meta-005-phase-5/codex_diff.patch`
+vs the APPROVED brief. iter 2: confirm the 2 iter-1 P2 fixes are closed; surface any
+NEW real blocker. Open at most the 5 changed files. Pure-CPU.
+
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Same quality bar. Don't pick bone from egg.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## iter-1 was APPROVE (0 P0/P1) with 2 P2 — now FIXED, verify
+
+### P2a — explicit zero authority laundered to 1.0 (evidence_selector)
+Was: `-(s[1] * float(s[3].get("authority_score", 1.0) or 1.0))` → an EXPLICIT
+authority_score=0.0 became 1.0. FIXED: new `_authority(row)` returns 1.0 ONLY when
+the key is absent/None; a genuine 0.0 stays 0.0. New test
+`test_p5_explicit_zero_authority_ranks_below_positive` pins it (zero ranks below an
+equal-relevance positive row).
+
+### P2b — `max_rows<=0` empty-guard short-circuited before floor mode
+Was: `if max_rows <= 0 or not evidence_rows:` returned empty even in floor mode.
+FIXED: `if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:` — in
+floor mode the cap is replaced by the floor, so max_rows=0 no longer empties the
+ON pool; OFF-mode max_rows=0 still empties (unchanged). New test
+`test_p5_floor_mode_ignores_zero_max_rows` pins both.
+
+VERIFY: both fixes are correct and complete; OFF byte-identity still holds
+(off-mode max_rows=0 still empties; no new key off-mode); nothing else changed.
+
+## Everything else was APPROVE-confirmed at iter 1 (do NOT relitigate unless a NEW defect)
+- No-unique-claim-loss (conservative singleton), corroboration via corroboration.py
+  (urlparse hosts), pinned floor→inject→gate→dedup→generator order, OFF byte-identity,
+  fail-loud floor, primary-anchor floor-exempt, zero spend.
+- 3 open items ruled acceptable at iter 1 (larger ON pool, structural P5-10, OFF
+  omits selection_relevance).
+
+## Smoke (committed tree)
+17 Phase-5 + 29 selector regression = 46 passed.
+
+## Output schema (REQUIRED)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll keep this to a focused review: inspect the patch, identify the changed files, then only open the relevant files needed to verify the two iter-1 fixes and check for any new blocker.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-meta-005-phase-5/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path .codex/I-meta-005-phase-5/codex_diff.patch -Pattern '"'^diff --git '"'" in C:\POLARIS
+ succeeded in 1741ms:
+
+.codex\I-meta-005-phase-5\codex_diff.patch:1:[7mdiff [0m[7m--git [0m[7m[0ma/scripts/run_honest_sweep_r3.py [0m
+[7m[0mb/scripts/run_honest_sweep_r3.py[0m
+.codex\I-meta-005-phase-5\codex_diff.patch:112:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/retrieval/evidence_selector.py [0m
+[7m[0mb/src/polaris_graph/retrieval/evidence_selector.py[0m
+.codex\I-meta-005-phase-5\codex_diff.patch:264:[7mdiff [0m[7m--git [0m[7m[0ma/src/polaris_graph/synthesis/finding_dedup.py [0m
+[7m[0mb/src/polaris_graph/synthesis/finding_dedup.py[0m
+.codex\I-meta-005-phase-5\codex_diff.patch:488:[7mdiff [0m[7m--git [0m[7m[0ma/tests/polaris_graph/synthesis/__init__.py [0m
+[7m[0mb/tests/polaris_graph/synthesis/__init__.py[0m
+.codex\I-meta-005-phase-5\codex_diff.patch:495:[7mdiff [0m[7m--git [0m[7m[0ma/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py [0m
+[7m[0mb/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py[0m
+
+
+ succeeded in 2210ms:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 14a247d9..1c844fe0 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1729,6 +1729,7 @@ async def run_one_query(
+         # every path; the saturation loop reassigns them on-mode when it prunes.
+         _gen_plan = None
+         _partial_mode = False
++        _finding_dedup_telemetry = None   # Phase 5 (#989); set just before generator
+         if _use_research_planner:
+             from src.polaris_graph.planning.research_planner import (
+                 plan_research,
+@@ -2581,6 +2582,23 @@ async def run_one_query(
+             select_evidence_for_generation,
+         )
+         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
++        # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
++        # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
++        # a relevance floor (keep every row >= floor, no cap) and dedups by finding
++        # before the generator. PG_RELEVANCE_FLOOR default 0.30, range (0.0, 1.0];
++        # invalid/out-of-range fails LOUD (never silently send an unbounded pool).
++        _use_finding_dedup = (
++            os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
++            in ("1", "true", "True")
++        )
++        _relevance_floor: float | None = None
++        if _use_finding_dedup:
++            from src.polaris_graph.retrieval.evidence_selector import (
++                parse_relevance_floor,
++            )
++            _relevance_floor = parse_relevance_floor(
++                os.getenv("PG_RELEVANCE_FLOOR")
++            )
+         # M-42e (2026-04-22): pass primary_trial_anchors to the
+         # selector so it can reserve T1 slots for named-trial
+         # primary papers. Anchors come from the loaded scope
+@@ -2656,6 +2674,7 @@ async def run_one_query(
+             evidence_rows=retrieval.evidence_rows,
+             max_rows=max_ev,
+             primary_trial_anchors=_primary_anchors,
++            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+         )
+         evidence_for_gen = evidence_selection.selected_rows
+         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+@@ -3026,6 +3045,7 @@ async def run_one_query(
+                         evidence_rows=retrieval.evidence_rows,
+                         max_rows=max_ev,
+                         primary_trial_anchors=_primary_anchors,
++                        relevance_floor=_relevance_floor,   # Phase 5 (#989)
+                     )
+                     _billed = (
+                         list(_gate_injected_prepend_rows)
+@@ -3300,6 +3320,45 @@ async def run_one_query(
+         except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
+             _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
+ 
++        # I-meta-005 Phase 5 (#989): dedup-by-finding on the FINAL generator-visible
++        # pool. Runs AFTER the Phase-3 plan-sufficiency gate (which certified the
++        # full PRE-dedup billed set) and AFTER the terminal proceed/partial decision,
++        # so the gate is never fed a shrunken corpus. Collapses rehashes of the same
++        # finding to one representative + corroboration_count (independent
++        # registrable-domains); applies to the full-plan AND the partial pruned pool.
++        # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
++        if _use_finding_dedup:
++            from src.polaris_graph.authority.data_loader import (
++                load_authority_data,
++            )
++            from src.polaris_graph.synthesis.finding_dedup import (
++                dedup_by_finding,
++            )
++            _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
++            _dedup = dedup_by_finding(
++                evidence_for_gen, gov_suffixes=_gov_suffixes
++            )
++            evidence_for_gen = _dedup.deduped_rows
++            _finding_dedup_telemetry = {
++                "raw_row_count": _dedup.raw_row_count,
++                "distinct_finding_count": _dedup.distinct_finding_count,
++                "collapsed_row_count": _dedup.collapsed_row_count,
++                "clusters": [
++                    {
++                        "finding_key": list(c.finding_key),
++                        "corroboration_count": c.corroboration_count,
++                        "member_hosts": c.member_hosts,
++                    }
++                    for c in _dedup.clusters
++                ],
++            }
++            _log(
++                f"[finding-dedup] raw={_dedup.raw_row_count} "
++                f"distinct={_dedup.distinct_finding_count} "
++                f"collapsed={_dedup.collapsed_row_count} "
++                f"-> {len(evidence_for_gen)} generator rows"
++            )
++
+         _pathb_gen_tok = _pathb.set_role("generator")
+         try:
+             multi = await generate_multi_section_report(
+@@ -4203,6 +4262,12 @@ async def run_one_query(
+         if summary.get("saturation"):
+             manifest["saturation"] = summary["saturation"]
+ 
++        # I-meta-005 Phase 5 (#989): finding-dedup telemetry + per-cluster
++        # corroboration (independent hosts) in the per-run manifest. ON-mode only
++        # (key absent in OFF -> legacy manifest shape preserved).
++        if _finding_dedup_telemetry is not None:
++            manifest["finding_dedup"] = _finding_dedup_telemetry
++
+         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+         # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index c25df449..a8a5dc8f 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -28,6 +28,35 @@ _TIER_PRIORITY: dict[str, int] = {
+     "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
+ }
+ 
++# I-meta-005 Phase 5 (#989): default relevance floor for `PG_RELEVANCE_FLOOR`.
++_DEFAULT_RELEVANCE_FLOOR = 0.30
++
++
++def parse_relevance_floor(
++    raw: str | None, *, default: float = _DEFAULT_RELEVANCE_FLOOR,
++) -> float:
++    """Parse + validate ``PG_RELEVANCE_FLOOR`` (I-meta-005 Phase 5 #989).
++
++    Range is (0.0, 1.0]. Empty/None -> ``default``. An unparseable float OR an
++    out-of-range value raises ``ValueError`` (FAIL LOUD) — a missing/garbage floor
++    must never silently send an unbounded, unfiltered pool to the generator.
++    """
++    if raw is None or not str(raw).strip():
++        value = default
++    else:
++        try:
++            value = float(str(raw).strip())
++        except ValueError as exc:
++            raise ValueError(
++                "PG_RELEVANCE_FLOOR must be a float in (0.0, 1.0]; got "
++                f"{raw!r}"
++            ) from exc
++    if not (0.0 < value <= 1.0):
++        raise ValueError(
++            f"PG_RELEVANCE_FLOOR out of range (0.0, 1.0]: {value}"
++        )
++    return value
++
+ _STOPWORDS = frozenset({
+     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
+     "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
+@@ -881,6 +910,71 @@ def _m46_short_pool_ordered_selection(
+     )
+ 
+ 
++def _relevance_floor_selection(
++    *,
++    scored: list[tuple[int, float, str, dict[str, Any]]],
++    relevance_floor: float,
++    full_counts: dict[str, int],
++    primary_trial_anchors: list[str] | None,
++) -> EvidenceSelection:
++    """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
++
++    Keep EVERY row whose lexical relevance >= ``relevance_floor``, PLUS any row
++    matching a primary trial anchor (floor-EXEMPT — a relevant primary RCT must
++    never be dropped on a low lexical score). Ranked by ``relevance x authority``
++    (authority = the row's ``authority_score`` sidecar, default 1.0). Each kept
++    row is stamped with the additive ``selection_relevance`` float so
++    ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
++    drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
++    """
++    anchors = list(primary_trial_anchors or [])
++
++    def _is_anchor(row: dict[str, Any]) -> bool:
++        return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
++
++    def _authority(row: dict[str, Any]) -> float:
++        # Default 1.0 ONLY when authority_score is absent/None — an EXPLICIT 0.0
++        # (genuinely zero-authority row) must rank as 0.0, not be laundered to 1.0
++        # by a falsy `or` (Codex diff-gate P2).
++        a = row.get("authority_score")
++        return 1.0 if a is None else float(a)
++
++    kept = [
++        item for item in scored
++        if item[1] >= relevance_floor or _is_anchor(item[3])
++    ]
++    kept.sort(
++        key=lambda s: (
++            -(s[1] * _authority(s[3])),
++            _TIER_PRIORITY.get(s[2], 9),
++            s[0],
++        )
++    )
++    selected_rows: list[dict[str, Any]] = []
++    selected_counts: dict[str, int] = {}
++    for idx, score, tier, row in kept:
++        new_row = dict(row)
++        new_row["selection_relevance"] = float(score)
++        selected_rows.append(new_row)
++        selected_counts[tier] = selected_counts.get(tier, 0) + 1
++    anchor_exempt = sum(
++        1 for item in kept
++        if item[1] < relevance_floor and _is_anchor(item[3])
++    )
++    return EvidenceSelection(
++        selected_rows=selected_rows,
++        full_counts=full_counts,
++        selected_counts=selected_counts,
++        dropped_count=len(scored) - len(kept),
++        selection_strategy="relevance_floor_v1",
++        notes=[
++            f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
++            f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
++            f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
++        ],
++    )
++
++
+ def select_evidence_for_generation(
+     *,
+     research_question: str,
+@@ -889,6 +983,7 @@ def select_evidence_for_generation(
+     evidence_rows: list[dict[str, Any]],
+     max_rows: int,
+     primary_trial_anchors: list[str] | None = None,
++    relevance_floor: float | None = None,
+ ) -> EvidenceSelection:
+     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+ 
+@@ -917,7 +1012,10 @@ def select_evidence_for_generation(
+     Returns:
+         EvidenceSelection with selected_rows + telemetry.
+     """
+-    if max_rows <= 0 or not evidence_rows:
++    # I-meta-005 Phase 5 (#989) — Codex diff-gate P2: in relevance-floor mode the
++    # `max_rows` cap is REPLACED by the floor, so a legacy `max_rows <= 0` must NOT
++    # empty the ON-mode pool. The empty-corpus guard still applies in both modes.
++    if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:
+         return EvidenceSelection(
+             selected_rows=[], full_counts={}, selected_counts={},
+             dropped_count=0, selection_strategy="tier_balanced_v1",
+@@ -958,6 +1056,19 @@ def select_evidence_for_generation(
+     for _, _, tier, _ in scored:
+         full_counts[tier] = full_counts.get(tier, 0) + 1
+ 
++    # I-meta-005 Phase 5 (#989): relevance-floor mode (PG_USE_FINDING_DEDUP). Keep
++    # EVERY row at/above the relevance floor (no max_rows cap), ranked
++    # relevance x authority. ON-mode only; `relevance_floor is None` on the legacy
++    # path -> the tier-balanced max_rows selection below is byte-identical (and
++    # adds NO new row key).
++    if relevance_floor is not None:
++        return _relevance_floor_selection(
++            scored=scored,
++            relevance_floor=relevance_floor,
++            full_counts=full_counts,
++            primary_trial_anchors=primary_trial_anchors,
++        )
++
+     # M-46 (2026-04-22): when total <= max_rows, still keep everything,
+     # BUT compute floor-detection + deterministic priority ordering
+     # + telemetry so downstream consumers see the same reservation
+diff --git a/src/polaris_graph/synthesis/finding_dedup.py b/src/polaris_graph/synthesis/finding_dedup.py
+new file mode 100644
+index 00000000..e0ecc86b
+--- /dev/null
++++ b/src/polaris_graph/synthesis/finding_dedup.py
+@@ -0,0 +1,218 @@
++"""I-meta-005 Phase 5 (#989) — dedup-by-finding + corroboration.
++
++Clusters generator-visible evidence rows by the numeric FINDING they assert,
++collapses rehashes of the SAME finding to one representative row, and attaches
++``corroboration_count`` = the number of INDEPENDENT registrable-domains carrying
++that finding. This is Knowledge-Based Trust (gap D of the re-architecture plan):
++the sovereign, domain-general, self-computed trust signal — trust a finding the
++rest of the corpus independently confirms, with no external authority service.
++
++CONSERVATIVE-SINGLETON safety rule (brief §2.4 — clinical-lethal if violated):
++two findings merge ONLY when subject is KNOWN (not the ``"unknown"`` fallback)
++and equal, predicate equal, value (rounded) + unit equal, AND every qualifier the
++extractor exposes (dose, arm, endpoint_phrase) is equal — comparing raw field
++values so ABSENT==ABSENT matches but ABSENT-vs-PRESENT does not. Any unknown
++subject or any qualifier difference keeps the findings SEPARATE. The default on
++ambiguity is always "keep separate" — we never drop a distinct finding.
++
++DOCUMENTED RESIDUAL 1 (over-merge bound): ``ExtractedNumericClaim`` does NOT
++extract population or comparator. Two findings identical on every extracted field
++but differing only in an UNEXTRACTED qualifier (e.g. a T2D vs an obesity
++population that share "-2.1%") could merge. This is bounded to a corroboration
++OVER-count — a TRUST signal, never a safety gate — and NEVER causes unique-claim
++LOSS: the finding the representative asserts (subject/predicate/value/unit/dose/
++arm/endpoint) is identical across all members by construction, and all
++``member_indices`` + ``member_hosts`` are preserved on the cluster for audit
++(manifest + conflict surfacing). A future phase may add a population/comparator
++extractor to tighten the key.
++
++DOCUMENTED RESIDUAL 2 (extraction coverage — clinical-tuned): the reused
++``extract_numeric_claims`` is clinical-pattern-tuned. Empirically it (a) emits AT
++MOST ONE claim per row, and (b) returns NOTHING for non-clinical numerics (GDP,
++emissions, model-accuracy, etc.). Consequently a non-clinical numeric row yields
++ZERO findings and is kept as a SAFE SINGLETON — never falsely merged, never
++dropped — but its finding is NOT clustered and earns NO corroboration_count. So
++dedup + corroboration are EFFECTIVE for clinical corpora and INERT-but-SAFE for
++non-clinical ones. This is a coverage limitation, not a correctness bug: it can
++never cause unique-claim loss or a wrong merge. Gap D's domain-general
++corroboration ambition requires a field-agnostic numeric-finding extractor, which
++is deliberately deferred to a follow-up rather than risking an over-merging
++heuristic here. (The multi-claim-per-row retention logic below is therefore
++defensive/future-proof against an extractor that later emits >1 claim per row.)
++
++Pure: constructs no client, no network, no LLM. snake_case; explicit imports.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any
++from urllib.parse import urlparse
++
++from src.polaris_graph.authority.corroboration import (
++    count_independent_hosts,
++    registrable_domain,
++)
++from src.polaris_graph.retrieval.contradiction_detector import (
++    extract_numeric_claims,
++)
++
++# The fallback subject `extract_numeric_claims` returns when it cannot identify
++# the entity nearest the numeric value. Such claims are NEVER mergeable.
++_UNKNOWN_SUBJECT = "unknown"
++
++
++def _host_of(url: str) -> str:
++    """Bare hostname for independent-host counting: urlparse → lowercase →
++    strip leading ``www.``. Empty string on an unparseable/missing URL.
++
++    `count_independent_hosts` / `registrable_domain` expect HOSTS, not full
++    URLs, so this reduction MUST happen before they are called (else two paths
++    on the same domain would count as separate institutions).
++    """
++    if not url:
++        return ""
++    host = (urlparse(url).hostname or "").lower().strip()
++    if host.startswith("www."):
++        host = host[4:]
++    return host
++
++
++def _finding_key(claim: Any, evidence_id: str, claim_index: int) -> tuple:
++    """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
++    sentinel (evidence_id + claim_index) so it can never collide — even two
++    unknown claims on the SAME row stay distinct singletons.
++    """
++    subject = getattr(claim, "subject", "") or ""
++    if not subject or subject == _UNKNOWN_SUBJECT:
++        return ("__unknown__", evidence_id, claim_index)
++    return (
++        subject,
++        getattr(claim, "predicate", "") or "",
++        round(float(getattr(claim, "value", 0.0) or 0.0), 3),
++        getattr(claim, "unit", "") or "",
++        getattr(claim, "dose", "") or "",
++        getattr(claim, "arm", "") or "",
++        getattr(claim, "endpoint_phrase", "") or "",
++    )
++
++
++@dataclass
++class FindingCluster:
++    """One cluster of rows asserting the same finding."""
++
++    finding_key: tuple
++    representative_index: int           # row index of the chosen representative
++    member_indices: list[int]           # all distinct row indices in the cluster
++    member_hosts: list[str]             # sorted unique registrable-domains
++    corroboration_count: int            # independent registrable-domains
++
++
++@dataclass
++class FindingDedupResult:
++    """Result of `dedup_by_finding`."""
++
++    deduped_rows: list[dict[str, Any]]  # representatives + qualitative rows, in order
++    clusters: list[FindingCluster]
++    raw_row_count: int
++    distinct_finding_count: int
++    collapsed_row_count: int
++
++
++def dedup_by_finding(
++    rows: list[dict[str, Any]],
++    *,
++    gov_suffixes: tuple[str, ...],
++) -> FindingDedupResult:
++    """Cluster `rows` by numeric finding, collapse rehashes, count corroboration.
++
++    Args:
++        rows: generator-visible evidence rows (each a dict carrying at least
++            `evidence_id`, `source_url`, and `direct_quote`/`statement`; plus the
++            `authority_score` + `selection_relevance` sidecars for representative
++            ranking).
++        gov_suffixes: the PSL multi-level gov-suffix tuple from
++            `authority.data_loader.load_authority_data()["psl_gov_suffixes"]` —
++            passed in so this module hardcodes NO host/TLD literals.
++
++    Returns:
++        FindingDedupResult. `deduped_rows` are SHALLOW COPIES (the caller's rows
++        are never mutated); representative copies carry additive
++        `corroboration_count` / `independent_hosts` / `finding_keys` keys.
++    """
++    rows = list(rows or [])
++
++    # 1. Extract claims per row, group by conservative finding key.
++    groups: dict[tuple, list[int]] = {}
++    row_has_finding: list[bool] = [False] * len(rows)
++    for ri, row in enumerate(rows):
++        claims = extract_numeric_claims([row])
++        if claims:
++            row_has_finding[ri] = True
++        ev_id = str(row.get("evidence_id", ri))
++        for cj, claim in enumerate(claims):
++            key = _finding_key(claim, ev_id, cj)
++            groups.setdefault(key, []).append(ri)
++
++    def _rank(ri: int) -> tuple:
++        r = rows[ri]
++        return (
++            float(r.get("authority_score", 0.0) or 0.0),
++            float(r.get("selection_relevance", 0.0) or 0.0),
++            -ri,
++        )
++
++    # 2. Per cluster: representative + corroboration over INDEPENDENT hosts.
++    clusters: list[FindingCluster] = []
++    rep_indices: set[int] = set()
++    rep_meta: dict[int, dict[str, Any]] = {}
++    for key, member_ris in groups.items():
++        distinct_ris = sorted(set(member_ris))
++        rep_ri = max(distinct_ris, key=_rank)
++        hosts_raw = [
++            _host_of(str(rows[ri].get("source_url", "")))
++            for ri in distinct_ris
++        ]
++        member_hosts = sorted(
++            {registrable_domain(h, gov_suffixes) for h in hosts_raw} - {""}
++        )
++        corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
++        clusters.append(
++            FindingCluster(
++                finding_key=key,
++                representative_index=rep_ri,
++                member_indices=distinct_ris,
++                member_hosts=member_hosts,
++                corroboration_count=corroboration,
++            )
++        )
++        rep_indices.add(rep_ri)
++        meta = rep_meta.setdefault(
++            rep_ri, {"corr": 0, "hosts": set(), "keys": []}
++        )
++        meta["corr"] = max(meta["corr"], corroboration)
++        meta["hosts"].update(member_hosts)
++        meta["keys"].append(list(key))
++
++    # 3. Retain: every row that is the rep of >=1 cluster, plus every row with NO
++    #    extractable finding (qualitative rows are never rehashes). Original order.
++    #    A finding-bearing row that is the rep of nothing is REDUNDANT -> dropped;
++    #    every distinct finding it carried survives on that finding's rep row.
++    deduped_rows: list[dict[str, Any]] = []
++    for ri, row in enumerate(rows):
++        if not (ri in rep_indices or not row_has_finding[ri]):
++            continue
++        new_row = dict(row)  # shallow copy — never mutate the caller's row
++        if ri in rep_meta:
++            meta = rep_meta[ri]
++            new_row["corroboration_count"] = meta["corr"]
++            new_row["independent_hosts"] = sorted(meta["hosts"])
++            new_row["finding_keys"] = meta["keys"]
++        deduped_rows.append(new_row)
++
++    return FindingDedupResult(
++        deduped_rows=deduped_rows,
++        clusters=clusters,
++        raw_row_count=len(rows),
++        distinct_finding_count=len(groups),
++        collapsed_row_count=len(rows) - len(deduped_rows),
++    )
+diff --git a/tests/polaris_graph/synthesis/__init__.py b/tests/polaris_graph/synthesis/__init__.py
+new file mode 100644
+index 00000000..8b137891
+--- /dev/null
++++ b/tests/polaris_graph/synthesis/__init__.py
+@@ -0,0 +1 @@
++
+diff --git a/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
+new file mode 100644
+index 00000000..fca1e037
+--- /dev/null
++++ b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
+@@ -0,0 +1,295 @@
++"""I-meta-005 Phase 5 (#989) smoke — finding-dedup + relevance-floor corpus.
++
++Cases P5-1..P5-9 (+ P5-3b) from the Codex-APPROVED brief
++`.codex/I-meta-005-phase-5/brief.md` §5. SPEND-FREE: pure CPU clustering +
++selection; no network, no LLM. Plain-class fixtures — NO unittest.mock.
++
++The sweep-level cases (P5-10 gate-before-dedup ordering, P5-11 floor fail-loud)
++live with the sweep wiring; this module pins the pure `finding_dedup` +
++`evidence_selector` relevance-floor behaviour.
++
++Serialized per CLAUDE.md §8.4 (pure-python).
++"""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.authority.data_loader import load_authority_data
++from src.polaris_graph.retrieval.evidence_selector import (
++    parse_relevance_floor,
++    select_evidence_for_generation,
++)
++from src.polaris_graph.synthesis.finding_dedup import (
++    _host_of,
++    dedup_by_finding,
++)
++
++_GOV = load_authority_data()["psl_gov_suffixes"]
++
++
++def _row(eid, url, quote, *, authority=0.5, tier="T1"):
++    """A live-shaped evidence row carrying the fields the dedup + selector read.
++
++    NOTE: `selection_relevance` is deliberately NOT set here — it is a sidecar the
++    SELECTOR stamps in relevance-floor mode; the dedup representative pick falls
++    back to `authority_score` when it is absent.
++    """
++    return {
++        "evidence_id": eid,
++        "source_url": url,
++        "url": url,
++        "direct_quote": quote,
++        "statement": quote,
++        "tier": tier,
++        "authority_score": authority,
++    }
++
++
++# Clinical quotes VERIFIED to extract via contradiction_detector.
++_WL72 = "Tirzepatide produced a mean weight loss of 20.9% at week 72."
++_WL72_B = "Tirzepatide achieved a mean weight loss of 20.9% at week 72."
++_WL20 = "Tirzepatide produced a mean weight loss of 20.9% at week 20."
++
++
++# ── P5-2 collapse rehashes from independent hosts ────────────────────────────
++
++def test_p5_2_collapse_rehashes_three_independent_hosts():
++    rows = [
++        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
++        _row("ev1", "https://thelancet.com/b", _WL72, authority=0.7),
++        _row("ev2", "https://nih.gov/c", _WL72, authority=0.6),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 1
++    assert len(res.deduped_rows) == 1
++    rep = res.deduped_rows[0]
++    assert rep["evidence_id"] == "ev0"            # highest authority -> rep
++    assert rep["corroboration_count"] == 3        # 3 independent registrable domains
++    assert rep["independent_hosts"] == ["nejm.org", "nih.gov", "thelancet.com"]
++    assert res.collapsed_row_count == 2
++
++
++# ── P5-3 NO unique-claim loss (clinical-lethal) ──────────────────────────────
++
++def test_p5_3_different_endpoint_stays_separate():
++    rows = [
++        _row("ev0", "https://a.org/x", _WL72),
++        _row("ev1", "https://b.org/y", _WL20),   # same value, DIFFERENT endpoint
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 2
++    assert len(res.deduped_rows) == 2             # both findings survive
++
++
++def test_p5_3_unknown_subject_never_merges():
++    # A quote whose numeric subject the extractor cannot resolve must never merge
++    # with another unknown-subject row, even with identical numbers.
++    q = "A mean reduction of 20.9% at week 72 was observed."
++    rows = [
++        _row("ev0", "https://a.org/x", q),
++        _row("ev1", "https://b.org/y", q),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    # Either no numeric finding extracts (qualitative singletons) OR the unknown
++    # subject forces per-claim singletons. Both keep BOTH rows -> never merged.
++    assert len(res.deduped_rows) == 2
++
++
++# ── P5-3b multi-claim row retention (defensive / future-proof) ───────────────
++
++def test_p5_3b_multi_claim_row_retained_via_helper():
++    # The clinical extractor currently emits <=1 claim/row, so we validate the
++    # retention rule at the dedup level: a row that is the representative of its
++    # OWN finding is always kept even when it shares another finding with a
++    # higher-authority row. Two rows, one shared finding: the lower-authority row
++    # is collapsed; the higher-authority rep survives carrying the finding.
++    rows = [
++        _row("ev_hi", "https://a.org/x", _WL72, authority=0.9),
++        _row("ev_lo", "https://b.org/y", _WL72_B, authority=0.4),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.distinct_finding_count == 1
++    ids = [r["evidence_id"] for r in res.deduped_rows]
++    assert ids == ["ev_hi"]                       # higher-authority rep kept
++    assert res.deduped_rows[0]["corroboration_count"] == 2
++
++
++# ── P5-6 / P5-7 corroboration counts INDEPENDENT hosts ───────────────────────
++
++def test_p5_6_single_host_corroboration_one():
++    rows = [_row("ev0", "https://nejm.org/a", _WL72)]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert res.deduped_rows[0]["corroboration_count"] == 1
++
++
++def test_p5_7_same_domain_paths_corroboration_one():
++    rows = [
++        _row("ev0", "https://nih.gov/a", _WL72),
++        _row("ev1", "https://nih.gov/b", _WL72),
++        _row("ev2", "https://www.nih.gov/c", _WL72),   # www. + different path
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 1
++    assert res.deduped_rows[0]["corroboration_count"] == 1   # one registrable domain
++
++
++def test_p5_7b_host_of_strips_www_and_path():
++    assert _host_of("https://www.NIH.gov/abc?x=1") == "nih.gov"
++    assert _host_of("https://nih.gov/abc") == "nih.gov"
++    assert _host_of("") == ""
++    assert _host_of("not a url") == ""
++
++
++# ── P5-8 field-agnostic SAFE: non-clinical numeric -> safe singleton ─────────
++
++def test_p5_8_non_clinical_numeric_is_safe_singleton():
++    # DOCUMENTED RESIDUAL 2: the clinical extractor returns nothing for these, so
++    # they are kept as SAFE singletons (never falsely merged, never dropped, no
++    # corroboration). This pins the SAFE behaviour, not domain-general clustering
++    # (deferred to the follow-up extractor issue).
++    rows = [
++        _row("ev0", "https://a.org/x", "The intervention increased GDP by 3.2% in 2024."),
++        _row("ev1", "https://b.org/y", "The intervention increased GDP by 3.2% in 2024."),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 2             # both kept; never falsely merged
++    # no corroboration attached (no finding extracted)
++    assert "corroboration_count" not in res.deduped_rows[0]
++
++
++# ── P5-9 qualitative rows never merged/dropped ───────────────────────────────
++
++def test_p5_9_qualitative_rows_kept_as_singletons():
++    rows = [
++        _row("ev0", "https://a.org/x", "The therapy was generally well tolerated."),
++        _row("ev1", "https://b.org/y", "A favorable safety profile was reported."),
++    ]
++    res = dedup_by_finding(rows, gov_suffixes=_GOV)
++    assert len(res.deduped_rows) == 2
++    assert res.distinct_finding_count == 0
++
++
++def test_p5_purity_does_not_mutate_input_rows():
++    rows = [
++        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
++        _row("ev1", "https://nih.gov/b", _WL72, authority=0.6),
++    ]
++    dedup_by_finding(rows, gov_suffixes=_GOV)
++    # Caller's rows must NOT gain corroboration keys (we return shallow copies).
++    assert "corroboration_count" not in rows[0]
++    assert "independent_hosts" not in rows[0]
++
++
++# ── P5-1 / P5-4 / P5-5 evidence_selector relevance-floor mode ────────────────
++
++def _sel_rows(n_relevant, n_irrelevant, *, authorities=None):
++    rows = []
++    for i in range(n_relevant):
++        auth = authorities[i] if authorities else 0.5
++        rows.append(_row(
++            f"ev{i}", f"https://h{i}.org/x",
++            "tirzepatide weight loss type 2 diabetes trial", authority=auth,
++        ))
++    for i in range(n_irrelevant):
++        rows.append(_row(
++            f"ir{i}", f"https://z{i}.org/x",
++            "unrelated cooking recipe content here", authority=0.5,
++        ))
++    return rows
++
++
++def test_p5_1_off_mode_byte_identical_no_new_key():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(30, 5)
++    off = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20,
++    )
++    assert off.selection_strategy == "tier_balanced_v1"
++    assert len(off.selected_rows) == 20                    # the legacy 20-cap
++    # OFF must NOT add the selection_relevance key (strict byte-identity).
++    assert all("selection_relevance" not in r for r in off.selected_rows)
++
++
++def test_p5_4_floor_mode_no_cap_drops_sub_floor():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(30, 5)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    assert on.selection_strategy == "relevance_floor_v1"
++    assert len(on.selected_rows) == 30                     # no 20-cap; sub-floor dropped
++    assert all("selection_relevance" in r for r in on.selected_rows)
++
++
++def test_p5_5_relevance_times_authority_ranking():
++    q = "tirzepatide weight loss in type 2 diabetes"
++    # equal-relevance rows -> authority breaks the tie (relevance*authority desc)
++    auths = [0.50 + i * 0.01 for i in range(10)]
++    rows = _sel_rows(10, 0, authorities=auths)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    top_auth = [r["authority_score"] for r in on.selected_rows[:3]]
++    assert top_auth == sorted(top_auth, reverse=True)      # highest authority first
++    assert top_auth[0] == max(auths)
++
++
++# ── P5-11 PG_RELEVANCE_FLOOR fail-loud (the sweep's gate before sending a pool) ──
++
++def test_p5_11_relevance_floor_default_and_valid():
++    assert parse_relevance_floor(None) == pytest.approx(0.30)   # default
++    assert parse_relevance_floor("") == pytest.approx(0.30)     # blank -> default
++    assert parse_relevance_floor("0.5") == pytest.approx(0.5)
++    assert parse_relevance_floor("1.0") == pytest.approx(1.0)   # inclusive upper
++
++
++def test_p5_11_relevance_floor_fails_loud_on_invalid():
++    with pytest.raises(ValueError):
++        parse_relevance_floor("not_a_number")
++    with pytest.raises(ValueError):
++        parse_relevance_floor("0.0")          # exclusive lower bound
++    with pytest.raises(ValueError):
++        parse_relevance_floor("-0.1")
++    with pytest.raises(ValueError):
++        parse_relevance_floor("1.5")          # above range
++
++
++# ── diff-gate P2 fixes ───────────────────────────────────────────────────────
++
++def test_p5_explicit_zero_authority_ranks_below_positive():
++    # Codex diff-gate P2: an EXPLICIT authority_score=0.0 must NOT be laundered to
++    # 1.0 by `or`. A zero-authority row ranks BELOW an equal-relevance positive row.
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = [
++        _row("zero", "https://a.org/x",
++             "tirzepatide weight loss type 2 diabetes trial", authority=0.0),
++        _row("pos", "https://b.org/y",
++             "tirzepatide weight loss type 2 diabetes trial", authority=0.6),
++    ]
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    ids = [r["evidence_id"] for r in on.selected_rows]
++    assert ids == ["pos", "zero"]            # positive authority ranks first
++
++
++def test_p5_floor_mode_ignores_zero_max_rows():
++    # Codex diff-gate P2: in floor mode the max_rows cap is replaced by the floor,
++    # so max_rows=0 (a legacy PG_LIVE_MAX_EV_TO_GEN=0) must NOT empty the pool.
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(5, 0)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=0, relevance_floor=0.30,
++    )
++    assert len(on.selected_rows) == 5        # floor kept all above-floor rows
++    # OFF-mode with max_rows=0 still short-circuits to empty (unchanged).
++    off = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=0,
++    )
++    assert off.selected_rows == []
+
+
+codex
+The patch touches exactly five files. I’ve got the diff shape now; next I’m checking the selector and test file against the two P2 fixes, then I’ll do a narrow scan for fresh blocker-class regressions.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _relevance_floor_selection|def _authority|if \\(max_rows <= 0|relevance_floor is not None|selection_relevance|def select_evidence_for_generation\" src/polaris_graph/retrieval/evidence_selector.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def dedup_by_finding|selection_relevance|authority_score|corroboration_count|urlparse|count_independent_hosts|registrable_domain" src/polaris_graph/synthesis/finding_dedup.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"test_p5_explicit_zero_authority_ranks_below_positive|test_p5_floor_mode_ignores_zero_max_rows|selection_relevance|off.selected_rows == \\[\\]|authority=0\\.0\" tests/polaris_graph/synthesis/test_finding_dedup_phase5.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"PG_USE_FINDING_DEDUP|relevance_floor|finding_dedup|select_evidence_for_generation\\(\" scripts/run_honest_sweep_r3.py" in C:\POLARIS
+ succeeded in 1873ms:
+913:def _relevance_floor_selection(
+926:    row is stamped with the additive ``selection_relevance`` float so
+935:    def _authority(row: dict[str, Any]) -> float:
+957:        new_row["selection_relevance"] = float(score)
+978:def select_evidence_for_generation(
+1018:    if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:
+1064:    if relevance_floor is not None:
+
+ succeeded in 2518ms:
+33:    NOTE: `selection_relevance` is deliberately NOT set here — it is a sidecar the
+210:    # OFF must NOT add the selection_relevance key (strict byte-identity).
+211:    assert all("selection_relevance" not in r for r in off.selected_rows)
+223:    assert all("selection_relevance" in r for r in on.selected_rows)
+262:def test_p5_explicit_zero_authority_ranks_below_positive():
+268:             "tirzepatide weight loss type 2 diabetes trial", authority=0.0),
+280:def test_p5_floor_mode_ignores_zero_max_rows():
+295:    assert off.selected_rows == []
+
+ succeeded in 3023ms:
+5:``corroboration_count`` = the number of INDEPENDENT registrable-domains carrying
+34:dropped — but its finding is NOT clustered and earns NO corroboration_count. So
+49:from urllib.parse import urlparse
+52:    count_independent_hosts,
+53:    registrable_domain,
+65:    """Bare hostname for independent-host counting: urlparse → lowercase →
+68:    `count_independent_hosts` / `registrable_domain` expect HOSTS, not full
+74:    host = (urlparse(url).hostname or "").lower().strip()
+107:    corroboration_count: int            # independent registrable-domains
+121:def dedup_by_finding(
+131:            `authority_score` + `selection_relevance` sidecars for representative
+140:        `corroboration_count` / `independent_hosts` / `finding_keys` keys.
+159:            float(r.get("authority_score", 0.0) or 0.0),
+160:            float(r.get("selection_relevance", 0.0) or 0.0),
+176:            {registrable_domain(h, gov_suffixes) for h in hosts_raw} - {""}
+178:        corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
+185:                corroboration_count=corroboration,
+207:            new_row["corroboration_count"] = meta["corr"]
+
+ succeeded in 3668ms:
+1732:        _finding_dedup_telemetry = None   # Phase 5 (#989); set just before generator
+2586:        # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
+2590:        _use_finding_dedup = (
+2591:            os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
+2594:        _relevance_floor: float | None = None
+2595:        if _use_finding_dedup:
+2597:                parse_relevance_floor,
+2599:            _relevance_floor = parse_relevance_floor(
+2670:        evidence_selection = select_evidence_for_generation(
+2677:            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+3041:                    _resel = select_evidence_for_generation(
+3048:                        relevance_floor=_relevance_floor,   # Phase 5 (#989)
+3329:        # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
+3330:        if _use_finding_dedup:
+3334:            from src.polaris_graph.synthesis.finding_dedup import (
+3342:            _finding_dedup_telemetry = {
+4268:        if _finding_dedup_telemetry is not None:
+4269:            manifest["finding_dedup"] = _finding_dedup_telemetry
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/synthesis/test_finding_dedup_phase5.py | ForEach-Object { $i++; if($i -ge 200 -and $i -le 298){ '"'{0}: {1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/retrieval/evidence_selector.py | ForEach-Object { $i++; if($i -ge 913 -and $i -le 1072){ '"'{0}: {1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content scripts/run_honest_sweep_r3.py | ForEach-Object { $i++; if(($i -ge 2580 -and $i -le 2680) -or ($i -ge 3036 -and $i -le 3052) -or ($i -ge 3324 -and $i -le 3358) -or ($i -ge 4262 -and $i -le 4272)){ '"'{0}: {1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/synthesis/finding_dedup.py | ForEach-Object { $i++; if($i -ge 145 -and $i -le 217){ '"'{0}: {1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 1896ms:
+913: def _relevance_floor_selection(
+914:     *,
+915:     scored: list[tuple[int, float, str, dict[str, Any]]],
+916:     relevance_floor: float,
+917:     full_counts: dict[str, int],
+918:     primary_trial_anchors: list[str] | None,
+919: ) -> EvidenceSelection:
+920:     """I-meta-005 Phase 5 (#989): relevance-floor selection (no max_rows cap).
+921: 
+922:     Keep EVERY row whose lexical relevance >= ``relevance_floor``, PLUS any row
+923:     matching a primary trial anchor (floor-EXEMPT — a relevant primary RCT must
+924:     never be dropped on a low lexical score). Ranked by ``relevance x authority``
+925:     (authority = the row's ``authority_score`` sidecar, default 1.0). Each kept
+926:     row is stamped with the additive ``selection_relevance`` float so
+927:     ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
+928:     drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
+929:     """
+930:     anchors = list(primary_trial_anchors or [])
+931: 
+932:     def _is_anchor(row: dict[str, Any]) -> bool:
+933:         return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
+934: 
+935:     def _authority(row: dict[str, Any]) -> float:
+936:         # Default 1.0 ONLY when authority_score is absent/None — an EXPLICIT 0.0
+937:         # (genuinely zero-authority row) must rank as 0.0, not be laundered to 1.0
+938:         # by a falsy `or` (Codex diff-gate P2).
+939:         a = row.get("authority_score")
+940:         return 1.0 if a is None else float(a)
+941: 
+942:     kept = [
+943:         item for item in scored
+944:         if item[1] >= relevance_floor or _is_anchor(item[3])
+945:     ]
+946:     kept.sort(
+947:         key=lambda s: (
+948:             -(s[1] * _authority(s[3])),
+949:             _TIER_PRIORITY.get(s[2], 9),
+950:             s[0],
+951:         )
+952:     )
+953:     selected_rows: list[dict[str, Any]] = []
+954:     selected_counts: dict[str, int] = {}
+955:     for idx, score, tier, row in kept:
+956:         new_row = dict(row)
+957:         new_row["selection_relevance"] = float(score)
+958:         selected_rows.append(new_row)
+959:         selected_counts[tier] = selected_counts.get(tier, 0) + 1
+960:     anchor_exempt = sum(
+961:         1 for item in kept
+962:         if item[1] < relevance_floor and _is_anchor(item[3])
+963:     )
+964:     return EvidenceSelection(
+965:         selected_rows=selected_rows,
+966:         full_counts=full_counts,
+967:         selected_counts=selected_counts,
+968:         dropped_count=len(scored) - len(kept),
+969:         selection_strategy="relevance_floor_v1",
+970:         notes=[
+971:             f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
+972:             f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
+973:             f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
+974:         ],
+975:     )
+976: 
+977: 
+978: def select_evidence_for_generation(
+979:     *,
+980:     research_question: str,
+981:     protocol: dict[str, Any] | None,
+982:     classified_sources: list[Any],
+983:     evidence_rows: list[dict[str, Any]],
+984:     max_rows: int,
+985:     primary_trial_anchors: list[str] | None = None,
+986:     relevance_floor: float | None = None,
+987: ) -> EvidenceSelection:
+988:     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
+989: 
+990:     Strategy (deterministic, stable):
+991:       1. Join evidence rows to classified sources by URL → tier per row.
+992:       2. Compute full_tier_counts.
+993:       3. Score each row by lexical relevance (question+protocol anchors
+994:          vs statement+direct_quote content words).
+995:       4. Sort within each tier by (-relevance, original_index) for
+996:          deterministic top-N per tier.
+997:       5. Allocate slots proportionally to full_tier_counts but with
+998:          floors for high-value tiers that are present (each T1-T3 tier
+999:          present gets at least min(1, available)).
+1000:       6. Fill remaining slots globally by (tier_priority, -relevance,
+1001:          original_index).
+1002: 
+1003:     Args:
+1004:         research_question: the user's raw question.
+1005:         protocol: scope protocol dict (uses population/intervention/
+1006:             comparator/outcome/research_question if present).
+1007:         classified_sources: list of objects with .url and .tier (or
+1008:             dict-like with those keys). Used for URL→tier join.
+1009:         evidence_rows: full evidence row pool.
+1010:         max_rows: target selection size.
+1011: 
+1012:     Returns:
+1013:         EvidenceSelection with selected_rows + telemetry.
+1014:     """
+1015:     # I-meta-005 Phase 5 (#989) — Codex diff-gate P2: in relevance-floor mode the
+1016:     # `max_rows` cap is REPLACED by the floor, so a legacy `max_rows <= 0` must NOT
+1017:     # empty the ON-mode pool. The empty-corpus guard still applies in both modes.
+1018:     if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:
+1019:         return EvidenceSelection(
+1020:             selected_rows=[], full_counts={}, selected_counts={},
+1021:             dropped_count=0, selection_strategy="tier_balanced_v1",
+1022:             notes=["no evidence rows or max_rows <= 0"],
+1023:         )
+1024: 
+1025:     # Build URL → tier map from classified_sources (whatever shape).
+1026:     url_to_tier: dict[str, str] = {}
+1027:     for src in classified_sources or []:
+1028:         url = getattr(src, "url", None) or (
+1029:             src.get("url") if isinstance(src, dict) else None
+1030:         )
+1031:         tier = getattr(src, "tier", None) or (
+1032:             src.get("tier") if isinstance(src, dict) else None
+1033:         )
+1034:         if url and tier:
+1035:             url_to_tier[str(url)] = str(tier)
+1036: 
+1037:     # Compute relevance tokens from research question + protocol anchors.
+1038:     question_tokens = _content_tokens(research_question or "")
+1039:     protocol_tokens: set[str] = set()
+1040:     if protocol:
+1041:         for key in ("population", "intervention", "comparator",
+1042:                     "outcome", "research_question"):
+1043:             v = protocol.get(key)
+1044:             if v:
+1045:                 protocol_tokens |= _content_tokens(str(v))
+1046: 
+1047:     # Score every row and tag with tier + original index.
+1048:     scored: list[tuple[int, float, str, dict[str, Any]]] = []
+1049:     for idx, row in enumerate(evidence_rows):
+1050:         tier = _row_tier(row, url_to_tier)
+1051:         score = _row_relevance(row, question_tokens, protocol_tokens)
+1052:         scored.append((idx, score, tier, row))
+1053: 
+1054:     # Full tier counts (FROM evidence_rows, the selectable universe).
+1055:     full_counts: dict[str, int] = {}
+1056:     for _, _, tier, _ in scored:
+1057:         full_counts[tier] = full_counts.get(tier, 0) + 1
+1058: 
+1059:     # I-meta-005 Phase 5 (#989): relevance-floor mode (PG_USE_FINDING_DEDUP). Keep
+1060:     # EVERY row at/above the relevance floor (no max_rows cap), ranked
+1061:     # relevance x authority. ON-mode only; `relevance_floor is None` on the legacy
+1062:     # path -> the tier-balanced max_rows selection below is byte-identical (and
+1063:     # adds NO new row key).
+1064:     if relevance_floor is not None:
+1065:         return _relevance_floor_selection(
+1066:             scored=scored,
+1067:             relevance_floor=relevance_floor,
+1068:             full_counts=full_counts,
+1069:             primary_trial_anchors=primary_trial_anchors,
+1070:         )
+1071: 
+1072:     # M-46 (2026-04-22): when total <= max_rows, still keep everything,
+
+ succeeded in 2505ms:
+200: 
+201: def test_p5_1_off_mode_byte_identical_no_new_key():
+202:     q = "tirzepatide weight loss in type 2 diabetes"
+203:     rows = _sel_rows(30, 5)
+204:     off = select_evidence_for_generation(
+205:         research_question=q, protocol=None, classified_sources=[],
+206:         evidence_rows=rows, max_rows=20,
+207:     )
+208:     assert off.selection_strategy == "tier_balanced_v1"
+209:     assert len(off.selected_rows) == 20                    # the legacy 20-cap
+210:     # OFF must NOT add the selection_relevance key (strict byte-identity).
+211:     assert all("selection_relevance" not in r for r in off.selected_rows)
+212: 
+213: 
+214: def test_p5_4_floor_mode_no_cap_drops_sub_floor():
+215:     q = "tirzepatide weight loss in type 2 diabetes"
+216:     rows = _sel_rows(30, 5)
+217:     on = select_evidence_for_generation(
+218:         research_question=q, protocol=None, classified_sources=[],
+219:         evidence_rows=rows, max_rows=20, relevance_floor=0.30,
+220:     )
+221:     assert on.selection_strategy == "relevance_floor_v1"
+222:     assert len(on.selected_rows) == 30                     # no 20-cap; sub-floor dropped
+223:     assert all("selection_relevance" in r for r in on.selected_rows)
+224: 
+225: 
+226: def test_p5_5_relevance_times_authority_ranking():
+227:     q = "tirzepatide weight loss in type 2 diabetes"
+228:     # equal-relevance rows -> authority breaks the tie (relevance*authority desc)
+229:     auths = [0.50 + i * 0.01 for i in range(10)]
+230:     rows = _sel_rows(10, 0, authorities=auths)
+231:     on = select_evidence_for_generation(
+232:         research_question=q, protocol=None, classified_sources=[],
+233:         evidence_rows=rows, max_rows=20, relevance_floor=0.30,
+234:     )
+235:     top_auth = [r["authority_score"] for r in on.selected_rows[:3]]
+236:     assert top_auth == sorted(top_auth, reverse=True)      # highest authority first
+237:     assert top_auth[0] == max(auths)
+238: 
+239: 
+240: # ── P5-11 PG_RELEVANCE_FLOOR fail-loud (the sweep's gate before sending a pool) ──
+241: 
+242: def test_p5_11_relevance_floor_default_and_valid():
+243:     assert parse_relevance_floor(None) == pytest.approx(0.30)   # default
+244:     assert parse_relevance_floor("") == pytest.approx(0.30)     # blank -> default
+245:     assert parse_relevance_floor("0.5") == pytest.approx(0.5)
+246:     assert parse_relevance_floor("1.0") == pytest.approx(1.0)   # inclusive upper
+247: 
+248: 
+249: def test_p5_11_relevance_floor_fails_loud_on_invalid():
+250:     with pytest.raises(ValueError):
+251:         parse_relevance_floor("not_a_number")
+252:     with pytest.raises(ValueError):
+253:         parse_relevance_floor("0.0")          # exclusive lower bound
+254:     with pytest.raises(ValueError):
+255:         parse_relevance_floor("-0.1")
+256:     with pytest.raises(ValueError):
+257:         parse_relevance_floor("1.5")          # above range
+258: 
+259: 
+260: # ── diff-gate P2 fixes ───────────────────────────────────────────────────────
+261: 
+262: def test_p5_explicit_zero_authority_ranks_below_positive():
+263:     # Codex diff-gate P2: an EXPLICIT authority_score=0.0 must NOT be laundered to
+264:     # 1.0 by `or`. A zero-authority row ranks BELOW an equal-relevance positive row.
+265:     q = "tirzepatide weight loss in type 2 diabetes"
+266:     rows = [
+267:         _row("zero", "https://a.org/x",
+268:              "tirzepatide weight loss type 2 diabetes trial", authority=0.0),
+269:         _row("pos", "https://b.org/y",
+270:              "tirzepatide weight loss type 2 diabetes trial", authority=0.6),
+271:     ]
+272:     on = select_evidence_for_generation(
+273:         research_question=q, protocol=None, classified_sources=[],
+274:         evidence_rows=rows, max_rows=20, relevance_floor=0.30,
+275:     )
+276:     ids = [r["evidence_id"] for r in on.selected_rows]
+277:     assert ids == ["pos", "zero"]            # positive authority ranks first
+278: 
+279: 
+280: def test_p5_floor_mode_ignores_zero_max_rows():
+281:     # Codex diff-gate P2: in floor mode the max_rows cap is replaced by the floor,
+282:     # so max_rows=0 (a legacy PG_LIVE_MAX_EV_TO_GEN=0) must NOT empty the pool.
+283:     q = "tirzepatide weight loss in type 2 diabetes"
+284:     rows = _sel_rows(5, 0)
+285:     on = select_evidence_for_generation(
+286:         research_question=q, protocol=None, classified_sources=[],
+287:         evidence_rows=rows, max_rows=0, relevance_floor=0.30,
+288:     )
+289:     assert len(on.selected_rows) == 5        # floor kept all above-floor rows
+290:     # OFF-mode with max_rows=0 still short-circuits to empty (unchanged).
+291:     off = select_evidence_for_generation(
+292:         research_question=q, protocol=None, classified_sources=[],
+293:         evidence_rows=rows, max_rows=0,
+294:     )
+295:     assert off.selected_rows == []
+
+ succeeded in 3195ms:
+145:     groups: dict[tuple, list[int]] = {}
+146:     row_has_finding: list[bool] = [False] * len(rows)
+147:     for ri, row in enumerate(rows):
+148:         claims = extract_numeric_claims([row])
+149:         if claims:
+150:             row_has_finding[ri] = True
+151:         ev_id = str(row.get("evidence_id", ri))
+152:         for cj, claim in enumerate(claims):
+153:             key = _finding_key(claim, ev_id, cj)
+154:             groups.setdefault(key, []).append(ri)
+155: 
+156:     def _rank(ri: int) -> tuple:
+157:         r = rows[ri]
+158:         return (
+159:             float(r.get("authority_score", 0.0) or 0.0),
+160:             float(r.get("selection_relevance", 0.0) or 0.0),
+161:             -ri,
+162:         )
+163: 
+164:     # 2. Per cluster: representative + corroboration over INDEPENDENT hosts.
+165:     clusters: list[FindingCluster] = []
+166:     rep_indices: set[int] = set()
+167:     rep_meta: dict[int, dict[str, Any]] = {}
+168:     for key, member_ris in groups.items():
+169:         distinct_ris = sorted(set(member_ris))
+170:         rep_ri = max(distinct_ris, key=_rank)
+171:         hosts_raw = [
+172:             _host_of(str(rows[ri].get("source_url", "")))
+173:             for ri in distinct_ris
+174:         ]
+175:         member_hosts = sorted(
+176:             {registrable_domain(h, gov_suffixes) for h in hosts_raw} - {""}
+177:         )
+178:         corroboration = count_independent_hosts(hosts_raw, gov_suffixes)
+179:         clusters.append(
+180:             FindingCluster(
+181:                 finding_key=key,
+182:                 representative_index=rep_ri,
+183:                 member_indices=distinct_ris,
+184:                 member_hosts=member_hosts,
+185:                 corroboration_count=corroboration,
+186:             )
+187:         )
+188:         rep_indices.add(rep_ri)
+189:         meta = rep_meta.setdefault(
+190:             rep_ri, {"corr": 0, "hosts": set(), "keys": []}
+191:         )
+192:         meta["corr"] = max(meta["corr"], corroboration)
+193:         meta["hosts"].update(member_hosts)
+194:         meta["keys"].append(list(key))
+195: 
+196:     # 3. Retain: every row that is the rep of >=1 cluster, plus every row with NO
+197:     #    extractable finding (qualitative rows are never rehashes). Original order.
+198:     #    A finding-bearing row that is the rep of nothing is REDUNDANT -> dropped;
+199:     #    every distinct finding it carried survives on that finding's rep row.
+200:     deduped_rows: list[dict[str, Any]] = []
+201:     for ri, row in enumerate(rows):
+202:         if not (ri in rep_indices or not row_has_finding[ri]):
+203:             continue
+204:         new_row = dict(row)  # shallow copy — never mutate the caller's row
+205:         if ri in rep_meta:
+206:             meta = rep_meta[ri]
+207:             new_row["corroboration_count"] = meta["corr"]
+208:             new_row["independent_hosts"] = sorted(meta["hosts"])
+209:             new_row["finding_keys"] = meta["keys"]
+210:         deduped_rows.append(new_row)
+211: 
+212:     return FindingDedupResult(
+213:         deduped_rows=deduped_rows,
+214:         clusters=clusters,
+215:         raw_row_count=len(rows),
+216:         distinct_finding_count=len(groups),
+217:         collapsed_row_count=len(rows) - len(deduped_rows),
+
+ succeeded in 3801ms:
+2580:         # from what the gates certified.
+2581:         from src.polaris_graph.retrieval.evidence_selector import (
+2582:             select_evidence_for_generation,
+2583:         )
+2584:         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+2585:         # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
+2586:         # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
+2587:         # a relevance floor (keep every row >= floor, no cap) and dedups by finding
+2588:         # before the generator. PG_RELEVANCE_FLOOR default 0.30, range (0.0, 1.0];
+2589:         # invalid/out-of-range fails LOUD (never silently send an unbounded pool).
+2590:         _use_finding_dedup = (
+2591:             os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
+2592:             in ("1", "true", "True")
+2593:         )
+2594:         _relevance_floor: float | None = None
+2595:         if _use_finding_dedup:
+2596:             from src.polaris_graph.retrieval.evidence_selector import (
+2597:                 parse_relevance_floor,
+2598:             )
+2599:             _relevance_floor = parse_relevance_floor(
+2600:                 os.getenv("PG_RELEVANCE_FLOOR")
+2601:             )
+2602:         # M-42e (2026-04-22): pass primary_trial_anchors to the
+2603:         # selector so it can reserve T1 slots for named-trial
+2604:         # primary papers. Anchors come from the loaded scope
+2605:         # template's `per_query_primary_trial_anchors` map keyed by
+2606:         # sweep slug. Empty list when no anchors (no change vs V25).
+2607:         from src.polaris_graph.retrieval.primary_trial_expander import (
+2608:             get_primary_trial_anchors_for_slug,
+2609:             get_trial_population_scope_for_slug,
+2610:         )
+2611:         _primary_anchors = get_primary_trial_anchors_for_slug(
+2612:             _template, q["slug"]
+2613:         )
+2614: 
+2615:         # M-50 (2026-04-22): derive the T2D-direct anchor set from the
+2616:         # template's population_scope labels. Anchors labeled "direct"
+2617:         # qualify for per-trial subsections. SURMOUNT-1/3/4 (indirect
+2618:         # for T2D) excluded so weight-loss-only trials don't generate
+2619:         # T2D-misleading subsections.
+2620:         def _m50_direct_anchors_for_sweep(tmpl, slug):
+2621:             scope = get_trial_population_scope_for_slug(tmpl, slug)
+2622:             direct = [a for a, lab in scope.items() if lab == "direct"]
+2623:             if not direct and _primary_anchors:
+2624:                 # When template has no scope labels, fall back to all
+2625:                 # configured anchors (backwards-compatible with slugs
+2626:                 # that haven't defined population_scope yet).
+2627:                 direct = list(_primary_anchors)
+2628:             return direct
+2629: 
+2630:         def _compute_m50_skip_anchors(
+2631:             contract_plans: list[Any],
+2632:             primary_anchors: list[str],
+2633:         ) -> set[str]:
+2634:             """Codex M-63 REJECT Medium 2: map contract entity ids
+2635:             to M-50 trial anchor names via a normalized substring
+2636:             match so the sweep can tell M-50 which anchors are
+2637:             already owned by a contract slot.
+2638: 
+2639:             Normalization: strip `_`/`-`, lowercase. Match anchor
+2640:             against each entity_id; a normalized-anchor substring
+2641:             hit inside a normalized-entity-id is strong evidence
+2642:             the contract slot renders that trial (e.g.
+2643:             `surpass_2_primary` contains `surpass2` → SURPASS-2).
+2644: 
+2645:             Conservative: returns empty set if no contract plans
+2646:             present, or if no match found. False negatives cost
+2647:             one duplicate subsection (reader confusion, not
+2648:             pipeline failure); false positives would SUPPRESS a
+2649:             legitimate per-trial section, which is worse.
+2650:             """
+2651:             if not contract_plans or not primary_anchors:
+2652:                 return set()
+2653:             skip: set[str] = set()
+2654:             for plan in contract_plans:
+2655:                 slots = getattr(plan, "slots", ())
+2656:                 for slot in slots:
+2657:                     for eid in getattr(slot, "entity_ids", ()):
+2658:                         norm_eid = (
+2659:                             eid.lower().replace("_", "").replace("-", "")
+2660:                         )
+2661:                         for anchor in primary_anchors:
+2662:                             norm_anchor = (
+2663:                                 anchor.lower()
+2664:                                 .replace("_", "").replace("-", "")
+2665:                             )
+2666:                             if norm_anchor and norm_anchor in norm_eid:
+2667:                                 skip.add(anchor)
+2668:                                 break
+2669:             return skip
+2670:         evidence_selection = select_evidence_for_generation(
+2671:             research_question=q["question"],
+2672:             protocol=protocol,
+2673:             classified_sources=retrieval.classified_sources,
+2674:             evidence_rows=retrieval.evidence_rows,
+2675:             max_rows=max_ev,
+2676:             primary_trial_anchors=_primary_anchors,
+2677:             relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+2678:         )
+2679:         evidence_for_gen = evidence_selection.selected_rows
+2680:         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+3036:                     # augmented billed set the generator will see (P4-16). Codex
+3037:                     # diff-gate P1: previously only upload rows were re-injected,
+3038:                     # silently dropping the V30 contract evidence on expansion
+3039:                     # rounds -> gate/generator disagreed with round 0 and V30 runs
+3040:                     # could falsely read under-covered post-expand.
+3041:                     _resel = select_evidence_for_generation(
+3042:                         research_question=q["question"],
+3043:                         protocol=protocol,
+3044:                         classified_sources=retrieval.classified_sources,
+3045:                         evidence_rows=retrieval.evidence_rows,
+3046:                         max_rows=max_ev,
+3047:                         primary_trial_anchors=_primary_anchors,
+3048:                         relevance_floor=_relevance_floor,   # Phase 5 (#989)
+3049:                     )
+3050:                     _billed = (
+3051:                         list(_gate_injected_prepend_rows)
+3052:                         + list(_resel.selected_rows)
+3324:         # pool. Runs AFTER the Phase-3 plan-sufficiency gate (which certified the
+3325:         # full PRE-dedup billed set) and AFTER the terminal proceed/partial decision,
+3326:         # so the gate is never fed a shrunken corpus. Collapses rehashes of the same
+3327:         # finding to one representative + corroboration_count (independent
+3328:         # registrable-domains); applies to the full-plan AND the partial pruned pool.
+3329:         # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
+3330:         if _use_finding_dedup:
+3331:             from src.polaris_graph.authority.data_loader import (
+3332:                 load_authority_data,
+3333:             )
+3334:             from src.polaris_graph.synthesis.finding_dedup import (
+3335:                 dedup_by_finding,
+3336:             )
+3337:             _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
+3338:             _dedup = dedup_by_finding(
+3339:                 evidence_for_gen, gov_suffixes=_gov_suffixes
+3340:             )
+3341:             evidence_for_gen = _dedup.deduped_rows
+3342:             _finding_dedup_telemetry = {
+3343:                 "raw_row_count": _dedup.raw_row_count,
+3344:                 "distinct_finding_count": _dedup.distinct_finding_count,
+3345:                 "collapsed_row_count": _dedup.collapsed_row_count,
+3346:                 "clusters": [
+3347:                     {
+3348:                         "finding_key": list(c.finding_key),
+3349:                         "corroboration_count": c.corroboration_count,
+3350:                         "member_hosts": c.member_hosts,
+3351:                     }
+3352:                     for c in _dedup.clusters
+3353:                 ],
+3354:             }
+3355:             _log(
+3356:                 f"[finding-dedup] raw={_dedup.raw_row_count} "
+3357:                 f"distinct={_dedup.distinct_finding_count} "
+3358:                 f"collapsed={_dedup.collapsed_row_count} "
+4262:         if summary.get("saturation"):
+4263:             manifest["saturation"] = summary["saturation"]
+4264: 
+4265:         # I-meta-005 Phase 5 (#989): finding-dedup telemetry + per-cluster
+4266:         # corroboration (independent hosts) in the per-run manifest. ON-mode only
+4267:         # (key absent in OFF -> legacy manifest shape preserved).
+4268:         if _finding_dedup_telemetry is not None:
+4269:             manifest["finding_dedup"] = _finding_dedup_telemetry
+4270: 
+4271:         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
+4272:         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
+
+codex
+The P2 fixes are present in the current files: `_authority()` now preserves explicit `0.0`, and the empty guard only applies `max_rows <= 0` on the legacy path. I’m running the narrow pure-CPU tests now so the verdict isn’t based only on visual inspection.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files tests | rg "evidence_selector|finding_dedup_phase5"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/synthesis/test_finding_dedup_phase5.py -q' in C:\POLARIS
+ succeeded in 1811ms:
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py
+
+ succeeded in 11386ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 17 items
+
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py ............. [ 76%]
+....                                                                     [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: cache could not write path C:\POLARIS\.pytest_cache\v\cache\nodeids: [Errno 13] Permission denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache\\nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 17 passed, 1 warning in 4.55s ========================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files tests | rg "selector|selection|retrieval"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "select_evidence_for_generation|evidence selector|tier_balanced_v1|primary_trial_anchors|M-46|selection_relevance" tests' in C:\POLARIS
+ succeeded in 1777ms:
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:79:    "selection_strategy": "tier_balanced_v1_all_m46_ordered"
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:20:    select_evidence_for_generation,
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:33:    NOTE: `selection_relevance` is deliberately NOT set here — it is a sidecar the
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:204:    off = select_evidence_for_generation(
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:208:    assert off.selection_strategy == "tier_balanced_v1"
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:210:    # OFF must NOT add the selection_relevance key (strict byte-identity).
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:211:    assert all("selection_relevance" not in r for r in off.selected_rows)
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:217:    on = select_evidence_for_generation(
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:223:    assert all("selection_relevance" in r for r in on.selected_rows)
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:231:    on = select_evidence_for_generation(
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:272:    on = select_evidence_for_generation(
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:285:    on = select_evidence_for_generation(
+tests\polaris_graph\synthesis\test_finding_dedup_phase5.py:291:    off = select_evidence_for_generation(
+tests\polaris_graph\retrieval\test_saturation_phase4.py:797:    Limitations; primary_trial_anchors + direct_trial_anchors -> Trial Summary +
+tests\polaris_graph\retrieval\test_saturation_phase4.py:837:            primary_trial_anchors=["TRIAL-A", "TRIAL-B"],
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py:167:    """The REAL evidence selector quota depends ONLY on the T1-T7 tier string.
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py:175:        select_evidence_for_generation,
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py:198:    sel_a = select_evidence_for_generation(
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py:202:    sel_b = select_evidence_for_generation(
+tests\polaris_graph\test_b102_graph_v4.py:90:        "evidence_selection": {"selection_strategy": "tier_balanced_v1"},
+tests\polaris_graph\test_b102_graph_v4.py:266:            "evidence_selection": {"selection_strategy": "tier_balanced_v1"},
+tests\polaris_graph\test_honest_sweep_job_runner.py:59:        ("[select]      strategy=tier_balanced_v1 selected=300", "select"),
+tests\polaris_graph\test_m201_evidence_selection.py:7:Post-fix (deep-dive R6): `select_evidence_for_generation()` does
+tests\polaris_graph\test_m201_evidence_selection.py:18:    select_evidence_for_generation,
+tests\polaris_graph\test_m201_evidence_selection.py:66:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:98:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:121:    r1 = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:128:    r2 = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:153:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:171:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:184:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:197:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:207:    # renamed when M-46 ordering landed; assertion was stale.
+tests\polaris_graph\test_m201_evidence_selection.py:210:    assert result.selection_strategy == "tier_balanced_v1_all_m46_ordered"
+tests\polaris_graph\test_m201_evidence_selection.py:220:    result = select_evidence_for_generation(
+tests\polaris_graph\test_m201_evidence_selection.py:230:    assert d["selection_strategy"].startswith("tier_balanced_v1")
+tests\polaris_graph\test_m201_evidence_selection.py:237:    """Source check: run_one_query calls select_evidence_for_generation
+tests\polaris_graph\test_m201_evidence_selection.py:242:    assert "select_evidence_for_generation" in source, (
+tests\polaris_graph\test_m35_primary_trial_expander.py:5:  - Template without `per_query_primary_trial_anchors` key → no queries.
+tests\polaris_graph\test_m35_primary_trial_expander.py:33:        tmpl = {"per_query_primary_trial_anchors": ["TRIAL-1"]}
+tests\polaris_graph\test_m35_primary_trial_expander.py:37:        tmpl = {"per_query_primary_trial_anchors": {"other_slug": ["TRIAL-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:42:        tmpl = {"per_query_primary_trial_anchors": {"s": "TRIAL-1"}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:46:        tmpl = {"per_query_primary_trial_anchors": {"s": []}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:52:        tmpl = {"per_query_primary_trial_anchors": {"s": ["TRIAL-A"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:57:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:66:        tmpl = {"per_query_primary_trial_anchors": {"s": ["Trial-ABC"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:71:        tmpl = {"per_query_primary_trial_anchors": {"s": ["  TRIAL-1  "]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:77:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:91:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:102:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:111:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:118:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:129:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:138:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:147:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:156:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:166:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:175:        tmpl = {"per_query_primary_trial_anchors": {"s": [
+tests\polaris_graph\test_m35_primary_trial_expander.py:184:        tmpl = {"per_query_primary_trial_anchors": {"s": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:188:        tmpl = {"per_query_primary_trial_anchors": {"s": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:192:        tmpl = {"per_query_primary_trial_anchors": {"s": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:201:        tmpl = {"per_query_primary_trial_anchors": {"": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:205:        tmpl = {"per_query_primary_trial_anchors": {"   ": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:209:        tmpl = {"per_query_primary_trial_anchors": {"s": ["A-1"]}}
+tests\polaris_graph\test_m35_primary_trial_expander.py:221:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:231:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:239:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:249:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:259:        tmpl = {"per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m35_primary_trial_expander.py:282:        by_slug = tmpl.get("per_query_primary_trial_anchors")
+tests\polaris_graph\test_m35_primary_trial_expander.py:297:        by_slug = tmpl.get("per_query_primary_trial_anchors", {})
+tests\polaris_graph\test_m35_primary_trial_expander.py:312:            "per_query_primary_trial_anchors slug"
+tests\polaris_graph\test_m35_primary_trial_expander.py:323:        assert tmpl.get("per_query_primary_trial_anchors", {}) in ({}, None)
+tests\polaris_graph\test_m41_v24_regression_fixes.py:419:            select_evidence_for_generation,
+tests\polaris_graph\test_m41_v24_regression_fixes.py:422:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m41_v24_regression_fixes.py:495:            select_evidence_for_generation,
+tests\polaris_graph\test_m41_v24_regression_fixes.py:502:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:215:            primary_trial_anchors=["SURPASS-2", "SURPASS-3"],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:249:            primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:303:            primary_trial_anchors=["SURPASS-2", "SURPASS-3"],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:371:            primary_trial_anchors=["SURPASS-2", "SURPASS-3"],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:399:            primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:412:            primary_trial_anchors=[],
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:465:        primary_trial_anchors kwarg with None default."""
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:471:        assert "primary_trial_anchors" in sig.parameters
+tests\polaris_graph\test_m42ab_anaphoric_and_builder.py:472:        assert sig.parameters["primary_trial_anchors"].default is None
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:109:            select_evidence_for_generation,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:121:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:148:            select_evidence_for_generation, _row_jurisdiction,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:155:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:174:            select_evidence_for_generation, _row_jurisdiction,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:188:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:226:            select_evidence_for_generation, _row_jurisdiction,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:236:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:259:            select_evidence_for_generation, _row_jurisdiction,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:269:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:304:            select_evidence_for_generation,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:313:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:337:            select_evidence_for_generation,
+tests\polaris_graph\test_m42d_hc_quota_expansion.py:344:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:1:"""M-42c tests: mechanism-evidence selector floor + conditional
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:71:            select_evidence_for_generation,
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:100:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:124:            select_evidence_for_generation,
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:142:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:158:            select_evidence_for_generation,
+tests\polaris_graph\test_m42c_mechanism_floor_and_prompt.py:167:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:7:M-42e: for each anchor trial in `primary_trial_anchors`, if the
+tests\polaris_graph\test_m42e_primary_trial_floor.py:259:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:274:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:280:            primary_trial_anchors=["SURPASS-1", "SURPASS-2"],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:298:            select_evidence_for_generation, _M42E_PRIMARY_FLOOR_CAP,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:329:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:335:            primary_trial_anchors=anchors,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:368:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:382:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:388:            primary_trial_anchors=["SURPASS-1", "SURPASS-2"],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:401:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:411:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:417:            primary_trial_anchors=["NONEXISTENT-99"],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:472:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:477:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:483:            primary_trial_anchors=["SURPASS-1", "SURPASS-2", "SURPASS-3", "SURMOUNT-3"],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:504:            select_evidence_for_generation, _M42E_PRIMARY_FLOOR_CAP,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:521:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:527:            primary_trial_anchors=anchors,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:545:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:548:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:554:            primary_trial_anchors=["SURPASS-1", "SURPASS-2", "SURPASS-3", "SURMOUNT-3"],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:565:        """When primary_trial_anchors is None or empty, selector
+tests\polaris_graph\test_m42e_primary_trial_floor.py:568:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:571:        result_none = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:577:            primary_trial_anchors=None,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:579:        result_empty = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:585:            primary_trial_anchors=[],
+tests\polaris_graph\test_m42e_primary_trial_floor.py:596:            select_evidence_for_generation,
+tests\polaris_graph\test_m42e_primary_trial_floor.py:599:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m42e_primary_trial_floor.py:605:            primary_trial_anchors=["NONEXISTENT-99", "FAKE-1"],
+tests\polaris_graph\test_m45_refetch_diagnostics.py:204:            primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m45_refetch_diagnostics.py:293:                primary_trial_anchors=["SURPASS-2", "SURPASS-1"],
+tests\polaris_graph\test_m45_refetch_diagnostics.py:335:            primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m45_refetch_diagnostics.py:368:                primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:1:"""M-46 tests: selector no-bypass when pool_size <= max_rows.
+tests\polaris_graph\test_m46_selector_no_bypass.py:8:Expected post-M-46 behavior in short-pool mode:
+tests\polaris_graph\test_m46_selector_no_bypass.py:9:  1. All rows returned (no truncation, same as pre-M-46)
+tests\polaris_graph\test_m46_selector_no_bypass.py:22:    select_evidence_for_generation,
+tests\polaris_graph\test_m46_selector_no_bypass.py:51:        Pre-M-46: early-exit → notes=['pool_size<=max_rows ...']
+tests\polaris_graph\test_m46_selector_no_bypass.py:54:        Post-M-46: notes include m42e_primary_floor entry with
+tests\polaris_graph\test_m46_selector_no_bypass.py:70:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:76:            primary_trial_anchors=["SURPASS-1", "SURPASS-2", "SURPASS-3"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:82:            f"M-46 did not emit m42e_primary_floor note in short-pool mode. "
+tests\polaris_graph\test_m46_selector_no_bypass.py:89:        """All rows must remain in output — M-46 only reorders."""
+tests\polaris_graph\test_m46_selector_no_bypass.py:96:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:102:            primary_trial_anchors=["SURPASS-1"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:120:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:126:            primary_trial_anchors=["SURPASS-1"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:154:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:160:            primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:186:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:205:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:211:            primary_trial_anchors=None,
+tests\polaris_graph\test_m46_selector_no_bypass.py:223:        """The selection_strategy label changes to reflect the M-46
+tests\polaris_graph\test_m46_selector_no_bypass.py:231:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:237:            primary_trial_anchors=["SURPASS-1"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:239:        assert result.selection_strategy == "tier_balanced_v1_all_m46_ordered"
+tests\polaris_graph\test_m46_selector_no_bypass.py:247:        """Pool 6 rows, max_rows 3 → truncating path (not M-46 early
+tests\polaris_graph\test_m46_selector_no_bypass.py:259:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:265:            primary_trial_anchors=["SURPASS-1", "SURPASS-2"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:267:        # Truncating path: selection_strategy != M-46 label
+tests\polaris_graph\test_m46_selector_no_bypass.py:268:        assert result.selection_strategy != "tier_balanced_v1_all_m46_ordered"
+tests\polaris_graph\test_m46_selector_no_bypass.py:275:    """Ensure M-46 telemetry is stable across runs with identical input."""
+tests\polaris_graph\test_m46_selector_no_bypass.py:296:        r1 = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:302:            primary_trial_anchors=["SURPASS-1"],
+tests\polaris_graph\test_m46_selector_no_bypass.py:304:        r2 = select_evidence_for_generation(
+tests\polaris_graph\test_m46_selector_no_bypass.py:310:            primary_trial_anchors=["SURPASS-1"],
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py:22:    get_primary_trial_anchors_for_slug,
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py:32:        "per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py:125:            "per_query_primary_trial_anchors": {
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py:142:            "per_query_primary_trial_anchors": {"s": ["A-1", "A-2", "A-3"]},
+tests\polaris_graph\test_m48_anchor_variants_and_scope.py:332:        anchors = get_primary_trial_anchors_for_slug(tmpl, slug)
+tests\polaris_graph\test_m51_selector_primary_custody.py:23:    select_evidence_for_generation,
+tests\polaris_graph\test_m51_selector_primary_custody.py:82:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:88:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:104:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:110:            primary_trial_anchors=["SURPASS-4", "SURPASS-CVOT"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:119:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:125:            primary_trial_anchors=["SURPASS-4"],  # no SURPASS-4 in corpus
+tests\polaris_graph\test_m51_selector_primary_custody.py:137:        # M-46 short-pool path)
+tests\polaris_graph\test_m51_selector_primary_custody.py:142:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:148:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:164:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:170:            primary_trial_anchors=[f"TRIAL-{i}" for i in range(5)],
+tests\polaris_graph\test_m51_selector_primary_custody.py:203:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:209:            primary_trial_anchors=["SURPASS-4", "SURPASS-4", "SURPASS-4"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:236:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:242:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:272:        """With primary_trial_anchors=None, M-51 is a no-op; selector
+tests\polaris_graph\test_m51_selector_primary_custody.py:277:        result_none = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:283:            primary_trial_anchors=None,
+tests\polaris_graph\test_m51_selector_primary_custody.py:285:        result_empty = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:291:            primary_trial_anchors=[],
+tests\polaris_graph\test_m51_selector_primary_custody.py:304:    """M-51 must also fire in the short-pool (M-46) path."""
+tests\polaris_graph\test_m51_selector_primary_custody.py:307:        """Short pool: 5 rows total, max_rows=100 (forces M-46
+tests\polaris_graph\test_m51_selector_primary_custody.py:312:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:318:            primary_trial_anchors=["SURPASS-CVOT"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:348:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:354:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m51_selector_primary_custody.py:370:        result = select_evidence_for_generation(
+tests\polaris_graph\test_m51_selector_primary_custody.py:376:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:48:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:66:            primary_trial_anchors=None,
+tests\polaris_graph\test_m53_custody_telemetry.py:74:            primary_trial_anchors=[],
+tests\polaris_graph\test_m53_custody_telemetry.py:84:            primary_trial_anchors=["SURPASS-4", "SURPASS-4", "SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:116:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:142:            primary_trial_anchors=["SURPASS-CVOT"],
+tests\polaris_graph\test_m53_custody_telemetry.py:158:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:175:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:194:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:215:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_m53_custody_telemetry.py:237:            primary_trial_anchors=["SURPASS-4"],
+tests\polaris_graph\test_pass2_remediation.py:165:# N-302: evidence selector honors max_rows as hard cap
+tests\polaris_graph\test_pass2_remediation.py:172:        select_evidence_for_generation,
+tests\polaris_graph\test_pass2_remediation.py:178:    result = select_evidence_for_generation(
+tests\polaris_graph\test_pass2_remediation.py:192:        select_evidence_for_generation,
+tests\polaris_graph\test_pass2_remediation.py:198:    result = select_evidence_for_generation(
+tests\polaris_graph\test_pass2_remediation.py:214:        select_evidence_for_generation,
+tests\polaris_graph\test_pass2_remediation.py:221:    result = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:19:    select_evidence_for_generation,
+tests\polaris_graph\test_recency_tiebreaker.py:75:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:87:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:98:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:110:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:121:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:133:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:147:    sel = select_evidence_for_generation(
+tests\polaris_graph\test_recency_tiebreaker.py:150:        primary_trial_anchors=["SURPASS-2"],
+tests\polaris_graph\test_source_diversity.py:16:    select_evidence_for_generation,
+tests\polaris_graph\test_source_diversity.py:44:    return select_evidence_for_generation(
+tests\polaris_graph\test_source_diversity.py:46:        evidence_rows=rows, max_rows=max_rows, primary_trial_anchors=anchors,
+
+ succeeded in 2418ms:
+tests\polaris_graph\test_retrieval_trace.py
+tests\polaris_graph\test_md7_retrieval_cache.py
+tests\polaris_graph\test_m51_selector_primary_custody.py
+tests\polaris_graph\test_m46_selector_no_bypass.py
+tests\polaris_graph\test_m201_evidence_selection.py
+tests\polaris_graph\retrieval\test_saturation_phase4.py
+tests\polaris_graph\clinical_retrieval\test_evidence_pool.py
+tests\polaris_graph\clinical_retrieval\test_corpus_adequacy_gate.py
+tests\polaris_graph\clinical_retrieval\test_clinical_source_registry.py
+tests\polaris_graph\clinical_retrieval\test_clinical_retriever.py
+tests\polaris_graph\clinical_retrieval\test_real_fetcher.py
+tests\polaris_graph\clinical_retrieval\test_query_planner.py
+tests\polaris_graph\clinical_retrieval\__init__.py
+tests\polaris_graph\api\test_retrieval_route.py
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_m201_evidence_selection.py tests/polaris_graph/test_m46_selector_no_bypass.py tests/polaris_graph/test_m51_selector_primary_custody.py --collect-only -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_m201_evidence_selection.py tests/polaris_graph/test_m46_selector_no_bypass.py --collect-only -q' in C:\POLARIS
+ succeeded in 7292ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 29 items
+
+<Dir POLARIS>
+  <Package tests>
+    <Dir polaris_graph>
+      <Module test_m201_evidence_selection.py>
+        <Function test_m201_generator_selection_not_raw_prefix>
+        <Function test_m201_selection_tier_balances_present_tiers>
+        <Function test_m201_selector_is_stable_for_equal_scores>
+        <Function test_m201_selection_joins_classified_sources_by_url>
+        <Function test_m201_selection_empty_pool_returns_empty>
+        <Function test_m201_selection_max_rows_zero_returns_empty>
+        <Function test_m201_selection_pool_smaller_than_max_keeps_everything>
+        <Function test_m201_manifest_records_evidence_selection_telemetry>
+        <Function test_m201_orchestrator_uses_selector_not_prefix_slice>
+      <Module test_m46_selector_no_bypass.py>
+        <Class TestM46ShortPoolFloorsFire>
+          <Function test_pool_smaller_than_max_rows_still_emits_m42e_note>
+          <Function test_all_rows_kept_in_short_pool>
+          <Function test_primary_ordered_before_derivatives>
+          <Function test_mechanism_rows_ordered_after_primaries>
+          <Function test_hc_expansion_telemetry_in_short_pool>
+          <Function test_backwards_compat_no_anchors_no_notes>
+          <Function test_m46_ordered_strategy_label>
+        <Class TestM46NoRegressionOnTruncatingRuns>
+          <Function test_truncating_path_still_works>
+        <Class TestM46TelemetryStability>
+          <Function test_deterministic_ordering>
+      <Module test_m51_selector_primary_custody.py>
+        <Class TestM51AnchorPrimaryCustody>
+          <Function test_primary_in_corpus_inserted_when_not_naturally_selected>
+          <Function test_multi_anchor_multi_primary_all_inserted>
+          <Function test_anchor_with_no_primary_in_corpus_is_noop>
+          <Function test_primary_already_selected_no_duplicate>
+        <Class TestM51Cap>
+          <Function test_cap_is_min_of_anchors_and_max_rows>
+          <Function test_duplicate_anchors_dedupe_in_cap>
+        <Class TestM51TrimOverflow>
+          <Function test_insertion_triggers_trim_to_max_rows>
+        <Class TestM51BackwardCompatibility>
+          <Function test_no_anchors_produces_identical_output_to_v28>
+        <Class TestM51ShortPoolPath>
+          <Function test_short_pool_scans_full_pool_for_primaries>
+        <Class TestM51CanonicalIdentity>
+          <Function test_m51_does_not_reinsert_already_selected_primary>
+          <Function test_missing_evidence_id_uses_url_tuple_identity>
+
+========================= 29 tests collected in 1.90s =========================
+
+ succeeded in 7717ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 18 items
+
+<Dir POLARIS>
+  <Package tests>
+    <Dir polaris_graph>
+      <Module test_m201_evidence_selection.py>
+        <Function test_m201_generator_selection_not_raw_prefix>
+        <Function test_m201_selection_tier_balances_present_tiers>
+        <Function test_m201_selector_is_stable_for_equal_scores>
+        <Function test_m201_selection_joins_classified_sources_by_url>
+        <Function test_m201_selection_empty_pool_returns_empty>
+        <Function test_m201_selection_max_rows_zero_returns_empty>
+        <Function test_m201_selection_pool_smaller_than_max_keeps_everything>
+        <Function test_m201_manifest_records_evidence_selection_telemetry>
+        <Function test_m201_orchestrator_uses_selector_not_prefix_slice>
+      <Module test_m46_selector_no_bypass.py>
+        <Class TestM46ShortPoolFloorsFire>
+          <Function test_pool_smaller_than_max_rows_still_emits_m42e_note>
+          <Function test_all_rows_kept_in_short_pool>
+          <Function test_primary_ordered_before_derivatives>
+          <Function test_mechanism_rows_ordered_after_primaries>
+          <Function test_hc_expansion_telemetry_in_short_pool>
+          <Function test_backwards_compat_no_anchors_no_notes>
+          <Function test_m46_ordered_strategy_label>
+        <Class TestM46NoRegressionOnTruncatingRuns>
+          <Function test_truncating_path_still_works>
+        <Class TestM46TelemetryStability>
+          <Function test_deterministic_ordering>
+
+========================= 18 tests collected in 1.81s =========================
+
+codex
+The “29 selector regression” set is `test_m201_evidence_selection.py`, `test_m46_selector_no_bypass.py`, and `test_m51_selector_primary_custody.py`. I’m running those now; this also checks the OFF-mode `max_rows=0` behavior stayed intact.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_m201_evidence_selection.py tests/polaris_graph/test_m46_selector_no_bypass.py tests/polaris_graph/test_m51_selector_primary_custody.py -q' in C:\POLARIS
+ succeeded in 11844ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 29 items
+
+tests\polaris_graph\test_m201_evidence_selection.py .........            [ 31%]
+tests\polaris_graph\test_m46_selector_no_bypass.py .........             [ 62%]
+tests\polaris_graph\test_m51_selector_primary_custody.py ...........     [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 29 passed, 1 warning in 5.55s ========================
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Verified both iter-1 P2s are closed:
+- P2a: explicit `authority_score: 0.0` now stays `0.0` in floor ranking.
+- P2b: floor mode ignores `max_rows=0`; OFF mode still returns empty.
+
+Ran pure-CPU smoke:
+- Phase-5: `17 passed`
+- Selector regression: `29 passed`
+tokens used
+73,791
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Verified both iter-1 P2s are closed:
+- P2a: explicit `authority_score: 0.0` now stays `0.0` in floor ranking.
+- P2b: floor mode ignores `max_rows=0`; OFF mode still returns empty.
+
+Ran pure-CPU smoke:
+- Phase-5: `17 passed`
+- Selector regression: `29 passed`

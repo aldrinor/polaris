@@ -1193,3 +1193,26 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   P2a COMPLETED (manifest["saturation"] copy + uncovered_sub_queries text). FULLY
   CONVERGED. Trajectory 1P1+2P2 → 0P1+1P2 → 0P1+0P2 (monotone decreasing, genuine
   findings each round). Merge authorized by Codex written APPROVE.
+
+## I-meta-005 Phase 5 (#989) — brief gate
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 4 P2. Caught BEFORE
+  any code: (P1) corroboration needs hosts not URLs; no-unique-claim-loss not safe as
+  written (population/comparator not extracted, subject can be "unknown"); multi-claim
+  rows could drop a unique finding; on-mode ordering contradictory (gate must see
+  pre-dedup set). All 8 addressed in iter-2 brief (conservative-singleton on
+  unknown/missing, finding-level + row-retention dedup, pinned order, urlparse hosts,
+  floor fail-loud, selection_relevance sidecar, partial-pool dedup, member-host
+  manifest). convergence_call: continue.
+- **iter 2** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 2 non-blocking P2 (wording:
+  unknown-subject sentinel must be per-CLAIM not per-row; simplify §3.1e retention
+  wording). remaining_blockers_for_execution: []. Brief APPROVED; P2 clarifications
+  folded into build_spec. Trajectory 4P1+4P2 → 0P1+2P2(non-blocking). Proceed to BUILD.
+
+## I-meta-005 Phase 5 (#989) — diff gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 2 P2 (non-blocking),
+  3 open items ruled acceptable. P2a: floor-mode `or 1.0` laundered explicit
+  authority 0.0 → 1.0. P2b: `max_rows<=0` guard short-circuited before floor mode.
+  Both fixed deterministically + pinned. Re-gate iter 2 to confirm.
+- **iter 2** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  Both iter-1 P2s confirmed closed. FULLY CONVERGED. Merge authorized by Codex
+  written APPROVE.

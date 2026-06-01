@@ -110,7 +110,7 @@ index 14a247d9..1c844fe0 100644
          # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
          # AND PG_FOUR_ROLE_MODE is enabled. There is NO default real transport: the live
 diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
-index c25df449..e4c566ef 100644
+index c25df449..a8a5dc8f 100644
 --- a/src/polaris_graph/retrieval/evidence_selector.py
 +++ b/src/polaris_graph/retrieval/evidence_selector.py
 @@ -28,6 +28,35 @@ _TIER_PRIORITY: dict[str, int] = {
@@ -149,7 +149,7 @@ index c25df449..e4c566ef 100644
  _STOPWORDS = frozenset({
      "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
      "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
-@@ -881,6 +910,64 @@ def _m46_short_pool_ordered_selection(
+@@ -881,6 +910,71 @@ def _m46_short_pool_ordered_selection(
      )
  
  
@@ -175,13 +175,20 @@ index c25df449..e4c566ef 100644
 +    def _is_anchor(row: dict[str, Any]) -> bool:
 +        return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
 +
++    def _authority(row: dict[str, Any]) -> float:
++        # Default 1.0 ONLY when authority_score is absent/None — an EXPLICIT 0.0
++        # (genuinely zero-authority row) must rank as 0.0, not be laundered to 1.0
++        # by a falsy `or` (Codex diff-gate P2).
++        a = row.get("authority_score")
++        return 1.0 if a is None else float(a)
++
 +    kept = [
 +        item for item in scored
 +        if item[1] >= relevance_floor or _is_anchor(item[3])
 +    ]
 +    kept.sort(
 +        key=lambda s: (
-+            -(s[1] * float(s[3].get("authority_score", 1.0) or 1.0)),
++            -(s[1] * _authority(s[3])),
 +            _TIER_PRIORITY.get(s[2], 9),
 +            s[0],
 +        )
@@ -214,7 +221,7 @@ index c25df449..e4c566ef 100644
  def select_evidence_for_generation(
      *,
      research_question: str,
-@@ -889,6 +976,7 @@ def select_evidence_for_generation(
+@@ -889,6 +983,7 @@ def select_evidence_for_generation(
      evidence_rows: list[dict[str, Any]],
      max_rows: int,
      primary_trial_anchors: list[str] | None = None,
@@ -222,7 +229,19 @@ index c25df449..e4c566ef 100644
  ) -> EvidenceSelection:
      """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
  
-@@ -958,6 +1046,19 @@ def select_evidence_for_generation(
+@@ -917,7 +1012,10 @@ def select_evidence_for_generation(
+     Returns:
+         EvidenceSelection with selected_rows + telemetry.
+     """
+-    if max_rows <= 0 or not evidence_rows:
++    # I-meta-005 Phase 5 (#989) — Codex diff-gate P2: in relevance-floor mode the
++    # `max_rows` cap is REPLACED by the floor, so a legacy `max_rows <= 0` must NOT
++    # empty the ON-mode pool. The empty-corpus guard still applies in both modes.
++    if (max_rows <= 0 and relevance_floor is None) or not evidence_rows:
+         return EvidenceSelection(
+             selected_rows=[], full_counts={}, selected_counts={},
+             dropped_count=0, selection_strategy="tier_balanced_v1",
+@@ -958,6 +1056,19 @@ def select_evidence_for_generation(
      for _, _, tier, _ in scored:
          full_counts[tier] = full_counts.get(tier, 0) + 1
  
@@ -475,10 +494,10 @@ index 00000000..8b137891
 +
 diff --git a/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
 new file mode 100644
-index 00000000..480eec47
+index 00000000..fca1e037
 --- /dev/null
 +++ b/tests/polaris_graph/synthesis/test_finding_dedup_phase5.py
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,295 @@
 +"""I-meta-005 Phase 5 (#989) smoke — finding-dedup + relevance-floor corpus.
 +
 +Cases P5-1..P5-9 (+ P5-3b) from the Codex-APPROVED brief
@@ -736,3 +755,41 @@ index 00000000..480eec47
 +        parse_relevance_floor("-0.1")
 +    with pytest.raises(ValueError):
 +        parse_relevance_floor("1.5")          # above range
++
++
++# ── diff-gate P2 fixes ───────────────────────────────────────────────────────
++
++def test_p5_explicit_zero_authority_ranks_below_positive():
++    # Codex diff-gate P2: an EXPLICIT authority_score=0.0 must NOT be laundered to
++    # 1.0 by `or`. A zero-authority row ranks BELOW an equal-relevance positive row.
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = [
++        _row("zero", "https://a.org/x",
++             "tirzepatide weight loss type 2 diabetes trial", authority=0.0),
++        _row("pos", "https://b.org/y",
++             "tirzepatide weight loss type 2 diabetes trial", authority=0.6),
++    ]
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=20, relevance_floor=0.30,
++    )
++    ids = [r["evidence_id"] for r in on.selected_rows]
++    assert ids == ["pos", "zero"]            # positive authority ranks first
++
++
++def test_p5_floor_mode_ignores_zero_max_rows():
++    # Codex diff-gate P2: in floor mode the max_rows cap is replaced by the floor,
++    # so max_rows=0 (a legacy PG_LIVE_MAX_EV_TO_GEN=0) must NOT empty the pool.
++    q = "tirzepatide weight loss in type 2 diabetes"
++    rows = _sel_rows(5, 0)
++    on = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=0, relevance_floor=0.30,
++    )
++    assert len(on.selected_rows) == 5        # floor kept all above-floor rows
++    # OFF-mode with max_rows=0 still short-circuits to empty (unchanged).
++    off = select_evidence_for_generation(
++        research_question=q, protocol=None, classified_sources=[],
++        evidence_rows=rows, max_rows=0,
++    )
++    assert off.selected_rows == []
