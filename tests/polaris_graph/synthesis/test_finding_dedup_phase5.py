@@ -16,6 +16,7 @@ import pytest
 
 from src.polaris_graph.authority.data_loader import load_authority_data
 from src.polaris_graph.retrieval.evidence_selector import (
+    parse_relevance_floor,
     select_evidence_for_generation,
 )
 from src.polaris_graph.synthesis.finding_dedup import (
@@ -234,3 +235,23 @@ def test_p5_5_relevance_times_authority_ranking():
     top_auth = [r["authority_score"] for r in on.selected_rows[:3]]
     assert top_auth == sorted(top_auth, reverse=True)      # highest authority first
     assert top_auth[0] == max(auths)
+
+
+# ── P5-11 PG_RELEVANCE_FLOOR fail-loud (the sweep's gate before sending a pool) ──
+
+def test_p5_11_relevance_floor_default_and_valid():
+    assert parse_relevance_floor(None) == pytest.approx(0.30)   # default
+    assert parse_relevance_floor("") == pytest.approx(0.30)     # blank -> default
+    assert parse_relevance_floor("0.5") == pytest.approx(0.5)
+    assert parse_relevance_floor("1.0") == pytest.approx(1.0)   # inclusive upper
+
+
+def test_p5_11_relevance_floor_fails_loud_on_invalid():
+    with pytest.raises(ValueError):
+        parse_relevance_floor("not_a_number")
+    with pytest.raises(ValueError):
+        parse_relevance_floor("0.0")          # exclusive lower bound
+    with pytest.raises(ValueError):
+        parse_relevance_floor("-0.1")
+    with pytest.raises(ValueError):
+        parse_relevance_floor("1.5")          # above range

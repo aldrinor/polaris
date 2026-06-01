@@ -28,6 +28,35 @@ _TIER_PRIORITY: dict[str, int] = {
     "T5": 5, "T6": 6, "T7": 7, "UNKNOWN": 8,
 }
 
+# I-meta-005 Phase 5 (#989): default relevance floor for `PG_RELEVANCE_FLOOR`.
+_DEFAULT_RELEVANCE_FLOOR = 0.30
+
+
+def parse_relevance_floor(
+    raw: str | None, *, default: float = _DEFAULT_RELEVANCE_FLOOR,
+) -> float:
+    """Parse + validate ``PG_RELEVANCE_FLOOR`` (I-meta-005 Phase 5 #989).
+
+    Range is (0.0, 1.0]. Empty/None -> ``default``. An unparseable float OR an
+    out-of-range value raises ``ValueError`` (FAIL LOUD) — a missing/garbage floor
+    must never silently send an unbounded, unfiltered pool to the generator.
+    """
+    if raw is None or not str(raw).strip():
+        value = default
+    else:
+        try:
+            value = float(str(raw).strip())
+        except ValueError as exc:
+            raise ValueError(
+                "PG_RELEVANCE_FLOOR must be a float in (0.0, 1.0]; got "
+                f"{raw!r}"
+            ) from exc
+    if not (0.0 < value <= 1.0):
+        raise ValueError(
+            f"PG_RELEVANCE_FLOOR out of range (0.0, 1.0]: {value}"
+        )
+    return value
+
 _STOPWORDS = frozenset({
     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
     "of", "in", "on", "at", "to", "for", "with", "by", "from", "as",
