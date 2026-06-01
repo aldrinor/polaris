@@ -2658,6 +2658,12 @@ async def run_one_query(
             primary_trial_anchors=_primary_anchors,
         )
         evidence_for_gen = evidence_selection.selected_rows
+        # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+        # Every non-selection injection below (V30 contract rows :2811, upload rows
+        # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of
+        # evidence_for_gen and `everything ahead of it` == the exact injected
+        # prepend a gap round must re-apply (Codex diff-gate P1).
+        _selection_base_rows = list(evidence_for_gen)
         _log(f"[select]      strategy={evidence_selection.selection_strategy} "
              f"selected={len(evidence_for_gen)} of {len(retrieval.evidence_rows)} "
              f"dropped={evidence_selection.dropped_count}")
@@ -2848,6 +2854,19 @@ async def run_one_query(
             q.get("uploaded_documents_blocked_count", 0) or 0
         )
 
+        # I-meta-005 Phase 4 (#988) — Codex diff-gate P1: the EXACT non-selection
+        # injected prepend (upload rows OUTERMOST, then V30 contract rows), in the
+        # SAME order applied to round 0 above, is everything ahead of the captured
+        # selection baseline. Gap rounds re-inject THIS identical block before
+        # re-gating AND the generator, so an expansion round never drops the V30
+        # contract evidence and the gate/generator stay in lockstep with round 0
+        # on the billed set. Derived by suffix-diff (robust to which of the V30 /
+        # upload branches actually ran) rather than re-referencing branch-local
+        # vars that may be undefined.
+        _gate_injected_prepend_rows = list(
+            evidence_for_gen[: len(evidence_for_gen) - len(_selection_base_rows)]
+        )
+
         # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
         # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
         # the V30 contract-row prepend (:2719) + the upload-row prepend (:2754)
@@ -2992,8 +3011,14 @@ async def run_one_query(
                         )
                         retrieval.evidence_rows.append(_ev)
                         _new_rows.append(_ev)
-                    # Re-select over the merged corpus, then re-inject upload rows
-                    # so the re-gate certifies EXACTLY the billed set (P4-16).
+                    # Re-select over the merged corpus, then re-inject the SAME
+                    # static non-selection prepend (upload + V30 contract rows) the
+                    # round-0 gate used, so the re-gate certifies EXACTLY the
+                    # augmented billed set the generator will see (P4-16). Codex
+                    # diff-gate P1: previously only upload rows were re-injected,
+                    # silently dropping the V30 contract evidence on expansion
+                    # rounds -> gate/generator disagreed with round 0 and V30 runs
+                    # could falsely read under-covered post-expand.
                     _resel = select_evidence_for_generation(
                         research_question=q["question"],
                         protocol=protocol,
@@ -3002,9 +3027,10 @@ async def run_one_query(
                         max_rows=max_ev,
                         primary_trial_anchors=_primary_anchors,
                     )
-                    _billed = list(_resel.selected_rows)
-                    if _upload_docs:
-                        _billed = list(_upload_rows) + _billed
+                    _billed = (
+                        list(_gate_injected_prepend_rows)
+                        + list(_resel.selected_rows)
+                    )
                     evidence_for_gen = _billed
                     _suff = assess_plan_sufficiency(
                         plan=_research_plan,
@@ -3057,6 +3083,20 @@ async def run_one_query(
                     f"{_sat_max_calls} "
                     f"novelty_trajectory={[round(x, 3) for x in _sat.novelty_trajectory]}"
                 )
+                # I-meta-005 Phase 4 (#988) — Codex diff-gate P2: persist the
+                # saturation trajectory into the manifest (summary -> manifest) so
+                # a partial/success run is observable WITHOUT re-reading run_log:
+                # decision, rounds fired, discovery spend, per-round novelty.
+                summary["saturation"] = {
+                    "decision": _sat.decision,
+                    "rounds_fired": _sat.rounds_fired,
+                    "discovery_calls": _sat.cumulative_discovery_calls,
+                    "max_discovery_calls": _sat_max_calls,
+                    "novelty_trajectory": [
+                        round(x, 4) for x in _sat.novelty_trajectory
+                    ],
+                    "truncated_any_round": _sat.truncated_any_round,
+                }
                 # `_suff` / `evidence_for_gen` / `retrieval` now hold the FINAL
                 # round's state (the closure mutated them via nonlocal).
                 if _sat.decision == STOP_SUFFICIENT:
@@ -3074,6 +3114,34 @@ async def run_one_query(
                         _gen_plan = _pruned_plan
                         _partial_mode = True
                         summary["status"] = "partial_saturation"
+                        # Codex diff-gate P2: name the DROPPED (under-covered)
+                        # sections + their shortfall in the manifest so the partial
+                        # artifact discloses exactly which planned sub-questions the
+                        # corpus could not cover, and by how much.
+                        _dropped_detail = [
+                            {
+                                "unit_id": _u.unit_id,
+                                "title": _u.title,
+                                "covered_count": _u.covered_count,
+                                "evidence_target": _u.evidence_target,
+                                "empty_facets": list(_u.empty_facets),
+                                "below_floor_count": _u.below_floor_count,
+                            }
+                            for _u in _suff.per_unit
+                            if not _u.sufficient
+                        ]
+                        summary["saturation"]["sections_kept"] = len(
+                            _pruned_plan.outline
+                        )
+                        summary["saturation"]["sections_dropped"] = list(
+                            _dropped_sections
+                        )
+                        summary["saturation"]["dropped_sections_detail"] = (
+                            _dropped_detail
+                        )
+                        summary["saturation"]["authority_floor"] = (
+                            _suff.authority_floor
+                        )
                         _log(
                             f"[saturation]  PARTIAL report: "
                             f"{len(_pruned_plan.outline)} sufficient section(s) "

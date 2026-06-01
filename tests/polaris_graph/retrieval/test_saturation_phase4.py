@@ -535,6 +535,73 @@ def test_p4_10_gap_round_anchor_suppressed_both_seams():
     assert len(sink2) == 1 + 3              # anchor + 3-capped amplified
 
 
+# ── P4-10b gap round must NOT early-break and starve later gap facets ─────────
+
+class _HighYieldAdapter:
+    """A stub adapter that records every query AND returns 2*limit candidates on
+    EVERY call, so the legacy result-count early-break (`len(got) >= 2*limit`)
+    would fire after the FIRST query if it were still active."""
+
+    def __init__(self, name, sink):
+        self.name = name
+        self.need = "primary_literature"
+        self.scoped = False
+        self._sink = sink
+
+    def run(self, query, *, limit):
+        from src.polaris_graph.retrieval.domain_backends import SearchCandidate
+        self._sink.append(query)
+        return [
+            SearchCandidate(
+                url=f"https://hit/{query}/{i}",
+                title="t", snippet="s", source="src",
+                metadata={}, query_origin=query,
+            )
+            for i in range(limit * 2)
+        ]
+
+
+def test_p4_10b_gap_round_no_early_break_starvation():
+    """REGRESSION PIN for the early-break starvation P2: on a gap round
+    (anchor_seed=False) every gap query is a DISTINCT under-covered facet that
+    must get its own retrieval. A high-yield FIRST facet must NOT trip the legacy
+    `len(got) >= 2*limit` break and starve the later specialized facets. The
+    legacy break MUST still fire on anchor_seed=True (OFF / single pass)."""
+    from src.polaris_graph.retrieval.domain_backends import run_need_type_backends
+
+    gap = ["gq0", "gq1", "gq2", "gq3", "gq4"]
+    frame = ResearchFrame(evidence_needs=[], jurisdictions=[])
+
+    # anchor_seed=False: NO early break -> ALL 5 gap facets fire even though gq0
+    # already returns 2*limit hits.
+    sink: list[str] = []
+
+    class _Reg(SourceAdapterRegistry):
+        def adapters_for_need(self, need, *, jurisdictions):
+            return [_HighYieldAdapter("hy", sink)]
+
+    run_need_type_backends(
+        frame=frame, research_question="ANCHOR",
+        amplified_queries=gap, registry=_Reg(), anchor_seed=False,
+    )
+    assert sink == gap                    # every gap facet retrieved, in order
+    assert len(sink) == 5                 # no starvation
+
+    # anchor_seed=True (OFF / single pass): the legacy break is PRESERVED -> the
+    # anchor query alone already returns 2*limit, so the loop breaks after it.
+    sink2: list[str] = []
+
+    class _Reg2(SourceAdapterRegistry):
+        def adapters_for_need(self, need, *, jurisdictions):
+            return [_HighYieldAdapter("hy", sink2)]
+
+    run_need_type_backends(
+        frame=frame, research_question="ANCHOR",
+        amplified_queries=gap, registry=_Reg2(),  # anchor_seed defaults True
+    )
+    assert sink2 == ["ANCHOR"]            # legacy early-break still fires
+
+
 # ── P4-13 global evidence_id renumber across rounds ──────────────────────────
 
 def test_p4_13_global_evidence_id_renumber():

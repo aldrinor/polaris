@@ -670,7 +670,15 @@ def run_need_type_backends(
             got: list[SearchCandidate] = []
             for q in queries:
                 got.extend(fn(q, limit=max_hits_per_backend))
-                if len(got) >= max_hits_per_backend * 2:
+                # I-meta-005 Phase 4 (#988): the result-count early-break is a
+                # legacy parity cap for the anchor + 3-amplified case. On a gap
+                # round (anchor_seed=False) every query is a DISTINCT under-covered
+                # facet that must get its own retrieval, so do NOT break early or a
+                # high-yield early facet would starve later specialized gap facets
+                # (P4-10). The gap-query list is already budget-truncated upstream,
+                # so firing all of them is bounded. anchor_seed=True (OFF / single
+                # pass) keeps the exact legacy break -> byte-identical.
+                if anchor_seed and len(got) >= max_hits_per_backend * 2:
                     break
             seen_urls = {c.url for c in candidates}
             new = [c for c in got if c.url and c.url not in seen_urls]
