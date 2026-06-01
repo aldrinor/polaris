@@ -97,7 +97,7 @@ def _stub_pipeline(monkeypatch, n, openalex_impl):
     )
     monkeypatch.setattr(
         lr, "_fetch_content",
-        lambda url, n_chars: (
+        lambda url, n_chars, doi_hint="", pmid_hint="": (
             "Carbon pricing raised household energy costs across several "
             "Canadian provinces during the study period; the effect was "
             "partly offset by federal rebates and varied by region and by "
