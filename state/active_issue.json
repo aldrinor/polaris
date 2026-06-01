@@ -1,7 +1,7 @@
 {
-  "active_issue_id": "I-meta-005-phase-1",
-  "active_issue_github": 985,
-  "current_step": "Phase 1 diff-gate iter1 fixes applied (44/44 smoke, architect CLEAN) \u2014 Codex re-gate iter2",
+  "active_issue_id": "I-meta-005-phase-2",
+  "active_issue_github": 986,
+  "current_step": "Phase 1 MERGED (PR #998) \u2014 advancing to Phase 2 (source-discovery)",
   "sub_pr_build_status_2026_05_29": {
     "pr1_lock_slug_serving_route_verify_consistency": "d0ccc583 \u2014 brief APPROVE iter1, diff APPROVE iter1",
     "pr2_role_contracts": "fff6f2ef \u2014 brief APPROVE iter2, diff APPROVE iter5 (4 Sentinel fail-closed hardenings)",
