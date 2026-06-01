@@ -1687,6 +1687,7 @@ def run_live_retrieval(
     seed_urls: Optional[list[str]] = None,
     seed_only: bool = False,
     research_frame: Any = None,
+    anchor_seed: bool = True,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1710,6 +1711,16 @@ def run_live_retrieval(
             keyed on the frame's declared `evidence_needs` + extracted
             `jurisdictions`, NOT a domain. Mutually exclusive with `domain` on
             the on-path (the sweep passes `domain=None` on-mode).
+        anchor_seed: When True (default — OFF-mode byte-identical), the verbatim
+            `research_question` is PREPENDED to the effective query list and the
+            scope validator keeps it (`always_keep_anchor=True`). I-meta-005
+            Phase 4 (#988) GAP rounds pass `anchor_seed=False` so the broad anchor
+            is NOT re-fired: `all_queries = amplified_queries` ONLY, the scope
+            validator does NOT re-add the anchor (`always_keep_anchor=False`), and
+            the need-type backend is invoked with `anchor_seed=False` (no
+            `research_question` prepend there either). A gap round therefore fires
+            EXACTLY the gap sub-queries on BOTH the core Serper/S2 seam AND the
+            need-type adapters.
 
     Returns LiveRetrievalResult.
 
@@ -1739,13 +1750,17 @@ def run_live_retrieval(
         validate_frame_needs(research_frame)
 
     # ── Step 1: compile the effective query list ──────────────────────
-    all_queries: list[str] = [research_question]
+    # I-meta-005 Phase 4 (#988): `anchor_seed=False` (gap rounds) suppresses the
+    # broad `research_question` anchor on BOTH the prepend AND the scope-validator
+    # reinsertion, so a gap round fires ONLY the gap sub-queries (no wasted
+    # anchor re-run). Default True = OFF-mode byte-identical.
+    all_queries: list[str] = [research_question] if anchor_seed else []
     if amplified_queries:
         all_queries.extend(amplified_queries)
     # Scope validation (de-drift)
     if protocol:
         valid = validate_amplified_queries(
-            all_queries, protocol, always_keep_anchor=True,
+            all_queries, protocol, always_keep_anchor=anchor_seed,
         )
         effective_queries = valid.kept
         notes.append(
@@ -1840,6 +1855,7 @@ def run_live_retrieval(
                 frame=research_frame,
                 research_question=research_question,
                 amplified_queries=amplified_queries,
+                anchor_seed=anchor_seed,
             )
             for cand in need_result.candidates:
                 url = cand.url

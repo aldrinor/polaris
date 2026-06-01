@@ -614,6 +614,7 @@ def run_need_type_backends(
     amplified_queries: list[str] | None = None,
     max_hits_per_backend: int = PG_DOMAIN_MAX_HITS,
     registry: Any = None,
+    anchor_seed: bool = True,
 ) -> NeedTypeBackendResult:
     """Run the need-type-routed discovery adapters for the planner `frame`.
 
@@ -628,6 +629,12 @@ def run_need_type_backends(
     propagates (it is NOT swallowed here). The live seam validates the frame
     BEFORE any discovery; this function additionally surfaces a malformed frame
     loudly if reached. ADAPTER exceptions stay fail-open (each `_run` swallows).
+
+    I-meta-005 Phase 4 (#988): `anchor_seed=False` (gap rounds) builds
+    `queries = amplified_queries` ONLY (NO `research_question` prepend) AND lifts
+    the 3-query amplified cap, so a gap round fires ALL gap sub-queries through
+    the need-type adapters (parity with the core seam). Default True =
+    OFF/on-single-pass byte-identical (anchor prepended, amplified capped at 3).
     """
     # Lazy imports (router imports adapters from THIS module).
     from src.polaris_graph.discovery.need_type_router import (
@@ -645,9 +652,13 @@ def run_need_type_backends(
         list(getattr(frame, "evidence_needs", []) or [])
     )
 
-    queries: list[str] = [research_question]
-    if amplified_queries:
-        queries.extend(amplified_queries[:3])   # cap amplified count (parity)
+    if anchor_seed:
+        queries: list[str] = [research_question]
+        if amplified_queries:
+            queries.extend(amplified_queries[:3])   # cap amplified count (parity)
+    else:
+        # I-meta-005 Phase 4 (#988) gap round: NO anchor prepend, NO 3-query cap.
+        queries = list(amplified_queries or [])
 
     candidates: list[SearchCandidate] = []
     used: list[str] = []
