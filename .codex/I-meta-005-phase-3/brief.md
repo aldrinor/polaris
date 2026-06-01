@@ -42,8 +42,9 @@ is billed.
   bills the generator.
 - Phase 1 `ResearchPlan` (`planning/research_planner.py:243`) carries `sub_queries: list[str]` (`:250`) +
   `outline: list[SectionOutlineItem]` each with `evidence_target: int` (`:228-239`) — the per-section
-  done-definition. Phase 0a `score_source_authority` (`authority/authority_model.py:84`) →
-  `authority_confidence` (`:198`) is the per-source authority floor signal.
+  done-definition. Phase 0a `score_source_authority` (`authority/authority_model.py:84`) → the NUMERIC
+  `AuthorityResult.authority_score` float [0,1] (`source_class.py:75`) is the per-source authority floor
+  signal (NOT the `authority_confidence` HIGH/MED/LOW enum).
 
 ## 2. THE BUILD (behind PG_USE_RESEARCH_PLANNER)
 
@@ -165,8 +166,9 @@ coupled fixes make the certification carry through to what's billed:
     generator; whether it EXPANDs (Phase 4) or ABORTs (now) it spends zero generator tokens.
   - ABORT → status `abort_corpus_inadequate`, zero generator tokens.
   - Off-mode: the legacy `assess_corpus_adequacy` domain-keyed gate runs unchanged.
-- The on-mode path must run the sufficiency gate at the SAME pre-generator point(s) the legacy gate runs
-  (`:2001` + the staged `:2152` + deepener `:2249`) so no pre-generator path is left ungated on-mode.
+- (RESOLVED iter-5/6 — superseded by the single-final-gate rule above: on-mode the binding sufficiency gate
+  runs ONCE on the final `evidence_for_gen`; the legacy `:2001`/`:2152`/`:2249` sites are telemetry-only
+  on-mode and do NOT run the sufficiency gate or abort. Off-mode they run `assess_corpus_adequacy` as today.)
 
 ## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/adequacy/test_plan_sufficiency_phase3.py`
 - **P3-1 OFF byte-identity:** off → `assess_corpus_adequacy` domain-keyed verdict byte-identical on the
@@ -229,7 +231,8 @@ authority sidecar (no domain dict); OFF byte-identical; all smoke green; spend-f
 
 ## 5. WHAT I HAVE ALSO CHECKED
 - `assess_corpus_adequacy` call sites: `:2001` (main), `:2152` (staged), `:2249` (deepener) — all
-  pre-generator; on-mode must gate all three.
+  pre-SELECTION; on-mode they are telemetry-only (NOT the binding gate). The binding sufficiency gate is the
+  SINGLE final gate on `evidence_for_gen` before `generate_multi_section_report` (§2.3).
 - Phase 1 `SectionOutlineItem.evidence_target` is the done-definition; Phase 2 retrieval provenance maps
   rows→sub-queries→sections.
 - Phase 0a authority: the floor signal is the NUMERIC `AuthorityResult.authority_score` (float [0,1], a
