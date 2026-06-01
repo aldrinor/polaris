@@ -169,11 +169,24 @@ def run_scorecard(
     Returns the scorecard dict (lane1 + lane2_pending). The injected ``span_fetcher``
     + ``judge`` are the only billed work."""
     rows_by_system_qid: dict[tuple[str, str], list] = {}
+    # NON-SILENT reference stripping (Codex diff-gate audit trail): every block the
+    # heuristic removes is RECORDED here so the §-1.1 audit / operator can verify
+    # nothing material was dropped. A claim wrongly stripped is visible + catchable,
+    # not a silent denominator bypass. (Follow-up: replace the regex heuristic with
+    # judge-rated non-material exclusion so references need no stripping at all.)
+    reference_stripping: list[dict] = []
 
     def _ingest(system: str, report_text: str, references: dict[str, str], qid: str):
         # Extract claims from the BODY only — the References/Bibliography list is
         # not prose claims and must not be scored as uncited atoms.
-        body, _ = split_body_and_references(report_text)
+        body, stripped = split_body_and_references(report_text)
+        if stripped.strip():
+            reference_stripping.append({
+                "system": system, "question_id": qid,
+                "stripped_chars": len(stripped),
+                "stripped_lines": len([ln for ln in stripped.splitlines() if ln.strip()]),
+                "preview": stripped.strip()[:300],
+            })
         atoms = extract_atoms(body, system, references,
                               atomizer=atomizer, question_id=qid)
         rows = score_atoms(atoms, span_fetcher=span_fetcher, judge=judge)
@@ -200,4 +213,6 @@ def run_scorecard(
             qid = qid_m.group(1) if qid_m else "0"
             _ingest("polaris", text, _polaris_references(run_dir), qid)
 
-    return build_scorecard(rows_by_system_qid, rubrics=rubrics)
+    card = build_scorecard(rows_by_system_qid, rubrics=rubrics)
+    card["reference_stripping"] = reference_stripping   # audit trail (non-silent)
+    return card

@@ -363,6 +363,11 @@ def test_run_scorecard_end_to_end_cash_free(tmp_path):
         polaris_run_dir=None, external_root=ext,
         span_fetcher=fetcher, judge=judge,
     )
+    # NON-SILENT reference stripping: the gpt report's terminal "## References" with
+    # "1. Smith, 2020. https://..." is recorded in the audit trail.
+    assert "reference_stripping" in card
+    assert any(s["system"] == "chatgpt" and s["stripped_chars"] > 0
+               for s in card["reference_stripping"])
     assert card["lane2_pending"] is True
     assert "chatgpt" in card["systems"] and "gemini" in card["systems"]
     # chatgpt Q75 claim VERIFIED (0 hard fails); gemini Q75 uncited -> UNSUPPORTED hard fail
