@@ -1286,3 +1286,7 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   LEGITIMATE computed number. FIX: never emit sci notation — expand to plain fixed-point
   decimal via Decimal. P2 (stale `_CALC_EQ_*` tol constants) REMOVED. +P7-25 smoke
   (number-kind plain-decimal + verify). 30 P7 + 84 regression green. Re-gate iter 3.
+- **Phase-7 DIFF-gate iter 3** (2026-06-01): `verdict: APPROVE`, 0 P0/P1/P2,
+  convergence_call accept_remaining. Wedge holds: no false-accept (suffix/magnitude
+  closed iter1) AND no false-drop (sci-notation closed iter2). MERGE AUTHORIZED.
+  Trajectory P1: diff 2->1->0. Brief: 4->4->2->1->2->2 (force-APPROVE). Phase 7 COMPLETE.
