@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 3 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
+# Codex BRIEF gate iter 4 — I-meta-005 Phase 3 (#987): Plan-sufficiency gate (the money-trap fix)
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 51. Phase 3 closes the "trap": today the
 adequacy gate is domain-keyed + AGGREGATE-count only, so a broad-but-shallow corpus PASSES, BILLS the
@@ -72,17 +72,28 @@ is billed.
   ONLY `archetype`/`title`/`evidence_target` (`research_planner.py:227`) — NO facet mapping, so title-overlap
   alone could credit OFF-facet rows to a section (the partial money-trap Codex flagged). FIX: ADD
   `sub_query_indices: list[int]` to `SectionOutlineItem` (additive, default `[]`). The planner declares, per
-  section, WHICH of the 20-40 `sub_queries` (by index) make that section complete. The planner prompt emits
-  it; parse validates each index is in-range of `sub_queries`.
+  section, WHICH of the 20-40 `sub_queries` (by index) make that section complete. The planner prompt emits it.
+  **FAIL-CLOSED post-finalization validation (iter-3 P1):** `plan_research()` parses the plan THEN mutates
+  `plan.sub_queries` via `_merge_truncate_subqueries` (`research_planner.py:596`), so an index valid at parse
+  time can go stale. So AFTER the sub_queries list is FINAL (post-truncation/retry-winner selection), the
+  builder re-validates EVERY outline section: each section MUST have ≥1 sub_query_index, ALL indices in-range
+  of the FINAL `sub_queries`, AND `evidence_target ≥ 1` (today `_parse_outline` allows `evidence_target=0` at
+  `:437-445` → a vacuous section; planner mode forbids it). Any empty/stale/invalid mapping → raise
+  `MalformedPlanError` BEFORE retrieval/generation (fail closed, zero spend). A `[]` default is fine ONLY
+  off-mode; on-mode a section with `[]` is malformed.
 - **Relevance = PROVENANCE-FIRST (iter-1 P1 #2):** each evidence row already persists `query_origin` (the
   sub-query text that surfaced it — `live_retriever.py:2226`). A row is RELEVANT to a section iff its
   `query_origin` matches (normalized-equality) one of the sub-query texts at that section's
   `sub_query_indices`. This is the real retrieval provenance, NOT a heuristic.
-  - **Fallback (tightly specified):** ONLY when a row has an EMPTY `query_origin` (seed-lane / legacy rows),
-    fall back to `_content_words` overlap — and the overlap floor is computed against the section's OWN
-    sub-query texts (the ones at `sub_query_indices`), NOT just the title, so a section's facets must be
-    present. A row with a non-empty `query_origin` that doesn't match the section is NOT relevant (no
-    title-overlap rescue) — provenance is authoritative.
+  - **Fallback (tightly specified, iter-3 P2):** a row is FALLBACK-ELIGIBLE iff its `query_origin` is EMPTY
+    OR is one of the explicit NON-QUERY SENTINEL origins that legitimately carry no sub-query text:
+    `{primary_trial_doi_seed, need_type_backend, domain_backend}` (`live_retriever.py:1774,1849,1885`) —
+    these lanes (seed DOIs, the Phase-2 need-type registry, legacy domain backend) surface AUTHORITATIVE
+    evidence with no originating sub-query, so they must be creditable, not silently abort an otherwise-
+    sufficient corpus. For a fallback-eligible row, use `_content_words` overlap floored against the
+    section's OWN sub-query texts (at `sub_query_indices`), NOT just the title. A row whose `query_origin`
+    is a REAL sub-query text that doesn't match the section is NOT relevant to it (no title-overlap rescue) —
+    real-query provenance is authoritative; only the sentinel/empty lanes use the fallback.
 - **Authority floor (iter-1 P1 #1 — numeric, persisted):** the numeric authority strength is
   `AuthorityResult.authority_score: float [0,1]` (`source_class.py:75`), NOT the `authority_confidence`
   HIGH/MEDIUM/LOW enum. A row counts toward coverage iff its `authority_score ≥
@@ -153,6 +164,12 @@ is billed.
   OFF, the evidence rows STILL carry a real numeric `authority_score` (computed directly), NOT 0.0.
 - **P3-11 canonical pin (iter-2 P2):** `to_canonical_dict()` + `research_plan.json` include `sub_query_indices`;
   re-serializing reproduces the same SHA.
+- **P3-12 fail-closed mapping (iter-3 P1):** a plan whose section has an EMPTY `sub_query_indices`, OR an
+  out-of-range index after truncation, OR `evidence_target=0` on-mode → `plan_research` raises
+  `MalformedPlanError` BEFORE any retrieval/generation (zero spend); off-mode a `[]` mapping is inert.
+- **P3-13 sentinel fallback (iter-3 P2):** a `need_type_backend` (or `domain_backend`/`primary_trial_doi_seed`)
+  row whose content overlaps a section's sub-query texts is CREDITED via the fallback (not falsely abort); a
+  real-sub-query row that doesn't match the section is NOT credited to it.
 - Plus a regression subset confirming OFF byte-identity didn't break existing corpus_adequacy tests.
 
 ## 4. EXIT CRITERIA (issue #987)
