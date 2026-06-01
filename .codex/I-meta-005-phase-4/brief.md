@@ -12,7 +12,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 3 — I-meta-005 Phase 4 (#988): multi-round saturation search
+# Codex BRIEF gate iter 4 — I-meta-005 Phase 4 (#988): multi-round saturation search
 
 Reviewing ACCEPTANCE-CRITERIA correctness. Parent plan #982 row 50. Phase 4 closes gap #3 (search depth):
 single-pass retrieval → a gap-targeted SATURATION LOOP that, when Phase 3's plan-sufficiency gate returns
@@ -92,11 +92,19 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
       re-select + re-gate; track `novelty` vs the prior cumulative corpus; increment `round_index`.
   - `PG_SATURATION_MAX_ROUNDS` (default e.g. 3) bounds the rounds; `PG_SATURATION_NOVELTY_EPS` (default e.g.
     0.10) is ε.
-  - **Cumulative retrieval-budget cap (iter-1 P1 #6):** rounds multiply Serper/S2 calls — `run_live_retrieval`
-    spends per effective query (`live_retriever.py:1787`). Beyond the round count, the loop tracks CUMULATIVE
-    retrieval API calls (sum of each round's `api_calls`) against `PG_SATURATION_MAX_RETRIEVAL_CALLS` (a
-    per-run cap); reaching it = STOP_BUDGET, so the loop cannot multiply spend without bound even within
-    `max_rounds`.
+  - **Cumulative retrieval-budget cap — PRE-SPEND enforcement (iter-3 P1):** rounds spend per effective query
+    INSIDE `run_live_retrieval` (Serper `:1790`, S2 `:1806`, over `effective_queries`), so a post-round
+    counter OVERSHOOTS (cumulative 1 below cap + a 40-gap-query round = overspend before STOP_BUDGET). FIX:
+    PREFLIGHT before firing round N+1 — `remaining = PG_SATURATION_MAX_RETRIEVAL_CALLS - cumulative_calls`; if
+    `remaining <= 0` → STOP_BUDGET (do NOT fire); else TRUNCATE `gap_sub_queries` to at most the number the
+    remaining budget allows (conservative per-query call count, so the round CANNOT exceed `remaining`). After
+    the round, add its actual `api_calls`. INVARIANT (P4-14): `cumulative_calls <=
+    PG_SATURATION_MAX_RETRIEVAL_CALLS` at ALL times, not merely noticed after the fact.
+  - **Re-gate on the BILLED set each round (iter-3 P2):** every round's re-gate uses the SAME generator-visible
+    `evidence_for_gen` Phase 3 certifies — i.e. AFTER the round's selection AND the V30 contract-row
+    (`:2719`) + upload-row (`:2749`) injections, immediately before the generator. So the loop wraps
+    retrieval → select → [V30/upload inject] → `assess_plan_sufficiency` each round, preserving the Phase-3
+    billed-set invariant (the gate always certifies exactly what would be billed).
 - Off-mode: the single-pass path runs unchanged (byte-identical); no loop.
 
 ### 2.3 PARTIAL report — PRUNED-PLAN generator contract (iter-1 P1 #4)
@@ -117,6 +125,11 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 - **Money rule (iter-1 P2 — exact wording):** the generator is billed EXACTLY when the final verdict is
   PROCEED (full plan) OR `partial_saturation` (pruned plan = sufficient sections ONLY) — NEVER on an
   under-covered section. If ZERO sections are sufficient → `abort_corpus_inadequate`, no generator bill.
+- **Status taxonomy registration (iter-3 P1 #2):** `partial_saturation` is a NEW manifest status — it MUST
+  be registered in the runner's known-status set + summary mapping (`run_honest_sweep_r3.py:173`,`:194`) AND
+  the regression-lab status mirror (`audit_ir/regression_lab.py:589`) AND the taxonomy-drift guard
+  (`tests/polaris_graph/test_md9_regression_lab.py:280`) is updated to include it — else a partial run
+  surfaces as unknown/error downstream or breaks the drift test.
 
 ## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4) — `tests/polaris_graph/retrieval/test_saturation_phase4.py`
 - **P4-1 OFF byte-identity:** off → the single-pass retrieval path is unchanged (no loop); pin the existing
@@ -151,9 +164,15 @@ gap-closure OR marginal-novelty < ε OR round/budget exhaustion → a PARTIAL re
 - **P4-13 global evidence_id renumber (iter-1 P1 #5):** merging round-1 rows (`ev_000..`) with round-2 rows
   (also `ev_000..`) renumbers so the cumulative pool has globally-unique ids (no overwrite); the merged
   count == sum of round counts (after canonical-URL dedup).
-- **P4-14 cumulative retrieval budget (iter-1 P1 #6):** a loop where each round spends N api_calls hits
-  STOP_BUDGET when cumulative calls reach `PG_SATURATION_MAX_RETRIEVAL_CALLS`, EVEN IF `max_rounds` is not
-  yet reached.
+- **P4-14 cumulative retrieval budget NEVER exceeded (iter-3 P1):** drive a loop where rounds spend N
+  api_calls each; assert `cumulative_calls <= PG_SATURATION_MAX_RETRIEVAL_CALLS` at EVERY step (pre-spend
+  truncation/refusal), and STOP_BUDGET fires when remaining hits 0 — even if `max_rounds` is not reached. A
+  round is truncated/refused so it can NEVER push cumulative over the cap.
+- **P4-15 partial_saturation taxonomy (iter-3 P1 #2):** `partial_saturation` is in the runner known-status
+  set + summary map + regression_lab mirror; the md9 taxonomy-drift test passes WITH it registered (a partial
+  run does not surface as unknown/error).
+- **P4-16 re-gate on billed set (iter-3 P2):** each round's gate is assessed on the post-V30/upload
+  `evidence_for_gen` (the billed set), preserving the Phase-3 invariant across rounds.
 - **P4-7 strengthened (pruned plan, iter-1 P1 #4):** the generator receives a PRUNED plan whose outline
   contains ONLY the sufficient sections — the under-covered section is NOT in the plan passed to
   `generate_multi_section_report` (structurally cannot be rendered).
