@@ -3118,6 +3118,19 @@ async def run_one_query(
                         # sections + their shortfall in the manifest so the partial
                         # artifact discloses exactly which planned sub-questions the
                         # corpus could not cover, and by how much.
+                        def _uncovered_sub_query_text(_unit):
+                            # The TEXT of the uncovered sub-questions: the empty
+                            # facets if any, else (total-shortfall) all the unit's
+                            # mapped sub-queries. Resolved against the pinned plan.
+                            _idx = (
+                                list(_unit.empty_facets)
+                                or list(_unit.sub_query_indices)
+                            )
+                            _sq = _research_plan.sub_queries
+                            return [
+                                _sq[_i] for _i in _idx
+                                if 0 <= _i < len(_sq)
+                            ]
                         _dropped_detail = [
                             {
                                 "unit_id": _u.unit_id,
@@ -3126,6 +3139,11 @@ async def run_one_query(
                                 "evidence_target": _u.evidence_target,
                                 "empty_facets": list(_u.empty_facets),
                                 "below_floor_count": _u.below_floor_count,
+                                # Codex diff-gate iter-2 P2a: the actual TEXT of the
+                                # planned sub-questions the corpus could not cover.
+                                "uncovered_sub_queries": _uncovered_sub_query_text(
+                                    _u
+                                ),
                             }
                             for _u in _suff.per_unit
                             if not _u.sufficient
@@ -4175,6 +4193,15 @@ async def run_one_query(
                     item.archetype for item in _research_plan.outline
                 ],
             }
+
+        # I-meta-005 Phase 4 (#988) — Codex diff-gate iter-2 P2a: surface the
+        # saturation trajectory + per-section shortfall (incl. uncovered sub-query
+        # text) in the per-run manifest too. It already lands in sweep_summary.json
+        # via `summary`; this makes the PER-RUN audit artifact self-contained for a
+        # partial_saturation result. ON-mode only (key absent in OFF -> legacy
+        # manifest shape preserved).
+        if summary.get("saturation"):
+            manifest["saturation"] = summary["saturation"]
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
