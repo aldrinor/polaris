@@ -190,6 +190,21 @@ def test_s0b1_off_byte_identity_trial_name_miss(monkeypatch):
     assert any(r.startswith("trial_name_mismatch:") for r in res.failure_reasons)
 
 
+def test_s0b1_off_strict_wall_exact_reasons(monkeypatch):
+    """Strict byte-identity wall (Codex diff-gate P2): off-mode failure_reasons
+    pinned EXACTLY for a deterministic content-floor-miss case, so ANY added
+    off-mode failure reason (not just the expected one) is caught — prefix
+    presence alone would miss an extra reason."""
+    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+    assert res.is_verified is False
+    assert res.failure_reasons == [
+        "no_content_word_overlap_any_cited_span:a,b:"
+        "sentence_words=['change', 'decarbonization', 'industry', "
+        "'reflects', 'regional']"
+    ]
+    assert res.judge_error is False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # S0b-2 — Delta 1: bounded content-window rescue of the content floor
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,6 +313,30 @@ def test_s0b9_delta1_window_not_entailed_stays_dropped(monkeypatch):
     assert any(r.startswith("entailment_failed:") for r in res.failure_reasons)
     # The bind was attempted: narrow span NEUTRAL then the bounded window NEUTRAL.
     assert len(judge.calls) >= 2
+
+
+def test_s0b10_delta1_warn_mode_no_launder(monkeypatch):
+    """Codex diff-gate P1 (the proven warn hole): PG_VERIFICATION_MODE=enforce +
+    PG_STRICT_VERIFY_ENTAILMENT=warn. warn runs the judge but NEVER drops on
+    NEUTRAL/CONTRADICTED (log-only), so a content-floor clear under warn would be
+    an UNBACKED rescue. Delta 1 must NOT propose under warn — the content-floor
+    drop stays and the judge is never consulted. An all-NEUTRAL judge is used:
+    if Delta 1 erroneously cleared, the warn bind would not drop and the sentence
+    would launder through."""
+    monkeypatch.setenv("PG_VERIFICATION_MODE", "enforce")
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "warn")
+    judge = AllNeutralJudge()
+    _install_judge(monkeypatch, judge)
+    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+    assert res.is_verified is False, (
+        "WARN-MODE LAUNDER REGRESSION: Delta 1 cleared the content-floor under "
+        "entailment warn, where the downstream bind never drops."
+    )
+    assert any(
+        r.startswith("no_content_word_overlap_any_cited_span:")
+        for r in res.failure_reasons
+    )
+    assert len(judge.calls) == 0  # content-floor drop short-circuits the judge block
 
 
 # ─────────────────────────────────────────────────────────────────────────────

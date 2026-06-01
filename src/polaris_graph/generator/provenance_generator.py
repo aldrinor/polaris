@@ -1224,24 +1224,26 @@ def verify_sentence_provenance(
                 # below judges the narrow span, and on NEUTRAL the Delta-2
                 # bounded-window re-judge accepts iff ENTAILED (else fail-closed).
                 #
-                # HARD GATE (Codex/architect P1, brief HARD CONSTRAINT #5): the
-                # floor-clear is gated on the entailment judge being ACTIVE
-                # (_entailment_mode in warn/enforce). If the operator disabled
-                # entailment (PG_STRICT_VERIFY_ENTAILMENT=off), a content-words-
-                # only clear would have NO downstream bind and would be the SOLE
-                # gate — laundering a drop into a pass. So when entailment is
-                # off, Delta 1 does NOT rescue; the pre-0b drop stays (fail-
-                # closed). off = no rescue (byte-identical). shadow = log
-                # would-propose, still fail (output + spend neutral, NO judge
-                # call). enforce + entailment-active + window = clear the floor,
-                # deferring to the downstream entailment bind.
+                # HARD GATE (Codex diff-gate P1 + architect P1, brief HARD
+                # CONSTRAINT #5): the floor-clear is gated on the entailment
+                # judge being in ENFORCE mode — the ONLY mode where the
+                # downstream NEUTRAL/CONTRADICTED bind actually DROPS. Under
+                # PG_STRICT_VERIFY_ENTAILMENT=off the judge never runs, and under
+                # =warn the judge runs but NEVER drops (log-only). In both, a
+                # content-words-only floor-clear would be the SOLE gate —
+                # laundering a drop into a pass with no enforced bind. So Delta 1
+                # proposes ONLY when entailment is enforce; otherwise the pre-0b
+                # content-floor drop stays (fail-closed). off = no rescue
+                # (byte-identical). shadow = log would-propose, still fail
+                # (output + spend neutral, NO judge call). enforce-verification +
+                # enforce-entailment + window = clear, deferring to the bind.
                 _vmode_c = _verification_mode()
                 _rescued_c = False
                 if _vmode_c in ("shadow", "enforce"):
                     from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
                         _entailment_mode as _emode_c,
                     )
-                    if _emode_c() in ("warn", "enforce"):
+                    if _emode_c() == "enforce":
                         for tok in tokens:
                             ev = evidence_pool.get(tok.evidence_id)
                             if ev is None:
@@ -1380,8 +1382,12 @@ def verify_sentence_provenance(
                             # BOUNDED content-word window from this cited row and
                             # re-judge against it. shadow = log would-attempt, no
                             # extra judge call (spend-neutral), output unchanged.
+                            # GATED on mode == "enforce" (Codex diff-gate P1):
+                            # under warn the bind never drops, so a recover+
+                            # re-judge would be an unbacked rescue — Delta 2 fires
+                            # ONLY when the entailment bind can actually fail-closed.
                             _vmode_n = _verification_mode()
-                            if _vmode_n in ("shadow", "enforce") and sentence_content_local:
+                            if mode == "enforce" and _vmode_n in ("shadow", "enforce") and sentence_content_local:
                                 cwin = _find_local_content_window(
                                     sentence_content_local,
                                     direct_quote,

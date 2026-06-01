@@ -134,7 +134,7 @@ new:
                     from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
                         _entailment_mode as _emode_c,
                     )
-                    if _emode_c() in ("warn", "enforce"):
+                    if _emode_c() == "enforce":  # enforce-only (Codex diff-gate P1: warn never drops)
                         for tok in tokens:
                             ev = evidence_pool.get(tok.evidence_id)
                             if ev is None:
