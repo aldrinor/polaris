@@ -1290,3 +1290,47 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   convergence_call accept_remaining. Wedge holds: no false-accept (suffix/magnitude
   closed iter1) AND no false-drop (sci-notation closed iter2). MERGE AUTHORIZED.
   Trajectory P1: diff 2->1->0. Brief: 4->4->2->1->2->2 (force-APPROVE). Phase 7 COMPLETE.
+
+## I-meta-006 — cash-free benchmark scorer (FACT claim-by-claim)
+- **DESIGN-gate iter 1** (2026-06-01): REQUEST_CHANGES, 5 P1 (judge contract too loose / not
+  atomic / no severity / most-specific-span / lane2 rubrics don't exist) + 3 P2. Rulings:
+  injected judge OK only if evidence-locked + ClaimRow-traceable (reconciled-audit adapter);
+  unresolved cite → UNREACHABLE in denominator; same most-specific-span path per system;
+  RACE out (follow-up); lane2 rubrics need authoring+hash-pin.
+- **DESIGN-gate iter 2**: REQUEST_CHANGES, 1 P1 (lane2_pending vs PASS contradiction) + 2 P2
+  (metadata_only subtype; uncited severity source). All adopted.
+- **DESIGN-gate iter 3**: **APPROVE** clean (0 P0/P1/P2, accept_remaining). Methodology LOCKED.
+  Build: report_claim_extractor + fact_scorer (evidence-locked judge) + benchmark_scorecard
+  (lane1-only + lane2_pending) + run wiring; reuse claim_audit_scorer; metadata_only subtype.
+- **I-meta-006 DIFF-gate iter 1** (2026-06-01): REQUEST_CHANGES, 1 P1 + 2 P2, 0 P0. P1 (REAL
+  denominator-exclusion bypass): split_body_and_references stripped everything after the FIRST
+  references header without checking it's terminal → prose after a mid-report ## Sources would
+  escape scoring. FIX: strip ONLY the LAST header AND only when the trailing block is ≥60%
+  reference-list-like; else fail-safe toward inclusion. P2-1 (bare/bold "References" heading)
+  + P2-2 (unicode superscript citations) FIXED. +3 smoke. 19 scorer + 12 claim_audit green. Re-gate.
+- **I-meta-006 DIFF-gate iter 2** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing
+  denominator-exclusion), 0 P0/P2. The ≥60% heuristic still stripped numbered PROSE claims
+  under a References header. FIX: strip ONLY under a STRONG header (References/Bibliography/
+  Works Cited, NOT "Sources") AND only when EVERY trailing line is an unambiguous citation
+  entry (year-bearing, not a prose sentence-starter) — any prose line → no strip (fail-safe
+  inclusion). +2 smoke (numbered prose kept; Sources not a trigger). 21 scorer + 12 green.
+- **I-meta-006 DIFF-gate iter 3** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing — the
+  not-prose denylist leaked: a drug-name-led numbered prose claim with a year was misread as
+  a citation). FIX (Codex-prescribed): replace the NEGATIVE detector with a POSITIVE
+  bibliographic-shape requirement — a citation entry must start with author-initials /
+  "Surname, Year" / "& Author" / "et al" / DOI; prose ("Semaglutide reduced...") can't match.
+  Broadened to cover author-year-no-initials + multi-author. +2 smoke (proper-noun prose kept;
+  author-initials list stripped). 23 scorer + 12 claim_audit green. Re-gate iter4.
+- **I-meta-006 DIFF-gate iter 5 (cap)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0/P2. Codex:
+  "denominator-bypass P1, NOT a false faithfulness-credit P0." Residual: front-loaded-year
+  acronym prose ("HPV DNA testing in 2020 improved...") matched author-initials. §-1.2.6
+  cap-exception (real P1 + deterministic fix): require the surname TITLE-CASE
+  (`[A-Z][a-z]...`) so ALL-CAPS acronyms (HPV/DNA/US/AI) are not surnames. +1 smoke
+  (front-loaded acronym prose kept). 24 scorer + 12 claim_audit green. ONE confirmatory re-gate.
+- **I-meta-006 DIFF-gate confirmatory (iter6)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0.
+  "Vitamin D supplementation in 2020 reduced falls" matched (Title-word + "D" initial +
+  front-year). Perfect regex reference-vs-prose classification is unachievable; all 6 rounds
+  0 P0 (no false credit). FORCE-APPROVE per §8.3.1 (cap + confirmatory exhausted) WITH
+  mitigation: non-silent reference-stripping audit trail (card["reference_stripping"]) so a
+  wrongly-stripped claim is visible to the §-1.1 audit, not a silent bypass. Proper fix
+  (judge-rated S3 exclusion) = follow-up #1007. 25 scorer + 208 dr_benchmark green. Scorer COMPLETE.

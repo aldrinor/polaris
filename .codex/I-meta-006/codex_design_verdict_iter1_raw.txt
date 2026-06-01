@@ -1,0 +1,374 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e83d4-d009-7941-a413-b8bd1876ef2c
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding. Same bar every iter.
+- "Don't pick bone from egg" — reserve P0/P1 for real design risks; rest P2/P3.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on remaining-non-P0/P1.
+- This is a DESIGN gate (methodology correctness), not a diff review. Verdict APPROVE iff
+  the design is §-1.1-sound and buildable as specified; else REQUEST_CHANGES with the
+  specific methodology corrections.
+
+REVIEW DISCIPLINE: design review. Open at most this brief +
+`src/polaris_graph/benchmark/claim_audit_scorer.py` +
+`.codex/I-safety-002b/golden_questions_locked.md`. No repo-wide audit. Emit the schema.
+
+# I-meta-006 — Cash-free system-agnostic benchmark scorer (FACT claim-by-claim) — DESIGN
+
+## Context + the methodology decision I need you to rule
+The operator chose "build the benchmark scorer first, no spend." Goal: score the 5
+LOCKED golden questions (DRB-EN #75/#76/#78/#72/#90; "citation-faithfulness stress slice,
+3 clinical + 2 source-critical") claim-by-claim, IDENTICALLY across POLARIS, ChatGPT 5.5
+Pro DR, Gemini 3.1 Pro DR. Competitor reports are already stored as markdown under
+`outputs/dr_benchmark/external_outputs/{gpt_5_5_pro,gemini_3_1_pro}/Q##_*.md` (academic
+"(Author, Year)" citations + a references list, NOT POLARIS `[#ev:]` tokens).
+
+**§-1.1 is the binding standard (clinical-safety-critical):** the per-claim verdict
+(VERIFIED/PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE) MUST come from reading the claim
+against the FETCHED cited span (cited text, not title/abstract). Metadata / count /
+string-presence / sample-based scoring is BANNED ("lethal in clinical"). The EXISTING
+`claim_audit_scorer.py` already encodes this: it is a PURE AGGREGATOR over a reconciled
+per-claim ledger; it assigns NO verdicts; it gives POLARIS no free pass. It REPLACED the
+§-1.1-banned `beat_both_scorer.py` (count/pattern/auto-win) — so I will REUSE
+`claim_audit_scorer` and will NOT reuse `beat_both_scorer`.
+
+## Proposed design (rule on each piece)
+A cash-free harness in `src/polaris_graph/benchmark/`; the verdict-assignment + source
+fetch are INJECTED callables (faked in tests, real in the operator-gated paid run), so
+EXTRACTION + AGGREGATION are deterministic + spend-free-tested.
+
+1. **NEW `report_claim_extractor.py`** — system-agnostic. `extract_claims(report_text,
+   system, references) -> list[ExtractedClaim{claim_id, text, citation_refs:[ref]}]`.
+   - POLARIS: reuse `split_into_sentences` + `parse_provenance_tokens` ([#ev:]/[N] + bibliography).
+   - ChatGPT / Gemini: split into atomic sentences; map each to the citation(s) it carries
+     — academic "(Author, Year)" inline keys resolved against the report's references list
+     (and numbered superscripts where present). A sentence with NO citation is still an
+     extracted claim (it scores as uncited).
+   Deterministic; cash-free.
+2. **NEW `fact_scorer.py`** — `score_claims(claims, *, span_fetcher, judge) -> list[ClaimRow]`.
+   For each claim: `span_fetcher(citation_ref)` returns the FETCHED cited source text
+   (injected — real fetcher in the paid run; UNREACHABLE subtype on fetch failure), then
+   `judge(claim_text, fetched_span)` returns a Verdict by READING the span (injected — the
+   §-1.1 reader: an LLM judge or the Claude+Codex dual audit). Emits the EXISTING `ClaimRow`
+   for `claim_audit_scorer`. The judge reads the fetched span (§-1.1-compliant), NOT metadata.
+3. **NEW `benchmark_scorecard.py`** — for the 5 Qs × 3 systems: extract -> fact_score ->
+   `claim_audit_scorer.aggregate`, with lane2 coverage from the pre-registered gold rubric.
+   Emit per-system: clinical-3 (#75/#76/#78) AND overall-5 separately (per the locked label).
+   Honest framing: per-claim-traceable, NOT a one-number "wins" headline.
+4. **Run wiring `scripts/dr_benchmark/run_scorecard.py`** — ingest the stored competitor
+   reports + a POLARIS run's report+bibliography, run the scorecard with the REAL
+   fetcher+judge (the only billed step, operator-gated). Cash-free with injected fakes.
+5. **REUSE:** `claim_audit_scorer` (ClaimRow + lane1/lane2 + aggregate), `ledger_schema`,
+   `split_into_sentences`/`parse_provenance_tokens`, the stored reports, the locked Qs.
+   **DO NOT reuse** `beat_both_scorer` (§-1.1-banned).
+
+## Specific methodology questions (rule on each)
+- **Q1 (the core §-1.1 reconciliation):** is an INJECTED `judge(claim, fetched_span)` that
+  reads the fetched span an acceptable §-1.1 audit engine for the AUTOMATED scorecard, OR
+  must the verdict come ONLY from the Claude+Codex dual line-by-line audit (i.e. the harness
+  should produce the EXTRACTION worklist for the dual audit, and aggregate the reconciled
+  ledger, never auto-judge)? If both are acceptable, what guardrail keeps an automated judge
+  from degrading into a metadata/pattern check (e.g. must return the supporting/refuting span
+  quote it relied on, mirroring ClaimRow.span_quote)?
+- **Q2 (citation resolution honesty):** academic "(Author, Year)" → fetchable source is
+  lossy. If a claim's citation cannot be resolved to a fetchable span, is the correct verdict
+  UNREACHABLE(source_missing), or is the claim excluded? (Excluding would let an
+  unresolvable-citation report dodge faithfulness scoring — a rigging risk.)
+- **Q3 (cross-system fairness):** POLARIS emits machine-checkable spans; ChatGPT/Gemini do
+  not. Does scoring POLARIS by the SAME judge-reads-fetched-span path (ignoring its
+  [#ev:] spans for the verdict, using them only for extraction) keep the protocol identical,
+  or does any asymmetry remain that gives POLARIS a free pass?
+- **Q4 (RACE scope):** DeepResearch-Bench RACE (adaptive-criteria quality/depth) is a
+  separate, more subjective lane. Scope it OUT of this issue (FACT faithfulness + lane2
+  coverage only) and file RACE as a follow-up, or is it required for the head-to-head?
+- **Q5 (lane2 rubric):** the pre-registered gold rubrics for these 5 Qs — do they already
+  exist (referenced in `.codex/I-safety-002b/`), so lane2 reuses them, or is rubric
+  construction part of this issue?
+
+## Output schema (REQUIRED)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+rulings:   # your answer to Q1..Q5
+  q1: ...
+  q2: ...
+  q3: ...
+  q4: ...
+  q5: ...
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll keep this to the two allowed files and the brief, then judge the methodology against §-1.1 rather than doing a repo audit.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath 'src/polaris_graph/benchmark/claim_audit_scorer.py'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Raw -LiteralPath '.codex/I-safety-002b/golden_questions_locked.md'" in C:\POLARIS
+ succeeded in 1296ms:
+"""Two-lane claim-audit scorer for the DR head-to-head (I-safety-002b / #925).
+
+REPLACES the §-1.1-banned/rigged `beat_both_scorer.py` + `dimension_scorers.py` (count /
+pattern / string-match scoring + POLARIS auto-win dimensions). This scorer is a PURE
+AGGREGATOR over the reconciled per-claim audit LEDGER produced by the Claude+Codex dual
+§-1.1 line-by-line audit (claim → fetched cited span → verdict). It assigns NO verdicts
+itself and gives POLARIS no free pass — every system's ledger is scored identically.
+
+Lane 1 = claim faithfulness (against the FETCHED cited span).
+Lane 2 = pre-registered gold-rubric coverage (independent sources), each covered point
+         itself citation-supported — so a terse report cannot win on faithfulness alone.
+
+Pure logic; fixture-tested with no model. Per plan `.codex/I-safety-002b/execution_plan_pathB.md`
+§5/§6 (Codex APPROVE iter 5).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Literal
+
+Verdict = Literal["VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE"]
+Severity = Literal["S0", "S1", "S2", "S3"]
+UnreachableSubtype = Literal["paywall", "robots", "fetch_failure", "source_missing"]
+
+# Material = decision-relevant (S0-S2). S3 is observe-only, NOT scored (plan §5).
+_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
+# "unsupported-or-worse" verdicts that count against faithfulness.
+_BAD_VERDICTS = ("PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE")
+_PARTIAL_WEIGHT = 0.5  # pre-registered (plan §5)
+_COVERAGE_THRESHOLD = 0.70  # literal, frozen (plan §5)
+
+
+@dataclass
+class ClaimRow:
+    """One reconciled audit verdict for one atomic claim (from the dual line-by-line)."""
+
+    claim_id: str
+    severity: Severity
+    verdict: Verdict
+    citation_id: str | None        # the citation the claim attaches to (None = uncited)
+    span_quote: str | None         # exact supporting/refuting span from the FETCHED source
+    unreachable_subtype: UnreachableSubtype | None = None
+    audit_note: str | None = None  # e.g. "no supporting span found in cited source" for UNSUPPORTED
+
+    def __post_init__(self) -> None:
+        if self.verdict == "UNREACHABLE" and self.unreachable_subtype is None:
+            raise ValueError(f"{self.claim_id}: UNREACHABLE requires an unreachable_subtype")
+        if self.verdict != "UNREACHABLE" and self.unreachable_subtype is not None:
+            raise ValueError(f"{self.claim_id}: unreachable_subtype only valid for UNREACHABLE")
+        # FABRICATED/PARTIAL must quote the refuting/partial span.
+        if self.verdict in ("FABRICATED", "PARTIAL") and not self.span_quote:
+            raise ValueError(f"{self.claim_id}: {self.verdict} requires a span_quote (evidence)")
+        # UNSUPPORTED on a CITED claim must record WHY (span checked or explicit no-support note)
+        # so the verdict is traceable, not asserted (Codex P2).
+        if self.verdict == "UNSUPPORTED" and self.citation_id and not (self.span_quote or self.audit_note):
+            raise ValueError(f"{self.claim_id}: UNSUPPORTED+cited requires a span_quote or audit_note (traceability)")
+
+    @property
+    def is_material(self) -> bool:
+        return self.severity in _MATERIAL_SEVERITIES
+
+
+@dataclass
+class RubricElement:
+    """One pre-registered gold-rubric required element (from independent sources)."""
+
+    element_id: str
+    covered: bool             # did the report cover this required element?
+    citation_supported: bool  # AND is the covered point itself citation-supported?
+
+
+def lane1_faithfulness(rows: list[ClaimRow]) -> dict:
+    """S0-S2 material unsupported-or-worse rate + per-verdict breakdown. Positive = bad."""
+    material = [r for r in rows if r.is_material]
+    denom = len(material)
+    counts: dict[str, int] = {v: 0 for v in ("VERIFIED", *_BAD_VERDICTS)}
+    for r in material:
+        counts[r.verdict] += 1
+    # PARTIAL weighted 0.5; UNSUPPORTED/FABRICATED/UNREACHABLE full weight.
+    weighted_bad = (
+        counts["UNSUPPORTED"] + counts["FABRICATED"] + counts["UNREACHABLE"]
+        + _PARTIAL_WEIGHT * counts["PARTIAL"]
+    )
+    rate = (weighted_bad / denom) if denom else 0.0
+    return {
+        "material_atoms": denom,
+        "verdict_counts": counts,
+        "weighted_unsupported_or_worse": weighted_bad,
+        "unsupported_or_worse_rate": rate,
+        "hard_fail_count": counts["UNSUPPORTED"] + counts["FABRICATED"],  # the gating verdicts
+        "observed_S3_excluded": sum(1 for r in rows if r.severity == "S3"),
+    }
+
+
+def lane2_coverage(rubric: list[RubricElement]) -> dict:
+    """Covered-AND-citation-supported / total required elements (plan §5/§6)."""
+    total = len(rubric)
+    covered_supported = sum(1 for e in rubric if e.covered and e.citation_supported)
+    covered_only = sum(1 for e in rubric if e.covered)
+    frac = (covered_supported / total) if total else 0.0
+    return {
+        "total_required": total,
+        "covered": covered_only,
+        "covered_and_citation_supported": covered_supported,
+        "coverage_fraction": frac,
+        "missing": [e.element_id for e in rubric if not (e.covered and e.citation_supported)],
+    }
+
+
+def system_passes_question(rows: list[ClaimRow], rubric: list[RubricElement]) -> dict:
+    """A system PASSES a question iff zero S0-S2 FABRICATED/UNSUPPORTED material claims AND
+    coverage >= 0.70 (plan §5). Returns the verdict + the reasons (every gate explicit)."""
+    l1 = lane1_faithfulness(rows)
+    l2 = lane2_coverage(rubric)
+    zero_hard_fail = l1["hard_fail_count"] == 0
+    meets_coverage = l2["coverage_fraction"] >= _COVERAGE_THRESHOLD
+    passed = zero_hard_fail and meets_coverage
+    reasons = []
+    if not zero_hard_fail:
+        reasons.append(f"{l1['hard_fail_count']} S0-S2 FABRICATED/UNSUPPORTED material claim(s)")
+    if not meets_coverage:
+        reasons.append(f"coverage {l2['coverage_fraction']:.2f} < {_COVERAGE_THRESHOLD}")
+    return {"passed": passed, "reasons": reasons, "lane1": l1, "lane2": l2}
+
+
+@dataclass
+class SystemQuestionLedger:
+    """The scored audit ledger for one (system × question). NOT a 'BEAT-BOTH' scoreboard."""
+
+    system: str         # "polaris" | "chatgpt" | "gemini" | "perplexity"
+    question_id: str
+    rows: list[ClaimRow]
+    rubric: list[RubricElement]
+    result: dict = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.result = system_passes_question(self.rows, self.rubric)
+
+
+def aggregate(ledgers: list[SystemQuestionLedger]) -> dict:
+    """Per-system aggregate across questions. Every number traces to claim/span evidence in
+    the per-(system×question) ledgers; NO cross-system 'wins' headline (plan §8)."""
+    by_system: dict[str, dict] = {}
+    for lg in ledgers:
+        s = by_system.setdefault(lg.system, {"questions": 0, "passed": 0, "rates": [], "hard_fails": 0})
+        s["questions"] += 1
+        s["passed"] += int(lg.result["passed"])
+        s["rates"].append(lg.result["lane1"]["unsupported_or_worse_rate"])
+        s["hard_fails"] += lg.result["lane1"]["hard_fail_count"]
+    for s in by_system.values():
+        s["mean_unsupported_or_worse_rate"] = (sum(s["rates"]) / len(s["rates"])) if s["rates"] else 0.0
+    return {"by_system": by_system, "n_ledgers": len(ledgers), "note": "pilot; per-claim traceable; not a superiority claim"}
+
+
+ succeeded in 1709ms:
+# LOCKED golden question set — Path-B DR head-to-head (I-safety-002b / #925)
+
+**Status**: LOCKED 2026-05-28 (Claude + Codex, 2 consults). Replaces the rejected homegrown `clinical_n10.json` set (selection-biased per operator). Frozen BEFORE any system output is viewed.
+
+**Source**: DeepResearch Bench v1 — `data/prompt_data/query.jsonl` (the recognized golden long-form deep-research benchmark; RACE report-quality + FACT citation-trust). All 5 are `language == "en"`, expert-designed PhD-level / high-complexity tasks.
+
+**Honest label (Codex — do NOT overclaim)**: *"DRB-EN high-stakes citation-faithfulness stress slice: 3 clinical tasks + 2 source-critical non-clinical tasks."* NOT "the 5 objectively hardest DRB questions" (DRB has no official hardness ranking) and NOT "representative of all DRB-EN." The defensible claim: a pre-registered slice of golden DRB-EN where POLARIS's declared differentiator — per-claim faithfulness under citation-sensitive, high-stakes conditions — should matter most.
+
+**Pre-registered selection rule (bias-free; selection used NO system output)**:
+1. Universe = DRB v1 `query.jsonl`, `language=="en"`.
+2. Include ALL DRB-EN Health tasks with direct clinical/patient-management consequences; exclude non-clinical psychology/social-science health items → yields #75, #76, #78 (excludes #77 misinformation/psych).
+3. Fill remaining slots from DRB-EN tasks whose prompt makes source faithfulness a CENTRAL deliverable + where unsupported authority would materially change validity.
+4. Rank remaining by: explicit source/citation/case-law constraint → high-stakes legal/clinical/financial/policy consequence → ascending ID tie-break → picks #72, #90. (Excludes #54 not source-constrained; #81 lower-stakes; #62 off-turf STEM control.)
+5. NO POLARIS/ChatGPT/Gemini/Perplexity output used in selection.
+
+---
+
+## The 5 (verbatim golden prompts)
+
+### #75 — Health (clinical) — *primary clinical slice*
+"Could therapeutic interventions aimed at modulating plasma metal ion concentrations represent effective preventive or therapeutic strategies against cardiovascular diseases? What types of interventions—such as supplementation—have been proposed, and is there clinical evidence supporting their feasibility and efficacy?"
+
+### #76 — Health (clinical) — *primary clinical slice*
+"The significance of the gut microbiota in maintaining normal intestinal function has emerged as a prominent focus in contemporary research, revealing both beneficial and detrimental impacts on the equilibrium of gut health. Disruption of microbial homeostasis can precipitate intestinal inflammation and has been implicated in the pathogenesis of colorectal cancer. Conversely, probiotics have demonstrated the capacity to mitigate inflammation and retard the progression of colorectal cancer. Within this domain, key questions arise: What are the predominant types of gut probiotics? What precisely constitutes prebiotics and their mechanistic role? Which pathogenic bacteria warrant concern, and what toxic metabolites do they produce? How might these findings inform and optimize our daily dietary choices?"
+
+### #78 — Health (clinical) — *primary clinical slice*
+"Parkinson's disease has a profound impact on patients. What are the potential health warning signs associated with different stages of the disease? As family members, which specific signs should alert us to intervene or seek medical advice regarding the patient's condition? Furthermore, for patients who have undergone Deep Brain Stimulation (DBS) surgery, what daily life adjustments and support strategies can be implemented to improve their comfort and overall well-being?"
+
+### #72 — Education & Jobs (source-critical) — *citation-faithfulness IS the task*
+"Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles."
+
+### #90 — Crime & Law (source-critical) — *case-law citation-sensitive, high-stakes*
+"Analyze the complex issue of liability allocation in accidents involving vehicles with advanced driver-assistance systems (ADAS) operating in a shared human-machine driving context. Your analysis should integrate technical principles of ADAS, existing legal frameworks, and relevant case law to systematically examine the boundaries of responsibility between the driver and the system. Conclude with proposed regulatory guidelines or recommendations."
+
+---
+
+## Reporting (Codex)
+Report the **3-task clinical slice** and the **5-task overall** SEPARATELY. Do NOT average into "POLARIS wins clinical 5/5." Contamination caveat: these are public golden questions → "public-golden, source-grounded evaluation," not "unseen"; judge claims against RETRIEVED sources, never memorized reference reports. #72/#90 evidence a "sovereign DR across high-stakes domains" claim, NOT clinical-safety per se.
+
+## Next
+Re-author the 5 gold rubrics against THESE golden questions' real independent sources → Codex §-1.1 re-verify + hash-pin → POLARIS full-power runs (through the gate) + dual line-by-line → operator competitor exports fold in.
+
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The judge contract is too loose: `judge(claim, fetched_span) -> Verdict` is not enough for §-1.1. It must emit a full traceable `ClaimRow` payload: verdict, citation id, exact supporting/refuting quote copied from the fetched span for VERIFIED/PARTIAL/FABRICATED, explicit no-support note for UNSUPPORTED, and unreachable subtype for UNREACHABLE. Validate quote substrings against fetched text."
+  - "Extraction must be atomic claim extraction, not sentence-level scoring. Compound sentences need separate factual atoms, otherwise the denominator and PARTIAL/UNSUPPORTED rates become methodology-dependent."
+  - "Severity assignment is missing. `ClaimRow` requires S0-S3, and lane1 excludes S3, so the design needs a pre-registered severity rule or reconciled severity audit before aggregation."
+  - "POLARIS `[#ev:]` spans must not be ignored for verdicts when they are the most specific emitted citation anchor. Use the same rule for every system: judge against the most specific fetchable cited text the system supplied. No auto-pass, but also no source-level fallback that lets a bad POLARIS span pass because the broader source supports the claim elsewhere."
+  - "Lane2 cannot execute from the locked-question file alone. That file says the five gold rubrics still need to be re-authored, §-1.1 verified, and hash-pinned."
+p2:
+  - "Uncited material factual claims should remain in the ledger, normally as UNSUPPORTED with `citation_id: null`, not silently excluded."
+  - "Unresolved author-year/reference citations should become UNREACHABLE(source_missing) and stay in the denominator; exclusion would rig the faithfulness lane."
+  - "If only title/reference metadata or an abstract is available, do not verify from that. Return the appropriate UNREACHABLE subtype unless the actual cited source text/span is fetched."
+rulings:
+  q1: "An injected judge is acceptable only if it is evidence-locked and produces traceable ClaimRow-compatible output. For the strongest clinical gate, the injected implementation can be the Claude+Codex reconciled audit adapter. A bare automated verdict-only LLM judge is not §-1.1-sufficient."
+  q2: "UNREACHABLE(source_missing), included in scoring. Do not exclude unresolvable citations."
+  q3: "Same evaluator path is fair, but only if each system is judged against its most specific emitted citation anchor. POLARIS `[#ev:]` spans may be used for extraction and must also define the cited span when available; they must not confer auto-verification."
+  q4: "Scope RACE out of this issue. This scorer may honestly report FACT faithfulness plus lane2 coverage only. A full DRB report-quality head-to-head needs a separate RACE follow-up."
+  q5: "The locked question file does not contain completed locked rubrics; it explicitly says to re-author the five gold rubrics, re-verify, and hash-pin them. Treat rubric construction as part of this work or as an execution blocker."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and validate the evidence-locked judge/reconciled-audit contract."
+  - "Implement atomic claim extraction and multi-citation handling."
+  - "Pre-register severity assignment."
+  - "Use most-specific cited spans consistently across systems."
+  - "Create, verify, and hash-pin the five lane2 gold rubrics."
+tokens used
+27,487
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The judge contract is too loose: `judge(claim, fetched_span) -> Verdict` is not enough for §-1.1. It must emit a full traceable `ClaimRow` payload: verdict, citation id, exact supporting/refuting quote copied from the fetched span for VERIFIED/PARTIAL/FABRICATED, explicit no-support note for UNSUPPORTED, and unreachable subtype for UNREACHABLE. Validate quote substrings against fetched text."
+  - "Extraction must be atomic claim extraction, not sentence-level scoring. Compound sentences need separate factual atoms, otherwise the denominator and PARTIAL/UNSUPPORTED rates become methodology-dependent."
+  - "Severity assignment is missing. `ClaimRow` requires S0-S3, and lane1 excludes S3, so the design needs a pre-registered severity rule or reconciled severity audit before aggregation."
+  - "POLARIS `[#ev:]` spans must not be ignored for verdicts when they are the most specific emitted citation anchor. Use the same rule for every system: judge against the most specific fetchable cited text the system supplied. No auto-pass, but also no source-level fallback that lets a bad POLARIS span pass because the broader source supports the claim elsewhere."
+  - "Lane2 cannot execute from the locked-question file alone. That file says the five gold rubrics still need to be re-authored, §-1.1 verified, and hash-pinned."
+p2:
+  - "Uncited material factual claims should remain in the ledger, normally as UNSUPPORTED with `citation_id: null`, not silently excluded."
+  - "Unresolved author-year/reference citations should become UNREACHABLE(source_missing) and stay in the denominator; exclusion would rig the faithfulness lane."
+  - "If only title/reference metadata or an abstract is available, do not verify from that. Return the appropriate UNREACHABLE subtype unless the actual cited source text/span is fetched."
+rulings:
+  q1: "An injected judge is acceptable only if it is evidence-locked and produces traceable ClaimRow-compatible output. For the strongest clinical gate, the injected implementation can be the Claude+Codex reconciled audit adapter. A bare automated verdict-only LLM judge is not §-1.1-sufficient."
+  q2: "UNREACHABLE(source_missing), included in scoring. Do not exclude unresolvable citations."
+  q3: "Same evaluator path is fair, but only if each system is judged against its most specific emitted citation anchor. POLARIS `[#ev:]` spans may be used for extraction and must also define the cited span when available; they must not confer auto-verification."
+  q4: "Scope RACE out of this issue. This scorer may honestly report FACT faithfulness plus lane2 coverage only. A full DRB report-quality head-to-head needs a separate RACE follow-up."
+  q5: "The locked question file does not contain completed locked rubrics; it explicitly says to re-author the five gold rubrics, re-verify, and hash-pin them. Treat rubric construction as part of this work or as an execution blocker."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and validate the evidence-locked judge/reconciled-audit contract."
+  - "Implement atomic claim extraction and multi-citation handling."
+  - "Pre-register severity assignment."
+  - "Use most-specific cited spans consistently across systems."
+  - "Create, verify, and hash-pin the five lane2 gold rubrics."

@@ -21,7 +21,9 @@ from typing import Literal
 
 Verdict = Literal["VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE"]
 Severity = Literal["S0", "S1", "S2", "S3"]
-UnreachableSubtype = Literal["paywall", "robots", "fetch_failure", "source_missing"]
+UnreachableSubtype = Literal[
+    "paywall", "robots", "fetch_failure", "source_missing", "metadata_only",
+]
 
 # Material = decision-relevant (S0-S2). S3 is observe-only, NOT scored (plan §5).
 _MATERIAL_SEVERITIES = ("S0", "S1", "S2")
