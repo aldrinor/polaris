@@ -1,4 +1,4 @@
-HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
 - Front-load ALL real findings in iter 1. No drip-feeding across iterations.
 - Same quality bar regardless of iteration count.
 - "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
@@ -17,7 +17,7 @@ convergence_call: continue | accept_remaining
 remaining_blockers_for_execution: [...]
 ```
 
-# Codex BRIEF gate iter 2 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
+# Codex BRIEF gate iter 3 — I-meta-005 Phase 1 (#985): Research planner + question-shaped outline
 
 ITER-1 = REQUEST_CHANGES (5 P1, 4 P2). This rewrite addresses each. Parent plan #982 rows 47/57/78.
 Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #10 (decision seed).
@@ -89,22 +89,44 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
 - Clinical prompt rules → `config/section_prompts/clinical.yaml`, selected only when the frame indicates
   clinical — advisory config, NOT a code lock.
 
-### 2.4 Wiring (iter-1 P1 #1 fix — the LIVE path)
+### 2.4 Query wiring — to the EFFECTIVE-QUERY seam (iter-2 P1 #2 fix)
 - `run_honest_sweep_r3.py:1677`: when `PG_USE_RESEARCH_PLANNER` on, the sub-queries fed to
-  `build_amplified_query_list` come from `plan_research(...).sub_queries` (and the section outline from the
-  plan); when off, today's `decompose_question` path runs unchanged. Acceptance MUST verify the on-flag
-  actually changes what the live sweep amplifies — not just that the planner module returns a plan.
-- **Runtime fanout note (iter-1 P2):** 20-40 sub-queries multiply Serper/S2 fan-out vs today's handful.
-  The on-path respects the existing per-run fetch cap / budget; multi-round saturation (Phase 4) governs
-  expansion. Phase 1 does not raise the live fetch budget; smoke is spend-free.
+  `build_amplified_query_list` come from `plan_research(...).sub_queries`; when off, today's
+  `decompose_question` path runs unchanged.
+- **The planner sub-queries must survive to the actual search calls.** `run_live_retrieval`
+  (`live_retriever.py:1675`) builds `all_queries = [research_question] + amplified` then runs
+  `validate_amplified_queries(... protocol ...)` → `effective_queries = valid.kept` (`:1720`); ONLY
+  `effective_queries` reach the search loop (`:1757`) → `_serper_search`/`_s2_bulk_search`
+  (`:144`,`:187`). So the planner sub-queries must pass the scope validator against the pinned plan's own
+  protocol — acceptance asserts at the `effective_queries`/search seam, NOT merely
+  `build_amplified_query_list`. (Co-design: the plan's frame IS the protocol the validator checks against,
+  so planner sub-queries are scope-consistent by construction — confirm this is coherent.)
+- **Runtime fanout note (corrected, iter-2 P2):** `PG_SWEEP_FETCH_CAP` limits FETCHED URLs, NOT the number
+  of Serper/S2 query CALLS. 20-40 planner sub-queries → up to ~20-40 Serper + S2 calls per round vs today's
+  handful — a real per-run API-call increase (governed later by Phase-4 saturation, not Phase 1). Phase 1
+  does not raise the fetch cap; build + smoke remain spend-free (no client constructed).
+
+### 2.5 Outline handoff — pinned plan → post-retrieval SectionPlan.ev_ids (iter-2 P1 #1 fix)
+The pre-retrieval `ResearchPlan` outline has archetype + question-specific title + evidence target but NO
+evidence IDs (no evidence exists yet). The live generator's `_call_outline` (`:3685`) plans sections FROM
+the retrieved `evidence` and assigns `SectionPlan.ev_ids` (`_parse_outline:393`). Bridge (on-mode):
+`_call_outline` is CONSTRAINED by the pinned plan — the section STRUCTURE (titles + archetype tags + count)
+is fixed by `ResearchPlan.outline`; the outline step's job in on-mode is to ASSIGN retrieved evidence rows
+to those pre-declared sections (populate `ev_ids`), not to invent new clinical sections. Off-mode:
+`_call_outline` runs exactly as today (`_ALLOWED_SECTIONS`-driven, evidence-first). The deterministic
+fallback (`:436`), M-44 primary injection (`:3012`), and regen plans (`:4183`,`:4329`) MUST preserve the
+`archetype` field when they copy/rebuild a `SectionPlan` (iter-2 P2). Acceptance: in on-mode the final
+`multi.outline`/manifest sections ARE the planner's question-specific titles + archetype tags.
 
 ## 3. OFFLINE SMOKE (heavy, spend-free, serialized §8.4)
 `tests/polaris_graph/planning/test_research_planner_phase1.py` + section-archetype + wiring tests:
 - **P1-1 OFF byte-identity:** off → `decompose_question` output AND the section outline/parser/fallback are
   byte-identical to pre-Phase-1 on the clinical fixture (pin exact outputs).
-- **P1-2 LIVE-PATH wiring:** with on-flag + fake planner, the sweep's amplified-query list at the
-  `run_honest_sweep_r3.py:1677` seam is driven by `plan_research` (assert the sub-queries that reach
-  `build_amplified_query_list` are the planner's, not `decompose_question`'s).
+- **P1-2 LIVE-PATH wiring to the EFFECTIVE-QUERY seam:** with on-flag + fake planner + a stub
+  `_serper_search`/`_s2_bulk_search` (capture-only, no network), assert the planner sub-queries actually
+  REACH the search calls — i.e. they survive `validate_amplified_queries` into `effective_queries`
+  (`live_retriever.py:1720`) and appear at `_serper_search`/`_s2_bulk_search`, NOT merely in
+  `build_amplified_query_list`. Off-flag: the captured queries are `decompose_question`'s, unchanged.
 - **P1-3 frame + sub-queries (5 golden):** fake planner per golden Q → valid frame + 20-40 sub-queries +
   non-empty archetype outline.
 - **P1-4 off-domain (the field-agnostic proof):** physics, ag-policy, JP-pharma-reg fixtures → usable
@@ -119,16 +141,29 @@ Phase 1 closes gaps #1 (decomposition), #2 (planning), #8 (report structure), #1
   scope pre-registration SHA still matches.
 - **P1-9 _DRUG_NAME_RE compat:** `completeness_checker` + `contradiction_detector` still import + use
   `_DRUG_NAME_RE` from `scope_gate` (no breakage).
-- **P1-10 no-clinical-literal code guard:** a grep-style test asserts the on-path planner/section modules
-  contain no clinical title/drug literals as control values (Phase-0a-style zero-literal sweep), beyond the
-  section-label check.
+- **P1-10 no-clinical-literal code guard (ON-PATH scoped, iter-2 P2):** a grep-style test asserts the
+  on-mode planner/archetype code contains no clinical title/drug literals as control values (Phase-0a-style
+  zero-literal sweep). The RETAINED legacy off-path block (`_ALLOWED_SECTIONS` + clinical outline prompt +
+  `extract_pico_heuristic` + `_DRUG_NAME_RE`) is explicitly whitelisted — it must stay clinical for OFF
+  byte-identity. The guard fails only on clinical literals in the NEW on-mode paths.
 - **P1-11 spend-free guard:** smoke asserts no `OpenRouterClient` / live httpx client is constructed.
+- **P1-12 outline handoff (iter-2 P1 #1):** on-mode, with a fake planner outline (e.g. archetype Decision,
+  title "Which carbon-pricing path minimizes cost") + a small retrieved evidence pool, the final
+  `multi.outline`/manifest sections ARE the planner's titles + archetype tags, and each section's `ev_ids`
+  are assigned from the retrieved evidence (not invented clinical sections). Off-mode: `_call_outline` is
+  evidence-first as today.
+- **P1-13 archetype preserved through copy/rebuild (iter-2 P2):** a `SectionPlan` carrying an archetype,
+  passed through `_build_deterministic_fallback_outline` / `_m44_inject_primaries_into_outline` (`:3012`) /
+  the regen path (`:4183`,`:4329`), retains its `archetype` field (no drop to "" that would re-leak title
+  routing).
 
 ## 4. EXIT CRITERIA (issue #985)
 On the 5 golden DRB-EN Qs + 3 off-domain probes: a question-shaped archetype outline + faceted sub-queries
 (20-40 for the broad Qs; honest-smaller allowed for a genuinely narrow Q, never padded); **zero clinical
-section labels/tags on a non-clinical question**; live-sweep wiring proven; OFF byte-identical; ResearchPlan
-SHA-pinned before retrieval; all smoke green; no live spend in build/smoke.
+section labels/tags on a non-clinical question**; **planner sub-queries proven to reach the
+`effective_queries`/search seam** (not just the pre-validator list); **the final `multi.outline` sections
+are the planner's titles+archetypes with evidence assigned post-retrieval**; OFF byte-identical;
+ResearchPlan SHA-pinned before retrieval; all smoke green; no live spend in build/smoke.
 
 ## 5. WHAT I HAVE ALSO CHECKED AND THEY ARE CLEAN
 - `decomposer.py` is test-only — left as-is; NOT the wiring target.
