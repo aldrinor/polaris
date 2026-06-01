@@ -4,6 +4,20 @@ APPROVED brief `.codex/I-meta-005-phase-6/brief.md` (Codex APPROVE iter 1) is th
 design contract. Codex ruled **B2** on the part-B question + 3 non-blocking P2s,
 folded in below.
 
+## CODEX DESIGN RULINGS (2026-06-01, `design_consult_verdict.txt`) — BINDING
+- **decision_a: A1** — add an additive `answer_type` field to `ResearchFrame`
+  (planner-extracted, default `"general"`), include it in `to_canonical_dict()`,
+  RECONCILE the canonical-JSON / `plan_sha` snapshots (one-time mechanical), and map
+  `answer_type: clinical` → `clinical.yaml` in the registry. NOT fragile heuristics.
+- **decision_b: B-impl-1** — build integrative synthesis as a NORMAL planned section
+  that emits `[ev_XXX]` tokens and passes `strict_verify`; do NOT retrofit
+  `analyst_synthesis`. Demote the unverified analyst block (non-verified appendix or
+  drop on-mode); it must NEVER count toward `verified_text`/`verified_words` unless it
+  passed the same strict-verify path.
+- **HARD:** OFF byte-identity; gate all new behaviour to Phase-6 on-mode + handle
+  partial-mode intentionally; update plan_sha snapshots; default `answer_type`
+  `"general"`; unverified prose stays out of the verified counts.
+
 ## Part A — clinical advisory loads ONLY for a clinical frame
 - Extend `select_advisory_prompt_text` (multi_section_generator) to resolve via an
   entity-category signal from the frame, config-driven via `_registry.yaml`. NO
