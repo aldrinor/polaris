@@ -1,0 +1,787 @@
+"""I-meta-005 Phase 7 (#991) — Quantified trade-off modeler (gap 9, PAL rewire).
+
+Pipeline: Extract -> Model -> Execute(DETERMINISTIC) -> Bind -> Verify(Regime C).
+
+This module owns **Model** + the deterministic **Execute template**. It is the
+faithfulness wedge extended to COMPUTED numbers: a number rendered in the report
+is only allowed to survive verification if it is provably the declared formula
+evaluated over declared inputs, where every sourced input is a concrete extracted
+datapoint that appears numeric-verbatim in its evidence row.
+
+What this module provides:
+
+  - ``ModelSpec`` (+ ``SourcedInput`` / ``ModeledInput`` / ``OutputField`` /
+    ``Sensitivity`` / ``SolveFor``): the validated, hashable computation spec.
+  - ``build_quantified_spec(question, sourced_numbers, evidence_rows, *, spec_llm)``:
+    the Writer emits a raw JSON spec; we VALIDATE it hard and return
+    ``ModelSpec | None`` (fail-closed on any violation). Validation enforces
+    (i) datapoint exact-one-match identity + raw-literal+span derivation,
+    (ii) pure-arithmetic formula AST, (iii) NUMERIC material dependency (every
+    declared input must change >=1 output under perturbation — kills canceling
+    formulas), (iv) non-empty outputs, (v) sensitivity well-formedness,
+    (vi) solve_for bracket well-formedness.
+  - ``render_script(spec)``: DETERMINISTIC template of the validated spec into a
+    fixed Python skeleton (NO LLM codegen) for
+    ``code_executor.execute_analysis_script`` — every number it prints is the
+    declared output formula over the declared inputs.
+  - ``_canonical_display(value, unit, display_kind)``: the ONE pinned per-kind
+    formatter used by BOTH the executor (to pin a field's display_value) and the
+    binder (to render that exact string next to the calc token) so Regime C is an
+    exact-string equality + a deterministic replay.
+
+OFF byte-identical: nothing here imports/runs unless the sweep is on-mode.
+SPEND-FREE: ``build_quantified_spec`` takes a ``spec_llm`` callable (faked in
+tests); ``render_script`` + the executor run FIXED Python — no network.
+"""
+from __future__ import annotations
+
+import ast
+import hashlib
+import json
+import logging
+import math
+import re
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+# ── tolerances (named, Law VI) ───────────────────────────────────────────────
+# Literal<->datapoint normalized-value agreement (same extractor normalization
+# feeds both, so this is tight).
+_LITERAL_MATCH_REL_TOL = 1e-6
+_LITERAL_MATCH_ABS_TOL = 1e-9
+# Material-dependency perturbation: an input that, when perturbed, moves NO
+# output by more than this (relative to the output magnitude) is NOT a real
+# input and the whole model is rejected.
+_DEPENDENCY_PERTURB_DELTA = 1e-3
+_DEPENDENCY_EFFECT_REL_TOL = 1e-9
+_DEPENDENCY_EFFECT_ABS_TOL = 1e-12
+
+# Pure-arithmetic formula AST allowlist. Bare function names only (the rendered
+# script imports these from math so the inlined formula evaluates identically to
+# the modeler's interpreter). NO attribute access, NO subscript, NO comprehension.
+_ALLOWED_FORMULA_FUNCS: dict[str, Callable[..., float]] = {
+    "min": min,
+    "max": max,
+    "abs": abs,
+    "round": round,
+    "sqrt": math.sqrt,
+    "log": math.log,
+    "log10": math.log10,
+    "log2": math.log2,
+    "exp": math.exp,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "floor": math.floor,
+    "ceil": math.ceil,
+    "pow": pow,
+}
+_DISPLAY_KINDS = frozenset({"number", "currency", "percent", "ratio", "count"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec dataclasses
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class SourcedInput:
+    """An input bound to a CONCRETE extracted datapoint.
+
+    ``value`` (float) is what the formula uses; ``raw_literal`` (the
+    pre-normalization string e.g. "$1.548 billion") + ``literal_start``/
+    ``literal_end`` are the evidence span used to cite the input. The datapoint
+    identity (ev_id + label + context + value + unit) is what disambiguates a
+    repeated value in the same row.
+    """
+    name: str
+    value: float
+    unit: str
+    ev_id: str
+    label: str
+    context: str
+    raw_literal: str
+    literal_start: int
+    literal_end: int
+
+
+@dataclass(frozen=True)
+class ModeledInput:
+    name: str
+    base: float
+    unit: str
+    sweep_lo: float
+    sweep_hi: float
+    sweep_step: float
+
+
+@dataclass(frozen=True)
+class OutputField:
+    name: str
+    unit: str
+    display_kind: str
+    formula: str
+
+
+@dataclass(frozen=True)
+class Sensitivity:
+    input: str   # a MODELED input name
+    output: str   # a declared output name
+
+
+@dataclass(frozen=True)
+class SolveFor:
+    var: str      # a MODELED input name whose sweep is the [lo,hi] bracket
+    output: str   # a declared output name (break-even = root of formula==0)
+
+
+@dataclass
+class ModelSpec:
+    model_id: str
+    title: str
+    sourced_inputs: list[SourcedInput]
+    modeled_inputs: list[ModeledInput]
+    outputs: list[OutputField]
+    sensitivity: list[Sensitivity] = field(default_factory=list)
+    solve_for: SolveFor | None = None
+    spec_hash: str = ""
+
+    # convenience lookups -----------------------------------------------------
+    def input_names(self) -> list[str]:
+        return [i.name for i in self.sourced_inputs] + [
+            i.name for i in self.modeled_inputs
+        ]
+
+    def modeled_by_name(self, name: str) -> ModeledInput | None:
+        for i in self.modeled_inputs:
+            if i.name == name:
+                return i
+        return None
+
+    def output_by_name(self, name: str) -> OutputField | None:
+        for o in self.outputs:
+            if o.name == name:
+                return o
+        return None
+
+    def base_env(self) -> dict[str, float]:
+        env = {i.name: float(i.value) for i in self.sourced_inputs}
+        env.update({i.name: float(i.base) for i in self.modeled_inputs})
+        return env
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Formula AST: validation + a tiny deterministic interpreter (NO eval)
+# ─────────────────────────────────────────────────────────────────────────────
+_ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.FloorDiv)
+_ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
+
+
+def _formula_names(formula: str, allowed_names: set[str]) -> tuple[bool, str, set[str]]:
+    """Validate ``formula`` is pure arithmetic over ``allowed_names`` + allowlisted
+    funcs. Returns (ok, reason, referenced_input_names)."""
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError as exc:
+        return False, f"formula_syntax_error:{str(exc)[:80]}", set()
+
+    referenced: set[str] = set()
+
+    def _check(node: ast.AST) -> tuple[bool, str]:
+        if isinstance(node, ast.Expression):
+            return _check(node.body)
+        if isinstance(node, ast.BinOp):
+            if not isinstance(node.op, _ALLOWED_BINOPS):
+                return False, f"disallowed_binop:{type(node.op).__name__}"
+            ok, r = _check(node.left)
+            if not ok:
+                return ok, r
+            return _check(node.right)
+        if isinstance(node, ast.UnaryOp):
+            if not isinstance(node.op, _ALLOWED_UNARYOPS):
+                return False, f"disallowed_unaryop:{type(node.op).__name__}"
+            return _check(node.operand)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                return False, "non_numeric_constant"
+            return True, ""
+        if isinstance(node, ast.Name):
+            if node.id in _ALLOWED_FORMULA_FUNCS:
+                return True, ""
+            if node.id not in allowed_names:
+                return False, f"unknown_name:{node.id}"
+            referenced.add(node.id)
+            return True, ""
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in _ALLOWED_FORMULA_FUNCS:
+                return False, "disallowed_call"
+            if node.keywords:
+                return False, "call_keywords_not_allowed"
+            for a in node.args:
+                ok, r = _check(a)
+                if not ok:
+                    return ok, r
+            return True, ""
+        return False, f"disallowed_node:{type(node).__name__}"
+
+    ok, reason = _check(tree)
+    return ok, reason, referenced
+
+
+def _eval_formula(formula: str, env: dict[str, float]) -> float:
+    """Deterministic arithmetic interpreter over a validated formula. NO eval."""
+    tree = ast.parse(formula, mode="eval")
+
+    def _ev(node: ast.AST) -> float:
+        if isinstance(node, ast.Expression):
+            return _ev(node.body)
+        if isinstance(node, ast.BinOp):
+            l, r = _ev(node.left), _ev(node.right)
+            op = node.op
+            if isinstance(op, ast.Add):
+                return l + r
+            if isinstance(op, ast.Sub):
+                return l - r
+            if isinstance(op, ast.Mult):
+                return l * r
+            if isinstance(op, ast.Div):
+                return l / r
+            if isinstance(op, ast.Pow):
+                return l ** r
+            if isinstance(op, ast.Mod):
+                return l % r
+            if isinstance(op, ast.FloorDiv):
+                return l // r
+            raise ValueError(f"binop:{type(op).__name__}")
+        if isinstance(node, ast.UnaryOp):
+            v = _ev(node.operand)
+            return +v if isinstance(node.op, ast.UAdd) else -v
+        if isinstance(node, ast.Constant):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            if node.id in env:
+                return float(env[node.id])
+            raise ValueError(f"name:{node.id}")
+        if isinstance(node, ast.Call):
+            fn = _ALLOWED_FORMULA_FUNCS[node.func.id]  # type: ignore[index]
+            return float(fn(*[_ev(a) for a in node.args]))
+        raise ValueError(f"node:{type(node).__name__}")
+
+    return float(_ev(tree))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Canonical display (the ONE formatter — exact-string equality + replay)
+# ─────────────────────────────────────────────────────────────────────────────
+def _canonical_display(value: float, unit: str, display_kind: str) -> str:
+    """Deterministic, pinned per-kind display string for a computed number.
+
+    Used by BOTH the executor (to pin a field's display_value) and the binder
+    (to render that exact string next to the calc token). Regime C compares the
+    rendered string adjacent to the calc token against this exact string, with a
+    numeric backstop. Changing these formats changes spec replay — treat as LOCKED.
+    """
+    v = float(value)
+    if display_kind == "currency":
+        return f"${v:,.2f}"
+    if display_kind == "percent":
+        return f"{v:.2f}%"
+    if display_kind == "ratio":
+        return f"{v:.4f}"
+    if display_kind == "count":
+        return f"{int(round(v)):,}"
+    # "number" (default): up to 6 significant figures, thousands-grouped integer
+    # part, no trailing zeros, deterministic.
+    if v == 0:
+        return "0"
+    s = f"{v:.6g}"
+    if "e" in s or "E" in s:        # keep scientific notation verbatim
+        return s
+    if "." in s:
+        int_part, frac_part = s.split(".")
+    else:
+        int_part, frac_part = s, ""
+    neg = int_part.startswith("-")
+    digits = int_part[1:] if neg else int_part
+    grouped = f"{int(digits):,}" if digits.isdigit() else digits
+    out = ("-" if neg else "") + grouped
+    if frac_part:
+        out += "." + frac_part
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Literal normalization + location (extractor-equivalent; no new extractor spans)
+# ─────────────────────────────────────────────────────────────────────────────
+_SCALE_MULTIPLIERS = {"billion": 1e9, "million": 1e6, "thousand": 1e3}
+# A numeric literal, optionally $-prefixed, optionally followed by a scale word
+# or a percent sign. Mirrors evidence_extractor's scale handling.
+_LITERAL_RE = re.compile(
+    r"\$?\s*-?\d[\d,]*(?:\.\d+)?\s*(?:billion|million|thousand)?\s*%?",
+    re.IGNORECASE,
+)
+
+
+def _normalize_literal(raw: str) -> float | None:
+    """Parse a raw literal ("$1.548 billion", "23.4%", "1,200") to a float using
+    the SAME scale handling as ``evidence_extractor`` (billion/million/thousand
+    multipliers). Percent keeps its face value (23.4 for "23.4%")."""
+    s = raw.strip()
+    has_pct = s.endswith("%")
+    if has_pct:
+        s = s[:-1].strip()
+    scale = 1.0
+    low = s.lower()
+    for word, mult in _SCALE_MULTIPLIERS.items():
+        if low.endswith(word):
+            scale = mult
+            s = s[: -len(word)].strip()
+            break
+    s = s.replace("$", "").replace(",", "").strip()
+    if not s:
+        return None
+    try:
+        return float(s) * scale
+    except ValueError:
+        return None
+
+
+def _locate_unique_literal(
+    text: str, target_value: float
+) -> tuple[str, int, int] | None:
+    """Find the UNIQUE numeric literal in ``text`` whose extractor-normalized
+    value matches ``target_value``. Returns (literal, start, end) or None when
+    zero or >=2 candidates match (fail-closed disambiguation)."""
+    if not text:
+        return None
+    matches: list[tuple[str, int, int]] = []
+    for m in _LITERAL_RE.finditer(text):
+        raw = m.group(0).strip()
+        # Skip bare scale/percent fragments with no digit.
+        if not re.search(r"\d", raw):
+            continue
+        norm = _normalize_literal(raw)
+        if norm is None:
+            continue
+        if math.isclose(
+            norm, float(target_value),
+            rel_tol=_LITERAL_MATCH_REL_TOL, abs_tol=_LITERAL_MATCH_ABS_TOL,
+        ):
+            # Trim leading/trailing whitespace captured by the regex.
+            lit = m.group(0)
+            lstrip = len(lit) - len(lit.lstrip())
+            rstrip = len(lit) - len(lit.rstrip())
+            start = m.start() + lstrip
+            end = m.end() - rstrip
+            matches.append((text[start:end], start, end))
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _evidence_text(ev_row: dict[str, Any]) -> str:
+    """The text used both to verify the literal and to locate its span — the
+    same fields Regime A reads (direct_quote, then statement)."""
+    return (ev_row.get("direct_quote") or ev_row.get("statement") or "")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build + validate the spec (fail-closed)
+# ─────────────────────────────────────────────────────────────────────────────
+def _spec_hash(
+    model_id: str,
+    sourced: list[SourcedInput],
+    modeled: list[ModeledInput],
+    outputs: list[OutputField],
+    sensitivity: list[Sensitivity],
+    solve_for: SolveFor | None,
+) -> str:
+    """Stable hash binding the calc token to THIS run's model (prevents stale or
+    colliding model_ids reaching Regime C)."""
+    proj = {
+        "model_id": model_id,
+        "sourced": sorted(
+            [
+                {"name": s.name, "value": repr(float(s.value)), "unit": s.unit,
+                 "ev_id": s.ev_id}
+                for s in sourced
+            ],
+            key=lambda d: d["name"],
+        ),
+        "modeled": sorted(
+            [
+                {"name": m.name, "base": repr(float(m.base)), "unit": m.unit,
+                 "sweep": [repr(float(m.sweep_lo)), repr(float(m.sweep_hi)),
+                           repr(float(m.sweep_step))]}
+                for m in modeled
+            ],
+            key=lambda d: d["name"],
+        ),
+        "outputs": sorted(
+            [
+                {"name": o.name, "unit": o.unit, "display_kind": o.display_kind,
+                 "formula": o.formula}
+                for o in outputs
+            ],
+            key=lambda d: d["name"],
+        ),
+        "sensitivity": sorted(
+            [{"input": s.input, "output": s.output} for s in sensitivity],
+            key=lambda d: (d["input"], d["output"]),
+        ),
+        "solve_for": (
+            {"var": solve_for.var, "output": solve_for.output}
+            if solve_for else None
+        ),
+    }
+    blob = json.dumps(proj, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _matches_datapoint(ref: dict[str, Any], dp: dict[str, Any]) -> bool:
+    """Exact-one-match identity on ALL of (ev_id, label, context, value, unit).
+    value compared as normalized float (extractor emits str values)."""
+    if str(ref.get("ev_id", "")) != str(dp.get("evidence_id", "")):
+        return False
+    if str(ref.get("label", "")) != str(dp.get("label", "")):
+        return False
+    if str(ref.get("context", "")) != str(dp.get("context", "")):
+        return False
+    if str(ref.get("unit", "")) != str(dp.get("unit", "")):
+        return False
+    try:
+        return math.isclose(
+            float(ref.get("value")), float(dp.get("value")),
+            rel_tol=_LITERAL_MATCH_REL_TOL, abs_tol=_LITERAL_MATCH_ABS_TOL,
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def build_quantified_spec(
+    question: str,
+    sourced_numbers: list[dict[str, Any]],
+    evidence_rows: dict[str, dict[str, Any]],
+    *,
+    spec_llm: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None],
+) -> ModelSpec | None:
+    """Build + validate a ModelSpec from a Writer-emitted raw JSON spec.
+
+    ``spec_llm(question, sourced_numbers) -> raw_spec_dict | None`` is the (faked
+    in tests / Writer in prod) spec generator. Returns a validated ``ModelSpec``
+    or ``None`` (whole model skipped, fail-closed) on ANY violation.
+    """
+    try:
+        raw = spec_llm(question, sourced_numbers)
+    except Exception as exc:  # spec-gen failure is a clean skip, not a crash
+        logger.warning("[tradeoff_modeler] spec_llm raised: %s", str(exc)[:160])
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    model_id = str(raw.get("model_id", "")).strip()
+    title = str(raw.get("title", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]+", model_id or ""):
+        logger.warning("[tradeoff_modeler] reject: bad model_id %r", model_id)
+        return None
+
+    raw_inputs = raw.get("inputs")
+    raw_outputs = raw.get("outputs")
+    if not isinstance(raw_inputs, list) or not isinstance(raw_outputs, list):
+        return None
+    if not raw_outputs:
+        return None  # (iv) outputs non-empty
+
+    sourced: list[SourcedInput] = []
+    modeled: list[ModeledInput] = []
+    seen_names: set[str] = set()
+
+    for ri in raw_inputs:
+        if not isinstance(ri, dict):
+            return None
+        name = str(ri.get("name", "")).strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or "") or name in seen_names:
+            logger.warning("[tradeoff_modeler] reject: bad/dup input name %r", name)
+            return None
+        seen_names.add(name)
+
+        is_modeled = bool(ri.get("modeled"))
+        has_ref = isinstance(ri.get("datapoint_ref"), dict)
+        if is_modeled and has_ref:
+            return None  # ambiguous: must be exactly one category
+        if not is_modeled and not has_ref:
+            return None  # (P7-9) neither sourced nor modeled -> fail-closed
+
+        if is_modeled:
+            try:
+                base = float(ri["base"])
+                unit = str(ri.get("unit", ""))
+                sweep = ri.get("sweep") or [0.0, 0.0, 0.0]
+                lo, hi, step = float(sweep[0]), float(sweep[1]), float(sweep[2])
+            except (KeyError, IndexError, TypeError, ValueError):
+                return None
+            if not all(math.isfinite(x) for x in (base, lo, hi, step)):
+                return None
+            modeled.append(ModeledInput(name, base, unit, lo, hi, step))
+            continue
+
+        # ── sourced: exact-one-match identity + literal+span derivation ──────
+        ref = ri["datapoint_ref"]
+        if not isinstance(ref, dict):
+            return None
+        cand = [dp for dp in sourced_numbers if _matches_datapoint(ref, dp)]
+        if len(cand) != 1:                                   # (i) exact-one-match
+            logger.warning(
+                "[tradeoff_modeler] reject: input %r matched %d datapoints "
+                "(need exactly 1)", name, len(cand),
+            )
+            return None
+        dp = cand[0]
+        try:
+            value = float(dp["value"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        unit = str(dp.get("unit", ""))
+        ev_id = str(dp.get("evidence_id", ""))
+        ev_row = evidence_rows.get(ev_id)
+        if not isinstance(ev_row, dict):
+            return None
+        ev_text = _evidence_text(ev_row)
+        located = _locate_unique_literal(ev_text, value)
+        if located is None:                                  # (i) literal+span
+            # fall back to the datapoint context string (still evidence-derived)
+            located = _locate_unique_literal(str(dp.get("context", "")), value)
+        if located is None:
+            logger.warning(
+                "[tradeoff_modeler] reject: no unique literal span for input %r "
+                "value=%s in ev %s", name, value, ev_id,
+            )
+            return None
+        literal, lstart, lend = located
+        sourced.append(SourcedInput(
+            name=name, value=value, unit=unit, ev_id=ev_id,
+            label=str(dp.get("label", "")), context=str(dp.get("context", "")),
+            raw_literal=literal, literal_start=lstart, literal_end=lend,
+        ))
+
+    if not sourced and not modeled:
+        return None
+    allowed = set(seen_names)
+
+    # ── outputs: pure-arithmetic AST + display_kind ─────────────────────────
+    outputs: list[OutputField] = []
+    out_names: set[str] = set()
+    output_refs: dict[str, set[str]] = {}
+    for ro in raw_outputs:
+        if not isinstance(ro, dict):
+            return None
+        oname = str(ro.get("name", "")).strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", oname or "") or oname in out_names:
+            return None
+        out_names.add(oname)
+        display_kind = str(ro.get("display_kind", "number"))
+        if display_kind not in _DISPLAY_KINDS:
+            return None
+        formula = str(ro.get("formula", "")).strip()
+        ok, reason, refs = _formula_names(formula, allowed)   # (ii)
+        if not ok:
+            logger.warning("[tradeoff_modeler] reject: output %r formula: %s",
+                           oname, reason)
+            return None
+        output_refs[oname] = refs
+        outputs.append(OutputField(oname, str(ro.get("unit", "")), display_kind, formula))
+
+    # ── (iii) NUMERIC material dependency — the PRIMARY gate ────────────────
+    # Every declared input must move >=1 output under perturbation at a
+    # non-degenerate point. Rejects canceling/zero-effect formulas
+    # (x - x + y, irrelevant*0 + y) that cite a non-affecting input.
+    base_env = {i.name: float(i.value) for i in sourced}
+    base_env.update({i.name: float(i.base) for i in modeled})
+    try:
+        base_out = {o.name: _eval_formula(o.formula, base_env) for o in outputs}
+    except (ValueError, ZeroDivisionError, OverflowError) as exc:
+        logger.warning("[tradeoff_modeler] reject: base eval failed: %s", str(exc)[:80])
+        return None
+    if not all(math.isfinite(v) for v in base_out.values()):
+        return None
+    for nm in allowed:
+        bval = base_env[nm]
+        perturbed = bval * (1.0 + _DEPENDENCY_PERTURB_DELTA) if bval != 0 else 1.0
+        if perturbed == bval:
+            perturbed = bval + 1.0
+        env2 = dict(base_env)
+        env2[nm] = perturbed
+        moved = False
+        for o in outputs:
+            try:
+                v2 = _eval_formula(o.formula, env2)
+            except (ValueError, ZeroDivisionError, OverflowError):
+                continue
+            b = base_out[o.name]
+            if not math.isclose(
+                v2, b,
+                rel_tol=_DEPENDENCY_EFFECT_REL_TOL, abs_tol=_DEPENDENCY_EFFECT_ABS_TOL,
+            ):
+                moved = True
+                break
+        if not moved:
+            logger.warning(
+                "[tradeoff_modeler] reject: input %r materially affects NO output "
+                "(canceling/zero-effect dependency)", nm,
+            )
+            return None
+
+    # ── (v) sensitivity well-formedness ─────────────────────────────────────
+    modeled_names = {m.name for m in modeled}
+    sensitivity: list[Sensitivity] = []
+    for rs in (raw.get("sensitivity") or []):
+        if not isinstance(rs, dict):
+            return None
+        sin = str(rs.get("input", ""))
+        sout = str(rs.get("output", ""))
+        if sin not in modeled_names or sout not in out_names:
+            return None
+        m = next(mm for mm in modeled if mm.name == sin)
+        if m.sweep_step == 0 or not math.isfinite(m.sweep_step):
+            return None
+        if (m.sweep_hi - m.sweep_lo) * m.sweep_step <= 0:
+            return None  # step must point lo -> hi
+        sensitivity.append(Sensitivity(sin, sout))
+
+    # ── (vi) solve_for well-formedness ──────────────────────────────────────
+    solve_for: SolveFor | None = None
+    rsolve = raw.get("solve_for")
+    if isinstance(rsolve, dict) and rsolve:
+        var = str(rsolve.get("var", ""))
+        out = str(rsolve.get("output", ""))
+        if var not in modeled_names or out not in out_names:
+            return None
+        solve_for = SolveFor(var, out)
+
+    spec_hash = _spec_hash(model_id, sourced, modeled, outputs, sensitivity, solve_for)
+    spec = ModelSpec(
+        model_id=model_id, title=title, sourced_inputs=sourced,
+        modeled_inputs=modeled, outputs=outputs, sensitivity=sensitivity,
+        solve_for=solve_for, spec_hash=spec_hash,
+    )
+    # carry per-output referenced-input sets for binding/labeling
+    spec_output_refs = output_refs  # noqa: F841 (kept for callers via helper below)
+    _OUTPUT_REFS_CACHE[(model_id, spec_hash)] = output_refs
+    return spec
+
+
+# Per-(model_id, spec_hash) cache of {output_name -> set(referenced input names)}.
+# Populated at build time; read by the executor to compute each field's
+# modeled/sourced "used" sets without re-parsing formulas.
+_OUTPUT_REFS_CACHE: dict[tuple[str, str], dict[str, set[str]]] = {}
+
+
+def output_referenced_inputs(spec: ModelSpec, output_name: str) -> set[str]:
+    """Input names referenced by ``output_name``'s formula (perturb-verified to
+    materially affect it). Falls back to a fresh parse if not cached."""
+    cached = _OUTPUT_REFS_CACHE.get((spec.model_id, spec.spec_hash))
+    if cached is not None and output_name in cached:
+        return set(cached[output_name])
+    o = spec.output_by_name(output_name)
+    if o is None:
+        return set()
+    _ok, _r, refs = _formula_names(o.formula, set(spec.input_names()))
+    return refs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deterministic Execute template (NO LLM codegen)
+# ─────────────────────────────────────────────────────────────────────────────
+def _fmt_sweep_x(x: float) -> str:
+    """Stable label for a swept value — same string on both the script side
+    (field key) and the binder side (token field)."""
+    return f"{float(x):.6g}"
+
+
+def sweep_grid(m: ModeledInput) -> list[float]:
+    """The inclusive lo..hi grid (step-spaced) for a modeled input."""
+    pts: list[float] = []
+    n = int(round((m.sweep_hi - m.sweep_lo) / m.sweep_step))
+    for k in range(max(n, 0) + 1):
+        pts.append(m.sweep_lo + k * m.sweep_step)
+    if not pts:
+        pts = [m.sweep_lo]
+    return pts
+
+
+def render_script(spec: ModelSpec) -> str:
+    """Template the validated spec into a FIXED Python skeleton that computes and
+    prints every field. Deterministic — no codegen LLM. Every printed number is
+    the declared output formula over the declared inputs.
+    """
+    lines: list[str] = ["import json"]
+    if spec.solve_for is not None:
+        lines.append("from scipy.optimize import brentq")
+    lines.append(
+        "from math import sqrt, log, log10, log2, exp, sin, cos, tan, floor, ceil"
+    )
+    lines.append("")
+    # one function per output, signature = ALL input names (stable order)
+    all_names = spec.input_names()
+    sig = ", ".join(all_names)
+    for o in spec.outputs:
+        lines.append(f"def _f_{o.name}({sig}):")
+        lines.append(f"    return ({o.formula})")
+    lines.append("")
+    # base input values (sourced.value | modeled.base)
+    for s in spec.sourced_inputs:
+        lines.append(f"{s.name} = {float(s.value)!r}")
+    for m in spec.modeled_inputs:
+        lines.append(f"{m.name} = {float(m.base)!r}")
+    lines.append("")
+    lines.append("_outputs = {}")
+    for o in spec.outputs:
+        call = ", ".join(all_names)
+        lines.append(f"_outputs[{o.name!r}] = _f_{o.name}({call})")
+    lines.append("")
+    lines.append("_sensitivity = {}")
+    for s in spec.sensitivity:
+        m = spec.modeled_by_name(s.input)
+        if m is None:
+            continue
+        grid = sweep_grid(m)
+        pairs = ", ".join(
+            f"({_fmt_sweep_x(x)!r}, {float(x)!r})" for x in grid
+        )
+        lines.append(f"for _xl, _xv in [{pairs}]:")
+        callargs = ", ".join(
+            ("_xv" if nm == s.input else nm) for nm in all_names
+        )
+        key_prefix = f"{s.output}@{s.input}="
+        lines.append(
+            f"    _sensitivity[{key_prefix!r} + _xl] = _f_{s.output}({callargs})"
+        )
+    lines.append("")
+    lines.append("_break_even = {}")
+    if spec.solve_for is not None:
+        sf = spec.solve_for
+        m = spec.modeled_by_name(sf.var)
+        if m is not None:
+            callargs = ", ".join(
+                ("_v" if nm == sf.var else nm) for nm in all_names
+            )
+            lines.append(f"def _g(_v):")
+            lines.append(f"    return _f_{sf.output}({callargs})")
+            lines.append(f"_lo, _hi = {float(m.sweep_lo)!r}, {float(m.sweep_hi)!r}")
+            lines.append("try:")
+            lines.append("    _flo, _fhi = _g(_lo), _g(_hi)")
+            lines.append("    if _flo == 0:")
+            lines.append(f"        _break_even[{sf.output + '.break_even'!r}] = _lo")
+            lines.append("    elif _fhi == 0:")
+            lines.append(f"        _break_even[{sf.output + '.break_even'!r}] = _hi")
+            lines.append("    elif (_flo < 0) != (_fhi < 0):")
+            lines.append("        _root = brentq(_g, _lo, _hi)")
+            lines.append(f"        _break_even[{sf.output + '.break_even'!r}] = _root")
+            lines.append("except (ValueError, RuntimeError):")
+            lines.append("    pass")
+    lines.append("")
+    lines.append(
+        "print(json.dumps({'outputs': _outputs, 'sensitivity': _sensitivity, "
+        "'break_even': _break_even}))"
+    )
+    return "\n".join(lines) + "\n"
