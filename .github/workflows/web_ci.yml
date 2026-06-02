@@ -177,6 +177,15 @@ jobs:
           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
         run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
 
+      # I-ux-001c sub-PR 3 (#885) + #892 CI-wiring fix: intake v6 chrome
+      # spec. Added in PR #885 but missed CI enumeration; this commit
+      # folds it into the workflow per LAW II "no fake working."
+      - name: run_e2e_intake_v6
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/intake_v6.spec.ts
+
       # I-cd-024 (#614): /dashboard route G1-G8 acceptance gates.
       - name: run_e2e_dashboard_g1_g8
         env:
