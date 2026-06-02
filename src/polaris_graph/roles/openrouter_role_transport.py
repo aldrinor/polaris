@@ -89,12 +89,14 @@ status, or a malformed body raises (never a silent empty `RoleResponse`).
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
 
 from src.polaris_graph.benchmark import pathB_capture as _pathb_capture
 from src.polaris_graph.roles.openai_compatible_transport import (
+    BlankVerdictError,
     RoleTransportError,
     _build_body,
     _normalize_messages,
@@ -102,6 +104,8 @@ from src.polaris_graph.roles.openai_compatible_transport import (
     _sanitize_raw_for_capture,
 )
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
+
+logger = logging.getLogger(__name__)
 
 # The OpenAI-compatible chat-completions path. OpenRouter's base URL already ends in `/api/v1`
 # (OPENROUTER_BASE_URL default `https://openrouter.ai/api/v1`), so we append ONLY
@@ -262,6 +266,28 @@ FOUR_ROLE_STAGE = "benchmark_openrouter"
 # directive). Source: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens .
 # LAW VI: effort is overridable via PG_FOUR_ROLE_REASONING_EFFORT (default "xhigh" = MAX).
 _REASONING_EFFORT = os.getenv("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh")
+
+# I-meta-008 / #1026: blank-verdict step-down ladder. When a reasoning-first verifier returns a
+# BLANK bare verdict (reasoning budget exhausted without converging under the high effort), retry
+# with the effort stepped DOWN this ladder so the model is forced to spend tokens on the VERDICT,
+# not endless reasoning. The first entry is the configured MAX effort; `None` means reasoning
+# DISABLED (final resort — guarantees content). Overridable via PG_FOUR_ROLE_EFFORT_LADDER
+# (comma-separated; the literal "off"/"none" -> reasoning disabled). MAX-reasoning-first, then a
+# guaranteed verdict, then fail-loud only if even reasoning-off blanks.
+def _parse_effort_ladder() -> tuple[object, ...]:
+    raw = os.getenv("PG_FOUR_ROLE_EFFORT_LADDER")
+    if not raw:
+        return (_REASONING_EFFORT, "low", None)
+    out: list[object] = []
+    for token in raw.split(","):
+        t = token.strip()
+        if not t:
+            continue
+        out.append(None if t.lower() in ("off", "none", "disabled") else t)
+    return tuple(out) if out else (_REASONING_EFFORT, "low", None)
+
+
+_VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
 
 # Per-role reasoning policy (Codex iter-2 P1 — reasoning is NOT a one-size-fits-all switch).
 #
@@ -499,7 +525,12 @@ def _parse_openrouter_response(raw: dict) -> tuple[object, str | None, dict | No
     # bare verdict/body. A reasoning-only / think-only / empty-content response is a transport
     # failure, never a deliberately-empty answer — fail loud.
     if bare is None or (isinstance(bare, str) and not bare.strip()):
-        raise RoleTransportError(
+        # I-meta-008 / #1026: a RECOVERABLE blank — a reasoning-first verifier under effort=xhigh
+        # can exhaust its reasoning budget without converging and emit zero content. Raise the
+        # distinct BlankVerdictError so `complete()` retries with the reasoning effort stepped DOWN
+        # (forcing the bare verdict) instead of hard-crashing the whole 4-role run. Still fail-loud
+        # if every step-down also blanks.
+        raise BlankVerdictError(
             f"OpenRouter response choice carried no/blank message content after reasoning "
             f"separation (model={model_repr})"
         )
@@ -549,52 +580,117 @@ class OpenRouterRoleTransport:
             "X-Title": "polaris graph",
         }
 
+        # I-meta-008 / #1026: reasoning verifiers get the blank-verdict step-down ladder so a
+        # non-converging xhigh response cannot crash the whole 4-role run. The non-reasoning
+        # Sentinel makes a SINGLE attempt (its body has no `reasoning` block to step down) — its
+        # behavior is unchanged.
+        reasoning_role = role_reasoning_enabled(request.role)
+        effort_ladder: tuple[object, ...] = (
+            _VERIFIER_EFFORT_LADDER if reasoning_role else (_REASONING_EFFORT,)
+        )
+        last_blank: BlankVerdictError | None = None
+
         with _pathb_capture.llm_role(request.role):
-            try:
-                http_response = self._http_client.post(
-                    url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
+            for attempt, effort in enumerate(effort_ladder):
+                # Step the reasoning effort DOWN per attempt (only meaningful for a reasoning role,
+                # whose body carries a `reasoning` block). `effort is None` => reasoning DISABLED
+                # (final resort, guarantees content): drop the `reasoning` param. Keep
+                # `provider.require_parameters` if the body STILL carries an output-constraining
+                # param (`response_format` / `structured_outputs`) — that pin then guarantees a
+                # provider that HONORS those constraints (Codex diff-gate P2). Only when reasoning
+                # was the sole constrained param do we drop require_parameters (it would otherwise
+                # have nothing to enforce).
+                if reasoning_role and "reasoning" in body:
+                    if effort is None:
+                        body.pop("reasoning", None)
+                        provider = body.get("provider")
+                        if isinstance(provider, dict) and not (
+                            "response_format" in body or "structured_outputs" in body
+                        ):
+                            provider.pop("require_parameters", None)
+                            if not provider:
+                                body.pop("provider", None)
+                    else:
+                        body["reasoning"] = {"enabled": True, "effort": effort}
+
+                try:
+                    http_response = self._http_client.post(
+                        url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
+                    )
+                except httpx.HTTPError as exc:
+                    raise RoleTransportError(
+                        f"OpenRouter {request.role!r} transport error at {url}: {exc}"
+                    ) from exc
+
+                if http_response.status_code != httpx.codes.OK:
+                    raise RoleTransportError(
+                        f"OpenRouter {request.role!r} returned HTTP {http_response.status_code} "
+                        f"at {url}"
+                    )
+                try:
+                    raw = http_response.json()
+                except (json.JSONDecodeError, ValueError) as exc:
+                    raise RoleTransportError(
+                        f"OpenRouter {request.role!r} returned a non-JSON body at {url}: {exc}"
+                    ) from exc
+
+                # I-meta-002-q1b + P1-3: reasoning separated from the bare verdict HERE via the
+                # OpenRouter-aware parser (reads `message.reasoning`, not just `reasoning_content` /
+                # `<think>`), so the verdict parsers only ever see the bare answer (no "soap") and
+                # the OpenRouter reasoning is not lost. A BLANK bare verdict is RECOVERABLE (#1026):
+                # step the effort down and retry; fail loud only if the ladder is exhausted.
+                try:
+                    raw_text, served_model, usage, reasoning = _parse_openrouter_response(raw)
+                except BlankVerdictError as exc:
+                    last_blank = exc
+                    # Codex diff-gate P1 (budget-cap bypass): a blank attempt is DISCARDED, so its
+                    # `usage` never reaches RecordingTransport (which bills only the final returned
+                    # response). Account THIS blank attempt's tokens into the SAME shared
+                    # PG_MAX_COST_PER_RUN accumulator the generator + the successful verifier calls
+                    # feed, then enforce the cap BEFORE the next paid retry. Lazy import keeps the
+                    # raw transport free of an import-time dependency on the orchestration layer
+                    # (`compute_role_call_cost` lives in role_pipeline; `_orc` is openrouter_client,
+                    # which does NOT import the roles package — both are cycle-safe).
+                    import src.polaris_graph.llm.openrouter_client as _orc
+                    from src.polaris_graph.roles.role_pipeline import compute_role_call_cost
+
+                    _orc._add_run_cost(
+                        compute_role_call_cost(request.model_slug, raw.get("usage"))
+                    )
+                    _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now crossed.
+                    if attempt + 1 < len(effort_ladder):
+                        logger.warning(
+                            "[polaris graph] #1026: %s blank verdict at reasoning effort=%s "
+                            "(attempt %d/%d) — stepping effort down to %s and retrying.",
+                            request.role, effort, attempt + 1, len(effort_ladder),
+                            effort_ladder[attempt + 1],
+                        )
+                        continue
+                    raise  # ladder exhausted: even reasoning-off blanked -> genuine fail-loud.
+
+                # Stash the genuinely-OpenRouter-served identity for M4 BEFORE capture, then
+                # sanitize reasoning OUT of the captured response (no-leak): reasoning lives ONLY
+                # on the returned RoleResponse + four_role_role_calls.jsonl, never in the capture
+                # channel.
+                raw["_pathb_served"] = _openrouter_served_block(raw)
+                _pathb_capture.capture_llm_call(
+                    role=request.role,
+                    messages=normalized_messages,
+                    raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
                 )
-            except httpx.HTTPError as exc:
-                raise RoleTransportError(
-                    f"OpenRouter {request.role!r} transport error at {url}: {exc}"
-                ) from exc
-
-            if http_response.status_code != httpx.codes.OK:
-                raise RoleTransportError(
-                    f"OpenRouter {request.role!r} returned HTTP {http_response.status_code} "
-                    f"at {url}"
+                # Mirror <co> citation invariant: return raw_text AS-IS (tags intact),
+                # citations=None — mirror_adapter owns the parse/strip/offset alignment. reasoning
+                # rides alongside (never concatenated into raw_text) for separate persistence.
+                return RoleResponse(
+                    raw_text=raw_text,
+                    served_model=served_model,
+                    usage=usage,
+                    citations=None,
+                    reasoning=reasoning,
                 )
-            try:
-                raw = http_response.json()
-            except (json.JSONDecodeError, ValueError) as exc:
-                raise RoleTransportError(
-                    f"OpenRouter {request.role!r} returned a non-JSON body at {url}: {exc}"
-                ) from exc
 
-            # I-meta-002-q1b + P1-3: reasoning separated from the bare verdict HERE via the
-            # OpenRouter-aware parser (reads `message.reasoning`, not just `reasoning_content` /
-            # `<think>`), so the verdict parsers only ever see the bare answer (no "soap") and the
-            # OpenRouter reasoning is not lost.
-            raw_text, served_model, usage, reasoning = _parse_openrouter_response(raw)
-
-            # Stash the genuinely-OpenRouter-served identity for M4 BEFORE capture, then
-            # sanitize reasoning OUT of the captured response (no-leak): reasoning lives ONLY on
-            # the returned RoleResponse + the four_role_role_calls.jsonl, never in the capture
-            # channel.
-            raw["_pathb_served"] = _openrouter_served_block(raw)
-            _pathb_capture.capture_llm_call(
-                role=request.role,
-                messages=normalized_messages,
-                raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
-            )
-
-        # Mirror <co> citation invariant: return raw_text AS-IS (tags intact), citations=None —
-        # mirror_adapter owns the parse/strip/offset alignment. reasoning rides alongside
-        # (never concatenated into raw_text) for separate persistence.
-        return RoleResponse(
-            raw_text=raw_text,
-            served_model=served_model,
-            usage=usage,
-            citations=None,
-            reasoning=reasoning,
+        # Unreachable: the loop returns on success or raises on ladder exhaustion. Kept so the
+        # function has no implicit `None` return path.
+        raise last_blank or RoleTransportError(
+            f"OpenRouter {request.role!r} produced no response"
         )

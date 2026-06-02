@@ -98,6 +98,21 @@ class RoleTransportError(RuntimeError):
     """
 
 
+class BlankVerdictError(RoleTransportError):
+    """A reasoning verifier returned a BLANK bare verdict after reasoning separation.
+
+    A distinct, RECOVERABLE subclass of `RoleTransportError` (I-meta-008 / #1026). A
+    reasoning-first verifier (e.g. GLM-5.1 Mirror, Qwen Judge) under `effort=xhigh` can burn
+    its whole reasoning budget WITHOUT converging and emit zero `content`. That is not a
+    structural transport failure — it is recoverable by retrying with the reasoning effort
+    stepped DOWN so the model is forced to emit the bare verdict. `OpenRouterRoleTransport.
+    complete` catches THIS subclass specifically to retry; structural failures (no choices,
+    non-200, non-JSON) keep raising the plain `RoleTransportError` and are NOT retried.
+    Because it subclasses `RoleTransportError`, every existing `except RoleTransportError`
+    still catches it unchanged.
+    """
+
+
 def role_endpoint(role: str) -> tuple[str, str, str]:
     """Resolve `(base_url, api_key, model_slug)` for a self-hosted verifier role.
 

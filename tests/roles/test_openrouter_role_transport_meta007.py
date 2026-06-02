@@ -36,6 +36,7 @@ import pytest
 from scripts.dr_benchmark import run_gate_b
 from src.polaris_graph.benchmark import pathB_capture as pc
 from src.polaris_graph.roles.openai_compatible_transport import (
+    BlankVerdictError,
     OpenAICompatibleRoleTransport,
     RoleTransportError,
 )
@@ -693,3 +694,120 @@ def test_sentinel_gets_explicit_classifier_budget():
     )
     assert seen["body"]["max_tokens"] == 256
     assert "reasoning" not in seen["body"]
+
+
+# --------------------------------------------------------------------------------------
+# I-meta-008 / #1026: blank-verdict reasoning step-down ladder
+#
+# A reasoning-first verifier (GLM-5.1 Mirror, Qwen Judge) under effort=xhigh can burn its whole
+# reasoning budget WITHOUT converging and return blank content. The transport must NOT crash the
+# whole 4-role run on that — it steps the reasoning effort DOWN and retries, fail-loud only if even
+# reasoning-off blanks. (This reproduced the live drb_72 Mirror pass-2 abort.)
+# --------------------------------------------------------------------------------------
+def _sequenced_handler(responses: list[dict], *, served_model: str, provider: str = "DeepInfra"):
+    """A MockTransport handler returning `responses[i]` for the i-th call (clamped to the last),
+    recording every request body so the per-attempt reasoning config can be asserted."""
+    seen: dict = {"bodies": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["bodies"].append(json.loads(request.content.decode("utf-8")))
+        message = responses[min(len(seen["bodies"]) - 1, len(responses) - 1)]
+        payload = {
+            "model": served_model,
+            "provider": provider,
+            "choices": [{"message": {"role": "assistant", **message}}],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 5},
+        }
+        return httpx.Response(200, json=payload)
+
+    return handler, seen
+
+
+def test_blank_verdict_steps_down_reasoning_and_recovers():
+    # First xhigh response is blank-after-reasoning; the retry (effort stepped DOWN to "low")
+    # returns a real verdict. complete() must return that verdict, NOT raise.
+    blank = {"content": "", "reasoning": "looped without converging on a verdict"}
+    good = {"content": "VERIFIED"}
+    handler, seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    resp = _make_transport(handler).complete(
+        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+    )
+    assert resp.raw_text == "VERIFIED"
+    assert len(seen["bodies"]) == 2, "should have retried exactly once after the blank"
+    assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh", "first attempt at MAX effort"
+    assert seen["bodies"][1]["reasoning"]["effort"] == "low", "retry steps the effort DOWN"
+
+
+def test_blank_verdict_ladder_exhausted_fails_loud_with_reasoning_off_last():
+    # Every attempt blanks -> fail loud after the ladder (xhigh -> low -> off). The FINAL attempt
+    # disables reasoning entirely (no `reasoning` block) to force content; when even that blanks the
+    # transport raises BlankVerdictError (a RoleTransportError subclass).
+    blank = {"content": "", "reasoning": "never converges"}
+    handler, seen = _sequenced_handler([blank], served_model=_MIRROR_SLUG)
+    with pytest.raises(BlankVerdictError):
+        _make_transport(handler).complete(
+            RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+        )
+    assert len(seen["bodies"]) == 3, "default ladder is (xhigh, low, off) = 3 attempts"
+    assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh"
+    assert seen["bodies"][1]["reasoning"]["effort"] == "low"
+    assert "reasoning" not in seen["bodies"][2], "final resort disables reasoning to force content"
+    # require_parameters pin is dropped once reasoning is off (it only forces reasoning honoring)
+    assert "provider" not in seen["bodies"][2] or "require_parameters" not in seen["bodies"][2].get("provider", {})
+
+
+def test_sentinel_blank_is_single_attempt_no_stepdown():
+    # The non-reasoning Sentinel has no `reasoning` block to step down — it makes ONE attempt and a
+    # blank still fails loud (unchanged behavior; the ladder is reasoning-roles-only).
+    handler, seen = _sequenced_handler([{"content": ""}], served_model=_SENTINEL_SLUG)
+    with pytest.raises(RoleTransportError):
+        _make_transport(handler).complete(
+            RoleRequest(role="sentinel", model_slug=_SENTINEL_SLUG, prompt="x")
+        )
+    assert len(seen["bodies"]) == 1, "Sentinel must NOT retry (no reasoning ladder)"
+
+
+def test_blank_attempt_bills_tokens_into_run_budget(monkeypatch):
+    # Codex diff-gate P1: a DISCARDED blank attempt's tokens must be accounted into the shared
+    # run-budget accumulator (RecordingTransport bills only the final returned response, so without
+    # this the expensive xhigh blank attempt would bypass PG_MAX_COST_PER_RUN). The successful
+    # attempt stays billed by RecordingTransport -> only the blank is billed here (no double-count).
+    import src.polaris_graph.llm.openrouter_client as orc
+
+    billed: list[float] = []
+    checks: list[float] = []
+    monkeypatch.setattr(orc, "_add_run_cost", lambda c: billed.append(c))
+    monkeypatch.setattr(orc, "check_run_budget", lambda d=0.0: checks.append(d))
+
+    blank = {"content": "", "reasoning": "looped without converging"}
+    good = {"content": "VERIFIED"}
+    handler, _seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    resp = _make_transport(handler).complete(
+        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+    )
+    assert resp.raw_text == "VERIFIED"
+    assert len(billed) == 1, "exactly the ONE blank attempt's tokens are billed inline"
+    assert billed[0] > 0.0, "a blank xhigh attempt cost real tokens — must not bill $0"
+    assert checks == [0], "the run budget is checked once, before the paid retry"
+
+
+def test_blank_attempt_budget_exceeded_aborts_before_next_retry(monkeypatch):
+    # The inline budget check must fail-fast: if accounting the blank attempt crosses the cap,
+    # BudgetExceededError propagates and NO further (paid) retry is issued.
+    import src.polaris_graph.llm.openrouter_client as orc
+
+    monkeypatch.setattr(orc, "_add_run_cost", lambda c: None)
+
+    def _over_cap(_delta=0.0):
+        raise orc.BudgetExceededError("PG_MAX_COST_PER_RUN crossed by the blank retry")
+
+    monkeypatch.setattr(orc, "check_run_budget", _over_cap)
+
+    blank = {"content": "", "reasoning": "x"}
+    good = {"content": "VERIFIED"}
+    handler, seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    with pytest.raises(orc.BudgetExceededError):
+        _make_transport(handler).complete(
+            RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+        )
+    assert len(seen["bodies"]) == 1, "the cap abort must prevent the next paid retry"
