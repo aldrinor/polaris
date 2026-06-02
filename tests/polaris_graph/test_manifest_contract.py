@@ -25,7 +25,8 @@ import pytest
 
 
 # ─────────────────────────────────────────────────────────────────
-# Test 1: UNIFIED_STATUS_VALUES is a closed set of exactly 10 values.
+# Test 1: UNIFIED_STATUS_VALUES is a closed taxonomy. Keep this in
+# lock-step with UNIFIED_STATUS_VALUES in scripts/run_honest_sweep_r3.py.
 # ─────────────────────────────────────────────────────────────────
 
 def test_manifest_contract_unified_taxonomy_defined() -> None:
@@ -41,12 +42,14 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "partial_outline_fallback",    # added by BUG-M-203 (R4)
         "partial_evaluator_advisory",  # added by BUG-M-205 (R5)
         "partial_qwen_advisory",       # I-modref-004 (#530): legacy alias
+        "partial_saturation",          # I-meta-005 Phase 4 (#988): pruned report
         "abort_scope_rejected",
         "abort_no_sources",
         "abort_corpus_inadequate",
         "abort_corpus_approval_denied",
         "abort_no_verified_sections",
         "abort_evaluator_critical",    # added by BUG-M-205 (R5)
+        "abort_budget_exceeded",       # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach (generator OR 4-role verifier)
         "error_unexpected",
     })
     assert UNIFIED_STATUS_VALUES == expected, (

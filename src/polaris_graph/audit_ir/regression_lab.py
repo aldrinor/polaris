@@ -604,6 +604,9 @@ _STATUS_TIERS: dict[str, int] = {
     "abort_corpus_approval_denied": 2,
     "abort_no_verified_sections": 2,
     "abort_evaluator_critical": 2,
+    # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) —
+    # a clean budget abort, no report produced (tier 2), NOT an unhandled error.
+    "abort_budget_exceeded": 2,
     # error — unhandled exception
     "error_unexpected": 3,
 }

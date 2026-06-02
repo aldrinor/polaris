@@ -273,3 +273,72 @@ def test_sentinel_verdict_enum_present():
     # Documents WHAT the swallow guard prevents: a BudgetExceededError must NOT become an
     # UNGROUNDED SentinelResult. (Type-presence sanity; the behavioral lock is Test C.)
     assert SentinelVerdict.UNGROUNDED is not None
+
+
+# --- Test E (P1 #2 clean propagation): run_one_query converts BudgetExceededError into the -----
+# --- abort_budget_exceeded status, NOT error_unexpected. AST/structural — the run_one_query -----
+# --- try/except is UNREACHABLE offline (it requires real retrieval + generation BEFORE the -----
+# --- seam fires), so a behavioral harness is impossible without network/spend; the structural ---
+# --- lock asserts the exact properties P1 #2 requires (handler exists, ORDERED before the -------
+# --- broad except, writes the clean budget-abort status). Uses AST (NOT source-grep, which the --
+# --- pre-existing test_manifest_contract source-string tests do brittly/incorrectly). ----------
+def test_run_one_query_propagates_budget_error_to_clean_status_not_error_unexpected():
+    import ast
+    from pathlib import Path
+
+    src = Path("scripts/run_honest_sweep_r3.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    run_one_query = next(
+        (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "run_one_query"
+        ),
+        None,
+    )
+    assert run_one_query is not None, "run_one_query not found in run_honest_sweep_r3.py"
+
+    # Find the Try whose handlers include BOTH a typed BudgetExceededError catch AND the broad
+    # `except Exception` (the success-path try at ~1528). This is the seam-enclosing try.
+    target_try = None
+    budget_idx = None
+    broad_idx = None
+    for t in ast.walk(run_one_query):
+        if not isinstance(t, ast.Try):
+            continue
+        b_idx = e_idx = None
+        for i, h in enumerate(t.handlers):
+            if isinstance(h.type, ast.Name) and h.type.id == "BudgetExceededError":
+                b_idx = i
+            elif isinstance(h.type, ast.Name) and h.type.id == "Exception":
+                e_idx = i
+        if b_idx is not None and e_idx is not None:
+            target_try, budget_idx, broad_idx = t, b_idx, e_idx
+            break
+
+    # (a) the typed BudgetExceededError handler EXISTS on the seam-enclosing try.
+    assert target_try is not None, (
+        "run_one_query must have a try with BOTH an `except BudgetExceededError` handler and a "
+        "broad `except Exception` — the budget-abort propagation fix (I-meta-008 P1 #2) is missing."
+    )
+    # (b) it is ORDERED BEFORE the broad `except Exception` (otherwise the broad catch would
+    #     convert the budget breach to error_unexpected first — the fix would be inert).
+    assert budget_idx < broad_idx, (
+        "`except BudgetExceededError` must precede `except Exception`; otherwise the broad catch "
+        "swallows the budget breach into error_unexpected."
+    )
+    # (c) the handler body writes the CLEAN budget-abort status, NOT error_unexpected.
+    handler = target_try.handlers[budget_idx]
+    handler_strings = {
+        n.value for n in ast.walk(handler) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    }
+    assert "abort_budget_exceeded" in handler_strings, (
+        "the BudgetExceededError handler must set status='abort_budget_exceeded' (a clean budget "
+        "abort), not error_unexpected."
+    )
+    assert "error_unexpected" not in handler_strings, (
+        "the BudgetExceededError handler must NOT write error_unexpected — that is the exact "
+        "P1 #2 bug being fixed."
+    )
