@@ -4,7 +4,9 @@ I-meta-002 sub-PR-5. This is the COMPOSABLE orchestration layer that drives the 
 sub-PR-4 role adapters (Mirror, Sentinel, Judge) over ONE injected `RoleTransport` and
 produces a single `D8ClaimRow` (sub-PR-3) per claim, plus a complete per-call audit trail.
 
-There is NO network here and NO spend: the transport is DEPENDENCY-INJECTED. Tests inject a
+There is no direct paid LLM call here; the injected transport performs the (already-paid)
+call and this module threads its cost into the shared PG_MAX_COST_PER_RUN accumulator per
+I-meta-008 (so generator + 4-role verifier spend are bounded by ONE cap). Tests inject a
 mock transport. The runtime transport that wraps `openrouter_client` is wired in the sweep
 surgery (sub-PR-6), NOT here.
 
@@ -31,12 +33,19 @@ otherwise collide and break rewrite/gap traceability).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
+# I-meta-008: thread the 4-role verifier spend into the SAME run-budget accumulator the
+# generator already feeds. `openrouter_client` does NOT import the `roles` package (verified),
+# so this top-level alias is circular-import-safe and mirrors entailment_judge.py's `_orc` use.
+import src.polaris_graph.llm.openrouter_client as _orc
 
 from src.polaris_graph.roles.judge_adapter import run_judge
 from src.polaris_graph.roles.judge_contract import Verdict
 from src.polaris_graph.roles.mirror_adapter import (
     MirrorBindingError,
     MirrorCitationError,
+    MirrorParseError,
     run_mirror,
 )
 from src.polaris_graph.roles.mirror_contract import MirrorPass1, MirrorPass2
@@ -63,6 +72,59 @@ _VERDICT_UNREACHABLE = "UNREACHABLE"
 # verdict on an UNGROUNDED claim). FABRICATED/UNREACHABLE/UNSUPPORTED are NEVER upgraded.
 _SENTINEL_OVERRIDE_DOWNGRADE_FROM = (_VERDICT_VERIFIED, _VERDICT_PARTIAL)
 
+# I-meta-008 floor: a degraded LIVE verifier call that yields no usable usage (no tokens, no
+# api cost) must NOT bill $0 and slip the cap. Floor it at a conservative ~500 prompt / ~100
+# completion shape priced through `_impute_cost_from_tokens` (Opus-tier default for unknown
+# slugs => ~$0.003/call). This replicates entailment_judge.py:231-234 (the I-bug-100 P2 fix).
+_FLOOR_PROMPT_TOKENS = 500
+_FLOOR_COMPLETION_TOKENS = 100
+
+
+def compute_role_call_cost(model_slug: str, usage: dict[str, Any] | None) -> float:
+    """Cost (USD) for ONE verifier completion from its OpenRouter `usage` block.
+
+    Mirrors the GENERATOR extraction (`openrouter_client._finalize_*`, :1717-1751) exactly,
+    because `RoleResponse.usage` is the verbatim OpenRouter usage block (same shape):
+
+    * prompt/completion tokens read directly; **reasoning tokens are NESTED** under
+      `completion_tokens_details.reasoning_tokens` when the top-level field is 0 — this is
+      BLOCKING for Mirror/Judge at xhigh reasoning (reasoning dominates their cost).
+    * conservative `max(api_cost, imputed)`: OpenRouter omits `usage.cost` for some models, so
+      the impute path is live; for a budget guard over-counting is the safe direction.
+    * FLOOR (I-meta-008 P1 / Codex design-review): when the computed cost is 0.0 AND every
+      extracted token (prompt + completion + reasoning) is zero AND there is no positive API
+      cost, floor at the ~500/100 shape. The prior `cost == 0.0 and not usage` only caught
+      None/{}; a NON-EMPTY all-zero usage block (e.g. `{"prompt_tokens": 0, ...}`) would still
+      record $0 and slip the cap — this token-level guard closes that hole.
+    """
+    usage_block = usage or {}
+    input_tokens = int(usage_block.get("prompt_tokens", 0) or 0)
+    output_tokens = int(usage_block.get("completion_tokens", 0) or 0)
+    reasoning_tokens = int(usage_block.get("reasoning_tokens", 0) or 0)
+    if not reasoning_tokens:
+        details = usage_block.get("completion_tokens_details") or {}
+        reasoning_tokens = int(details.get("reasoning_tokens", 0) or 0)
+
+    imputed = _orc._impute_cost_from_tokens(
+        model_slug, input_tokens, output_tokens, reasoning_tokens
+    )
+    api_cost = float(usage_block.get("cost", 0) or 0)
+    cost = max(api_cost, imputed)
+
+    # I-meta-008 P1 zero-usage floor: token-level, NOT block-presence. A non-empty all-zero
+    # usage block (or absent usage) with no positive api cost must be floored, never billed $0.
+    if (
+        cost == 0.0
+        and input_tokens == 0
+        and output_tokens == 0
+        and reasoning_tokens == 0
+        and api_cost <= 0.0
+    ):
+        cost = _orc._impute_cost_from_tokens(
+            model_slug, _FLOOR_PROMPT_TOKENS, _FLOOR_COMPLETION_TOKENS, 0
+        )
+    return cost
+
 
 class RecordingTransport:
     """Wrap an injected `RoleTransport`; record EVERY completion before returning it.
@@ -74,6 +136,14 @@ class RecordingTransport:
     record survives even on the fail-closed paths (a Mirror pass-1 that then raises
     `MirrorCitationError`). `parsed` is left None here: it is the role contract that parses,
     and the parsed sub-results are carried separately on `ClaimPipelineResult`.
+
+    I-meta-008 — RUN-BUDGET ACCOUNTING. `complete()` is the SINGLE per-call chokepoint every
+    verifier completion (Mirror pass-1, pass-2, Sentinel, Judge) flows through exactly once.
+    After recording, it threads the just-served call's cost into the SHARED `PG_MAX_COST_PER_RUN`
+    accumulator (`_orc._add_run_cost`) and calls `_orc.check_run_budget(0)`, which raises
+    `BudgetExceededError` BEFORE the next paid verifier call once the generator + verifier total
+    crosses the cap. The transport itself adds no paid call here — it ACCOUNTS for the
+    already-served call.
     """
 
     def __init__(self, transport: RoleTransport) -> None:
@@ -82,7 +152,9 @@ class RecordingTransport:
 
     def complete(self, request: RoleRequest) -> RoleResponse:
         response = self._transport.complete(request)
-        # Append BEFORE returning so a downstream adapter raise cannot drop the record.
+        # Append BEFORE returning so a downstream adapter raise cannot drop the record. The
+        # served-identity audit trail for the breaching call is preserved even when the budget
+        # check below raises.
         self.records.append(
             RoleCallRecord(
                 role=request.role,
@@ -95,6 +167,12 @@ class RecordingTransport:
                 reasoning=response.reasoning,
             )
         )
+        # I-meta-008: account THIS verifier call's cost into the SAME run-budget accumulator the
+        # generator feeds, then enforce the cap. `_RUN_COST_CTX` is per-asyncio-Task; the seam
+        # runs synchronously inside the same `run_one_query` task that holds the generator spend,
+        # so the delta lands on the counter holding `generator_spend + verifier_spend`.
+        _orc._add_run_cost(compute_role_call_cost(request.model_slug, response.usage))
+        _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
         return response
 
 
@@ -215,14 +293,17 @@ def run_claim_pipeline(
     mirror_failed_closed = False
 
     # --- stage 14: Mirror (fail CLOSED) ----------------------------------------------
-    # Catch the two grounding/binding errors EXPLICITLY (NOT `except: pass`) so they drive the
+    # Catch the grounding/binding/parse errors EXPLICITLY (NOT `except: pass`) so they drive the
     # UNSUPPORTED override; any OTHER exception propagates (a transport fault is not a verdict).
+    # MirrorParseError (#1028): a verifier that responded but returned un-classifiable JSON is a
+    # VERDICT-level failure (fail closed for THIS claim), NOT a transport fault — so one malformed
+    # pass-2 response degrades a single claim to UNSUPPORTED instead of crashing the whole run.
     try:
         mirror_result, mirror_records = run_mirror(
             recording, claim, evidence_documents, model_slug=mirror_slug
         )
         citation_id = _first_grounded_citation_id(mirror_records)
-    except (MirrorCitationError, MirrorBindingError):
+    except (MirrorCitationError, MirrorBindingError, MirrorParseError):
         mirror_failed_closed = True
 
     # --- stage 15 + 16: Sentinel -> Judge (only if Mirror produced a grounded claim) -----

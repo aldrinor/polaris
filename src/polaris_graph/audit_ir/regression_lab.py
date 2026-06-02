@@ -596,6 +596,7 @@ _STATUS_TIERS: dict[str, int] = {
     "partial_outline_fallback": 1,
     "partial_evaluator_advisory": 1,
     "partial_qwen_advisory": 1,  # legacy alias (I-modref-004 #530)
+    "partial_saturation": 1,  # I-meta-005 Phase 4 (#988): pruned partial report
     # abort — pipeline refused to produce a report
     "abort_scope_rejected": 2,
     "abort_no_sources": 2,
@@ -603,6 +604,9 @@ _STATUS_TIERS: dict[str, int] = {
     "abort_corpus_approval_denied": 2,
     "abort_no_verified_sections": 2,
     "abort_evaluator_critical": 2,
+    # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) —
+    # a clean budget abort, no report produced (tier 2), NOT an unhandled error.
+    "abort_budget_exceeded": 2,
     # error — unhandled exception
     "error_unexpected": 3,
 }

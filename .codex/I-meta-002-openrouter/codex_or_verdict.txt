@@ -1,0 +1,125 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7ca9-01dc-7500-b033-9ee121319b96
+--------
+user
+# Codex gate — OpenRouter verifier availability + sovereignty: live-accurate?
+
+ADVERSARIAL §-1.1 auditor. Operator asked "is there any verifier model I can get OpenRouter to access?" A workflow
+checked the live OpenRouter catalog (sub-agents may have leaked the forbidden advisor tool — re-verify yourself via
+WebFetch). Confirm/refute the availability, prices, and the sovereignty characterization. These drive a real spend/
+architecture decision. Output YAML verdict FIRST. iter 1.
+
+```yaml
+verdict: ACCURATE | NEEDS_CORRECTION
+availability_correct: "<are the 3 locked-model findings right?>"
+price_errors: [...]
+sovereignty_characterization_fair: <true|false>
+the_one_correction: "<or none>"
+honest_one_line: "<for the operator>"
+```
+
+## Claims to re-verify on the LIVE OpenRouter catalog (WebFetch the model pages)
+1. Mirror cohere/command-a-plus: NOT on OpenRouter (exact slug absent); same-family cohere/command-a (111B) IS, at
+   $2.50/M in, $10.00/M out.
+2. Sentinel ibm-granite/granite-guardian-4.1-8b: NOT on OpenRouter; the ibm-granite namespace has only general
+   granite-4.1-8b ($0.05/$0.10) + granite-4.0-h-micro — NO dedicated hallucination/RAG-grounding guardrail. CLAIM:
+   no purpose-built grounding classifier (Granite Guardian / ShieldGemma / GuardReasoner / MiniCheck) is on
+   OpenRouter; only meta-llama/llama-guard-4-12b ($0.18/$0.18) which is content-SAFETY not RAG-faithfulness.
+3. Judge qwen/qwen3.6-35b-a3b: YES exact slug, $0.14/M in, $1.00/M out.
+4. Alternatives claimed: mistralai/mistral-large-2512 ($0.50/$1.50), meta-llama/llama-3.3-70b-instruct ($0.10/$0.32).
+5. COST: ~$2/run API verification (Mirror ~$1.90 dominates at command-a $2.50/$10) vs $130-770 self-hosted GPU →
+   ~60-380x cheaper.
+6. SOVEREIGNTY: default OpenRouter routes through (largely US) providers, no per-request country filter, doesn't
+   disclose provider location by default → BREAKS the clinical "no US LLM vendor at runtime" rule. Provider-pinning
+   (only:[...], data_collection:deny, zdr:true) is partial; the real lever is enterprise EU mode at eu.openrouter.ai
+   = EU residency but still a US broker (OpenRouter Inc.) = NOT Canadian sovereignty. VERDICT: OK for non-sovereign
+   proving runs, BREAKS the sovereign production gift.
+
+## Your ruling
+Re-verify the availability + prices on the live pages (flag any stale/wrong price). Is the Sentinel-gap claim (no
+RAG-faithfulness guardrail on OpenRouter) correct? Is the sovereignty characterization FAIR (esp. eu.openrouter.ai
+= EU-residency-via-US-broker ≠ Canadian sovereignty)? The single most important correction or 'none'. Honest one-liner.
+
+codex
+I’ll verify this directly against OpenRouter’s live catalog and docs, then separate catalog facts from architecture/legal characterization so the ruling is precise.
+web search: 
+web search: https://openrouter.ai/api/v1/models
+web search: 
+web search: 'cohere/command-a' in https://openrouter.ai/api/v1/models
+web search: 
+web search: https://openrouter.ai/cohere/command-a
+web search: 
+web search: site:openrouter.ai/cohere command-a-plus OpenRouter
+web search: 
+web search: "cohere/command-a-plus" "OpenRouter"
+web search: 
+web search: https://openrouter.ai/cohere
+web search: 
+web search: 'hallucination' in https://openrouter.ai/api/v1/models
+web search: 
+web search: OpenRouter provider routing country filter data_collection deny zdr true eu.openrouter.ai Enterprise EU residency
+web search: 
+web search: https://openrouter.ai/docs/guides/routing/provider-selection
+web search: 
+web search: https://openrouter.ai/terms
+web search: 
+web search: 'Delaware' in https://openrouter.ai/terms
+web search: 
+web search: https://openrouter.ai/docs/guides/routing/provider-selection
+web search: 
+web search: https://openrouter.ai/docs/guides/routing/provider-selection
+web search: 
+web search: 
+web search: 
+web search: "/api/v1/models/cohere/command-a-03-2025/endpoints"
+web search: 
+web search: https://openrouter.ai/openai/gpt-oss-safeguard-20b
+web search: 
+web search: OpenRouter router metadata selected provider response headers provider location
+codex
+```yaml
+verdict: NEEDS_CORRECTION
+availability_correct: "Yes: command-a-plus absent, granite-guardian-4.1-8b absent, qwen/qwen3.6-35b-a3b present."
+price_errors: []
+sovereignty_characterization_fair: true
+the_one_correction: "Sentinel gap is right for RAG-faithfulness, but 'only Llama Guard 4' is too narrow: OpenRouter also lists Llama Guard 3 8B and OpenAI gpt-oss-safeguard-20b; both are safety/trust-safety models, not purpose-built RAG grounding classifiers."
+honest_one_line: "Use OpenRouter for cheap non-sovereign verifier proving; do not treat it as a Canadian-sovereign clinical runtime."
+```
+
+Catalog prices checked live:
+
+- `cohere/command-a` is live, described as 111B, priced at `$2.50/M` input and `$10/M` output; the Cohere namespace page lists Command A but not `command-a-plus`. Sources: OpenRouter Command A page and Cohere model list. ([openrouter.ai](https://openrouter.ai/cohere/command-a)) ([openrouter.ai](https://openrouter.ai/cohere))
+- `ibm-granite` currently lists exactly 2 models: `granite-4.1-8b` at `$0.05/M` input, `$0.10/M` output, and `granite-4.0-h-micro`; no Granite Guardian slug appears there. ([openrouter.ai](https://openrouter.ai/ibm-granite))
+- `qwen/qwen3.6-35b-a3b` is live at `$0.14/M` input and `$1/M` output. ([openrouter.ai](https://openrouter.ai/qwen/qwen3.6-35b-a3b))
+- Alternatives are priced as claimed: `mistralai/mistral-large-2512` at `$0.50/M` and `$1.50/M`; `meta-llama/llama-3.3-70b-instruct` at `$0.10/M` and `$0.32/M`. ([openrouter.ai](https://openrouter.ai/mistralai/mistral-large-2512)) ([openrouter.ai](https://openrouter.ai/meta-llama/llama-3.3-70b-instruct))
+- `meta-llama/llama-guard-4-12b` is content-safety classification at `$0.18/M` both ways, not RAG faithfulness. ([openrouter.ai](https://openrouter.ai/meta-llama/llama-guard-4-12b))
+
+Sovereignty ruling: fair. OpenRouter’s default behavior load-balances across providers; per-request controls include provider pinning, `data_collection`, and `zdr`, but not a generic country filter. EU in-region routing exists via `https://eu.openrouter.ai` for enterprise customers and keeps prompts/completions in the EU, but OpenRouter is still OpenRouter, Inc. with New York/US terms and address, so that is EU residency, not Canadian sovereignty. ([openrouter.ai](https://openrouter.ai/docs/guides/routing/provider-selection)) ([openrouter.ai](https://openrouter.ai/docs/guides/get-started/sovereign-ai)) ([openrouter.ai](https://openrouter.ai/terms))
+tokens used
+120,610
+```yaml
+verdict: NEEDS_CORRECTION
+availability_correct: "Yes: command-a-plus absent, granite-guardian-4.1-8b absent, qwen/qwen3.6-35b-a3b present."
+price_errors: []
+sovereignty_characterization_fair: true
+the_one_correction: "Sentinel gap is right for RAG-faithfulness, but 'only Llama Guard 4' is too narrow: OpenRouter also lists Llama Guard 3 8B and OpenAI gpt-oss-safeguard-20b; both are safety/trust-safety models, not purpose-built RAG grounding classifiers."
+honest_one_line: "Use OpenRouter for cheap non-sovereign verifier proving; do not treat it as a Canadian-sovereign clinical runtime."
+```
+
+Catalog prices checked live:
+
+- `cohere/command-a` is live, described as 111B, priced at `$2.50/M` input and `$10/M` output; the Cohere namespace page lists Command A but not `command-a-plus`. Sources: OpenRouter Command A page and Cohere model list. ([openrouter.ai](https://openrouter.ai/cohere/command-a)) ([openrouter.ai](https://openrouter.ai/cohere))
+- `ibm-granite` currently lists exactly 2 models: `granite-4.1-8b` at `$0.05/M` input, `$0.10/M` output, and `granite-4.0-h-micro`; no Granite Guardian slug appears there. ([openrouter.ai](https://openrouter.ai/ibm-granite))
+- `qwen/qwen3.6-35b-a3b` is live at `$0.14/M` input and `$1/M` output. ([openrouter.ai](https://openrouter.ai/qwen/qwen3.6-35b-a3b))
+- Alternatives are priced as claimed: `mistralai/mistral-large-2512` at `$0.50/M` and `$1.50/M`; `meta-llama/llama-3.3-70b-instruct` at `$0.10/M` and `$0.32/M`. ([openrouter.ai](https://openrouter.ai/mistralai/mistral-large-2512)) ([openrouter.ai](https://openrouter.ai/meta-llama/llama-3.3-70b-instruct))
+- `meta-llama/llama-guard-4-12b` is content-safety classification at `$0.18/M` both ways, not RAG faithfulness. ([openrouter.ai](https://openrouter.ai/meta-llama/llama-guard-4-12b))
+
+Sovereignty ruling: fair. OpenRouter’s default behavior load-balances across providers; per-request controls include provider pinning, `data_collection`, and `zdr`, but not a generic country filter. EU in-region routing exists via `https://eu.openrouter.ai` for enterprise customers and keeps prompts/completions in the EU, but OpenRouter is still OpenRouter, Inc. with New York/US terms and address, so that is EU residency, not Canadian sovereignty. ([openrouter.ai](https://openrouter.ai/docs/guides/routing/provider-selection)) ([openrouter.ai](https://openrouter.ai/docs/guides/get-started/sovereign-ai)) ([openrouter.ai](https://openrouter.ai/terms))

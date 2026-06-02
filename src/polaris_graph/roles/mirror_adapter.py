@@ -64,6 +64,19 @@ class MirrorBindingError(ValueError):
     """
 
 
+class MirrorParseError(ValueError):
+    """Raised when pass-2 returns non-JSON or JSON missing the `classification` verdict.
+
+    A VERDICT-level failure (the model DID respond — transport was fine — but the body cannot
+    be parsed into a classification), so it drives the SAME fail-closed -> UNSUPPORTED path as
+    MirrorCitationError/MirrorBindingError instead of crashing the whole 4-role run (#1028). A
+    reasoning-first verifier (GLM-5.1) under `response_format=json_object` reliably returns JSON
+    but sometimes omits keys; a missing `classification` is unrecoverable (fail closed), whereas
+    a merely-omitted `content_hash` is recoverable (the caller knows the expected hash — see
+    `_parse_pass2`).
+    """
+
+
 def _strip_co_tags(raw: str) -> str:
     """Strip `<co>...</co:doc_ids>` tags, leaving the covered text, so the cleaned answer
     text's offsets align with the spans `parse_cohere_citations` reports (which index into
@@ -162,16 +175,42 @@ def build_mirror_pass2_request(pass1: MirrorPass1, *, model_slug: str) -> RoleRe
     )
 
 
-def _parse_pass2(raw_text: str) -> MirrorPass2:
+def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
     """Parse a pass-2 transport response into MirrorPass2.
 
-    The classification JSON must carry the `content_hash` (the binding) and a
-    `classification`; an optional `rationale` is preserved. JSON decode / shape errors
-    propagate (fail loud) rather than fabricate a verdict.
+    The classification JSON must carry a `classification` (the verdict); an optional `rationale`
+    is preserved. `content_hash` is the pass-1<->pass-2 binding the model is ASKED to echo, but
+    `expected_content_hash` (the caller-computed `_compute_content_hash(pass1)`) is authoritative:
+    in a synchronous single call the pass-2 response is necessarily about the pass-1 artifact we
+    built, so when a reasoning-first verifier OMITS the redundant echo we fall back to the
+    expected hash and the real classification is salvaged (#1028). A model-RETURNED hash is kept
+    as-is so `verify_pass2_binding` still catches a present-but-MISMATCHED hash (a genuine mixup).
+
+    A non-JSON body or a JSON missing `classification` is unrecoverable -> `MirrorParseError`
+    (a VERDICT-level failure that drives the fail-closed -> UNSUPPORTED path, NOT a whole-run
+    crash). Never fabricates a verdict.
     """
-    payload = json.loads(raw_text)
+    try:
+        payload = json.loads(raw_text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise MirrorParseError(
+            f"Mirror pass-2 returned a non-JSON body: {exc}"
+        ) from exc
+    if not isinstance(payload, dict) or _CLASSIFICATION_KEY not in payload:
+        raise MirrorParseError(
+            "Mirror pass-2 JSON is missing the required 'classification' verdict "
+            f"(keys={list(payload) if isinstance(payload, dict) else type(payload).__name__})"
+        )
     return MirrorPass2(
-        content_hash=payload[_CONTENT_HASH_KEY],
+        # Salvage ONLY on genuine key ABSENCE. A PRESENT content_hash is kept verbatim — even an
+        # empty string or any other falsy/wrong value — so verify_pass2_binding still catches a
+        # present-but-MISMATCHED hash (Codex diff-gate P1: truthiness salvage would launder a
+        # present-but-empty hash past the binding guard). Omission is the only salvage path.
+        content_hash=(
+            payload[_CONTENT_HASH_KEY]
+            if _CONTENT_HASH_KEY in payload
+            else expected_content_hash
+        ),
         classification=payload[_CLASSIFICATION_KEY],
         rationale=payload.get(_RATIONALE_KEY),
     )
@@ -232,7 +271,10 @@ def run_mirror(
     # --- pass 2: JSON classification bound to pass-1 --------------------------------
     pass2_request = build_mirror_pass2_request(pass1, model_slug=model_slug)
     pass2_response: RoleResponse = transport.complete(pass2_request)
-    pass2 = _parse_pass2(pass2_response.raw_text)
+    # The caller-authoritative expected hash (same value build_mirror_pass2_request embedded) is
+    # passed so a verifier that omits the redundant content_hash echo doesn't lose the verdict.
+    expected_content_hash = build_pass2_input(pass1)[_CONTENT_HASH_KEY]
+    pass2 = _parse_pass2(pass2_response.raw_text, expected_content_hash=expected_content_hash)
 
     pass2_record = RoleCallRecord(
         role=_ROLE,

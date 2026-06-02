@@ -1,0 +1,311 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e83d8-a745-7ae0-9a33-fbe1c0f564b0
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Same bar every iter. Reserve P0/P1 for real design risks.
+- If iter 5 REQUEST_CHANGES, force-APPROVE on remaining-non-P0/P1.
+- DESIGN gate. Verdict APPROVE iff §-1.1-sound + buildable as specified.
+
+REVIEW DISCIPLINE: design re-review after iter-1 rulings. Open at most this brief +
+`src/polaris_graph/benchmark/claim_audit_scorer.py`. No repo-wide audit. Emit the schema.
+
+# I-meta-006 — Cash-free benchmark scorer (FACT claim-by-claim) — DESIGN iter 2
+
+All 5 iter-1 P1 + 3 P2 adopted; RACE scoped out; lane2 rubrics treated as a blocker.
+
+## Revised design (cash-free harness; verdict/fetch/atomize INJECTED, faked in tests)
+
+1. **Atomic extraction — NEW `report_claim_extractor.py`** (iter-1 P1-2): `extract_atoms(
+   report_text, system, references, *, atomizer) -> list[ExtractedAtom{atom_id, text,
+   citation_refs:[CitationRef], is_material_candidate}]`.
+   - `atomizer(sentence) -> list[str]` is INJECTED (real atomizer in the paid run; tests pass
+     a deterministic conservative clause-splitter). Compound sentences -> separate factual
+     atoms so the denominator is not methodology-dependent.
+   - Citation mapping per system: POLARIS reuses `split_into_sentences` +
+     `parse_provenance_tokens` ([#ev:] -> the EXACT cited span; [N] -> bibliography); ChatGPT/
+     Gemini map "(Author, Year)" / numbered-superscript keys against the report's references
+     list. An atom with NO citation is KEPT (scored uncited, iter-1 P2-1).
+   - Deterministic given the injected atomizer; cash-free.
+
+2. **Evidence-locked judge — NEW `fact_scorer.py`** (iter-1 P1-1, P1-3, P1-4, rulings q1/q3):
+   `score_atoms(atoms, *, span_fetcher, judge) -> list[ClaimRow]`.
+   - `span_fetcher(citation_ref, system) -> FetchedSpan | UnreachableReason`: returns the MOST
+     SPECIFIC cited text the system supplied (POLARIS [#ev:] -> that exact direct_quote span;
+     competitor -> the cited source located as specifically as resolvable). NO broader-source
+     fallback (a bad POLARIS span must NOT pass because the source supports the claim
+     elsewhere). Fetch failure / paywall / robots / source-missing / metadata-or-abstract-only
+     -> the matching UNREACHABLE subtype (iter-1 P2-3) — NEVER verify from title/abstract.
+   - `judge(atom_text, fetched_span, citation_ref) -> JudgeVerdict{verdict, severity, span_quote,
+     audit_note, unreachable_subtype}` is INJECTED and EVIDENCE-LOCKED. The strongest impl is
+     the **Claude+Codex reconciled-audit adapter** (a bare verdict-only LLM judge is NOT
+     §-1.1-sufficient, ruling q1). The judge reads the FETCHED span (not metadata).
+   - The harness VALIDATES the JudgeVerdict before building a ClaimRow (iter-1 P1-1): for
+     VERIFIED/PARTIAL/FABRICATED the `span_quote` MUST be a literal substring of `fetched_span`
+     (else the row is rejected/raised — the judge cannot fabricate a supporting quote);
+     UNSUPPORTED+cited requires an `audit_note`; UNREACHABLE requires a subtype. severity in
+     S0-S3 (iter-1 P1-3). Emits the EXISTING `ClaimRow` (reuse its `__post_init__` invariants).
+   - Severity is pre-registered + audit-assigned (part of JudgeVerdict); the harness does not
+     invent it. Uncited MATERIAL atom -> UNSUPPORTED, citation_id=null (iter-1 P2-1).
+     Unresolved author-year/reference -> UNREACHABLE(source_missing), kept in the denominator
+     (iter-1 P2-2, ruling q2).
+   - Identical path for every system (ruling q3): each is judged against ITS most-specific
+     emitted cited span; POLARIS [#ev:] is used for extraction AND defines the span, but
+     confers NO auto-verification.
+
+3. **Scorecard — NEW `benchmark_scorecard.py`**: for the 5 Qs x 3 systems, extract ->
+   score_atoms -> `claim_audit_scorer.aggregate` (REUSE lane1 + the PASS rule). Report
+   clinical-3 (#75/#76/#78) AND overall-5 SEPARATELY (locked label). Honest framing:
+   per-claim-traceable, NOT a one-number "wins" headline.
+   **Lane2 (coverage) is GATED on the 5 gold rubrics**, which do NOT exist yet (iter-1 P1-5,
+   ruling q5): authoring + §-1.1 verification + hash-pin is a SEPARATE follow-up Issue. This
+   issue builds the lane2 PLUMBING (RubricElement already exists) but the scorecard reports
+   **lane1 FACT faithfulness now**, and lane2 only once the hash-pinned rubrics land. The
+   scorecard surfaces "lane2_pending: rubrics not authored" explicitly (no silent zero).
+
+4. **Run wiring `scripts/dr_benchmark/run_scorecard.py`**: ingest the stored competitor
+   reports + a POLARIS run's report+bibliography, run with the REAL fetcher+judge (the only
+   billed step, operator-gated). Cash-free with injected fakes.
+
+5. **REUSE:** `claim_audit_scorer` (ClaimRow + lane1 + aggregate), `ledger_schema`,
+   `split_into_sentences`/`parse_provenance_tokens`, stored reports, locked Qs. **DO NOT
+   reuse** `beat_both_scorer` (§-1.1-banned). **RACE** out -> follow-up Issue (ruling q4).
+
+## Spend-free smoke (the GREEN bar)
+- Atomic extraction for all 3 citation formats (POLARIS tokens, academic author-year, numbered
+  superscript), incl. an uncited atom kept + a compound sentence -> >=2 atoms.
+- `score_atoms` with a FAKE judge+fetcher: VERIFIED needs a real substring span_quote;
+  a FABRICATED span_quote NOT in the fetched text is REJECTED; uncited material -> UNSUPPORTED
+  null; unresolved citation -> UNREACHABLE(source_missing) and stays in the denominator;
+  metadata-only -> UNREACHABLE (not VERIFIED).
+- Aggregation reuses claim_audit_scorer; clinical-3 vs overall-5 split; lane2_pending surfaced.
+- Assert NO live client; deterministic given the injected fakes.
+
+## Confirm / rule
+- Is the evidence-locked judge contract (JudgeVerdict + substring-validated span_quote +
+  severity + the reconciled-audit adapter as the canonical impl) now §-1.1-sufficient?
+- Is treating lane2 gold-rubric authoring as a separate hash-pinned follow-up (scorecard
+  reports lane1 now, lane2_pending surfaced) the right scope, or must rubric authoring block
+  this issue entirely?
+- Any remaining path to a rigged/auto-pass result or a non-identical cross-system protocol?
+
+## Output schema (REQUIRED)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll re-review only the brief and `claim_audit_scorer.py`, then emit the requested schema with findings front-loaded.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path 'src/polaris_graph/benchmark/claim_audit_scorer.py' -Raw" in C:\POLARIS
+ succeeded in 1248ms:
+"""Two-lane claim-audit scorer for the DR head-to-head (I-safety-002b / #925).
+
+REPLACES the §-1.1-banned/rigged `beat_both_scorer.py` + `dimension_scorers.py` (count /
+pattern / string-match scoring + POLARIS auto-win dimensions). This scorer is a PURE
+AGGREGATOR over the reconciled per-claim audit LEDGER produced by the Claude+Codex dual
+§-1.1 line-by-line audit (claim → fetched cited span → verdict). It assigns NO verdicts
+itself and gives POLARIS no free pass — every system's ledger is scored identically.
+
+Lane 1 = claim faithfulness (against the FETCHED cited span).
+Lane 2 = pre-registered gold-rubric coverage (independent sources), each covered point
+         itself citation-supported — so a terse report cannot win on faithfulness alone.
+
+Pure logic; fixture-tested with no model. Per plan `.codex/I-safety-002b/execution_plan_pathB.md`
+§5/§6 (Codex APPROVE iter 5).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Literal
+
+Verdict = Literal["VERIFIED", "PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE"]
+Severity = Literal["S0", "S1", "S2", "S3"]
+UnreachableSubtype = Literal["paywall", "robots", "fetch_failure", "source_missing"]
+
+# Material = decision-relevant (S0-S2). S3 is observe-only, NOT scored (plan §5).
+_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
+# "unsupported-or-worse" verdicts that count against faithfulness.
+_BAD_VERDICTS = ("PARTIAL", "UNSUPPORTED", "FABRICATED", "UNREACHABLE")
+_PARTIAL_WEIGHT = 0.5  # pre-registered (plan §5)
+_COVERAGE_THRESHOLD = 0.70  # literal, frozen (plan §5)
+
+
+@dataclass
+class ClaimRow:
+    """One reconciled audit verdict for one atomic claim (from the dual line-by-line)."""
+
+    claim_id: str
+    severity: Severity
+    verdict: Verdict
+    citation_id: str | None        # the citation the claim attaches to (None = uncited)
+    span_quote: str | None         # exact supporting/refuting span from the FETCHED source
+    unreachable_subtype: UnreachableSubtype | None = None
+    audit_note: str | None = None  # e.g. "no supporting span found in cited source" for UNSUPPORTED
+
+    def __post_init__(self) -> None:
+        if self.verdict == "UNREACHABLE" and self.unreachable_subtype is None:
+            raise ValueError(f"{self.claim_id}: UNREACHABLE requires an unreachable_subtype")
+        if self.verdict != "UNREACHABLE" and self.unreachable_subtype is not None:
+            raise ValueError(f"{self.claim_id}: unreachable_subtype only valid for UNREACHABLE")
+        # FABRICATED/PARTIAL must quote the refuting/partial span.
+        if self.verdict in ("FABRICATED", "PARTIAL") and not self.span_quote:
+            raise ValueError(f"{self.claim_id}: {self.verdict} requires a span_quote (evidence)")
+        # UNSUPPORTED on a CITED claim must record WHY (span checked or explicit no-support note)
+        # so the verdict is traceable, not asserted (Codex P2).
+        if self.verdict == "UNSUPPORTED" and self.citation_id and not (self.span_quote or self.audit_note):
+            raise ValueError(f"{self.claim_id}: UNSUPPORTED+cited requires a span_quote or audit_note (traceability)")
+
+    @property
+    def is_material(self) -> bool:
+        return self.severity in _MATERIAL_SEVERITIES
+
+
+@dataclass
+class RubricElement:
+    """One pre-registered gold-rubric required element (from independent sources)."""
+
+    element_id: str
+    covered: bool             # did the report cover this required element?
+    citation_supported: bool  # AND is the covered point itself citation-supported?
+
+
+def lane1_faithfulness(rows: list[ClaimRow]) -> dict:
+    """S0-S2 material unsupported-or-worse rate + per-verdict breakdown. Positive = bad."""
+    material = [r for r in rows if r.is_material]
+    denom = len(material)
+    counts: dict[str, int] = {v: 0 for v in ("VERIFIED", *_BAD_VERDICTS)}
+    for r in material:
+        counts[r.verdict] += 1
+    # PARTIAL weighted 0.5; UNSUPPORTED/FABRICATED/UNREACHABLE full weight.
+    weighted_bad = (
+        counts["UNSUPPORTED"] + counts["FABRICATED"] + counts["UNREACHABLE"]
+        + _PARTIAL_WEIGHT * counts["PARTIAL"]
+    )
+    rate = (weighted_bad / denom) if denom else 0.0
+    return {
+        "material_atoms": denom,
+        "verdict_counts": counts,
+        "weighted_unsupported_or_worse": weighted_bad,
+        "unsupported_or_worse_rate": rate,
+        "hard_fail_count": counts["UNSUPPORTED"] + counts["FABRICATED"],  # the gating verdicts
+        "observed_S3_excluded": sum(1 for r in rows if r.severity == "S3"),
+    }
+
+
+def lane2_coverage(rubric: list[RubricElement]) -> dict:
+    """Covered-AND-citation-supported / total required elements (plan §5/§6)."""
+    total = len(rubric)
+    covered_supported = sum(1 for e in rubric if e.covered and e.citation_supported)
+    covered_only = sum(1 for e in rubric if e.covered)
+    frac = (covered_supported / total) if total else 0.0
+    return {
+        "total_required": total,
+        "covered": covered_only,
+        "covered_and_citation_supported": covered_supported,
+        "coverage_fraction": frac,
+        "missing": [e.element_id for e in rubric if not (e.covered and e.citation_supported)],
+    }
+
+
+def system_passes_question(rows: list[ClaimRow], rubric: list[RubricElement]) -> dict:
+    """A system PASSES a question iff zero S0-S2 FABRICATED/UNSUPPORTED material claims AND
+    coverage >= 0.70 (plan §5). Returns the verdict + the reasons (every gate explicit)."""
+    l1 = lane1_faithfulness(rows)
+    l2 = lane2_coverage(rubric)
+    zero_hard_fail = l1["hard_fail_count"] == 0
+    meets_coverage = l2["coverage_fraction"] >= _COVERAGE_THRESHOLD
+    passed = zero_hard_fail and meets_coverage
+    reasons = []
+    if not zero_hard_fail:
+        reasons.append(f"{l1['hard_fail_count']} S0-S2 FABRICATED/UNSUPPORTED material claim(s)")
+    if not meets_coverage:
+        reasons.append(f"coverage {l2['coverage_fraction']:.2f} < {_COVERAGE_THRESHOLD}")
+    return {"passed": passed, "reasons": reasons, "lane1": l1, "lane2": l2}
+
+
+@dataclass
+class SystemQuestionLedger:
+    """The scored audit ledger for one (system × question). NOT a 'BEAT-BOTH' scoreboard."""
+
+    system: str         # "polaris" | "chatgpt" | "gemini" | "perplexity"
+    question_id: str
+    rows: list[ClaimRow]
+    rubric: list[RubricElement]
+    result: dict = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.result = system_passes_question(self.rows, self.rubric)
+
+
+def aggregate(ledgers: list[SystemQuestionLedger]) -> dict:
+    """Per-system aggregate across questions. Every number traces to claim/span evidence in
+    the per-(system×question) ledgers; NO cross-system 'wins' headline (plan §8)."""
+    by_system: dict[str, dict] = {}
+    for lg in ledgers:
+        s = by_system.setdefault(lg.system, {"questions": 0, "passed": 0, "rates": [], "hard_fails": 0})
+        s["questions"] += 1
+        s["passed"] += int(lg.result["passed"])
+        s["rates"].append(lg.result["lane1"]["unsupported_or_worse_rate"])
+        s["hard_fails"] += lg.result["lane1"]["hard_fail_count"]
+    for s in by_system.values():
+        s["mean_unsupported_or_worse_rate"] = (sum(s["rates"]) / len(s["rates"])) if s["rates"] else 0.0
+    return {"by_system": by_system, "n_ledgers": len(ledgers), "note": "pilot; per-claim traceable; not a superiority claim"}
+
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: lane2-pass-pending-contradiction
+    finding: "The design says lane2 rubrics are pending and must surface lane2_pending, but also says to reuse claim_audit_scorer.aggregate plus the PASS rule. Existing SystemQuestionLedger/system_passes_question cannot represent pending rubrics; an empty rubric silently yields coverage 0.00 and failed PASS."
+    required_change: "When lane2 rubrics are absent, do not call the PASS rule or emit passed=false as if evaluated. Emit lane1 FACT metrics plus lane2_pending, and reserve PASS for hash-pinned rubric availability."
+p2:
+  - id: metadata-only-subtype
+    finding: "The brief requires metadata/abstract-only to become a matching UNREACHABLE subtype, but existing UnreachableSubtype has no explicit metadata_or_abstract_only value."
+    required_change: "Add an explicit subtype or specify the exact existing subtype mapping; prefer explicit to avoid hiding evidence-access failures as generic fetch_failure."
+  - id: uncited-severity-source
+    finding: "Uncited material atoms become UNSUPPORTED citation_id=null, but ClaimRow still requires severity. The design should state how severity is audit-assigned for uncited/no-span rows."
+    required_change: "Route uncited material atoms through the judge/severity rater or define a pre-registered severity fallback for material candidates."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the lane2_pending vs PASS-rule contradiction. Lane2 rubric authoring can be separate, but PASS must be withheld until rubrics exist."
+```
+tokens used
+8,324
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: lane2-pass-pending-contradiction
+    finding: "The design says lane2 rubrics are pending and must surface lane2_pending, but also says to reuse claim_audit_scorer.aggregate plus the PASS rule. Existing SystemQuestionLedger/system_passes_question cannot represent pending rubrics; an empty rubric silently yields coverage 0.00 and failed PASS."
+    required_change: "When lane2 rubrics are absent, do not call the PASS rule or emit passed=false as if evaluated. Emit lane1 FACT metrics plus lane2_pending, and reserve PASS for hash-pinned rubric availability."
+p2:
+  - id: metadata-only-subtype
+    finding: "The brief requires metadata/abstract-only to become a matching UNREACHABLE subtype, but existing UnreachableSubtype has no explicit metadata_or_abstract_only value."
+    required_change: "Add an explicit subtype or specify the exact existing subtype mapping; prefer explicit to avoid hiding evidence-access failures as generic fetch_failure."
+  - id: uncited-severity-source
+    finding: "Uncited material atoms become UNSUPPORTED citation_id=null, but ClaimRow still requires severity. The design should state how severity is audit-assigned for uncited/no-span rows."
+    required_change: "Route uncited material atoms through the judge/severity rater or define a pre-registered severity fallback for material candidates."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the lane2_pending vs PASS-rule contradiction. Lane2 rubric authoring can be separate, but PASS must be withheld until rubrics exist."
+```

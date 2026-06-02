@@ -1,15 +1,38 @@
 {
-  "active_issue_id": "I-meta-002",
-  "active_issue_github": 935,
-  "current_step": "design_feasibility (Codex iter-1 REQUEST_DEEPER_DESIGN flagged 2 of 4 locked models NOT on OpenRouter: Cohere Command A+ + Granite Guardian 4.1 8B. Operator routed serving to Vast.ai [token VALID, balance $0]. Workflow w14kaz9yw researching serving feasibility + sovereignty + D8 release policy with adversarial verification. D5 Qwen-slug-fix authorized. I-meta-001 PR #934 OPEN awaiting merge.)",
+  "active_issue_id": "I-meta-005-phase-4",
+  "active_issue_github": 988,
+  "current_step": "Phase 4 BRIEF APPROVE (6-round) \u2014 BUILD (saturation loop)",
+  "sub_pr_build_status_2026_05_29": {
+    "pr1_lock_slug_serving_route_verify_consistency": "d0ccc583 \u2014 brief APPROVE iter1, diff APPROVE iter1",
+    "pr2_role_contracts": "fff6f2ef \u2014 brief APPROVE iter2, diff APPROVE iter5 (4 Sentinel fail-closed hardenings)",
+    "pr3_d8_release_policy": "9f1a3b94 \u2014 brief APPROVE iter3, diff APPROVE iter2",
+    "pr4_role_adapters": "de9c3b49 \u2014 brief APPROVE iter4, diff APPROVE iter2",
+    "pr5_orchestration_pipeline_kg_pins": "5ebcf750 \u2014 brief APPROVE iter2, diff APPROVE iter1 (1 P2 fixed)",
+    "pr6_sweep_wiring_gate_a_dry_run": "fc962ffe \u2014 brief APPROVE iter1, diff APPROVE iter2 (lethal coverage-numerator P1 fixed)",
+    "gate_a_dry_run": "OVERALL PASS no-spend: 294 pytest, verify_lock --consistency 0, exactly-4-role coverage + family segregation, role contracts via mock transport. outputs/gate_a/dry_run_report.json",
+    "spend_to_date_usd": 0,
+    "operator_decision_pending": "authorize spend (Vast $300 + OpenRouter $50) + promote lock to locked -> unfreezes Gate-B live 4-role runs"
+  },
+  "live_path_build_2026_05_29": {
+    "M1_real_role_transport": "DONE 8bbb77c9 \u2014 OpenAICompatibleRoleTransport (sync, injected httpx) for Mirror/Sentinel/Judge vLLM; per-role base_url; model-visible serialization of documents/pass2_input/<co> instruction; served endpoint captured; fail-loud. Codex brief APPROVE iter4 + diff APPROVE iter1. 318 tests, no network.",
+    "M3_production_caller": "CORRECTION 2026-05-29 (operator caught Claude's miss): the per-question rubric is NOT missing \u2014 it is FROZEN + dual-verified + hash-pinned at .codex/I-safety-002b/gold_rubrics_pathB.md (38 required elements across #75/#76/#78/#72/#90; coverage credit = element covered AND citation-supported, threshold 0.70, material severity S0-S2; Claude-arm + Codex-arm APPROVE iter2; freeze_pin.txt). So the M3 four_role_inputs SOURCE: required_element_ids + s0_categories + per-element severity <- gold_rubrics_pathB.md (likely via scripts/dr_benchmark/build_rubric_json.py machine form). Per-claim covered_element_ids (numerator) <- the existing claim->element COVERAGE scoring step (scripts/dr_benchmark/score_run.py + claim_audit_scorer). claim_id/evidence_documents/model_slugs/transport already available (transport=M1 done). NOT a rubber-stamp risk \u2014 the frozen rubric is the real answer key. M3 is unblocked: wire four_role_inputs from the frozen gold rubric + the coverage scorer.",
+    "benchmark_assets_found_2026_05_29": "5 LOCKED questions golden_questions_locked.md (DRB-EN #75/#76/#78/#72/#90). Competitor DR responses STORED + SHA-pinned: outputs/dr_benchmark/external_outputs/gpt_5_5_pro/Q{72,75,76,78,90}.md + gemini_3_1_pro/Q{...}.md (10 files; external_outputs_manifest.md). Gold rubric FROZEN gold_rubrics_pathB.md. Scoring = claim-by-claim 5-enum faithfulness + gold-rubric coverage >=0.70, IDENTICAL for POLARIS/GPT/Gemini, clinical-3 + overall-5 reported separately.",
+    "coherence_flag_2026_05_29": "I-safety-002b external_outputs_manifest.md run-config names the OLD 2-LLM stack (generator deepseek-v4-pro + evaluator google/gemma-4-31b-it). The LOCKED architecture is now 4-role (Mirror/Sentinel/Judge per I-meta-002). The live benchmark run should use the 4-role stack per the lock; the gold rubric + competitor responses are architecture-agnostic (they score the REPORT). Reconcile: POLARIS runs the 5 golden Qs via the 4-role pipeline, scored vs the frozen rubric, compared to the stored GPT/Gemini.",
+    "CONTAMINATION_CORRECTION_2026_05_29": "Claude's prior 'wire M3 to the frozen gold rubric' was a CONTAMINATION ERROR. The gold rubric (gold_rubrics_pathB.md / rubric_v3_frozen.json) is the EXTERNAL SCORER'S pre-registered answer key \u2014 feeding it INTO POLARIS's own generation/D8 gate would be teaching-to-the-test and would void the pre-registration. TWO SEPARATE SYSTEMS: (1) POLARIS's 4-role pipeline = POLARIS's OWN internal per-claim verification (Mirror->Sentinel->Judge) + D8 release gate; its required-elements/must-cover/severity must come from POLARIS's OWN completeness machinery (config/completeness_checklists + scope) + config/architecture/d8_release_policy.yaml S0 defaults, NEVER the gold rubric. (2) The BENCHMARK SCORER = an EXTERNAL dual Claude+Codex \u00a7-1.1 audit that reads each system's REPORT against the frozen rubric, populates a Ledger (Claim verdicts + Coverage rows), reconciles (reconcile.py conservative-MAX), scores (score_run.score_one, lanes: hard_fail==0 + coverage>=0.70), aggregates (aggregate_systems.render_final_report). This scorer is ALREADY BUILT (scripts/dr_benchmark/{ledger_schema,score_run,reconcile,aggregate_systems}.py + rubric_v3_frozen.json) and is SEPARATE from POLARIS internals. CRUX: the claim->rubric-element coverage mapping is a MANUAL/LLM AUDITOR step (NOT automated in code) \u2014 the auditor populates Coverage rows. So the head-to-head needs: POLARIS PRODUCES the 5 reports (live run, blind to the rubric) -> external dual audit scores all 3 -> aggregate.",
+    "M4_pathB_served_pinned_bridge": "PENDING \u2014 bridge FourRoleEvaluationResult role records into the Path-B served==pinned gate (consume the captured endpoint; teach the gate the self-host no-provider identity).",
+    "M5_evaluator_agrees_writeback": "PENDING \u2014 write evaluator_agrees from 4-role final_verdicts at the clinical_generator assembly point.",
+    "M2_vast_vllm_serving": "PENDING (no-spend build) \u2014 provisioning + vLLM serving configs for Cohere/Granite/Qwen + launch runbook; paid deploy/serve test is operator-triggered.",
+    "spend_to_date_usd": 0,
+    "codex_full_readiness_decision_2026_05_29": "Codex (decision-maker, .codex/I-meta-002-readiness/codex_full_readiness_decision.txt) = NOT_READY for spend. GREEN: 5 Qs + 10 competitor files (SHA-matched) + frozen rubric (pins match) + scoring math (judge-side, refuses invalid/non-reconciled/SHA-drift) + contamination boundary CLEAN (zero rubric reads in src/ or sweep) + M1 transport. Gate-A reconfirmed GREEN in real env (318 tests, dry run PASS, exit 0; the workflow agent's overall_pass=false was a transient temp/ACL PermissionError, not a regression). RULINGS: (a) keep POLARIS blind to gold rubric \u2014 CONFIRMED; (b) FourRoleEvaluationInputs MUST come from POLARIS NATIVE config/scope_templates/<domain>.yaml + config/completeness_checklists/<domain>.yaml + native claim->element map + deterministic native severity map; fail closed if no native mapping; NEVER the gold rubric; (c) NO OpenRouter-verifier shortcut (lock pins verifier roles to vast_self_host*; generator stays OpenRouter); offline-mocked e2e authorizes only a tiny 1-question paid CANARY, not the full 5-question spend; (d) NOT_READY now. ORDERED no-spend work: 1 keep Gate-A green; 2 M2 self-host serving (Cohere bf16 + Granite + Qwen fp8 + PG_*_BASE_URL + keys + health + identity); 3 M3 Gate-B caller (construct transport + build inputs from native scope/completeness + PG_FOUR_ROLE_MODE + inject); 4 self-host preflight branch (validate PG_<ROLE>_BASE_URL + served identity, no OpenRouter resolution for vast_self_host; generator stays OpenRouter); 5 M4 self-host served==pinned (pin endpoint/model, consume _pathb_served.endpoint in assert_post_run, fixtures); 6 M5 evaluator_agrees writeback at real assembly point; 7 update stale Path-B docs/tests gen+eval->4-role; 8 promote lock to locked (checkpoints + operator signature); 9 ONE offline-mocked golden-Q end-to-end (report->4-role manifest->evaluator_agrees->pathB PASS->fixture reconciled ledger->score_run->aggregate). THEN spend: 1-question paid canary first; full 5-Q only after canary PASS."
+  },
   "i_meta_001_status": "PR #934 open on bot/I-meta-001-arch-drift-fix; investigation issue #933 CLOSED; lock at codex_approved_pending_operator_signature; smokes structurally frozen",
   "i_meta_002_operator_decisions": {
-    "D5_qwen_slug_fix": "APPROVED — qwen/qwen-3.6-35b-a3b -> qwen/qwen3.6-35b-a3b (verified via OpenRouter /api/v1/models)",
+    "D5_qwen_slug_fix": "APPROVED \u2014 qwen/qwen-3.6-35b-a3b -> qwen/qwen3.6-35b-a3b (verified via OpenRouter /api/v1/models)",
     "D6_mirror_serving": "Vast.ai (operator directive). Cohere Command A+ NOT on OpenRouter; self-host on rented GPU.",
     "D7_sentinel_serving": "Vast.ai (operator directive). Granite Guardian 4.1 8B NOT on OpenRouter (only base granite-4.1-8b is); self-host on rented GPU.",
     "D8_release_policy": "operator asked which is highest-quality; workflow w14kaz9yw analyzing verdict-specific policy table",
-    "vast_token": "VALID (account aldrin.or@c-polarbiotech.com id 423175), balance $0 — operator credit-load required",
-    "vast_eu_gpus_available": "A100 80GB in NL/IE/FI/UK $0.67-1.07/hr; A100 SXM4 80GB UAE — sovereign EU options confirmed"
+    "vast_token": "VALID (account aldrin.or@c-polarbiotech.com id 423175), balance $0 \u2014 operator credit-load required",
+    "vast_eu_gpus_available": "A100 80GB in NL/IE/FI/UK $0.67-1.07/hr; A100 SXM4 80GB UAE \u2014 sovereign EU options confirmed"
   },
   "_legacy_i_meta_001_step": "step_1_branch_hygiene_complete (now executing steps 2-12 of Codex APPROVE_FOR_IMPLEMENTATION plan; smokes FROZEN until polaris_runtime_lock.yaml lands in code)",
   "assigned_by": "operator directive 2026-05-28T22:00 PDT: explicit authorization of all 12 steps + D1-D4 decisions confirmed (Step-B stack accepted as final architecture, split scope+runtime locks, commit all .codex/ history, operator authorized Claude to check GH branch protection via token)",
@@ -26,18 +49,37 @@
     "operator_d1_confirmation_utc": "2026-05-28T22:00:00Z",
     "promotion_to_locked": "automatic when config/architecture/polaris_runtime_lock.yaml lands + canonical pin updated + propagation manifest complete",
     "roles": {
-      "generator": {"model": "deepseek/deepseek-v4-pro", "family": "deepseek", "license": "MIT"},
-      "mirror":    {"model": "cohere/command-a-plus",   "family": "cohere",   "license": "Apache 2.0"},
-      "sentinel":  {"model": "ibm-granite/granite-guardian-4.1-8b", "family": "ibm-granite", "license": "Apache 2.0"},
-      "judge":     {"model": "qwen/qwen-3.6-35b-a3b",   "family": "qwen",     "license": "Apache 2.0"}
+      "generator": {
+        "model": "deepseek/deepseek-v4-pro",
+        "family": "deepseek",
+        "license": "MIT"
+      },
+      "mirror": {
+        "model": "cohere/command-a-plus",
+        "family": "cohere",
+        "license": "Apache 2.0"
+      },
+      "sentinel": {
+        "model": "ibm-granite/granite-guardian-4.1-8b",
+        "family": "ibm-granite",
+        "license": "Apache 2.0"
+      },
+      "judge": {
+        "model": "qwen/qwen-3.6-35b-a3b",
+        "family": "qwen",
+        "license": "Apache 2.0"
+      }
     },
-    "deterministic_layers": ["python_validators", "codex_section_1_1_audit"],
+    "deterministic_layers": [
+      "python_validators",
+      "codex_section_1_1_audit"
+    ],
     "source_doc": "docs/polaris_step_b_full_set_audit_2026_05_27.md (untracked at investigation start; tracked as part of Step 2)",
     "codex_cross_validation": ".codex/I-meta-001/codex_brief_iter2_verdict.txt (HF model cards + Cohere blog + IBM Research blog + Qwen card all verified by Codex via WebSearch)"
   },
   "smokes_frozen_until": "polaris_runtime_lock.yaml + propagation manifest complete (Steps 4-6)",
   "twelve_step_plan_status": {
-    "1_branch_hygiene": "COMPLETE — moved to bot/I-meta-001-arch-drift-fix; state/active_issue.json updated",
+    "1_branch_hygiene": "COMPLETE \u2014 moved to bot/I-meta-001-arch-drift-fix; state/active_issue.json updated",
     "2_commit_decision_docs": "IN PROGRESS",
     "3_status_supersedes_frontmatter": "PENDING",
     "4_runtime_lock_yaml": "PENDING",
@@ -51,8 +93,16 @@
     "12_weekly_drift_report": "PENDING"
   },
   "paused_issues": [
-    {"issue": "I-safety-002b", "github": 925, "reason": "frozen until 4-role architecture wired (smokes invalid until then)"},
-    {"issue": "I-p2-038", "github": 821, "reason": "P2 UI retroactive-design umbrella, paused for higher-priority work"}
+    {
+      "issue": "I-safety-002b",
+      "github": 925,
+      "reason": "frozen until 4-role architecture wired (smokes invalid until then)"
+    },
+    {
+      "issue": "I-p2-038",
+      "github": 821,
+      "reason": "P2 UI retroactive-design umbrella, paused for higher-priority work"
+    }
   ],
   "branch_protection_finding_d4": {
     "polaris_main_required_status_checks": [],
@@ -61,5 +111,8 @@
     "bot_branches_protected": false,
     "implication": "codex-required CI check is NOT actually enforced as a required check on polaris. This is a separate operator-side branch-protection fix needed. Surfaced 2026-05-28."
   },
-  "last_updated_utc": "2026-05-28T22:05:00Z"
+  "last_updated_utc": "2026-05-28T22:05:00Z",
+  "gh_issue": 984,
+  "parent": 982,
+  "note": "Operator-assigned 2026-05-31: execute the fundamental-fix plan phase by phase, Codex-gated, PRs queued for operator merge (no auto-merge)."
 }

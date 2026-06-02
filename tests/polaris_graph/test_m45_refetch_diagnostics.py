@@ -55,7 +55,7 @@ class TestM45DiagnosticSchema:
     def test_fetch_returns_thin_content_records_thin(self) -> None:
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=("abc", True, "title", "full_text"),  # 3 chars
+            return_value=("abc", True, "title", "full_text", ""),  # 3 chars
         ):
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://example.com/a"
@@ -67,7 +67,7 @@ class TestM45DiagnosticSchema:
     def test_fetch_not_ok_records_fetch_failed(self) -> None:
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=("", False, "", ""),
+            return_value=("", False, "", "", ""),
         ):
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://example.com/a"
@@ -83,7 +83,7 @@ class TestM45DiagnosticSchema:
         ) * 3  # ~500 chars
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=(fat_content, True, "SURPASS-2", "full_text"),
+            return_value=(fat_content, True, "SURPASS-2", "full_text", ""),
         ):
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://nejm.org/surpass2"
@@ -104,7 +104,7 @@ class TestM45DiagnosticSchema:
         ) * 3  # ≥100 chars
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=(shell_content, True, "t", "paywall_shell"),
+            return_value=(shell_content, True, "t", "paywall_shell", ""),
         ):
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://paywalled.example/x"
@@ -147,7 +147,7 @@ class TestM45Pass2MethodReporting:
                 )
                 _m45_record_fetch_telemetry(url, "jina", "")
                 fat = "X " * 200  # 400 chars
-                return fat, True, "t", "full_text"
+                return fat, True, "t", "full_text", ""
             mock_fetch.side_effect = _fake
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://nejm.org/x"
@@ -170,7 +170,7 @@ class TestM45Pass2MethodReporting:
                     url, "httpx_naive",
                     "access_bypass_timeout_90s",
                 )
-                return "", False, "", ""
+                return "", False, "", "", ""
             mock_fetch.side_effect = _fake
             quote, diag = refetch_for_extraction_with_diagnostics(
                 "https://paywalled.example/x"
@@ -219,7 +219,7 @@ class TestM45BackwardsCompat:
     def test_legacy_variant_returns_string_only(self) -> None:
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=("short", True, "t", ""),
+            return_value=("short", True, "t", "", ""),
         ):
             result = refetch_for_extraction("https://example.com/a")
         # Thin → empty string
@@ -229,7 +229,7 @@ class TestM45BackwardsCompat:
         fat = "SURPASS-2 enrolled 1879 patients at baseline HbA1c 8.28%. " * 5
         with patch(
             "src.polaris_graph.retrieval.live_retriever._fetch_content",
-            return_value=(fat, True, "t", "full_text"),
+            return_value=(fat, True, "t", "full_text", ""),
         ):
             result = refetch_for_extraction("https://nejm.org/x")
         assert len(result) >= 100

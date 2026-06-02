@@ -102,6 +102,10 @@ config/static_accounts.yaml
 !outputs/audits/*.jsonl
 !outputs/audits/**/*.jsonl
 !outputs/codex_findings/**/*.jsonl
+# Phase 0a (GH #983) exception: the authority smoke fixtures are frozen,
+# version-controlled INPUTS to the S2/S3/S4/S6 smoke tests — they MUST be
+# tracked so a clean checkout reproduces the heavy smoke (Codex diff-gate P1-A).
+!tests/fixtures/authority/*.jsonl
 
 # --- ML models (multi-GB) ---
 models/

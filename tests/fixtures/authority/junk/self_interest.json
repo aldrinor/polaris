@@ -1,0 +1,9 @@
+{
+  "url": "https://acmepharma.test/our-drug-works",
+  "jsonld": "",
+  "body": "Acme Pharma is proud to announce our drug efficacy data.",
+  "claim_vendor_token": "acmepharma",
+  "authority_signals": {"cited_by_count": null, "source_id": "", "venue_summary_stats": null, "is_core": null, "is_in_doaj": null, "apc_prices": null, "publication_year": 2024, "ror_id": "", "institution_type": "", "country_code": ""},
+  "expect_junk_class": "self_interest",
+  "expect_source_class": "COMMENTARY"
+}

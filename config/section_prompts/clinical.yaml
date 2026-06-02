@@ -1,0 +1,39 @@
+# Advisory section-writing guidance — CLINICAL prose family.
+# I-meta-005 Phase 1 (#985, brief §2.3).
+#
+# THIS IS PROMPT-TEXT ONLY. It is advisory writing guidance appended to the
+# per-section prompt to enrich prose when the question's frame reads clinical
+# (claim_type/entities). It is NOT a control branch and does NOT change
+# routing, archetypes, section structure, the archetype outline prompt, the
+# parser, tag-validation, or the fallback. Selecting this file vs another
+# prompt-text family produces byte-identical control flow — only the appended
+# advisory prose differs (see the field-agnostic selector in
+# multi_section_generator: `select_advisory_prompt_text`).
+#
+# The selector is config-driven (LAW VI): a claim_type -> prompt-text-file
+# registry. "clinical" here is ONE generalizable family entry, not a literal
+# control value in Python on the on-path.
+
+family: clinical
+description: >-
+  Advisory writing guidance for questions whose frame reads clinical
+  (interventions, populations, endpoints, trials). Appended to the section
+  prompt as extra prose guidance; never a routing control.
+
+advisory_prompt_text: |
+  CLINICAL WRITING GUIDANCE (advisory — does not change which evidence you may
+  cite or how the section is structured):
+  - When you report an efficacy or safety estimate, give the population, the
+    comparator/control arm, the endpoint, the timepoint, and the effect size
+    with its uncertainty (CI, SD, or p-value) when the cited evidence carries
+    them. Prefer the primary trial publication over a press release covering
+    the same finding.
+  - Attribute a regulatory statement to the specific jurisdiction whose source
+    supports it; do not collapse distinct frameworks into "both agencies" or
+    "regulators generally" unless a citation from each is in the same sentence.
+  - When naming a specific study, cohort, or trial, frame it with at least
+    three of: sample size, baseline value, comparator arm, dose, primary
+    endpoint, timepoint. If the cited evidence cannot supply three, phrase the
+    sentence generically rather than attaching a study short-name to a thin
+    claim.
+  - Keep numeric values verbatim from the evidence; do not round.

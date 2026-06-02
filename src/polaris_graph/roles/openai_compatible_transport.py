@@ -98,6 +98,21 @@ class RoleTransportError(RuntimeError):
     """
 
 
+class BlankVerdictError(RoleTransportError):
+    """A reasoning verifier returned a BLANK bare verdict after reasoning separation.
+
+    A distinct, RECOVERABLE subclass of `RoleTransportError` (I-meta-008 / #1026). A
+    reasoning-first verifier (e.g. GLM-5.1 Mirror, Qwen Judge) under `effort=xhigh` can burn
+    its whole reasoning budget WITHOUT converging and emit zero `content`. That is not a
+    structural transport failure — it is recoverable by retrying with the reasoning effort
+    stepped DOWN so the model is forced to emit the bare verdict. `OpenRouterRoleTransport.
+    complete` catches THIS subclass specifically to retry; structural failures (no choices,
+    non-200, non-JSON) keep raising the plain `RoleTransportError` and are NOT retried.
+    Because it subclasses `RoleTransportError`, every existing `except RoleTransportError`
+    still catches it unchanged.
+    """
+
+
 def role_endpoint(role: str) -> tuple[str, str, str]:
     """Resolve `(base_url, api_key, model_slug)` for a self-hosted verifier role.
 
@@ -308,13 +323,22 @@ def _separate_reasoning(content: object, model_repr: str) -> tuple[object, str |
     return bare, reasoning
 
 
+# Assistant-message keys that carry verifier REASONING and must be stripped from the Path-B
+# capture channel (I-meta-002-q1b no-leak). `reasoning_content` is the vLLM reasoning-parser
+# field; `reasoning` is OpenRouter's documented field (I-meta-007d P1-3) — popping BOTH keeps
+# this single sanitizer correct for the self-host AND the OpenRouter transport (popping
+# `reasoning` is a no-op for a self-host response that never carries it).
+_REASONING_MESSAGE_KEYS = ("reasoning_content", "reasoning")
+
+
 def _sanitize_raw_for_capture(raw: dict, *, bare_text: object) -> dict:
     """Return a copy of `raw` with verifier REASONING removed, for Path-B capture (I-meta-002-q1b
-    #939, Codex diff P1 no-leak). Drops any `reasoning_content` from the assistant message and
-    replaces its `content` with the separated bare verdict, so reasoning is never persisted
-    outside the dedicated `four_role_role_calls.jsonl`. Served-identity fields (`model`, `usage`,
-    `_pathb_served`, `system_fingerprint`, provider) are preserved so M4 served==pinned is
-    unaffected. The original `raw` is NOT mutated (shallow-copied along the touched path only).
+    #939, Codex diff P1 no-leak). Drops any `reasoning_content` AND `reasoning` (the OpenRouter
+    field, I-meta-007d P1-3) from the assistant message and replaces its `content` with the
+    separated bare verdict, so reasoning is never persisted outside the dedicated
+    `four_role_role_calls.jsonl`. Served-identity fields (`model`, `usage`, `_pathb_served`,
+    `system_fingerprint`, provider) are preserved so M4 served==pinned is unaffected. The
+    original `raw` is NOT mutated (shallow-copied along the touched path only).
     """
     sanitized = dict(raw)
     choices = raw.get("choices")
@@ -323,7 +347,8 @@ def _sanitize_raw_for_capture(raw: dict, *, bare_text: object) -> dict:
         message = first_choice.get("message")
         if isinstance(message, dict):
             clean_message = dict(message)
-            clean_message.pop("reasoning_content", None)
+            for reasoning_key in _REASONING_MESSAGE_KEYS:
+                clean_message.pop(reasoning_key, None)
             clean_message["content"] = bare_text
             first_choice["message"] = clean_message
         sanitized["choices"] = [first_choice, *choices[1:]]

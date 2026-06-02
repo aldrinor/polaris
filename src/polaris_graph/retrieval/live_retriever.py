@@ -28,9 +28,11 @@ import math
 import os
 import asyncio
 import re
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -44,6 +46,8 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
 from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
+from src.polaris_graph.authority.authority_model import score_source_authority
+from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
     classify_source_tier,
@@ -55,6 +59,27 @@ logger = logging.getLogger("polaris_graph.live_retriever")
 SERPER_ENDPOINT = "https://google.serper.dev/search"
 S2_BULK_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
 OPENALEX_ENDPOINT = "https://api.openalex.org/works"
+OPENALEX_SOURCES_ENDPOINT = "https://api.openalex.org/sources"
+
+# Phase 0a (GH #983, ADDENDUM C5): root-level /works select= fieldset for the
+# authority model. OpenAlex select= is ROOT-LEVEL ONLY (rejects nested props),
+# so summary_stats / apc_prices / is_core / is_in_doaj come from a SEPARATE
+# /sources/{id} fetch keyed by primary_location.source.id.
+OPENALEX_WORKS_SELECT = (
+    "id,doi,title,display_name,type,publication_year,cited_by_count,"
+    "is_retracted,primary_location,authorships"
+)
+OPENALEX_SOURCES_SELECT = (
+    "id,is_core,is_in_doaj,apc_prices,summary_stats"
+)
+
+# Versioned local cache for the authority-enrich payload (live path). The
+# schema version is bumped (not CREATE-IF-NOT-EXISTS no-op) on any column
+# change, with an ALTER/rebuild migration (C5 requirement).
+AUTHORITY_CACHE_DB = Path(
+    os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
+)
+AUTHORITY_CACHE_SCHEMA_VERSION = 1
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -75,6 +100,12 @@ class LiveRetrievalResult:
     candidates_failed_fetch: int
     api_calls: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    # #958 (S2): fail-loud corpus-truncation signal. True when the post-fetch
+    # loop budget (PG_POST_FETCH_LOOP_BUDGET) broke mid-corpus, leaving later
+    # candidates unclassified. Defaults keep existing constructors valid.
+    corpus_truncated: bool = False
+    candidates_total: int = 0
+    candidates_processed: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +138,63 @@ def _trace_drop(url: str, reason: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-meta-007b (#meta-007): per-tool utilization tracer. Record-only + fail-safe.
+# The tracer NEVER changes retrieval behavior or return values; any tracer error
+# (import failure, None tracer, disk error) is swallowed here so a telemetry bug
+# can never break retrieval. Lazy import keeps the dependency one-directional.
+# ─────────────────────────────────────────────────────────────────────────────
+def _trace_tool(
+    tool_name: str,
+    target: str = "",
+    status: str = "ok",
+    latency_ms: float = 0.0,
+    bytes_sent: int = 0,
+    bytes_received: int = 0,
+    backend_used: str = "",
+    error: str = "",
+    **metadata: Any,
+) -> None:
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            get_tool_tracer,
+            tool_tracker_enabled,
+        )
+        # I-meta-007b P2b: gate on PG_ENABLE_TOOL_TRACKER (default ON) so a
+        # direct caller OUTSIDE run_one_query (which never ran the per-query
+        # reset/bind) cannot append to a stale ON singleton when tracking is
+        # disabled. When OFF this is a pure no-op.
+        if not tool_tracker_enabled():
+            return
+        get_tool_tracer().record(
+            tool_name=tool_name,
+            target=target,
+            status=status,
+            latency_ms=latency_ms,
+            bytes_sent=bytes_sent,
+            bytes_received=bytes_received,
+            backend_used=backend_used,
+            error=error,
+            **metadata,
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break retrieval
+        pass
+
+
+def _resp_content_len(resp: Any) -> int:
+    """Best-effort byte length of an httpx response body for telemetry.
+
+    Returns 0 when the response object lacks a measurable ``content`` (e.g. a
+    lightweight test double). NEVER raises — record-only telemetry must not
+    depend on the response's concrete shape.
+    """
+    try:
+        content = getattr(resp, "content", None)
+        return len(content) if content else 0
+    except Exception:  # noqa: BLE001 — telemetry must never break retrieval
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API clients
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -126,10 +214,20 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
         pass
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     payload = {"q": query, "num": max(1, min(num, 20))}
+    # I-meta-007b: wall-clock for the tool tracer (record-only).
+    _t0 = time.time()
+    _bytes_sent = len(str(payload))
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             r = c.post(SERPER_ENDPOINT, json=payload, headers=headers)
+        _latency_ms = (time.time() - _t0) * 1000.0
         if r.status_code != 200:
+            _trace_tool(
+                "serper", target=query, status="fail", latency_ms=_latency_ms,
+                bytes_sent=_bytes_sent,
+                bytes_received=_resp_content_len(r),
+                backend_used="serper_api_v1", error=f"HTTP {r.status_code}",
+            )
             logger.warning(
                 "[live_retriever] Serper returned %s for %r",
                 r.status_code, query[:60],
@@ -138,6 +236,11 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             return []
         data = r.json()
     except Exception as exc:
+        _trace_tool(
+            "serper", target=query, status="fail",
+            latency_ms=(time.time() - _t0) * 1000.0, bytes_sent=_bytes_sent,
+            backend_used="serper_api_v1", error=str(exc),
+        )
         logger.warning("[live_retriever] Serper exception: %s", exc)
         _trace_query("serper", query, [])
         return []
@@ -150,6 +253,12 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
             "snippet": item.get("snippet", ""),
             "source": "serper",
         })
+    _trace_tool(
+        "serper", target=query, status="ok", latency_ms=_latency_ms,
+        bytes_sent=_bytes_sent,
+        bytes_received=_resp_content_len(r),
+        backend_used="serper_api_v1", result_count=len(out),
+    )
     _trace_query("serper", query, [o["url"] for o in out])
     return out
 
@@ -170,10 +279,18 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         "fields": "title,abstract,url,openAccessPdf,externalIds,year,venue",
         "limit": max(1, min(limit, 100)),
     }
+    # I-meta-007b: wall-clock for the tool tracer (record-only).
+    _t0 = time.time()
     try:
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             r = c.get(S2_BULK_ENDPOINT, params=params, headers=headers)
+        _latency_ms = (time.time() - _t0) * 1000.0
         if r.status_code != 200:
+            _trace_tool(
+                "s2", target=query, status="fail", latency_ms=_latency_ms,
+                bytes_received=_resp_content_len(r),
+                backend_used="semantic_scholar_api", error=f"HTTP {r.status_code}",
+            )
             logger.warning(
                 "[live_retriever] S2 returned %s for %r",
                 r.status_code, query[:60],
@@ -182,6 +299,11 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             return []
         data = r.json()
     except Exception as exc:
+        _trace_tool(
+            "s2", target=query, status="fail",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used="semantic_scholar_api", error=str(exc),
+        )
         logger.warning("[live_retriever] S2 exception: %s", exc)
         _trace_query("semantic_scholar", query, [])
         return []
@@ -215,6 +337,11 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             "year": p.get("year"),
             "venue": p.get("venue"),
         })
+    _trace_tool(
+        "s2", target=query, status="ok", latency_ms=_latency_ms,
+        bytes_received=_resp_content_len(r),
+        backend_used="semantic_scholar_api", result_count=len(out),
+    )
     _trace_query("semantic_scholar", query, [o["url"] for o in out])
     return out
 
@@ -564,6 +691,186 @@ def _extract_doi_from_url(url: str) -> str:
     return ""
 
 
+def _candidate_oa_hints(metadata: Any) -> tuple[str, str]:
+    """I-meta-007c: pull (doi, pmid) hints from a candidate's metadata dict.
+
+    S2 candidates carry ``metadata["doi"]`` (line ~2001); PMIDs are not in the
+    S2 dict today but the slot is honoured for forward-compat / testability.
+    Returns ("", "") for non-dict / missing metadata. NEVER raises.
+
+    Diff-gate P2a: the whole body is wrapped in a fail-open try/except returning
+    ("", "") on ANY error, matching the resolver helpers' fail-open contract —
+    a malformed metadata object must never break the retrieval loop."""
+    try:
+        if not isinstance(metadata, dict):
+            return "", ""
+        doi = str(metadata.get("doi") or "").strip()
+        pmid = str(metadata.get("pmid") or "").strip()
+        return doi, pmid
+    except Exception:  # noqa: BLE001 — fail-OPEN, never break retrieval.
+        return "", ""
+
+
+def _authority_cache_init() -> None:
+    """Create the authority-enrich cache with a VERSIONED migration (C5).
+
+    Not a CREATE-IF-NOT-EXISTS no-op: a stale cache whose recorded schema
+    version is older than AUTHORITY_CACHE_SCHEMA_VERSION is rebuilt rather than
+    silently used with missing columns.
+    """
+    AUTHORITY_CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_meta ("
+            " id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)"
+        )
+        row = conn.execute("SELECT version FROM schema_meta WHERE id = 1").fetchone()
+        existing = row[0] if row else 0
+        table_present = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='authority_enrich'"
+        ).fetchone() is not None
+        # Migrate whenever the recorded version is older than the current one
+        # (existing=0 means an unversioned/legacy cache). Drop + rebuild the
+        # payload table (the cache is a rebuildable accelerator, never the
+        # source of truth) — NOT a CREATE-IF-NOT-EXISTS no-op (C5).
+        if table_present and existing < AUTHORITY_CACHE_SCHEMA_VERSION:
+            conn.execute("DROP TABLE IF EXISTS authority_enrich")
+            logger.warning(
+                "[live_retriever] authority cache schema %d < %d — migrating "
+                "(rebuild)", existing, AUTHORITY_CACHE_SCHEMA_VERSION,
+            )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS authority_enrich ("
+            " key TEXT PRIMARY KEY,"
+            " payload_json TEXT NOT NULL,"
+            " fetched_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO schema_meta (id, version) VALUES (1, ?)"
+            " ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+            (AUTHORITY_CACHE_SCHEMA_VERSION,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _authority_cache_get(key: str) -> Optional[dict[str, Any]]:
+    if not AUTHORITY_CACHE_DB.exists():
+        return None
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        row = conn.execute(
+            "SELECT payload_json FROM authority_enrich WHERE key = ?", (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    if not row:
+        return None
+    import json
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
+
+
+def _authority_cache_put(key: str, payload: dict[str, Any]) -> None:
+    import json
+    _authority_cache_init()
+    conn = sqlite3.connect(AUTHORITY_CACHE_DB)
+    try:
+        conn.execute(
+            "INSERT INTO authority_enrich (key, payload_json) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET payload_json = excluded.payload_json,"
+            " fetched_at = CURRENT_TIMESTAMP",
+            (key, json.dumps(payload)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _openalex_fetch_source(
+    client: httpx.Client, source_id: str
+) -> dict[str, Any]:
+    """Separate /sources/{id} fetch for venue-level authority fields (C5).
+
+    Returns the summary_stats / apc_prices / is_core / is_in_doaj subset, or
+    {} on any failure (the model degrades to LOW confidence — never fabricates).
+    """
+    if not source_id:
+        return {}
+    sid = source_id.rsplit("/", 1)[-1]  # accept full URL or bare S-id
+    if not sid.startswith("S"):
+        return {}
+    resp = client.get(
+        f"{OPENALEX_SOURCES_ENDPOINT}/{sid}",
+        params={"select": OPENALEX_SOURCES_SELECT},
+    )
+    if resp.status_code != 200:
+        return {}
+    src = resp.json()
+    if not isinstance(src, dict):
+        return {}
+    return {
+        "is_core": src.get("is_core"),
+        "is_in_doaj": src.get("is_in_doaj"),
+        "apc_prices": src.get("apc_prices"),
+        "summary_stats": src.get("summary_stats") or {},
+    }
+
+
+def _build_authority_signals_dict(
+    work: dict[str, Any], source_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the additive AuthoritySignals payload (C1/C5) as a plain dict.
+
+    Stored as a dict so the live-path enrich return value stays JSON-cacheable;
+    live_retriever reconstructs the AuthoritySignals dataclass at classify time.
+    Missing fields stay absent/None -> the authority model returns LOW
+    confidence (fail-honest, never fabricate).
+    """
+    primary = work.get("primary_location") or {}
+    source = primary.get("source") or {}
+    # First resolved institution (ROR) from authorships.
+    ror_id = ""
+    inst_type = ""
+    country_code = ""
+    for authorship in work.get("authorships") or []:
+        for inst in authorship.get("institutions") or []:
+            if inst.get("ror"):
+                ror_id = inst.get("ror") or ""
+                inst_type = inst.get("type") or ""
+                country_code = inst.get("country_code") or ""
+                break
+        if ror_id:
+            break
+
+    stats = source_fields.get("summary_stats") or {}
+    venue_summary_stats: dict[str, Any] = {}
+    if isinstance(stats, dict):
+        if "h_index" in stats:
+            venue_summary_stats["h_index"] = stats.get("h_index")
+        if "2yr_mean_citedness" in stats:
+            venue_summary_stats["2yr_mean_citedness"] = stats.get("2yr_mean_citedness")
+
+    return {
+        "cited_by_count": work.get("cited_by_count"),
+        "source_id": source.get("id", "") or "",
+        "venue_summary_stats": venue_summary_stats or None,
+        "is_core": source_fields.get("is_core"),
+        "is_in_doaj": source_fields.get("is_in_doaj"),
+        "apc_prices": source_fields.get("apc_prices"),
+        "publication_year": work.get("publication_year"),
+        "ror_id": ror_id,
+        "institution_type": inst_type,
+        "country_code": country_code,
+    }
+
+
 def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """Query OpenAlex for pub_type / source_type / is_peer_reviewed.
 
@@ -577,11 +884,23 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
     """
     try:
         doi = _extract_doi_from_url(url)
+        # Diff-gate P2-B: READ the authority-enrich cache first, keyed by the
+        # stable pre-fetch identifier (DOI when present, else the URL). A hit
+        # returns the frozen enrich dict and AVOIDS the OpenAlex /works +
+        # /sources round-trip entirely (the read path the cache exists for).
+        enrich_cache_key = f"doi:{doi}" if doi else f"url:{url}"
+        cached = _authority_cache_get(enrich_cache_key)
+        if isinstance(cached, dict) and cached:
+            return cached
         with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
             if doi:
                 # Exact DOI lookup — most reliable. OpenAlex accepts
                 # both the bare DOI and the URL form; use bare DOI.
-                r = c.get(f"{OPENALEX_ENDPOINT}/doi:{doi}")
+                # Phase 0a (C5): request the root-level authority select=.
+                r = c.get(
+                    f"{OPENALEX_ENDPOINT}/doi:{doi}",
+                    params={"select": OPENALEX_WORKS_SELECT},
+                )
                 if r.status_code != 200:
                     # Fall back to title search if DOI not indexed
                     r = c.get(
@@ -589,6 +908,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                         params={
                             "search": (title or url)[:200],
                             "per-page": 1,
+                            "select": OPENALEX_WORKS_SELECT,
                         },
                     )
                     if r.status_code != 200:
@@ -606,6 +926,7 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                     params={
                         "search": (title or url)[:200],
                         "per-page": 1,
+                        "select": OPENALEX_WORKS_SELECT,
                     },
                 )
                 if r.status_code != 200:
@@ -615,9 +936,20 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 if not results:
                     return {}
                 work = results[0]
-        primary = work.get("primary_location") or {}
-        source = primary.get("source") or {}
-        return {
+
+            primary = work.get("primary_location") or {}
+            source = primary.get("source") or {}
+
+            # Phase 0a (C5): SEPARATE /sources/{id} fetch for venue-level
+            # authority fields, keyed by primary_location.source.id. Absent
+            # source / failed fetch -> empty -> LOW confidence downstream.
+            source_id = source.get("id", "") or ""
+            source_fields = _openalex_fetch_source(c, source_id)
+
+        # Build the additive AuthoritySignals payload (dict form, cacheable).
+        authority_signals = _build_authority_signals_dict(work, source_fields)
+
+        enrich = {
             "openalex_pub_type": work.get("type", "") or "",
             "openalex_source_type": source.get("type", "") or "",
             "is_peer_reviewed": bool(
@@ -631,7 +963,15 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             # "perspective for primary care providers", etc. suffixes
             # that the classifier needs to demote false T1s.
             "openalex_full_title": work.get("display_name", "") or "",
+            # Phase 0a (C1/C5): the additive authority payload, carried at
+            # :1751 -> :1789 into ClassificationSignals.authority.
+            "authority_signals": authority_signals,
         }
+        # Diff-gate P2-B: WRITE the whole enrich dict under the SAME stable
+        # pre-fetch key the read path uses, so a later lookup is a true cache
+        # hit that skips the network (the read path is now exercised).
+        _authority_cache_put(enrich_cache_key, enrich)
+        return enrich
     except Exception as exc:
         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
         return {}
@@ -799,6 +1139,41 @@ def linearize_html_tables(html: str) -> str:
         return ""
 
 
+_JSONLD_SCRIPT_RE = re.compile(
+    r'<script[^>]*type\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.DOTALL | re.IGNORECASE,
+)
+# Bound the captured JSON-LD so a pathological page cannot balloon the payload
+# the classifier scans (the junk patterns only need the @type marker near the top).
+_JSONLD_MAX_CHARS = 20000
+
+
+def _extract_jsonld_blocks(raw_html: str) -> str:
+    """Capture the raw <script type="application/ld+json"> block contents from
+    the RAW fetched HTML — BEFORE _strip_html() deletes every <script> block.
+
+    Diff-gate P1-C: the structural junk-detection classifier (Signal C,
+    news_article/login_wall/press_release classes) scans JSON-LD strings such as
+    `"@type":"NewsArticle"` that live ONLY inside ld+json <script> blocks. Those
+    blocks are destroyed by _strip_html (line removing <script>...</script>), so
+    the demotion never fires unless the JSON-LD is extracted FIRST and routed to
+    ClassificationSignals.structured_jsonld separately from the stripped body.
+
+    Returns the concatenated block contents (bounded), or "" when the input is
+    not raw HTML (e.g. Jina markdown / Crawl4AI cleaned text already had its
+    <script> blocks removed upstream) — honestly empty, never fabricated. Pure
+    regex, no network, fail-open ("").
+    """
+    if not raw_html or "ld+json" not in raw_html.lower():
+        return ""
+    try:
+        blocks = [m.group(1).strip() for m in _JSONLD_SCRIPT_RE.finditer(raw_html)]
+        joined = "\n".join(b for b in blocks if b)
+        return joined[:_JSONLD_MAX_CHARS]
+    except Exception:  # noqa: BLE001 — additive structural signal; never break fetch
+        return ""
+
+
 def _strip_html(html: str) -> str:
     """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
     linearized rows (#954) so result-table cells survive with their column headers regardless of how the
@@ -825,10 +1200,17 @@ def _strip_html(html: str) -> str:
     return base
 
 
-def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+def _fetch_content_httpx_naive(
+    url: str, max_chars: int
+) -> tuple[str, bool, str, str, str]:
     """Legacy naive httpx fetcher. Kept as emergency fallback when
     AccessBypass is unavailable (tests that don't want Crawl4AI browser
-    spawning, or sandboxes without Playwright)."""
+    spawning, or sandboxes without Playwright).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW HTML
+    BEFORE _strip_html deletes the <script> blocks (empty when the page carries
+    no JSON-LD)."""
     try:
         with httpx.Client(
             timeout=DEFAULT_HTTP_TIMEOUT,
@@ -846,7 +1228,7 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         ) as c:
             r = c.get(url)
         if r.status_code != 200:
-            return "", False, "", ""
+            return "", False, "", "", ""
         ctype = (r.headers.get("content-type", "") or "").lower()
         raw = r.text if "text" in ctype or "html" in ctype or "json" in ctype else ""
         if not raw and r.content:
@@ -856,13 +1238,56 @@ def _fetch_content_httpx_naive(url: str, max_chars: int) -> tuple[str, bool, str
         extracted_title = _extract_title_from_content(raw)
         # BUG-M-17: detect article-type from bounded body region.
         body_type = _detect_article_type_from_body(raw)
+        # Diff-gate P1-C: capture raw ld+json BEFORE _strip_html removes <script>.
+        jsonld = _extract_jsonld_blocks(raw)
         content = _strip_html(raw)[:max_chars]
-        return content, bool(content), extracted_title, body_type
+        return content, bool(content), extracted_title, body_type, jsonld
     except Exception as exc:
         logger.debug(
             "[live_retriever] naive-httpx fetch %r failed: %s", url, exc,
         )
-        return "", False, "", ""
+        return "", False, "", "", ""
+
+
+def _fallback_naive_fetch(
+    url: str,
+    max_chars: int,
+    t0: float,
+    primary_reason: str,
+) -> tuple[str, bool, str, str, str]:
+    """Run the naive-httpx fallback and record its FINAL outcome (I-meta-007b P2a).
+
+    Every content-fetch fallback in :func:`_fetch_content` (AccessBypass
+    disabled / unavailable / timed out / raised / produced no result) ends by
+    delegating to :func:`_fetch_content_httpx_naive`. The pre-fix code traced
+    ``fail``/``timeout`` BEFORE that delegation, so a SUCCESSFUL fallback was
+    still recorded as a failure. This helper traces the ACTUAL result instead:
+
+    * ``status="ok"`` + real ``bytes_received`` (length of fetched content) when
+      the naive fetch returned content,
+    * ``status="fail"`` otherwise — carrying ``primary_reason`` (the reason the
+      primary path fell back, e.g. ``access_bypass_timeout_90s``) in ``error``
+      for diagnostics.
+
+    ``backend_used="httpx_naive"`` uniformly because the naive fetcher is what
+    actually ran. ``t0`` is the single wall-clock start captured at the top of
+    :func:`_fetch_content` so latency reflects total fetch time. Record-only +
+    fail-safe (``_trace_tool`` swallows its own errors); returns the naive
+    fetcher's tuple unchanged so retrieval behavior is identical to before.
+    """
+    result = _fetch_content_httpx_naive(url, max_chars)
+    content, ok = result[0], result[1]
+    _trace_tool(
+        "fetch_content",
+        target=url,
+        status="ok" if ok else "fail",
+        latency_ms=(time.time() - t0) * 1000.0,
+        backend_used="httpx_naive",
+        bytes_received=len(content) if ok else 0,
+        error="" if ok else str(primary_reason),
+        primary_reason=str(primary_reason),
+    )
+    return result
 
 
 def refetch_for_extraction(url: str, max_chars: int = 2000) -> str:
@@ -968,7 +1393,7 @@ def refetch_for_extraction_with_diagnostics(
         return "", diagnostics
     diagnostics["attempted"] = True
     try:
-        content, ok, _title, body_type = _fetch_content(url, max_chars)
+        content, ok, _title, body_type, _jsonld = _fetch_content(url, max_chars)
     except Exception as exc:
         logger.warning(
             "[refetch_for_extraction] fetch failed for %s: %s", url, exc,
@@ -1027,10 +1452,222 @@ def refetch_for_extraction_with_diagnostics(
     return quote, diagnostics
 
 
-def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
+# ─────────────────────────────────────────────────────────────────────────────
+# I-meta-007c: OPEN-ACCESS resolver for the LIVE retrieval loop.
+#
+# When AccessBypass returns a stub/empty/paywalled result for a candidate that
+# carries a DOI (from S2 metadata or embedded in the URL), resolve the
+# best open-access full text BEFORE giving up. Fail-OPEN: any resolver error
+# returns "" and the caller falls through to its existing path — retrieval is
+# NEVER broken by a resolver failure.
+#
+# Fallback order (exact, per `.codex/I-meta-007/_wiring_specs.txt`
+# LANE wire:unpaywall-live-path):
+#   1. Unpaywall v2 best-OA URL  -> fetch via AccessBypass
+#   2. PubMed EFetch abstract (only when a PMID is available)
+#   3. else "" (caller keeps its existing stub/fallback behaviour)
+#
+# The OA fetch REUSES the existing AccessBypass stack (already budgeted in the
+# per-candidate fetch timeout) and the existing frame_fetcher parsers — no new
+# network budget, no duplicated parsing. All helpers are module-level so tests
+# can monkeypatch each seam independently (no real network, no spend).
+#
+# Env gates (LAW VI):
+#   PG_ENABLE_LIVE_OA_RESOLVER  default "1"  — master on/off switch.
+#   PG_UNPAYWALL_EMAIL          default placeholder — Unpaywall ToS email.
+# ─────────────────────────────────────────────────────────────────────────────
+def _oa_resolver_enabled() -> bool:
+    """True iff the live OA resolver is enabled. Off iff the env var is set to
+    a recognized falsey value ("0" / "false" / "no"); default ON."""
+    raw = os.getenv("PG_ENABLE_LIVE_OA_RESOLVER", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _try_oa_resolution(
+    url: str,
+    extracted_doi: str = "",
+    pmid: str = "",
+    max_chars: int = DEFAULT_CONTENT_MAX_CHARS,
+) -> str:
+    """Resolve open-access full text for a paywalled/stub candidate.
+
+    Public entry point called from :func:`_fetch_content` when AccessBypass
+    returns stub/empty content AND a DOI is available. Returns upgraded content
+    (str, capped at ``max_chars``) or "" on any failure / when disabled.
+
+    Fail-OPEN by contract: every internal failure mode returns "" so the caller
+    falls through to its existing behaviour. NEVER raises.
+
+    Diff-gate P1: a DOI is REQUIRED to do anything. The PubMed EFetch abstract
+    is only a SECONDARY fallback AFTER a DOI-keyed Unpaywall miss — a PMID-only,
+    no-DOI candidate must NOT be upgraded (Europe-PMC can emit metadata with
+    doi=None + pmid set; that record must stay a miss, not become PubMed text).
+
+    Fallback order (DOI required throughout):
+      1. Unpaywall v2 best-OA URL  -> AccessBypass fetch
+      2. PubMed EFetch abstract    (only after a DOI-keyed Unpaywall miss AND
+                                     when ``pmid`` is present)
+      3. ""
+    """
+    if not _oa_resolver_enabled():
+        return ""
+    doi = (extracted_doi or "").strip()
+    # Diff-gate P1: DOI-present gate. Without a DOI the resolver does nothing —
+    # the PMID is only a secondary fallback after a DOI-keyed Unpaywall miss.
+    if not doi:
+        return ""
+    try:
+        # Step 1: Unpaywall best-OA URL(s), prioritized pdf > html.
+        if doi:
+            for oa_url in _unpaywall_get_oa_urls(doi):
+                if not oa_url:
+                    continue
+                content = _fetch_oa_url_via_bypass(oa_url, max_chars)
+                if content:
+                    logger.info(
+                        "[live_retriever] OA resolver: Unpaywall hit for "
+                        "doi=%s url=%r (%d chars)",
+                        doi, oa_url[:80], len(content),
+                    )
+                    return content[:max_chars]
+        # Step 2: PubMed EFetch abstract when a PMID is available.
+        if pmid:
+            abstract = _pubmed_fetch_abstract(pmid)
+            if abstract:
+                logger.info(
+                    "[live_retriever] OA resolver: PubMed EFetch fallback "
+                    "for pmid=%s (%d chars)",
+                    pmid, len(abstract),
+                )
+                return abstract[:max_chars]
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN, never break retrieval.
+        logger.debug(
+            "[live_retriever] OA resolver error for doi=%s url=%r: %s",
+            doi, url[:80], exc,
+        )
+        return ""
+    return ""
+
+
+def _unpaywall_get_oa_urls(doi: str) -> list[str]:
+    """Query the Unpaywall v2 API for OA location URLs.
+
+    Returns an ordered list ``[pdf_url, html_url]`` (each may be absent; the
+    list is empty when the work is not OA or the lookup fails). Fail-OPEN: any
+    error returns ``[]`` so the caller falls back to PubMed / its existing path.
+
+    Reuses ``frame_fetcher._parse_unpaywall_response`` for the OA-URL parse so
+    the live path and the M-56 frame path share one parser.
+    """
+    if not doi:
+        return []
+    try:
+        import httpx as _httpx
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _parse_unpaywall_response,
+        )
+
+        email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+        endpoint = "https://api.unpaywall.org/v2/" + doi.strip()
+        with _httpx.Client(timeout=10.0) as client:
+            response = client.get(endpoint, params={"email": email})
+        if response.status_code != 200:
+            return []
+        try:
+            data = response.json()
+        except Exception:  # noqa: BLE001 — malformed JSON => no OA.
+            return []
+        parsed = _parse_unpaywall_response(data if isinstance(data, dict) else {})
+        if not parsed.get("is_oa"):
+            return []
+        # Prioritize PDF over landing-page HTML (PDF is full text; HTML may be
+        # an abstract-only shell).
+        urls = [parsed.get("oa_pdf_url") or "", parsed.get("oa_html_url") or ""]
+        return [u for u in urls if u]
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] Unpaywall OA query failed for doi=%s: %s",
+            doi, exc,
+        )
+        return []
+
+
+def _fetch_oa_url_via_bypass(oa_url: str, max_chars: int) -> str:
+    """Fetch an OA URL via the existing AccessBypass stack.
+
+    Reuses ``frame_fetcher._fetch_url_pattern`` — the proven sync/async-safe
+    AccessBypass wrapper (also the documented monkeypatch seam) — so the live
+    path does not re-implement the event-loop juggling. Returns content (str,
+    capped at ``max_chars``) or "" on failure. Fail-OPEN.
+    """
+    if not oa_url:
+        return ""
+    try:
+        from src.polaris_graph.retrieval.frame_fetcher import _fetch_url_pattern
+
+        content, _final_url = _fetch_url_pattern(oa_url)
+        if content:
+            return content[:max_chars]
+        return ""
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] OA bypass fetch failed for %r: %s",
+            oa_url[:80], exc,
+        )
+        return ""
+
+
+def _pubmed_fetch_abstract(pmid: str) -> str:
+    """Fetch an abstract from PubMed EFetch for ``pmid``.
+
+    Reuses ``frame_fetcher._parse_pubmed_xml`` for the XML -> abstract parse so
+    the live path and the M-56 frame path share one parser. Returns the
+    abstract text or "" on failure. Fail-OPEN.
+    """
+    if not pmid:
+        return ""
+    try:
+        import httpx as _httpx
+        from src.polaris_graph.retrieval.frame_fetcher import _parse_pubmed_xml
+
+        endpoint = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        params = {
+            "db": "pubmed",
+            "id": str(pmid).strip(),
+            "rettype": "abstract",
+            "retmode": "xml",
+        }
+        with _httpx.Client(timeout=15.0) as client:
+            response = client.get(endpoint, params=params)
+        if response.status_code != 200 or not (response.text or "").strip():
+            return ""
+        parsed = _parse_pubmed_xml(response.text)
+        return parsed.get("abstract") or ""
+    except Exception as exc:  # noqa: BLE001 — fail-OPEN.
+        logger.debug(
+            "[live_retriever] PubMed abstract fetch failed for pmid=%s: %s",
+            pmid, exc,
+        )
+        return ""
+
+
+def _fetch_content(
+    url: str,
+    max_chars: int,
+    doi_hint: str = "",
+    pmid_hint: str = "",
+) -> tuple[str, bool, str, str, str]:
     """Fetch URL content using the AccessBypass cascade (Crawl4AI +
     Jina Reader + Firecrawl concurrent, fallback to direct HTTP +
     Archive.org + institutional proxy + Sci-Hub).
+
+    Returns (content, ok, title, body_type, jsonld). Diff-gate P1-C: `jsonld`
+    is the raw ld+json <script> block contents extracted from the RAW fetched
+    HTML BEFORE _strip_html removes <script> blocks, so the structural junk
+    classifier (Signal C: NewsArticle / press-release / login-wall) can fire on
+    the live ON path. Empty when the winning backend already returned cleaned
+    text (Jina markdown / Crawl4AI) with no <script> blocks — honestly empty,
+    never fabricated.
 
     BUG-FETCH-R8d (2026-04-18): the live smoke test of
     clinical_tirzepatide_t2dm showed 19/20 candidates failed via the
@@ -1047,13 +1684,28 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
 
     Env opt-out: set PG_DISABLE_ACCESS_BYPASS=1 to fall back to the
     naive httpx path (useful when Playwright/Crawl4AI is unavailable).
+
+    I-meta-007c: ``doi_hint`` / ``pmid_hint`` are optional identifiers carried
+    from the candidate's S2 metadata. When AccessBypass returns stub/empty/
+    paywalled content AND a DOI is resolvable (hint or extracted from the URL),
+    the OPEN-ACCESS resolver (Unpaywall v2 -> AccessBypass; else PubMed EFetch
+    abstract) is tried BEFORE giving up. Gated by PG_ENABLE_LIVE_OA_RESOLVER
+    (default "1"); fail-OPEN (resolver errors never break retrieval).
     """
+    # I-meta-007b: single wall-clock for the tool tracer (record-only). The
+    # naive-httpx fallbacks below are recorded as the content-fetch outcome so
+    # the per-run summary reflects every fetch attempt's path + latency.
+    _t0 = time.time()
     if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
         # M-45 pass-2: record env-opt-out so diagnostics can see it.
         _m45_record_fetch_telemetry(
             url, "httpx_naive", "pg_disable_access_bypass=1"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail), not the
+        # pre-fallback "fail" — a successful naive fetch must be recorded ok.
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, "pg_disable_access_bypass=1"
+        )
     try:
         from src.tools.access_bypass import AccessBypass
     except Exception as exc:
@@ -1064,7 +1716,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", f"access_bypass_import_failed: {exc}"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_import_failed: {exc}"
+        )
 
     # Run AccessBypass in a dedicated thread so each call gets its own
     # fresh event loop. This works whether we're called from sync or
@@ -1106,7 +1761,11 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", f"access_bypass_timeout_{int(deadline)}s",
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail). The
+        # backend that actually ran is httpx_naive, not access_bypass.
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_timeout_{int(deadline)}s"
+        )
 
     if "error" in result_holder:
         exc = result_holder["error"]
@@ -1118,7 +1777,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
             url, "httpx_naive",
             f"access_bypass_raised_{type(exc).__name__}",
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, f"access_bypass_raised_{type(exc).__name__}"
+        )
     if "value" not in result_holder:
         logger.warning(
             "[live_retriever] AccessBypass produced no result for %s",
@@ -1127,7 +1789,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         _m45_record_fetch_telemetry(
             url, "httpx_naive", "access_bypass_no_result"
         )
-        return _fetch_content_httpx_naive(url, max_chars)
+        # I-meta-007b P2a: record the FINAL fallback outcome (ok/fail).
+        return _fallback_naive_fetch(
+            url, max_chars, _t0, "access_bypass_no_result"
+        )
     result = result_holder["value"]
 
     method = getattr(result, "access_method", "unknown") or "unknown"
@@ -1140,7 +1805,51 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
         # M-45 pass-2: record the winning backend + reason even on miss
         # so downstream audits can see which backend was last invoked.
         _m45_record_fetch_telemetry(url, method, reason or "no_content")
-        return "", False, "", ""
+        # I-meta-007c: AccessBypass returned a stub/empty/paywalled result.
+        # Before giving up, try the OPEN-ACCESS resolver when a DOI is
+        # available (from S2 metadata hint or embedded in the URL). On a hit
+        # we return the upgraded content with ok=True so the longer body
+        # re-tiers above T7 downstream. Fail-OPEN: an empty resolver result
+        # leaves the existing stub return path untouched.
+        #
+        # Diff-gate P2b: when the resolver is gated OFF, do NOT compute the DOI
+        # and do NOT call _try_oa_resolution — the OFF path is byte-identical to
+        # the pre-existing stub control flow (resolver never invoked).
+        # Diff-gate P1: enforce the DOI-present gate at the CALL SITE. Only enter
+        # the OA-resolver branch when a non-empty DOI is resolvable (hint or
+        # embedded in the URL). An empty-DOI candidate (e.g. an Europe-PMC record
+        # with doi=None + pmid set) must NOT be upgraded via a PMID-only PubMed
+        # fetch — it falls straight through to the pre-existing miss tuple.
+        if _oa_resolver_enabled():
+            oa_doi = (doi_hint or "").strip() or _extract_doi_from_url(url)
+            if oa_doi:
+                oa_content = _try_oa_resolution(
+                    url=url,
+                    extracted_doi=oa_doi,
+                    pmid=(pmid_hint or "").strip(),
+                    max_chars=max_chars,
+                )
+                if oa_content:
+                    logger.info(
+                        "[live_retriever] fetch_oa %s (doi=%s chars=%d) — "
+                        "upgraded from stub via OA resolver",
+                        url[:80], oa_doi, len(oa_content),
+                    )
+                    _m45_record_fetch_telemetry(url, "oa_resolver", "")
+                    _trace_tool(
+                        "fetch_content", target=url, status="ok",
+                        latency_ms=(time.time() - _t0) * 1000.0,
+                        backend_used="oa_resolver",
+                        bytes_received=len(oa_content),
+                        content_length=len(oa_content),
+                    )
+                    return oa_content, True, "", "", ""
+        _trace_tool(
+            "fetch_content", target=url, status="stub",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used=method, error=str(reason or "no_content"),
+        )
+        return "", False, "", "", ""
     # BUG-M-14 (Codex pass 14): extract the full page title from the
     # raw result.content BEFORE _strip_html removes <title> tags. Jina
     # markdown has "Title: X" on first line; Crawl4AI cleaned text has
@@ -1148,6 +1857,10 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     extracted_title = _extract_title_from_content(result.content)
     # BUG-M-17 (Codex pass 2): detect article-type from body.
     body_type = _detect_article_type_from_body(result.content)
+    # Diff-gate P1-C: capture raw ld+json from result.content BEFORE _strip_html
+    # removes <script> blocks. Direct-HTTP path returns raw HTML (JSON-LD present);
+    # Jina/Crawl4AI return cleaned text with <script> already gone (honestly empty).
+    jsonld = _extract_jsonld_blocks(result.content)
     # result.content is already extracted (Jina = markdown, Crawl4AI =
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
@@ -1158,7 +1871,13 @@ def _fetch_content(url: str, max_chars: int) -> tuple[str, bool, str, str]:
     )
     # M-45 pass-2: record winning backend for diagnostics.
     _m45_record_fetch_telemetry(url, method, "")
-    return content, bool(content), extracted_title, body_type
+    _trace_tool(
+        "fetch_content", target=url, status="ok",
+        latency_ms=(time.time() - _t0) * 1000.0,
+        backend_used=method, bytes_received=len(content),
+        content_length=len(content),
+    )
+    return content, bool(content), extracted_title, body_type, jsonld
 
 
 def _domain_of(url: str) -> str:
@@ -1406,6 +2125,8 @@ def run_live_retrieval(
     domain: Optional[str] = None,
     seed_urls: Optional[list[str]] = None,
     seed_only: bool = False,
+    research_frame: Any = None,
+    anchor_seed: bool = True,
 ) -> LiveRetrievalResult:
     """Execute live retrieval and classify the corpus.
 
@@ -1423,20 +2144,62 @@ def run_live_retrieval(
             tech / due_diligence). When set, R-6 Gap-2 domain backends
             augment the generic Serper+S2 retrieval with arxiv (tech),
             SEC EDGAR (DD), or policy-site targeted Serper queries.
+        research_frame: Optional planner `ResearchFrame` (I-meta-005 Phase 2
+            #986). When set (ON-mode), the field-agnostic need-type registry
+            REPLACES the domain backends at the Step-2a seam — discovery is
+            keyed on the frame's declared `evidence_needs` + extracted
+            `jurisdictions`, NOT a domain. Mutually exclusive with `domain` on
+            the on-path (the sweep passes `domain=None` on-mode).
+        anchor_seed: When True (default — OFF-mode byte-identical), the verbatim
+            `research_question` is PREPENDED to the effective query list and the
+            scope validator keeps it (`always_keep_anchor=True`). I-meta-005
+            Phase 4 (#988) GAP rounds pass `anchor_seed=False` so the broad anchor
+            is NOT re-fired: `all_queries = amplified_queries` ONLY, the scope
+            validator does NOT re-add the anchor (`always_keep_anchor=False`), and
+            the need-type backend is invoked with `anchor_seed=False` (no
+            `research_question` prepend there either). A gap round therefore fires
+            EXACTLY the gap sub-queries on BOTH the core Serper/S2 seam AND the
+            need-type adapters.
 
     Returns LiveRetrievalResult.
+
+    Raises:
+        MalformedPlanError: when `research_frame` carries a malformed
+            `evidence_needs` value OR a malformed jurisdiction SHAPE. This is
+            validated UP-FRONT (before ANY live discovery, incl. core
+            Serper/S2) and FAILS LOUD — it NEVER silently degrades to core
+            Serper/S2 (brief §2.4 P2-note-1). Distinct from the fail-OPEN
+            adapter/network handling at the Step-2a seam.
     """
     api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
     notes: list[str] = []
 
+    # ── Step 0: UP-FRONT plan validation (I-meta-005 Phase 2, P2-note-1) ──
+    # A malformed frame (bad evidence_need / bad jurisdiction SHAPE) must FAIL
+    # LOUD here — BEFORE the core Serper/S2 baseline spends or populates any
+    # candidate. The router's validation raises MalformedPlanError; we let it
+    # propagate (it is a VALIDATION error, distinct from the fail-OPEN
+    # adapter/network handling at Step 2a). Only fires on-mode (frame present).
+    if research_frame is not None and not seed_only:
+        from src.polaris_graph.discovery.need_type_router import (
+            validate_frame_needs,
+        )
+        # Raises MalformedPlanError on a malformed value/SHAPE; a valid-shape
+        # unknown jurisdiction + an empty evidence_needs both pass (non-fatal).
+        validate_frame_needs(research_frame)
+
     # ── Step 1: compile the effective query list ──────────────────────
-    all_queries: list[str] = [research_question]
+    # I-meta-005 Phase 4 (#988): `anchor_seed=False` (gap rounds) suppresses the
+    # broad `research_question` anchor on BOTH the prepend AND the scope-validator
+    # reinsertion, so a gap round fires ONLY the gap sub-queries (no wasted
+    # anchor re-run). Default True = OFF-mode byte-identical.
+    all_queries: list[str] = [research_question] if anchor_seed else []
     if amplified_queries:
         all_queries.extend(amplified_queries)
     # Scope validation (de-drift)
     if protocol:
         valid = validate_amplified_queries(
-            all_queries, protocol, always_keep_anchor=True,
+            all_queries, protocol, always_keep_anchor=anchor_seed,
         )
         effective_queries = valid.kept
         notes.append(
@@ -1509,11 +2272,55 @@ def run_live_retrieval(
                 query_origin=q,
             ))
 
-    # ── Step 2a: R-6 Gap-2 domain-routed backends ──────────────────
-    # arXiv for tech, SEC EDGAR for due-diligence, policy-site Serper
-    # for policy. Fail-open: any backend exception yields 0 new hits.
-    # Skipped on the seed_only deepener pass (no extra retrieval).
-    if domain and not seed_only:
+    # ── Step 2a: specialized issuer-class backends ──────────────────
+    # I-meta-005 Phase 2 (#986) DUAL PATH:
+    #   ON-mode (research_frame present): the field-agnostic NEED-TYPE registry
+    #     REPLACES the domain backends — discovery is routed off the frame's
+    #     declared evidence_needs + jurisdictions (NO `if domain ==` branch
+    #     reached). The malformed-frame case already FAILED LOUD at Step 0.
+    #   OFF-mode (domain set, no frame): the legacy R-6 Gap-2 domain switch runs
+    #     byte-identically (arXiv for tech, SEC EDGAR for DD, policy-site Serper
+    #     for policy, Europe PMC for clinical).
+    # Both stay fail-OPEN at the live seam (ADAPTER/network exception -> 0 new
+    # hits; the run degrades to the core Serper/S2 baseline). Skipped on the
+    # seed_only deepener pass (no extra retrieval).
+    if research_frame is not None and not seed_only:
+        # ON-path: need-type registry dispatch. NO domain literal consulted.
+        try:
+            from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                run_need_type_backends,
+            )
+            need_result = run_need_type_backends(
+                frame=research_frame,
+                research_question=research_question,
+                amplified_queries=amplified_queries,
+                anchor_seed=anchor_seed,
+            )
+            for cand in need_result.candidates:
+                url = cand.url
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                if not getattr(cand, "query_origin", ""):
+                    cand.query_origin = "need_type_backend"
+                candidates.append(cand)
+            if need_result.backends_used:
+                notes.append(
+                    f"need_type_backends({need_result.needs}): "
+                    f"{need_result.per_backend_counts}"
+                )
+                for backend_name in need_result.backends_used:
+                    api_calls[backend_name] = (
+                        api_calls.get(backend_name, 0) + 1
+                    )
+        except Exception as exc:
+            # ADAPTER/network fail-open ONLY. A MalformedPlanError cannot reach
+            # here — it raised at Step 0 before the baseline ran.
+            logger.warning(
+                "[live_retriever] need_type_backends failed (fail-open): %s",
+                exc,
+            )
+    elif domain and not seed_only:
         try:
             from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
                 run_domain_backends,
@@ -1595,11 +2402,12 @@ def run_live_retrieval(
     #
     # The substrate's ParallelFetcher Protocol expects (bytes, str,
     # int). Live retrieval's existing _fetch_content returns
-    # (content, ok, title, body_type) — we wrap it in an adapter
-    # that stashes the full 4-tuple in a side dict keyed by URL,
-    # then post-process serially using the side dict.
+    # (content, ok, title, body_type, jsonld) — we wrap it in an adapter
+    # that stashes the full 5-tuple in a side dict keyed by URL,
+    # then post-process serially using the side dict. Diff-gate P1-C: the 5th
+    # element is the raw ld+json captured before _strip_html (Signal C input).
     use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
-    fetched_side: dict[str, tuple[str, bool, str, str]] = {}
+    fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
 
     if use_parallel and candidates:
         from src.polaris_graph.audit_ir.parallel_fetch import (
@@ -1610,7 +2418,7 @@ def run_live_retrieval(
         class _LiveContentParallelFetcher:
             """Adapter wrapping `_fetch_content(url, max_chars)` for
             the parallel_fetch substrate's ParallelFetcher Protocol.
-            Stashes the full 4-tuple (content, ok, title, body_type)
+            Stashes the full 5-tuple (content, ok, title, body_type, jsonld)
             in a thread-safe side dict so the post-processing loop
             can read it back per-candidate."""
 
@@ -1622,12 +2430,19 @@ def run_live_retrieval(
             def fetch(
                 self, task: "FetchTask"
             ) -> tuple[bytes, str, int]:
-                content, ok, title, body_type = _fetch_content(
+                # I-meta-007c: surface the per-candidate DOI/PMID hints
+                # (stashed in task_metadata at task construction) so the OA
+                # resolver can fire on the DEFAULT parallel path, not just the
+                # serial fallback.
+                _meta = task.task_metadata or {}
+                content, ok, title, body_type, jsonld = _fetch_content(
                     task.source_url, self.max_chars,
+                    doi_hint=str(_meta.get("doi") or ""),
+                    pmid_hint=str(_meta.get("pmid") or ""),
                 )
                 with self._lock:
                     self.results[task.source_url] = (
-                        content, ok, title, body_type,
+                        content, ok, title, body_type, jsonld,
                     )
                 payload = (content or "").encode("utf-8", errors="replace")
                 return (payload, "text/plain", 200 if ok else 502)
@@ -1645,14 +2460,19 @@ def run_live_retrieval(
         except ValueError:
             per_task_timeout = 120.0
 
-        fetch_tasks = [
-            FetchTask(
-                source_url=c.url,
-                backend_id="default",
-                task_metadata={"index": idx},
+        fetch_tasks = []
+        for idx, c in enumerate(candidates):
+            # I-meta-007c: carry the candidate's DOI/PMID hints into the
+            # FetchTask so _LiveContentParallelFetcher.fetch can pass them to
+            # _fetch_content for the OA resolver (default = parallel path).
+            _doi, _pmid = _candidate_oa_hints(getattr(c, "metadata", None))
+            fetch_tasks.append(
+                FetchTask(
+                    source_url=c.url,
+                    backend_id="default",
+                    task_metadata={"index": idx, "doi": _doi, "pmid": _pmid},
+                )
             )
-            for idx, c in enumerate(candidates)
-        ]
         fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
         parallel_report = parallel_fetch(
             fetch_tasks, fetcher,
@@ -1692,6 +2512,13 @@ def run_live_retrieval(
     _enrich_stats: dict[str, int] = {}
     _enrich_disabled = False
 
+    # #958 (S2): corpus-truncation counters. Initialized BEFORE the loop so the
+    # empty/no-break path does not depend on a loop-local `i` (Codex P2). Default
+    # = "processed all" / not truncated; the budget-break below overrides.
+    _corpus_truncated = False
+    _candidates_total = len(candidates)
+    _candidates_processed = len(candidates)
+
     for i, cand in enumerate(candidates):
         if time.monotonic() > _loop_deadline:
             logger.warning(
@@ -1699,23 +2526,36 @@ def run_live_retrieval(
                 "at candidate %d/%d (%d already classified)",
                 i, len(candidates), len(classified_sources),
             )
+            # #958: record the truncation as a fail-loud signal (was log-only).
+            # candidates_processed = the zero-based break index i = post-filter
+            # candidates whose loop iteration began before the cutoff (Codex P2).
+            _corpus_truncated = True
+            _candidates_processed = i
             break
         logger.info(
             "[live_retriever] post-fetch candidate %d/%d %s",
             i + 1, len(candidates), cand.url[:60],
         )
         if use_parallel:
-            content, ok, content_title_from_fetch, body_article_type = (
-                fetched_side.get(cand.url, ("", False, "", ""))
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
+                fetched_side.get(cand.url, ("", False, "", "", ""))
             )
         else:
             # Fallback serial path (PG_USE_PARALLEL_FETCH=0).
             # Rate-limit gently (Serper doesn't but S2 prefers <= 1rps)
             if i > 0 and i % 5 == 0:
                 time.sleep(0.2)
+            # I-meta-007c: thread the DOI/PMID hints from S2 metadata so the
+            # OA resolver can fire when AccessBypass returns a stub/paywall.
+            _cand_doi, _cand_pmid = _candidate_oa_hints(
+                getattr(cand, "metadata", None)
+            )
             # Fetch content (for tier classification + evidence)
-            content, ok, content_title_from_fetch, body_article_type = (
-                _fetch_content(cand.url, DEFAULT_CONTENT_MAX_CHARS)
+            content, ok, content_title_from_fetch, body_article_type, raw_jsonld = (
+                _fetch_content(
+                    cand.url, DEFAULT_CONTENT_MAX_CHARS,
+                    doi_hint=_cand_doi, pmid_hint=_cand_pmid,
+                )
             )
         api_calls["fetch"] += 1
         if not ok:
@@ -1768,6 +2608,25 @@ def run_live_retrieval(
             classifier_title = max(title_candidates, key=len)
         else:
             classifier_title = cand.title or ""
+        # Phase 0a (C1/C5): reconstruct the additive AuthoritySignals payload
+        # from the live-path enrich dict. Absent/partial -> None / partial ->
+        # the authority model returns LOW confidence (fail-honest). Inert on the
+        # OFF path (the legacy rule body never reads `.authority`).
+        authority_payload = None
+        _auth_dict = oa.get("authority_signals")
+        if isinstance(_auth_dict, dict):
+            authority_payload = AuthoritySignals(
+                cited_by_count=_auth_dict.get("cited_by_count"),
+                source_id=_auth_dict.get("source_id", "") or "",
+                venue_summary_stats=_auth_dict.get("venue_summary_stats"),
+                is_core=_auth_dict.get("is_core"),
+                is_in_doaj=_auth_dict.get("is_in_doaj"),
+                apc_prices=_auth_dict.get("apc_prices"),
+                publication_year=_auth_dict.get("publication_year"),
+                ror_id=_auth_dict.get("ror_id", "") or "",
+                institution_type=_auth_dict.get("institution_type", "") or "",
+                country_code=_auth_dict.get("country_code", "") or "",
+            )
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,
@@ -1779,6 +2638,25 @@ def run_live_retrieval(
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
+            authority=authority_payload,
+            # Diff-gate P1-B/P1-C: wire the structural junk inputs so Signal C
+            # (junk_detection) can actually fire on the ON path. INERT when OFF
+            # (the legacy rule body never reads these).
+            #   * fetched_body = the stripped visible page text (survives
+            #     _strip_html; carries press-release / login-wall body cues).
+            #   * structured_jsonld = the RAW ld+json <script> block contents
+            #     captured by _fetch_content BEFORE _strip_html deleted the
+            #     <script> blocks (P1-C). Without this the NewsArticle @type
+            #     marker never reaches the classifier on the live path — it is
+            #     destroyed by stripping. Honestly empty when the fetch backend
+            #     already returned cleaned text (Jina/Crawl4AI) with no JSON-LD.
+            #   * claim_vendor_token = the lowercased research question, used by
+            #     the self-interest check (exact host-org-token == vendor-token
+            #     equality, so a phrase can never false-fire). Extracting single
+            #     candidate vendor tokens from the question is a Gate-A residual.
+            fetched_body=content or "",
+            structured_jsonld=raw_jsonld or "",
+            claim_vendor_token=(research_question or "").strip().lower(),
         )
         tier_result = classify_source_tier(signals)
 
@@ -1813,7 +2691,7 @@ def run_live_retrieval(
                 direct_quote = _build_provenance_quote(
                     content, head_chars=1500, window_chars=500,
                 )
-                evidence_rows.append({
+                _row = {
                     "evidence_id": f"ev_{i:03d}",
                     "source_url": cand.url,
                     "statement": cand.title[:300],
@@ -1825,7 +2703,21 @@ def run_live_retrieval(
                     # the evidence selector can reserve per-sub-topic diversity.
                     # Additive only; absent/empty for seed-lane or legacy rows.
                     "query_origin": getattr(cand, "query_origin", "") or "",
-                })
+                }
+                # I-meta-005 Phase 3 (#987): per-row AUTHORITY sidecar. ON-mode
+                # ONLY (research_frame present), and INDEPENDENT of the legacy
+                # `PG_USE_AUTHORITY_MODEL` tier switch — the plan-sufficiency gate
+                # reads the NUMERIC `authority_score`, so planner mode computes it
+                # DIRECTLY via the Phase-0a pure function over the SAME `signals`
+                # already built for tier classification (no network, spend-free).
+                # Honest LOW score/confidence when signals are thin (never a
+                # silent 0.0). OFF-mode the keys are ABSENT -> rows byte-identical
+                # (the legacy domain-keyed gate never reads them).
+                if research_frame is not None:
+                    _auth = score_source_authority(signals)
+                    _row["authority_score"] = float(_auth.authority_score)
+                    _row["authority_confidence"] = _auth.authority_confidence.value
+                evidence_rows.append(_row)
                 _trace_kept(cand.url, cand.source)
 
     return LiveRetrievalResult(
@@ -1838,4 +2730,7 @@ def run_live_retrieval(
         candidates_failed_fetch=failed_fetch,
         api_calls=api_calls,
         notes=notes,
+        corpus_truncated=_corpus_truncated,
+        candidates_total=_candidates_total,
+        candidates_processed=_candidates_processed,
     )

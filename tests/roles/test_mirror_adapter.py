@@ -24,6 +24,7 @@ import pytest
 from src.polaris_graph.roles.mirror_adapter import (
     MirrorBindingError,
     MirrorCitationError,
+    MirrorParseError,
     build_mirror_pass2_request,
     run_mirror,
 )
@@ -142,6 +143,89 @@ def test_binding_mismatch_raises_mirror_binding_error() -> None:
         served_model=_MODEL,
     )
     transport = _SequencedTransport([pass1_response, bad_pass2])
+    with pytest.raises(MirrorBindingError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+# --- #1028: pass-2 robustness (omitted hash salvaged; missing/non-JSON verdict fail-closed) ----
+def test_pass2_omitted_content_hash_is_salvaged_via_expected_hash() -> None:
+    # A reasoning-first verifier (GLM-5.1) returns valid JSON with the classification but OMITS
+    # the redundant content_hash echo. The caller knows the expected hash, so the real verdict is
+    # salvaged (NOT fail-closed) and the binding holds.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
+    no_hash_pass2 = RoleResponse(
+        raw_text=json.dumps({"classification": "grounded", "rationale": "ok"}),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, no_hash_pass2])
+    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert pass2.classification == "grounded"
+    assert pass2.content_hash == _pass2_hash_for(expected_pass1)  # caller-bound expected hash
+    assert len(records) == 2
+
+
+def test_pass2_missing_classification_raises_mirror_parse_error() -> None:
+    # JSON present but NO classification -> unrecoverable -> MirrorParseError (a verdict-level
+    # failure that drives fail-closed -> UNSUPPORTED, never a whole-run crash).
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
+    no_class_pass2 = RoleResponse(
+        raw_text=json.dumps({"content_hash": _pass2_hash_for(expected_pass1)}),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, no_class_pass2])
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_pass2_non_json_body_raises_mirror_parse_error() -> None:
+    # A non-JSON pass-2 body is a verdict-level parse failure, NOT a transport fault -> fail-closed.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    junk_pass2 = RoleResponse(raw_text="not json at all {{{", served_model=_MODEL)
+    transport = _SequencedTransport([pass1_response, junk_pass2])
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_pass2_present_but_wrong_hash_still_fails_binding() -> None:
+    # A present-but-MISMATCHED hash is kept (not overwritten by the expected) so a genuine mixup
+    # still trips verify_pass2_binding -> MirrorBindingError. Salvage applies ONLY to an omitted hash.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    wrong_hash_pass2 = RoleResponse(
+        raw_text=json.dumps({"content_hash": "deadbeef", "classification": "grounded"}),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, wrong_hash_pass2])
+    with pytest.raises(MirrorBindingError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_pass2_present_but_empty_hash_is_not_salvaged_fails_binding() -> None:
+    # Codex diff-gate P1: salvage is KEY-ABSENCE only. A present-but-EMPTY content_hash is a
+    # present-but-wrong hash; it must be kept verbatim (NOT overwritten with the expected) so the
+    # binding guard still trips. Truthiness salvage would have laundered "" past verify_pass2_binding.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    empty_hash_pass2 = RoleResponse(
+        raw_text=json.dumps({"content_hash": "", "classification": "grounded"}),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, empty_hash_pass2])
     with pytest.raises(MirrorBindingError):
         run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
 

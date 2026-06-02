@@ -58,6 +58,7 @@ Non-goals of this module:
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -106,6 +107,15 @@ class ClassificationSignals:
     # report markers in the first 8KB. Used by classifier to override
     # title-only decisions when body evidence contradicts.
     body_article_type: str = ""
+    # ── Phase 0a (GH #983) ADDITIVE fields — consumed ONLY by the authority
+    # model when PG_USE_AUTHORITY_MODEL=ON. The legacy rule body
+    # (_classify_source_tier_rules) NEVER reads these, so OFF behaviour is
+    # byte-identical to HEAD. `authority` is the C1 AuthoritySignals payload
+    # (default None -> model degrades to LOW confidence, never fabricates).
+    authority: "AuthoritySignals | None" = None
+    fetched_body: str = ""          # optional structural body for junk detection
+    structured_jsonld: str = ""     # optional extracted JSON-LD for junk/self-desc
+    claim_vendor_token: str = ""    # optional claim-vendor token for self-interest
 
 
 @dataclass
@@ -117,6 +127,14 @@ class ClassificationResult:
     reasons: list[str] = field(default_factory=list)
     matched_rules: list[str] = field(default_factory=list)
     signals_used: dict[str, Any] = field(default_factory=dict)
+    # ── Phase 0a (GH #983) ADDITIVE fields. Default None on the OFF path
+    # (byte-identical to HEAD for existing consumers). Populated ONLY by
+    # _classify_via_authority_model when PG_USE_AUTHORITY_MODEL=ON; emitted
+    # but inert (no downstream gate reads them) in 0a — shadow only.
+    authority_score: float | None = None
+    source_class: str | None = None
+    corroboration_count: int | None = None
+    authority_confidence: str | None = None
 
     @property
     def is_decided(self) -> bool:
@@ -1069,6 +1087,23 @@ def _detect_primary_study_signal(title: str) -> bool:
 def classify_source_tier(
     signals: ClassificationSignals,
 ) -> ClassificationResult:
+    """Drop-in dispatcher (Phase 0a, GH #983) — the ONLY switch point.
+
+    OFF (default): returns the byte-identical legacy rule body.
+    ON  (PG_USE_AUTHORITY_MODEL in {1,true,yes}): computes the field-agnostic
+        authority result, renders the clinical T1-T7 VIEW, and returns a
+        ClassificationResult with the SAME five legacy fields populated PLUS
+        the four additive authority fields. No downstream consumer reads the
+        authority fields in 0a — shadow only.
+    """
+    if os.getenv("PG_USE_AUTHORITY_MODEL", "0").lower() in ("1", "true", "yes"):
+        return _classify_via_authority_model(signals)
+    return _classify_source_tier_rules(signals)
+
+
+def _classify_source_tier_rules(
+    signals: ClassificationSignals,
+) -> ClassificationResult:
     """Classify a source into T1-T7 (or UNKNOWN) using rules.
 
     Rules fire in priority order. The first match wins; later rules
@@ -1868,3 +1903,69 @@ def classify_url(url: str, content_length: int = 0, **extra: Any) -> Classificat
         **extra,
     )
     return classify_source_tier(signals)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 0a (GH #983): the authority-model ON path (shadow behind the kill-switch)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# authority_confidence -> a representative numeric confidence for the legacy
+# `confidence` field (so existing consumers that read `.confidence` still get a
+# float). These are VIEW knobs, not host knowledge.
+_AUTHORITY_CONFIDENCE_TO_FLOAT = {
+    "HIGH": 0.9,
+    "MEDIUM": 0.7,
+    "LOW": 0.5,
+}
+
+
+def _classify_via_authority_model(
+    signals: ClassificationSignals,
+) -> ClassificationResult:
+    """ON path: compute authority + render the clinical T1-T7 VIEW.
+
+    Returns a ClassificationResult with the five legacy fields populated off the
+    rendered view PLUS the four additive authority fields and
+    signals_used["authority"] (additive; no consumer reads it in 0a — shadow).
+    """
+    # Lazy import keeps the OFF path free of the authority package + its YAML
+    # loader, and avoids any import-time coupling.
+    from dataclasses import asdict
+
+    from src.polaris_graph.authority import (
+        ClinicalViewInput,
+        render_clinical_tier,
+        score_source_authority,
+    )
+
+    authority_result = score_source_authority(signals)
+    tier_str = render_clinical_tier(
+        ClinicalViewInput(
+            publication_type=signals.openalex_publication_type,
+            source_type=signals.openalex_source_type,
+            is_retracted=signals.openalex_is_retracted,
+            fetched_content_length=signals.fetched_content_length,
+            title=signals.title,
+            authority=authority_result,
+        )
+    )
+    tier = TierLevel(tier_str)
+    confidence = _AUTHORITY_CONFIDENCE_TO_FLOAT.get(
+        authority_result.authority_confidence.value, 0.5
+    )
+
+    result = ClassificationResult(
+        tier=tier,
+        confidence=confidence,
+        reasons=list(authority_result.reasons),
+        matched_rules=["authority_model"],
+        signals_used={
+            "domain": _normalize_domain(signals.url),
+            "authority": asdict(authority_result),
+        },
+        authority_score=authority_result.authority_score,
+        source_class=authority_result.source_class.value,
+        corroboration_count=authority_result.corroboration_count,
+        authority_confidence=authority_result.authority_confidence.value,
+    )
+    return result

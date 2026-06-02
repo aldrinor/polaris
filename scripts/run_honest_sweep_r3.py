@@ -59,6 +59,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     PG_MAX_COST_PER_RUN,
+    BudgetExceededError,
     current_run_cost,
     reset_run_cost,
     set_current_run_id,
@@ -98,6 +99,7 @@ from src.polaris_v6.queue.run_events import (  # noqa: E402
     emit_terminal_event,
 )
 from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
+    CompletenessReport,
     check_completeness,
 )
 from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
@@ -179,6 +181,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
     "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
     "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
+    "partial_saturation",            # I-meta-005 Phase 4 (#988): pruned report, some sections under-covered
     # abort — pipeline refused to produce a report
     "abort_scope_rejected",
     "abort_no_sources",
@@ -186,6 +189,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_corpus_approval_denied",
     "abort_no_verified_sections",
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
+    "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     # error — unhandled exception
     "error_unexpected",
 })
@@ -206,11 +210,16 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_corpus_approval_denied": "abort_corpus_approval_denied",
     "abort_no_verified_sections": "abort_no_verified_sections",
     "abort_evaluator_critical": "abort_evaluator_critical",
+    # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
+    "partial_saturation": "partial_saturation",
     # I-meta-002 sub-PR-6: 4-role D8 release decision (single binding gate). Released =>
     # success; held => a release-blocking abort (D8 held: fabricated occurrence / coverage
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
     "four_role_released": "success",
     "four_role_held": "abort_four_role_release_held",
+    # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
+    # clean budget abort, NOT error_unexpected.
+    "abort_budget_exceeded": "abort_budget_exceeded",
     "error": "error_unexpected",
 }
 
@@ -220,6 +229,85 @@ def to_unified_status(summary_status: str) -> str:
     manifest.status taxonomy. Unknown labels become error_unexpected
     (fail loudly for the reader; still a valid taxonomy value)."""
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
+    """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
+    contains ONLY the SUFFICIENT sections, so the generator (which fixes its
+    output structure to `research_plan.outline`) structurally CANNOT render an
+    under-covered section in a `partial_saturation` report.
+
+    The plan is index-based (`SectionOutlineItem.sub_query_indices` point into
+    `plan.sub_queries`), and the whole-plan facet-union invariant requires
+    `union(retained sub_query_indices) == range(len(pruned.sub_queries))`. So the
+    prune MUST:
+      (1) drop the under-covered `SectionOutlineItem`s;
+      (2) drop the now-ORPHANED `sub_queries` (mapped by no retained section);
+      (3) REMAP the retained sections' `sub_query_indices` to the compacted
+          `sub_queries` list, so all indices stay in-range and the union invariant
+          holds on the pruned plan.
+
+    Returns `(pruned_plan, dropped_section_titles)`. `pruned_plan` is None when
+    ZERO sections are sufficient (caller aborts `abort_corpus_inadequate`).
+    """
+    from src.polaris_graph.planning.research_planner import (
+        ResearchPlan,
+        SectionOutlineItem,
+    )
+
+    sub_queries = list(getattr(research_plan, "sub_queries", []) or [])
+    outline = list(getattr(research_plan, "outline", []) or [])
+    suff_by_unit = {
+        u.unit_id: bool(getattr(u, "sufficient", False))
+        for u in getattr(sufficiency_report, "per_unit", []) or []
+    }
+
+    retained: list = []
+    dropped_titles: list[str] = []
+    for sec_idx, section in enumerate(outline):
+        unit_id = f"section_{sec_idx}"
+        if suff_by_unit.get(unit_id, False):
+            retained.append(section)
+        else:
+            dropped_titles.append(getattr(section, "title", "") or unit_id)
+
+    if not retained:
+        return None, dropped_titles
+
+    # (2) collect the sub_query indices any retained section maps; (3) build a
+    # compaction map old_idx -> new_idx over the retained-and-in-range indices.
+    used_old_indices = sorted({
+        idx
+        for section in retained
+        for idx in (getattr(section, "sub_query_indices", []) or [])
+        if 0 <= idx < len(sub_queries)
+    })
+    remap = {old: new for new, old in enumerate(used_old_indices)}
+    pruned_sub_queries = [sub_queries[old] for old in used_old_indices]
+
+    pruned_outline: list = []
+    for section in retained:
+        new_indices = [
+            remap[idx]
+            for idx in (getattr(section, "sub_query_indices", []) or [])
+            if idx in remap
+        ]
+        pruned_outline.append(
+            SectionOutlineItem(
+                archetype=getattr(section, "archetype", "") or "Background",
+                title=getattr(section, "title", "") or "",
+                evidence_target=int(getattr(section, "evidence_target", 0) or 0),
+                sub_query_indices=new_indices,
+            )
+        )
+
+    pruned_plan = ResearchPlan(
+        research_question=getattr(research_plan, "research_question", ""),
+        frame=getattr(research_plan, "frame", None),
+        sub_queries=pruned_sub_queries,
+        outline=pruned_outline,
+    )
+    return pruned_plan, dropped_titles
 
 
 def expected_str_for_abort(protocol: dict) -> str:
@@ -232,6 +320,24 @@ def expected_str_for_abort(protocol: dict) -> str:
         if tier:
             parts.append(f"{tier} {mn:.0f}-{mx:.0f}%")
     return ", ".join(parts) or "per scope template"
+
+
+def _retrieval_manifest_section(retrieval) -> dict:
+    """#958 (S2): the SINGLE source of truth for a manifest's "retrieval"
+    section. Used by BOTH `_base_manifest_envelope` (abort paths) AND the
+    inline success-path manifest, so the corpus-truncation flag + counts can
+    never be omitted on one path. All getattr with defaults (backward
+    compatible with pre-#958 retrieval objects)."""
+    return {
+        "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+        "fetched": getattr(retrieval, "candidates_fetched", 0),
+        "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+        "api_calls": getattr(retrieval, "api_calls", {}),
+        # #958: fail-loud corpus-truncation signal (was log-only).
+        "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
+        "candidates_total": getattr(retrieval, "candidates_total", 0),
+        "candidates_processed": getattr(retrieval, "candidates_processed", 0),
+    }
 
 
 def _base_manifest_envelope(
@@ -258,12 +364,7 @@ def _base_manifest_envelope(
         "budget_cap_usd": PG_MAX_COST_PER_RUN,
     }
     if retrieval is not None:
-        env["retrieval"] = {
-            "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
-            "fetched": getattr(retrieval, "candidates_fetched", 0),
-            "failed": getattr(retrieval, "candidates_failed_fetch", 0),
-            "api_calls": getattr(retrieval, "api_calls", {}),
-        }
+        env["retrieval"] = _retrieval_manifest_section(retrieval)
     return env
 
 
@@ -1226,6 +1327,27 @@ def _capture_run_pin(
         return None
 
 
+def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
+    """I-meta-007b (#meta-007) P1: attach the per-run tool-utilization summary
+    to ``manifest`` (and write ``run_dir/tool_summary.json``) immediately before
+    EVERY ``manifest.json`` write — success AND all abort/error paths.
+
+    Thin fail-safe wrapper around
+    :func:`src.polaris_graph.telemetry.tool_tracer.attach_tool_utilization`.
+    Pure no-op when PG_ENABLE_TOOL_TRACKER selects OFF (manifest unchanged, no
+    file written), so OFF-mode manifest.json stays byte-identical. Any telemetry
+    or import error is swallowed + logged so it can never abort the run.
+    """
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            attach_tool_utilization as _attach,
+        )
+        return _attach(manifest, run_dir)
+    except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
+        print(f"[tool_tracker] utilization attach skipped: {_tt_exc}")
+        return manifest
+
+
 def _abort_if_cancelled(
     q: dict,
     run_dir: Path,
@@ -1261,12 +1383,26 @@ def _abort_if_cancelled(
         "question": q.get("question", ""),
         "status": "cancelled",
     }
+    manifest = _attach_tool_utilization(manifest, run_dir)
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     emit_event(ext, "run.completed", {"status": "cancelled"})
     summary["status"] = "cancelled"
     return True
+
+
+def _normalize_quantified_telemetry(telemetry: dict) -> dict:
+    """Add a normalized ``fired`` boolean to the Phase-7 quantified telemetry (I-meta-008 P1-3,
+    #1018) so a post-run assertion can detect a SILENT no-op.
+
+    The quantified block intentionally NEVER aborts the run (broad ``except`` in run_one_query), so
+    an error or ``spec_produced=False`` would otherwise leave the manifest carrying the raw
+    telemetry but no single clear "did the differentiator actually run" signal. ``fired`` is True
+    iff the section produced at least one verified quantified sentence. Idempotent (``setdefault``).
+    """
+    telemetry.setdefault("fired", int(telemetry.get("verified_sentences", 0) or 0) > 0)
+    return telemetry
 
 
 async def run_one_query(
@@ -1361,6 +1497,28 @@ async def run_one_query(
             print(f"[retrieval_trace] flush error (skipped): {_exc}")
 
     _flush_retrieval_trace()
+
+    # I-meta-007b (#meta-007): per-tool utilization tracer. ON-mode additive,
+    # record-only, spend-free. Reset the process-global singleton FIRST so a
+    # multi-query sweep binds each query's tracer to its OWN run_dir (and never
+    # accumulates calls across queries), then bind to this run_dir. Guarded by
+    # PG_ENABLE_TOOL_TRACKER (default "1"): when OFF we reset to a fresh
+    # in-memory tracer with NO run_dir, so no tool_trace.jsonl is written and
+    # the manifest stays byte-identical (the tool_utilization key is gated on
+    # _tool_tracker_on below). Best-effort — a telemetry import error must not
+    # abort the run.
+    _tool_tracker_on = os.environ.get("PG_ENABLE_TOOL_TRACKER", "1").strip() in (
+        "1", "true", "True",
+    )
+    try:
+        from src.polaris_graph.telemetry.tool_tracer import (
+            get_tool_tracer as _get_tool_tracer,
+            reset_tool_tracer as _reset_tool_tracer,
+        )
+        _reset_tool_tracer()
+        _get_tool_tracer(run_dir if _tool_tracker_on else None)
+    except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
+        print(f"[tool_tracker] init skipped: {_tt_exc}")
 
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
@@ -1580,6 +1738,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            abort_manifest = _attach_tool_utilization(abort_manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -1613,49 +1772,191 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
-        # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
-        # the scope template for this domain and — if the template has
-        # a `regulatory_anchors` list — emits one extra amplified query
-        # per anchor of the form `{question} site:{anchor}`. No hard-
-        # coded agency list in Python; template-driven so each domain
-        # controls its own anchors. Empty/missing list = no-op.
-        from src.polaris_graph.nodes.scope_gate import load_scope_template
-        from src.polaris_graph.retrieval.regulatory_expander import (
-            expand_regulatory_queries,
+        # I-meta-005 Phase 1 (#985): field-agnostic research planner (shadow
+        # build, default OFF). When PG_USE_RESEARCH_PLANNER is on, the planner
+        # produces the frame + faceted sub-queries + archetype outline; the
+        # plan is SHA-pinned BEFORE retrieval (gap #19 extension) and its
+        # sub-queries are the ONLY non-anchor query source — the legacy
+        # domain-keyed expanders (M-28/M-35/trial-DOI/hand-authored) are NOT
+        # invoked, the domain_backends router is bypassed (domain=None), and
+        # R-6 {domain}.yaml completeness expansion is disabled. OFF: every
+        # legacy path runs byte-identically.
+        _use_research_planner = (
+            os.getenv("PG_USE_RESEARCH_PLANNER", "0").strip()
+            in ("1", "true", "True")
         )
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            expand_primary_trial_queries,
-        )
-        try:
-            _template = load_scope_template(q["domain"])
-        except Exception as _ex:
-            _log(
-                f"[M-28/M-35 warn] could not load template for domain="
-                f"{q['domain']!r}: {_ex} — continuing without regulatory "
-                f"(M-28) OR primary-trial (M-35) expansion"
+        _research_plan = None
+        _planner_protocol = None
+        # I-meta-005 Phase 4 (#988): the generator-bound plan + partial flag.
+        # Initialized here (OFF + ON) so the generator call is NameError-safe on
+        # every path; the saturation loop reassigns them on-mode when it prunes.
+        _gen_plan = None
+        _partial_mode = False
+        _finding_dedup_telemetry = None   # Phase 5 (#989); set just before generator
+        if _use_research_planner:
+            from src.polaris_graph.planning.research_planner import (
+                plan_research,
+                plan_sha256,
+                serialize_plan_canonical,
             )
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient,
+                PG_GENERATOR_MODEL,
+            )
+
+            def _planner_llm(prompt: str) -> str:
+                # Production Writer call. Build + smoke NEVER reach this path
+                # (the planner callable is injected/faked there). One Writer
+                # call (plus at most one bounded retry inside plan_research).
+                #
+                # `run_one_query` is async — the sweep event loop is already
+                # running here — so the coroutine is driven on a SEPARATE
+                # thread with its own loop (thread-safe; never touches the
+                # running loop, which `run_until_complete` would crash on).
+                #
+                # I-meta-005 Phase 1 FIX 3 (Codex diff-gate iter-1 P1 #3): the
+                # prior bare `ThreadPoolExecutor(...).submit(asyncio.run, ...)`
+                # ran with the worker's OWN empty ContextVar state, so the
+                # planner Writer call's billed cost accumulated in
+                # `_RUN_COST_CTX` only inside the worker snapshot and was LOST
+                # to the parent run (`current_run_cost()` / `manifest.cost_usd`
+                # under-reported live planner spend — a budget-cap integrity
+                # LAW violation). Fix mirrors `auto_induction.llm_inductor`
+                # rounds 3-4 (and `scope_classifier_llm._run_async_in_isolated_
+                # thread`): capture the parent context with
+                # `contextvars.copy_context()` and run the worker inside that
+                # snapshot via `parent_ctx.run()` (READ visibility), THEN apply
+                # the worker's cost delta back to the parent context via a
+                # closure-shared holder (write-back, fires whether or not the
+                # call raised — the OpenRouter client bills partial cost before
+                # raising on empty-content/retry).
+                import asyncio as _asyncio
+                import concurrent.futures as _futures
+                import contextvars as _contextvars
+                from src.polaris_graph.llm.openrouter_client import (
+                    _RUN_COST_CTX,
+                )
+
+                _parent_cost_before = _RUN_COST_CTX.get()
+                _worker_cost_after_holder: list[float] = [_parent_cost_before]
+
+                async def _run() -> str:
+                    _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    try:
+                        _resp = await _client.generate(
+                            prompt=prompt, max_tokens=2000, temperature=0.2,
+                        )
+                        return (_resp.content or "").strip()
+                    finally:
+                        # Capture the worker snapshot's accumulated cost even
+                        # on raise (OpenRouter bills partial cost before
+                        # raising on empty-content/retry paths).
+                        _worker_cost_after_holder[0] = _RUN_COST_CTX.get()
+                        if hasattr(_client, "close"):
+                            try:
+                                await _client.close()
+                            except Exception:
+                                pass
+
+                _parent_ctx = _contextvars.copy_context()
+
+                def _worker() -> str:
+                    def _run_under_ctx() -> str:
+                        return _asyncio.run(_run())
+                    return _parent_ctx.run(_run_under_ctx)
+
+                try:
+                    with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                        return _pool.submit(_worker).result()
+                finally:
+                    # Apply the worker's cost delta to the parent context so
+                    # the planner Writer spend merges into the parent run cost
+                    # (whether or not the worker raised).
+                    _cost_delta = (
+                        _worker_cost_after_holder[0] - _parent_cost_before
+                    )
+                    if _cost_delta > 0:
+                        _RUN_COST_CTX.set(_parent_cost_before + _cost_delta)
+
+            _research_plan = plan_research(
+                q["question"], planner_llm=_planner_llm,
+            )
+            # Pre-register + SHA-pin the plan BEFORE retrieval (gap #19).
+            _plan_canonical = serialize_plan_canonical(_research_plan)
+            _plan_path = run_dir / "research_plan.json"
+            _plan_path.write_text(_plan_canonical + "\n", encoding="utf-8")
+            _plan_sha = plan_sha256(_research_plan)
+            _log(f"[planner]     research_plan pinned sha256={_plan_sha[:12]} "
+                 f"sub_queries={len(_research_plan.sub_queries)} "
+                 f"outline={len(_research_plan.outline)}")
+            # Frame-derived anchor protocol so planner sub-queries validate
+            # against the frame's OWN tokens (brief §2.4 validator adapter).
+            _planner_protocol = _research_plan.frame.to_anchor_protocol(
+                q["question"]
+            )
+
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # bypasses ALL domain/template effects — not just query expansion.
+        # The whole M-28/M-35 template-load + regulatory/trial expander block
+        # is gated on `if not _use_research_planner:`. ON-mode the planner's
+        # field-agnostic facets (Phase 2) + saturation (Phase 4) replace the
+        # domain-keyed scope template, so `load_scope_template` is NEVER
+        # called, no expander is computed, and `_template` stays None. Every
+        # downstream `_template` consumer is already None-tolerant — the
+        # legacy `except: _template = None` fallback below proves it. OFF: the
+        # block runs byte-identically (re-indented verbatim, zero refactor).
+        if not _use_research_planner:
+            # M-28 Fix #1 (2026-04-20): regulatory-anchor expansion. Loads
+            # the scope template for this domain and — if the template has
+            # a `regulatory_anchors` list — emits one extra amplified query
+            # per anchor of the form `{question} site:{anchor}`. No hard-
+            # coded agency list in Python; template-driven so each domain
+            # controls its own anchors. Empty/missing list = no-op.
+            from src.polaris_graph.nodes.scope_gate import load_scope_template
+            from src.polaris_graph.retrieval.regulatory_expander import (
+                expand_regulatory_queries,
+            )
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                expand_primary_trial_queries,
+            )
+            try:
+                _template = load_scope_template(q["domain"])
+            except Exception as _ex:
+                _log(
+                    f"[M-28/M-35 warn] could not load template for domain="
+                    f"{q['domain']!r}: {_ex} — continuing without regulatory "
+                    f"(M-28) OR primary-trial (M-35) expansion"
+                )
+                _template = None
+            # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
+            # the v6 template's frame_manifest and passes it through q. Merge it
+            # into the scope template so M-55 compile_frame and
+            # load_report_contract_for_slug see the synthesized contract for this
+            # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
+            _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
+            if _v30_patch and isinstance(_template, dict):
+                _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
+            _reg_queries = expand_regulatory_queries(q["question"], _template)
+            if _reg_queries:
+                _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
+                     f"queries (domain={q['domain']})")
+            # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
+            # sweep slug (trial names are query-specific). Missing slug or
+            # missing `per_query_primary_trial_anchors` key = no-op.
+            _trial_queries = expand_primary_trial_queries(
+                q["question"], _template, q["slug"]
+            )
+            if _trial_queries:
+                _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
+                     f"queries (slug={q['slug']})")
+        else:
+            # ON-mode: NO load_scope_template, NO expander compute, NO row
+            # labeling from template (the planner facets replace them).
             _template = None
-        # I-arch-001b: v6 actor synthesizes a per_query_report_contract from
-        # the v6 template's frame_manifest and passes it through q. Merge it
-        # into the scope template so M-55 compile_frame and
-        # load_report_contract_for_slug see the synthesized contract for this
-        # query's slug. Non-v6 sweep calls don't set v30_contract_patch -> noop.
-        _v30_patch = q.get("v30_contract_patch") if q.get("v6_mode") else None
-        if _v30_patch and isinstance(_template, dict):
-            _template.setdefault("per_query_report_contract", {}).update(_v30_patch)
-        _reg_queries = expand_regulatory_queries(q["question"], _template)
-        if _reg_queries:
-            _log(f"[M-28]        regulatory_anchors: +{len(_reg_queries)} "
-                 f"queries (domain={q['domain']})")
-        # M-35 (2026-04-21): primary-trial anchor expansion. Keyed by
-        # sweep slug (trial names are query-specific). Missing slug or
-        # missing `per_query_primary_trial_anchors` key = no-op.
-        _trial_queries = expand_primary_trial_queries(
-            q["question"], _template, q["slug"]
-        )
-        if _trial_queries:
-            _log(f"[M-35]        primary_trial_anchors: +{len(_trial_queries)} "
-                 f"queries (slug={q['slug']})")
+            _reg_queries = []
+            _trial_queries = []
+            _log("[planner]     domain template + M-28/M-35 expanders "
+                 "bypassed (field-agnostic planner facets replace them)")
         # I-meta-002-q1d (#951 q1d-a): decompose the multi-clause question into focused
         # sub-queries (pure, no-network) so a 40-70-word golden question is not fired as
         # ~one keyword query. Flag-gated (default ON); falls back to [] for short questions.
@@ -1671,38 +1972,84 @@ async def run_one_query(
         from src.polaris_graph.retrieval.query_decomposer import (
             build_amplified_query_list,
         )
-        _amplified_effective = build_amplified_query_list(
-            hand_authored=list(q.get("amplified", [])),
-            decomposed=_decomposed,
-            regulatory=_reg_queries,
-            trial=_trial_queries,
-        )
+        if _use_research_planner and _research_plan is not None:
+            # ON-mode: the planner's faceted sub-queries are the ONLY
+            # non-anchor query source. The legacy domain-keyed expanders are
+            # NOT invoked (regulatory/trial/hand_authored all empty); the
+            # planner's facets ARE the field-agnostic regulatory/primary-
+            # evidence expansion (brief §2.4).
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=[],
+                decomposed=list(_research_plan.sub_queries),
+                regulatory=[],
+                trial=[],
+            )
+        else:
+            _amplified_effective = build_amplified_query_list(
+                hand_authored=list(q.get("amplified", [])),
+                decomposed=_decomposed,
+                regulatory=_reg_queries,
+                trial=_trial_queries,
+            )
 
-        # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
-        # seed candidates. Search-expansion (M-35 above) does not surface the
-        # pivotal OA primaries for guideline-dominated questions, so inject the
-        # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
-        # when `per_query_primary_trial_dois` is absent for the slug.
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            expand_primary_trial_dois,
-        )
-        _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
-        if _trial_doi_seeds:
-            _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
-                 f"direct candidates (slug={q['slug']})")
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # computes NO template-keyed expander. The #817-L4 DOI-seed expander
+        # reads the domain scope template (None on-mode); it is gated on
+        # `if not _use_research_planner:` so no expander is computed on-mode
+        # (the on-path already passes `_retrieval_seed_urls = []`). OFF: runs
+        # byte-identically.
+        if not _use_research_planner:
+            # I-bug-776 (#817) layer-4 (Codex decision b): direct primary-trial DOI
+            # seed candidates. Search-expansion (M-35 above) does not surface the
+            # pivotal OA primaries for guideline-dominated questions, so inject the
+            # anchored trials' known DOIs as DIRECT candidates. Slug-scoped no-op
+            # when `per_query_primary_trial_dois` is absent for the slug.
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                expand_primary_trial_dois,
+            )
+            _trial_doi_seeds = expand_primary_trial_dois(_template, q["slug"])
+            if _trial_doi_seeds:
+                _log(f"[#817-L4]     primary_trial_doi_seeds: +{len(_trial_doi_seeds)} "
+                     f"direct candidates (slug={q['slug']})")
+        else:
+            _trial_doi_seeds = []
 
         t0 = time.time()
+        # I-meta-005 Phase 1 (#985) + Phase 2 (#986): ON-mode bypasses the
+        # legacy domain router (brief §2.4) — `domain=None` skips the
+        # domain_backends per-domain `if domain ==` candidate router. Phase 2
+        # threads the planner FRAME so the field-agnostic NEED-TYPE registry
+        # (keyed on the frame's declared evidence_needs + jurisdictions, NO
+        # domain literal) REPLACES the domain backends at the live seam. The
+        # frame-derived protocol replaces the clinical PICO protocol so planner
+        # sub-queries validate against the frame's own tokens. No trial-DOI
+        # seeds on-mode. OFF: the legacy domain + PICO protocol + DOI seeds run
+        # byte-identically (research_frame=None -> the legacy `if domain ==`
+        # seam is taken).
+        _retrieval_domain = None if _use_research_planner else q["domain"]
+        _retrieval_protocol = (
+            _planner_protocol
+            if (_use_research_planner and _planner_protocol is not None)
+            else protocol
+        )
+        _retrieval_seed_urls = [] if _use_research_planner else _trial_doi_seeds
+        _retrieval_frame = (
+            _research_plan.frame
+            if (_use_research_planner and _research_plan is not None)
+            else None
+        )
         retrieval = run_live_retrieval(
             research_question=q["question"],
             amplified_queries=_amplified_effective,
-            protocol=protocol,
+            protocol=_retrieval_protocol,
             max_serper=_max_serper,
             max_s2=_max_s2,
             fetch_cap=_fetch_cap,
             enable_openalex_enrich=True,
             enable_prefetch_filter=False,
-            domain=q["domain"],   # R-6 Gap-2 domain backends
-            seed_urls=_trial_doi_seeds,   # #817 layer-4 direct DOI candidates
+            domain=_retrieval_domain,   # R-6 Gap-2 domain backends (None on-mode)
+            seed_urls=_retrieval_seed_urls,   # #817 layer-4 DOI candidates (off-mode only)
+            research_frame=_retrieval_frame,  # Phase 2 need-type registry (None off-mode)
         )
         dt = time.time() - t0
         _log(f"[retrieval]   pre_filter={retrieval.total_candidates_pre_filter}, "
@@ -1710,32 +2057,38 @@ async def run_one_query(
              f"failed={retrieval.candidates_failed_fetch}, "
              f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
 
-        # M-48 (2026-04-22): tag evidence rows with per-anchor
-        # population-scope labels from the scope template. For a T2D
-        # research question, SURMOUNT-2 is direct (T2D+obesity) while
-        # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
-        # generator reads these tags to avoid merging obesity-only
-        # weight-loss estimates into direct T2D efficacy claims.
-        # No-op when the template defines no labels for this slug.
-        from src.polaris_graph.retrieval.primary_trial_expander import (
-            label_rows_with_population_scope,
-        )
-        _m48_labeled_count = sum(
-            1 for r in retrieval.evidence_rows
-            if r.get("population_scope")
-        )
-        label_rows_with_population_scope(
-            retrieval.evidence_rows, _template, q["slug"],
-        )
-        _m48_labeled_count_after = sum(
-            1 for r in retrieval.evidence_rows
-            if r.get("population_scope")
-        )
-        if _m48_labeled_count_after > _m48_labeled_count:
-            _log(
-                f"[m48]         population_scope labeled "
-                f"{_m48_labeled_count_after - _m48_labeled_count} row(s)"
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # does NO template-driven row labeling. The M-48 population-scope
+        # labeler reads the domain scope template (None on-mode), so it is
+        # gated on `if not _use_research_planner:` to be literal about "no
+        # row labeling from template." OFF: runs byte-identically.
+        if not _use_research_planner:
+            # M-48 (2026-04-22): tag evidence rows with per-anchor
+            # population-scope labels from the scope template. For a T2D
+            # research question, SURMOUNT-2 is direct (T2D+obesity) while
+            # SURMOUNT-1/3/4 are indirect_for_t2d (obesity-only). The
+            # generator reads these tags to avoid merging obesity-only
+            # weight-loss estimates into direct T2D efficacy claims.
+            # No-op when the template defines no labels for this slug.
+            from src.polaris_graph.retrieval.primary_trial_expander import (
+                label_rows_with_population_scope,
             )
+            _m48_labeled_count = sum(
+                1 for r in retrieval.evidence_rows
+                if r.get("population_scope")
+            )
+            label_rows_with_population_scope(
+                retrieval.evidence_rows, _template, q["slug"],
+            )
+            _m48_labeled_count_after = sum(
+                1 for r in retrieval.evidence_rows
+                if r.get("population_scope")
+            )
+            if _m48_labeled_count_after > _m48_labeled_count:
+                _log(
+                    f"[m48]         population_scope labeled "
+                    f"{_m48_labeled_count_after - _m48_labeled_count} row(s)"
+                )
 
         if len(retrieval.classified_sources) == 0:
             # BUG-B-101 fix: previously returned without any manifest,
@@ -1756,6 +2109,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            abort_manifest = _attach_tool_utilization(abort_manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
@@ -1830,11 +2184,25 @@ async def run_one_query(
 
         # R-6 Gap-3: completeness check (before synthesis so gaps can
         # trigger expansion).
-        completeness = check_completeness(
-            domain=q["domain"],
-            research_question=q["question"],
-            evidence_rows=retrieval.evidence_rows,
-        )
+        # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
+        # NEVER calls `check_completeness` — it loads a `{domain}.yaml`
+        # checklist, and feeding its uncovered checklist labels into the
+        # generator (the uncovered-label -> generation hand-off below) shapes
+        # written artifacts (the Limitations paragraph) with domain-keyed
+        # framing. The field-agnostic planner facets (Phase 2) + saturation
+        # (Phase 4) replace the domain checklist. ON-mode substitutes a
+        # NEUTRAL `CompletenessReport` (total_applicable=0 -> covered_fraction
+        # 1.0, uncovered_topic_ids() == [], so the downstream label hand-off
+        # yields []). The telemetry write + log below run on the neutral
+        # object (honest 0/0). OFF: `check_completeness` runs byte-identically.
+        if not _use_research_planner:
+            completeness = check_completeness(
+                domain=q["domain"],
+                research_question=q["question"],
+                evidence_rows=retrieval.evidence_rows,
+            )
+        else:
+            completeness = CompletenessReport(domain=q["domain"])
         (run_dir / "completeness.json").write_text(
             json.dumps(
                 {
@@ -1869,7 +2237,15 @@ async def run_one_query(
         # R-6 Gap-3: gap-triggered expansion. If uncovered topics and
         # we have enable_expansion, fire another retrieval pass with
         # the expansion queries, then re-classify + re-check.
-        enable_expansion = os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+        # I-meta-005 Phase 1 (#985): ON-mode disables R-6 {domain}.yaml
+        # completeness expansion (brief §2.4) — it is a `{domain}.yaml` router
+        # forbidden on the field-agnostic on-path. The completeness CHECK still
+        # runs for telemetry, but no domain-keyed expand_queries are fired into
+        # retrieval. OFF: R-6 expansion runs byte-identically.
+        enable_expansion = (
+            os.getenv("PG_R6_ENABLE_EXPANSION", "1") == "1"
+            and not _use_research_planner
+        )
         if (enable_expansion and completeness.expand_queries
                 and completeness.total_uncovered > 0):
             _log(f"[expansion]   triggering {len(completeness.expand_queries)} "
@@ -2003,11 +2379,25 @@ async def run_one_query(
                         _staged_rows.append(ev)
                         _accepted += 1
                     _staged_dist = compute_tier_distribution(_staged_sources, protocol)
-                    _staged_completeness = check_completeness(
-                        domain=q["domain"],
-                        research_question=q["question"],
-                        evidence_rows=_staged_rows,
-                    )
+                    # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1):
+                    # the deepener staged re-check ALSO loads the domain
+                    # `{domain}.yaml` checklist via `check_completeness`, then
+                    # reassigns `completeness = _staged_completeness` below.
+                    # On-mode that would OVERWRITE the neutral report with a
+                    # domain-keyed one and re-introduce the banned checklist
+                    # label -> generation leak (the deepener can fire on-mode on
+                    # a BORDERLINE adequacy decision even with
+                    # total_uncovered==0, since adequacy is not gated on-mode).
+                    # Gate the re-check: on-mode keep the neutral report (the
+                    # merge stays atomic). OFF: re-check runs byte-identically.
+                    if not _use_research_planner:
+                        _staged_completeness = check_completeness(
+                            domain=q["domain"],
+                            research_question=q["question"],
+                            evidence_rows=_staged_rows,
+                        )
+                    else:
+                        _staged_completeness = completeness
                     _staged_adequacy = assess_corpus_adequacy(
                         tier_counts=_staged_dist.tier_counts,
                         evidence_row_count=len(_staged_rows),
@@ -2032,7 +2422,12 @@ async def run_one_query(
         # R-6 Gap-1: if adequacy still says ABORT after optional
         # expansion, refuse to synthesize — emit a short "corpus
         # inadequate" manifest and return status=abort_corpus_inadequate.
-        if adequacy.decision == "abort":
+        # I-meta-005 Phase 3 (#987): ON-mode this legacy domain-keyed adequacy
+        # is TELEMETRY-ONLY — it must NOT abort here, or an on-mode thin corpus
+        # would exit via the aggregate-count gate BEFORE the binding plan-
+        # sufficiency gate (the single final gate on `evidence_for_gen`) ever
+        # runs. OFF-mode this aborts byte-identically (the off-mode gate as today).
+        if not _use_research_planner and adequacy.decision == "abort":
             _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
                  f"Refusing to ship a misleading short report.")
             summary["status"] = "abort_corpus_inadequate"
@@ -2085,6 +2480,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -2177,6 +2573,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -2251,6 +2648,23 @@ async def run_one_query(
             select_evidence_for_generation,
         )
         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+        # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
+        # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
+        # a relevance floor (keep every row >= floor, no cap) and dedups by finding
+        # before the generator. PG_RELEVANCE_FLOOR default 0.30, range (0.0, 1.0];
+        # invalid/out-of-range fails LOUD (never silently send an unbounded pool).
+        _use_finding_dedup = (
+            os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
+            in ("1", "true", "True")
+        )
+        _relevance_floor: float | None = None
+        if _use_finding_dedup:
+            from src.polaris_graph.retrieval.evidence_selector import (
+                parse_relevance_floor,
+            )
+            _relevance_floor = parse_relevance_floor(
+                os.getenv("PG_RELEVANCE_FLOOR")
+            )
         # M-42e (2026-04-22): pass primary_trial_anchors to the
         # selector so it can reserve T1 slots for named-trial
         # primary papers. Anchors come from the loaded scope
@@ -2326,8 +2740,15 @@ async def run_one_query(
             evidence_rows=retrieval.evidence_rows,
             max_rows=max_ev,
             primary_trial_anchors=_primary_anchors,
+            relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
         )
         evidence_for_gen = evidence_selection.selected_rows
+        # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+        # Every non-selection injection below (V30 contract rows :2811, upload rows
+        # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of
+        # evidence_for_gen and `everything ahead of it` == the exact injected
+        # prepend a gap round must re-apply (Codex diff-gate P1).
+        _selection_base_rows = list(evidence_for_gen)
         _log(f"[select]      strategy={evidence_selection.selection_strategy} "
              f"selected={len(evidence_for_gen)} of {len(retrieval.evidence_rows)} "
              f"dropped={evidence_selection.dropped_count}")
@@ -2518,6 +2939,410 @@ async def run_one_query(
             q.get("uploaded_documents_blocked_count", 0) or 0
         )
 
+        # I-meta-005 Phase 4 (#988) — Codex diff-gate P1: the EXACT non-selection
+        # injected prepend (upload rows OUTERMOST, then V30 contract rows), in the
+        # SAME order applied to round 0 above, is everything ahead of the captured
+        # selection baseline. Gap rounds re-inject THIS identical block before
+        # re-gating AND the generator, so an expansion round never drops the V30
+        # contract evidence and the gate/generator stay in lockstep with round 0
+        # on the billed set. Derived by suffix-diff (robust to which of the V30 /
+        # upload branches actually ran) rather than re-referencing branch-local
+        # vars that may be undefined.
+        _gate_injected_prepend_rows = list(
+            evidence_for_gen[: len(evidence_for_gen) - len(_selection_base_rows)]
+        )
+
+        # I-meta-005 Phase 3 (#987): THE SINGLE BINDING MONEY GATE (on-mode).
+        # `evidence_for_gen` is now FULLY constructed — selection (:2568) +
+        # the V30 contract-row prepend (:2719) + the upload-row prepend (:2754)
+        # have all run and NOTHING further mutates it before the generator bills
+        # at `generate_multi_section_report` below. The plan-sufficiency gate
+        # certifies EXACTLY the rows that will be billed: does the corpus cover
+        # EVERY planned sub-question to its per-section evidence_target at the
+        # numeric authority floor? PROCEED -> generator; EXPAND/ABORT collapse to
+        # `abort_corpus_inadequate` with ZERO generator tokens (Phase 4 owns the
+        # actual saturation EXPANSION loop). Pure / no-network / spend-free. OFF-
+        # mode this whole block is skipped (the legacy domain-keyed gate aborted
+        # earlier, byte-identically).
+        if _use_research_planner and _research_plan is not None:
+            from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+                assess_plan_sufficiency,
+            )
+            _suff_floor_env = os.getenv(
+                "PG_PLAN_SUFFICIENCY_AUTHORITY_FLOOR", ""
+            ).strip()
+            _suff_floor = float(_suff_floor_env) if _suff_floor_env else None
+            # I-meta-005 Phase 4 (#988): PG_SATURATION_MAX_ROUNDS aliases the
+            # Phase-3 gate's `max_rounds` (default 3) so round 0 returns EXPAND
+            # (not ABORT) when sections are under-covered, letting the saturation
+            # loop fire gap-targeted rounds. PG_PLAN_SUFFICIENCY_MAX_ROUNDS is
+            # honored as a legacy override (still 0 if explicitly set).
+            _sat_max_rounds = int(
+                os.getenv(
+                    "PG_PLAN_SUFFICIENCY_MAX_ROUNDS",
+                    os.getenv("PG_SATURATION_MAX_ROUNDS", "3"),
+                )
+            )
+            _suff_round = int(os.getenv("PG_PLAN_SUFFICIENCY_ROUND_INDEX", "0"))
+            _suff_max_rounds = _sat_max_rounds
+            _suff = assess_plan_sufficiency(
+                plan=_research_plan,
+                corpus_rows=evidence_for_gen,
+                authority_floor=_suff_floor,
+                round_index=_suff_round,
+                max_rounds=_suff_max_rounds,
+            )
+            (run_dir / "plan_sufficiency.json").write_text(
+                json.dumps(asdict(_suff), indent=2, sort_keys=True, default=str)
+                + "\n",
+                encoding="utf-8",
+            )
+            _log(
+                f"[sufficiency] verdict={_suff.verdict} "
+                f"floor={_suff.authority_floor} "
+                f"sections={len(_suff.per_unit)} "
+                f"under_covered={len(_suff.under_covered_units)}"
+            )
+            # I-meta-005 Phase 4 (#988): the SATURATION LOOP. Default-OFF body
+            # (this whole on-mode block only runs when PG_USE_RESEARCH_PLANNER is
+            # set). The loop DECISION logic is the PURE `run_saturation_loop` over
+            # an injected gap-retrieval closure; it constructs NO HTTP client and
+            # bills NO generator token. Round 0 already ran above; rounds >=1 fire
+            # GAP-ONLY retrieval (anchor-suppressed), merge with global evidence_id
+            # renumber, re-select, re-inject upload rows, and re-gate.
+            _gen_plan = _research_plan          # full plan on PROCEED.
+            _partial_mode = False
+            _dropped_sections: list[str] = []
+            if _suff.verdict != "proceed":
+                from src.polaris_graph.retrieval.saturation import (
+                    RoundOutcome,
+                    canonical_source_url,
+                    per_query_discovery_cost,
+                    run_saturation_loop,
+                    STOP_SUFFICIENT,
+                )
+                from src.polaris_graph.discovery.need_type_router import (
+                    route_needs_to_adapters,
+                )
+                _sat_eps = float(os.getenv("PG_SATURATION_NOVELTY_EPS", "0.10"))
+                _sat_max_calls = int(
+                    os.getenv("PG_SATURATION_MAX_RETRIEVAL_CALLS", "120")
+                )
+                # Worst-case per-gap-query DISCOVERY cost: core Serper + core S2
+                # (2) PLUS one call per routed need-type adapter (the dispatcher
+                # loops PER query). adapter_count from the routed registry.
+                try:
+                    _adapter_count = len(
+                        route_needs_to_adapters(_research_plan.frame)
+                    )
+                except Exception:
+                    _adapter_count = 0
+                _cost_per_query = per_query_discovery_cost(_adapter_count)
+
+                def _run_gap_round(gap_queries: list[str]) -> RoundOutcome:
+                    """On-mode gap-retrieval closure. Fires ONLY the gap
+                    sub-queries (anchor-suppressed BOTH seams), merges with
+                    global evidence_id renumber, re-selects, re-injects upload
+                    rows, and re-gates on the billed set. Closes over the
+                    enclosing `retrieval` / `evidence_for_gen` / `_suff` so the
+                    final round's state flows to the generator."""
+                    nonlocal retrieval, evidence_for_gen, _suff
+                    _gap_ret = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=list(gap_queries),
+                        protocol=_retrieval_protocol,
+                        max_serper=_max_serper,
+                        max_s2=_max_s2,
+                        fetch_cap=_fetch_cap,
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        domain=None,
+                        seed_urls=[],
+                        research_frame=_retrieval_frame,
+                        anchor_seed=False,   # GAP round: no broad anchor re-run
+                    )
+                    # Merge new sources + GLOBAL evidence_id renumber (reuse the
+                    # legacy-expansion pattern) so ids never collide/overwrite.
+                    # Dedup on the SAME canonical-URL identity the novelty metric
+                    # uses, so the billed pool never double-counts a source that
+                    # `marginal_novelty` already collapsed (e.g. a ?utm_ variant
+                    # of an existing source).
+                    _existing_urls = {
+                        s.url for s in retrieval.classified_sources
+                    }
+                    for _src in _gap_ret.classified_sources:
+                        if _src.url not in _existing_urls:
+                            retrieval.classified_sources.append(_src)
+                            _existing_urls.add(_src.url)
+                    # Snapshot the corpus BEFORE the merge: this is the novelty
+                    # BASELINE the round's raw retrieved rows are scored against.
+                    _prev_corpus = list(retrieval.evidence_rows)
+                    _existing_canon = {
+                        canonical_source_url(
+                            _r.get("source_url") or _r.get("url") or ""
+                        )
+                        for _r in retrieval.evidence_rows
+                    }
+                    _new_rows: list = []
+                    for _ev in _gap_ret.evidence_rows:
+                        _canon = canonical_source_url(
+                            _ev.get("source_url") or _ev.get("url") or ""
+                        )
+                        if _canon and _canon in _existing_canon:
+                            continue   # canonical-URL duplicate of an existing row
+                        _existing_canon.add(_canon)
+                        _ev["evidence_id"] = (
+                            f"ev_{len(retrieval.evidence_rows):03d}"
+                        )
+                        retrieval.evidence_rows.append(_ev)
+                        _new_rows.append(_ev)
+                    # Re-select over the merged corpus, then re-inject the SAME
+                    # static non-selection prepend (upload + V30 contract rows) the
+                    # round-0 gate used, so the re-gate certifies EXACTLY the
+                    # augmented billed set the generator will see (P4-16). Codex
+                    # diff-gate P1: previously only upload rows were re-injected,
+                    # silently dropping the V30 contract evidence on expansion
+                    # rounds -> gate/generator disagreed with round 0 and V30 runs
+                    # could falsely read under-covered post-expand.
+                    _resel = select_evidence_for_generation(
+                        research_question=q["question"],
+                        protocol=protocol,
+                        classified_sources=retrieval.classified_sources,
+                        evidence_rows=retrieval.evidence_rows,
+                        max_rows=max_ev,
+                        primary_trial_anchors=_primary_anchors,
+                        relevance_floor=_relevance_floor,   # Phase 5 (#989)
+                    )
+                    _billed = (
+                        list(_gate_injected_prepend_rows)
+                        + list(_resel.selected_rows)
+                    )
+                    evidence_for_gen = _billed
+                    _suff = assess_plan_sufficiency(
+                        plan=_research_plan,
+                        corpus_rows=evidence_for_gen,
+                        authority_floor=_suff_floor,
+                        round_index=_suff.round_index + 1,
+                        max_rounds=_suff_max_rounds,
+                    )
+                    return RoundOutcome(
+                        cumulative_retrieved_rows=list(retrieval.evidence_rows),
+                        evidence_for_gen=evidence_for_gen,
+                        sufficiency_report=_suff,
+                        # Novelty DENOMINATOR = the RAW rows this round RETRIEVED
+                        # (`_gap_ret.evidence_rows`), INCLUDING canonical-URL
+                        # duplicates already in the corpus -- so a gap round that
+                        # mostly re-fetches seen sources reads a LOW novelty
+                        # fraction and the `< eps` flatten stop can fire. Only the
+                        # deduped `_new_rows` were appended to the cumulative
+                        # corpus above; the denominator must NOT be that deduped
+                        # set or novelty degenerates to 1.0-or-0.0.
+                        new_round_rows=list(_gap_ret.evidence_rows),
+                        prev_corpus_rows=_prev_corpus,
+                    )
+
+                _round0 = RoundOutcome(
+                    cumulative_retrieved_rows=list(retrieval.evidence_rows),
+                    evidence_for_gen=evidence_for_gen,
+                    sufficiency_report=_suff,
+                    # Round 0 has no prior corpus: every retrieved row is novel,
+                    # so the raw denominator == the whole round-0 corpus and the
+                    # baseline is empty. `saturation_decision`'s round>=1 guard
+                    # ignores round-0 novelty anyway.
+                    new_round_rows=list(retrieval.evidence_rows),
+                    prev_corpus_rows=[],
+                )
+                _sat = run_saturation_loop(
+                    round0=_round0,
+                    run_round_fn=_run_gap_round,
+                    max_rounds=_suff_max_rounds,
+                    novelty_eps=_sat_eps,
+                    max_discovery_calls=_sat_max_calls,
+                    cost_per_query=_cost_per_query,
+                    plan=_research_plan,
+                    log=_log,
+                )
+                _log(
+                    f"[saturation]  TERMINAL decision={_sat.decision} "
+                    f"rounds_fired={_sat.rounds_fired} "
+                    f"discovery_calls={_sat.cumulative_discovery_calls}/"
+                    f"{_sat_max_calls} "
+                    f"novelty_trajectory={[round(x, 3) for x in _sat.novelty_trajectory]}"
+                )
+                # I-meta-005 Phase 4 (#988) — Codex diff-gate P2: persist the
+                # saturation trajectory into the manifest (summary -> manifest) so
+                # a partial/success run is observable WITHOUT re-reading run_log:
+                # decision, rounds fired, discovery spend, per-round novelty.
+                summary["saturation"] = {
+                    "decision": _sat.decision,
+                    "rounds_fired": _sat.rounds_fired,
+                    "discovery_calls": _sat.cumulative_discovery_calls,
+                    "max_discovery_calls": _sat_max_calls,
+                    "novelty_trajectory": [
+                        round(x, 4) for x in _sat.novelty_trajectory
+                    ],
+                    "truncated_any_round": _sat.truncated_any_round,
+                }
+                # `_suff` / `evidence_for_gen` / `retrieval` now hold the FINAL
+                # round's state (the closure mutated them via nonlocal).
+                if _sat.decision == STOP_SUFFICIENT:
+                    # Gap closed during the loop -> PROCEED on the full plan.
+                    _gen_plan = _research_plan
+                    _partial_mode = False
+                else:
+                    # STOP_NOVELTY / STOP_BUDGET with sections still under-covered
+                    # -> a PARTIAL report on a PRUNED plan (sufficient sections
+                    # ONLY). Zero sufficient sections -> abort_corpus_inadequate.
+                    _pruned_plan, _dropped_sections = (
+                        _prune_plan_to_sufficient_sections(_research_plan, _suff)
+                    )
+                    if _pruned_plan is not None:
+                        _gen_plan = _pruned_plan
+                        _partial_mode = True
+                        summary["status"] = "partial_saturation"
+                        # Codex diff-gate P2: name the DROPPED (under-covered)
+                        # sections + their shortfall in the manifest so the partial
+                        # artifact discloses exactly which planned sub-questions the
+                        # corpus could not cover, and by how much.
+                        def _uncovered_sub_query_text(_unit):
+                            # The TEXT of the uncovered sub-questions: the empty
+                            # facets if any, else (total-shortfall) all the unit's
+                            # mapped sub-queries. Resolved against the pinned plan.
+                            _idx = (
+                                list(_unit.empty_facets)
+                                or list(_unit.sub_query_indices)
+                            )
+                            _sq = _research_plan.sub_queries
+                            return [
+                                _sq[_i] for _i in _idx
+                                if 0 <= _i < len(_sq)
+                            ]
+                        _dropped_detail = [
+                            {
+                                "unit_id": _u.unit_id,
+                                "title": _u.title,
+                                "covered_count": _u.covered_count,
+                                "evidence_target": _u.evidence_target,
+                                "empty_facets": list(_u.empty_facets),
+                                "below_floor_count": _u.below_floor_count,
+                                # Codex diff-gate iter-2 P2a: the actual TEXT of the
+                                # planned sub-questions the corpus could not cover.
+                                "uncovered_sub_queries": _uncovered_sub_query_text(
+                                    _u
+                                ),
+                            }
+                            for _u in _suff.per_unit
+                            if not _u.sufficient
+                        ]
+                        summary["saturation"]["sections_kept"] = len(
+                            _pruned_plan.outline
+                        )
+                        summary["saturation"]["sections_dropped"] = list(
+                            _dropped_sections
+                        )
+                        summary["saturation"]["dropped_sections_detail"] = (
+                            _dropped_detail
+                        )
+                        summary["saturation"]["authority_floor"] = (
+                            _suff.authority_floor
+                        )
+                        _log(
+                            f"[saturation]  PARTIAL report: "
+                            f"{len(_pruned_plan.outline)} sufficient section(s) "
+                            f"kept; dropped {len(_dropped_sections)} under-"
+                            f"covered: {_dropped_sections}"
+                        )
+
+            if _suff.verdict != "proceed" and _partial_mode is False:
+                # EXPAND or ABORT -> hold BEFORE the generator bills (Phase 3
+                # guarantee: a shallow corpus NEVER spends a generator token).
+                # Reached only when the saturation loop found ZERO sufficient
+                # sections (pruned plan empty) -> abort_corpus_inadequate.
+                _log(
+                    f"[ABORT]       Plan-sufficiency {_suff.verdict.upper()}: "
+                    f"{len(_suff.under_covered_units)} planned section(s) under-"
+                    f"covered. Refusing to bill the generator on a corpus that "
+                    f"does not cover every planned sub-question."
+                )
+                summary["status"] = "abort_corpus_inadequate"
+                summary["error"] = (
+                    f"plan_sufficiency_{_suff.verdict}: "
+                    f"{','.join(_suff.under_covered_units)}"
+                )
+                _shortfall_lines = []
+                for _u in _suff.per_unit:
+                    if _u.sufficient:
+                        continue
+                    _shortfall_lines.append(
+                        f"- **{_u.unit_id}** {_u.title!r}: "
+                        f"covered={_u.covered_count}/target={_u.evidence_target} "
+                        f"above floor; empty facets="
+                        f"{_u.empty_facets}; below-floor relevant="
+                        f"{_u.below_floor_count}"
+                    )
+                (run_dir / "report.md").write_text(
+                    f"# Research report: {q['question']}\n\n"
+                    "## Pipeline verdict\n\n"
+                    "The corpus retrieved for this query did not cover every "
+                    "planned sub-question to its per-section evidence target at "
+                    "the authority floor. The pipeline is holding BEFORE billing "
+                    "the report generator (zero generator tokens spent) rather "
+                    "than synthesizing a report with uncovered planned facets.\n\n"
+                    f"Verdict: **{_suff.verdict.upper()}** "
+                    f"(authority floor {_suff.authority_floor}).\n\n"
+                    "### Under-covered planned sections\n\n"
+                    + "\n".join(_shortfall_lines)
+                    + "\n\n### Suggested next steps\n\n"
+                    "- Saturate retrieval on the under-covered sub-questions "
+                    "(Phase 4 expansion loop).\n"
+                    "- Verify the planned evidence targets match what the "
+                    "literature can support for each facet.\n",
+                    encoding="utf-8",
+                )
+                # NOTE: the retrieval trace was already flushed unconditionally
+                # at the post-deepener checkpoint (mirrors the legacy abort at
+                # :2273, which does not re-flush) — do NOT re-flush here.
+                run_cost = current_run_cost()
+                manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                manifest.update({
+                    "status": "abort_corpus_inadequate",
+                    "plan_sufficiency": asdict(_suff),
+                    "corpus": {
+                        "count": dist.total_sources,
+                        "tier_fractions": dist.tier_fractions,
+                    },
+                })
+                manifest = augment_v6_manifest(
+                    manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                manifest = _attach_tool_utilization(manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True, default=str)
+                    + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = manifest
+                summary["cost_usd"] = run_cost
+                try:
+                    write_per_run_cost_ledger(run_dir, run_id)
+                except Exception:
+                    pass
+                if q.get("v6_mode") and q.get("external_run_id"):
+                    emit_terminal_event(
+                        q.get("external_run_id"),
+                        "abort_corpus_inadequate",
+                        error_msg=summary.get("error"),
+                    )
+                set_current_run_id(None)
+                set_reasoning_sink(None)
+                log_f.close()
+                return summary
+
         # I-cd-706: SSE evidence-id events over the FINAL evidence_for_gen set
         # (NOT inside retrieval loops — bounded to the selected rows, tens to
         # low-hundreds). Rows are dicts; guard for any object rows defensively.
@@ -2561,6 +3386,45 @@ async def run_one_query(
                      f"in current corpus → analyst advisory")
         except Exception as _exc:  # noqa: BLE001 — reuse is advisory; never abort a run
             _log(f"[kg-reuse] gather skipped (fail-open): {_exc}")
+
+        # I-meta-005 Phase 5 (#989): dedup-by-finding on the FINAL generator-visible
+        # pool. Runs AFTER the Phase-3 plan-sufficiency gate (which certified the
+        # full PRE-dedup billed set) and AFTER the terminal proceed/partial decision,
+        # so the gate is never fed a shrunken corpus. Collapses rehashes of the same
+        # finding to one representative + corroboration_count (independent
+        # registrable-domains); applies to the full-plan AND the partial pruned pool.
+        # OFF (_use_finding_dedup False) -> evidence_for_gen unchanged.
+        if _use_finding_dedup:
+            from src.polaris_graph.authority.data_loader import (
+                load_authority_data,
+            )
+            from src.polaris_graph.synthesis.finding_dedup import (
+                dedup_by_finding,
+            )
+            _gov_suffixes = load_authority_data()["psl_gov_suffixes"]
+            _dedup = dedup_by_finding(
+                evidence_for_gen, gov_suffixes=_gov_suffixes
+            )
+            evidence_for_gen = _dedup.deduped_rows
+            _finding_dedup_telemetry = {
+                "raw_row_count": _dedup.raw_row_count,
+                "distinct_finding_count": _dedup.distinct_finding_count,
+                "collapsed_row_count": _dedup.collapsed_row_count,
+                "clusters": [
+                    {
+                        "finding_key": list(c.finding_key),
+                        "corroboration_count": c.corroboration_count,
+                        "member_hosts": c.member_hosts,
+                    }
+                    for c in _dedup.clusters
+                ],
+            }
+            _log(
+                f"[finding-dedup] raw={_dedup.raw_row_count} "
+                f"distinct={_dedup.distinct_finding_count} "
+                f"collapsed={_dedup.collapsed_row_count} "
+                f"-> {len(evidence_for_gen)} generator rows"
+            )
 
         _pathb_gen_tok = _pathb.set_role("generator")
         try:
@@ -2637,6 +3501,18 @@ async def run_one_query(
             m50_skip_anchors=_compute_m50_skip_anchors(
                 _phase2_contract_plans, _primary_anchors,
             ) if _phase2_contract_plans else None,
+            # I-meta-005 Phase 1 (#985): pre-registered ResearchPlan. None in
+            # OFF mode (legacy `_call_outline` / `_ALLOWED_SECTIONS` path runs
+            # byte-identically). When set, the generator FIXES the section
+            # structure to `research_plan.outline`, assigns retrieved evidence
+            # to those sections post-retrieval, and routes M-44/M-47 on the
+            # archetype tag (not a clinical title).
+            # I-meta-005 Phase 4 (#988): `_gen_plan` is the FULL plan on PROCEED
+            # and the PRUNED plan (sufficient sections only) in partial_saturation
+            # mode; `_partial_mode` then disables ALL FIVE out-of-plan appenders so
+            # the rendered headings == exactly the pruned sufficient sections.
+            research_plan=_gen_plan,
+            partial_mode=_partial_mode,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
@@ -2817,6 +3693,105 @@ async def run_one_query(
                 f"*{ANALYST_SYNTHESIS_DISCLOSURE}*\n\n"
                 f"{multi.analyst_synthesis_text}"
             )
+        # I-meta-005 Phase 7 (#991): quantified trade-off (gap 9, PAL rewire).
+        # Gate PG_ENABLE_QUANTIFIED_ANALYSIS (default OFF -> whole block skipped,
+        # report + manifest byte-identical). ON-mode runs Extract -> Model ->
+        # Execute(deterministic, no codegen LLM) -> Bind -> Verify(Regime C) and
+        # appends a VERIFIED "Quantified Trade-off" section BEFORE Limitations
+        # (D3). The Model spec-gen Writer call is the ONLY billed step
+        # (operator-gated). Defensive: any failure logs + skips, never aborts.
+        _quantified_telemetry = None
+        if os.environ.get("PG_ENABLE_QUANTIFIED_ANALYSIS", "0").strip() in (
+            "1", "true", "TRUE", "yes",
+        ):
+            try:
+                import json as _q_json
+                import re as _q_re
+
+                from src.polaris_graph.generator.quantified_analysis import (
+                    run_quantified_section,
+                )
+                # I-meta-008 (#1030 PR-C): import PG_GENERATOR_MODEL HERE (mirrors the planner
+                # block ~L1802) so the _q_spec_provider closure below can bind it. Python makes
+                # PG_GENERATOR_MODEL a LOCAL of run_one_query (it is import-assigned in the planner
+                # block), so when the planner path did NOT run, the closure hit an UnboundLocalError
+                # ("cannot access free variable PG_GENERATOR_MODEL") and the Phase-7 quantified
+                # differentiator silently no-op'd (run 5: spec_produced=False). Binding it in this
+                # always-executed (PG_ENABLE_QUANTIFIED_ANALYSIS=1) block fixes that.
+                from src.polaris_graph.llm.openrouter_client import (
+                    OpenRouterClient,
+                    PG_GENERATOR_MODEL,
+                )
+
+                _q_ev_pool = {
+                    ev["evidence_id"]: ev for ev in evidence_for_gen
+                    if isinstance(ev, dict) and ev.get("evidence_id")
+                }
+
+                async def _q_spec_provider(_question, _sourced):
+                    # The ONLY billed step: ask the Writer for a JSON ModelSpec
+                    # over the EXISTING extracted sourced numbers; parse defensively.
+                    _shortlist = [
+                        {"evidence_id": d.get("evidence_id"), "label": d.get("label"),
+                         "context": d.get("context"), "value": d.get("value"),
+                         "unit": d.get("unit")}
+                        for d in _sourced[:40]
+                    ]
+                    _prompt = (
+                        "You are modeling a quantified trade-off for a research "
+                        "report. Using ONLY the sourced numbers below, emit a "
+                        "SINGLE JSON object (no prose) with keys model_id, title, "
+                        "inputs, outputs, sensitivity, solve_for per the POLARIS "
+                        "ModelSpec schema. Each SOURCED input MUST carry "
+                        "datapoint_ref:{ev_id,label,context,value,unit} copied "
+                        "EXACTLY from one listed number; mark every ASSUMPTION "
+                        "input modeled:true with base+unit+sweep. Every output "
+                        "formula must be pure arithmetic over the declared input "
+                        "names. If the numbers do not support a defensible model, "
+                        'return {"model_id":"none"} and nothing else.\n\n'
+                        f"QUESTION: {_question}\n\n"
+                        f"SOURCED NUMBERS (JSON): {_q_json.dumps(_shortlist)[:8000]}"
+                    )
+                    _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
+                    try:
+                        _resp = await _client.generate(
+                            _prompt, max_tokens=1500, temperature=0.0,
+                        )
+                    finally:
+                        await _client.close()
+                    _txt = getattr(_resp, "content", "") or ""
+                    _m = _q_re.search(r"\{.*\}", _txt, _q_re.DOTALL)
+                    if not _m:
+                        return None
+                    try:
+                        _obj = _q_json.loads(_m.group(0))
+                    except _q_json.JSONDecodeError:
+                        return None
+                    if (not isinstance(_obj, dict)
+                            or _obj.get("model_id") in (None, "", "none")):
+                        return None
+                    return _obj
+
+                _q_section_md, _quantified_telemetry = await run_quantified_section(
+                    q["question"], _q_ev_pool,
+                    spec_provider=_q_spec_provider, run_dir=str(run_dir),
+                )
+                if _q_section_md:
+                    sections_concat += "\n\n" + _q_section_md
+                    _log(
+                        "[phase7]      quantified trade-off: "
+                        f"{_quantified_telemetry.get('verified_sentences', 0)} "
+                        "verified sentence(s)"
+                    )
+                else:
+                    _log(
+                        "[phase7]      no quantified section "
+                        f"(spec_produced={_quantified_telemetry.get('spec_produced')})"
+                    )
+            except Exception as _q_exc:  # never abort the run on quantified failure
+                _log(f"[phase7]      quantified analysis skipped: {str(_q_exc)[:160]}")
+                _quantified_telemetry = {"enabled": True, "error": str(_q_exc)[:200]}
+
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 
@@ -2861,6 +3836,7 @@ async def run_one_query(
                 decision_id=q.get("decision_id"),
                 query_slug=q.get("slug"),
             )
+            manifest = _attach_tool_utilization(manifest, run_dir)
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, sort_keys=True, default=str) + "\n",
                 encoding="utf-8",
@@ -3242,43 +4218,55 @@ async def run_one_query(
             if not r.passed:
                 _log(f"                FAIL {r.item_id}: {r.details[:100]}")
 
-        # Judge
+        # Judge — LEGACY single-judge path. I-meta-007: SKIP entirely when the 4-role
+        # seam will run (PG_FOUR_ROLE_MODE on AND a transport injected). Running both
+        # would DOUBLE-JUDGE with DIFFERENT models (legacy Mirror/Gemma here vs the
+        # 4-role Qwen Judge in the seam) and produce conflicting verdicts; the seam's
+        # D8 decision is the SINGLE binding gate. When the seam is OFF (default), the
+        # legacy judge runs exactly as before (byte-identical).
+        _seam_will_run = (
+            os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in ("1", "true", "True")
+            and four_role_transport is not None
+        )
         jr = None
-        try:
-            # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
-            _pathb_jr_tok = _pathb.set_role("evaluator")
+        if _seam_will_run:
+            _log("[judge]       skipped — 4-role seam (D8) is the binding gate")
+        else:
             try:
-                jr = await judge_report(
-                    report_text=final_report,
-                    research_question=q["question"],
-                    temperature=0.2,
-                    max_tokens=800,
+                # I-safety-002b (#925) PR-2: tag the live judge under role="evaluator".
+                _pathb_jr_tok = _pathb.set_role("evaluator")
+                try:
+                    jr = await judge_report(
+                        report_text=final_report,
+                        research_question=q["question"],
+                        temperature=0.2,
+                        max_tokens=800,
+                    )
+                finally:
+                    _pathb.reset_role(_pathb_jr_tok)
+                if jr.parse_ok:
+                    vcounts = {
+                        v: sum(1 for j in jr.verdicts.values()
+                               if j["verdict"] == v)
+                        for v in ("good", "acceptable", "needs_revision", "unknown")
+                    }
+                    _log(f"[judge]       {vcounts}")
+                    for axis, v in jr.verdicts.items():
+                        _log(f"              [{v['verdict'].upper():>15}] "
+                             f"{axis}: {v['note'][:80]}")
+                else:
+                    _log(f"[judge]       PARSE ERROR: {jr.error}")
+                (run_dir / "judge_output.json").write_text(
+                    json.dumps({
+                        "model": jr.model, "parse_ok": jr.parse_ok,
+                        "verdicts": jr.verdicts, "raw": jr.raw_response,
+                        "input_tokens": jr.input_tokens,
+                        "output_tokens": jr.output_tokens,
+                    }, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
                 )
-            finally:
-                _pathb.reset_role(_pathb_jr_tok)
-            if jr.parse_ok:
-                vcounts = {
-                    v: sum(1 for j in jr.verdicts.values()
-                           if j["verdict"] == v)
-                    for v in ("good", "acceptable", "needs_revision", "unknown")
-                }
-                _log(f"[judge]       {vcounts}")
-                for axis, v in jr.verdicts.items():
-                    _log(f"              [{v['verdict'].upper():>15}] "
-                         f"{axis}: {v['note'][:80]}")
-            else:
-                _log(f"[judge]       PARSE ERROR: {jr.error}")
-            (run_dir / "judge_output.json").write_text(
-                json.dumps({
-                    "model": jr.model, "parse_ok": jr.parse_ok,
-                    "verdicts": jr.verdicts, "raw": jr.raw_response,
-                    "input_tokens": jr.input_tokens,
-                    "output_tokens": jr.output_tokens,
-                }, indent=2, sort_keys=True, default=str) + "\n",
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            _log(f"[judge]       FAILED: {exc}")
+            except Exception as exc:
+                _log(f"[judge]       FAILED: {exc}")
 
         # Manifest — compute unified status BEFORE the write
         # so manifest.status is authoritative (BUG-B-101 fix).
@@ -3328,6 +4316,22 @@ async def run_one_query(
         else:
             summary_status = "ok"
         unified_status = to_unified_status(summary_status)
+        # I-meta-005 Phase 4 (#988): a pruned partial-saturation report SURFACES
+        # as `partial_saturation` (tier-1 partial) — it OVERRIDES the success-
+        # path heuristics (ok/ok_thin_corpus/...), but NOT a genuine integrity
+        # failure on the pruned sections (abort_*/fail_* still win, since those
+        # mean the kept sections themselves did not verify/release).
+        if _partial_mode and unified_status in (
+            "success",
+            "partial_thin_corpus",
+            "partial_incomplete_corpus",
+            "partial_rule_check_warnings",
+            "partial_outline_fallback",
+            "partial_evaluator_advisory",
+            "partial_qwen_advisory",
+        ):
+            summary_status = "partial_saturation"
+            unified_status = "partial_saturation"
         manifest = {
             "run_id": run_id,
             "slug": q["slug"],
@@ -3345,12 +4349,10 @@ async def run_one_query(
             # BUG-M-201: generator-visible evidence provenance.
             "evidence_selection": evidence_selection.to_dict(),
             "protocol_sha256": scope.protocol_sha256,
-            "retrieval": {
-                "pre_filter": retrieval.total_candidates_pre_filter,
-                "fetched": retrieval.candidates_fetched,
-                "failed": retrieval.candidates_failed_fetch,
-                "api_calls": retrieval.api_calls,
-            },
+            # #958 (S2): use the shared retrieval-section writer so the
+            # corpus-truncation flag + counts land on the SUCCESS path too
+            # (this inline block previously bypassed _base_manifest_envelope).
+            "retrieval": _retrieval_manifest_section(retrieval),
             "corpus": {
                 "count": dist.total_sources,
                 "tier_fractions": dist.tier_fractions,
@@ -3406,7 +4408,12 @@ async def run_one_query(
                 {v: sum(1 for j in jr.verdicts.values()
                         if j["verdict"] == v)
                  for v in ("good", "acceptable", "needs_revision", "unknown")}
-                if jr and jr.parse_ok else {"error": "failed"}
+                if jr and jr.parse_ok
+                # I-meta-007: when the 4-role seam ran, the legacy judge was
+                # deliberately skipped (D8 is the binding gate) — say so, don't
+                # mislabel it "failed".
+                else ({"superseded_by_four_role_seam": True} if _seam_will_run
+                      else {"error": "failed"})
             ),
             "cost_usd": run_cost,
             "budget_cap_usd": PG_MAX_COST_PER_RUN,
@@ -3416,6 +4423,51 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
+        # in the manifest (gap #19 extension). ON-mode only — the key is absent
+        # in OFF, preserving the legacy manifest shape byte-for-byte.
+        if _use_research_planner and _research_plan is not None:
+            manifest["research_plan"] = {
+                "plan_path": str((run_dir / "research_plan.json").name),
+                "plan_sha256": _plan_sha,
+                "sub_query_count": len(_research_plan.sub_queries),
+                "outline_archetypes": [
+                    item.archetype for item in _research_plan.outline
+                ],
+            }
+
+        # I-meta-005 Phase 4 (#988) — Codex diff-gate iter-2 P2a: surface the
+        # saturation trajectory + per-section shortfall (incl. uncovered sub-query
+        # text) in the per-run manifest too. It already lands in sweep_summary.json
+        # via `summary`; this makes the PER-RUN audit artifact self-contained for a
+        # partial_saturation result. ON-mode only (key absent in OFF -> legacy
+        # manifest shape preserved).
+        if summary.get("saturation"):
+            manifest["saturation"] = summary["saturation"]
+
+        # I-meta-005 Phase 5 (#989): finding-dedup telemetry + per-cluster
+        # corroboration (independent hosts) in the per-run manifest. ON-mode only
+        # (key absent in OFF -> legacy manifest shape preserved).
+        if _finding_dedup_telemetry is not None:
+            manifest["finding_dedup"] = _finding_dedup_telemetry
+
+        # I-meta-005 Phase 7 (#991): quantified-analysis telemetry (spec produced,
+        # execution success, sourced/modeled input counts, verified/dropped
+        # sentence counts, sourced-input conflicts). ON-mode only (key absent in
+        # OFF -> legacy manifest shape preserved byte-for-byte).
+        if _quantified_telemetry is not None:
+            # I-meta-008 P1-3 (#1018): normalize a `fired` boolean so a post-run assertion can
+            # detect a SILENT no-op, and surface it LOUDLY in the log. The block never aborts the
+            # run, so without this an error / spec_produced=False completes silently without the
+            # Phase-7 differentiator and the manifest gives no single clear signal.
+            _quantified_telemetry = _normalize_quantified_telemetry(_quantified_telemetry)
+            manifest["quantified_analysis"] = _quantified_telemetry
+            if not _quantified_telemetry["fired"]:
+                _log(
+                    "[phase7]      WARNING: quantified analysis ran but produced NO verified "
+                    "quantified output (silent no-op) — manifest.quantified_analysis.fired=False"
+                )
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
@@ -3434,30 +4486,131 @@ async def run_one_query(
         _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
             "1", "true", "True",
         )
+        # I-meta-008 (#1014) loud guard: PG_FOUR_ROLE_MODE is on but NO transport was injected,
+        # so the 4-role seam stays INERT and this run silently uses the legacy single-evaluator
+        # gate. That is the exact "benchmark started via a legacy entrypoint" trap (#1014): the
+        # 4-role benchmark ONLY runs via scripts/dr_benchmark/run_gate_b.py (its main()/the
+        # run_gate_b_query entrypoint INJECTS a transport). Log LOUD so this degradation is never
+        # unnoticed; do NOT raise (legacy callers that never set PG_FOUR_ROLE_MODE are unaffected,
+        # and this preserves existing behavior — only the visibility changes).
+        if _four_role_on and four_role_transport is None:
+            print(
+                "[I-meta-008][GUARD] PG_FOUR_ROLE_MODE is ON but no four_role_transport was "
+                "injected -- the 4-role benchmark seam is INERT; this query runs the LEGACY "
+                "single-evaluator gate. The native 4-role benchmark runs ONLY via "
+                "scripts/dr_benchmark/run_gate_b.py (CLI: python -m scripts.dr_benchmark.run_gate_b)."
+            )
         if _four_role_on and four_role_transport is not None:
             # M3b: the seam resolves inputs (builder WINS over static four_role_inputs; both
             # None -> fail-closed), runs the SINGLE binding D8 gate, and persists the per-claim
             # audit map next to the run. The builder closure is called HERE — AFTER generation —
             # so it sees the finished `multi` report; the sweep still synthesizes nothing itself.
             from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+                FourRoleEvaluationResult,
                 build_evaluator_agrees_map,
                 run_four_role_seam,
             )
-            four_role_result = run_four_role_seam(
-                four_role_transport,
-                run_dir=run_dir,
-                timestamp=_utc_now_iso(),
-                four_role_input_builder=four_role_input_builder,
-                four_role_inputs=four_role_inputs,
-                multi=multi,
-                template=_template,
-                slug=q["slug"],
-                domain=q["domain"],
-                ev_pool=ev_pool,
-                # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped db so later
-                # questions in this sweep can reuse THIS question's VERIFIED claims (fail-closed read).
-                campaign_kg_db=str(out_root / "verified_claim_graph_campaign.db"),
+            # I-meta-008 (#1028-followup / hang): the seam runs SYNCHRONOUS httpx verifier calls.
+            # Calling it directly in this async coroutine BLOCKS the event loop, and a wedged
+            # verifier call (per-call 900s x up to 3 attempts) could hang the whole run ~45 min with
+            # NO terminal artifact (run 5: 18-min poll() hang, no manifest.json). Run it on a worker
+            # thread bounded by an overall wall-clock timeout and FAIL CLOSED on timeout/error
+            # (release HELD — never release un-evaluated output, LAW II / §9.1). The timeout/error
+            # path returns a real HELD FourRoleEvaluationResult so the existing post-seam manifest
+            # block is byte-unchanged. Budget integrity: mirror the planner-LLM cost-reconciliation
+            # (this file ~L1840) — copy_context for READ visibility + write the worker's accumulated
+            # _RUN_COST_CTX delta back to the parent so PG_MAX_COST_PER_RUN stays intact even though
+            # the seam ran in a copied ThreadPoolExecutor context.
+            import concurrent.futures as _seam_futures
+            import contextvars as _seam_cv
+            from src.polaris_graph.llm.openrouter_client import (
+                BudgetExceededError as _SeamBudgetExceededError,
+                _RUN_COST_CTX as _seam_cost_ctx,
             )
+            _seam_timeout = float(
+                os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS", "2400")
+            )
+            _seam_kg_path = out_root / "verified_claim_graph_campaign.db"
+            _seam_parent_cost = _seam_cost_ctx.get()
+            _seam_cost_holder = [_seam_parent_cost]
+            _seam_parent_ctx = _seam_cv.copy_context()
+
+            def _seam_worker() -> FourRoleEvaluationResult:
+                def _run_under_ctx() -> FourRoleEvaluationResult:
+                    try:
+                        return run_four_role_seam(
+                            four_role_transport,
+                            run_dir=run_dir,
+                            timestamp=_utc_now_iso(),
+                            four_role_input_builder=four_role_input_builder,
+                            four_role_inputs=four_role_inputs,
+                            multi=multi,
+                            template=_template,
+                            slug=q["slug"],
+                            domain=q["domain"],
+                            ev_pool=ev_pool,
+                            # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped
+                            # db so later questions in this sweep can reuse THIS question's VERIFIED
+                            # claims (fail-closed read).
+                            campaign_kg_db=str(_seam_kg_path),
+                        )
+                    finally:
+                        # Capture accumulated verifier spend even on raise/timeout so the parent
+                        # write-back below cannot under-report (budget-cap integrity, LAW II).
+                        _seam_cost_holder[0] = _seam_cost_ctx.get()
+                return _seam_parent_ctx.run(_run_under_ctx)
+
+            _seam_held_reason = None
+            # Manage the executor MANUALLY (NOT `with`): a `with ThreadPoolExecutor` __exit__ calls
+            # shutdown(wait=True), which BLOCKS until the wedged worker finishes — defeating the
+            # timeout entirely (Codex diff-gate P1). shutdown(wait=False, cancel_futures=True) returns
+            # promptly so the held manifest is written AT PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS; the
+            # orphaned worker thread exits on its own per-call timeout. Mirrors audit_ir/parallel_fetch.py.
+            _seam_pool = _seam_futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                four_role_result = _seam_pool.submit(_seam_worker).result(
+                    timeout=_seam_timeout
+                )
+            except _seam_futures.TimeoutError:
+                _seam_held_reason = "seam_timeout"
+            except _SeamBudgetExceededError:
+                # A verifier cap breach (PG_MAX_COST_PER_RUN) MUST propagate to the existing outer
+                # abort_budget_exceeded handler (the clean budget-abort contract) — NOT be swallowed
+                # into a held seam_error (Codex diff-gate iter-2 P1). The worker's `finally` already
+                # updated the cost holder, so the `finally` below reconciles the full spend before
+                # this re-raises.
+                raise
+            except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
+                _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
+            finally:
+                # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
+                _seam_pool.shutdown(wait=False, cancel_futures=True)
+                # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
+                # `_seam_cost_holder`, so this write-back is EXACT. On the TIMEOUT path the worker is
+                # still running (holder == parent cost -> delta 0), so the in-flight verifier spend is
+                # NOT added to the parent cap — an acceptable tradeoff (Codex P2): the run is ABORTING
+                # (release HELD), the operator authorized spend, the orphaned worker's cost is bounded
+                # by its own per-call timeout, and prompt fail-closed termination outranks exact
+                # budget accounting on an already-aborted run.
+                _seam_delta = _seam_cost_holder[0] - _seam_parent_cost
+                if _seam_delta > 0:
+                    _seam_cost_ctx.set(_seam_parent_cost + _seam_delta)
+            if _seam_held_reason is not None:
+                _log(
+                    f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s "
+                    "-> release HELD (fail-closed; terminal manifest written)"
+                )
+                four_role_result = FourRoleEvaluationResult(
+                    release_allowed=False,
+                    held_reasons=[_seam_held_reason],
+                    gaps=[],
+                    final_verdicts={},
+                    records=[],
+                    coverage_fraction=0.0,
+                    fabricated_occurrence_latched=False,
+                    needs_rewrite=[],
+                    kg_path=_seam_kg_path,
+                )
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
             manifest["release_allowed"] = four_role_result.release_allowed
@@ -3605,12 +4758,27 @@ async def run_one_query(
         except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
             pass
 
+        # I-meta-007b (#meta-007): write run_dir/tool_summary.json and add the
+        # additive manifest['tool_utilization'] summary via the shared helper
+        # (same helper now called on every abort/error path — single source of
+        # truth, identical shape). ON-mode only (gated on PG_ENABLE_TOOL_TRACKER
+        # inside the helper): when OFF, neither the file nor the key is produced,
+        # so manifest.json is byte-identical to the pre-I-meta-007b output.
+        manifest = _attach_tool_utilization(manifest, run_dir)
+
         manifest = augment_v6_manifest(
             manifest,
             external_run_id=q.get("external_run_id"),
             decision_id=q.get("decision_id"),
             query_slug=q.get("slug"),
         )
+        # I-meta-008 (#1015): `run_cost` was snapshotted (line ~4250) BEFORE the 4-role seam,
+        # which now threads verifier spend into the run-budget accumulator. Recompute from the
+        # accumulator so a successful Gate-B manifest reports generator + verifier cost, not
+        # generator-only (a LAW-II under-reporting smell otherwise). No-op on non-4-role runs.
+        run_cost = current_run_cost()
+        manifest["cost_usd"] = run_cost
+
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -3625,6 +4793,48 @@ async def run_one_query(
         summary["manifest"] = manifest
         summary["cost_usd"] = run_cost
         _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+    except BudgetExceededError as budget_exc:
+        # I-meta-008 (#1015): PG_MAX_COST_PER_RUN was breached mid-run — generator OR (now) a
+        # 4-role verifier call via the RecordingTransport cost hook. This is a CLEAN budget
+        # abort, NOT error_unexpected: catch-and-set (do NOT re-raise) so the teardown below
+        # (per-run ledger copy, emit_terminal_event, run_id/sink reset at ~4710) still runs —
+        # those are OUTSIDE this try with no `finally`, so a bare `raise` would leak a stale
+        # run_id/sink into the next question. Status maps to abort_budget_exceeded via
+        # to_unified_status; the generator and the verifier now abort identically.
+        run_cost = current_run_cost()
+        _log(
+            f"[BUDGET]      PG_MAX_COST_PER_RUN breached: {budget_exc} "
+            f"(run_cost=${run_cost:.4f}, cap=${PG_MAX_COST_PER_RUN:.4f})"
+        )
+        summary["status"] = "abort_budget_exceeded"
+        summary["error"] = str(budget_exc)[:300]
+        try:
+            if run_dir is not None:
+                budget_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": "abort_budget_exceeded",
+                    "error": str(budget_exc)[:500],
+                    "cost_usd": run_cost,
+                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+                }
+                budget_manifest = augment_v6_manifest(
+                    budget_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                budget_manifest = _attach_tool_utilization(budget_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(budget_manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = budget_manifest
+                summary["cost_usd"] = run_cost
+        except Exception as manifest_exc:  # noqa: BLE001 — best-effort; never mask the budget abort
+            _log(f"[BUDGET]      budget-abort manifest-write-also-failed: {manifest_exc}")
     except Exception as exc:
         tb = traceback.format_exc()
         _log(f"[FATAL]       {exc}")
@@ -3653,6 +4863,7 @@ async def run_one_query(
                     decision_id=q.get("decision_id"),
                     query_slug=q.get("slug"),
                 )
+                error_manifest = _attach_tool_utilization(error_manifest, run_dir)
                 (run_dir / "manifest.json").write_text(
                     json.dumps(error_manifest, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",

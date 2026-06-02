@@ -1,0 +1,3 @@
+verdict: APPROVE
+# Combined brief+diff gate: the gate input carried the acceptance rationale AND the diff;
+# Codex APPROVE covers acceptance-criteria correctness + code correctness. iter1, zero P0/P1.

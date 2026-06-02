@@ -1,0 +1,40 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: lane2-pass-pending-contradiction
+    finding: "The design says lane2 rubrics are pending and must surface lane2_pending, but also says to reuse claim_audit_scorer.aggregate plus the PASS rule. Existing SystemQuestionLedger/system_passes_question cannot represent pending rubrics; an empty rubric silently yields coverage 0.00 and failed PASS."
+    required_change: "When lane2 rubrics are absent, do not call the PASS rule or emit passed=false as if evaluated. Emit lane1 FACT metrics plus lane2_pending, and reserve PASS for hash-pinned rubric availability."
+p2:
+  - id: metadata-only-subtype
+    finding: "The brief requires metadata/abstract-only to become a matching UNREACHABLE subtype, but existing UnreachableSubtype has no explicit metadata_or_abstract_only value."
+    required_change: "Add an explicit subtype or specify the exact existing subtype mapping; prefer explicit to avoid hiding evidence-access failures as generic fetch_failure."
+  - id: uncited-severity-source
+    finding: "Uncited material atoms become UNSUPPORTED citation_id=null, but ClaimRow still requires severity. The design should state how severity is audit-assigned for uncited/no-span rows."
+    required_change: "Route uncited material atoms through the judge/severity rater or define a pre-registered severity fallback for material candidates."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the lane2_pending vs PASS-rule contradiction. Lane2 rubric authoring can be separate, but PASS must be withheld until rubrics exist."
+```
+tokens used
+8,324
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: lane2-pass-pending-contradiction
+    finding: "The design says lane2 rubrics are pending and must surface lane2_pending, but also says to reuse claim_audit_scorer.aggregate plus the PASS rule. Existing SystemQuestionLedger/system_passes_question cannot represent pending rubrics; an empty rubric silently yields coverage 0.00 and failed PASS."
+    required_change: "When lane2 rubrics are absent, do not call the PASS rule or emit passed=false as if evaluated. Emit lane1 FACT metrics plus lane2_pending, and reserve PASS for hash-pinned rubric availability."
+p2:
+  - id: metadata-only-subtype
+    finding: "The brief requires metadata/abstract-only to become a matching UNREACHABLE subtype, but existing UnreachableSubtype has no explicit metadata_or_abstract_only value."
+    required_change: "Add an explicit subtype or specify the exact existing subtype mapping; prefer explicit to avoid hiding evidence-access failures as generic fetch_failure."
+  - id: uncited-severity-source
+    finding: "Uncited material atoms become UNSUPPORTED citation_id=null, but ClaimRow still requires severity. The design should state how severity is audit-assigned for uncited/no-span rows."
+    required_change: "Route uncited material atoms through the judge/severity rater or define a pre-registered severity fallback for material candidates."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the lane2_pending vs PASS-rule contradiction. Lane2 rubric authoring can be separate, but PASS must be withheld until rubrics exist."
+```

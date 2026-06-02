@@ -1171,3 +1171,189 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - **Pipeline end-to-end functional**: preflight ✓, retrieval ✓, corpus adequacy ✓, generator ✓ (one section), evaluator never reached.
 - **Operator action required**: top up the OpenRouter account billing. The $40 PG_MAX_COST_PER_RUN cap isn't the wall; OpenRouter's account-level 402 is.
 - Total real cost on this smoke (#10 only): $0.021. Total this campaign: $0.021 + $0.015 (#9) + $0.010 (#8) = ~$0.046.
+
+## I-meta-005 Phase 4 (#988) — diff gate
+
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 1 P1, 2 P2.
+  - P1: gap rounds re-injected only upload rows, dropping V30 contract evidence
+    after expansion → gate/generator disagree with round 0 on the billed set.
+  - P2a: partial_saturation only logged dropped sections (no manifest shortfall).
+  - P2b: anchor_seed=False lifted the 3-query cap but the legacy result-count
+    early-break could still starve later gap facets.
+  - convergence_call: continue. ALL 3 resolved deterministically (V30 suffix-diff
+    re-inject; summary["saturation"] shortfall persistence; break gated on
+    anchor_seed). NEW test P4-10b. 27 saturation + 153 regression green.
+  - This is converging (each finding genuine, specificity increasing), not
+    toothpaste-squeezing. Re-gate iter 2 to confirm the P1 is closed.
+- **iter 2** (2026-06-01): `verdict: APPROVE` (0 P0, 0 P1, 1 accept_remaining P2a).
+  P1 (V30 re-inject) + P2b (early-break) CONFIRMED closed. Residual P2a: saturation
+  telemetry reached sweep_summary.json but not the per-run manifest, and lacked the
+  uncovered sub-query text.
+- **iter 3** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  P2a COMPLETED (manifest["saturation"] copy + uncovered_sub_queries text). FULLY
+  CONVERGED. Trajectory 1P1+2P2 → 0P1+1P2 → 0P1+0P2 (monotone decreasing, genuine
+  findings each round). Merge authorized by Codex written APPROVE.
+
+## I-meta-005 Phase 5 (#989) — brief gate
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 4 P2. Caught BEFORE
+  any code: (P1) corroboration needs hosts not URLs; no-unique-claim-loss not safe as
+  written (population/comparator not extracted, subject can be "unknown"); multi-claim
+  rows could drop a unique finding; on-mode ordering contradictory (gate must see
+  pre-dedup set). All 8 addressed in iter-2 brief (conservative-singleton on
+  unknown/missing, finding-level + row-retention dedup, pinned order, urlparse hosts,
+  floor fail-loud, selection_relevance sidecar, partial-pool dedup, member-host
+  manifest). convergence_call: continue.
+- **iter 2** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 2 non-blocking P2 (wording:
+  unknown-subject sentinel must be per-CLAIM not per-row; simplify §3.1e retention
+  wording). remaining_blockers_for_execution: []. Brief APPROVED; P2 clarifications
+  folded into build_spec. Trajectory 4P1+4P2 → 0P1+2P2(non-blocking). Proceed to BUILD.
+
+## I-meta-005 Phase 5 (#989) — diff gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 2 P2 (non-blocking),
+  3 open items ruled acceptable. P2a: floor-mode `or 1.0` laundered explicit
+  authority 0.0 → 1.0. P2b: `max_rows<=0` guard short-circuited before floor mode.
+  Both fixed deterministically + pinned. Re-gate iter 2 to confirm.
+- **iter 2** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  Both iter-1 P2s confirmed closed. FULLY CONVERGED. Merge authorized by Codex
+  written APPROVE.
+
+## I-meta-005 Phase 6 (#990) — brief gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 3 non-blocking P2,
+  accept_remaining. Design ruling B2: synthesis = evidence-fed planned section
+  verified via strict_verify; analyst block retired/demoted to non-verified appendix.
+  P2s folded to build_spec: (1) clinical trigger must be clinically-distinctive
+  entity signal, not generic intervention/population/outcome; (2) explicit
+  partial_saturation smoke for the integrative section's pruning; (3) no-literal grep
+  targets on-path code, not config filenames. Proceed to B2 build.
+
+## I-meta-005 Phase 6 (#990) — diff gate
+- **iter 1** (2026-06-01): `verdict: APPROVE` — 0 P0, 0 P1, 0 P2, accept_remaining.
+  CLEAN on first pass. 3 open items ruled acceptable (V30 advisory out-of-scope;
+  Integrative prompt-mandate ok for shape-1; answer_type plan_sha change ok).
+  Preceded by: 4-scout build-map workflow + Part-B shape consult (shape 1) + 5-lens
+  adversarial architect review (40 findings, 0 real defects). Merge authorized.
+
+## I-meta-005 Phase 7 (#991) — brief gate
+- **iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 4 P2 + D1-D5 ruled.
+  Deep pre-code findings: (P1-1) sourced inputs must bind value+span not ev_id-only;
+  (P1-2) one number per calc token; (P1-3) Execute must be DETERMINISTIC (template
+  script from spec, no free LLM codegen — sandbox proves safety not correctness);
+  (P1-4) token-strip + input-citation resolution. D-rulings: ASCII token (D1),
+  display-value equality (D2), dedicated section (D3), whole-model-skip (D4), confirm
+  sensitivity/break-even (D5). ALL addressed in iter-2 brief (deterministic render_script,
+  value+span verbatim check, one-token-per-number, strip, ASCII grammar, dedicated
+  section, 14 smoke cases). convergence_call: continue.
+- **iter 2** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 4 P1, 3 P2 (precise
+  executability). (P1-1) extractor has no byte-span → bind ev_id+literal, verify literal
+  numeric-verbatim in direct_quote; (P1-2) modeled inputs need base scalar + bracketed
+  solve_for; (P1-3) sentence-level keep/drop (one calc-number/sentence); (P1-4) every input
+  must be in the formula dependency AST. P2: async execute, pinned display formatter, conflict
+  threshold. ALL addressed iter-3. convergence_call: continue (converging — iter1 design holes,
+  iter2 executability precision, decreasing).
+- **iter 3** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 2 P1, 3 P2 (converging 4->4->2).
+  (P1-1) build_quantified_spec needs evidence_rows arg to inspect cited direct_quote;
+  (P1-2) outputs need {name,unit,display_kind} for deterministic canonical display/replay.
+  P2: stale span wording, direct_quote-OR-statement, numeric (not syntactic) dependency check.
+  ALL addressed iter-4. convergence_call: continue.
+- **iter 4** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 1 P1, 2 P2 (converging 4->4->2->1).
+  (P1) sourced-input binding still row-level — a multi-number row could pair right ev_id with
+  wrong quantity; fix = bind to a CONCRETE extracted datapoint (datapoint_ref match by
+  ev_id+value+unit from sourced_numbers). P2: pin _canonical_display(value,unit,display_kind);
+  per-output formula mapping. ALL addressed iter-5. This is the iter-5 cap submission; if still
+  REQUEST_CHANGES, force-APPROVE per §8.3.1 on residual non-P0/P1.
+- **iter 5 (CAP)** (2026-06-01): `verdict: REQUEST_CHANGES`. 0 P0, 2 P1, 3 P2. CAP-EXCEPTION
+  (§-1.2.6): both P1 are REAL wedge-safety blockers (datapoint exact-identity vs repeated values;
+  Regime C run-scoped model lookup) with DETERMINISTIC Codex-prescribed fixes -> applied + ONE
+  confirmatory re-gate (iter 6), NOT cap-force-approve. iter5_cap_exception.txt logged.
+- **iter 6 (confirmatory)** (2026-06-01): `verdict: REQUEST_CHANGES`, 2 P1 + 3 P2. iter-5 P1s
+  ACCEPTED/closed. Residuals = precise data-contract (raw-literal+span; perturb-primary
+  dependency) — applied to brief. FORCE-APPROVE per §8.3.1 (6 iters; confirmatory exception
+  used; design correct+complete+wedge-safe; diff-gate verifies the real-code implementation).
+  codex_brief_verdict_iter6_force_approve.txt. Proceed to BUILD.
+- **Phase-7 DIFF-gate iter 1** (2026-06-01): `verdict: REQUEST_CHANGES`, 2 P1 + 2 P2,
+  0 P0. Both P1 were REAL false-number-survives holes (the wedge class): P1-1
+  `before.endswith(display_value)` accepts "123.40%" for a "23.40%" field; P1-2
+  rel_tol=1e-9 numeric backstop accepts "$1,000,000,000,999" for a "$1e12" field.
+  FIX (deterministic, §-1.2.6): canonicalize-and-compare — parse the adjacent number,
+  re-format through the SAME pinned `_canonical_display`, require exact string match;
+  removed endswith + the rel/abs tol + `_is_calc_equal`. P2-1 (persist modeled_used +
+  sourced_tokens in quantified_model.json) FIXED. P2-2 (per-input modeled label) ACCEPTED
+  as disclosure-completeness (Codex: "not a wedge failure"; number is executor-correct).
+  +P7-23/P7-24 smoke (the exact Codex examples). 29 P7 + 39 regression green. Re-gate iter 2.
+- **Phase-7 DIFF-gate iter 2** (2026-06-01): `verdict: REQUEST_CHANGES`, 1 P1 + 1 P2, 0 P0.
+  P1 (REAL false-DROP): `_canonical_display` "number" kind could emit scientific notation
+  ("1e+06") which the verifier's decimal-only adjacency regex would mis-bind -> drop a
+  LEGITIMATE computed number. FIX: never emit sci notation — expand to plain fixed-point
+  decimal via Decimal. P2 (stale `_CALC_EQ_*` tol constants) REMOVED. +P7-25 smoke
+  (number-kind plain-decimal + verify). 30 P7 + 84 regression green. Re-gate iter 3.
+- **Phase-7 DIFF-gate iter 3** (2026-06-01): `verdict: APPROVE`, 0 P0/P1/P2,
+  convergence_call accept_remaining. Wedge holds: no false-accept (suffix/magnitude
+  closed iter1) AND no false-drop (sci-notation closed iter2). MERGE AUTHORIZED.
+  Trajectory P1: diff 2->1->0. Brief: 4->4->2->1->2->2 (force-APPROVE). Phase 7 COMPLETE.
+
+## I-meta-006 — cash-free benchmark scorer (FACT claim-by-claim)
+- **DESIGN-gate iter 1** (2026-06-01): REQUEST_CHANGES, 5 P1 (judge contract too loose / not
+  atomic / no severity / most-specific-span / lane2 rubrics don't exist) + 3 P2. Rulings:
+  injected judge OK only if evidence-locked + ClaimRow-traceable (reconciled-audit adapter);
+  unresolved cite → UNREACHABLE in denominator; same most-specific-span path per system;
+  RACE out (follow-up); lane2 rubrics need authoring+hash-pin.
+- **DESIGN-gate iter 2**: REQUEST_CHANGES, 1 P1 (lane2_pending vs PASS contradiction) + 2 P2
+  (metadata_only subtype; uncited severity source). All adopted.
+- **DESIGN-gate iter 3**: **APPROVE** clean (0 P0/P1/P2, accept_remaining). Methodology LOCKED.
+  Build: report_claim_extractor + fact_scorer (evidence-locked judge) + benchmark_scorecard
+  (lane1-only + lane2_pending) + run wiring; reuse claim_audit_scorer; metadata_only subtype.
+- **I-meta-006 DIFF-gate iter 1** (2026-06-01): REQUEST_CHANGES, 1 P1 + 2 P2, 0 P0. P1 (REAL
+  denominator-exclusion bypass): split_body_and_references stripped everything after the FIRST
+  references header without checking it's terminal → prose after a mid-report ## Sources would
+  escape scoring. FIX: strip ONLY the LAST header AND only when the trailing block is ≥60%
+  reference-list-like; else fail-safe toward inclusion. P2-1 (bare/bold "References" heading)
+  + P2-2 (unicode superscript citations) FIXED. +3 smoke. 19 scorer + 12 claim_audit green. Re-gate.
+- **I-meta-006 DIFF-gate iter 2** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing
+  denominator-exclusion), 0 P0/P2. The ≥60% heuristic still stripped numbered PROSE claims
+  under a References header. FIX: strip ONLY under a STRONG header (References/Bibliography/
+  Works Cited, NOT "Sources") AND only when EVERY trailing line is an unambiguous citation
+  entry (year-bearing, not a prose sentence-starter) — any prose line → no strip (fail-safe
+  inclusion). +2 smoke (numbered prose kept; Sources not a trigger). 21 scorer + 12 green.
+- **I-meta-006 DIFF-gate iter 3** (2026-06-01): REQUEST_CHANGES, 1 P1 (continuing — the
+  not-prose denylist leaked: a drug-name-led numbered prose claim with a year was misread as
+  a citation). FIX (Codex-prescribed): replace the NEGATIVE detector with a POSITIVE
+  bibliographic-shape requirement — a citation entry must start with author-initials /
+  "Surname, Year" / "& Author" / "et al" / DOI; prose ("Semaglutide reduced...") can't match.
+  Broadened to cover author-year-no-initials + multi-author. +2 smoke (proper-noun prose kept;
+  author-initials list stripped). 23 scorer + 12 claim_audit green. Re-gate iter4.
+- **I-meta-006 DIFF-gate iter 5 (cap)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0/P2. Codex:
+  "denominator-bypass P1, NOT a false faithfulness-credit P0." Residual: front-loaded-year
+  acronym prose ("HPV DNA testing in 2020 improved...") matched author-initials. §-1.2.6
+  cap-exception (real P1 + deterministic fix): require the surname TITLE-CASE
+  (`[A-Z][a-z]...`) so ALL-CAPS acronyms (HPV/DNA/US/AI) are not surnames. +1 smoke
+  (front-loaded acronym prose kept). 24 scorer + 12 claim_audit green. ONE confirmatory re-gate.
+- **I-meta-006 DIFF-gate confirmatory (iter6)** (2026-06-01): REQUEST_CHANGES, 1 P1, 0 P0.
+  "Vitamin D supplementation in 2020 reduced falls" matched (Title-word + "D" initial +
+  front-year). Perfect regex reference-vs-prose classification is unachievable; all 6 rounds
+  0 P0 (no false credit). FORCE-APPROVE per §8.3.1 (cap + confirmatory exhausted) WITH
+  mitigation: non-silent reference-stripping audit trail (card["reference_stripping"]) so a
+  wrongly-stripped claim is visible to the §-1.1 audit, not a silent bypass. Proper fix
+  (judge-rated S3 exclusion) = follow-up #1007. 25 scorer + 208 dr_benchmark green. Scorer COMPLETE.
+
+## I-meta-008 #1033 frame_fetcher OpenAlex fallback — DIFF gate
+- 2026-06-02: iter1 APPROVE. novel_p0 [] continuing_p0 [] p1 [] ; one p2 (pre-existing
+  OPEN_ACCESS-empty-quote residual, unchanged by diff, not a blocker). convergence accept_remaining.
+  74,604 tokens. Tests: 52/52 frame_fetcher + 94/94 consumers. (1st attempt explored the repo w/o
+  emitting verdict -> re-ran tighter per §8.3.8; this is the converged verdict.)
+
+## I-meta-008 #1034 thin-stub fix — DUAL parallel audit (operator-directed full workflow)
+- 2026-06-02: Claude independent audit (general-purpose agent, line-by-line) APPROVE 0 P0/P1
+  -> found §-1.1 stub-safety P2 (thin stub could beat a shorter real abstract).
+  Codex independent audit (gpt-5.5 xhigh, 69,936 tok) APPROVE 0 P0/P1 -> found provenance-edge P2.
+  Addressed BOTH (stub admitted only when no real abstract; +2 edge tests). 131/131 tests.
+  Codex re-confirm on final diff: APPROVE converged. Artifacts in .codex/I-meta-008-thinstub/
+  + outputs/audits/I-meta-008-thinstub/.
+
+## I-meta-008 #1034 v4 (HTML/Sci-Hub junk + entity-scoped prefer-abstract) — DUAL audit 2 iters
+- 2026-06-02 iter1: Claude APPROVE-conditional + Codex REQUEST_CHANGES -> converged on 3 P1s
+  (flag only changed selection/scrape still ran+Sci-Hub; Sci-Hub PDF laundering; clinical coverage).
+  Root caught by LIVE LAW II probe (3x Acemoglu fetch = Sci-Hub HTML / Jina markdown / clean abstract
+  = the scrape is non-deterministic) AFTER the dual audit had APPROVE'd the prior (wrong-premise) diff.
+- iter2: addressed all 3 (narrative skip Step 2b; _fetch_url_pattern rejects access_method scihub;
+  _FULLTEXT_ENTITY_TYPES keep clinical full text). Both APPROVE. Live-verified Acemoglu 3x deterministic
+  crossref_abstract + scrape_skipped. 63/63 + 94/94 tests. #1035 = URGENT follow-up (access_bypass gating).

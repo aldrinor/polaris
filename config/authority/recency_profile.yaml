@@ -1,0 +1,10 @@
+# Signal E — recency / temporal-fit decay profile.
+# Versioned DATA (LAW VI). Consumed by src/polaris_graph/authority/recency.py.
+#
+# Phase 0a: there is no planner recency need wired in, so the default horizon
+# yields a NEUTRAL 1.0 unless an explicit horizon is supplied at call time.
+
+default_horizon_years: 0        # 0 => recency is neutral (no temporal need)
+decay_halflife_years: 8.0       # exponential half-life when a horizon IS set
+neutral_score: 1.0              # returned when no recency need / no year known
+floor_score: 0.30              # decay never drives below this (old != worthless)

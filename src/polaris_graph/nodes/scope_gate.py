@@ -291,6 +291,95 @@ def extract_pico_heuristic(query: str) -> dict[str, Optional[str]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# I-meta-005 Phase 1 (#985, brief §2.2): field-agnostic frame extractor.
+#
+# ADDITIVE. The clinical `extract_pico_heuristic` + `_DRUG_NAME_RE` above are
+# UNCHANGED (off-path + the existing importers in completeness_checker.py and
+# contradiction_detector.py continue to use them). This heuristic does NOT use
+# the clinical drug/population regex; it produces a lightweight on-path frame
+# for ANY field by content-word extraction, with NO clinical literal as a
+# control value. It is a deterministic fallback only — the field-agnostic
+# planner (planning.research_planner) is the primary on-mode frame source; this
+# heuristic seeds entities/metrics/comparators when no LLM frame is available.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Field-invariant comparator markers (no domain literal): a word window around
+# these splits the question into compared alternatives, in any field.
+_FRAME_COMPARATOR_MARKERS_RE = re.compile(
+    r"\b(versus|vs\.?|compared to|compared with|relative to|against|"
+    r"as opposed to|rather than)\b",
+    re.IGNORECASE,
+)
+# Field-invariant metric cues: quantity words that suggest a measured outcome.
+_FRAME_METRIC_CUES_RE = re.compile(
+    r"\b(rate|ratio|cost|price|percent|percentage|share|level|score|index|"
+    r"efficiency|yield|throughput|latency|reduction|increase|change|"
+    r"probability|risk|return|growth|emissions?|temperature|accuracy)\b",
+    re.IGNORECASE,
+)
+# Generic stopwords for content-word entity extraction (no domain terms).
+_FRAME_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "of",
+    "in", "on", "at", "to", "for", "with", "by", "from", "as", "that", "this",
+    "these", "those", "it", "its", "be", "been", "what", "which", "who", "how",
+    "why", "when", "where", "we", "our", "their", "between", "into", "about",
+    "than", "such", "does", "do", "can", "may", "any", "also", "would", "should",
+    "could", "will", "more", "most", "some", "all", "not", "no", "over", "under",
+})
+
+
+def extract_research_frame_heuristic(query: str) -> dict[str, list[str]]:
+    """Field-agnostic frame heuristic for the on-path (brief §2.2).
+
+    Returns a dict with the `ResearchFrame` anchor keys (entities / relations /
+    metrics / comparators / constraints). Pure / no-network / no-LLM and — by
+    design — uses NO clinical regex. Comparators come from generic comparison
+    markers, metrics from generic quantity cues, and entities from the
+    remaining content words. The planner supersedes this when an LLM frame is
+    available; this is the deterministic seed/fallback.
+    """
+    q = (query or "").strip()
+    frame: dict[str, list[str]] = {
+        "entities": [],
+        "relations": [],
+        "metrics": [],
+        "comparators": [],
+        "constraints": [],
+    }
+    if not q:
+        return frame
+
+    # Comparators: text fragments flanking a generic comparison marker.
+    comparators: list[str] = []
+    for m in _FRAME_COMPARATOR_MARKERS_RE.finditer(q):
+        tail = q[m.end():].strip()
+        first_clause = re.split(r"[,.;?]", tail, maxsplit=1)[0].strip()
+        if first_clause:
+            comparators.append(first_clause[:60])
+    frame["comparators"] = list(dict.fromkeys(comparators))[:6]
+
+    # Metrics: generic quantity cues present in the question.
+    metrics = [m.group(1).lower() for m in _FRAME_METRIC_CUES_RE.finditer(q)]
+    frame["metrics"] = list(dict.fromkeys(metrics))[:8]
+
+    # Entities: content words (capitalized phrases or multi-char tokens) minus
+    # generic stopwords. No domain dictionary.
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,}", q)
+    entities: list[str] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        low = tok.lower()
+        if low in _FRAME_STOPWORDS:
+            continue
+        if low in seen:
+            continue
+        seen.add(low)
+        entities.append(tok)
+    frame["entities"] = entities[:12]
+    return frame
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,39 @@
+# Advisory prompt-text family registry — I-meta-005 Phase 1 (#985, brief §2.3).
+#
+# Maps a field-invariant claim_type (from planning.research_planner.CLAIM_TYPES)
+# to an advisory prompt-text file in this directory. The on-path selector
+# (`select_advisory_prompt_text` in multi_section_generator) loads THIS file
+# and looks up the frame's claim_type — there is NO `if domain == "clinical"`
+# literal in Python on the on-path. Adding a new prose family is a config edit,
+# not a code edit (LAW VI).
+#
+# A claim_type with no entry selects no advisory text (empty append); the
+# archetype outline / parser / fallback / routing are byte-identical regardless
+# of which (if any) advisory file is appended.
+
+# claim_type -> advisory prompt-text file (relative to this directory).
+#
+# Phase 1 intentionally maps NOTHING here. `claim_type` alone cannot identify a
+# clinical question: `empirical` is the generic measured-effect shape that a
+# physics, battery, or epidemiology question shares — mapping `empirical ->
+# clinical.yaml` would wrongly give every empirical question clinical writing
+# guidance, contradicting brief §2.3 ("when claim_type/entities read clinical")
+# and the field-agnostic principle. `CLAIM_TYPES` has no "clinical" value, so a
+# correct clinical trigger needs an ENTITY-category signal (a later phase). The
+# clinical.yaml family is therefore present and selectable but UNMAPPED in
+# Phase 1; the registry default is null (no advisory append).
+by_claim_type: {}
+
+# I-meta-005 Phase 6 (#990, Codex ruling A1): answer_type -> advisory family.
+# answer_type is the EXPLICIT domain-category the planner now emits (the
+# ENTITY/domain signal claim_type could not carry — Phase 1's deferred "later
+# phase"). The selector consults `by_answer_type` FIRST, then `by_claim_type`,
+# then `default`. A clinical answer_type selects the clinical advisory family;
+# every other answer_type (policy/economics/materials/general/...) selects nothing
+# here -> no domain-specific advisory append. Config-driven (LAW VI): adding a
+# family is a config edit, never a Python literal on the on-path.
+by_answer_type:
+  clinical: clinical.yaml
+
+# Default when neither map matches: no advisory append.
+default: null

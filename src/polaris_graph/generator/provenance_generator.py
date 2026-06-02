@@ -344,6 +344,25 @@ _PROVENANCE_TOKEN_RE = re.compile(
     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
 )
 
+# I-meta-005 Phase 7 (#991): Regime C — COMPUTED numbers. A calc token binds a
+# rendered number to ONE field of THIS run's quantified model. Grammar:
+#   [#calc:<model_id>:<spec_hash>:<field>]
+# placed IMMEDIATELY after the rendered display value (token adjacency). <field>
+# addresses every computed number: an output (`tco`), a sensitivity point
+# (`tco@discount=0.06`), or a break-even (`tco.break_even`). spec_hash binds the
+# token to THIS run's model (a stale/foreign model_id|spec_hash → Regime C FAIL).
+_CALC_TOKEN_RE = re.compile(
+    r"\[#calc:(?P<model_id>[A-Za-z0-9_]+):(?P<spec_hash>[A-Za-z0-9]+):"
+    r"(?P<field>[^\]]+)\]"
+)
+
+# Regime C equality is canonicalize-and-compare (the parsed adjacent number must
+# re-format to EXACTLY the field's display_value via the shared _canonical_display)
+# — there is NO numeric tolerance (a tolerance let a magnitude-scaled wrong number
+# pass, Codex diff-gate iter1 P1-2). Only the modeled-assumption disclosure label
+# is a named constant here.
+_MODELED_ASSUMPTION_LABEL = "(modeled assumption)"
+
 # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
 # tokens emitted by V4 Pro per the Step 3a atom-citation contract
 # (additive to [ev_XXX]) must be invisible to every internal check
@@ -378,6 +397,7 @@ def _verifier_cleaned_text(sentence: str) -> str:
     SentenceVerification.sentence.
     """
     s = _PROVENANCE_TOKEN_RE.sub(" ", sentence)
+    s = _CALC_TOKEN_RE.sub(" ", s)
     s = _VERIFIER_STRIP_ATOM_RE.sub(" ", s)
     s = _VERIFIER_STRIP_BARE_EV_RE.sub(" ", s)
     return re.sub(r"\s+", " ", s).strip()
@@ -405,6 +425,12 @@ class SentenceVerification:
     # Gap-2: soft warnings that don't trigger a drop but get surfaced
     # to the evaluator (stored as PT13 in external_evaluator).
     soft_warnings: list[str] = field(default_factory=list)
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): True when the entailment judge
+    # failed OPEN ((ENTAILED,"judge_error: ...")). Additive, default False —
+    # inert in off mode (is_verified unchanged). ON mode (enforce) reads this
+    # to fail-closed. OFF byte-identity is defined over behavioral/output
+    # fields + rendered artifacts, NOT raw dataclass asdict (Codex iter-3 P2).
+    judge_error: bool = False
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
@@ -771,6 +797,51 @@ def _find_local_support_window(
     return None
 
 
+def _find_local_content_window(
+    needed_content_words: set[str],
+    direct_quote: str,
+    window: int = 400,
+    min_content_overlap: int = 2,
+) -> Optional[tuple[int, int]]:
+    """Phase 0b Delta 1/2 (I-meta-005, gap-#18): content-word analog of
+    _find_local_support_window. Find a BOUNDED contiguous window (<= `window`
+    chars) inside `direct_quote` that contains at least `min_content_overlap`
+    of the sentence's content words (word-boundary, token-exact). Returns
+    (start, end) or None.
+
+    Bounded + fail-closed BY CONSTRUCTION: never returns the whole document —
+    only a <=window-char slice clustering the required content words. Same
+    safety shape as the numeric I-gen-005 finder: a grounded sentence whose
+    FULL cited row supports it is rescued, while a sentence whose content
+    words are SCATTERED beyond `window` chars is NOT (true fabrication stays
+    dropped). The window is anchored at each content-word match position and
+    extended forward, so any cluster of >=min words spanning <=window chars is
+    discovered when anchored at its leftmost member.
+    """
+    if not needed_content_words or not direct_quote:
+        return None
+    norm = direct_quote.lower()
+    n = len(norm)
+    positions: list[int] = []
+    for w in needed_content_words:
+        for m in re.finditer(r"\b" + re.escape(w) + r"\b", norm):
+            positions.append(m.start())
+    if len(positions) < min_content_overlap:
+        return None
+    positions.sort()
+    for anchor in positions:
+        ws = max(0, anchor)
+        we = min(n, ws + window)
+        window_text = norm[ws:we]
+        hits = sum(
+            1 for w in needed_content_words
+            if re.search(r"\b" + re.escape(w) + r"\b", window_text)
+        )
+        if hits >= min_content_overlap:
+            return (ws, we)
+    return None
+
+
 # Codex round 1 B-1: content-word overlap check for non-numeric claims.
 # Stopwords are the "grammatical connective tissue" — if the only overlap
 # between a sentence and its cited span is "the" and "of", that's not
@@ -813,6 +884,22 @@ def _content_words(text: str) -> set[str]:
 MIN_CONTENT_WORD_OVERLAP = int(
     os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
 )
+
+
+def _verification_mode() -> str:
+    """Phase 0b (I-meta-005, gap-#18): verification-mode router for the three
+    grounded-prose deltas. Read at call time so tests can override.
+
+      off (default) — byte-identical to pre-0b behavior; no delta fires.
+      shadow        — deltas DETECT + log telemetry but do NOT change
+                      is_verified, and make NO extra judge calls (spend-
+                      neutral free Gate-A measurement).
+      enforce       — deltas change is_verified (rescue grounded prose via a
+                      BOUNDED local content window; drop the judge-error
+                      fail-open sentinel).
+    """
+    v = os.getenv("PG_VERIFICATION_MODE", "off").strip().lower()
+    return v if v in ("off", "shadow", "enforce") else "off"
 
 
 # M-25a: trial-name match for strict_verify.
@@ -927,11 +1014,143 @@ def _trial_names_for_cited_row(ev: dict[str, Any], cited_spans: list[tuple[int, 
     return span_trials
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Regime C — verification of COMPUTED numbers (Phase 7, #991)
+# ─────────────────────────────────────────────────────────────────────────────
+# Captures the numeric run IMMEDIATELY before a calc token (optional $ prefix,
+# optional % suffix, thousands-grouped). Used for token-adjacency binding so the
+# token verifies against the number it directly follows, not a modeled-assumption
+# number elsewhere in the sentence.
+_CALC_ADJACENT_NUMBER_RE = re.compile(r"(\$?\s*-?\d[\d,]*(?:\.\d+)?\s*%?)\s*$")
+
+
+def _calc_parse_number(text: str) -> float | None:
+    m = re.search(r"-?\d[\d,]*(?:\.\d+)?", text or "")
+    if not m:
+        return None
+    try:
+        return float(m.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def verify_modeled_atom(
+    sentence: str,
+    calc_match: "re.Match[str]",
+    quantified_models: dict[tuple[str, str], Any],
+    evidence_pool: dict[str, dict[str, Any]],
+) -> SentenceVerification:
+    """Verify a sentence carrying a ``[#calc:model_id:spec_hash:field]`` token.
+
+    Fail-closed checks (brief §1.5):
+      (a) (model_id, spec_hash) resolves in the RUN-SCOPED registry — a stale or
+          foreign model reference fails (P7-19).
+      (b) the field exists in that model's executed result.
+      (c) the rendered number IMMEDIATELY before the token equals the field's
+          canonical ``display_value`` — exact display-string match OR a tight
+          numeric backstop (D2). Adjacency means a modeled-assumption number
+          elsewhere in the sentence cannot satisfy the token (P7-20).
+      (d) every modeled input USED by the field is labeled "(modeled assumption)"
+          in the sentence (P7-7/P7-8).
+      (e) the field's sourced inputs all resolve in the evidence pool.
+
+    On PASS, returns SentenceVerification whose ``tokens`` are the source-input
+    ProvenanceTokens (so resolve_provenance_to_citations cites the inputs) — the
+    calc token is stripped downstream. On any failure → is_verified=False (the
+    whole sentence is dropped).
+    """
+    model_id = calc_match.group("model_id")
+    spec_hash = calc_match.group("spec_hash")
+    field_id = calc_match.group("field")
+    failures: list[str] = []
+
+    result = quantified_models.get((model_id, spec_hash))
+    if result is None:
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=[f"calc_model_not_in_registry:{model_id}:{spec_hash}"],
+        )
+    fld = getattr(result, "fields", {}).get(field_id)
+    if not isinstance(fld, dict):
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=[f"calc_field_unknown:{field_id}"],
+        )
+
+    display_value = str(fld.get("display_value", ""))
+
+    # (c) adjacency + equality (Codex diff-gate P1-1/P1-2). The rendered number
+    # IMMEDIATELY before the token must canonicalize to EXACTLY the field's
+    # display_value. Two fail-closed properties:
+    #   - FULL-number compare (not `before.endswith(display_value)`, which would
+    #     accept "123.40%" for a "23.40%" field — the wrong number ends with the
+    #     canonical string).
+    #   - RE-CANONICALIZE the parsed adjacent value through the SAME pinned
+    #     formatter and require an exact string match (no magnitude-scaled rel-tol
+    #     drift, which would accept "$1,000,000,000,999.00" for a
+    #     "$1,000,000,000,000.00" field). A benign reformat (missing $/commas) that
+    #     canonicalizes to the same string still passes; any real numeric
+    #     difference fails.
+    before = sentence[: calc_match.start()]
+    adj = _CALC_ADJACENT_NUMBER_RE.search(before)
+    if adj is None:
+        failures.append("calc_no_adjacent_number")
+    else:
+        adj_str = adj.group(1).strip()
+        ok = adj_str == display_value
+        if not ok:
+            adj_val = _calc_parse_number(adj_str)
+            if adj_val is not None:
+                from src.polaris_graph.synthesis.tradeoff_modeler import (
+                    _canonical_display,
+                )
+                recanon = _canonical_display(
+                    adj_val,
+                    str(fld.get("unit", "")),
+                    str(fld.get("display_kind", "number")),
+                )
+                ok = recanon == display_value
+        if not ok:
+            failures.append(f"calc_number_mismatch:{adj_str}!={display_value}")
+
+    # (d) modeled-assumption labeling
+    modeled_used = fld.get("modeled_used") or []
+    if modeled_used and _MODELED_ASSUMPTION_LABEL not in sentence:
+        failures.append(
+            "calc_modeled_assumption_unlabeled:" + ",".join(map(str, modeled_used))
+        )
+
+    # (e) sourced-input evidence resolution + ProvenanceToken construction
+    src_tokens: list[ProvenanceToken] = []
+    for t in (fld.get("sourced_tokens") or []):
+        ev_id = str(t.get("ev_id", ""))
+        if ev_id not in evidence_pool:
+            failures.append(f"calc_input_ev_not_in_pool:{ev_id}")
+            continue
+        src_tokens.append(ProvenanceToken(
+            evidence_id=ev_id,
+            start=int(t.get("start", 0)),
+            end=int(t.get("end", 0)),
+            raw=str(t.get("raw", "")),
+        ))
+
+    if failures:
+        return SentenceVerification(
+            sentence=sentence, tokens=[], is_verified=False,
+            failure_reasons=failures,
+        )
+    return SentenceVerification(
+        sentence=sentence, tokens=src_tokens, is_verified=True,
+        failure_reasons=[], soft_warnings=["regime_c_modeled_verified"],
+    )
+
+
 def verify_sentence_provenance(
     sentence: str,
     evidence_pool: dict[str, dict[str, Any]],
     *,
     require_number_match: bool = True,
+    quantified_models: dict[tuple[str, str], Any] | None = None,
 ) -> SentenceVerification:
     """Verify every provenance token in a sentence.
 
@@ -940,9 +1159,48 @@ def verify_sentence_provenance(
       2. Span bounds are within evidence direct_quote length.
       3. If require_number_match AND the sentence contains numbers,
          each number must appear in the claimed span text.
+
+    Phase 7 (#991) — Regime C router: when ``quantified_models`` is supplied
+    (run-scoped registry keyed by (model_id, spec_hash)) AND the sentence carries
+    a ``[#calc:...]`` token, the sentence is FORCE-ROUTED to
+    ``verify_modeled_atom`` BEFORE the Regime-A machinery below and that result is
+    returned. ``quantified_models=None`` (default) skips the router entirely →
+    Regime A is byte-identical.
     """
+    if quantified_models is not None:
+        _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
+        if _calc_matches:
+            # Fail-closed sentence-shape rules (brief §1.5: AT MOST one calc number
+            # per sentence). >1 calc token would leave the 2nd..Nth number
+            # unverified after the 1st is checked; a MIXED [#calc:]+[#ev:] sentence
+            # would launder an unverified Regime-A numeric claim through the calc
+            # path. Both drop the whole sentence.
+            if len(_calc_matches) > 1:
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_multiple_tokens_in_sentence"],
+                )
+            if _PROVENANCE_TOKEN_RE.search(sentence):
+                return SentenceVerification(
+                    sentence=sentence, tokens=[], is_verified=False,
+                    failure_reasons=["calc_mixed_with_ev_token"],
+                )
+            return verify_modeled_atom(
+                sentence, _calc_matches[0], quantified_models, evidence_pool,
+            )
+
     tokens = parse_provenance_tokens(sentence)
     failures: list[str] = []
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): tracks whether the entailment
+    # judge failed OPEN ((ENTAILED,"judge_error: ...")). Set in either judge
+    # call below; consumed by the ON-mode fail-closed gate near the return.
+    # HOISTED to function-body top (build agent EDIT-8 scope check): the
+    # entailment block is nested inside `if require_number_match and
+    # valid_token_found:`, so an init at the `if not failures:` site would NOT
+    # be in scope at the return when valid_token_found is False (e.g. all
+    # tokens fail evidence_not_in_pool) -> NameError. Init here so it is always
+    # defined at the return.
+    judge_error_flag = False
 
     # I-gen-005 Step 3b commit 1: verifier_text strips ALL citation
     # artifacts (provenance tokens + atom_NNN + bare [ev_XXX]) for ALL
@@ -1138,10 +1396,60 @@ def verify_sentence_provenance(
             overlap = sentence_content & span_content
             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-                failures.append(
-                    f"no_content_word_overlap_any_cited_span:{ev_ids}:"
-                    f"sentence_words={sorted(sentence_content)[:5]}"
-                )
+                # Phase 0b Delta 1 (I-meta-005, gap-#18): the narrow cited
+                # byte-range may miss content words the FULL cited row supports
+                # (the gap-#18 grounded-prose drop). Per brief §3.3 + R1: the
+                # floor-clear only PROPOSES a candidate (a bounded <=400-char
+                # window in a cited row holding >=MIN content words); the
+                # entailment BIND happens DOWNSTREAM — the entailment block
+                # below judges the narrow span, and on NEUTRAL the Delta-2
+                # bounded-window re-judge accepts iff ENTAILED (else fail-closed).
+                #
+                # HARD GATE (Codex diff-gate P1 + architect P1, brief HARD
+                # CONSTRAINT #5): the floor-clear is gated on the entailment
+                # judge being in ENFORCE mode — the ONLY mode where the
+                # downstream NEUTRAL/CONTRADICTED bind actually DROPS. Under
+                # PG_STRICT_VERIFY_ENTAILMENT=off the judge never runs, and under
+                # =warn the judge runs but NEVER drops (log-only). In both, a
+                # content-words-only floor-clear would be the SOLE gate —
+                # laundering a drop into a pass with no enforced bind. So Delta 1
+                # proposes ONLY when entailment is enforce; otherwise the pre-0b
+                # content-floor drop stays (fail-closed). off = no rescue
+                # (byte-identical). shadow = log would-propose, still fail
+                # (output + spend neutral, NO judge call). enforce-verification +
+                # enforce-entailment + window = clear, deferring to the bind.
+                _vmode_c = _verification_mode()
+                _rescued_c = False
+                if _vmode_c in ("shadow", "enforce"):
+                    from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+                        _entailment_mode as _emode_c,
+                    )
+                    if _emode_c() == "enforce":
+                        for tok in tokens:
+                            ev = evidence_pool.get(tok.evidence_id)
+                            if ev is None:
+                                continue
+                            dq_c = ev.get("direct_quote") or ev.get("statement") or ""
+                            if _find_local_content_window(
+                                sentence_content, dq_c, window=400,
+                                min_content_overlap=MIN_CONTENT_WORD_OVERLAP,
+                            ):
+                                _rescued_c = True
+                                logger.warning(
+                                    "[provenance] %s content_floor_full_row "
+                                    "ev=%s — narrow span missed content words; "
+                                    "bounded full-row window exists, deferring "
+                                    "to the downstream entailment bind",
+                                    "ENFORCE_propose" if _vmode_c == "enforce"
+                                    else "SHADOW_would_propose",
+                                    tok.evidence_id,
+                                )
+                                break
+                if not (_vmode_c == "enforce" and _rescued_c):
+                    failures.append(
+                        f"no_content_word_overlap_any_cited_span:{ev_ids}:"
+                        f"sentence_words={sorted(sentence_content)[:5]}"
+                    )
 
         # M-25a: trial-name match. If the sentence names a specific
         # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least
@@ -1201,6 +1509,12 @@ def verify_sentence_provenance(
                     sentence_clean, combined_span,
                 )
                 _record_judge_outcome(verdict, reason)
+                # Phase 0b Delta 3: the judge fails OPEN (entailment_judge.py:147)
+                # returning ("ENTAILED","judge_error: ..."). Flag it; ON mode
+                # fails-closed near the return. OFF leaves is_verified unchanged
+                # (pre-0b fail-open preserved — filed as a separate gated issue).
+                if verdict == "ENTAILED" and reason.startswith("judge_error:"):
+                    judge_error_flag = True
                 if verdict in ("NEUTRAL", "CONTRADICTED"):
                     # I-gen-005 Step 1 (Codex iter 1 P1 #3): localize
                     # entailment fallback. Codex iter 1 caught that
@@ -1242,6 +1556,35 @@ def verify_sentence_provenance(
                         # to anchor, so skip and fail-closed at the
                         # end (don't silently pass).
                         if not sentence_dec_local:
+                            # Phase 0b Delta 2 (I-meta-005, gap-#18): non-numeric
+                            # NEUTRAL had NO local-window second chance (the
+                            # second-chance was decimal-gated). off = unchanged
+                            # (continue -> fail-closed). enforce = recover a
+                            # BOUNDED content-word window from this cited row and
+                            # re-judge against it. shadow = log would-attempt, no
+                            # extra judge call (spend-neutral), output unchanged.
+                            # GATED on mode == "enforce" (Codex diff-gate P1):
+                            # under warn the bind never drops, so a recover+
+                            # re-judge would be an unbacked rescue — Delta 2 fires
+                            # ONLY when the entailment bind can actually fail-closed.
+                            _vmode_n = _verification_mode()
+                            if mode == "enforce" and _vmode_n in ("shadow", "enforce") and sentence_content_local:
+                                cwin = _find_local_content_window(
+                                    sentence_content_local,
+                                    direct_quote,
+                                    window=400,
+                                    min_content_overlap=2,
+                                )
+                                if cwin:
+                                    if _vmode_n == "enforce":
+                                        local_window_text = direct_quote[cwin[0]:cwin[1]]
+                                        local_ev_id = tok.evidence_id
+                                        break
+                                    logger.warning(
+                                        "[provenance] SHADOW "
+                                        "would_attempt_nonnumeric_window_rescue "
+                                        "ev=%s", tok.evidence_id,
+                                    )
                             continue
                         win = _find_local_support_window(
                             sentence_dec_local,
@@ -1260,6 +1603,8 @@ def verify_sentence_provenance(
                             sentence_clean, local_window_text,
                         )
                         _record_judge_outcome(verdict2, reason2)
+                        if verdict2 == "ENTAILED" and reason2.startswith("judge_error:"):
+                            judge_error_flag = True
                         if verdict2 in ("NEUTRAL", "CONTRADICTED"):
                             if mode == "enforce":
                                 ev_ids = ",".join(
@@ -1298,6 +1643,20 @@ def verify_sentence_provenance(
     if unhedged:
         soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
 
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the
+    # judge-error sentinel. off = flag set but is_verified UNCHANGED (pre-0b
+    # fail-open preserved, byte-identical). shadow = log only. enforce = DROP.
+    if judge_error_flag:
+        _vmode_j = _verification_mode()
+        if _vmode_j == "enforce":
+            ev_ids = ",".join(sorted({t.evidence_id for t in tokens})) if tokens else ""
+            failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
+        elif _vmode_j == "shadow":
+            logger.warning(
+                "[provenance] SHADOW would_fail_closed_on_judge_error "
+                "(enforce-mode would drop this sentence)",
+            )
+
     is_verified = len(failures) == 0
     return SentenceVerification(
         sentence=sentence,
@@ -1305,6 +1664,7 @@ def verify_sentence_provenance(
         is_verified=is_verified,
         failure_reasons=failures,
         soft_warnings=soft_warnings,
+        judge_error=judge_error_flag,
     )
 
 
@@ -1470,6 +1830,7 @@ def strict_verify(
     *,
     require_number_match: bool = True,
     telemetry_block: str | None = None,
+    quantified_models: dict[tuple[str, str], Any] | None = None,
 ) -> StrictVerificationReport:
     """Run strict verification on a draft. Drops failing sentences.
 
@@ -1494,6 +1855,7 @@ def strict_verify(
         v = verify_sentence_provenance(
             s, evidence_pool,
             require_number_match=require_number_match,
+            quantified_models=quantified_models,
         )
         if v.is_verified:
             kept.append(v)
@@ -1572,6 +1934,9 @@ def resolve_provenance_to_citations(
         # — must PRESERVE atom_NNN so PR #906 Step 3b validator can
         # see atom citations downstream in verified_text.
         stripped = _PROVENANCE_TOKEN_RE.sub("", sv.sentence).strip()
+        # Phase 7 (#991): strip calc tokens too so a verified computed-number
+        # sentence carries its source-input [N] citations but no token leak.
+        stripped = _CALC_TOKEN_RE.sub("", stripped).strip()
         # Clean trailing spaces before punctuation
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments

@@ -195,6 +195,46 @@ _UNPAYWALL_BASE = "https://api.unpaywall.org/v2/"
 _PUBMED_EFETCH_BASE = (
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 )
+# OpenAlex /works/{doi} — issue #1033 abstract fallback. When CrossRef
+# carries no abstract and the OA full-text PDF is paywalled (403),
+# OpenAlex's abstract_inverted_index reliably holds the abstract for
+# indexed journal DOIs. DOI-driven; deterministic.
+_OPENALEX_WORK_BASE = "https://api.openalex.org/works/"
+_OPENALEX_FRAME_FALLBACK_ENABLED = (
+    os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
+    not in ("0", "false", "no", "off")
+)
+# Minimum chars for an OA full-text fetch to count as REAL full text
+# (issue #1034). Paywalled-PDF stubs (e.g. aeaweb via Jina ~540 chars)
+# fall below this -> they must not block the abstract fallbacks and
+# must lose to a real abstract (e.g. OpenAlex 1331 chars).
+_OA_FULLTEXT_MIN_CHARS = int(os.getenv("PG_OA_FULLTEXT_MIN_CHARS", "1200"))
+# Prefer the clean, deterministic abstract (CrossRef/OpenAlex/PubMed) over a
+# scraped OA "full text" for frame-contract grounding (#1034). Ground-truthed:
+# paywalled-journal OA fetches are NON-DETERMINISTIC (Sci-Hub HTML one call,
+# Jina landing-page markdown the next, clean CrossRef abstract a third) and
+# noisy, while the abstract is clean and stable — and contract fields
+# (thesis/mechanism/effect) are abstract-level claims. Default OFF preserves
+# the M-66b-T clinical full-text path (multi-field trial rosters live in
+# tables, not abstracts); run_gate_b sets it ON for the benchmark.
+_FRAME_PREFER_ABSTRACT = (
+    os.getenv("PG_FRAME_PREFER_ABSTRACT", "0").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+# Entity types whose contract fields live in full-text TABLES (clinical trial
+# 9-field rosters etc.) KEEP the OA full-text path even under prefer-abstract,
+# so Gate-B gold-rubric coverage for clinical questions is preserved (dual-audit
+# #1034 P1). Narrative entity types (economic_report, ...) prefer the clean
+# abstract AND skip the scrape entirely (no non-deterministic fetch, no Sci-Hub
+# request).
+_FULLTEXT_ENTITY_TYPES = frozenset(
+    t.strip().lower()
+    for t in os.getenv(
+        "PG_FRAME_FULLTEXT_ENTITY_TYPES",
+        "pivotal_trial,clinical_trial,rct,systematic_review,meta_analysis",
+    ).split(",")
+    if t.strip()
+)
 
 _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
 _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
@@ -360,6 +400,86 @@ def _parse_pubmed_xml(xml_text: str) -> dict[str, Any]:
         "abstract": abstract,
         "doi": pubmed_doi,
         "pmid": pubmed_pmid,
+    }
+
+
+def _reconstruct_inverted_abstract(inverted_index: Any) -> str | None:
+    """Reconstruct a plain-text abstract from an OpenAlex
+    `abstract_inverted_index` ({word: [pos, ...]}). Deterministic:
+    positions are unique within a work, so sort-by-position is a
+    total order -> same input yields byte-identical text.
+
+    Kept local (mirrors the proven reconstruction in
+    agents/searcher.py) so frame_fetcher stays free of the
+    non-deterministic keyword-retrieval stack per its module
+    determinism contract."""
+    if not isinstance(inverted_index, dict) or not inverted_index:
+        return None
+    word_positions: list[tuple[int, str]] = []
+    for word, positions in inverted_index.items():
+        if not isinstance(positions, (list, tuple)):
+            continue
+        for pos in positions:
+            if isinstance(pos, int):
+                word_positions.append((pos, word))
+    if not word_positions:
+        return None
+    word_positions.sort()
+    text = " ".join(w for _, w in word_positions).strip()
+    return text or None
+
+
+def _parse_openalex_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract abstract + metadata from an OpenAlex /works/{doi}
+    JSON object (issue #1033). Abstract is reconstructed from
+    abstract_inverted_index. Returns dict with keys: title, authors,
+    journal, year, abstract, doi (normalized, prefix-stripped,
+    lowercased). Values may be None/empty when absent."""
+    if not isinstance(data, dict):
+        return {}
+    abstract = _reconstruct_inverted_abstract(
+        data.get("abstract_inverted_index")
+    )
+
+    title = data.get("title") or data.get("display_name") or None
+    if isinstance(title, str):
+        title = title.strip() or None
+
+    authors: list[str] = []
+    for a in (data.get("authorships") or []):
+        if not isinstance(a, dict):
+            continue
+        au = a.get("author")
+        name = (au.get("display_name") or "").strip() if isinstance(au, dict) else ""
+        if name:
+            authors.append(name)
+
+    journal = None
+    pl = data.get("primary_location")
+    if isinstance(pl, dict):
+        src = pl.get("source")
+        if isinstance(src, dict):
+            journal = (src.get("display_name") or "").strip() or None
+
+    year = data.get("publication_year")
+    if not isinstance(year, int):
+        year = None
+
+    doi_raw = data.get("doi") or ""
+    doi_norm = doi_raw.lower().strip() if isinstance(doi_raw, str) else ""
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if doi_norm.startswith(prefix):
+            doi_norm = doi_norm[len(prefix):]
+            break
+    doi_norm = doi_norm.rstrip("/") or None
+
+    return {
+        "title": title,
+        "authors": tuple(authors),
+        "journal": journal,
+        "year": year,
+        "abstract": abstract,
+        "doi": doi_norm,
     }
 
 
@@ -642,6 +762,105 @@ def _call_pubmed(
     return body, attempts, timings
 
 
+def _call_openalex(
+    client: httpx.Client, doi: str
+) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
+    """Deterministic OpenAlex /works/{doi} fetch (issue #1033).
+
+    Abstract fallback for journal DOIs where CrossRef returned no
+    abstract and the OA full-text PDF was paywalled (403). Uses the
+    same retry/attempt-logging discipline as the other callers so
+    M-60 manifest telemetry shows the OpenAlex attempt."""
+    email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+    url = _OPENALEX_WORK_BASE + "https://doi.org/" + _urlsafe_doi(doi)
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "openalex", url, params={"mailto": email},
+    )
+    if outcome != "success" or r is None:
+        return None, attempts, timings
+    try:
+        data = r.json()
+    except ValueError:
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
+            outcome="error:invalid_json",
+        )
+        return None, attempts, timings
+    return data, attempts, timings
+
+
+def _looks_like_html_junk(text: str) -> bool:
+    """True when a fetched 'full text' is actually raw HTML markup or a
+    Sci-Hub wrapper page rather than clean extracted prose (#1034
+    follow-up). Ground-truthed: aeaweb paywalled econ papers (e.g.
+    Acemoglu 10.1257/jep.33.2.3) come back as a ~25K-char Sci-Hub HTML
+    viewer page that passes any length threshold but is useless for M-58
+    extraction. Inspects the head of the content for HTML structural
+    markers or Sci-Hub branding (case-insensitive)."""
+    head = text[:600].lower()
+    return (
+        "<!doctype" in head
+        or "<html" in head
+        or "<head>" in head
+        or "<head " in head
+        or "<body" in head
+        or "sci-hub" in head
+    )
+
+
+def _is_usable_full_text(text: str | None) -> bool:
+    """A fetched OA full text is usable as the rich `direct_quote` source
+    only if it is SUBSTANTIAL (>= _OA_FULLTEXT_MIN_CHARS) AND clean prose
+    (not HTML / Sci-Hub junk). Otherwise the abstract fallbacks
+    (CrossRef / OpenAlex / PubMed) must take over (#1034)."""
+    return bool(
+        text
+        and len(text) >= _OA_FULLTEXT_MIN_CHARS
+        and not _looks_like_html_junk(text)
+    )
+
+
+def _pick_richest_abstract(
+    *,
+    crossref: str | None,
+    openalex: str | None,
+    pubmed: str | None,
+    partial_full_text: str | None = None,
+) -> tuple[str, str]:
+    """Choose the RICHEST (longest) available abstract text + its
+    quote_source label. Candidates in priority order CrossRef >
+    OpenAlex > PubMed > thin-OA-full-text partial; the LONGEST wins,
+    ties break toward the higher-priority source (deterministic —
+    strictly-greater comparison while iterating priority order).
+
+    A thin oa_full_text stub (paywalled-PDF Jina result, ~540 chars)
+    is admitted only as the last-priority `partial_full_text`
+    candidate, so a real abstract (e.g. OpenAlex 1331 chars) overrides
+    it rather than being blocked by it (issue #1034). Returns
+    ("", "none") when every candidate is empty."""
+    candidates: list[tuple[str, str]] = []
+    if crossref:
+        candidates.append((crossref, "crossref_abstract"))
+    if openalex:
+        candidates.append((openalex, "openalex_abstract"))
+    if pubmed:
+        candidates.append((pubmed, "pubmed_abstract"))
+    # A thin OA full-text stub is a TRUE last resort: admit it ONLY when
+    # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
+    # finding #1034), a paywall junk stub must never become the extracted
+    # span when a real abstract exists — even if the stub is longer.
+    if partial_full_text and not candidates:
+        candidates.append((partial_full_text, "oa_full_text_partial"))
+    best: tuple[str, str] | None = None
+    for text, src in candidates:
+        if best is None or len(text) > len(best[0]):
+            best = (text, src)
+    return best if best is not None else ("", "none")
+
+
 def _urlsafe_doi(doi: str) -> str:
     """CrossRef and Unpaywall accept DOIs verbatim; percent-encode
     any slashes? The standard is to pass the raw DOI. Both APIs
@@ -696,6 +915,13 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
                 return "", ""
             content = getattr(result, "content", "") or ""
             final_url = getattr(result, "url", "") or url
+            method = (getattr(result, "access_method", "") or "").lower()
+            # Never use pirate-source (Sci-Hub) content in a research /
+            # clinical product — legal + provenance (#1034 dual-audit P1).
+            # Rejects BOTH the Sci-Hub HTML viewer page AND clean Sci-Hub
+            # PDF text (which _looks_like_html_junk cannot detect).
+            if "scihub" in method or "sci-hub" in method:
+                return "", ""
             if not content:
                 return "", ""
             return content[:_M66_CONTENT_CAP], final_url
@@ -875,6 +1101,15 @@ def _fetch_frame_entity_inner(
     abstract_crossref: str | None = None
     doi = identifiers.get("doi")
     pmid = identifiers.get("pmid")
+    # Entity-scoped prefer-abstract (#1034 dual-audit P1): a narrative
+    # frame entity (economic_report, ...) under the flag prefers the clean
+    # abstract AND skips the OA scrape entirely; a full-text entity type
+    # (clinical trial rosters) keeps the full-text path so Gate-B coverage
+    # is preserved.
+    entity_prefers_abstract = (
+        _FRAME_PREFER_ABSTRACT
+        and binding.entity_type.strip().lower() not in _FULLTEXT_ENTITY_TYPES
+    )
 
     # Step 1: CrossRef for metadata + abstract when DOI present
     if doi:
@@ -909,7 +1144,18 @@ def _fetch_frame_entity_inner(
     # full text, giving M-58 enough surface to extract SURPASS
     # 9-field rosters. Falls back to abstract on fetch failure.
     oa_locator = oa_pdf_url or oa_html_url
-    if oa_locator:
+    if oa_locator and entity_prefers_abstract:
+        # Narrative frame entity under prefer-abstract: SKIP the OA scrape
+        # entirely — no non-deterministic AccessBypass call, no Sci-Hub
+        # request (#1034 dual-audit P1). The clean abstract is the source.
+        attempts.append(RetrievalAttempt(
+            source="access_bypass",
+            url=f"oa_full_text_skipped:{oa_locator}",
+            attempt_index=1,
+            http_status=None,
+            outcome="skipped:prefer_abstract",
+        ))
+    elif oa_locator:
         full_text, final_url = _fetch_url_pattern(oa_locator)
         if full_text:
             oa_full_text = full_text
@@ -977,38 +1223,103 @@ def _fetch_frame_entity_inner(
                 journal = journal or parsed_pm.get("journal")
                 year = year or parsed_pm.get("year")
 
+    # Step 4: OpenAlex abstract fallback (issue #1033). When CrossRef
+    # carried no abstract, PubMed yielded none (or there was no PMID),
+    # and the OA full-text fetch failed (paywalled PDF 403'd), OpenAlex's
+    # abstract_inverted_index reliably holds the abstract for indexed
+    # journal DOIs (Acemoglu/Autor/Brynjolfsson/Eloundou all resolve).
+    # DOI-driven; no source allowlist; same DOI -> byte-identical text.
+    abstract_openalex: str | None = None
+    if (
+        _OPENALEX_FRAME_FALLBACK_ENABLED
+        and doi
+        and not abstract_crossref
+        and not abstract_pubmed
+        and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
+    ):
+        oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
+        attempts.extend(oa_attempts)
+        timings.extend(oa_timings)
+        if oa_meta is not None:
+            parsed_oa = _parse_openalex_response(oa_meta)
+            # DOI-consistency guard (mirrors the PubMed guard above):
+            # reject content when OpenAlex's own DOI disagrees with the
+            # bound DOI, so we never extract from the wrong work.
+            oa_doi = parsed_oa.get("doi") or ""
+            bound_doi_l = (doi or "").lower()
+            if oa_doi and oa_doi != bound_doi_l:
+                attempts.append(RetrievalAttempt(
+                    source="openalex",
+                    url=f"openalex:doi={bound_doi_l}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome=(
+                        f"error:doi_mismatch bound={bound_doi_l} "
+                        f"openalex_returned={oa_doi}"
+                    ),
+                ))
+            else:
+                abstract_openalex = parsed_oa.get("abstract")
+                title = title or parsed_oa.get("title")
+                authors = authors or parsed_oa.get("authors") or ()
+                journal = journal or parsed_oa.get("journal")
+                year = year or parsed_oa.get("year")
+
     # Decide provenance_class and direct_quote.
     # OPEN_ACCESS when Unpaywall surfaced ANY OA locator (PDF or
     # HTML landing). HTML-only is still fetchable by existing
     # POLARIS content fetch infrastructure at M-57; the distinction
     # from ABSTRACT_ONLY is that a full-text source exists.
     any_oa_url = oa_pdf_url or oa_html_url
-    if any_oa_url:
-        # V30 Phase-2 M-66b-T: when Step 2b succeeded in fetching
-        # OA full text, use it as direct_quote (rich source for
-        # M-58's 9-field SURPASS extractions). Else fall back to
-        # abstract_crossref / abstract_pubmed (prior behavior).
-        if oa_full_text:
-            direct_quote = oa_full_text
-            quote_source = "oa_full_text"
-        else:
-            direct_quote = abstract_crossref or abstract_pubmed or ""
-            quote_source = (
-                "crossref_abstract"
-                if abstract_crossref
-                else ("pubmed_abstract" if abstract_pubmed else "none")
+    # A real OA full-text extraction is long; a paywalled-PDF stub
+    # (e.g. aeaweb returns ~540 chars via Jina) is NOT usable full text
+    # (issue #1034). Only treat oa_full_text as real full text above the
+    # threshold; otherwise it competes as a last-priority partial.
+    real_full_text = oa_full_text if _is_usable_full_text(oa_full_text) else None
+    # Richest abstract across CrossRef/OpenAlex/PubMed (+ a thin but CLEAN
+    # oa_full_text stub as last resort), longest wins (#1033/#1034). HTML /
+    # Sci-Hub junk is never admitted as a partial — it would poison the span.
+    abstract_text, abstract_quote_source = _pick_richest_abstract(
+        crossref=abstract_crossref,
+        openalex=abstract_openalex,
+        pubmed=abstract_pubmed,
+        partial_full_text=(
+            oa_full_text
+            if (
+                oa_full_text
+                and not real_full_text
+                and not _looks_like_html_junk(oa_full_text)
             )
+            else None
+        ),
+    )
+    if entity_prefers_abstract and abstract_text:
+        # Frame-contract grounding (#1034): the clean, deterministic
+        # abstract is preferred over a non-deterministic / noisy OA scrape.
+        # Contract fields (thesis/mechanism/effect) are abstract-level claims.
+        direct_quote = abstract_text
+        quote_source = abstract_quote_source
+        provenance = (
+            ProvenanceClass.OPEN_ACCESS if any_oa_url
+            else ProvenanceClass.ABSTRACT_ONLY
+        )
+        failure_reason = None
+    elif real_full_text:
+        # V30 Phase-2 M-66b-T: real OA full text — rich source for
+        # M-58's multi-field extractions (default path; clinical rosters).
+        direct_quote = real_full_text
+        quote_source = "oa_full_text"
         provenance = ProvenanceClass.OPEN_ACCESS
         failure_reason = None
-    elif abstract_crossref:
-        direct_quote = abstract_crossref
-        quote_source = "crossref_abstract"
-        provenance = ProvenanceClass.ABSTRACT_ONLY
-        failure_reason = None
-    elif abstract_pubmed:
-        direct_quote = abstract_pubmed
-        quote_source = "pubmed_abstract"
-        provenance = ProvenanceClass.ABSTRACT_ONLY
+    elif abstract_text:
+        direct_quote = abstract_text
+        quote_source = abstract_quote_source
+        # OPEN_ACCESS when an OA locator existed (full text just wasn't
+        # extractable); else ABSTRACT_ONLY.
+        provenance = (
+            ProvenanceClass.OPEN_ACCESS if any_oa_url
+            else ProvenanceClass.ABSTRACT_ONLY
+        )
         failure_reason = None
     elif title:  # we have metadata but no abstract, no OA
         direct_quote = ""

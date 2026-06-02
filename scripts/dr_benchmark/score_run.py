@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 from scripts.dr_benchmark.ledger_schema import load_ledger
+from src.polaris_graph.benchmark.pathB_capture import corpus_truncated_from_manifest
 from src.polaris_graph.benchmark.claim_audit_scorer import (
     ClaimRow,
     RubricElement,
@@ -62,6 +63,21 @@ def _check_polaris_gate(run_dir: Path) -> None:
     """For POLARIS scoring: the gate must have written a PASS result + no INVALID sentinel."""
     if not run_dir.exists():
         raise InvalidRunError(f"polaris run_dir does not exist: {run_dir}")
+    # #958 (S2): scoring backstop — a truncated corpus is partial/invalid even if
+    # the Path-B gate somehow recorded PASS. Read manifest.json directly.
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            _manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            _manifest = {}
+        if corpus_truncated_from_manifest(_manifest):
+            _rt = _manifest.get("retrieval", {})
+            raise InvalidRunError(
+                f"polaris run_dir corpus truncated (partial corpus): "
+                f"{_rt.get('candidates_processed')}/{_rt.get('candidates_total')} "
+                f"candidates processed ({run_dir})"
+            )
     if (run_dir / "pathB_gate_INVALID").exists():
         marker = (run_dir / "pathB_gate_INVALID").read_text(encoding="utf-8").strip()
         raise InvalidRunError(

@@ -1147,3 +1147,513 @@ class TestFrameRowContract:
         )
         with pytest.raises(Exception):  # FrozenInstanceError
             row.entity_id = "changed"  # type: ignore
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (8) OpenAlex abstract fallback (issue #1033)
+# ─────────────────────────────────────────────────────────────────────
+def _openalex_response(
+    *,
+    doi: str = "10.1056/NEJMoa2107519",
+    sentence: str = "Tirzepatide reduced HbA1c substantially in adults",
+    title: str = "Tirzepatide versus Semaglutide Once Weekly",
+    journal: str = "New England Journal of Medicine",
+    year: int = 2021,
+) -> dict[str, Any]:
+    """Minimal OpenAlex /works/{doi} object with an
+    abstract_inverted_index reconstructed from `sentence`."""
+    inv: dict[str, list[int]] = {}
+    for i, word in enumerate(sentence.split()):
+        inv.setdefault(word, []).append(i)
+    return {
+        "doi": f"https://doi.org/{doi}",
+        "title": title,
+        "display_name": title,
+        "publication_year": year,
+        "authorships": [
+            {"author": {"display_name": "Frias Juan P."}},
+        ],
+        "primary_location": {"source": {"display_name": journal}},
+        "abstract_inverted_index": inv,
+    }
+
+
+class TestOpenAlexParser:
+    def test_reconstruct_orders_by_position(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _reconstruct_inverted_abstract,
+        )
+        # positions: 0 hello, 1 world, 2 again, 3 then, 4 again
+        inv = {"world": [1], "hello": [0], "again": [2, 4], "then": [3]}
+        assert (
+            _reconstruct_inverted_abstract(inv)
+            == "hello world again then again"
+        )
+
+    def test_reconstruct_empty_or_bad_returns_none(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _reconstruct_inverted_abstract,
+        )
+        assert _reconstruct_inverted_abstract({}) is None
+        assert _reconstruct_inverted_abstract(None) is None
+        assert _reconstruct_inverted_abstract("not a dict") is None
+
+    def test_parse_openalex_response_extracts_fields(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _parse_openalex_response,
+        )
+        parsed = _parse_openalex_response(_openalex_response())
+        assert parsed["doi"] == "10.1056/nejmoa2107519"
+        assert "Tirzepatide" in parsed["abstract"]
+        assert parsed["year"] == 2021
+        assert parsed["journal"] == "New England Journal of Medicine"
+
+
+class TestOpenAlexFallback:
+    def test_fills_abstract_when_crossref_empty_and_no_pubmed(self) -> None:
+        """The Q72 root case: CrossRef has metadata but no abstract,
+        no OA, no PMID. OpenAlex's inverted-index abstract rescues the
+        slot from 'not extractable' (METADATA_ONLY) to ABSTRACT_ONLY."""
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert row.quote_source == "openalex_abstract"
+        assert "Tirzepatide" in row.direct_quote
+        assert "reduced HbA1c" in row.direct_quote  # ordering preserved
+        assert any(
+            "openalex" in a.source for a in row.retrieval_attempts
+        )
+
+    def test_doi_mismatch_rejected_falls_to_metadata_only(self) -> None:
+        """OpenAlex returns a DIFFERENT DOI -> content rejected (we must
+        not extract from the wrong work) -> METADATA_ONLY, mismatch
+        logged. Mirrors the PubMed DOI-consistency guard."""
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200,
+             _openalex_response(doi="10.9999/WRONG.PAPER")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""
+        assert any(
+            "doi_mismatch" in a.outcome for a in row.retrieval_attempts
+        )
+
+    def test_oa_locator_but_paywalled_fulltext_openalex_rescues(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exact Q72 path: Unpaywall surfaces an OA locator, but the
+        PDF 403s (full-text fetch returns nothing). Without OpenAlex
+        the row was OPEN_ACCESS with an EMPTY quote -> 'not extractable'.
+        OpenAlex abstract now fills direct_quote."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://paywalled.example/article.pdf")),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "openalex_abstract"
+        assert "Tirzepatide" in row.direct_quote
+
+    def test_crossref_abstract_present_skips_openalex(self) -> None:
+        """When CrossRef already has an abstract, OpenAlex must NOT be
+        called (priority + no wasted request)."""
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.quote_source == "crossref_abstract"
+        assert not any("openalex" in u for u in transport.call_log)
+
+    def test_disabled_flag_skips_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PG_OPENALEX_FRAME_FALLBACK=0 disables the fallback ->
+        METADATA_ONLY, no OpenAlex request."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher."
+            "_OPENALEX_FRAME_FALLBACK_ENABLED",
+            False,
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert not any("openalex" in u for u in transport.call_log)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (9) Thin oa_full_text stub must not block OpenAlex (issue #1034)
+# ─────────────────────────────────────────────────────────────────────
+_LONG_OPENALEX_SENTENCE = "Tirzepatide " + " ".join(
+    f"finding{i}" for i in range(220)
+)  # ~2000 chars >> a 540-char stub and >> the 1200 full-text threshold
+
+
+class TestOpenAlexThinStubRichest:
+    def test_pick_richest_longest_wins_ties_keep_priority(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _pick_richest_abstract,
+        )
+        # OpenAlex longest -> wins despite CrossRef higher priority.
+        t, s = _pick_richest_abstract(
+            crossref="short", openalex="x" * 50, pubmed=None,
+        )
+        assert s == "openalex_abstract" and t == "x" * 50
+        # Equal length -> CrossRef (higher priority) wins.
+        t, s = _pick_richest_abstract(
+            crossref="abcd", openalex="wxyz", pubmed=None,
+        )
+        assert s == "crossref_abstract"
+        # Only a thin partial full-text present -> it is used last-resort.
+        t, s = _pick_richest_abstract(
+            crossref=None, openalex=None, pubmed=None,
+            partial_full_text="stub",
+        )
+        assert s == "oa_full_text_partial"
+        # All empty.
+        assert _pick_richest_abstract(
+            crossref=None, openalex=None, pubmed=None,
+        ) == ("", "none")
+
+    def test_thin_oa_fulltext_stub_does_not_block_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE #1034 BUG: aeaweb PDF 403s but Jina returns a ~540-char
+        stub. The stub must NOT block OpenAlex; the richer OpenAlex
+        abstract (>=1200) must win, not the stub."""
+        stub = "X" * 540  # below _OA_FULLTEXT_MIN_CHARS (1200)
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (stub, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://www.aeaweb.org/articles/pdf/x.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "openalex_abstract"  # NOT the stub
+        assert "finding200" in row.direct_quote
+        assert "XXXX" not in row.direct_quote  # the stub did not win
+        assert len(row.direct_quote) > 540
+        assert any(
+            "openalex" in a.source for a in row.retrieval_attempts
+        )
+
+    def test_real_long_fulltext_still_preferred_over_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A genuine long OA full text (>= threshold) still wins; the
+        thin-stub guard must not demote real full text."""
+        real = "Genuine full text. " * 120  # ~2280 chars >= 1200
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (real, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/real.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "oa_full_text"
+        assert "Genuine full text" in row.direct_quote
+        # OpenAlex not even called (real full text resolved first).
+        assert not any("openalex" in u for u in transport.call_log)
+
+    def test_short_real_abstract_beats_longer_stub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dual-audit finding: a thin OA stub must NOT outrank a SHORTER
+        real abstract. CrossRef has a short (~80-char) abstract; the OA
+        fetch returns a longer 540-char stub. The real abstract wins;
+        the junk stub never becomes the extracted span (§-1.1)."""
+        stub = "X" * 540
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (stub, url),
+        )
+        short_cr = _crossref_response(
+            abstract="<jats:p>Tirzepatide lowered HbA1c in adults.</jats:p>"
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, short_cr),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://paywalled.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+        assert row.quote_source == "crossref_abstract"  # NOT the stub
+        assert "XXXX" not in row.direct_quote
+        assert "Tirzepatide" in row.direct_quote
+
+    def test_oa_locator_but_all_text_empty_is_metadata_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dual-audit finding: v2 fixes a latent v1 bug where an OA
+        locator with NO extractable text (full-text empty + no abstract
+        from any source) was OPEN_ACCESS with an empty quote. It must now
+        be METADATA_ONLY (title known, no content)."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+        cr_no_abs = _crossref_response(abstract=None)  # title, no abstract
+        oa_no_abstract = _openalex_response()
+        oa_no_abstract["abstract_inverted_index"] = {}  # OpenAlex: no abstract
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://x.pdf")),
+            ("api.openalex.org", 200, oa_no_abstract),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (10) HTML/Sci-Hub junk full-text + prefer-abstract flag (issue #1034)
+# ─────────────────────────────────────────────────────────────────────
+_SCIHUB_HTML = (
+    '<!DOCTYPE html>\n<html>\n<head><title>Sci-Hub. Automation and New '
+    'Tasks</title></head>\n<body>' + ("nav " * 6000) + '</body></html>'
+)  # ~25K chars, looks_html True
+
+
+class TestHtmlJunkAndPreferAbstract:
+    def test_looks_like_html_junk_and_usable_helpers(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _looks_like_html_junk, _is_usable_full_text,
+        )
+        assert _looks_like_html_junk(_SCIHUB_HTML) is True
+        assert _looks_like_html_junk("<html><body>x</body></html>") is True
+        assert _looks_like_html_junk("Sci-Hub viewer page " * 50) is True
+        assert _looks_like_html_junk("Clean prose about automation." * 50) is False
+        assert _is_usable_full_text("Clean prose. " * 200) is True   # long+clean
+        assert _is_usable_full_text(_SCIHUB_HTML) is False           # junk
+        assert _is_usable_full_text("short") is False               # < threshold
+        assert _is_usable_full_text(None) is False
+
+    def test_scihub_html_fulltext_rejected_openalex_wins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE real run-6 bug: the OA fetch returns a 25K-char Sci-Hub HTML
+        page (passes any length check). It must be rejected as junk and the
+        clean OpenAlex abstract used instead. (flag OFF — junk rejection is
+        unconditional.)"""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (_SCIHUB_HTML, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://www.aeaweb.org/articles/pdf/x.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.quote_source == "openalex_abstract"  # NOT the HTML junk
+        assert "<!DOCTYPE" not in row.direct_quote
+        assert "Sci-Hub" not in row.direct_quote
+        assert "finding200" in row.direct_quote
+
+    def test_prefer_abstract_narrative_skips_scrape_uses_abstract(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Flag on + NARRATIVE entity type (economic_report): the OA scrape
+        is SKIPPED entirely (no AccessBypass / Sci-Hub request — #1034 P1)
+        and the clean abstract is used. _fetch_url_pattern must NOT be
+        called."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
+            True,
+        )
+
+        def _boom(url):  # pragma: no cover - asserts non-invocation
+            raise AssertionError("scrape must be skipped under prefer-abstract")
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            _boom,
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),  # has abstract
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(entity_type="economic_report"), client=client
+            )
+        assert row.quote_source == "crossref_abstract"  # NOT oa_full_text
+        assert any(
+            a.outcome == "skipped:prefer_abstract"
+            for a in row.retrieval_attempts
+        )
+
+    def test_clinical_entity_type_keeps_fulltext_under_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Flag on + CLINICAL entity type (pivotal_trial): full-text path is
+        PRESERVED (clinical 9-field rosters live in tables) — Gate-B coverage
+        protected (#1034 P1)."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
+            True,
+        )
+        clean_full = "Clean genuine full text with trial roster. " * 60
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (clean_full, url),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(entity_type="pivotal_trial"), client=client
+            )
+        assert row.quote_source == "oa_full_text"  # clinical keeps full text
+        assert "trial roster" in row.direct_quote
+
+    def test_scihub_access_method_rejected_in_fetch_url_pattern(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Sci-Hub source (even clean PDF text) is rejected at the
+        _fetch_url_pattern boundary by access_method — legal/provenance
+        (#1034 dual-audit P1). _looks_like_html_junk cannot see PDF
+        provenance, so this guard is the one that stops Sci-Hub PDF text."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        from src.tools.access_bypass import AccessResult
+
+        class _SciHubAB:
+            def __init__(self, *_a, **_kw) -> None:
+                pass
+
+            async def fetch_with_bypass(
+                self, url: str, prefer_legal: bool = True,
+            ) -> AccessResult:
+                return AccessResult(
+                    url=url,
+                    content="Clean paper body text from a pirate PDF." * 50,
+                    access_method="scihub_pdf",
+                    legal_alternative=None,
+                    success=True, metadata={},
+                )
+        monkeypatch.setattr(
+            "src.tools.access_bypass.AccessBypass", _SciHubAB,
+        )
+        content, final_url = ff._fetch_url_pattern("https://example.com/x.pdf")
+        assert content == ""  # Sci-Hub content rejected outright
+        assert final_url == ""
+
+    def test_prefer_abstract_off_keeps_fulltext(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Flag OFF (default): clean OA full text is still preferred —
+        preserves the M-66b-T clinical full-text path."""
+        clean_full = "Clean genuine full text. " * 120
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (clean_full, url),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+        assert row.quote_source == "oa_full_text"
+        assert "Clean genuine full text" in row.direct_quote

@@ -215,6 +215,67 @@ def policy_targeted_serper(
     return out
 
 
+def site_scoped_serper(
+    query: str,
+    *,
+    scopes: list[str],
+    source: str = "serper_scoped",
+    limit: int = PG_DOMAIN_MAX_HITS,
+) -> list[SearchCandidate]:
+    """Field-agnostic, JURISDICTION-driven Serper scope query (I-meta-005
+    Phase 2 #986). The generalized cousin of `policy_targeted_serper`: the
+    `site:` scopes are PASSED IN (resolved from `jurisdiction_scopes.yaml` by
+    the need-type router), NOT read from the US-only `_POLICY_SITE_FILTERS`
+    literal. NO host literal lives in this function — knowledge is in the DATA.
+
+    `scopes` is a list of bare canonical hosts (e.g. `["canada.ca", "gc.ca"]`);
+    each becomes a `site:<host>` clause. Empty scopes -> [] (no scope query is
+    fired; the caller falls back to core open_web + scholarly). Fail-open.
+    """
+    if not scopes:
+        return []
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
+    if not api_key:
+        return []
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_attempt("serper")
+    except Exception:
+        pass
+    site_clause = " OR ".join(f"site:{host}" for host in scopes)
+    q = f"{query} ({site_clause})"
+    try:
+        with httpx.Client(timeout=HTTP_TIMEOUT) as c:
+            r = c.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                json={"q": q, "num": max(1, min(limit, 20))},
+            )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except Exception as exc:
+        logger.debug("[domain_backends] scoped serper failed: %s", exc)
+        return []
+    out: list[SearchCandidate] = []
+    for item in (data.get("organic") or [])[:limit]:
+        url = item.get("link", "") or ""
+        if not url:
+            continue
+        out.append(SearchCandidate(
+            url=url,
+            title=item.get("title", "") or "",
+            snippet=item.get("snippet", "") or "",
+            source=source,
+        ))
+    try:
+        from src.polaris_graph.benchmark import pathB_capture as _pathb
+        _pathb.record_retrieval_query(source, q, [c.url for c in out])
+    except Exception:
+        pass
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DUE DILIGENCE: SEC EDGAR full-text search
 # ─────────────────────────────────────────────────────────────────────────────
@@ -389,6 +450,69 @@ def europe_pmc_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[Searc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PRIMARY LITERATURE: OpenAlex /works keyword SEARCH (I-meta-005 Phase 2 #986)
+# ─────────────────────────────────────────────────────────────────────────────
+# DISTINCT from the OpenAlex ENRICHMENT path in live_retriever
+# (`/works/doi:<doi>` per-URL lookup). This is the keyword DISCOVERY adapter:
+# `/works?search=<query>` returns NEW candidate works the keyword set surfaces,
+# re-keyed under the `primary_literature` need (NOT a domain). Keyless / free.
+# Fail-open: any error / empty body returns [] (the run degrades to the core
+# Serper + S2 + the other primary-lit adapters). The CORE baseline already runs
+# S2 over the sub-queries, so this ADDS non-baseline scholarly-graph breadth.
+
+_OPENALEX_WORKS_SEARCH = "https://api.openalex.org/works"
+
+
+def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
+    """Keyword-SEARCH OpenAlex /works for primary-literature discovery.
+
+    Emits a resolvable primary-literature URL per work in DOI -> OpenAlex-id
+    priority; a work with neither is SKIPPED. Candidates flow through the SAME
+    fetch / tier / strict_verify chokepoint as Serper/S2. Fail-open.
+    """
+    try:
+        data = _http_get_json(
+            _OPENALEX_WORKS_SEARCH,
+            params={
+                "search": query,
+                "per_page": max(1, min(limit, 25)),
+            },
+        )
+        if not data:
+            return []
+        results = data.get("results") or []
+        out: list[SearchCandidate] = []
+        for work in results:
+            doi = str(work.get("doi") or "").strip()
+            oa_id = str(work.get("id") or "").strip()
+            if doi:
+                # OpenAlex DOIs are full URLs (https://doi.org/...).
+                url = doi if doi.startswith("http") else f"https://doi.org/{doi}"
+            elif oa_id:
+                url = oa_id
+            else:
+                continue  # no resolvable id — skip
+            title = str(work.get("display_name") or "").strip()
+            out.append(SearchCandidate(
+                url=url,
+                title=title,
+                snippet="",
+                source="openalex_search",
+                metadata={
+                    "doi": doi or None,
+                    "openalex_id": oa_id or None,
+                    "year": work.get("publication_year"),
+                },
+            ))
+            if len(out) >= limit:
+                break
+        return out
+    except Exception as exc:
+        logger.warning("[domain_backends] openalex_search failed (fail-open): %s", exc)
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dispatcher
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -456,6 +580,120 @@ def run_domain_backends(
 
     return DomainBackendResult(
         domain=domain,
+        candidates=candidates,
+        backends_used=used,
+        per_backend_counts=per,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-meta-005 Phase 2 (#986): NEED-TYPE on-path dispatcher (field-agnostic)
+# ─────────────────────────────────────────────────────────────────────────────
+# Replaces `run_domain_backends` on the ON-path. Routes off the planner frame's
+# DECLARED evidence-needs + extracted jurisdiction via the need-type registry —
+# NO `if domain ==` branch reached on-mode (EXIT P2-4). OFF-mode the legacy
+# switch above runs byte-identically. The router import is LAZY (the router
+# imports adapters FROM this module — avoids a circular import at module load).
+
+
+@dataclass
+class NeedTypeBackendResult:
+    """On-path analogue of `DomainBackendResult` — carries NO domain field
+    (field-agnostic). `needs` records the declared evidence-needs routed."""
+
+    needs: list[str]
+    candidates: list[SearchCandidate]
+    backends_used: list[str]
+    per_backend_counts: dict[str, int]
+
+
+def run_need_type_backends(
+    *,
+    frame: Any,
+    research_question: str,
+    amplified_queries: list[str] | None = None,
+    max_hits_per_backend: int = PG_DOMAIN_MAX_HITS,
+    registry: Any = None,
+    anchor_seed: bool = True,
+) -> NeedTypeBackendResult:
+    """Run the need-type-routed discovery adapters for the planner `frame`.
+
+    The field-agnostic ON-path replacement for `run_domain_backends`. Resolves
+    the adapter union via `need_type_router.route_needs_to_adapters(frame)`
+    (NO domain literal), then runs each adapter with the SAME dedupe-by-URL +
+    per-backend cap discipline as the legacy switch (brief §2.5).
+
+    Validation note (brief §2.4 P2-note-1): a MALFORMED frame
+    (`evidence_needs` not in the enum / jurisdiction bad SHAPE) raises
+    `MalformedPlanError` from the router's up-front validation — that
+    propagates (it is NOT swallowed here). The live seam validates the frame
+    BEFORE any discovery; this function additionally surfaces a malformed frame
+    loudly if reached. ADAPTER exceptions stay fail-open (each `_run` swallows).
+
+    I-meta-005 Phase 4 (#988): `anchor_seed=False` (gap rounds) builds
+    `queries = amplified_queries` ONLY (NO `research_question` prepend) AND lifts
+    the 3-query amplified cap, so a gap round fires ALL gap sub-queries through
+    the need-type adapters (parity with the core seam). Default True =
+    OFF/on-single-pass byte-identical (anchor prepended, amplified capped at 3).
+    """
+    # Lazy imports (router imports adapters from THIS module).
+    from src.polaris_graph.discovery.need_type_router import (
+        route_needs_to_adapters,
+    )
+    from src.polaris_graph.planning.research_planner import (
+        validate_evidence_needs,
+    )
+
+    # route_needs_to_adapters validates SHAPE + need-enum up-front and re-raises
+    # MalformedPlanError (fail loud, NOT fail-open).
+    adapters = route_needs_to_adapters(frame, registry=registry)
+    # Record the normalized declared needs (after fallback) for telemetry.
+    declared_needs = validate_evidence_needs(
+        list(getattr(frame, "evidence_needs", []) or [])
+    )
+
+    if anchor_seed:
+        queries: list[str] = [research_question]
+        if amplified_queries:
+            queries.extend(amplified_queries[:3])   # cap amplified count (parity)
+    else:
+        # I-meta-005 Phase 4 (#988) gap round: NO anchor prepend, NO 3-query cap.
+        queries = list(amplified_queries or [])
+
+    candidates: list[SearchCandidate] = []
+    used: list[str] = []
+    per: dict[str, int] = {}
+
+    def _run(name: str, fn) -> None:
+        nonlocal candidates, used, per
+        try:
+            got: list[SearchCandidate] = []
+            for q in queries:
+                got.extend(fn(q, limit=max_hits_per_backend))
+                # I-meta-005 Phase 4 (#988): the result-count early-break is a
+                # legacy parity cap for the anchor + 3-amplified case. On a gap
+                # round (anchor_seed=False) every query is a DISTINCT under-covered
+                # facet that must get its own retrieval, so do NOT break early or a
+                # high-yield early facet would starve later specialized gap facets
+                # (P4-10). The gap-query list is already budget-truncated upstream,
+                # so firing all of them is bounded. anchor_seed=True (OFF / single
+                # pass) keeps the exact legacy break -> byte-identical.
+                if anchor_seed and len(got) >= max_hits_per_backend * 2:
+                    break
+            seen_urls = {c.url for c in candidates}
+            new = [c for c in got if c.url and c.url not in seen_urls]
+            candidates.extend(new)
+            used.append(name)
+            per[name] = len(new)
+        except Exception as exc:
+            logger.warning("[need_type_backends] %s failed (fail-open): %s", name, exc)
+            per[name] = 0
+
+    for adapter in adapters:
+        _run(adapter.name, adapter.run)
+
+    return NeedTypeBackendResult(
+        needs=declared_needs,
         candidates=candidates,
         backends_used=used,
         per_backend_counts=per,

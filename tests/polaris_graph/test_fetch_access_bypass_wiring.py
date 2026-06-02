@@ -61,7 +61,7 @@ def test_fetch_content_uses_access_bypass_from_sync_context(monkeypatch):
     import src.tools.access_bypass as ab
     monkeypatch.setattr(ab, "AccessBypass", _FakeBypass)
 
-    content, ok, _title, _body = live_retriever._fetch_content(
+    content, ok, _title, _body, _jsonld = live_retriever._fetch_content(
         "https://example.com/paper", max_chars=1000,
     )
 
@@ -85,7 +85,7 @@ def test_fetch_content_works_from_async_context(monkeypatch):
             "https://example.com/paper", max_chars=1000,
         )
 
-    content, ok, _title, _body = asyncio.run(_caller())
+    content, ok, _title, _body, _jsonld = asyncio.run(_caller())
     assert ok is True
     assert "fake markdown content" in content
 
@@ -102,13 +102,13 @@ def test_fetch_content_falls_back_on_bypass_exception(monkeypatch):
 
     def _fake_naive(url, max_chars):
         called["n"] += 1
-        return "naive fallback content", True, "", ""
+        return "naive fallback content", True, "", "", ""
 
     monkeypatch.setattr(
         live_retriever, "_fetch_content_httpx_naive", _fake_naive,
     )
 
-    content, ok, _title, _body = live_retriever._fetch_content(
+    content, ok, _title, _body, _jsonld = live_retriever._fetch_content(
         "https://example.com/paper", max_chars=1000,
     )
 
@@ -130,13 +130,13 @@ def test_fetch_content_returns_empty_on_skipped_s2_landing(monkeypatch):
 
     def _fake_naive(url, max_chars):
         naive_called["n"] += 1
-        return "naive got through anyway", True, "", ""
+        return "naive got through anyway", True, "", "", ""
 
     monkeypatch.setattr(
         live_retriever, "_fetch_content_httpx_naive", _fake_naive,
     )
 
-    content, ok, _title, _body = live_retriever._fetch_content(
+    content, ok, _title, _body, _jsonld = live_retriever._fetch_content(
         "https://www.semanticscholar.org/paper/abc", max_chars=1000,
     )
 
@@ -166,13 +166,13 @@ def test_fetch_content_times_out_falls_back(monkeypatch):
 
     def _fake_naive(url, max_chars):
         naive_called["n"] += 1
-        return "naive after timeout", True, "", ""
+        return "naive after timeout", True, "", "", ""
 
     monkeypatch.setattr(
         live_retriever, "_fetch_content_httpx_naive", _fake_naive,
     )
 
-    content, ok, _title, _body = live_retriever._fetch_content(
+    content, ok, _title, _body, _jsonld = live_retriever._fetch_content(
         "https://example.com/paper", max_chars=1000,
     )
 
@@ -188,7 +188,7 @@ def test_fetch_content_honors_disable_env(monkeypatch):
     monkeypatch.setenv("PG_DISABLE_ACCESS_BYPASS", "1")
 
     def _fake_naive(url, max_chars):
-        return "naive path content", True, "", ""
+        return "naive path content", True, "", "", ""
 
     monkeypatch.setattr(
         live_retriever, "_fetch_content_httpx_naive", _fake_naive,
@@ -198,7 +198,7 @@ def test_fetch_content_honors_disable_env(monkeypatch):
     import src.tools.access_bypass as ab
     monkeypatch.setattr(ab, "AccessBypass", _FakeBypass)
 
-    content, ok, _title, _body = live_retriever._fetch_content(
+    content, ok, _title, _body, _jsonld = live_retriever._fetch_content(
         "https://example.com/paper", max_chars=1000,
     )
 

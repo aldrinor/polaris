@@ -1,0 +1,54 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The judge contract is too loose: `judge(claim, fetched_span) -> Verdict` is not enough for §-1.1. It must emit a full traceable `ClaimRow` payload: verdict, citation id, exact supporting/refuting quote copied from the fetched span for VERIFIED/PARTIAL/FABRICATED, explicit no-support note for UNSUPPORTED, and unreachable subtype for UNREACHABLE. Validate quote substrings against fetched text."
+  - "Extraction must be atomic claim extraction, not sentence-level scoring. Compound sentences need separate factual atoms, otherwise the denominator and PARTIAL/UNSUPPORTED rates become methodology-dependent."
+  - "Severity assignment is missing. `ClaimRow` requires S0-S3, and lane1 excludes S3, so the design needs a pre-registered severity rule or reconciled severity audit before aggregation."
+  - "POLARIS `[#ev:]` spans must not be ignored for verdicts when they are the most specific emitted citation anchor. Use the same rule for every system: judge against the most specific fetchable cited text the system supplied. No auto-pass, but also no source-level fallback that lets a bad POLARIS span pass because the broader source supports the claim elsewhere."
+  - "Lane2 cannot execute from the locked-question file alone. That file says the five gold rubrics still need to be re-authored, §-1.1 verified, and hash-pinned."
+p2:
+  - "Uncited material factual claims should remain in the ledger, normally as UNSUPPORTED with `citation_id: null`, not silently excluded."
+  - "Unresolved author-year/reference citations should become UNREACHABLE(source_missing) and stay in the denominator; exclusion would rig the faithfulness lane."
+  - "If only title/reference metadata or an abstract is available, do not verify from that. Return the appropriate UNREACHABLE subtype unless the actual cited source text/span is fetched."
+rulings:
+  q1: "An injected judge is acceptable only if it is evidence-locked and produces traceable ClaimRow-compatible output. For the strongest clinical gate, the injected implementation can be the Claude+Codex reconciled audit adapter. A bare automated verdict-only LLM judge is not §-1.1-sufficient."
+  q2: "UNREACHABLE(source_missing), included in scoring. Do not exclude unresolvable citations."
+  q3: "Same evaluator path is fair, but only if each system is judged against its most specific emitted citation anchor. POLARIS `[#ev:]` spans may be used for extraction and must also define the cited span when available; they must not confer auto-verification."
+  q4: "Scope RACE out of this issue. This scorer may honestly report FACT faithfulness plus lane2 coverage only. A full DRB report-quality head-to-head needs a separate RACE follow-up."
+  q5: "The locked question file does not contain completed locked rubrics; it explicitly says to re-author the five gold rubrics, re-verify, and hash-pin them. Treat rubric construction as part of this work or as an execution blocker."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and validate the evidence-locked judge/reconciled-audit contract."
+  - "Implement atomic claim extraction and multi-citation handling."
+  - "Pre-register severity assignment."
+  - "Use most-specific cited spans consistently across systems."
+  - "Create, verify, and hash-pin the five lane2 gold rubrics."
+tokens used
+27,487
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The judge contract is too loose: `judge(claim, fetched_span) -> Verdict` is not enough for §-1.1. It must emit a full traceable `ClaimRow` payload: verdict, citation id, exact supporting/refuting quote copied from the fetched span for VERIFIED/PARTIAL/FABRICATED, explicit no-support note for UNSUPPORTED, and unreachable subtype for UNREACHABLE. Validate quote substrings against fetched text."
+  - "Extraction must be atomic claim extraction, not sentence-level scoring. Compound sentences need separate factual atoms, otherwise the denominator and PARTIAL/UNSUPPORTED rates become methodology-dependent."
+  - "Severity assignment is missing. `ClaimRow` requires S0-S3, and lane1 excludes S3, so the design needs a pre-registered severity rule or reconciled severity audit before aggregation."
+  - "POLARIS `[#ev:]` spans must not be ignored for verdicts when they are the most specific emitted citation anchor. Use the same rule for every system: judge against the most specific fetchable cited text the system supplied. No auto-pass, but also no source-level fallback that lets a bad POLARIS span pass because the broader source supports the claim elsewhere."
+  - "Lane2 cannot execute from the locked-question file alone. That file says the five gold rubrics still need to be re-authored, §-1.1 verified, and hash-pinned."
+p2:
+  - "Uncited material factual claims should remain in the ledger, normally as UNSUPPORTED with `citation_id: null`, not silently excluded."
+  - "Unresolved author-year/reference citations should become UNREACHABLE(source_missing) and stay in the denominator; exclusion would rig the faithfulness lane."
+  - "If only title/reference metadata or an abstract is available, do not verify from that. Return the appropriate UNREACHABLE subtype unless the actual cited source text/span is fetched."
+rulings:
+  q1: "An injected judge is acceptable only if it is evidence-locked and produces traceable ClaimRow-compatible output. For the strongest clinical gate, the injected implementation can be the Claude+Codex reconciled audit adapter. A bare automated verdict-only LLM judge is not §-1.1-sufficient."
+  q2: "UNREACHABLE(source_missing), included in scoring. Do not exclude unresolvable citations."
+  q3: "Same evaluator path is fair, but only if each system is judged against its most specific emitted citation anchor. POLARIS `[#ev:]` spans may be used for extraction and must also define the cited span when available; they must not confer auto-verification."
+  q4: "Scope RACE out of this issue. This scorer may honestly report FACT faithfulness plus lane2 coverage only. A full DRB report-quality head-to-head needs a separate RACE follow-up."
+  q5: "The locked question file does not contain completed locked rubrics; it explicitly says to re-author the five gold rubrics, re-verify, and hash-pin them. Treat rubric construction as part of this work or as an execution blocker."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and validate the evidence-locked judge/reconciled-audit contract."
+  - "Implement atomic claim extraction and multi-citation handling."
+  - "Pre-register severity assignment."
+  - "Use most-specific cited spans consistently across systems."
+  - "Create, verify, and hash-pin the five lane2 gold rubrics."

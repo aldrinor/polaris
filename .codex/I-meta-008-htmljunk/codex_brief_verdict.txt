@@ -1,0 +1,2 @@
+verdict: APPROVE
+# Dual independent audit iter2: Claude APPROVE + Codex APPROVE (flipped from REQUEST_CHANGES iter1). 3 P1s addressed: entity-scoped prefer-abstract + skip scrape + reject Sci-Hub. Residual access_bypass Sci-Hub gating -> #1035.

@@ -12,6 +12,12 @@ or missing output. `yes=UNGROUNDED` polarity lives in the contract, never re-der
 
 from __future__ import annotations
 
+# I-meta-008: the Sentinel fail-closed catch must NOT swallow a budget-cap breach. The hook in
+# RecordingTransport.complete raises BudgetExceededError from inside transport.complete(); a
+# typed re-raise guard ahead of the broad `except` keeps the cap a HARD ABORT (never a
+# fail-closed UNGROUNDED verdict). Mirrors entailment_judge.py:255-258.
+import src.polaris_graph.llm.openrouter_client as _orc
+
 from src.polaris_graph.roles.role_transport import (
     EvidenceDocument,
     RoleCallRecord,
@@ -89,6 +95,11 @@ def run_sentinel(
         result = parse_sentinel_score(response.raw_text)
         served_model = response.served_model
         raw_text = response.raw_text
+    except _orc.BudgetExceededError:
+        # I-meta-008: a budget-cap breach (raised by the RecordingTransport cost hook inside
+        # transport.complete) is a HARD ABORT, never a fail-closed UNGROUNDED verdict. Re-raise
+        # BEFORE the broad except below so the cap actually bites on the Sentinel call.
+        raise
     except Exception as exc:  # noqa: BLE001 — deliberate fail-closed; see comment below.
         # FAIL CLOSED: a transport-layer fault must not be read as GROUNDED. We capture a
         # record with the safe (UNGROUNDED, parsed_ok=False) result and the error text as

@@ -1,0 +1,404 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e7a1e-863d-7930-a694-6997bcd4de00
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL findings. Reserve P0/P1 for real execution risks.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+- Read ONLY `.codex/I-meta-002-q1d-truncation/codex_diff.patch`. Emit the YAML verdict block FIRST, then ≤6 sentences.
+
+## Output schema (emit FIRST)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+# DIFF gate — #958 (S2): corpus truncation = fail-loud gate signal. Patch: 5 src/script + 1 test, +186/-12 (non-test +94).
+
+You APPROVED the iter-2 design. Verify the patch implements it EXACTLY, honoring the two P2 guardrails:
+(P2a) the truncation check is inside gate_around_question's existing post-run GateError-handled block before
+any PASS write; (P2b) the retrieval counters are initialized BEFORE the loop so the empty/no-break path does
+not depend on a loop-local `i`.
+
+## What the patch does (5 files)
+1. `live_retriever.py`: `LiveRetrievalResult` gains `corpus_truncated: bool=False`, `candidates_total:int=0`,
+   `candidates_processed:int=0` (defaults preserve existing constructors). Counters initialized BEFORE the
+   post-fetch loop (P2b): `_corpus_truncated=False`, `_candidates_total=len(candidates)`,
+   `_candidates_processed=len(candidates)`. On the budget-break: `_corpus_truncated=True`,
+   `_candidates_processed=i` (the zero-based break index, P2). The three are passed to the returned result.
+2. `run_honest_sweep_r3.py`: new `_retrieval_manifest_section(retrieval)` is the SINGLE retrieval-section
+   writer (adds corpus_truncated + candidates_total/processed, all getattr-with-default). Used by BOTH
+   `_base_manifest_envelope` (abort paths) AND the inline success manifest's `"retrieval"` (the P1 fix — the
+   success path previously had its own inline block that bypassed the envelope).
+3. `pathB_capture.py`: `corpus_truncated_from_manifest(manifest) -> bool` (fail-safe False on absence/malformed;
+   zero `scripts` dependency, so both consumers can import it).
+4. `pathB_runner.gate_around_question`: at the TOP of the existing post-run `try` (before assert_post_run /
+   PASS write), read manifest.json and if corpus_truncated raise `GateError` → caught by the EXISTING
+   `except GateError` handler → writes `pathB_gate_result.json {verdict: FAIL}` + the `pathB_gate_INVALID`
+   sentinel (reuses the proven machinery; P2a).
+5. `score_run._check_polaris_gate`: backstop — reads manifest.json; if corpus_truncated raise InvalidRunError
+   (independent of the gate). `manifest["status"]` is UNCHANGED; the flag blocks BOTH PASS and scoring.
+
+## Evidence (verified by Claude main-thread, NO SPEND)
+- 6 new tests pass: predicate true/false/absent/None fail-safe; LiveRetrievalResult defaults not-truncated;
+  `_retrieval_manifest_section` carries truncation + counts (truncated and clean); scorer backstop raises
+  InvalidRunError("corpus truncated") on a truncated manifest; a CLEAN manifest does NOT trip the truncation
+  backstop (it fails later for the missing gate result — a different error).
+- 125 existing dr_benchmark pathB/gate tests pass (pathB_runner, pathB_run_gate, pathB_capture, pr3_pipeline,
+  gate_b_seam, offline_e2e) + 39 live_retriever/retrieval_trace tests pass. `py_compile` OK on all 5 files.
+
+## The real risks to rule on
+1. Does the SINGLE `_retrieval_manifest_section` writer guarantee corpus_truncated lands on EVERY manifest
+   path (abort + the inline success block)? (The success-path inline `"retrieval"` now calls it.)
+2. Is `candidates_processed` the break index `i` (P2), and are the counters init'd before the loop so a
+   no-break / empty-candidates run reports processed=total, truncated=False (P2b)?
+3. Does the gate check sit inside the existing GateError-handled block before any PASS write, reusing the
+   FAIL + INVALID-sentinel machinery (P2a)?
+4. Does the scorer backstop reject a truncated manifest independently, while a clean manifest is unaffected?
+5. Recording unconditional (no kill-switch); status unchanged; fail-safe predicate; backward-compatible
+   getattr so pre-#958 retrieval objects don't crash the writer?
+6. Anything beyond the 5 files / beyond the approved design?
+
+APPROVE iff the diff makes truncation a recorded, gate-and-scorer-blocking signal via the single shared
+manifest writer + the two named per-run consumers, honors P2a/P2b, keeps recording unconditional and status
+unchanged, and breaks no existing pathB/retriever test.
+
+codex
+I’ll inspect only the provided patch file and base the verdict strictly on that diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -LiteralPath '.codex/I-meta-002-q1d-truncation/codex_diff.patch'" in C:\POLARIS
+ succeeded in 757ms:
+diff --git a/scripts/dr_benchmark/score_run.py b/scripts/dr_benchmark/score_run.py
+index e63bcfdf..49c10de0 100644
+--- a/scripts/dr_benchmark/score_run.py
++++ b/scripts/dr_benchmark/score_run.py
+@@ -26,6 +26,7 @@ import sys
+ from pathlib import Path
+ 
+ from scripts.dr_benchmark.ledger_schema import load_ledger
++from src.polaris_graph.benchmark.pathB_capture import corpus_truncated_from_manifest
+ from src.polaris_graph.benchmark.claim_audit_scorer import (
+     ClaimRow,
+     RubricElement,
+@@ -62,6 +63,21 @@ def _check_polaris_gate(run_dir: Path) -> None:
+     """For POLARIS scoring: the gate must have written a PASS result + no INVALID sentinel."""
+     if not run_dir.exists():
+         raise InvalidRunError(f"polaris run_dir does not exist: {run_dir}")
++    # #958 (S2): scoring backstop — a truncated corpus is partial/invalid even if
++    # the Path-B gate somehow recorded PASS. Read manifest.json directly.
++    manifest_path = run_dir / "manifest.json"
++    if manifest_path.exists():
++        try:
++            _manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
++        except Exception:
++            _manifest = {}
++        if corpus_truncated_from_manifest(_manifest):
++            _rt = _manifest.get("retrieval", {})
++            raise InvalidRunError(
++                f"polaris run_dir corpus truncated (partial corpus): "
++                f"{_rt.get('candidates_processed')}/{_rt.get('candidates_total')} "
++                f"candidates processed ({run_dir})"
++            )
+     if (run_dir / "pathB_gate_INVALID").exists():
+         marker = (run_dir / "pathB_gate_INVALID").read_text(encoding="utf-8").strip()
+         raise InvalidRunError(
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 66801975..76156e97 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -234,6 +234,24 @@ def expected_str_for_abort(protocol: dict) -> str:
+     return ", ".join(parts) or "per scope template"
+ 
+ 
++def _retrieval_manifest_section(retrieval) -> dict:
++    """#958 (S2): the SINGLE source of truth for a manifest's "retrieval"
++    section. Used by BOTH `_base_manifest_envelope` (abort paths) AND the
++    inline success-path manifest, so the corpus-truncation flag + counts can
++    never be omitted on one path. All getattr with defaults (backward
++    compatible with pre-#958 retrieval objects)."""
++    return {
++        "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
++        "fetched": getattr(retrieval, "candidates_fetched", 0),
++        "failed": getattr(retrieval, "candidates_failed_fetch", 0),
++        "api_calls": getattr(retrieval, "api_calls", {}),
++        # #958: fail-loud corpus-truncation signal (was log-only).
++        "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
++        "candidates_total": getattr(retrieval, "candidates_total", 0),
++        "candidates_processed": getattr(retrieval, "candidates_processed", 0),
++    }
++
++
+ def _base_manifest_envelope(
+     *,
+     run_id: str,
+@@ -258,12 +276,7 @@ def _base_manifest_envelope(
+         "budget_cap_usd": PG_MAX_COST_PER_RUN,
+     }
+     if retrieval is not None:
+-        env["retrieval"] = {
+-            "pre_filter": getattr(retrieval, "total_candidates_pre_filter", 0),
+-            "fetched": getattr(retrieval, "candidates_fetched", 0),
+-            "failed": getattr(retrieval, "candidates_failed_fetch", 0),
+-            "api_calls": getattr(retrieval, "api_calls", {}),
+-        }
++        env["retrieval"] = _retrieval_manifest_section(retrieval)
+     return env
+ 
+ 
+@@ -3345,12 +3358,10 @@ async def run_one_query(
+             # BUG-M-201: generator-visible evidence provenance.
+             "evidence_selection": evidence_selection.to_dict(),
+             "protocol_sha256": scope.protocol_sha256,
+-            "retrieval": {
+-                "pre_filter": retrieval.total_candidates_pre_filter,
+-                "fetched": retrieval.candidates_fetched,
+-                "failed": retrieval.candidates_failed_fetch,
+-                "api_calls": retrieval.api_calls,
+-            },
++            # #958 (S2): use the shared retrieval-section writer so the
++            # corpus-truncation flag + counts land on the SUCCESS path too
++            # (this inline block previously bypassed _base_manifest_envelope).
++            "retrieval": _retrieval_manifest_section(retrieval),
+             "corpus": {
+                 "count": dist.total_sources,
+                 "tier_fractions": dist.tier_fractions,
+diff --git a/src/polaris_graph/benchmark/pathB_capture.py b/src/polaris_graph/benchmark/pathB_capture.py
+index 3a9c057a..2e30a598 100644
+--- a/src/polaris_graph/benchmark/pathB_capture.py
++++ b/src/polaris_graph/benchmark/pathB_capture.py
+@@ -29,6 +29,19 @@ from typing import Iterator
+ 
+ logger = logging.getLogger(__name__)
+ 
++
++def corpus_truncated_from_manifest(manifest: dict) -> bool:
++    """#958 (S2): True iff a run's manifest records a truncated corpus (the
++    post-fetch loop budget broke mid-corpus, leaving later candidates
++    unclassified). Fail-safe False on absence/malformed input — a pre-#958
++    manifest (no flag) is not falsely rejected; the flag is the positive signal
++    a per-run consumer (Path-B gate + scorer) blocks on."""
++    try:
++        return bool(manifest.get("retrieval", {}).get("corpus_truncated", False))
++    except Exception:
++        return False
++
++
+ # Run-scoped collectors. The contextvars hold REFERENCES to a shared list/set; capture
+ # mutates them in place so appends inside asyncio child tasks (which copy the context by
+ # reference) remain visible at the top level where the runner reads them.
+diff --git a/src/polaris_graph/benchmark/pathB_runner.py b/src/polaris_graph/benchmark/pathB_runner.py
+index dd0d4062..7bb6aa83 100644
+--- a/src/polaris_graph/benchmark/pathB_runner.py
++++ b/src/polaris_graph/benchmark/pathB_runner.py
+@@ -197,6 +197,22 @@ def gate_around_question(
+         raise
+ 
+     try:
++        # #958 (S2): a truncated corpus (post-fetch loop budget broke mid-corpus)
++        # is a fail-loud non-clean signal — block PASS BEFORE the assert/PASS write.
++        # Reuses the existing GateError handler below (→ FAIL result + INVALID sentinel).
++        try:
++            _manifest = json.loads(
++                (run_dir / "manifest.json").read_text(encoding="utf-8")
++            )
++        except Exception:
++            _manifest = {}
++        if _capture.corpus_truncated_from_manifest(_manifest):
++            _rt = _manifest.get("retrieval", {})
++            raise GateError(
++                "corpus truncated — post-fetch loop budget broke mid-corpus "
++                f"({_rt.get('candidates_processed')}/{_rt.get('candidates_total')} "
++                "candidates processed); run is partial, not full-power"
++            )
+         calls = [LLMCall(**c) for c in _capture.collected_calls()]
+         backends = _capture.attempted_backends()
+         result = assert_post_run(
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 93b9a0f2..8da29ea1 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -75,6 +75,12 @@ class LiveRetrievalResult:
+     candidates_failed_fetch: int
+     api_calls: dict[str, int] = field(default_factory=dict)
+     notes: list[str] = field(default_factory=list)
++    # #958 (S2): fail-loud corpus-truncation signal. True when the post-fetch
++    # loop budget (PG_POST_FETCH_LOOP_BUDGET) broke mid-corpus, leaving later
++    # candidates unclassified. Defaults keep existing constructors valid.
++    corpus_truncated: bool = False
++    candidates_total: int = 0
++    candidates_processed: int = 0
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -1692,6 +1698,13 @@ def run_live_retrieval(
+     _enrich_stats: dict[str, int] = {}
+     _enrich_disabled = False
+ 
++    # #958 (S2): corpus-truncation counters. Initialized BEFORE the loop so the
++    # empty/no-break path does not depend on a loop-local `i` (Codex P2). Default
++    # = "processed all" / not truncated; the budget-break below overrides.
++    _corpus_truncated = False
++    _candidates_total = len(candidates)
++    _candidates_processed = len(candidates)
++
+     for i, cand in enumerate(candidates):
+         if time.monotonic() > _loop_deadline:
+             logger.warning(
+@@ -1699,6 +1712,11 @@ def run_live_retrieval(
+                 "at candidate %d/%d (%d already classified)",
+                 i, len(candidates), len(classified_sources),
+             )
++            # #958: record the truncation as a fail-loud signal (was log-only).
++            # candidates_processed = the zero-based break index i = post-filter
++            # candidates whose loop iteration began before the cutoff (Codex P2).
++            _corpus_truncated = True
++            _candidates_processed = i
+             break
+         logger.info(
+             "[live_retriever] post-fetch candidate %d/%d %s",
+@@ -1838,4 +1856,7 @@ def run_live_retrieval(
+         candidates_failed_fetch=failed_fetch,
+         api_calls=api_calls,
+         notes=notes,
++        corpus_truncated=_corpus_truncated,
++        candidates_total=_candidates_total,
++        candidates_processed=_candidates_processed,
+     )
+diff --git a/tests/polaris_graph/test_corpus_truncation_gate.py b/tests/polaris_graph/test_corpus_truncation_gate.py
+new file mode 100644
+index 00000000..5c8adee9
+--- /dev/null
++++ b/tests/polaris_graph/test_corpus_truncation_gate.py
+@@ -0,0 +1,97 @@
++"""Tests for the #958 fail-loud corpus-truncation gate signal. NO network / NO spend.
++
++Asserts truncation is no longer a silent log WARNING: it is carried on LiveRetrievalResult, recorded in the
++manifest's retrieval section by the SINGLE shared writer, exposed by a fail-safe predicate, and treated as
++partial/invalid by the scorer backstop.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.benchmark.pathB_capture import corpus_truncated_from_manifest
++from src.polaris_graph.retrieval.live_retriever import LiveRetrievalResult
++
++
++class _Retr:
++    """Minimal retrieval-like object for the manifest-section writer."""
++    def __init__(self, truncated, total, processed):
++        self.total_candidates_pre_filter = 50
++        self.candidates_fetched = processed
++        self.candidates_failed_fetch = 0
++        self.api_calls = {"fetch": processed}
++        self.corpus_truncated = truncated
++        self.candidates_total = total
++        self.candidates_processed = processed
++
++
++# ── predicate ────────────────────────────────────────────────────────────
++def test_predicate_true_when_flagged():
++    assert corpus_truncated_from_manifest({"retrieval": {"corpus_truncated": True}}) is True
++
++
++def test_predicate_false_when_clean_or_absent():
++    assert corpus_truncated_from_manifest({"retrieval": {"corpus_truncated": False}}) is False
++    assert corpus_truncated_from_manifest({"retrieval": {}}) is False  # pre-#958 manifest
++    assert corpus_truncated_from_manifest({}) is False
++    assert corpus_truncated_from_manifest(None) is False  # type: ignore[arg-type]  fail-safe
++
++
++# ── dataclass defaults ─────────────────────────────────────────────────────
++def test_live_retrieval_result_defaults_not_truncated():
++    r = LiveRetrievalResult(
++        classified_sources=[], evidence_rows=[], total_candidates_pre_filter=0,
++        candidates_kept_by_scope=0, candidates_kept_by_offtopic=0,
++        candidates_fetched=0, candidates_failed_fetch=0,
++    )
++    assert r.corpus_truncated is False
++    assert r.candidates_total == 0 and r.candidates_processed == 0
++
++
++# ── shared manifest-section writer ──────────────────────────────────────────
++def test_retrieval_manifest_section_carries_truncation():
++    # imported lazily — run_honest_sweep_r3 is a heavy script module
++    import importlib
++    sweep = importlib.import_module("scripts.run_honest_sweep_r3")
++    sec = sweep._retrieval_manifest_section(_Retr(truncated=True, total=50, processed=12))
++    assert sec["corpus_truncated"] is True
++    assert sec["candidates_total"] == 50
++    assert sec["candidates_processed"] == 12
++    clean = sweep._retrieval_manifest_section(_Retr(truncated=False, total=50, processed=50))
++    assert clean["corpus_truncated"] is False
++    assert clean["candidates_processed"] == 50
++
++
++# ── scorer backstop ─────────────────────────────────────────────────────────
++def _write_manifest(run_dir, truncated):
++    run_dir.mkdir(parents=True, exist_ok=True)
++    (run_dir / "manifest.json").write_text(
++        json.dumps({"status": "success", "retrieval": {
++            "corpus_truncated": truncated, "candidates_total": 50,
++            "candidates_processed": 12 if truncated else 50,
++        }}),
++        encoding="utf-8",
++    )
++
++
++def test_scorer_backstop_rejects_truncated(tmp_path):
++    from scripts.dr_benchmark.score_run import _check_polaris_gate, InvalidRunError
++    run_dir = tmp_path / "run_trunc"
++    _write_manifest(run_dir, truncated=True)
++    with pytest.raises(InvalidRunError) as exc:
++        _check_polaris_gate(run_dir)
++    assert "corpus truncated" in str(exc.value).lower()
++
++
++def test_scorer_backstop_clean_corpus_passes_truncation_check(tmp_path):
++    """A non-truncated manifest must NOT trip the truncation backstop; it proceeds to
++    the gate-artifact checks (which then fail for the MISSING gate result, a different error)."""
++    from scripts.dr_benchmark.score_run import _check_polaris_gate, InvalidRunError
++    run_dir = tmp_path / "run_clean"
++    _write_manifest(run_dir, truncated=False)
++    with pytest.raises(InvalidRunError) as exc:
++        _check_polaris_gate(run_dir)
++    # the error is about the missing gate result, NOT corpus truncation
++    assert "corpus truncated" not in str(exc.value).lower()
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+No findings. The patch implements the approved design: the shared retrieval manifest writer is used on both shown abort/envelope and success paths, truncation is recorded unconditionally with backward-compatible defaults, and manifest status is left unchanged. The live retriever counters are initialized before the loop and set `candidates_processed = i` on budget break, satisfying P2b. The gate check is inside the existing post-run `try` before assertion/PASS handling and raises `GateError`, satisfying P2a. The scorer backstop independently rejects a truncated manifest while clean/missing/malformed truncation signals remain fail-safe false as specified.
+tokens used
+12,481
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+No findings. The patch implements the approved design: the shared retrieval manifest writer is used on both shown abort/envelope and success paths, truncation is recorded unconditionally with backward-compatible defaults, and manifest status is left unchanged. The live retriever counters are initialized before the loop and set `candidates_processed = i` on budget break, satisfying P2b. The gate check is inside the existing post-run `try` before assertion/PASS handling and raises `GateError`, satisfying P2a. The scorer backstop independently rejects a truncated manifest while clean/missing/malformed truncation signals remain fail-safe false as specified.
