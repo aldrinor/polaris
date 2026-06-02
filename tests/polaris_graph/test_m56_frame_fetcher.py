@@ -1147,3 +1147,188 @@ class TestFrameRowContract:
         )
         with pytest.raises(Exception):  # FrozenInstanceError
             row.entity_id = "changed"  # type: ignore
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (8) OpenAlex abstract fallback (issue #1033)
+# ─────────────────────────────────────────────────────────────────────
+def _openalex_response(
+    *,
+    doi: str = "10.1056/NEJMoa2107519",
+    sentence: str = "Tirzepatide reduced HbA1c substantially in adults",
+    title: str = "Tirzepatide versus Semaglutide Once Weekly",
+    journal: str = "New England Journal of Medicine",
+    year: int = 2021,
+) -> dict[str, Any]:
+    """Minimal OpenAlex /works/{doi} object with an
+    abstract_inverted_index reconstructed from `sentence`."""
+    inv: dict[str, list[int]] = {}
+    for i, word in enumerate(sentence.split()):
+        inv.setdefault(word, []).append(i)
+    return {
+        "doi": f"https://doi.org/{doi}",
+        "title": title,
+        "display_name": title,
+        "publication_year": year,
+        "authorships": [
+            {"author": {"display_name": "Frias Juan P."}},
+        ],
+        "primary_location": {"source": {"display_name": journal}},
+        "abstract_inverted_index": inv,
+    }
+
+
+class TestOpenAlexParser:
+    def test_reconstruct_orders_by_position(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _reconstruct_inverted_abstract,
+        )
+        # positions: 0 hello, 1 world, 2 again, 3 then, 4 again
+        inv = {"world": [1], "hello": [0], "again": [2, 4], "then": [3]}
+        assert (
+            _reconstruct_inverted_abstract(inv)
+            == "hello world again then again"
+        )
+
+    def test_reconstruct_empty_or_bad_returns_none(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _reconstruct_inverted_abstract,
+        )
+        assert _reconstruct_inverted_abstract({}) is None
+        assert _reconstruct_inverted_abstract(None) is None
+        assert _reconstruct_inverted_abstract("not a dict") is None
+
+    def test_parse_openalex_response_extracts_fields(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _parse_openalex_response,
+        )
+        parsed = _parse_openalex_response(_openalex_response())
+        assert parsed["doi"] == "10.1056/nejmoa2107519"
+        assert "Tirzepatide" in parsed["abstract"]
+        assert parsed["year"] == 2021
+        assert parsed["journal"] == "New England Journal of Medicine"
+
+
+class TestOpenAlexFallback:
+    def test_fills_abstract_when_crossref_empty_and_no_pubmed(self) -> None:
+        """The Q72 root case: CrossRef has metadata but no abstract,
+        no OA, no PMID. OpenAlex's inverted-index abstract rescues the
+        slot from 'not extractable' (METADATA_ONLY) to ABSTRACT_ONLY."""
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.ABSTRACT_ONLY
+        assert row.quote_source == "openalex_abstract"
+        assert "Tirzepatide" in row.direct_quote
+        assert "reduced HbA1c" in row.direct_quote  # ordering preserved
+        assert any(
+            "openalex" in a.source for a in row.retrieval_attempts
+        )
+
+    def test_doi_mismatch_rejected_falls_to_metadata_only(self) -> None:
+        """OpenAlex returns a DIFFERENT DOI -> content rejected (we must
+        not extract from the wrong work) -> METADATA_ONLY, mismatch
+        logged. Mirrors the PubMed DOI-consistency guard."""
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200,
+             _openalex_response(doi="10.9999/WRONG.PAPER")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""
+        assert any(
+            "doi_mismatch" in a.outcome for a in row.retrieval_attempts
+        )
+
+    def test_oa_locator_but_paywalled_fulltext_openalex_rescues(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exact Q72 path: Unpaywall surfaces an OA locator, but the
+        PDF 403s (full-text fetch returns nothing). Without OpenAlex
+        the row was OPEN_ACCESS with an EMPTY quote -> 'not extractable'.
+        OpenAlex abstract now fills direct_quote."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://paywalled.example/article.pdf")),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "openalex_abstract"
+        assert "Tirzepatide" in row.direct_quote
+
+    def test_crossref_abstract_present_skips_openalex(self) -> None:
+        """When CrossRef already has an abstract, OpenAlex must NOT be
+        called (priority + no wasted request)."""
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.quote_source == "crossref_abstract"
+        assert not any("openalex" in u for u in transport.call_log)
+
+    def test_disabled_flag_skips_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PG_OPENALEX_FRAME_FALLBACK=0 disables the fallback ->
+        METADATA_ONLY, no OpenAlex request."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher."
+            "_OPENALEX_FRAME_FALLBACK_ENABLED",
+            False,
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(is_oa=False)),
+            ("api.openalex.org", 200, _openalex_response()),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert not any("openalex" in u for u in transport.call_log)
