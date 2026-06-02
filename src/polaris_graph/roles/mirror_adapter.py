@@ -201,11 +201,16 @@ def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
             "Mirror pass-2 JSON is missing the required 'classification' verdict "
             f"(keys={list(payload) if isinstance(payload, dict) else type(payload).__name__})"
         )
-    returned_hash = payload.get(_CONTENT_HASH_KEY)
     return MirrorPass2(
-        # Keep a model-returned hash (so a present-but-wrong hash still fails the binding); fall
-        # back to the caller-authoritative expected hash ONLY when the model omitted it.
-        content_hash=returned_hash if returned_hash else expected_content_hash,
+        # Salvage ONLY on genuine key ABSENCE. A PRESENT content_hash is kept verbatim — even an
+        # empty string or any other falsy/wrong value — so verify_pass2_binding still catches a
+        # present-but-MISMATCHED hash (Codex diff-gate P1: truthiness salvage would launder a
+        # present-but-empty hash past the binding guard). Omission is the only salvage path.
+        content_hash=(
+            payload[_CONTENT_HASH_KEY]
+            if _CONTENT_HASH_KEY in payload
+            else expected_content_hash
+        ),
         classification=payload[_CLASSIFICATION_KEY],
         rationale=payload.get(_RATIONALE_KEY),
     )

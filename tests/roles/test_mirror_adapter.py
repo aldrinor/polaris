@@ -213,6 +213,23 @@ def test_pass2_present_but_wrong_hash_still_fails_binding() -> None:
         run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
 
 
+def test_pass2_present_but_empty_hash_is_not_salvaged_fails_binding() -> None:
+    # Codex diff-gate P1: salvage is KEY-ABSENCE only. A present-but-EMPTY content_hash is a
+    # present-but-wrong hash; it must be kept verbatim (NOT overwritten with the expected) so the
+    # binding guard still trips. Truthiness salvage would have laundered "" past verify_pass2_binding.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    empty_hash_pass2 = RoleResponse(
+        raw_text=json.dumps({"content_hash": "", "classification": "grounded"}),
+        served_model=_MODEL,
+    )
+    transport = _SequencedTransport([pass1_response, empty_hash_pass2])
+    with pytest.raises(MirrorBindingError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
 # --- empty-both: no silent empty MirrorPass1 ---------------------------------------
 def test_empty_both_citation_sources_raises_mirror_citation_error() -> None:
     # No structured citations AND no <co> spans -> no grounded citation -> fail closed.
