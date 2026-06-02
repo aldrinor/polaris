@@ -195,6 +195,15 @@ _UNPAYWALL_BASE = "https://api.unpaywall.org/v2/"
 _PUBMED_EFETCH_BASE = (
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 )
+# OpenAlex /works/{doi} — issue #1033 abstract fallback. When CrossRef
+# carries no abstract and the OA full-text PDF is paywalled (403),
+# OpenAlex's abstract_inverted_index reliably holds the abstract for
+# indexed journal DOIs. DOI-driven; deterministic.
+_OPENALEX_WORK_BASE = "https://api.openalex.org/works/"
+_OPENALEX_FRAME_FALLBACK_ENABLED = (
+    os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
+    not in ("0", "false", "no", "off")
+)
 
 _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
 _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
@@ -360,6 +369,86 @@ def _parse_pubmed_xml(xml_text: str) -> dict[str, Any]:
         "abstract": abstract,
         "doi": pubmed_doi,
         "pmid": pubmed_pmid,
+    }
+
+
+def _reconstruct_inverted_abstract(inverted_index: Any) -> str | None:
+    """Reconstruct a plain-text abstract from an OpenAlex
+    `abstract_inverted_index` ({word: [pos, ...]}). Deterministic:
+    positions are unique within a work, so sort-by-position is a
+    total order -> same input yields byte-identical text.
+
+    Kept local (mirrors the proven reconstruction in
+    agents/searcher.py) so frame_fetcher stays free of the
+    non-deterministic keyword-retrieval stack per its module
+    determinism contract."""
+    if not isinstance(inverted_index, dict) or not inverted_index:
+        return None
+    word_positions: list[tuple[int, str]] = []
+    for word, positions in inverted_index.items():
+        if not isinstance(positions, (list, tuple)):
+            continue
+        for pos in positions:
+            if isinstance(pos, int):
+                word_positions.append((pos, word))
+    if not word_positions:
+        return None
+    word_positions.sort()
+    text = " ".join(w for _, w in word_positions).strip()
+    return text or None
+
+
+def _parse_openalex_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract abstract + metadata from an OpenAlex /works/{doi}
+    JSON object (issue #1033). Abstract is reconstructed from
+    abstract_inverted_index. Returns dict with keys: title, authors,
+    journal, year, abstract, doi (normalized, prefix-stripped,
+    lowercased). Values may be None/empty when absent."""
+    if not isinstance(data, dict):
+        return {}
+    abstract = _reconstruct_inverted_abstract(
+        data.get("abstract_inverted_index")
+    )
+
+    title = data.get("title") or data.get("display_name") or None
+    if isinstance(title, str):
+        title = title.strip() or None
+
+    authors: list[str] = []
+    for a in (data.get("authorships") or []):
+        if not isinstance(a, dict):
+            continue
+        au = a.get("author")
+        name = (au.get("display_name") or "").strip() if isinstance(au, dict) else ""
+        if name:
+            authors.append(name)
+
+    journal = None
+    pl = data.get("primary_location")
+    if isinstance(pl, dict):
+        src = pl.get("source")
+        if isinstance(src, dict):
+            journal = (src.get("display_name") or "").strip() or None
+
+    year = data.get("publication_year")
+    if not isinstance(year, int):
+        year = None
+
+    doi_raw = data.get("doi") or ""
+    doi_norm = doi_raw.lower().strip() if isinstance(doi_raw, str) else ""
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if doi_norm.startswith(prefix):
+            doi_norm = doi_norm[len(prefix):]
+            break
+    doi_norm = doi_norm.rstrip("/") or None
+
+    return {
+        "title": title,
+        "authors": tuple(authors),
+        "journal": journal,
+        "year": year,
+        "abstract": abstract,
+        "doi": doi_norm,
     }
 
 
@@ -640,6 +729,54 @@ def _call_pubmed(
         )
         return None, attempts, timings
     return body, attempts, timings
+
+
+def _call_openalex(
+    client: httpx.Client, doi: str
+) -> tuple[dict[str, Any] | None, list[RetrievalAttempt], list[RetrievalTiming]]:
+    """Deterministic OpenAlex /works/{doi} fetch (issue #1033).
+
+    Abstract fallback for journal DOIs where CrossRef returned no
+    abstract and the OA full-text PDF was paywalled (403). Uses the
+    same retry/attempt-logging discipline as the other callers so
+    M-60 manifest telemetry shows the OpenAlex attempt."""
+    email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+    url = _OPENALEX_WORK_BASE + "https://doi.org/" + _urlsafe_doi(doi)
+    r, outcome, attempts, timings = _request_with_retry(
+        client, "GET", "openalex", url, params={"mailto": email},
+    )
+    if outcome != "success" or r is None:
+        return None, attempts, timings
+    try:
+        data = r.json()
+    except ValueError:
+        last = attempts[-1]
+        attempts[-1] = RetrievalAttempt(
+            source=last.source, url=last.url,
+            attempt_index=last.attempt_index,
+            http_status=last.http_status,
+            outcome="error:invalid_json",
+        )
+        return None, attempts, timings
+    return data, attempts, timings
+
+
+def _pick_abstract(
+    crossref: str | None,
+    pubmed: str | None,
+    openalex: str | None,
+) -> tuple[str, str]:
+    """Choose the best available abstract text + its quote_source
+    label, in priority order: CrossRef (authoritative metadata
+    abstract) > PubMed (clinical) > OpenAlex (reconstructed fallback,
+    issue #1033). Returns ("", "none") when all are empty."""
+    if crossref:
+        return crossref, "crossref_abstract"
+    if pubmed:
+        return pubmed, "pubmed_abstract"
+    if openalex:
+        return openalex, "openalex_abstract"
+    return "", "none"
 
 
 def _urlsafe_doi(doi: str) -> str:
@@ -977,37 +1114,75 @@ def _fetch_frame_entity_inner(
                 journal = journal or parsed_pm.get("journal")
                 year = year or parsed_pm.get("year")
 
+    # Step 4: OpenAlex abstract fallback (issue #1033). When CrossRef
+    # carried no abstract, PubMed yielded none (or there was no PMID),
+    # and the OA full-text fetch failed (paywalled PDF 403'd), OpenAlex's
+    # abstract_inverted_index reliably holds the abstract for indexed
+    # journal DOIs (Acemoglu/Autor/Brynjolfsson/Eloundou all resolve).
+    # DOI-driven; no source allowlist; same DOI -> byte-identical text.
+    abstract_openalex: str | None = None
+    if (
+        _OPENALEX_FRAME_FALLBACK_ENABLED
+        and doi
+        and not abstract_crossref
+        and not abstract_pubmed
+        and not oa_full_text
+    ):
+        oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
+        attempts.extend(oa_attempts)
+        timings.extend(oa_timings)
+        if oa_meta is not None:
+            parsed_oa = _parse_openalex_response(oa_meta)
+            # DOI-consistency guard (mirrors the PubMed guard above):
+            # reject content when OpenAlex's own DOI disagrees with the
+            # bound DOI, so we never extract from the wrong work.
+            oa_doi = parsed_oa.get("doi") or ""
+            bound_doi_l = (doi or "").lower()
+            if oa_doi and oa_doi != bound_doi_l:
+                attempts.append(RetrievalAttempt(
+                    source="openalex",
+                    url=f"openalex:doi={bound_doi_l}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome=(
+                        f"error:doi_mismatch bound={bound_doi_l} "
+                        f"openalex_returned={oa_doi}"
+                    ),
+                ))
+            else:
+                abstract_openalex = parsed_oa.get("abstract")
+                title = title or parsed_oa.get("title")
+                authors = authors or parsed_oa.get("authors") or ()
+                journal = journal or parsed_oa.get("journal")
+                year = year or parsed_oa.get("year")
+
     # Decide provenance_class and direct_quote.
     # OPEN_ACCESS when Unpaywall surfaced ANY OA locator (PDF or
     # HTML landing). HTML-only is still fetchable by existing
     # POLARIS content fetch infrastructure at M-57; the distinction
     # from ABSTRACT_ONLY is that a full-text source exists.
     any_oa_url = oa_pdf_url or oa_html_url
+    # Best available abstract across CrossRef/PubMed/OpenAlex (#1033),
+    # with its honest quote_source label.
+    abstract_text, abstract_quote_source = _pick_abstract(
+        abstract_crossref, abstract_pubmed, abstract_openalex
+    )
     if any_oa_url:
         # V30 Phase-2 M-66b-T: when Step 2b succeeded in fetching
         # OA full text, use it as direct_quote (rich source for
-        # M-58's 9-field SURPASS extractions). Else fall back to
-        # abstract_crossref / abstract_pubmed (prior behavior).
+        # M-58's 9-field SURPASS extractions). Else fall back to the
+        # best resolved abstract (CrossRef/PubMed/OpenAlex).
         if oa_full_text:
             direct_quote = oa_full_text
             quote_source = "oa_full_text"
         else:
-            direct_quote = abstract_crossref or abstract_pubmed or ""
-            quote_source = (
-                "crossref_abstract"
-                if abstract_crossref
-                else ("pubmed_abstract" if abstract_pubmed else "none")
-            )
+            direct_quote = abstract_text
+            quote_source = abstract_quote_source
         provenance = ProvenanceClass.OPEN_ACCESS
         failure_reason = None
-    elif abstract_crossref:
-        direct_quote = abstract_crossref
-        quote_source = "crossref_abstract"
-        provenance = ProvenanceClass.ABSTRACT_ONLY
-        failure_reason = None
-    elif abstract_pubmed:
-        direct_quote = abstract_pubmed
-        quote_source = "pubmed_abstract"
+    elif abstract_text:
+        direct_quote = abstract_text
+        quote_source = abstract_quote_source
         provenance = ProvenanceClass.ABSTRACT_ONLY
         failure_reason = None
     elif title:  # we have metadata but no abstract, no OA
