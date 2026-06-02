@@ -4560,18 +4560,30 @@ async def run_one_query(
                 return _seam_parent_ctx.run(_run_under_ctx)
 
             _seam_held_reason = None
+            # Manage the executor MANUALLY (NOT `with`): a `with ThreadPoolExecutor` __exit__ calls
+            # shutdown(wait=True), which BLOCKS until the wedged worker finishes — defeating the
+            # timeout entirely (Codex diff-gate P1). shutdown(wait=False, cancel_futures=True) returns
+            # promptly so the held manifest is written AT PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS; the
+            # orphaned worker thread exits on its own per-call timeout. Mirrors audit_ir/parallel_fetch.py.
+            _seam_pool = _seam_futures.ThreadPoolExecutor(max_workers=1)
             try:
-                with _seam_futures.ThreadPoolExecutor(max_workers=1) as _seam_pool:
-                    four_role_result = _seam_pool.submit(_seam_worker).result(
-                        timeout=_seam_timeout
-                    )
+                four_role_result = _seam_pool.submit(_seam_worker).result(
+                    timeout=_seam_timeout
+                )
             except _seam_futures.TimeoutError:
                 _seam_held_reason = "seam_timeout"
             except Exception as _seam_exc:  # noqa: BLE001 - any seam failure must fail CLOSED
                 _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
             finally:
-                # Write the worker's run-cost delta back to the parent context so the budget cap
-                # accounts the verifier spend the seam billed inside its copied context.
+                # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
+                _seam_pool.shutdown(wait=False, cancel_futures=True)
+                # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
+                # `_seam_cost_holder`, so this write-back is EXACT. On the TIMEOUT path the worker is
+                # still running (holder == parent cost -> delta 0), so the in-flight verifier spend is
+                # NOT added to the parent cap — an acceptable tradeoff (Codex P2): the run is ABORTING
+                # (release HELD), the operator authorized spend, the orphaned worker's cost is bounded
+                # by its own per-call timeout, and prompt fail-closed termination outranks exact
+                # budget accounting on an already-aborted run.
                 _seam_delta = _seam_cost_holder[0] - _seam_parent_cost
                 if _seam_delta > 0:
                     _seam_cost_ctx.set(_seam_parent_cost + _seam_delta)
