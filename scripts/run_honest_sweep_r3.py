@@ -4524,6 +4524,7 @@ async def run_one_query(
             import concurrent.futures as _seam_futures
             import contextvars as _seam_cv
             from src.polaris_graph.llm.openrouter_client import (
+                BudgetExceededError as _SeamBudgetExceededError,
                 _RUN_COST_CTX as _seam_cost_ctx,
             )
             _seam_timeout = float(
@@ -4572,7 +4573,14 @@ async def run_one_query(
                 )
             except _seam_futures.TimeoutError:
                 _seam_held_reason = "seam_timeout"
-            except Exception as _seam_exc:  # noqa: BLE001 - any seam failure must fail CLOSED
+            except _SeamBudgetExceededError:
+                # A verifier cap breach (PG_MAX_COST_PER_RUN) MUST propagate to the existing outer
+                # abort_budget_exceeded handler (the clean budget-abort contract) — NOT be swallowed
+                # into a held seam_error (Codex diff-gate iter-2 P1). The worker's `finally` already
+                # updated the cost holder, so the `finally` below reconciles the full spend before
+                # this re-raises.
+                raise
+            except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
                 _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
             finally:
                 # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
