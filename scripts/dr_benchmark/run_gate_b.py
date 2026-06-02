@@ -434,6 +434,23 @@ async def run_gate_b_query(
     # benchmark/paid run ONLY here (gate-B entry), never globally — so the Phase-7
     # Regime-C-verified quantified section actually fires on the paid run.
     os.environ["PG_ENABLE_QUANTIFIED_ANALYSIS"] = "1"
+    # I-meta-008 (#1030): activate the contract-driven generation path ONLY for the
+    # Gate-B benchmark (entry-scoped, never global — mirrors the line above). Without
+    # PG_V30_PHASE2_ENABLED the pre-generation block at run_honest_sweep_r3.py:2779
+    # (compile_frame -> fetch_compiled_frame -> compose_outline_from_contract) never
+    # fires, so run 5 (a) missed every canonical journal the workforce.yaml contract
+    # names (Acemoglu/Autor/Frey-Osborne/Brynjolfsson/Eloundou) and (b) fell back to the
+    # clinical default section labels (Efficacy/Safety/Dose Response) instead of the
+    # contract section_order (Foundational_Theory/Empirical_Displacement/Generative_AI_Evidence).
+    # The three working V30 launchers (run_full_scale_v30_phase2.py, run_phase_g_full_scale.py,
+    # run_m_live_1_smoke.py) set this PAIR + the OA-fetch enhancers; we mirror them.
+    os.environ["PG_V30_PHASE2_ENABLED"] = "1"   # contract outline + canonical-entity grounding
+    os.environ["PG_V30_ENABLED"] = "1"          # V30 Phase-1 coverage report + Methods disclosure
+    # OA-abstract / full-text yield enhancers the working launchers pair with the V30 path; the
+    # canonical journals are paywalled, so Unpaywall (OA PDF) + Trafilatura (extraction) raise the
+    # span-verifiable abstract yield. `setdefault` so an explicit operator override still wins (LAW VI).
+    os.environ.setdefault("PG_UNPAYWALL_ENABLED", "1")
+    os.environ.setdefault("PG_TRAFILATURA_ENABLED", "1")
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:
