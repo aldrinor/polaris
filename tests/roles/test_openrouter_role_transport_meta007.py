@@ -648,26 +648,37 @@ def test_preflight_dispatcher_routes_to_self_host(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------
-# (f) I-meta-008 P1-2 (#1017): a reasoning verifier must NOT carry max_tokens (it would starve
-# xhigh reasoning — the Judge default is 16). Sentinel (reasoning-disabled) keeps its max_tokens.
+# (f) I-meta-008 FULL-POWER (CORRECTS #1017): a reasoning verifier must carry a GENEROUS top-level
+# max_tokens (default 16384), NOT have it popped — effort=xhigh allocates ~95% to reasoning and
+# max_tokens must be strictly higher so the bare verdict has room (popping it starved the verdict to
+# empty). Sentinel gets an explicit classifier budget instead of pop-and-hope on the provider default.
 # --------------------------------------------------------------------------------------
 @pytest.mark.parametrize("role,slug", [("judge", _JUDGE_SLUG), ("mirror", _MIRROR_SLUG)])
-def test_reasoning_role_strips_max_tokens(role, slug):
-    # The request carries max_tokens (Judge adapter sets _DEFAULT_MAX_TOKENS=16); the OpenRouter
-    # body for a reasoning role must DROP it (effort + max_tokens are mutually exclusive on
-    # OpenRouter, and 16 tokens would starve both the chain-of-thought AND the verdict).
+def test_reasoning_role_sets_generous_max_tokens(role, slug):
+    # The Judge adapter sets _DEFAULT_MAX_TOKENS=16; the transport must OVERRIDE it to the generous
+    # verifier budget (16384) so xhigh reasoning AND the bare verdict both fit.
     handler, seen = _recording_handler(served_model=slug, message={"content": "VERIFIED"})
     _make_transport(handler).complete(
         RoleRequest(role=role, model_slug=slug, prompt="decide", params={"max_tokens": 16})
     )
-    assert "max_tokens" not in seen["body"], f"{role}: max_tokens must be stripped for a reasoning role"
+    assert seen["body"]["max_tokens"] == 16384, f"{role}: reasoning role must get the generous verifier budget"
     # reasoning is still requested at MAX effort.
     assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
 
 
-def test_sentinel_keeps_max_tokens():
-    # Sentinel is reasoning-disabled (a classifier); the strip branch is skipped, so its small
-    # classifier max_tokens is preserved and no reasoning param is sent.
+def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
+    # LAW VI: the verifier reasoning budget is env-overridable.
+    monkeypatch.setenv("PG_VERIFIER_REASONING_MAX_TOKENS", "8192")
+    handler, seen = _recording_handler(served_model=_JUDGE_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide", params={"max_tokens": 16})
+    )
+    assert seen["body"]["max_tokens"] == 8192
+
+
+def test_sentinel_gets_explicit_classifier_budget():
+    # Sentinel is reasoning-disabled (a classifier); it gets an explicit output budget (default 256),
+    # not a pop-and-hope on the provider default, and no reasoning param is sent.
     handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "<score>no</score>"})
     _make_transport(handler).complete(
         RoleRequest(
@@ -680,5 +691,5 @@ def test_sentinel_keeps_max_tokens():
             params={"documents": [{"doc_id": "d1", "text": "ev"}], "max_tokens": 16},
         )
     )
-    assert seen["body"].get("max_tokens") == 16
+    assert seen["body"]["max_tokens"] == 256
     assert "reasoning" not in seen["body"]
