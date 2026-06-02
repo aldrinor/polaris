@@ -402,6 +402,14 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # I-bug-946 singleton-routing half (resolved per-role provider) is M4/PENDING and
         # intentionally NOT here.
         body["provider"] = {"require_parameters": True}
+        # I-meta-008 P1-2 (#1017): a reasoning verifier must NOT also carry `max_tokens`. OpenRouter
+        # treats `effort` and `max_tokens` as mutually exclusive, and the Judge's
+        # `_DEFAULT_MAX_TOKENS = 16` (judge_adapter.py) would STARVE xhigh reasoning — 16 tokens for
+        # BOTH the chain-of-thought AND the verdict. The docstring's "Effort-only (no max_tokens)"
+        # was aspirational until now; this makes it true for Mirror + Judge. The Sentinel classifier
+        # is reasoning-disabled (this branch is skipped for it), so its small classifier
+        # `max_tokens` is preserved.
+        body.pop("max_tokens", None)
     return body
 
 

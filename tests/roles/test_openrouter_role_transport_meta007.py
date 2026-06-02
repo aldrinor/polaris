@@ -645,3 +645,40 @@ def test_preflight_dispatcher_routes_to_self_host(monkeypatch):
     )
     run_gate_b.preflight_four_role_transport()
     assert called == {"openrouter": False, "self_host": True}
+
+
+# --------------------------------------------------------------------------------------
+# (f) I-meta-008 P1-2 (#1017): a reasoning verifier must NOT carry max_tokens (it would starve
+# xhigh reasoning — the Judge default is 16). Sentinel (reasoning-disabled) keeps its max_tokens.
+# --------------------------------------------------------------------------------------
+@pytest.mark.parametrize("role,slug", [("judge", _JUDGE_SLUG), ("mirror", _MIRROR_SLUG)])
+def test_reasoning_role_strips_max_tokens(role, slug):
+    # The request carries max_tokens (Judge adapter sets _DEFAULT_MAX_TOKENS=16); the OpenRouter
+    # body for a reasoning role must DROP it (effort + max_tokens are mutually exclusive on
+    # OpenRouter, and 16 tokens would starve both the chain-of-thought AND the verdict).
+    handler, seen = _recording_handler(served_model=slug, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(role=role, model_slug=slug, prompt="decide", params={"max_tokens": 16})
+    )
+    assert "max_tokens" not in seen["body"], f"{role}: max_tokens must be stripped for a reasoning role"
+    # reasoning is still requested at MAX effort.
+    assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
+
+
+def test_sentinel_keeps_max_tokens():
+    # Sentinel is reasoning-disabled (a classifier); the strip branch is skipped, so its small
+    # classifier max_tokens is preserved and no reasoning param is sent.
+    handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "<score>no</score>"})
+    _make_transport(handler).complete(
+        RoleRequest(
+            role="sentinel",
+            model_slug=_SENTINEL_SLUG,
+            messages=[
+                {"role": "assistant", "content": "claim"},
+                {"role": "user", "content": "<guardian>g</guardian>"},
+            ],
+            params={"documents": [{"doc_id": "d1", "text": "ev"}], "max_tokens": 16},
+        )
+    )
+    assert seen["body"].get("max_tokens") == 16
+    assert "reasoning" not in seen["body"]
