@@ -629,6 +629,13 @@ OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
 # asyncio.wait_for adds +30s grace period on top of these.
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
 LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
+# I-meta-008 FULL-POWER: the DeepSeek V4 Pro reasoning-first GENERATOR needs minutes per section
+# (observed up to 412s for ONE successful section; the 16384-token reasoning-first ceiling divided by
+# the ~11 tok/s slow band is ~24 min worst case). Give the WRITER its own generous, ceiling-justified
+# per-attempt timeout so it never inherits the cheap 90s shared default (which also governs verifier /
+# retrieval / embedding calls). The $ hard cap (PG_MAX_COST_PER_RUN), NOT this timeout, is the spend
+# backstop (operator directive 2026-06-02: full power; wasted time >> token cost).
+GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "1800"))
 
 # Retry
 MAX_RETRIES = 2
@@ -1506,7 +1513,17 @@ class OpenRouterClient:
 
         for attempt in range(MAX_RETRIES + 1):
             try:
-                actual_timeout = timeout or DEFAULT_TIMEOUT_SECONDS
+                # I-meta-008 FULL-POWER: a reasoning-first GENERATOR (DeepSeek V4 Pro) needs minutes
+                # per section (observed up to 412s for one success; ~24 min worst case at the slow
+                # token band). Default it to the generous writer timeout when the caller passes none,
+                # so a section is never killed by the cheap 90s/shared default. The $ hard cap, NOT
+                # the clock, is the spend backstop. Non-reasoning-first models keep the standard default.
+                _default_timeout = (
+                    GENERATOR_TIMEOUT_SECONDS
+                    if self.model in _REASONING_FIRST_MODELS
+                    else DEFAULT_TIMEOUT_SECONDS
+                )
+                actual_timeout = timeout or _default_timeout
 
                 if body.get("stream", True):
                     # Streaming path — accumulate SSE chunks

@@ -304,7 +304,10 @@ def role_reasoning_enabled(role: str) -> bool:
 
 
 # Reuse the same timeout knob the self-host transport + openrouter_client use (LAW VI).
-_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
+# I-meta-008 FULL-POWER: the reasoning verifiers (Mirror/Judge at effort=xhigh against a 16384-token
+# budget) take MINUTES per claim — give them their OWN generous timeout (default 900s/15min), not the
+# cheap 90s shared default (which also governs retrieval/embeddings). Env-overridable (LAW VI).
+_TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
 
 # LAW VI: base URL + key come from the SAME env vars openrouter_client reads (single source of
 # truth). Read lazily (function-level) so import never depends on env presence.
@@ -402,14 +405,19 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # I-bug-946 singleton-routing half (resolved per-role provider) is M4/PENDING and
         # intentionally NOT here.
         body["provider"] = {"require_parameters": True}
-        # I-meta-008 P1-2 (#1017): a reasoning verifier must NOT also carry `max_tokens`. OpenRouter
-        # treats `effort` and `max_tokens` as mutually exclusive, and the Judge's
-        # `_DEFAULT_MAX_TOKENS = 16` (judge_adapter.py) would STARVE xhigh reasoning — 16 tokens for
-        # BOTH the chain-of-thought AND the verdict. The docstring's "Effort-only (no max_tokens)"
-        # was aspirational until now; this makes it true for Mirror + Judge. The Sentinel classifier
-        # is reasoning-disabled (this branch is skipped for it), so its small classifier
-        # `max_tokens` is preserved.
-        body.pop("max_tokens", None)
+        # I-meta-008 FULL-POWER (CORRECTS #1017): a reasoning verifier MUST carry a GENEROUS top-level
+        # `max_tokens`, NOT have it popped. OpenRouter `effort=xhigh` allocates ~95% of `max_tokens`
+        # to the reasoning budget, and `max_tokens` MUST be strictly higher than that budget so the
+        # bare verdict has room (docs: best-practices/reasoning-tokens). It is `reasoning.effort` vs
+        # `reasoning.max_tokens` that are mutually exclusive — NOT top-level `max_tokens`. The prior
+        # #1017 fix popped it, so xhigh ate ~95% of an unknown provider default and STARVED the verdict
+        # to empty for a reasoning-first Mirror (GLM-5.1) / Judge (Qwen) -> fail-loud crash on the run.
+        # 16384 -> reasoning ~15564 + verdict room ~820 (generous for Mirror JSON + Judge enum).
+        body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "16384"))
+    else:
+        # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
+        # on an unknown provider default (no pop-and-hope). Small budget is plenty for a label verdict.
+        body["max_tokens"] = int(os.getenv("PG_SENTINEL_MAX_TOKENS", "256"))
     return body
 
 

@@ -75,8 +75,9 @@ _FOUR_ROLE_TRANSPORT_DEFAULT = _TRANSPORT_OPENROUTER
 # OpenRouter catalog endpoint (GET) for the benchmark-stage slug-resolution preflight.
 _OPENROUTER_MODELS_PATH = "/models"
 
-# httpx client timeout knob (LAW VI): same env var + fallback the transport uses.
-_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
+# httpx client timeout knob (LAW VI). I-meta-008 FULL-POWER: use the generous verifier timeout
+# (default 900s) so the client default never undercuts the reasoning verifiers' per-request budget.
+_TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
 
 
 def four_role_transport_mode() -> str:
