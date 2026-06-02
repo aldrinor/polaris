@@ -1490,3 +1490,105 @@ class TestOpenAlexThinStubRichest:
             )
         assert row.provenance_class == ProvenanceClass.METADATA_ONLY
         assert row.direct_quote == ""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (10) HTML/Sci-Hub junk full-text + prefer-abstract flag (issue #1034)
+# ─────────────────────────────────────────────────────────────────────
+_SCIHUB_HTML = (
+    '<!DOCTYPE html>\n<html>\n<head><title>Sci-Hub. Automation and New '
+    'Tasks</title></head>\n<body>' + ("nav " * 6000) + '</body></html>'
+)  # ~25K chars, looks_html True
+
+
+class TestHtmlJunkAndPreferAbstract:
+    def test_looks_like_html_junk_and_usable_helpers(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _looks_like_html_junk, _is_usable_full_text,
+        )
+        assert _looks_like_html_junk(_SCIHUB_HTML) is True
+        assert _looks_like_html_junk("<html><body>x</body></html>") is True
+        assert _looks_like_html_junk("Sci-Hub viewer page " * 50) is True
+        assert _looks_like_html_junk("Clean prose about automation." * 50) is False
+        assert _is_usable_full_text("Clean prose. " * 200) is True   # long+clean
+        assert _is_usable_full_text(_SCIHUB_HTML) is False           # junk
+        assert _is_usable_full_text("short") is False               # < threshold
+        assert _is_usable_full_text(None) is False
+
+    def test_scihub_html_fulltext_rejected_openalex_wins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE real run-6 bug: the OA fetch returns a 25K-char Sci-Hub HTML
+        page (passes any length check). It must be rejected as junk and the
+        clean OpenAlex abstract used instead. (flag OFF — junk rejection is
+        unconditional.)"""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (_SCIHUB_HTML, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://www.aeaweb.org/articles/pdf/x.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.quote_source == "openalex_abstract"  # NOT the HTML junk
+        assert "<!DOCTYPE" not in row.direct_quote
+        assert "Sci-Hub" not in row.direct_quote
+        assert "finding200" in row.direct_quote
+
+    def test_prefer_abstract_flag_uses_abstract_over_clean_fulltext(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With PG_FRAME_PREFER_ABSTRACT on (run_gate_b sets it), the clean
+        deterministic abstract is preferred over even a clean long OA scrape
+        — eliminating the non-deterministic-scrape dependency."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
+            True,
+        )
+        clean_full = "Clean genuine full text. " * 120  # >=1200, clean
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (clean_full, url),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),  # has abstract
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+        assert row.quote_source == "crossref_abstract"  # NOT oa_full_text
+        assert "tirzepatide" in row.direct_quote.lower()
+        assert "Clean genuine full text" not in row.direct_quote
+
+    def test_prefer_abstract_off_keeps_fulltext(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Flag OFF (default): clean OA full text is still preferred —
+        preserves the M-66b-T clinical full-text path."""
+        clean_full = "Clean genuine full text. " * 120
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (clean_full, url),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+        assert row.quote_source == "oa_full_text"
+        assert "Clean genuine full text" in row.direct_quote
