@@ -382,8 +382,14 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
     fail routing under `provider.require_parameters=True` — the evidence is already rendered into
     `messages` by `_normalize_messages`, so model-visibility is preserved. Then sets
     `reasoning = {"enabled": True, "effort": <_REASONING_EFFORT>}` — the openrouter_client
-    `reasoning_enabled` shape (openrouter_client.py:1424). Effort-only (no max_tokens) because
-    OpenRouter treats effort and max_tokens as mutually exclusive and "xhigh" is the MAX effort.
+    `reasoning_enabled` shape (openrouter_client.py:1424). Per OpenRouter docs the mutually
+    exclusive pair is `reasoning.effort` vs `reasoning.max_tokens`; the TOP-LEVEL `max_tokens` is
+    NOT exclusive with effort and MUST exceed the reasoning budget. Under `effort=xhigh` the
+    provider spends ~95% of top-level `max_tokens` on reasoning, so a popped/absent `max_tokens`
+    starves the verdict. I-meta-008 FULL-POWER therefore SETS a generous top-level `max_tokens`
+    (PG_VERIFIER_REASONING_MAX_TOKENS, default 16384) for the reasoning verifiers and an explicit
+    small classifier budget (PG_SENTINEL_MAX_TOKENS, default 256) for the non-reasoning Sentinel.
+    Source: https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
     """
     body = _build_body(request, model_slug, normalized_messages)
     # P1-4: strip OpenRouter-unsupported top-level keys (currently `documents`). The evidence is

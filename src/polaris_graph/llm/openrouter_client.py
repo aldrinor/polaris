@@ -2253,7 +2253,12 @@ class OpenRouterClient:
             reasoning_enabled=False,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+            # I-meta-008 FULL-POWER: pass the caller's timeout through UNCHANGED
+            # (None stays None) so _call_impl resolves GENERATOR_TIMEOUT_SECONDS
+            # for reasoning-first writers (DeepSeek V4 Pro). Substituting
+            # DEFAULT_TIMEOUT_SECONDS here killed the V4-Pro writer at 90s/600s and
+            # bypassed the generous-timeout branch entirely (Codex novel_p0).
+            timeout=timeout,
             reasoning_max_tokens=reasoning_max_tokens,
             reasoning_exclude=reasoning_exclude,
         )
@@ -2430,7 +2435,10 @@ class OpenRouterClient:
                     reasoning_enabled=False,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
+                    # I-meta-008 FULL-POWER: pass-through (see generate() above) so the
+                    # retry leg of a reasoning-first writer also gets the generous
+                    # GENERATOR_TIMEOUT_SECONDS instead of being capped at 90s/600s.
+                    timeout=timeout,
                 )
                 _retry_trace_id = result.trace_call_id
                 # I-gen-561 (#561) P2-4: the retry's captured record inherits
