@@ -66,6 +66,119 @@ if TYPE_CHECKING:
 logger = logging.getLogger("polaris_graph.contract_section_runner")
 
 
+# I-faith-001 Fix A: failure_reasons prefixes that mark a NUMERIC drop.
+# A sentence dropped for one of these reasons is a numeric fabrication
+# (a number/integer not present in the cited span) and must NEVER be
+# laundered back by the M-69 Fix #4 contract-entity rescue. The rescue
+# exists only to undo content-overlap false-drops on verbatim M-58 slot
+# prose. `failure_reasons` strings are "reason:entity[:detail]" — Fix D
+# appends a ":missing=[...]" detail to the integer reason, so the prefix
+# is extracted via split(":", 1)[0] to stay match-safe.
+_NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
+    "number_not_in_any_cited_span",
+    "no_integer_overlap_any_cited_span",
+})
+
+
+def _drop_is_numeric(sv: Any) -> bool:
+    """True iff a dropped SentenceVerification failed for a NUMERIC reason.
+
+    Inspects the `failure_reasons` LIST (there is no scalar drop_reason)
+    and returns True if ANY reason's prefix (the text before the first
+    ':') is a numeric-failure prefix. Used by the M-69 rescue loop to
+    exclude numeric fabrications from rescue (I-faith-001 Fix A).
+    """
+    failure_reasons = getattr(sv, "failure_reasons", None) or []
+    return any(
+        str(reason).split(":", 1)[0] in _NUMERIC_DROP_PREFIXES
+        for reason in failure_reasons
+    )
+
+
+def _verify_one_stream(
+    *,
+    raw_draft: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    contract_entity_ids: set[str],
+    rewrite_fn: Any,
+    strict_verify_fn: Any,
+    allow_rescue: bool,
+    stream_label: str,
+) -> tuple[list[Any], list[Any], list[Any], int, str]:
+    """Rewrite + strict-verify ONE provenance stream, optionally applying
+    the M-69 contract-entity rescue (I-faith-001 Fix B — stream separation).
+
+    The DETERMINISTIC stream (M-58 / M-70 verbatim-guarded slot prose) is
+    rescue-ELIGIBLE: ``allow_rescue=True`` runs the M-69 Fix #4 rescue with
+    the Fix A `_drop_is_numeric` guard, restoring content-overlap false-drops
+    while never laundering numeric fabrications.
+
+    The NARRATIVE stream (free-form `build_slot_narrative_prompt` LLM
+    paragraph) is rescue-INELIGIBLE: ``allow_rescue=False`` keeps EVERY
+    dropped sentence dropped, so a narrative sentence that fails
+    `verify_sentence_provenance` is never restored. This is the structural
+    fix that closes the run-9 leak: the rescue blanket no longer covers the
+    fabrication-prone stream.
+
+    Returns:
+        kept_sentences:   verified sentences (+ rescued, if allow_rescue)
+        rescued:          the rescued SVs (empty when allow_rescue is False)
+        dropped_final:    dropped SVs AFTER removing any rescued ones
+        total_in:         report.total_in (for the kept/dropped math)
+        rewritten_draft:  the span-token-rewritten draft for this stream
+
+    An empty `raw_draft` short-circuits to all-empty results (no rewrite /
+    verify call), which is the identical no-op behavior the disabled /
+    no-narrative case produced pre-Fix-B.
+    """
+    if not raw_draft:
+        return [], [], [], 0, ""
+
+    # Rewrite citation markers to span tokens (M-63 Fix #3 generalized
+    # regex picks up contract entity ids registered into evidence_pool by
+    # the integration layer).
+    rewritten_draft, _converted, _unverifiable = rewrite_fn(
+        raw_draft, evidence_pool,
+    )
+
+    # Strict verify — every deterministic sentence is `Field: value [#ev:...]`
+    # and the span comes from FrameRow.direct_quote.
+    report = strict_verify_fn(rewritten_draft, evidence_pool)
+    kept_sentences = list(getattr(report, "kept_sentences", []) or [])
+    dropped_sentences = list(getattr(report, "dropped_sentences", []) or [])
+    total_in = int(getattr(report, "total_in", 0) or 0)
+
+    rescued: list[Any] = []
+    if allow_rescue:
+        # M-69 Fix #4 rescue (deterministic stream only). Restore a dropped
+        # sentence iff its primary token resolves to a contract entity_id
+        # AND it did NOT drop for a numeric reason (Fix A). The legitimate
+        # content-overlap "not extractable" gap-disclosures (drop for
+        # no_content_word_overlap, not numeric) remain rescue-eligible.
+        for sv in dropped_sentences:
+            toks = getattr(sv, "tokens", None) or []
+            if not (toks and toks[0].evidence_id in contract_entity_ids):
+                continue
+            if _drop_is_numeric(sv):
+                # Numeric fabrication — never rescue.
+                continue
+            rescued.append(sv)
+        if rescued:
+            logger.info(
+                "[m63] M-69 Fix #4 (%s stream): rescued %d "
+                "strict_verify-dropped contract sentences "
+                "(M-58 already verified verbatim)",
+                stream_label, len(rescued),
+            )
+            kept_sentences.extend(rescued)
+
+    rescued_ids = {id(sv) for sv in rescued}
+    dropped_final = [
+        sv for sv in dropped_sentences if id(sv) not in rescued_ids
+    ]
+    return kept_sentences, rescued, dropped_final, total_in, rewritten_draft
+
+
 @dataclass
 class ContractSectionPlanExt:
     """Extended section plan carrying the contract info needed
@@ -366,7 +479,34 @@ async def run_contract_section(
 
     # Per-slot raw prose blocks (body-only — no headings) so the
     # text handed to strict_verify has no non-sentence lines.
-    raw_body_blocks: list[str] = []
+    #
+    # I-faith-001 Fix B (STREAM SEPARATION) + Fix C / regulatory: THREE
+    # parallel block lists, one per provenance stream:
+    #   - DETERMINISTIC (rescue-ELIGIBLE): the M-58 `render_slot_prose` output.
+    #     `parse_slot_fill_response` enforces `value == source_span`, so the
+    #     ENTIRE rendered prose is verbatim source text. The M-69 rescue's
+    #     premise — undo content-overlap false-drops on legitimately-verbatim
+    #     slot prose — holds ONLY for this stream.
+    #   - REGULATORY (rescue-INELIGIBLE): the M-70 `render_regulatory_prose`
+    #     output. Its parser verbatim-checks ONLY the one `source_span` phrase,
+    #     not the LLM-synthesized 50-80 word `value` paragraph — so it has the
+    #     SAME fabrication shape as the narrative stream and must NOT be
+    #     rescued.
+    #   - NARRATIVE (rescue-INELIGIBLE): the free-form
+    #     `build_slot_narrative_prompt` LLM paragraph (fabrication-prone — V4
+    #     Pro ignored the prompt's "strict_verify will reject hallucinations"
+    #     instruction and invented 14%/35%/attrition/CSAT/partial-equilibrium
+    #     in run-9).
+    # The three streams are verified SEPARATELY downstream so the M-69
+    # contract-entity rescue protects ONLY the deterministic stream — the
+    # regulatory and narrative sentences must pass `verify_sentence_provenance`
+    # on their own with NO rescue. Keeping them split here (rather than tagging
+    # a joined draft) means stream origin is DEFINITIONAL — which pass produced
+    # the kept sentence — with no fingerprint collision or sentence-split-seam
+    # risk.
+    raw_body_blocks: list[str] = []           # deterministic stream
+    regulatory_body_blocks: list[str] = []    # M-70 regulatory stream
+    narrative_body_blocks: list[str] = []     # narrative stream
 
     for slot in plan.slots:
         if not slot.entity_ids:
@@ -378,7 +518,10 @@ async def run_contract_section(
         slot_subsection[slot.slot_id] = slot.subsection_title
         slot_primary_entity[slot.slot_id] = slot.entity_ids[0]
 
-        slot_body_prose: list[str] = []
+        # I-faith-001 Fix B / Fix C: per-slot prose split by provenance stream.
+        slot_det_prose: list[str] = []       # deterministic (M-58 verbatim)
+        slot_reg_prose: list[str] = []       # M-70 regulatory LLM-synthesized
+        slot_narrative_prose: list[str] = []  # narrative LLM paragraph
         for entity_id in slot.entity_ids:
             all_entity_ids.append(entity_id)
             entity_to_slot_id[entity_id] = slot.slot_id
@@ -413,15 +556,36 @@ async def run_contract_section(
             # V31 dispatch: regulatory entities use prose render
             # (multi-sentence paragraphs per field), not the
             # M-58 `Field: value [id].` slot prose.
+            #
+            # I-faith-001 Fix C / regulatory classification: M-70
+            # `render_regulatory_prose` emits the LLM-SYNTHESIZED
+            # `field.value` (a 50-80 word paragraph). Its parser
+            # (`parse_regulatory_synthesis_response`) verbatim-checks ONLY the
+            # one `source_span` PHRASE against the segment — NOT the whole
+            # prose value — so a regulatory paragraph can carry LLM-introduced
+            # connective/qualitative content beyond the single verified phrase.
+            # That is the SAME fabrication shape as the free-form narrative
+            # stream, and UNLIKE the M-58 deterministic stream where
+            # `parse_slot_fill_response` enforces `value == source_span` (the
+            # entire rendered prose is verbatim source text). The M-69
+            # contract-entity rescue's premise — "undo content-overlap
+            # false-drops on legitimately-VERBATIM slot prose" — therefore does
+            # NOT hold for regulatory prose. Route it to the rescue-INELIGIBLE
+            # `slot_reg_prose` stream so a regulatory sentence that fails
+            # `verify_sentence_provenance` is never laundered back into `kept`.
             from .regulatory_synthesizer import (
                 is_regulatory_entity,
                 render_regulatory_prose,
             )
             if is_regulatory_entity(contract_entity):
-                prose = render_regulatory_prose(payload)
+                # Regulatory stream — rescue-INELIGIBLE (LLM-synthesized prose,
+                # only the source_span phrase is verbatim-verified).
+                slot_reg_prose.append(render_regulatory_prose(payload))
             else:
-                prose = render_slot_prose(payload)
-            slot_body_prose.append(prose)
+                # Deterministic stream: M-58 verbatim-substring-guarded prose
+                # (`parse_slot_fill_response` enforces value == source_span).
+                # Rescue-eligible.
+                slot_det_prose.append(render_slot_prose(payload))
 
             # v1.1 A.1 option 4c (2026-04-30): two-tier rendering.
             # Append an LLM-generated 200-300w narrative paragraph
@@ -432,10 +596,16 @@ async def run_contract_section(
             # contradiction_handling_grammar.
             #
             # Rollback: PG_USE_NARRATIVE_PARAGRAPH=0 disables.
-            # Default ON. Strict_verify gates the LLM output
-            # independently — if hallucination drift fails verify,
-            # the narrative paragraph drops without affecting the
-            # deterministic prose.
+            # Default ON.
+            #
+            # I-faith-001 Fix B: the narrative paragraph goes into the
+            # SEPARATE narrative stream (`slot_narrative_prose`), which is
+            # verified with NO M-69 rescue. Pre-Fix-B this prose was joined
+            # with the deterministic slot prose before verify, so the
+            # contract-entity rescue laundered fabricated narrative sentences
+            # (14%/35%/attrition) back into `kept` — the run-9 leak. Now a
+            # narrative sentence that fails `verify_sentence_provenance` drops
+            # for good and never reaches the rescue loop.
             #
             # v1.1 A.1 4c v3: also enable narrative for regulatory
             # entities — render_regulatory_prose already gives a
@@ -467,7 +637,8 @@ async def run_contract_section(
                         total_in_tok += narr_in
                         total_out_tok += narr_out
                         if narr_text and narr_text.strip():
-                            slot_body_prose.append(narr_text.strip())
+                            # Narrative stream — rescue-INELIGIBLE (Fix B).
+                            slot_narrative_prose.append(narr_text.strip())
                     except Exception as exc:
                         logger.warning(
                             "[m63] narrative-paragraph LLM call "
@@ -475,56 +646,126 @@ async def run_contract_section(
                             slot.slot_id, exc,
                         )
 
-        if slot_body_prose:
-            raw_body_blocks.append(" ".join(slot_body_prose))
+        if slot_det_prose:
+            raw_body_blocks.append(" ".join(slot_det_prose))
+        if slot_reg_prose:
+            regulatory_body_blocks.append(" ".join(slot_reg_prose))
+        if slot_narrative_prose:
+            narrative_body_blocks.append(" ".join(slot_narrative_prose))
 
-    # Body-only raw draft (no `### headings` — they'd poison
-    # strict_verify's content-overlap check).
-    raw_draft = " ".join(raw_body_blocks)
+    # Body-only raw drafts (no `### headings` — they'd poison
+    # strict_verify's content-overlap check), ONE PER STREAM.
+    # I-faith-001 Fix B / Fix C: the deterministic, regulatory, and narrative
+    # prose are kept in separate drafts and verified separately so the M-69
+    # rescue can be applied to the deterministic stream ONLY.
+    det_raw_draft = " ".join(raw_body_blocks)
+    regulatory_raw_draft = " ".join(regulatory_body_blocks)
+    narrative_raw_draft = " ".join(narrative_body_blocks)
 
-    # Rewrite citation markers to span tokens (M-63 Fix #3
-    # generalized regex picks up contract entity ids registered
-    # into evidence_pool by the integration layer).
-    rewritten_draft, converted, unverifiable = rewrite_fn(
-        raw_draft, evidence_pool,
+    contract_entity_ids = set(plan.contract_entities_by_id.keys())
+
+    # ── DETERMINISTIC stream (M-58 verbatim-guarded slot prose) ────────
+    # Rescue-ELIGIBLE: the M-69 Fix #4 rescue exists ONLY to undo
+    # content-overlap false-drops on legitimately-verbatim slot prose (the
+    # SURPASS-5 25K-char regression). `parse_slot_fill_response` enforces
+    # `value == source_span`, so the entire rendered prose is verbatim source
+    # text. Fix A's `_drop_is_numeric` guard keeps it from laundering numeric
+    # fabrications.
+    (
+        det_kept_sentences,
+        det_rescued,
+        det_dropped_final,
+        det_total_in,
+        det_rewritten_draft,
+    ) = _verify_one_stream(
+        raw_draft=det_raw_draft,
+        evidence_pool=evidence_pool,
+        contract_entity_ids=contract_entity_ids,
+        rewrite_fn=rewrite_fn,
+        strict_verify_fn=strict_verify_fn,
+        allow_rescue=True,
+        stream_label="deterministic",
     )
 
-    # Strict verify — every sentence is `Field: value [#ev:...]`
-    # and the span comes from FrameRow.direct_quote.
-    #
-    # V30 Phase-2 M-69 Fix #4 (Codex run-9 audit — SURPASS-5
-    # regression): when M-66b-T expanded direct_quote from
-    # ~500-char abstract to 25K-char full text, strict_verify's
-    # content-overlap check began dropping legitimate M-58
-    # extractions (e.g., SURPASS-5 went from 4 fields rendered
-    # in run-7 → 0 sentences kept in run-9). M-58 already
-    # enforces anti-fabrication via verbatim-substring of
-    # direct_quote (whitespace-tolerant since M-66a-R), making
-    # the strict_verify content-overlap check redundant for
-    # contract-slot sentences.
-    #
-    # Recovery path: any strict_verify-dropped sentence whose
-    # primary token resolves to a contract entity_id is RESTORED
-    # to kept_sentences. Non-contract sentences (legacy free-form
-    # synthesis) keep the strict_verify outcome unchanged.
-    report = strict_verify_fn(rewritten_draft, evidence_pool)
-    kept_sentences = list(getattr(report, "kept_sentences", []) or [])
-    dropped_sentences = list(getattr(report, "dropped_sentences", []) or [])
-    contract_entity_ids = set(plan.contract_entities_by_id.keys())
-    rescued: list[Any] = []
-    for sv in dropped_sentences:
-        toks = getattr(sv, "tokens", None) or []
-        if toks and toks[0].evidence_id in contract_entity_ids:
-            rescued.append(sv)
-    if rescued:
-        logger.info(
-            "[m63] M-69 Fix #4: rescued %d strict_verify-dropped "
-            "contract sentences (M-58 already verified verbatim)",
-            len(rescued),
+    # ── REGULATORY stream (M-70 `render_regulatory_prose` LLM synthesis) ─
+    # Rescue-INELIGIBLE (Fix C / regulatory classification): the M-70 parser
+    # verbatim-checks ONLY the one `source_span` phrase, not the full
+    # LLM-synthesized prose value — so a regulatory sentence carries the SAME
+    # fabrication risk as the narrative stream. Each regulatory sentence must
+    # pass `verify_sentence_provenance` on its own with NO rescue.
+    (
+        reg_kept_sentences,
+        _reg_rescued,  # always empty — rescue disabled for this stream
+        reg_dropped_final,
+        reg_total_in,
+        reg_rewritten_draft,
+    ) = _verify_one_stream(
+        raw_draft=regulatory_raw_draft,
+        evidence_pool=evidence_pool,
+        contract_entity_ids=contract_entity_ids,
+        rewrite_fn=rewrite_fn,
+        strict_verify_fn=strict_verify_fn,
+        allow_rescue=False,
+        stream_label="regulatory",
+    )
+
+    # ── NARRATIVE stream (free-form `build_slot_narrative_prompt` LLM) ──
+    # Rescue-INELIGIBLE (Fix B): this is the fabrication-prone stream. Each
+    # narrative sentence must pass `verify_sentence_provenance` on its own;
+    # any drop (numeric OR qualitative content-overlap) stays dropped. This
+    # closes the run-9 leak at the structural level — Fix A alone could not
+    # catch the qualitative fabrications (attrition/CSAT/partial-equilibrium)
+    # because they carry no fabricated integer.
+    (
+        narr_kept_sentences,
+        _narr_rescued,  # always empty — rescue disabled for this stream
+        narr_dropped_final,
+        narr_total_in,
+        narr_rewritten_draft,
+    ) = _verify_one_stream(
+        raw_draft=narrative_raw_draft,
+        evidence_pool=evidence_pool,
+        contract_entity_ids=contract_entity_ids,
+        rewrite_fn=rewrite_fn,
+        strict_verify_fn=strict_verify_fn,
+        allow_rescue=False,
+        stream_label="narrative",
+    )
+
+    # ── Merge the three streams ────────────────────────────────────────
+    # The downstream regroup (~line 700) re-buckets every kept sentence into
+    # its originating slot via the first token's evidence_id, so cross-slot
+    # ordering is reconstructed regardless of merge order. WITHIN a slot, all
+    # deterministic sentences precede regulatory, which precede narrative
+    # (pre-Fix-B a multi-entity slot interleaved det(e1),narr(e1),...; now it
+    # is det(...),reg(...),narr(...)). This reordering is faithfulness-neutral
+    # — the same verified sentences, only the in-slot sequence and citation
+    # numbering may shift. Deterministic-first is the intended ordering
+    # (verbatim slot facts lead, regulatory + narrative depth follow). A slot
+    # is either M-58 OR M-70 per entity, so det and reg do not co-occur for the
+    # same entity — only the merge ORDER is defined here, not a mixing rule.
+    kept_sentences = (
+        det_kept_sentences + reg_kept_sentences + narr_kept_sentences
+    )
+    rescued = det_rescued  # regulatory + narrative streams contribute no rescues
+    # Combined raw + rewritten drafts (telemetry parity with pre-Fix-B).
+    raw_draft = " ".join(
+        d for d in (det_raw_draft, regulatory_raw_draft, narrative_raw_draft)
+        if d
+    )
+    rewritten_draft = " ".join(
+        d for d in (
+            det_rewritten_draft, reg_rewritten_draft, narr_rewritten_draft,
         )
-        kept_sentences.extend(rescued)
+        if d
+    )
+    # Combined dropped list (excludes deterministic rescues by construction).
+    dropped_sentences = (
+        det_dropped_final + reg_dropped_final + narr_dropped_final
+    )
+    total_in = det_total_in + reg_total_in + narr_total_in
     kept = len(kept_sentences)
-    dropped = report.total_in - kept
+    dropped = total_in - kept
 
     # ── resolve provenance → [N] citations + biblio_slice ──────
     # `resolve_provenance_to_citations` flattens into a single
@@ -682,9 +923,14 @@ async def run_contract_section(
 
     # I-gen-005 Step 1.5 iter-2 (Codex P1): populate final per-sentence
     # telemetry fields so verification_details.json reflects contract
-    # sections' kept/dropped state. Rescued sentences (line 525) move
-    # from `dropped_sentences` to `kept_sentences`, so the FINAL dropped
-    # list excludes them.
+    # sections' kept/dropped state.
+    #
+    # I-faith-001 Fix B: `dropped_sentences` is already
+    # `det_dropped_final + narr_dropped_final` — the per-stream helper
+    # returns each stream's POST-rescue dropped list, so deterministic
+    # rescues are already excluded. The `rescued_ids` filter is therefore
+    # a defensive no-op (kept for clarity that rescues are never in the
+    # final dropped list).
     rescued_ids = {id(sv) for sv in rescued}
     final_dropped_svs = [
         sv for sv in dropped_sentences if id(sv) not in rescued_ids

@@ -1342,7 +1342,18 @@ def verify_sentence_provenance(
                 direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
                 span_text = direct_quote[tok.start:tok.end]
                 aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
-            if sentence_numbers and not (sentence_numbers & aggregated_span_numbers):
+            # I-faith-001 Fix D (integer SUBSET, not intersection): the
+            # prior check `sentence_numbers and not (sentence_numbers &
+            # aggregated_span_numbers)` passed a sentence if ANY single
+            # integer overlapped the span — so "15 percent over 35 weeks"
+            # would pass against a 15-only span on the 15 alone, smuggling
+            # the fabricated 35. Mirror the decimal path above: EVERY
+            # sentence integer must be present in the cited spans. Any
+            # missing integer triggers the local-window fallback (searched
+            # for the MISSING integers only, with content-word overlap);
+            # if it is still not locally grounded, the sentence fails.
+            missing_int_in_span = sentence_numbers - aggregated_span_numbers
+            if sentence_numbers and missing_int_in_span:
                 # Same local-window fallback for integer-only sentences
                 # (Codex P1 #5 safety: integer fallback was unsafe with
                 # whole-doc check — one coincidental N/year/dose could
@@ -1358,8 +1369,11 @@ def verify_sentence_provenance(
                     # Codex iter 1 P1 fix: pass the integer regex
                     # (_NUMBER_RE) so token-exact matching uses the same
                     # tokenization the sentence_numbers set used.
+                    # Fix D: search for the MISSING integers (subset),
+                    # not the full sentence_numbers set — the integers
+                    # already present in the span need no local rescue.
                     win = _find_local_support_window(
-                        sentence_numbers,
+                        missing_int_in_span,
                         sentence_content_for_window,
                         direct_quote,
                         window=400,
@@ -1374,13 +1388,15 @@ def verify_sentence_provenance(
                 if found_window:
                     logger.warning(
                         "[provenance] local_support_window_found_int "
-                        "ev=%s window=%d-%d — span_imprecise but "
-                        "locally grounded; passing",
+                        "ev=%s window=%d-%d missing=%s — span_imprecise "
+                        "but locally grounded; passing",
                         found_ev_id, found_window[0], found_window[1],
+                        sorted(missing_int_in_span),
                     )
                 else:
                     failures.append(
-                        f"no_integer_overlap_any_cited_span:{ev_ids}"
+                        f"no_integer_overlap_any_cited_span:{ev_ids}:"
+                        f"missing={sorted(missing_int_in_span)}"
                     )
 
         # Codex round 1 B-1: semantic grounding for non-numeric claims.

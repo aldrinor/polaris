@@ -605,7 +605,21 @@ def build_slot_narrative_prompt(
     existing audit-trail path) is emitted first by the caller,
     then this LLM prompt produces a 200-300 word narrative
     paragraph integrating the SAME extracted values into a
-    DR-grade paragraph. strict_verify still gates the LLM output.
+    DR-grade paragraph.
+
+    I-faith-001 Fix C — anti-fabrication guarantee (defense-in-depth):
+    The narrative paragraph is the fabrication-prone stream (run-9: V4
+    Pro invented 14%/35%/attrition/CSAT/partial-equilibrium against a
+    15%-only span). The HARD gate is structural, in the caller: every
+    narrative sentence is re-verified by `verify_sentence_provenance`
+    against the cited spans in the rescue-INELIGIBLE narrative stream
+    (`run_contract_section` passes `allow_rescue=False`), so any
+    sentence not entailed by the span is dropped and CANNOT be rescued
+    by the M-69 contract-entity rescue. This prompt tightening is the
+    SECOND layer — it instructs the LLM to RESTATE ONLY the provided
+    field payloads and to introduce NO new numbers or qualitative
+    specifics — so there is less for the gate to drop. The prompt
+    string is NOT the enforcement; the per-sentence re-verify is.
 
     The LLM is given verbatim quoted values + their source spans;
     its job is to weave those values into narrative prose without
@@ -646,10 +660,13 @@ NARRATIVE STYLE (matching top-tier DR competitors):
 - USE CONTRAST MARKERS when supported by the extracted values: "however", "in contrast", "whereas", "by comparison", "although", "despite". Top-tier DR uses 1 contrast marker per ~200 words.
 - Integrate clinical interpretation in the comparator-class context (e.g., "consistent with the broader GLP-1 / GIP dual-agonist mechanism literature") ONLY when the extracted fields support that framing — do NOT invent context.
 
-VERBATIM CONSTRAINT (CRITICAL — strict_verify will reject hallucinations):
-- Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly)
-- Do not introduce numbers, study names, or claims that aren't in the extracted fields
-- If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source"
+VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by verify_sentence_provenance against the cited spans AFTER you write it, and any sentence that is not entailed by the cited span is DROPPED from the report and CANNOT be rescued):
+- RESTATE ONLY the provided field payloads above. You are re-expressing already-verified facts in flowing prose — you are NOT adding information.
+- Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly). Do not introduce any number, percentage, count, duration, or date that does not appear verbatim in the extracted fields.
+- Do not introduce new NAMED CONCEPTS, metrics, mechanisms, outcomes, subgroups, or causal claims that are not present in the extracted field values. Specifically forbidden unless they appear verbatim in the fields above: attrition, churn, retention, satisfaction (CSAT/NPS), equilibrium / partial-equilibrium effects, spillovers, or any endpoint/population not listed in the fields.
+- Do not introduce study names, comparators, or trial identifiers that aren't in the extracted fields.
+- If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source".
+- When in doubt, say LESS: a shorter paragraph that only restates the fields is correct; a longer paragraph that adds unstated specifics will be dropped at verification.
 
 OUTPUT: plain prose, ONE paragraph (14-20 sentences, 300-450 words). No heading, no bullet list, no preamble. Just the paragraph body. Every factual sentence ends with [{bound}] before its period."""
 

@@ -1,0 +1,942 @@
+diff --git a/src/polaris_graph/generator/contract_section_runner.py b/src/polaris_graph/generator/contract_section_runner.py
+index 8e426c2a..8bc2bcd0 100644
+--- a/src/polaris_graph/generator/contract_section_runner.py
++++ b/src/polaris_graph/generator/contract_section_runner.py
+@@ -66,6 +66,119 @@ if TYPE_CHECKING:
+ logger = logging.getLogger("polaris_graph.contract_section_runner")
+ 
+ 
++# I-faith-001 Fix A: failure_reasons prefixes that mark a NUMERIC drop.
++# A sentence dropped for one of these reasons is a numeric fabrication
++# (a number/integer not present in the cited span) and must NEVER be
++# laundered back by the M-69 Fix #4 contract-entity rescue. The rescue
++# exists only to undo content-overlap false-drops on verbatim M-58 slot
++# prose. `failure_reasons` strings are "reason:entity[:detail]" — Fix D
++# appends a ":missing=[...]" detail to the integer reason, so the prefix
++# is extracted via split(":", 1)[0] to stay match-safe.
++_NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
++    "number_not_in_any_cited_span",
++    "no_integer_overlap_any_cited_span",
++})
++
++
++def _drop_is_numeric(sv: Any) -> bool:
++    """True iff a dropped SentenceVerification failed for a NUMERIC reason.
++
++    Inspects the `failure_reasons` LIST (there is no scalar drop_reason)
++    and returns True if ANY reason's prefix (the text before the first
++    ':') is a numeric-failure prefix. Used by the M-69 rescue loop to
++    exclude numeric fabrications from rescue (I-faith-001 Fix A).
++    """
++    failure_reasons = getattr(sv, "failure_reasons", None) or []
++    return any(
++        str(reason).split(":", 1)[0] in _NUMERIC_DROP_PREFIXES
++        for reason in failure_reasons
++    )
++
++
++def _verify_one_stream(
++    *,
++    raw_draft: str,
++    evidence_pool: dict[str, dict[str, Any]],
++    contract_entity_ids: set[str],
++    rewrite_fn: Any,
++    strict_verify_fn: Any,
++    allow_rescue: bool,
++    stream_label: str,
++) -> tuple[list[Any], list[Any], list[Any], int, str]:
++    """Rewrite + strict-verify ONE provenance stream, optionally applying
++    the M-69 contract-entity rescue (I-faith-001 Fix B — stream separation).
++
++    The DETERMINISTIC stream (M-58 / M-70 verbatim-guarded slot prose) is
++    rescue-ELIGIBLE: ``allow_rescue=True`` runs the M-69 Fix #4 rescue with
++    the Fix A `_drop_is_numeric` guard, restoring content-overlap false-drops
++    while never laundering numeric fabrications.
++
++    The NARRATIVE stream (free-form `build_slot_narrative_prompt` LLM
++    paragraph) is rescue-INELIGIBLE: ``allow_rescue=False`` keeps EVERY
++    dropped sentence dropped, so a narrative sentence that fails
++    `verify_sentence_provenance` is never restored. This is the structural
++    fix that closes the run-9 leak: the rescue blanket no longer covers the
++    fabrication-prone stream.
++
++    Returns:
++        kept_sentences:   verified sentences (+ rescued, if allow_rescue)
++        rescued:          the rescued SVs (empty when allow_rescue is False)
++        dropped_final:    dropped SVs AFTER removing any rescued ones
++        total_in:         report.total_in (for the kept/dropped math)
++        rewritten_draft:  the span-token-rewritten draft for this stream
++
++    An empty `raw_draft` short-circuits to all-empty results (no rewrite /
++    verify call), which is the identical no-op behavior the disabled /
++    no-narrative case produced pre-Fix-B.
++    """
++    if not raw_draft:
++        return [], [], [], 0, ""
++
++    # Rewrite citation markers to span tokens (M-63 Fix #3 generalized
++    # regex picks up contract entity ids registered into evidence_pool by
++    # the integration layer).
++    rewritten_draft, _converted, _unverifiable = rewrite_fn(
++        raw_draft, evidence_pool,
++    )
++
++    # Strict verify — every deterministic sentence is `Field: value [#ev:...]`
++    # and the span comes from FrameRow.direct_quote.
++    report = strict_verify_fn(rewritten_draft, evidence_pool)
++    kept_sentences = list(getattr(report, "kept_sentences", []) or [])
++    dropped_sentences = list(getattr(report, "dropped_sentences", []) or [])
++    total_in = int(getattr(report, "total_in", 0) or 0)
++
++    rescued: list[Any] = []
++    if allow_rescue:
++        # M-69 Fix #4 rescue (deterministic stream only). Restore a dropped
++        # sentence iff its primary token resolves to a contract entity_id
++        # AND it did NOT drop for a numeric reason (Fix A). The legitimate
++        # content-overlap "not extractable" gap-disclosures (drop for
++        # no_content_word_overlap, not numeric) remain rescue-eligible.
++        for sv in dropped_sentences:
++            toks = getattr(sv, "tokens", None) or []
++            if not (toks and toks[0].evidence_id in contract_entity_ids):
++                continue
++            if _drop_is_numeric(sv):
++                # Numeric fabrication — never rescue.
++                continue
++            rescued.append(sv)
++        if rescued:
++            logger.info(
++                "[m63] M-69 Fix #4 (%s stream): rescued %d "
++                "strict_verify-dropped contract sentences "
++                "(M-58 already verified verbatim)",
++                stream_label, len(rescued),
++            )
++            kept_sentences.extend(rescued)
++
++    rescued_ids = {id(sv) for sv in rescued}
++    dropped_final = [
++        sv for sv in dropped_sentences if id(sv) not in rescued_ids
++    ]
++    return kept_sentences, rescued, dropped_final, total_in, rewritten_draft
++
++
+ @dataclass
+ class ContractSectionPlanExt:
+     """Extended section plan carrying the contract info needed
+@@ -366,7 +479,34 @@ async def run_contract_section(
+ 
+     # Per-slot raw prose blocks (body-only — no headings) so the
+     # text handed to strict_verify has no non-sentence lines.
+-    raw_body_blocks: list[str] = []
++    #
++    # I-faith-001 Fix B (STREAM SEPARATION) + Fix C / regulatory: THREE
++    # parallel block lists, one per provenance stream:
++    #   - DETERMINISTIC (rescue-ELIGIBLE): the M-58 `render_slot_prose` output.
++    #     `parse_slot_fill_response` enforces `value == source_span`, so the
++    #     ENTIRE rendered prose is verbatim source text. The M-69 rescue's
++    #     premise — undo content-overlap false-drops on legitimately-verbatim
++    #     slot prose — holds ONLY for this stream.
++    #   - REGULATORY (rescue-INELIGIBLE): the M-70 `render_regulatory_prose`
++    #     output. Its parser verbatim-checks ONLY the one `source_span` phrase,
++    #     not the LLM-synthesized 50-80 word `value` paragraph — so it has the
++    #     SAME fabrication shape as the narrative stream and must NOT be
++    #     rescued.
++    #   - NARRATIVE (rescue-INELIGIBLE): the free-form
++    #     `build_slot_narrative_prompt` LLM paragraph (fabrication-prone — V4
++    #     Pro ignored the prompt's "strict_verify will reject hallucinations"
++    #     instruction and invented 14%/35%/attrition/CSAT/partial-equilibrium
++    #     in run-9).
++    # The three streams are verified SEPARATELY downstream so the M-69
++    # contract-entity rescue protects ONLY the deterministic stream — the
++    # regulatory and narrative sentences must pass `verify_sentence_provenance`
++    # on their own with NO rescue. Keeping them split here (rather than tagging
++    # a joined draft) means stream origin is DEFINITIONAL — which pass produced
++    # the kept sentence — with no fingerprint collision or sentence-split-seam
++    # risk.
++    raw_body_blocks: list[str] = []           # deterministic stream
++    regulatory_body_blocks: list[str] = []    # M-70 regulatory stream
++    narrative_body_blocks: list[str] = []     # narrative stream
+ 
+     for slot in plan.slots:
+         if not slot.entity_ids:
+@@ -378,7 +518,10 @@ async def run_contract_section(
+         slot_subsection[slot.slot_id] = slot.subsection_title
+         slot_primary_entity[slot.slot_id] = slot.entity_ids[0]
+ 
+-        slot_body_prose: list[str] = []
++        # I-faith-001 Fix B / Fix C: per-slot prose split by provenance stream.
++        slot_det_prose: list[str] = []       # deterministic (M-58 verbatim)
++        slot_reg_prose: list[str] = []       # M-70 regulatory LLM-synthesized
++        slot_narrative_prose: list[str] = []  # narrative LLM paragraph
+         for entity_id in slot.entity_ids:
+             all_entity_ids.append(entity_id)
+             entity_to_slot_id[entity_id] = slot.slot_id
+@@ -413,15 +556,36 @@ async def run_contract_section(
+             # V31 dispatch: regulatory entities use prose render
+             # (multi-sentence paragraphs per field), not the
+             # M-58 `Field: value [id].` slot prose.
++            #
++            # I-faith-001 Fix C / regulatory classification: M-70
++            # `render_regulatory_prose` emits the LLM-SYNTHESIZED
++            # `field.value` (a 50-80 word paragraph). Its parser
++            # (`parse_regulatory_synthesis_response`) verbatim-checks ONLY the
++            # one `source_span` PHRASE against the segment — NOT the whole
++            # prose value — so a regulatory paragraph can carry LLM-introduced
++            # connective/qualitative content beyond the single verified phrase.
++            # That is the SAME fabrication shape as the free-form narrative
++            # stream, and UNLIKE the M-58 deterministic stream where
++            # `parse_slot_fill_response` enforces `value == source_span` (the
++            # entire rendered prose is verbatim source text). The M-69
++            # contract-entity rescue's premise — "undo content-overlap
++            # false-drops on legitimately-VERBATIM slot prose" — therefore does
++            # NOT hold for regulatory prose. Route it to the rescue-INELIGIBLE
++            # `slot_reg_prose` stream so a regulatory sentence that fails
++            # `verify_sentence_provenance` is never laundered back into `kept`.
+             from .regulatory_synthesizer import (
+                 is_regulatory_entity,
+                 render_regulatory_prose,
+             )
+             if is_regulatory_entity(contract_entity):
+-                prose = render_regulatory_prose(payload)
++                # Regulatory stream — rescue-INELIGIBLE (LLM-synthesized prose,
++                # only the source_span phrase is verbatim-verified).
++                slot_reg_prose.append(render_regulatory_prose(payload))
+             else:
+-                prose = render_slot_prose(payload)
+-            slot_body_prose.append(prose)
++                # Deterministic stream: M-58 verbatim-substring-guarded prose
++                # (`parse_slot_fill_response` enforces value == source_span).
++                # Rescue-eligible.
++                slot_det_prose.append(render_slot_prose(payload))
+ 
+             # v1.1 A.1 option 4c (2026-04-30): two-tier rendering.
+             # Append an LLM-generated 200-300w narrative paragraph
+@@ -432,10 +596,16 @@ async def run_contract_section(
+             # contradiction_handling_grammar.
+             #
+             # Rollback: PG_USE_NARRATIVE_PARAGRAPH=0 disables.
+-            # Default ON. Strict_verify gates the LLM output
+-            # independently — if hallucination drift fails verify,
+-            # the narrative paragraph drops without affecting the
+-            # deterministic prose.
++            # Default ON.
++            #
++            # I-faith-001 Fix B: the narrative paragraph goes into the
++            # SEPARATE narrative stream (`slot_narrative_prose`), which is
++            # verified with NO M-69 rescue. Pre-Fix-B this prose was joined
++            # with the deterministic slot prose before verify, so the
++            # contract-entity rescue laundered fabricated narrative sentences
++            # (14%/35%/attrition) back into `kept` — the run-9 leak. Now a
++            # narrative sentence that fails `verify_sentence_provenance` drops
++            # for good and never reaches the rescue loop.
+             #
+             # v1.1 A.1 4c v3: also enable narrative for regulatory
+             # entities — render_regulatory_prose already gives a
+@@ -467,7 +637,8 @@ async def run_contract_section(
+                         total_in_tok += narr_in
+                         total_out_tok += narr_out
+                         if narr_text and narr_text.strip():
+-                            slot_body_prose.append(narr_text.strip())
++                            # Narrative stream — rescue-INELIGIBLE (Fix B).
++                            slot_narrative_prose.append(narr_text.strip())
+                     except Exception as exc:
+                         logger.warning(
+                             "[m63] narrative-paragraph LLM call "
+@@ -475,56 +646,126 @@ async def run_contract_section(
+                             slot.slot_id, exc,
+                         )
+ 
+-        if slot_body_prose:
+-            raw_body_blocks.append(" ".join(slot_body_prose))
++        if slot_det_prose:
++            raw_body_blocks.append(" ".join(slot_det_prose))
++        if slot_reg_prose:
++            regulatory_body_blocks.append(" ".join(slot_reg_prose))
++        if slot_narrative_prose:
++            narrative_body_blocks.append(" ".join(slot_narrative_prose))
++
++    # Body-only raw drafts (no `### headings` — they'd poison
++    # strict_verify's content-overlap check), ONE PER STREAM.
++    # I-faith-001 Fix B / Fix C: the deterministic, regulatory, and narrative
++    # prose are kept in separate drafts and verified separately so the M-69
++    # rescue can be applied to the deterministic stream ONLY.
++    det_raw_draft = " ".join(raw_body_blocks)
++    regulatory_raw_draft = " ".join(regulatory_body_blocks)
++    narrative_raw_draft = " ".join(narrative_body_blocks)
+ 
+-    # Body-only raw draft (no `### headings` — they'd poison
+-    # strict_verify's content-overlap check).
+-    raw_draft = " ".join(raw_body_blocks)
++    contract_entity_ids = set(plan.contract_entities_by_id.keys())
+ 
+-    # Rewrite citation markers to span tokens (M-63 Fix #3
+-    # generalized regex picks up contract entity ids registered
+-    # into evidence_pool by the integration layer).
+-    rewritten_draft, converted, unverifiable = rewrite_fn(
+-        raw_draft, evidence_pool,
++    # ── DETERMINISTIC stream (M-58 verbatim-guarded slot prose) ────────
++    # Rescue-ELIGIBLE: the M-69 Fix #4 rescue exists ONLY to undo
++    # content-overlap false-drops on legitimately-verbatim slot prose (the
++    # SURPASS-5 25K-char regression). `parse_slot_fill_response` enforces
++    # `value == source_span`, so the entire rendered prose is verbatim source
++    # text. Fix A's `_drop_is_numeric` guard keeps it from laundering numeric
++    # fabrications.
++    (
++        det_kept_sentences,
++        det_rescued,
++        det_dropped_final,
++        det_total_in,
++        det_rewritten_draft,
++    ) = _verify_one_stream(
++        raw_draft=det_raw_draft,
++        evidence_pool=evidence_pool,
++        contract_entity_ids=contract_entity_ids,
++        rewrite_fn=rewrite_fn,
++        strict_verify_fn=strict_verify_fn,
++        allow_rescue=True,
++        stream_label="deterministic",
+     )
+ 
+-    # Strict verify — every sentence is `Field: value [#ev:...]`
+-    # and the span comes from FrameRow.direct_quote.
+-    #
+-    # V30 Phase-2 M-69 Fix #4 (Codex run-9 audit — SURPASS-5
+-    # regression): when M-66b-T expanded direct_quote from
+-    # ~500-char abstract to 25K-char full text, strict_verify's
+-    # content-overlap check began dropping legitimate M-58
+-    # extractions (e.g., SURPASS-5 went from 4 fields rendered
+-    # in run-7 → 0 sentences kept in run-9). M-58 already
+-    # enforces anti-fabrication via verbatim-substring of
+-    # direct_quote (whitespace-tolerant since M-66a-R), making
+-    # the strict_verify content-overlap check redundant for
+-    # contract-slot sentences.
+-    #
+-    # Recovery path: any strict_verify-dropped sentence whose
+-    # primary token resolves to a contract entity_id is RESTORED
+-    # to kept_sentences. Non-contract sentences (legacy free-form
+-    # synthesis) keep the strict_verify outcome unchanged.
+-    report = strict_verify_fn(rewritten_draft, evidence_pool)
+-    kept_sentences = list(getattr(report, "kept_sentences", []) or [])
+-    dropped_sentences = list(getattr(report, "dropped_sentences", []) or [])
+-    contract_entity_ids = set(plan.contract_entities_by_id.keys())
+-    rescued: list[Any] = []
+-    for sv in dropped_sentences:
+-        toks = getattr(sv, "tokens", None) or []
+-        if toks and toks[0].evidence_id in contract_entity_ids:
+-            rescued.append(sv)
+-    if rescued:
+-        logger.info(
+-            "[m63] M-69 Fix #4: rescued %d strict_verify-dropped "
+-            "contract sentences (M-58 already verified verbatim)",
+-            len(rescued),
++    # ── REGULATORY stream (M-70 `render_regulatory_prose` LLM synthesis) ─
++    # Rescue-INELIGIBLE (Fix C / regulatory classification): the M-70 parser
++    # verbatim-checks ONLY the one `source_span` phrase, not the full
++    # LLM-synthesized prose value — so a regulatory sentence carries the SAME
++    # fabrication risk as the narrative stream. Each regulatory sentence must
++    # pass `verify_sentence_provenance` on its own with NO rescue.
++    (
++        reg_kept_sentences,
++        _reg_rescued,  # always empty — rescue disabled for this stream
++        reg_dropped_final,
++        reg_total_in,
++        reg_rewritten_draft,
++    ) = _verify_one_stream(
++        raw_draft=regulatory_raw_draft,
++        evidence_pool=evidence_pool,
++        contract_entity_ids=contract_entity_ids,
++        rewrite_fn=rewrite_fn,
++        strict_verify_fn=strict_verify_fn,
++        allow_rescue=False,
++        stream_label="regulatory",
++    )
++
++    # ── NARRATIVE stream (free-form `build_slot_narrative_prompt` LLM) ──
++    # Rescue-INELIGIBLE (Fix B): this is the fabrication-prone stream. Each
++    # narrative sentence must pass `verify_sentence_provenance` on its own;
++    # any drop (numeric OR qualitative content-overlap) stays dropped. This
++    # closes the run-9 leak at the structural level — Fix A alone could not
++    # catch the qualitative fabrications (attrition/CSAT/partial-equilibrium)
++    # because they carry no fabricated integer.
++    (
++        narr_kept_sentences,
++        _narr_rescued,  # always empty — rescue disabled for this stream
++        narr_dropped_final,
++        narr_total_in,
++        narr_rewritten_draft,
++    ) = _verify_one_stream(
++        raw_draft=narrative_raw_draft,
++        evidence_pool=evidence_pool,
++        contract_entity_ids=contract_entity_ids,
++        rewrite_fn=rewrite_fn,
++        strict_verify_fn=strict_verify_fn,
++        allow_rescue=False,
++        stream_label="narrative",
++    )
++
++    # ── Merge the three streams ────────────────────────────────────────
++    # The downstream regroup (~line 700) re-buckets every kept sentence into
++    # its originating slot via the first token's evidence_id, so cross-slot
++    # ordering is reconstructed regardless of merge order. WITHIN a slot, all
++    # deterministic sentences precede regulatory, which precede narrative
++    # (pre-Fix-B a multi-entity slot interleaved det(e1),narr(e1),...; now it
++    # is det(...),reg(...),narr(...)). This reordering is faithfulness-neutral
++    # — the same verified sentences, only the in-slot sequence and citation
++    # numbering may shift. Deterministic-first is the intended ordering
++    # (verbatim slot facts lead, regulatory + narrative depth follow). A slot
++    # is either M-58 OR M-70 per entity, so det and reg do not co-occur for the
++    # same entity — only the merge ORDER is defined here, not a mixing rule.
++    kept_sentences = (
++        det_kept_sentences + reg_kept_sentences + narr_kept_sentences
++    )
++    rescued = det_rescued  # regulatory + narrative streams contribute no rescues
++    # Combined raw + rewritten drafts (telemetry parity with pre-Fix-B).
++    raw_draft = " ".join(
++        d for d in (det_raw_draft, regulatory_raw_draft, narrative_raw_draft)
++        if d
++    )
++    rewritten_draft = " ".join(
++        d for d in (
++            det_rewritten_draft, reg_rewritten_draft, narr_rewritten_draft,
+         )
+-        kept_sentences.extend(rescued)
++        if d
++    )
++    # Combined dropped list (excludes deterministic rescues by construction).
++    dropped_sentences = (
++        det_dropped_final + reg_dropped_final + narr_dropped_final
++    )
++    total_in = det_total_in + reg_total_in + narr_total_in
+     kept = len(kept_sentences)
+-    dropped = report.total_in - kept
++    dropped = total_in - kept
+ 
+     # ── resolve provenance → [N] citations + biblio_slice ──────
+     # `resolve_provenance_to_citations` flattens into a single
+@@ -682,9 +923,14 @@ async def run_contract_section(
+ 
+     # I-gen-005 Step 1.5 iter-2 (Codex P1): populate final per-sentence
+     # telemetry fields so verification_details.json reflects contract
+-    # sections' kept/dropped state. Rescued sentences (line 525) move
+-    # from `dropped_sentences` to `kept_sentences`, so the FINAL dropped
+-    # list excludes them.
++    # sections' kept/dropped state.
++    #
++    # I-faith-001 Fix B: `dropped_sentences` is already
++    # `det_dropped_final + narr_dropped_final` — the per-stream helper
++    # returns each stream's POST-rescue dropped list, so deterministic
++    # rescues are already excluded. The `rescued_ids` filter is therefore
++    # a defensive no-op (kept for clarity that rescues are never in the
++    # final dropped list).
+     rescued_ids = {id(sv) for sv in rescued}
+     final_dropped_svs = [
+         sv for sv in dropped_sentences if id(sv) not in rescued_ids
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index edcb2890..23fc6353 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -1342,7 +1342,18 @@ def verify_sentence_provenance(
+                 direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+                 span_text = direct_quote[tok.start:tok.end]
+                 aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
+-            if sentence_numbers and not (sentence_numbers & aggregated_span_numbers):
++            # I-faith-001 Fix D (integer SUBSET, not intersection): the
++            # prior check `sentence_numbers and not (sentence_numbers &
++            # aggregated_span_numbers)` passed a sentence if ANY single
++            # integer overlapped the span — so "15 percent over 35 weeks"
++            # would pass against a 15-only span on the 15 alone, smuggling
++            # the fabricated 35. Mirror the decimal path above: EVERY
++            # sentence integer must be present in the cited spans. Any
++            # missing integer triggers the local-window fallback (searched
++            # for the MISSING integers only, with content-word overlap);
++            # if it is still not locally grounded, the sentence fails.
++            missing_int_in_span = sentence_numbers - aggregated_span_numbers
++            if sentence_numbers and missing_int_in_span:
+                 # Same local-window fallback for integer-only sentences
+                 # (Codex P1 #5 safety: integer fallback was unsafe with
+                 # whole-doc check — one coincidental N/year/dose could
+@@ -1358,8 +1369,11 @@ def verify_sentence_provenance(
+                     # Codex iter 1 P1 fix: pass the integer regex
+                     # (_NUMBER_RE) so token-exact matching uses the same
+                     # tokenization the sentence_numbers set used.
++                    # Fix D: search for the MISSING integers (subset),
++                    # not the full sentence_numbers set — the integers
++                    # already present in the span need no local rescue.
+                     win = _find_local_support_window(
+-                        sentence_numbers,
++                        missing_int_in_span,
+                         sentence_content_for_window,
+                         direct_quote,
+                         window=400,
+@@ -1374,13 +1388,15 @@ def verify_sentence_provenance(
+                 if found_window:
+                     logger.warning(
+                         "[provenance] local_support_window_found_int "
+-                        "ev=%s window=%d-%d — span_imprecise but "
+-                        "locally grounded; passing",
++                        "ev=%s window=%d-%d missing=%s — span_imprecise "
++                        "but locally grounded; passing",
+                         found_ev_id, found_window[0], found_window[1],
++                        sorted(missing_int_in_span),
+                     )
+                 else:
+                     failures.append(
+-                        f"no_integer_overlap_any_cited_span:{ev_ids}"
++                        f"no_integer_overlap_any_cited_span:{ev_ids}:"
++                        f"missing={sorted(missing_int_in_span)}"
+                     )
+ 
+         # Codex round 1 B-1: semantic grounding for non-numeric claims.
+diff --git a/src/polaris_graph/generator/slot_fill.py b/src/polaris_graph/generator/slot_fill.py
+index 1dc26eb3..dadb710b 100644
+--- a/src/polaris_graph/generator/slot_fill.py
++++ b/src/polaris_graph/generator/slot_fill.py
+@@ -605,7 +605,21 @@ def build_slot_narrative_prompt(
+     existing audit-trail path) is emitted first by the caller,
+     then this LLM prompt produces a 200-300 word narrative
+     paragraph integrating the SAME extracted values into a
+-    DR-grade paragraph. strict_verify still gates the LLM output.
++    DR-grade paragraph.
++
++    I-faith-001 Fix C — anti-fabrication guarantee (defense-in-depth):
++    The narrative paragraph is the fabrication-prone stream (run-9: V4
++    Pro invented 14%/35%/attrition/CSAT/partial-equilibrium against a
++    15%-only span). The HARD gate is structural, in the caller: every
++    narrative sentence is re-verified by `verify_sentence_provenance`
++    against the cited spans in the rescue-INELIGIBLE narrative stream
++    (`run_contract_section` passes `allow_rescue=False`), so any
++    sentence not entailed by the span is dropped and CANNOT be rescued
++    by the M-69 contract-entity rescue. This prompt tightening is the
++    SECOND layer — it instructs the LLM to RESTATE ONLY the provided
++    field payloads and to introduce NO new numbers or qualitative
++    specifics — so there is less for the gate to drop. The prompt
++    string is NOT the enforcement; the per-sentence re-verify is.
+ 
+     The LLM is given verbatim quoted values + their source spans;
+     its job is to weave those values into narrative prose without
+@@ -646,10 +660,13 @@ NARRATIVE STYLE (matching top-tier DR competitors):
+ - USE CONTRAST MARKERS when supported by the extracted values: "however", "in contrast", "whereas", "by comparison", "although", "despite". Top-tier DR uses 1 contrast marker per ~200 words.
+ - Integrate clinical interpretation in the comparator-class context (e.g., "consistent with the broader GLP-1 / GIP dual-agonist mechanism literature") ONLY when the extracted fields support that framing — do NOT invent context.
+ 
+-VERBATIM CONSTRAINT (CRITICAL — strict_verify will reject hallucinations):
+-- Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly)
+-- Do not introduce numbers, study names, or claims that aren't in the extracted fields
+-- If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source"
++VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by verify_sentence_provenance against the cited spans AFTER you write it, and any sentence that is not entailed by the cited span is DROPPED from the report and CANNOT be rescued):
++- RESTATE ONLY the provided field payloads above. You are re-expressing already-verified facts in flowing prose — you are NOT adding information.
++- Every numeric value must come VERBATIM from the extracted fields above (preserve unit + sign + decimal places exactly). Do not introduce any number, percentage, count, duration, or date that does not appear verbatim in the extracted fields.
++- Do not introduce new NAMED CONCEPTS, metrics, mechanisms, outcomes, subgroups, or causal claims that are not present in the extracted field values. Specifically forbidden unless they appear verbatim in the fields above: attrition, churn, retention, satisfaction (CSAT/NPS), equilibrium / partial-equilibrium effects, spillovers, or any endpoint/population not listed in the fields.
++- Do not introduce study names, comparators, or trial identifiers that aren't in the extracted fields.
++- If a field is missing (e.g., no comparator value), do not invent it — phrase as "the comparator details were not extractable from the cited primary source".
++- When in doubt, say LESS: a shorter paragraph that only restates the fields is correct; a longer paragraph that adds unstated specifics will be dropped at verification.
+ 
+ OUTPUT: plain prose, ONE paragraph (14-20 sentences, 300-450 words). No heading, no bullet list, no preamble. Just the paragraph body. Every factual sentence ends with [{bound}] before its period."""
+ 
+diff --git a/tests/polaris_graph/test_m63_contract_section_runner.py b/tests/polaris_graph/test_m63_contract_section_runner.py
+index b5751db4..05d6ea58 100644
+--- a/tests/polaris_graph/test_m63_contract_section_runner.py
++++ b/tests/polaris_graph/test_m63_contract_section_runner.py
+@@ -776,6 +776,10 @@ class TestM68GapDisclosureFallback:
+             input_tokens: int
+             output_tokens: int
+             error: str
++            # I-gen-005 Step 1.5 telemetry fields (passed by
++            # run_contract_section since the verification-details work).
++            kept_sentences_pre_resolve: list = field(default_factory=list)
++            dropped_sentences_final: list = field(default_factory=list)
+ 
+         from src.polaris_graph.generator.live_deepseek_generator import (
+             _rewrite_draft_with_spans,
+@@ -974,6 +978,10 @@ class TestM68GapDisclosureFallback:
+             input_tokens: int
+             output_tokens: int
+             error: str
++            # I-gen-005 Step 1.5 telemetry fields (passed by
++            # run_contract_section since the verification-details work).
++            kept_sentences_pre_resolve: list = field(default_factory=list)
++            dropped_sentences_final: list = field(default_factory=list)
+ 
+         async def _go():
+             return await run_contract_section(
+@@ -1001,3 +1009,382 @@ class TestM68GapDisclosureFallback:
+             "M-69 Fix #4 — sentences should have been rescued"
+         )
+         assert result.sentences_verified > 0
++
++    def test_fix_b_narrative_origin_sentence_not_rescued_end_to_end(
++        self, clinical_template,
++    ) -> None:
++        """I-faith-001 Fix B (STREAM SEPARATION), end-to-end through
++        ``run_contract_section``.
++
++        This is the WIRING test (distinct from the helper-level unit tests in
++        test_faith_rescue_guard.py): it proves that the NARRATIVE stream
++        specifically is the one wired rescue-INELIGIBLE. A fake strict_verify
++        drops EVERY sentence for a NON-numeric reason; the deterministic slot
++        sentence ("Primary endpoint: ...") MUST be rescued and appear in
++        verified_text, while the narrative-origin sentence (a distinct marker
++        string returned only for the narrative LLM call) MUST NOT be rescued
++        and must be ABSENT from verified_text.
++
++        Flag-swap sensitivity: if the two ``allow_rescue`` values in
++        ``run_contract_section`` were transposed (narrative→True,
++        deterministic→False), the narrative marker would appear and the
++        deterministic content would vanish — this test would fail. The helper
++        unit tests, which call ``_verify_one_stream`` with a hardcoded flag,
++        cannot catch that transposition.
++        """
++        import asyncio
++        from dataclasses import dataclass, field
++        from src.polaris_graph.nodes.frame_compiler import compile_frame
++        from src.polaris_graph.nodes.contract_outline import (
++            compose_outline_from_contract,
++        )
++        from src.polaris_graph.generator.contract_section_runner import (
++            ContractSectionPlanExt, run_contract_section,
++            register_frame_rows_into_evidence_pool,
++        )
++        from src.polaris_graph.generator.live_deepseek_generator import (
++            _rewrite_draft_with_spans,
++        )
++        from src.polaris_graph.generator.provenance_generator import (
++            SentenceVerification,
++        )
++
++        compiled = compile_frame(
++            "What is the efficacy of tirzepatide in T2DM?",
++            clinical_template,
++            "clinical_tirzepatide_t2dm",
++        )
++        frame_rows = _stub_fetch_rows(compiled)
++        outline = compose_outline_from_contract(compiled, frame_rows)
++        rows_by_eid = {r.entity_id: r for r in frame_rows}
++        entities_by_id = compiled.contract.entities_by_id()
++        section = outline.sections[0]  # Efficacy
++
++        surpass_2_slot = next(
++            sl for sl in section.slots
++            if "surpass_2" in sl.slot_id.lower()
++        )
++        primary_ev = surpass_2_slot.entity_ids[0]
++        plan = ContractSectionPlanExt(
++            title=section.section,
++            focus=section.focus,
++            ev_ids=list(surpass_2_slot.entity_ids),
++            slots=(surpass_2_slot,),
++            frame_rows_by_entity=rows_by_eid,
++            contract_entities_by_id=entities_by_id,
++            research_question="q",
++        )
++
++        evidence_pool: dict[str, dict] = {}
++        register_frame_rows_into_evidence_pool(
++            evidence_pool, tuple(frame_rows),
++        )
++
++        # A unique marker that appears ONLY in the narrative LLM output, so we
++        # can detect whether the narrative-origin sentence survived.
++        _NARR_MARKER = "NarrativeOriginFabricationMarker"
++
++        # Fake LLM: returns slot-fill JSON for the extraction prompt, and a
++        # narrative paragraph (carrying the marker + the bound citation) for
++        # the narrative prompt (detected via the "NARRATIVE PARAGRAPH" header
++        # that build_slot_narrative_prompt emits).
++        async def _fake_llm(prompt: str):
++            if "NARRATIVE PARAGRAPH" in prompt:
++                narrative = (
++                    f"{_NARR_MARKER} the assistant raised analyst "
++                    f"throughput substantially across the cohort "
++                    f"[{primary_ev}]."
++                )
++                return narrative, 80, 40
++            response = json.dumps({
++                "fields": [{
++                    "field_name": "primary_endpoint",
++                    "status": "extracted",
++                    "value": "Primary endpoint: change in HbA1c at 40 weeks",
++                    "source_span": "Primary endpoint: change in HbA1c at 40 weeks",
++                }] + [
++                    {
++                        "field_name": fname,
++                        "status": "not_extractable",
++                        "value": None, "source_span": None,
++                    }
++                    for fname in [
++                        "N", "population", "comparator",
++                        "baseline_hba1c", "timepoint",
++                        "etd_with_uncertainty", "safety_signal",
++                        "study_design", "sponsor",
++                    ]
++                ],
++            })
++            return response, 100, 50
++
++        @dataclass
++        class _FakeReport:
++            total_kept: int = 0
++            total_in: int = 0
++            total_dropped: int = 0
++            kept_sentences: list = field(default_factory=list)
++            dropped_sentences: list = field(default_factory=list)
++
++        # Drop EVERY sentence for a NON-numeric reason — so the ONLY thing
++        # that decides whether a sentence survives is its stream's rescue
++        # eligibility (Fix B), not the Fix A numeric guard.
++        def _all_dropped_strict(text, pool):
++            from src.polaris_graph.generator.provenance_generator import (
++                split_into_sentences, parse_provenance_tokens,
++            )
++            sentences = split_into_sentences(text)
++            dropped = []
++            for s in sentences:
++                tokens = parse_provenance_tokens(s)
++                dropped.append(SentenceVerification(
++                    sentence=s, tokens=tokens, is_verified=False,
++                    failure_reasons=["no_content_word_overlap_any_cited_span"],
++                    soft_warnings=[],
++                ))
++            return _FakeReport(
++                total_kept=0, total_in=len(sentences),
++                total_dropped=len(sentences),
++                kept_sentences=[], dropped_sentences=dropped,
++            )
++
++        @dataclass
++        class _SR:
++            title: str
++            focus: str
++            ev_ids_assigned: list
++            raw_draft: str
++            rewritten_draft: str
++            verified_text: str
++            biblio_slice: list
++            sentences_verified: int
++            sentences_dropped: int
++            regen_attempted: bool
++            dropped_due_to_failure: bool
++            input_tokens: int
++            output_tokens: int
++            error: str
++            kept_sentences_pre_resolve: list = field(default_factory=list)
++            dropped_sentences_final: list = field(default_factory=list)
++
++        async def _go():
++            return await run_contract_section(
++                plan, evidence_pool,
++                llm_call=_fake_llm,
++                section_result_cls=_SR,
++                strict_verify_fn=_all_dropped_strict,
++                rewrite_fn=_rewrite_draft_with_spans,
++            )
++
++        result, payloads = asyncio.run(_go())
++
++        # Deterministic stream: rescued → its content survives.
++        assert "Primary endpoint" in result.verified_text, (
++            "deterministic slot sentence was not rescued (the deterministic "
++            "stream must remain rescue-eligible under Fix B). verified_text="
++            f"{result.verified_text!r}"
++        )
++        # Narrative stream: rescue-INELIGIBLE → its content is DROPPED. The
++        # marker must NOT appear anywhere in the rendered section.
++        assert _NARR_MARKER not in result.verified_text, (
++            "Fix B FAILED: a narrative-origin sentence that failed strict "
++            "verify was laundered back into verified_text. The narrative "
++            "stream must be rescue-INELIGIBLE. verified_text="
++            f"{result.verified_text!r}"
++        )
++
++    def test_regulatory_origin_sentence_not_rescued_end_to_end(self) -> None:
++        """I-faith-001 regulatory classification, end-to-end through
++        ``run_contract_section``.
++
++        WIRING test: proves the M-70 ``render_regulatory_prose`` output is
++        routed to the rescue-INELIGIBLE stream. The M-70 parser verbatim-checks
++        ONLY the one ``source_span`` phrase, not the LLM-synthesized prose
++        ``value`` — so a regulatory paragraph can carry an unverified
++        LLM-introduced claim, exactly the narrative-stream fabrication shape.
++
++        A fake strict_verify drops EVERY sentence for a NON-numeric reason; the
++        regulatory-origin sentence (carrying a unique marker returned only for
++        the regulatory synthesis prompt) MUST NOT be rescued and must be ABSENT
++        from verified_text. If regulatory prose were left in the deterministic
++        (rescue-ELIGIBLE) stream, the marker would survive and this test would
++        fail.
++        """
++        import asyncio
++        from dataclasses import dataclass, field
++        from src.polaris_graph.nodes.report_contract import RequiredEntity
++        from src.polaris_graph.nodes.contract_outline import ContractSlotPlan
++        from src.polaris_graph.retrieval.frame_fetcher import (
++            FrameRow, ProvenanceClass,
++        )
++        from src.polaris_graph.generator.contract_section_runner import (
++            ContractSectionPlanExt, run_contract_section,
++            register_frame_rows_into_evidence_pool,
++        )
++        from src.polaris_graph.generator.live_deepseek_generator import (
++            _rewrite_draft_with_spans,
++        )
++        from src.polaris_graph.generator.provenance_generator import (
++            SentenceVerification,
++        )
++
++        ev_id = "fda_zepbound_label"
++        # FDA-shaped page with an INDICATIONS heading so _segment_regulatory_text
++        # produces an `indications` segment (the synthesis prompt only lists
++        # fields whose heading matched). The verbatim phrase the LLM "uses" lives
++        # here so the M-70 parser's source_span check passes — the FABRICATION is
++        # the surrounding LLM prose, which the parser does NOT verbatim-check.
++        verbatim_phrase = (
++            "Zepbound is indicated for chronic weight management in adults"
++        )
++        direct_quote = (
++            "1 INDICATIONS AND USAGE\n"
++            f"{verbatim_phrase} with an initial body mass index of 30 kg/m2 "
++            "or greater.\n"
++        )
++
++        reg_entity = RequiredEntity(
++            id=ev_id,
++            type="regulatory",
++            required_fields=("indications",),
++            min_fields_for_completion=1,
++            rendering_slot="regulatory_fda",
++            jurisdiction="FDA",
++            label_name="Zepbound FDA label",
++        )
++        frame_row = FrameRow(
++            entity_id=ev_id,
++            entity_type="regulatory",
++            rendering_slot="regulatory_fda",
++            provenance_class=ProvenanceClass.ABSTRACT_ONLY,
++            direct_quote=direct_quote,
++            quote_source="fda_label",
++            doi=None, pmid=None, oa_pdf_url=None, url=None,
++            title="Zepbound label", authors=(), journal=None, year=2023,
++            failure_reason=None, retrieval_attempts=(), retrieval_timings=(),
++        )
++        slot = ContractSlotPlan(
++            slot_id="regulatory_fda",
++            section="Regulatory",
++            subsection_title="FDA",
++            ordering=0,
++            entity_ids=(ev_id,),
++            provenance_classes=(ProvenanceClass.ABSTRACT_ONLY.value,),
++            is_gap=False,
++            is_partial=False,
++        )
++        plan = ContractSectionPlanExt(
++            title="Regulatory",
++            focus="regulatory landscape",
++            ev_ids=[ev_id],
++            slots=(slot,),
++            frame_rows_by_entity={ev_id: frame_row},
++            contract_entities_by_id={ev_id: reg_entity},
++            research_question="q",
++        )
++
++        evidence_pool: dict[str, dict] = {}
++        register_frame_rows_into_evidence_pool(evidence_pool, (frame_row,))
++
++        # Marker that appears ONLY in the regulatory synthesis prose value, so
++        # we can detect whether the regulatory-origin sentence survived.
++        _REG_MARKER = "RegulatoryOriginFabricationMarker"
++
++        async def _fake_llm(prompt: str):
++            # Regulatory synthesis prompt (M-70) — detected via its distinctive
++            # "regulatory affairs writer" header.
++            if "regulatory affairs writer" in prompt:
++                response = json.dumps({"fields": [{
++                    "field_name": "indications",
++                    "status": "extracted",
++                    # The prose value carries the fabrication marker AND the
++                    # verbatim phrase; only the source_span is verbatim-checked.
++                    "value": (
++                        f"{_REG_MARKER}. The label states that {verbatim_phrase}, "
++                        "and additionally implies cardiovascular benefit."
++                    ),
++                    "source_span": verbatim_phrase,
++                }]})
++                return response, 100, 50
++            # No other prompt types expected for this single regulatory entity.
++            return json.dumps({"fields": []}), 0, 0
++
++        @dataclass
++        class _FakeReport:
++            total_kept: int = 0
++            total_in: int = 0
++            total_dropped: int = 0
++            kept_sentences: list = field(default_factory=list)
++            dropped_sentences: list = field(default_factory=list)
++
++        def _all_dropped_strict(text, pool):
++            from src.polaris_graph.generator.provenance_generator import (
++                split_into_sentences, parse_provenance_tokens,
++            )
++            sentences = split_into_sentences(text)
++            dropped = []
++            for s in sentences:
++                tokens = parse_provenance_tokens(s)
++                dropped.append(SentenceVerification(
++                    sentence=s, tokens=tokens, is_verified=False,
++                    failure_reasons=["no_content_word_overlap_any_cited_span"],
++                    soft_warnings=[],
++                ))
++            return _FakeReport(
++                total_kept=0, total_in=len(sentences),
++                total_dropped=len(sentences),
++                kept_sentences=[], dropped_sentences=dropped,
++            )
++
++        @dataclass
++        class _SR:
++            title: str
++            focus: str
++            ev_ids_assigned: list
++            raw_draft: str
++            rewritten_draft: str
++            verified_text: str
++            biblio_slice: list
++            sentences_verified: int
++            sentences_dropped: int
++            regen_attempted: bool
++            dropped_due_to_failure: bool
++            input_tokens: int
++            output_tokens: int
++            error: str
++            kept_sentences_pre_resolve: list = field(default_factory=list)
++            dropped_sentences_final: list = field(default_factory=list)
++
++        async def _go():
++            return await run_contract_section(
++                plan, evidence_pool,
++                llm_call=_fake_llm,
++                section_result_cls=_SR,
++                strict_verify_fn=_all_dropped_strict,
++                rewrite_fn=_rewrite_draft_with_spans,
++            )
++
++        result, _payloads = asyncio.run(_go())
++
++        # LIVENESS (anti-vacuity): the regulatory prose carrying the marker MUST
++        # actually have been produced and entered the regulatory stream — else
++        # the absence-from-verified_text assertion below would pass for the
++        # WRONG reason (segmentation missed the heading / synthesis JSON failed
++        # to parse / field degraded to not_extractable → no prose at all).
++        # `result.raw_draft` joins (deterministic, regulatory, narrative) raw
++        # drafts, so the marker is present iff render_regulatory_prose emitted
++        # it and it reached `regulatory_body_blocks`.
++        assert _REG_MARKER in result.raw_draft, (
++            "regulatory prose was never produced — the test would be vacuous. "
++            "Check FDA segmentation / synthesis parse. "
++            f"raw_draft={result.raw_draft!r}"
++        )
++        # Regulatory stream is rescue-INELIGIBLE: produced, entered the
++        # regulatory stream, then DROPPED by rescue-ineligibility → the marker
++        # must NOT survive into verified_text.
++        assert _REG_MARKER not in result.verified_text, (
++            "regulatory classification FAILED: an LLM-synthesized regulatory "
++            "sentence that failed strict verify was laundered back into "
++            "verified_text. The regulatory (M-70) stream must be rescue-"
++            f"INELIGIBLE. verified_text={result.verified_text!r}"
++        )
