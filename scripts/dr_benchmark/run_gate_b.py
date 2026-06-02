@@ -451,3 +451,260 @@ async def run_gate_b_query(
         four_role_transport=active_transport,
         four_role_input_builder=builder,
     )
+
+
+# ---------------------------------------------------------------------------
+# I-meta-008 (#1014): the Gate-B CLI launcher — make the native 4-role benchmark
+# startable from the command line.
+#
+# AUDIT FINDING (#1014): this launcher is the ONLY way the 4-role benchmark
+# pipeline runs. The legacy CLI (`run_honest_sweep_r3 --pathB-gate`), the worker,
+# and the UI all leave `four_role_transport=None`, so the 4-role seam is INERT on
+# those paths — they run the legacy single-evaluator gate. `run_one_query` now
+# emits a loud guard line when `PG_FOUR_ROLE_MODE` is truthy yet no transport is
+# injected, so a benchmark run started through a legacy entrypoint never silently
+# degrades to the single-evaluator path unnoticed.
+#
+# NO SPEND / NO NETWORK at import (the module invariant): argparse, asyncio.run,
+# and the live preflight stay strictly inside `main()` / under `__main__`.
+# ---------------------------------------------------------------------------
+
+# The 5 LOCKED golden DRB-EN benchmark slugs (the issue's scope boundary). These are
+# the ONLY new literals — the question TEXT/domain is NOT duplicated here; it is
+# resolved by filtering the EXISTING `SWEEP_QUERIES` registration (single source of
+# truth, LAW VI + §4.2). Verbatim prompts pinned to .codex/I-safety-002b/
+# golden_questions_locked.md (the drift-guard test pins prompt text test-time).
+LOCKED_BENCHMARK_SLUGS: tuple[str, ...] = (
+    "drb_72_ai_labor",
+    "drb_75_metal_ions_cvd",
+    "drb_76_gut_microbiota_crc",
+    "drb_78_parkinsons_dbs",
+    "drb_90_adas_liability",
+)
+
+# Default output root — the SAME default + `<out_root>/<domain>/<slug>` tree that
+# `run_one_query` already uses (LAW VI).
+DEFAULT_OUT_ROOT = "outputs/honest_sweep_r3"
+
+
+def load_locked_questions(slugs: tuple[str, ...] | None = None) -> list[dict]:
+    """Resolve the locked benchmark question(s) by FILTERING the existing `SWEEP_QUERIES`.
+
+    `SWEEP_QUERIES` (in `scripts.run_honest_sweep_r3`) is the single runtime source of
+    truth the sweep AND the routing tests already key off; this loader is a thin filter
+    over it, NOT a new question source (§0 of the I-meta-007e brief). Imported LAZILY so
+    importing `run_gate_b` opens no socket and pulls no big sweep file at module load.
+
+    `slugs=None` resolves all 5 locked slugs (in `LOCKED_BENCHMARK_SLUGS` order); a tuple
+    resolves that subset. Each requested slug must be one of the 5 locked slugs AND present
+    in `SWEEP_QUERIES` exactly once with a `domain` — otherwise this fails LOUD (LAW II),
+    never a silent skip / empty run.
+
+    CALLER CONTRACT (env-preservation): importing `scripts.run_honest_sweep_r3` triggers
+    `load_dotenv(override=False)` at its module top, which mutates `os.environ` from `.env`.
+    The `--list` path (enumeration-only, NO spend) wraps the CALL to this loader in an
+    os.environ snapshot/restore so it leaves the process env byte-identical; the real-run
+    path (`--only`/`--all`) lets `.env` stand because the live run needs the keys.
+    """
+    requested = LOCKED_BENCHMARK_SLUGS if slugs is None else tuple(slugs)
+    unknown = [s for s in requested if s not in LOCKED_BENCHMARK_SLUGS]
+    if unknown:
+        raise ValueError(
+            f"load_locked_questions: slug(s) {unknown!r} are not locked benchmark slugs. "
+            f"Valid locked slugs: {list(LOCKED_BENCHMARK_SLUGS)}."
+        )
+
+    from scripts.run_honest_sweep_r3 import SWEEP_QUERIES
+
+    resolved: list[dict] = []
+    for slug in requested:
+        matches = [q for q in SWEEP_QUERIES if q.get("slug") == slug]
+        if not matches:
+            raise ValueError(
+                f"load_locked_questions: locked slug {slug!r} is NOT registered in "
+                f"SWEEP_QUERIES — the loader filters the existing registration (no hardcoded "
+                f"slug->question fallback). Fix the SWEEP_QUERIES registration."
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"load_locked_questions: locked slug {slug!r} is registered {len(matches)} "
+                f"times in SWEEP_QUERIES; a benchmark slug must route to exactly one domain "
+                f"(fail-closed)."
+            )
+        entry = matches[0]
+        if not entry.get("domain"):
+            raise ValueError(
+                f"load_locked_questions: SWEEP_QUERIES entry for slug {slug!r} has no domain; "
+                f"the 4-role builder keys the frozen contract by (domain template, slug) — a "
+                f"domain-less registration cannot route (fail-closed)."
+            )
+        resolved.append(entry)
+    return resolved
+
+
+def _format_list_preview(questions: list[dict]) -> str:
+    """Build the `--list` / `--dry-run` preview text — NO spend, NO network, NO env mutation.
+
+    Uses ONLY the PURE readers (`four_role_transport_mode`, `verifier_model_slugs`,
+    `assert_four_role_families_distinct`) — none opens a socket or mutates process env; each
+    reads only the in-memory architecture lock / process env. It calls NONE of
+    `run_gate_b_query` / `enable_four_role_mode` / `preflight_four_role_transport` /
+    `build_gate_b_transport`. Surfaces, for the blind operator, exactly what a real run WOULD
+    do before any money is authorized: the resolved questions, the active transport mode, the
+    4 role slugs+families, and a DESCRIPTIVE preflight plan (not an executed preflight).
+    """
+    mode = four_role_transport_mode()
+    families = assert_four_role_families_distinct()  # in-memory lock read; asserts 4 distinct
+    verifier_slugs = verifier_model_slugs()
+    generator_family = families.get("generator", "<unknown>")
+
+    lines: list[str] = []
+    lines.append("=" * 72)
+    lines.append("GATE-B 4-ROLE BENCHMARK -- NO-SPEND PREVIEW (--list / --dry-run)")
+    lines.append("NOTHING below spends money, opens a socket, or mutates the environment.")
+    lines.append("=" * 72)
+    lines.append(f"resolved questions: {len(questions)}")
+    for q in questions:
+        domain = q["domain"]
+        slug = q["slug"]
+        prompt = (q.get("question") or "").strip().replace("\n", " ")
+        prompt_preview = prompt[:100] + ("..." if len(prompt) > 100 else "")
+        has_amplified = bool(q.get("amplified"))
+        amplified_note = (
+            f"curated amplified set ({len(q['amplified'])} entries)"
+            if has_amplified
+            else "NO curated amplified set (no-amplified stub -- elevated abort_corpus_inadequate risk)"
+        )
+        lines.append("")
+        lines.append(f"  - slug={slug}")
+        lines.append(f"    domain={domain}")
+        lines.append(f"    scope_template=config/scope_templates/{domain}.yaml")
+        lines.append(f"    retrieval={amplified_note}")
+        lines.append(f"    prompt={prompt_preview!r}")
+    lines.append("")
+    lines.append("-" * 72)
+    lines.append(f"PG_FOUR_ROLE_TRANSPORT mode: {mode}")
+    lines.append(f"  generator: family={generator_family} (runs upstream on OpenRouter; from lock)")
+    for role in _VERIFIER_ROLES:
+        lines.append(
+            f"  {role}: slug={verifier_slugs[role]} family={families[role]}"
+        )
+    lines.append("")
+    if mode == _TRANSPORT_OPENROUTER:
+        plan = (
+            "openrouter mode -> a REAL run would resolve the Mirror/Sentinel/Judge benchmark "
+            "slugs against the OpenRouter /models catalog (incl. a reasoning-capability check) "
+            "and assert the 4 families distinct, BEFORE spending any token."
+        )
+    else:
+        plan = (
+            "self_host mode -> a REAL run would resolve each PG_<ROLE>_BASE_URL self-hosted "
+            "endpoint and assert the 4 families distinct, BEFORE the sweep starts."
+        )
+    lines.append(f"preflight plan (descriptive, NOT executed): {plan}")
+    lines.append("-" * 72)
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Gate-B CLI launcher (I-meta-008 #1014). The ONLY entrypoint that runs the 4-role
+    benchmark pipeline. NO SPEND / NO NETWORK at import — all runtime work is here.
+
+    Exactly one of {--only, --all, --list} is required. `--list`/`--dry-run` previews the
+    resolved config with NO spend, NO network, and NO env mutation. A real run
+    (`--only <slug>` / `--all`) delegates ENTIRELY to `run_gate_b_query` per question (which
+    owns the env-flips, the fail-loud preflight BEFORE any token, the stage marker, and
+    `run_one_query`). Returns 0 on success, 2 on a usage/loader error, 1 if any question run
+    does not reach a `success`/`partial_*` status.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="run_gate_b",
+        description=(
+            "Gate-B 4-role benchmark launcher (I-meta-008 #1014) — the ONLY CLI that fires "
+            "the native 4-role evaluation seam. Runs the LOCKED golden DRB-EN questions."
+        ),
+    )
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument(
+        "--only", type=str, default=None, metavar="SLUG",
+        help=f"Run ONE locked question by slug. Valid: {', '.join(LOCKED_BENCHMARK_SLUGS)}.",
+    )
+    selection.add_argument(
+        "--all", action="store_true",
+        help="Run ALL 5 locked benchmark questions (sequentially, one at a time).",
+    )
+    selection.add_argument(
+        "--list", "--dry-run", dest="list_only", action="store_true",
+        help=(
+            "NO-SPEND, NO-NETWORK, NO-ENV-MUTATION preview: print the resolved questions, the "
+            "active PG_FOUR_ROLE_TRANSPORT mode, the 4 role slugs/families, and the preflight "
+            "plan. Runs NO question and spends nothing."
+        ),
+    )
+    parser.add_argument(
+        "--out-root", type=str, default=DEFAULT_OUT_ROOT, metavar="DIR",
+        help=f"Output root (tree <out_root>/<domain>/<slug>). Default: {DEFAULT_OUT_ROOT}.",
+    )
+    args = parser.parse_args(argv)
+
+    # --only validates against the locked slug set BEFORE any env-touching import (fail loud).
+    if args.only is not None and args.only not in LOCKED_BENCHMARK_SLUGS:
+        parser.error(
+            f"--only {args.only!r} is not a locked benchmark slug. "
+            f"Valid: {', '.join(LOCKED_BENCHMARK_SLUGS)}."
+        )
+
+    requested_slugs: tuple[str, ...] | None
+    if args.only is not None:
+        requested_slugs = (args.only,)
+    else:
+        requested_slugs = None  # --all and --list both resolve the full set
+
+    if args.list_only:
+        # ENUMERATION-ONLY path (AC-3): snapshot os.environ BEFORE importing the SWEEP_QUERIES
+        # source (its `load_dotenv(override=False)` mutates env from `.env`), read the transport
+        # mode + slugs/families WHILE `.env` is applied (so the preview reports what a real run
+        # would use), then restore the full mapping in `finally` so `--list` leaves the process
+        # environment byte-identical even on error.
+        env_snapshot = dict(os.environ)
+        try:
+            questions = load_locked_questions(requested_slugs)
+            preview = _format_list_preview(questions)
+        finally:
+            os.environ.clear()
+            os.environ.update(env_snapshot)
+        print(preview)
+        return 0
+
+    # --- REAL RUN (--only / --all): operator-authorized spend. `.env` may load normally. ---
+    import asyncio
+
+    out_root = Path(args.out_root)
+    questions = load_locked_questions(requested_slugs)
+    print("=" * 72)
+    print(f"GATE-B 4-ROLE BENCHMARK RUN -- {len(questions)} question(s)")
+    print(f"transport mode: {four_role_transport_mode()}")
+    print(f"output root: {out_root}")
+    print("=" * 72)
+
+    overall_rc = 0
+    for q in questions:
+        slug = q["slug"]
+        domain = q["domain"]
+        print(f"\n>>> {domain} / {slug}")
+        # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
+        # runs). Each delegates entirely to the existing 4-role entrypoint.
+        summary = asyncio.run(run_gate_b_query(q, out_root))
+        status = summary.get("status", "<no-status>")
+        print(f"<<< {domain} / {slug}: status={status}")
+        if not (status == "success" or str(status).startswith("partial")):
+            overall_rc = 1
+    return overall_rc
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
