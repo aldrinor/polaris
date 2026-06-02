@@ -241,6 +241,19 @@ with one or more of:
 - Add an academic-first backend to the scope template
 - Narrow the research question so the search is more on-topic
 
+> **4-role head-to-head benchmark (added 2026-06-01, I-meta-008 #1014):**
+> The locked DR head-to-head benchmark (the 5 golden DRB-EN questions,
+> scored with the native 4-role evaluation seam — V4-Pro generator +
+> Cohere mirror + Granite sentinel + Qwen judge) runs **ONLY** via the
+> Gate-B launcher `python -m scripts.dr_benchmark.run_gate_b`
+> (`--only <slug>` / `--all` / `--list` for a no-spend preview).
+> Do **NOT** use `python -m scripts.run_honest_sweep_r3 --pathB-gate` for
+> the 4-role benchmark — `--pathB-gate` is the **legacy single-judge**
+> capture/enforcement path, not the 4-role seam, and will produce a
+> single-judge result rather than the 4-role evaluation. The benchmark
+> run executes on the OVH Québec VM (`polaris-orchestrator`) inside the
+> `polaris-worker:latest` image, not on a developer laptop.
+
 ### Sweep aborts with `abort_corpus_approval_denied`
 
 The corpus tier distribution materially deviates from the scope
