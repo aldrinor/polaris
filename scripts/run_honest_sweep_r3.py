@@ -1392,6 +1392,19 @@ def _abort_if_cancelled(
     return True
 
 
+def _normalize_quantified_telemetry(telemetry: dict) -> dict:
+    """Add a normalized ``fired`` boolean to the Phase-7 quantified telemetry (I-meta-008 P1-3,
+    #1018) so a post-run assertion can detect a SILENT no-op.
+
+    The quantified block intentionally NEVER aborts the run (broad ``except`` in run_one_query), so
+    an error or ``spec_produced=False`` would otherwise leave the manifest carrying the raw
+    telemetry but no single clear "did the differentiator actually run" signal. ``fired`` is True
+    iff the section produced at least one verified quantified sentence. Idempotent (``setdefault``).
+    """
+    telemetry.setdefault("fired", int(telemetry.get("verified_sentences", 0) or 0) > 0)
+    return telemetry
+
+
 async def run_one_query(
     q: dict,
     out_root: Path,
@@ -4434,7 +4447,17 @@ async def run_one_query(
         # sentence counts, sourced-input conflicts). ON-mode only (key absent in
         # OFF -> legacy manifest shape preserved byte-for-byte).
         if _quantified_telemetry is not None:
+            # I-meta-008 P1-3 (#1018): normalize a `fired` boolean so a post-run assertion can
+            # detect a SILENT no-op, and surface it LOUDLY in the log. The block never aborts the
+            # run, so without this an error / spec_produced=False completes silently without the
+            # Phase-7 differentiator and the manifest gives no single clear signal.
+            _quantified_telemetry = _normalize_quantified_telemetry(_quantified_telemetry)
             manifest["quantified_analysis"] = _quantified_telemetry
+            if not _quantified_telemetry["fired"]:
+                _log(
+                    "[phase7]      WARNING: quantified analysis ran but produced NO verified "
+                    "quantified output (silent no-op) — manifest.quantified_analysis.fired=False"
+                )
 
         # I-meta-002 sub-PR-6: GUARDED 4-role evaluation seam (default OFF, NO spend).
         # Activates ONLY when an explicit RoleTransport is INJECTED (four_role_transport)
