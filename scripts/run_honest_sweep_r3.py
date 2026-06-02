@@ -3711,7 +3711,17 @@ async def run_one_query(
                 from src.polaris_graph.generator.quantified_analysis import (
                     run_quantified_section,
                 )
-                from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+                # I-meta-008 (#1030 PR-C): import PG_GENERATOR_MODEL HERE (mirrors the planner
+                # block ~L1802) so the _q_spec_provider closure below can bind it. Python makes
+                # PG_GENERATOR_MODEL a LOCAL of run_one_query (it is import-assigned in the planner
+                # block), so when the planner path did NOT run, the closure hit an UnboundLocalError
+                # ("cannot access free variable PG_GENERATOR_MODEL") and the Phase-7 quantified
+                # differentiator silently no-op'd (run 5: spec_produced=False). Binding it in this
+                # always-executed (PG_ENABLE_QUANTIFIED_ANALYSIS=1) block fixes that.
+                from src.polaris_graph.llm.openrouter_client import (
+                    OpenRouterClient,
+                    PG_GENERATOR_MODEL,
+                )
 
                 _q_ev_pool = {
                     ev["evidence_id"]: ev for ev in evidence_for_gen
@@ -4496,24 +4506,111 @@ async def run_one_query(
             # audit map next to the run. The builder closure is called HERE — AFTER generation —
             # so it sees the finished `multi` report; the sweep still synthesizes nothing itself.
             from src.polaris_graph.roles.sweep_integration import (  # noqa: E402
+                FourRoleEvaluationResult,
                 build_evaluator_agrees_map,
                 run_four_role_seam,
             )
-            four_role_result = run_four_role_seam(
-                four_role_transport,
-                run_dir=run_dir,
-                timestamp=_utc_now_iso(),
-                four_role_input_builder=four_role_input_builder,
-                four_role_inputs=four_role_inputs,
-                multi=multi,
-                template=_template,
-                slug=q["slug"],
-                domain=q["domain"],
-                ev_pool=ev_pool,
-                # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped db so later
-                # questions in this sweep can reuse THIS question's VERIFIED claims (fail-closed read).
-                campaign_kg_db=str(out_root / "verified_claim_graph_campaign.db"),
+            # I-meta-008 (#1028-followup / hang): the seam runs SYNCHRONOUS httpx verifier calls.
+            # Calling it directly in this async coroutine BLOCKS the event loop, and a wedged
+            # verifier call (per-call 900s x up to 3 attempts) could hang the whole run ~45 min with
+            # NO terminal artifact (run 5: 18-min poll() hang, no manifest.json). Run it on a worker
+            # thread bounded by an overall wall-clock timeout and FAIL CLOSED on timeout/error
+            # (release HELD — never release un-evaluated output, LAW II / §9.1). The timeout/error
+            # path returns a real HELD FourRoleEvaluationResult so the existing post-seam manifest
+            # block is byte-unchanged. Budget integrity: mirror the planner-LLM cost-reconciliation
+            # (this file ~L1840) — copy_context for READ visibility + write the worker's accumulated
+            # _RUN_COST_CTX delta back to the parent so PG_MAX_COST_PER_RUN stays intact even though
+            # the seam ran in a copied ThreadPoolExecutor context.
+            import concurrent.futures as _seam_futures
+            import contextvars as _seam_cv
+            from src.polaris_graph.llm.openrouter_client import (
+                BudgetExceededError as _SeamBudgetExceededError,
+                _RUN_COST_CTX as _seam_cost_ctx,
             )
+            _seam_timeout = float(
+                os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS", "2400")
+            )
+            _seam_kg_path = out_root / "verified_claim_graph_campaign.db"
+            _seam_parent_cost = _seam_cost_ctx.get()
+            _seam_cost_holder = [_seam_parent_cost]
+            _seam_parent_ctx = _seam_cv.copy_context()
+
+            def _seam_worker() -> FourRoleEvaluationResult:
+                def _run_under_ctx() -> FourRoleEvaluationResult:
+                    try:
+                        return run_four_role_seam(
+                            four_role_transport,
+                            run_dir=run_dir,
+                            timestamp=_utc_now_iso(),
+                            four_role_input_builder=four_role_input_builder,
+                            four_role_inputs=four_role_inputs,
+                            multi=multi,
+                            template=_template,
+                            slug=q["slug"],
+                            domain=q["domain"],
+                            ev_pool=ev_pool,
+                            # I-meta-002-q1d (#948): persist the snowball KG to the CAMPAIGN-scoped
+                            # db so later questions in this sweep can reuse THIS question's VERIFIED
+                            # claims (fail-closed read).
+                            campaign_kg_db=str(_seam_kg_path),
+                        )
+                    finally:
+                        # Capture accumulated verifier spend even on raise/timeout so the parent
+                        # write-back below cannot under-report (budget-cap integrity, LAW II).
+                        _seam_cost_holder[0] = _seam_cost_ctx.get()
+                return _seam_parent_ctx.run(_run_under_ctx)
+
+            _seam_held_reason = None
+            # Manage the executor MANUALLY (NOT `with`): a `with ThreadPoolExecutor` __exit__ calls
+            # shutdown(wait=True), which BLOCKS until the wedged worker finishes — defeating the
+            # timeout entirely (Codex diff-gate P1). shutdown(wait=False, cancel_futures=True) returns
+            # promptly so the held manifest is written AT PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS; the
+            # orphaned worker thread exits on its own per-call timeout. Mirrors audit_ir/parallel_fetch.py.
+            _seam_pool = _seam_futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                four_role_result = _seam_pool.submit(_seam_worker).result(
+                    timeout=_seam_timeout
+                )
+            except _seam_futures.TimeoutError:
+                _seam_held_reason = "seam_timeout"
+            except _SeamBudgetExceededError:
+                # A verifier cap breach (PG_MAX_COST_PER_RUN) MUST propagate to the existing outer
+                # abort_budget_exceeded handler (the clean budget-abort contract) — NOT be swallowed
+                # into a held seam_error (Codex diff-gate iter-2 P1). The worker's `finally` already
+                # updated the cost holder, so the `finally` below reconciles the full spend before
+                # this re-raises.
+                raise
+            except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
+                _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
+            finally:
+                # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
+                _seam_pool.shutdown(wait=False, cancel_futures=True)
+                # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
+                # `_seam_cost_holder`, so this write-back is EXACT. On the TIMEOUT path the worker is
+                # still running (holder == parent cost -> delta 0), so the in-flight verifier spend is
+                # NOT added to the parent cap — an acceptable tradeoff (Codex P2): the run is ABORTING
+                # (release HELD), the operator authorized spend, the orphaned worker's cost is bounded
+                # by its own per-call timeout, and prompt fail-closed termination outranks exact
+                # budget accounting on an already-aborted run.
+                _seam_delta = _seam_cost_holder[0] - _seam_parent_cost
+                if _seam_delta > 0:
+                    _seam_cost_ctx.set(_seam_parent_cost + _seam_delta)
+            if _seam_held_reason is not None:
+                _log(
+                    f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s "
+                    "-> release HELD (fail-closed; terminal manifest written)"
+                )
+                four_role_result = FourRoleEvaluationResult(
+                    release_allowed=False,
+                    held_reasons=[_seam_held_reason],
+                    gaps=[],
+                    final_verdicts={},
+                    records=[],
+                    coverage_fraction=0.0,
+                    fabricated_occurrence_latched=False,
+                    needs_rewrite=[],
+                    kg_path=_seam_kg_path,
+                )
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
             manifest["release_allowed"] = four_role_result.release_allowed
