@@ -1334,3 +1334,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   mitigation: non-silent reference-stripping audit trail (card["reference_stripping"]) so a
   wrongly-stripped claim is visible to the §-1.1 audit, not a silent bypass. Proper fix
   (judge-rated S3 exclusion) = follow-up #1007. 25 scorer + 208 dr_benchmark green. Scorer COMPLETE.
+
+## I-meta-008 #1033 frame_fetcher OpenAlex fallback — DIFF gate
+- 2026-06-02: iter1 APPROVE. novel_p0 [] continuing_p0 [] p1 [] ; one p2 (pre-existing
+  OPEN_ACCESS-empty-quote residual, unchanged by diff, not a blocker). convergence accept_remaining.
+  74,604 tokens. Tests: 52/52 frame_fetcher + 94/94 consumers. (1st attempt explored the repo w/o
+  emitting verdict -> re-ran tighter per §8.3.8; this is the converged verdict.)
