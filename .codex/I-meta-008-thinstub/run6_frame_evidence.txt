@@ -1,0 +1,16 @@
+=== run6 frame_coverage_report (the documented failure) ===
+by_status: {"fail_min_fields": 1, "pass": 6}
+  acemoglu_restrepo_automation_tasks         prov=open_access    oa_full_text=True crossref_abstract=False min_fields=3
+  autor_why_still_jobs                       prov=open_access    oa_full_text=True crossref_abstract=False min_fields=2
+  fourth_industrial_revolution_framing       prov=open_access    oa_full_text=False crossref_abstract=False min_fields=1
+  acemoglu_restrepo_robots_jobs              prov=metadata_only  oa_full_text=False crossref_abstract=False min_fields=3
+  frey_osborne_computerisation               prov=open_access    oa_full_text=True crossref_abstract=False min_fields=2
+  brynjolfsson_genai_at_work                 prov=abstract_only  oa_full_text=False crossref_abstract=True min_fields=3
+  eloundou_gpts_are_gpts                     prov=abstract_only  oa_full_text=False crossref_abstract=True min_fields=2
+
+LIVE OpenAlex probe (verified this session, urllib direct):
+  10.1257/jep.33.2.3 Acemoglu-Automation : 1331 chars  (was oa_full_text STUB -> not extractable)
+  10.1086/705716     Acemoglu-Robots-JPE  : 688 chars   (was metadata_only)
+  10.1257/jep.29.3.3 Autor-JEP            : 1530 chars
+  10.1093/qje/qjae044 Brynjolfsson-QJE    : 1113 chars  (has crossref_abstract; not helped by OpenAlex)
+  10.1126/science.adj0998 Eloundou-Science: 56 chars    (thin; has crossref_abstract)

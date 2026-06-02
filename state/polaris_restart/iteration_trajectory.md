@@ -1340,3 +1340,11 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   OPEN_ACCESS-empty-quote residual, unchanged by diff, not a blocker). convergence accept_remaining.
   74,604 tokens. Tests: 52/52 frame_fetcher + 94/94 consumers. (1st attempt explored the repo w/o
   emitting verdict -> re-ran tighter per §8.3.8; this is the converged verdict.)
+
+## I-meta-008 #1034 thin-stub fix — DUAL parallel audit (operator-directed full workflow)
+- 2026-06-02: Claude independent audit (general-purpose agent, line-by-line) APPROVE 0 P0/P1
+  -> found §-1.1 stub-safety P2 (thin stub could beat a shorter real abstract).
+  Codex independent audit (gpt-5.5 xhigh, 69,936 tok) APPROVE 0 P0/P1 -> found provenance-edge P2.
+  Addressed BOTH (stub admitted only when no real abstract; +2 edge tests). 131/131 tests.
+  Codex re-confirm on final diff: APPROVE converged. Artifacts in .codex/I-meta-008-thinstub/
+  + outputs/audits/I-meta-008-thinstub/.
