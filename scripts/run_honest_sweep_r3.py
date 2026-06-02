@@ -59,6 +59,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     PG_MAX_COST_PER_RUN,
+    BudgetExceededError,
     current_run_cost,
     reset_run_cost,
     set_current_run_id,
@@ -188,6 +189,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_corpus_approval_denied",
     "abort_no_verified_sections",
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
+    "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     # error — unhandled exception
     "error_unexpected",
 })
@@ -215,6 +217,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
     "four_role_released": "success",
     "four_role_held": "abort_four_role_release_held",
+    # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
+    # clean budget abort, NOT error_unexpected.
+    "abort_budget_exceeded": "abort_budget_exceeded",
     "error": "error_unexpected",
 }
 
@@ -4647,6 +4652,13 @@ async def run_one_query(
             decision_id=q.get("decision_id"),
             query_slug=q.get("slug"),
         )
+        # I-meta-008 (#1015): `run_cost` was snapshotted (line ~4250) BEFORE the 4-role seam,
+        # which now threads verifier spend into the run-budget accumulator. Recompute from the
+        # accumulator so a successful Gate-B manifest reports generator + verifier cost, not
+        # generator-only (a LAW-II under-reporting smell otherwise). No-op on non-4-role runs.
+        run_cost = current_run_cost()
+        manifest["cost_usd"] = run_cost
+
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -4661,6 +4673,48 @@ async def run_one_query(
         summary["manifest"] = manifest
         summary["cost_usd"] = run_cost
         _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+    except BudgetExceededError as budget_exc:
+        # I-meta-008 (#1015): PG_MAX_COST_PER_RUN was breached mid-run — generator OR (now) a
+        # 4-role verifier call via the RecordingTransport cost hook. This is a CLEAN budget
+        # abort, NOT error_unexpected: catch-and-set (do NOT re-raise) so the teardown below
+        # (per-run ledger copy, emit_terminal_event, run_id/sink reset at ~4710) still runs —
+        # those are OUTSIDE this try with no `finally`, so a bare `raise` would leak a stale
+        # run_id/sink into the next question. Status maps to abort_budget_exceeded via
+        # to_unified_status; the generator and the verifier now abort identically.
+        run_cost = current_run_cost()
+        _log(
+            f"[BUDGET]      PG_MAX_COST_PER_RUN breached: {budget_exc} "
+            f"(run_cost=${run_cost:.4f}, cap=${PG_MAX_COST_PER_RUN:.4f})"
+        )
+        summary["status"] = "abort_budget_exceeded"
+        summary["error"] = str(budget_exc)[:300]
+        try:
+            if run_dir is not None:
+                budget_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": "abort_budget_exceeded",
+                    "error": str(budget_exc)[:500],
+                    "cost_usd": run_cost,
+                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+                }
+                budget_manifest = augment_v6_manifest(
+                    budget_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                budget_manifest = _attach_tool_utilization(budget_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(budget_manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = budget_manifest
+                summary["cost_usd"] = run_cost
+        except Exception as manifest_exc:  # noqa: BLE001 — best-effort; never mask the budget abort
+            _log(f"[BUDGET]      budget-abort manifest-write-also-failed: {manifest_exc}")
     except Exception as exc:
         tb = traceback.format_exc()
         _log(f"[FATAL]       {exc}")
