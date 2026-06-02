@@ -1434,3 +1434,59 @@ class TestOpenAlexThinStubRichest:
         assert "Genuine full text" in row.direct_quote
         # OpenAlex not even called (real full text resolved first).
         assert not any("openalex" in u for u in transport.call_log)
+
+    def test_short_real_abstract_beats_longer_stub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dual-audit finding: a thin OA stub must NOT outrank a SHORTER
+        real abstract. CrossRef has a short (~80-char) abstract; the OA
+        fetch returns a longer 540-char stub. The real abstract wins;
+        the junk stub never becomes the extracted span (§-1.1)."""
+        stub = "X" * 540
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (stub, url),
+        )
+        short_cr = _crossref_response(
+            abstract="<jats:p>Tirzepatide lowered HbA1c in adults.</jats:p>"
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, short_cr),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://paywalled.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(_binding(), client=client)
+        assert row.quote_source == "crossref_abstract"  # NOT the stub
+        assert "XXXX" not in row.direct_quote
+        assert "Tirzepatide" in row.direct_quote
+
+    def test_oa_locator_but_all_text_empty_is_metadata_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dual-audit finding: v2 fixes a latent v1 bug where an OA
+        locator with NO extractable text (full-text empty + no abstract
+        from any source) was OPEN_ACCESS with an empty quote. It must now
+        be METADATA_ONLY (title known, no content)."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: ("", ""),
+        )
+        cr_no_abs = _crossref_response(abstract=None)  # title, no abstract
+        oa_no_abstract = _openalex_response()
+        oa_no_abstract["abstract_inverted_index"] = {}  # OpenAlex: no abstract
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://x.pdf")),
+            ("api.openalex.org", 200, oa_no_abstract),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.METADATA_ONLY
+        assert row.direct_quote == ""

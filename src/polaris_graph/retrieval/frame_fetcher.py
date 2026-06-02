@@ -791,7 +791,11 @@ def _pick_richest_abstract(
         candidates.append((openalex, "openalex_abstract"))
     if pubmed:
         candidates.append((pubmed, "pubmed_abstract"))
-    if partial_full_text:
+    # A thin OA full-text stub is a TRUE last resort: admit it ONLY when
+    # no real abstract resolved. Per §-1.1 clinical-safety (dual-audit
+    # finding #1034), a paywall junk stub must never become the extracted
+    # span when a real abstract exists — even if the stub is longer.
+    if partial_full_text and not candidates:
         candidates.append((partial_full_text, "oa_full_text_partial"))
     best: tuple[str, str] | None = None
     for text, src in candidates:
