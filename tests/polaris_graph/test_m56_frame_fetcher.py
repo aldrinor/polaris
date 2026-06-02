@@ -1332,3 +1332,105 @@ class TestOpenAlexFallback:
             )
         assert row.provenance_class == ProvenanceClass.METADATA_ONLY
         assert not any("openalex" in u for u in transport.call_log)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (9) Thin oa_full_text stub must not block OpenAlex (issue #1034)
+# ─────────────────────────────────────────────────────────────────────
+_LONG_OPENALEX_SENTENCE = "Tirzepatide " + " ".join(
+    f"finding{i}" for i in range(220)
+)  # ~2000 chars >> a 540-char stub and >> the 1200 full-text threshold
+
+
+class TestOpenAlexThinStubRichest:
+    def test_pick_richest_longest_wins_ties_keep_priority(self) -> None:
+        from src.polaris_graph.retrieval.frame_fetcher import (
+            _pick_richest_abstract,
+        )
+        # OpenAlex longest -> wins despite CrossRef higher priority.
+        t, s = _pick_richest_abstract(
+            crossref="short", openalex="x" * 50, pubmed=None,
+        )
+        assert s == "openalex_abstract" and t == "x" * 50
+        # Equal length -> CrossRef (higher priority) wins.
+        t, s = _pick_richest_abstract(
+            crossref="abcd", openalex="wxyz", pubmed=None,
+        )
+        assert s == "crossref_abstract"
+        # Only a thin partial full-text present -> it is used last-resort.
+        t, s = _pick_richest_abstract(
+            crossref=None, openalex=None, pubmed=None,
+            partial_full_text="stub",
+        )
+        assert s == "oa_full_text_partial"
+        # All empty.
+        assert _pick_richest_abstract(
+            crossref=None, openalex=None, pubmed=None,
+        ) == ("", "none")
+
+    def test_thin_oa_fulltext_stub_does_not_block_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """THE #1034 BUG: aeaweb PDF 403s but Jina returns a ~540-char
+        stub. The stub must NOT block OpenAlex; the richer OpenAlex
+        abstract (>=1200) must win, not the stub."""
+        stub = "X" * 540  # below _OA_FULLTEXT_MIN_CHARS (1200)
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (stub, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True,
+                pdf_url="https://www.aeaweb.org/articles/pdf/x.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "openalex_abstract"  # NOT the stub
+        assert "finding200" in row.direct_quote
+        assert "XXXX" not in row.direct_quote  # the stub did not win
+        assert len(row.direct_quote) > 540
+        assert any(
+            "openalex" in a.source for a in row.retrieval_attempts
+        )
+
+    def test_real_long_fulltext_still_preferred_over_openalex(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A genuine long OA full text (>= threshold) still wins; the
+        thin-stub guard must not demote real full text."""
+        real = "Genuine full text. " * 120  # ~2280 chars >= 1200
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (real, url),
+        )
+        cr_no_abs = _crossref_response(abstract=None)
+        transport = _Transport([
+            ("api.crossref.org", 200, cr_no_abs),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/real.pdf")),
+            ("api.openalex.org", 200,
+             _openalex_response(sentence=_LONG_OPENALEX_SENTENCE)),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(
+                    primary="doi:10.1056/NEJMoa2107519", secondaries=()
+                ),
+                client=client,
+            )
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "oa_full_text"
+        assert "Genuine full text" in row.direct_quote
+        # OpenAlex not even called (real full text resolved first).
+        assert not any("openalex" in u for u in transport.call_log)

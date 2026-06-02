@@ -204,6 +204,11 @@ _OPENALEX_FRAME_FALLBACK_ENABLED = (
     os.getenv("PG_OPENALEX_FRAME_FALLBACK", "1").strip().lower()
     not in ("0", "false", "no", "off")
 )
+# Minimum chars for an OA full-text fetch to count as REAL full text
+# (issue #1034). Paywalled-PDF stubs (e.g. aeaweb via Jina ~540 chars)
+# fall below this -> they must not block the abstract fallbacks and
+# must lose to a real abstract (e.g. OpenAlex 1331 chars).
+_OA_FULLTEXT_MIN_CHARS = int(os.getenv("PG_OA_FULLTEXT_MIN_CHARS", "1200"))
 
 _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
 _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
@@ -761,22 +766,38 @@ def _call_openalex(
     return data, attempts, timings
 
 
-def _pick_abstract(
+def _pick_richest_abstract(
+    *,
     crossref: str | None,
-    pubmed: str | None,
     openalex: str | None,
+    pubmed: str | None,
+    partial_full_text: str | None = None,
 ) -> tuple[str, str]:
-    """Choose the best available abstract text + its quote_source
-    label, in priority order: CrossRef (authoritative metadata
-    abstract) > PubMed (clinical) > OpenAlex (reconstructed fallback,
-    issue #1033). Returns ("", "none") when all are empty."""
+    """Choose the RICHEST (longest) available abstract text + its
+    quote_source label. Candidates in priority order CrossRef >
+    OpenAlex > PubMed > thin-OA-full-text partial; the LONGEST wins,
+    ties break toward the higher-priority source (deterministic —
+    strictly-greater comparison while iterating priority order).
+
+    A thin oa_full_text stub (paywalled-PDF Jina result, ~540 chars)
+    is admitted only as the last-priority `partial_full_text`
+    candidate, so a real abstract (e.g. OpenAlex 1331 chars) overrides
+    it rather than being blocked by it (issue #1034). Returns
+    ("", "none") when every candidate is empty."""
+    candidates: list[tuple[str, str]] = []
     if crossref:
-        return crossref, "crossref_abstract"
-    if pubmed:
-        return pubmed, "pubmed_abstract"
+        candidates.append((crossref, "crossref_abstract"))
     if openalex:
-        return openalex, "openalex_abstract"
-    return "", "none"
+        candidates.append((openalex, "openalex_abstract"))
+    if pubmed:
+        candidates.append((pubmed, "pubmed_abstract"))
+    if partial_full_text:
+        candidates.append((partial_full_text, "oa_full_text_partial"))
+    best: tuple[str, str] | None = None
+    for text, src in candidates:
+        if best is None or len(text) > len(best[0]):
+            best = (text, src)
+    return best if best is not None else ("", "none")
 
 
 def _urlsafe_doi(doi: str) -> str:
@@ -1126,7 +1147,7 @@ def _fetch_frame_entity_inner(
         and doi
         and not abstract_crossref
         and not abstract_pubmed
-        and not oa_full_text
+        and (not oa_full_text or len(oa_full_text) < _OA_FULLTEXT_MIN_CHARS)
     ):
         oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
         attempts.extend(oa_attempts)
@@ -1162,28 +1183,39 @@ def _fetch_frame_entity_inner(
     # POLARIS content fetch infrastructure at M-57; the distinction
     # from ABSTRACT_ONLY is that a full-text source exists.
     any_oa_url = oa_pdf_url or oa_html_url
-    # Best available abstract across CrossRef/PubMed/OpenAlex (#1033),
-    # with its honest quote_source label.
-    abstract_text, abstract_quote_source = _pick_abstract(
-        abstract_crossref, abstract_pubmed, abstract_openalex
+    # A real OA full-text extraction is long; a paywalled-PDF stub
+    # (e.g. aeaweb returns ~540 chars via Jina) is NOT usable full text
+    # (issue #1034). Only treat oa_full_text as real full text above the
+    # threshold; otherwise it competes as a last-priority partial.
+    real_full_text = (
+        oa_full_text
+        if (oa_full_text and len(oa_full_text) >= _OA_FULLTEXT_MIN_CHARS)
+        else None
     )
-    if any_oa_url:
-        # V30 Phase-2 M-66b-T: when Step 2b succeeded in fetching
-        # OA full text, use it as direct_quote (rich source for
-        # M-58's 9-field SURPASS extractions). Else fall back to the
-        # best resolved abstract (CrossRef/PubMed/OpenAlex).
-        if oa_full_text:
-            direct_quote = oa_full_text
-            quote_source = "oa_full_text"
-        else:
-            direct_quote = abstract_text
-            quote_source = abstract_quote_source
+    # Richest abstract across CrossRef/OpenAlex/PubMed (+ a thin
+    # oa_full_text stub as last resort), longest wins (#1033/#1034).
+    abstract_text, abstract_quote_source = _pick_richest_abstract(
+        crossref=abstract_crossref,
+        openalex=abstract_openalex,
+        pubmed=abstract_pubmed,
+        partial_full_text=(oa_full_text if not real_full_text else None),
+    )
+    if real_full_text:
+        # V30 Phase-2 M-66b-T: real OA full text — rich source for
+        # M-58's multi-field extractions.
+        direct_quote = real_full_text
+        quote_source = "oa_full_text"
         provenance = ProvenanceClass.OPEN_ACCESS
         failure_reason = None
     elif abstract_text:
         direct_quote = abstract_text
         quote_source = abstract_quote_source
-        provenance = ProvenanceClass.ABSTRACT_ONLY
+        # OPEN_ACCESS when an OA locator existed (full text just wasn't
+        # extractable); else ABSTRACT_ONLY.
+        provenance = (
+            ProvenanceClass.OPEN_ACCESS if any_oa_url
+            else ProvenanceClass.ABSTRACT_ONLY
+        )
         failure_reason = None
     elif title:  # we have metadata but no abstract, no OA
         direct_quote = ""
