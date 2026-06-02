@@ -8,10 +8,13 @@ for each claim, feeds the resulting `D8ClaimRow`s through the SINGLE binding gat
 (`apply_d8_release_policy`, sub-PR-3), persists the snowball KG (sub-PR-5), and returns a
 flat result the sweep maps onto the manifest + `VerifiedSentence.evaluator_agrees`.
 
-NO network and NO spend here. The transport is dependency-injected; tests inject a mock.
-There is NO `datetime.now()`: the caller supplies the audit `timestamp` (LAW VI). The KG
-opens a SQLite file under the caller-supplied `run_dir` only — no other I/O except the D8
-config YAML read (a pure file read).
+The seam itself adds no paid LLM call; the dependency-injected transport performs the
+(already-paid) verifier calls, and the per-call run-budget guard lives in
+`role_pipeline.RecordingTransport` (I-meta-008 — verifier spend is threaded into the shared
+PG_MAX_COST_PER_RUN accumulator there, so a cap breach raises `BudgetExceededError` out of
+this seam). Tests inject a mock transport. There is NO `datetime.now()`: the caller supplies
+the audit `timestamp` (LAW VI). The KG opens a SQLite file under the caller-supplied `run_dir`
+only — no other I/O except the D8 config YAML read (a pure file read).
 
 Fail-closed contract (Codex P2 directives, binding):
 
