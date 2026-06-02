@@ -4448,6 +4448,20 @@ async def run_one_query(
         _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
             "1", "true", "True",
         )
+        # I-meta-008 (#1014) loud guard: PG_FOUR_ROLE_MODE is on but NO transport was injected,
+        # so the 4-role seam stays INERT and this run silently uses the legacy single-evaluator
+        # gate. That is the exact "benchmark started via a legacy entrypoint" trap (#1014): the
+        # 4-role benchmark ONLY runs via scripts/dr_benchmark/run_gate_b.py (its main()/the
+        # run_gate_b_query entrypoint INJECTS a transport). Log LOUD so this degradation is never
+        # unnoticed; do NOT raise (legacy callers that never set PG_FOUR_ROLE_MODE are unaffected,
+        # and this preserves existing behavior — only the visibility changes).
+        if _four_role_on and four_role_transport is None:
+            print(
+                "[I-meta-008][GUARD] PG_FOUR_ROLE_MODE is ON but no four_role_transport was "
+                "injected -- the 4-role benchmark seam is INERT; this query runs the LEGACY "
+                "single-evaluator gate. The native 4-role benchmark runs ONLY via "
+                "scripts/dr_benchmark/run_gate_b.py (CLI: python -m scripts.dr_benchmark.run_gate_b)."
+            )
         if _four_role_on and four_role_transport is not None:
             # M3b: the seam resolves inputs (builder WINS over static four_role_inputs; both
             # None -> fail-closed), runs the SINGLE binding D8 gate, and persists the per-claim
