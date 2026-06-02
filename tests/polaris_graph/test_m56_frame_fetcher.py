@@ -1547,20 +1547,23 @@ class TestHtmlJunkAndPreferAbstract:
         assert "Sci-Hub" not in row.direct_quote
         assert "finding200" in row.direct_quote
 
-    def test_prefer_abstract_flag_uses_abstract_over_clean_fulltext(
+    def test_prefer_abstract_narrative_skips_scrape_uses_abstract(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With PG_FRAME_PREFER_ABSTRACT on (run_gate_b sets it), the clean
-        deterministic abstract is preferred over even a clean long OA scrape
-        — eliminating the non-deterministic-scrape dependency."""
+        """Flag on + NARRATIVE entity type (economic_report): the OA scrape
+        is SKIPPED entirely (no AccessBypass / Sci-Hub request — #1034 P1)
+        and the clean abstract is used. _fetch_url_pattern must NOT be
+        called."""
         monkeypatch.setattr(
             "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
             True,
         )
-        clean_full = "Clean genuine full text. " * 120  # >=1200, clean
+
+        def _boom(url):  # pragma: no cover - asserts non-invocation
+            raise AssertionError("scrape must be skipped under prefer-abstract")
         monkeypatch.setattr(
             "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
-            lambda url: (clean_full, url),
+            _boom,
         )
         transport = _Transport([
             ("api.crossref.org", 200, _crossref_response()),  # has abstract
@@ -1568,10 +1571,72 @@ class TestHtmlJunkAndPreferAbstract:
                 is_oa=True, pdf_url="https://oa.example/x.pdf")),
         ])
         with _client_with_transport(transport) as client:
-            row = fetch_frame_entity(_binding(), client=client)
+            row = fetch_frame_entity(
+                _binding(entity_type="economic_report"), client=client
+            )
         assert row.quote_source == "crossref_abstract"  # NOT oa_full_text
-        assert "tirzepatide" in row.direct_quote.lower()
-        assert "Clean genuine full text" not in row.direct_quote
+        assert any(
+            a.outcome == "skipped:prefer_abstract"
+            for a in row.retrieval_attempts
+        )
+
+    def test_clinical_entity_type_keeps_fulltext_under_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Flag on + CLINICAL entity type (pivotal_trial): full-text path is
+        PRESERVED (clinical 9-field rosters live in tables) — Gate-B coverage
+        protected (#1034 P1)."""
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
+            True,
+        )
+        clean_full = "Clean genuine full text with trial roster. " * 60
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._fetch_url_pattern",
+            lambda url: (clean_full, url),
+        )
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = fetch_frame_entity(
+                _binding(entity_type="pivotal_trial"), client=client
+            )
+        assert row.quote_source == "oa_full_text"  # clinical keeps full text
+        assert "trial roster" in row.direct_quote
+
+    def test_scihub_access_method_rejected_in_fetch_url_pattern(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Sci-Hub source (even clean PDF text) is rejected at the
+        _fetch_url_pattern boundary by access_method — legal/provenance
+        (#1034 dual-audit P1). _looks_like_html_junk cannot see PDF
+        provenance, so this guard is the one that stops Sci-Hub PDF text."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+        from src.tools.access_bypass import AccessResult
+
+        class _SciHubAB:
+            def __init__(self, *_a, **_kw) -> None:
+                pass
+
+            async def fetch_with_bypass(
+                self, url: str, prefer_legal: bool = True,
+            ) -> AccessResult:
+                return AccessResult(
+                    url=url,
+                    content="Clean paper body text from a pirate PDF." * 50,
+                    access_method="scihub_pdf",
+                    legal_alternative=None,
+                    success=True, metadata={},
+                )
+        monkeypatch.setattr(
+            "src.tools.access_bypass.AccessBypass", _SciHubAB,
+        )
+        content, final_url = ff._fetch_url_pattern("https://example.com/x.pdf")
+        assert content == ""  # Sci-Hub content rejected outright
+        assert final_url == ""
 
     def test_prefer_abstract_off_keeps_fulltext(
         self, monkeypatch: pytest.MonkeyPatch

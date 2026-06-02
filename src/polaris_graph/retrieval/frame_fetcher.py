@@ -221,6 +221,20 @@ _FRAME_PREFER_ABSTRACT = (
     os.getenv("PG_FRAME_PREFER_ABSTRACT", "0").strip().lower()
     in ("1", "true", "yes", "on")
 )
+# Entity types whose contract fields live in full-text TABLES (clinical trial
+# 9-field rosters etc.) KEEP the OA full-text path even under prefer-abstract,
+# so Gate-B gold-rubric coverage for clinical questions is preserved (dual-audit
+# #1034 P1). Narrative entity types (economic_report, ...) prefer the clean
+# abstract AND skip the scrape entirely (no non-deterministic fetch, no Sci-Hub
+# request).
+_FULLTEXT_ENTITY_TYPES = frozenset(
+    t.strip().lower()
+    for t in os.getenv(
+        "PG_FRAME_FULLTEXT_ENTITY_TYPES",
+        "pivotal_trial,clinical_trial,rct,systematic_review,meta_analysis",
+    ).split(",")
+    if t.strip()
+)
 
 _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
 _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
@@ -901,6 +915,13 @@ def _fetch_url_pattern(url: str) -> tuple[str, str]:
                 return "", ""
             content = getattr(result, "content", "") or ""
             final_url = getattr(result, "url", "") or url
+            method = (getattr(result, "access_method", "") or "").lower()
+            # Never use pirate-source (Sci-Hub) content in a research /
+            # clinical product — legal + provenance (#1034 dual-audit P1).
+            # Rejects BOTH the Sci-Hub HTML viewer page AND clean Sci-Hub
+            # PDF text (which _looks_like_html_junk cannot detect).
+            if "scihub" in method or "sci-hub" in method:
+                return "", ""
             if not content:
                 return "", ""
             return content[:_M66_CONTENT_CAP], final_url
@@ -1080,6 +1101,15 @@ def _fetch_frame_entity_inner(
     abstract_crossref: str | None = None
     doi = identifiers.get("doi")
     pmid = identifiers.get("pmid")
+    # Entity-scoped prefer-abstract (#1034 dual-audit P1): a narrative
+    # frame entity (economic_report, ...) under the flag prefers the clean
+    # abstract AND skips the OA scrape entirely; a full-text entity type
+    # (clinical trial rosters) keeps the full-text path so Gate-B coverage
+    # is preserved.
+    entity_prefers_abstract = (
+        _FRAME_PREFER_ABSTRACT
+        and binding.entity_type.strip().lower() not in _FULLTEXT_ENTITY_TYPES
+    )
 
     # Step 1: CrossRef for metadata + abstract when DOI present
     if doi:
@@ -1114,7 +1144,18 @@ def _fetch_frame_entity_inner(
     # full text, giving M-58 enough surface to extract SURPASS
     # 9-field rosters. Falls back to abstract on fetch failure.
     oa_locator = oa_pdf_url or oa_html_url
-    if oa_locator:
+    if oa_locator and entity_prefers_abstract:
+        # Narrative frame entity under prefer-abstract: SKIP the OA scrape
+        # entirely — no non-deterministic AccessBypass call, no Sci-Hub
+        # request (#1034 dual-audit P1). The clean abstract is the source.
+        attempts.append(RetrievalAttempt(
+            source="access_bypass",
+            url=f"oa_full_text_skipped:{oa_locator}",
+            attempt_index=1,
+            http_status=None,
+            outcome="skipped:prefer_abstract",
+        ))
+    elif oa_locator:
         full_text, final_url = _fetch_url_pattern(oa_locator)
         if full_text:
             oa_full_text = full_text
@@ -1194,7 +1235,7 @@ def _fetch_frame_entity_inner(
         and doi
         and not abstract_crossref
         and not abstract_pubmed
-        and (not _is_usable_full_text(oa_full_text) or _FRAME_PREFER_ABSTRACT)
+        and (not _is_usable_full_text(oa_full_text) or entity_prefers_abstract)
     ):
         oa_meta, oa_attempts, oa_timings = _call_openalex(client, doi)
         attempts.extend(oa_attempts)
@@ -1252,7 +1293,7 @@ def _fetch_frame_entity_inner(
             else None
         ),
     )
-    if _FRAME_PREFER_ABSTRACT and abstract_text:
+    if entity_prefers_abstract and abstract_text:
         # Frame-contract grounding (#1034): the clean, deterministic
         # abstract is preferred over a non-deterministic / noisy OA scrape.
         # Contract fields (thesis/mechanism/effect) are abstract-level claims.
