@@ -1348,3 +1348,12 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   Addressed BOTH (stub admitted only when no real abstract; +2 edge tests). 131/131 tests.
   Codex re-confirm on final diff: APPROVE converged. Artifacts in .codex/I-meta-008-thinstub/
   + outputs/audits/I-meta-008-thinstub/.
+
+## I-meta-008 #1034 v4 (HTML/Sci-Hub junk + entity-scoped prefer-abstract) — DUAL audit 2 iters
+- 2026-06-02 iter1: Claude APPROVE-conditional + Codex REQUEST_CHANGES -> converged on 3 P1s
+  (flag only changed selection/scrape still ran+Sci-Hub; Sci-Hub PDF laundering; clinical coverage).
+  Root caught by LIVE LAW II probe (3x Acemoglu fetch = Sci-Hub HTML / Jina markdown / clean abstract
+  = the scrape is non-deterministic) AFTER the dual audit had APPROVE'd the prior (wrong-premise) diff.
+- iter2: addressed all 3 (narrative skip Step 2b; _fetch_url_pattern rejects access_method scihub;
+  _FULLTEXT_ENTITY_TYPES keep clinical full text). Both APPROVE. Live-verified Acemoglu 3x deterministic
+  crossref_abstract + scrape_skipped. 63/63 + 94/94 tests. #1035 = URGENT follow-up (access_bypass gating).

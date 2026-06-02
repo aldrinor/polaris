@@ -451,6 +451,12 @@ async def run_gate_b_query(
     # span-verifiable abstract yield. `setdefault` so an explicit operator override still wins (LAW VI).
     os.environ.setdefault("PG_UNPAYWALL_ENABLED", "1")
     os.environ.setdefault("PG_TRAFILATURA_ENABLED", "1")
+    # #1034: paywalled-journal OA fetches are non-deterministic + noisy (Sci-Hub HTML / Jina
+    # landing-page markdown / intermittent CrossRef abstract). For frame-contract grounding the
+    # clean, deterministic abstract (CrossRef/OpenAlex) is the correct source — contract fields
+    # are abstract-level claims. Prefer it over the scrape; setdefault keeps the operator override.
+    os.environ.setdefault("PG_FRAME_PREFER_ABSTRACT", "1")
+    os.environ.setdefault("PG_OPENALEX_FRAME_FALLBACK", "1")
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:
