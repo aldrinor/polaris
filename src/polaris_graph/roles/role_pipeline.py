@@ -45,6 +45,7 @@ from src.polaris_graph.roles.judge_contract import Verdict
 from src.polaris_graph.roles.mirror_adapter import (
     MirrorBindingError,
     MirrorCitationError,
+    MirrorParseError,
     run_mirror,
 )
 from src.polaris_graph.roles.mirror_contract import MirrorPass1, MirrorPass2
@@ -292,14 +293,17 @@ def run_claim_pipeline(
     mirror_failed_closed = False
 
     # --- stage 14: Mirror (fail CLOSED) ----------------------------------------------
-    # Catch the two grounding/binding errors EXPLICITLY (NOT `except: pass`) so they drive the
+    # Catch the grounding/binding/parse errors EXPLICITLY (NOT `except: pass`) so they drive the
     # UNSUPPORTED override; any OTHER exception propagates (a transport fault is not a verdict).
+    # MirrorParseError (#1028): a verifier that responded but returned un-classifiable JSON is a
+    # VERDICT-level failure (fail closed for THIS claim), NOT a transport fault — so one malformed
+    # pass-2 response degrades a single claim to UNSUPPORTED instead of crashing the whole run.
     try:
         mirror_result, mirror_records = run_mirror(
             recording, claim, evidence_documents, model_slug=mirror_slug
         )
         citation_id = _first_grounded_citation_id(mirror_records)
-    except (MirrorCitationError, MirrorBindingError):
+    except (MirrorCitationError, MirrorBindingError, MirrorParseError):
         mirror_failed_closed = True
 
     # --- stage 15 + 16: Sentinel -> Judge (only if Mirror produced a grounded claim) -----
