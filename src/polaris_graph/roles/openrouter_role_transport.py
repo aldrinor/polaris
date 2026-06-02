@@ -594,14 +594,19 @@ class OpenRouterRoleTransport:
             for attempt, effort in enumerate(effort_ladder):
                 # Step the reasoning effort DOWN per attempt (only meaningful for a reasoning role,
                 # whose body carries a `reasoning` block). `effort is None` => reasoning DISABLED
-                # (final resort, guarantees content): drop the `reasoning` param AND the
-                # `provider.require_parameters` pin (which exists only to force the reasoning param
-                # to be honored — meaningless once reasoning is off).
+                # (final resort, guarantees content): drop the `reasoning` param. Keep
+                # `provider.require_parameters` if the body STILL carries an output-constraining
+                # param (`response_format` / `structured_outputs`) — that pin then guarantees a
+                # provider that HONORS those constraints (Codex diff-gate P2). Only when reasoning
+                # was the sole constrained param do we drop require_parameters (it would otherwise
+                # have nothing to enforce).
                 if reasoning_role and "reasoning" in body:
                     if effort is None:
                         body.pop("reasoning", None)
                         provider = body.get("provider")
-                        if isinstance(provider, dict):
+                        if isinstance(provider, dict) and not (
+                            "response_format" in body or "structured_outputs" in body
+                        ):
                             provider.pop("require_parameters", None)
                             if not provider:
                                 body.pop("provider", None)
@@ -638,6 +643,21 @@ class OpenRouterRoleTransport:
                     raw_text, served_model, usage, reasoning = _parse_openrouter_response(raw)
                 except BlankVerdictError as exc:
                     last_blank = exc
+                    # Codex diff-gate P1 (budget-cap bypass): a blank attempt is DISCARDED, so its
+                    # `usage` never reaches RecordingTransport (which bills only the final returned
+                    # response). Account THIS blank attempt's tokens into the SAME shared
+                    # PG_MAX_COST_PER_RUN accumulator the generator + the successful verifier calls
+                    # feed, then enforce the cap BEFORE the next paid retry. Lazy import keeps the
+                    # raw transport free of an import-time dependency on the orchestration layer
+                    # (`compute_role_call_cost` lives in role_pipeline; `_orc` is openrouter_client,
+                    # which does NOT import the roles package — both are cycle-safe).
+                    import src.polaris_graph.llm.openrouter_client as _orc
+                    from src.polaris_graph.roles.role_pipeline import compute_role_call_cost
+
+                    _orc._add_run_cost(
+                        compute_role_call_cost(request.model_slug, raw.get("usage"))
+                    )
+                    _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now crossed.
                     if attempt + 1 < len(effort_ladder):
                         logger.warning(
                             "[polaris graph] #1026: %s blank verdict at reasoning effort=%s "

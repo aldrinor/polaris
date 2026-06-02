@@ -765,3 +765,49 @@ def test_sentinel_blank_is_single_attempt_no_stepdown():
             RoleRequest(role="sentinel", model_slug=_SENTINEL_SLUG, prompt="x")
         )
     assert len(seen["bodies"]) == 1, "Sentinel must NOT retry (no reasoning ladder)"
+
+
+def test_blank_attempt_bills_tokens_into_run_budget(monkeypatch):
+    # Codex diff-gate P1: a DISCARDED blank attempt's tokens must be accounted into the shared
+    # run-budget accumulator (RecordingTransport bills only the final returned response, so without
+    # this the expensive xhigh blank attempt would bypass PG_MAX_COST_PER_RUN). The successful
+    # attempt stays billed by RecordingTransport -> only the blank is billed here (no double-count).
+    import src.polaris_graph.llm.openrouter_client as orc
+
+    billed: list[float] = []
+    checks: list[float] = []
+    monkeypatch.setattr(orc, "_add_run_cost", lambda c: billed.append(c))
+    monkeypatch.setattr(orc, "check_run_budget", lambda d=0.0: checks.append(d))
+
+    blank = {"content": "", "reasoning": "looped without converging"}
+    good = {"content": "VERIFIED"}
+    handler, _seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    resp = _make_transport(handler).complete(
+        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+    )
+    assert resp.raw_text == "VERIFIED"
+    assert len(billed) == 1, "exactly the ONE blank attempt's tokens are billed inline"
+    assert billed[0] > 0.0, "a blank xhigh attempt cost real tokens — must not bill $0"
+    assert checks == [0], "the run budget is checked once, before the paid retry"
+
+
+def test_blank_attempt_budget_exceeded_aborts_before_next_retry(monkeypatch):
+    # The inline budget check must fail-fast: if accounting the blank attempt crosses the cap,
+    # BudgetExceededError propagates and NO further (paid) retry is issued.
+    import src.polaris_graph.llm.openrouter_client as orc
+
+    monkeypatch.setattr(orc, "_add_run_cost", lambda c: None)
+
+    def _over_cap(_delta=0.0):
+        raise orc.BudgetExceededError("PG_MAX_COST_PER_RUN crossed by the blank retry")
+
+    monkeypatch.setattr(orc, "check_run_budget", _over_cap)
+
+    blank = {"content": "", "reasoning": "x"}
+    good = {"content": "VERIFIED"}
+    handler, seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    with pytest.raises(orc.BudgetExceededError):
+        _make_transport(handler).complete(
+            RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+        )
+    assert len(seen["bodies"]) == 1, "the cap abort must prevent the next paid retry"
