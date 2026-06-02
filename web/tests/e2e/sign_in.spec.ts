@@ -118,6 +118,24 @@ test.describe("Sign-in route — ?next= same-origin validation", () => {
   });
 });
 
+// I-ux-001c sub-PR 9 (#898): v6 chrome cases. Per brief iter-3 APPROVE.
+test.describe("Sign-in v6 chrome", () => {
+  test("v6 chrome: eyebrow + H1 + subtitle render with locked copy", async ({
+    page,
+  }) => {
+    await page.goto("/sign-in", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("sign-in-eyebrow")).toContainText(
+      /SIGN IN.*POLARIS CLINICAL RESEARCH/i,
+    );
+    await expect(page.getByTestId("sign-in-h1")).toContainText(
+      "Sign in to verify every claim",
+    );
+    await expect(page.getByTestId("sign-in-subtitle")).toContainText(
+      /Institutional access.*proves every sentence against its primary source/i,
+    );
+  });
+});
+
 // I-cd-014 (GH#610): visual baseline for the sign-in route. test.fixme()
 // because chromium-win32 baseline not captured yet; operator runs
 // `--update-snapshots` to write the PNG; follow-up PR commits it.

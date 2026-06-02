@@ -84,6 +84,13 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: start_fastapi_backend
+        # I-ux-001c sub-PR 9 (#898): auth-fixture env so sign-in spec
+        # can hit a real /api/v6/auth/* endpoint in CI. Test secret;
+        # production sets via separate config. Test accounts fixture
+        # at tests/fixtures/auth/test_static_accounts.yaml.
+        env:
+          POLARIS_JWT_SECRET: "test_jwt_secret_for_ci_only_must_not_be_used_in_production"
+          POLARIS_STATIC_ACCOUNTS_PATH: ${{ github.workspace }}/tests/fixtures/auth/test_static_accounts.yaml
         working-directory: ${{ github.workspace }}
         run: |
           PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
@@ -190,6 +197,15 @@ jobs:
           SCREENSHOT_BASE_URL: http://127.0.0.1:3738
           POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
         run: npx playwright test --project=chromium tests/e2e/runs_runid_g1_g8.spec.ts
+
+      # I-ux-001c sub-PR 9 (#898): /sign-in spec — needs the auth-fixture
+      # env on start_fastapi_backend above (POLARIS_JWT_SECRET +
+      # POLARIS_STATIC_ACCOUNTS_PATH).
+      - name: run_e2e_sign_in
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/sign_in.spec.ts
 
       # I-cd-026 (#616): /upload route G1-G8 acceptance gates.
       - name: run_e2e_upload_g1_g8

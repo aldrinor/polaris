@@ -117,11 +117,31 @@ function SignInPageContent() {
           </span>
         </div>
         <div className="flex flex-col gap-8">
+          {/* I-ux-001c sub-PR 9 (#898): v6 marketing-auth chrome.
+              Brand-red eyebrow + display H1 + tightened subtitle.
+              Rest of page (TRUST_POINTS, form, ?next= validation)
+              preserved verbatim per brief iter-3 APPROVE. */}
           <div className="flex flex-col gap-3">
             <MapleLeafSignatureLazy />
-            <h1 className="text-foreground max-w-md text-3xl font-semibold tracking-tight text-balance">
-              Deep research you can check, line by line.
+            <span
+              data-testid="sign-in-eyebrow"
+              className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
+            >
+              SIGN IN · POLARIS CLINICAL RESEARCH
+            </span>
+            <h1
+              data-testid="sign-in-h1"
+              className="text-foreground max-w-md text-4xl leading-[1.1] font-bold tracking-tight text-balance"
+            >
+              Sign in to verify every claim.
             </h1>
+            <p
+              data-testid="sign-in-subtitle"
+              className="text-muted-foreground max-w-md text-sm leading-relaxed"
+            >
+              Institutional access for POLARIS — Canadian-hosted clinical
+              research that proves every sentence against its primary source.
+            </p>
           </div>
           <ul className="flex flex-col gap-4">
             {TRUST_POINTS.map((point) => (
