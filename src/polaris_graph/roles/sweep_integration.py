@@ -86,6 +86,11 @@ _REQUIRED_ROLE_SLUG_KEYS = ("mirror", "sentinel", "judge")
 # budget enforcement inside `RecordingTransport.complete()`.
 _CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS", "6")))
 
+# I-run11-001 (#1042) Codex iter-2 P2.3: tiny on-disk progress marker the PARALLEL compute writes
+# after EACH claim completes ({"done": k, "total": n}), so a hung mid-compute is visible on disk
+# DURING compute — the role_call_log only grows during the later, parent-only reduction.
+FOUR_ROLE_COMPUTE_PROGRESS_FILENAME = "four_role_compute_progress.json"
+
 
 @dataclass
 class FourRoleClaim:
@@ -216,6 +221,7 @@ def _compute_claim_results(
     claims: list[FourRoleClaim],
     model_slugs: dict[str, str],
     timestamp: str,
+    run_dir: Path,
 ) -> list[tuple[ClaimPipelineResult, float | None]]:
     """COMPUTE the per-claim 4-role pipeline for every claim, returning results BY INPUT INDEX.
 
@@ -230,24 +236,31 @@ def _compute_claim_results(
         `_RUN_COST_CTX` EXACTLY as today. `cost_delta is None` signals the parent "already
         accounted — do not re-add" (byte-equivalence with the pre-#1042 behaviour).
 
-      * PARALLEL: each claim runs inside its OWN `contextvars.copy_context()` so the per-claim
-        verifier spend + the pathB `_ROLE` tag are ISOLATED per worker (a plain shared context
-        would cross-contaminate role tags AND a copied `ContextVar[float]` does NOT converge into
-        the parent counter — Codex naive-B trap). The worker `reset_run_cost()`s its copy, runs
-        the pipeline, and returns `current_run_cost()` as `cost_delta`; the PARENT re-adds it to
-        the single run counter and enforces the cap. The pathB capture `_SINK` is shared BY
-        REFERENCE through the copied context (atomic `list.append`), so verifier captures still
-        land at the parent for the M4 gate — it is NOT isolated. A worker exception PROPAGATES
-        (fail closed; no `except: pass`).
+      * PARALLEL: each claim runs inside its OWN `contextvars.copy_context()` snapshot that is taken
+        ON THE PARENT THREAD BEFORE submit (Codex iter-2 P1.2 — copying inside the worker would
+        snapshot the worker's EMPTY default context, so the parent Path-B capture sink
+        `pathB_capture._SINK` / `_ROLE` registered by `pathB_runner` on the PARENT would be ABSENT
+        and verifier capture would no-op, failing post-run completeness when workers>1). Each claim
+        gets its OWN copy (never one shared copy across concurrent workers — a copy carries the
+        worker's isolated `_RUN_COST_CTX` AND the parent's `_SINK` reference). The worker
+        `reset_run_cost()`s its copy, runs the pipeline, and returns `current_run_cost()` as
+        `cost_delta`; the PARENT re-adds it to the single run counter and enforces the cap DURING
+        compute (Codex iter-2 P1.1) so overspend is bounded to the workers in-flight at breach
+        (~workers-1), not all claims. The pathB capture `_SINK` is shared BY REFERENCE through the
+        copied context (atomic `list.append`), so verifier captures land at the PARENT sink for the
+        M4 gate — it is NOT isolated. A worker exception PROPAGATES (fail closed; no `except: pass`).
     """
     n = len(claims)
 
-    def _compute_one(idx: int, claim: FourRoleClaim) -> tuple[int, ClaimPipelineResult, float]:
-        ctx = contextvars.copy_context()
-
+    def _compute_one(
+        idx: int, claim: FourRoleClaim, worker_ctx: contextvars.Context
+    ) -> tuple[int, ClaimPipelineResult, float]:
         def _run() -> tuple[ClaimPipelineResult, float]:
             # Isolate THIS claim's verifier spend in the copied context so the parent can re-add a
             # clean per-claim delta and enforce the cap deterministically at the claim boundary.
+            # `reset_run_cost()` zeroes ONLY this copy's `_RUN_COST_CTX`; the parent's `_SINK` /
+            # `_ROLE` references carried by the same copy are untouched, so verifier capture lands
+            # at the parent sink.
             reset_run_cost()
             res = run_claim_pipeline(
                 transport,
@@ -261,7 +274,9 @@ def _compute_claim_results(
             )
             return res, current_run_cost()
 
-        result, delta = ctx.run(_run)
+        # Run inside the PARENT-captured context snapshot (P1.2): the worker executes `_run` under
+        # the parent's Path-B capture state, not the worker thread's empty default context.
+        result, delta = worker_ctx.run(_run)
         return idx, result, delta
 
     # SEQUENTIAL fast path: byte-equivalent to the pre-#1042 loop (live per-call budget preserved,
@@ -283,15 +298,58 @@ def _compute_claim_results(
             out.append((result, None))
         return out
 
-    # PARALLEL path: bounded thread pool; collect BY INDEX (never as_completed order). A worker
-    # exception surfaces from `future.result()` and propagates (fail closed) — the seam HOLDS,
-    # never partial-releases.
+    # PARALLEL path (Codex iter-2 P1.1 + P1.2): enforce the run budget DURING compute, not after the
+    # whole pool drains. Each claim is submitted with its OWN parent-captured context snapshot so the
+    # worker inherits the Path-B capture sink/role registered on the parent. We iterate
+    # `as_completed` and, for each completed future, re-add the worker's per-claim verifier delta to
+    # the SINGLE parent run counter and re-check the cap — so a cumulative cap breach raises after
+    # only ~(workers-in-flight) claims have spent, NOT all n. The pool is managed MANUALLY (not via
+    # `with`, whose `__exit__` waits for ALL pending futures) so on a breach / worker exception we
+    # `shutdown(wait=False, cancel_futures=True)` to cancel still-queued claims, then re-raise
+    # (P2.2 cancel-on-fail).
+    #
+    # P2.1 (aborted-run cost under-accounting — documented, not over-engineered): on a worker
+    # exception the worker's partial paid spend lives in the worker's isolated copied context and is
+    # NOT reconciled into the parent counter. This is the SAME accepted tradeoff the seam-timeout
+    # wrapper documents (run_honest_sweep_r3.py ~L4587-4596: in-flight verifier cost on the
+    # held/aborted path is not reconciled) — prompt fail-closed termination outranks exact accounting
+    # on an already-aborted run, and the operator authorized the spend.
     computed: list[tuple[ClaimPipelineResult, float | None] | None] = [None] * n
-    with concurrent.futures.ThreadPoolExecutor(max_workers=_CLAIM_WORKERS) as pool:
-        futures = [pool.submit(_compute_one, idx, claim) for idx, claim in enumerate(claims)]
+    progress_path = run_dir / FOUR_ROLE_COMPUTE_PROGRESS_FILENAME
+    done = 0
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=_CLAIM_WORKERS)
+    try:
+        futures = [
+            pool.submit(_compute_one, idx, claim, contextvars.copy_context())
+            for idx, claim in enumerate(claims)
+        ]
         for future in concurrent.futures.as_completed(futures):
-            idx, result, delta = future.result()  # re-raises any worker exception (fail closed).
+            # `future.result()` re-raises any worker exception (fail closed) — handled below.
+            idx, result, delta = future.result()
             computed[idx] = (result, delta)
+            # Enforce the run budget DURING compute (P1.1): thread this claim's verifier spend into
+            # the SINGLE parent run counter and re-check the cap immediately. A `BudgetExceededError`
+            # here bounds overspend to the workers in-flight at the breach (~workers-1), not all n.
+            if delta is not None:
+                _add_run_cost(delta)
+                check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
+            # P2.3: write a tiny on-disk progress marker after each completion so a hung compute is
+            # visible on disk DURING compute (the role_call_log only grows during the later, parent-
+            # only reduction). Parent-only write — never inside a worker.
+            done += 1
+            progress_path.write_text(
+                json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+    except BaseException:
+        # On ANY failure (BudgetExceededError from the cap OR a propagated worker exception) cancel
+        # still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the
+        # existing budget-abort / fail-closed path in run_four_role_evaluation handles it. No
+        # `except: pass` — the error always propagates.
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
 
     # Defensive: every index must be filled (a None here would mean a future silently dropped — a
     # real bug, never a vacuous pass). Fail loud rather than reduce a partial result set.
@@ -401,11 +459,17 @@ def run_four_role_evaluation(
     # cost_delta)` for `claims[idx]`; `cost_delta` is the per-claim verifier spend captured INSIDE
     # the worker's isolated `_RUN_COST_CTX` (parallel path) or None (sequential path, where
     # RecordingTransport already enforced the LIVE per-call budget on the parent counter).
+    # Codex iter-2 P1.1: the PARALLEL path now ENFORCES the run-budget cap DURING compute (each
+    # claim's delta is re-added to the parent counter and the cap re-checked as its future
+    # completes), so a cap breach raises after only ~(workers-in-flight) claims have spent — the
+    # reduction below NO LONGER re-adds `cost_delta` (it would double-count). `cost_delta` is kept
+    # in the returned tuples for audit only.
     computed: list[tuple[ClaimPipelineResult, float | None]] = _compute_claim_results(
         transport,
         claims=claims,
         model_slugs=model_slugs,
         timestamp=timestamp,
+        run_dir=run_dir,
     )
 
     role_calls_path = run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME
@@ -420,17 +484,13 @@ def run_four_role_evaluation(
         # Reduce in INPUT order (zip over claims + the index-ordered `computed` list). Completion
         # order NEVER drives any reduction — the parallel path collected results BY INDEX, so this
         # is byte-identical to the sequential reduction regardless of which claim finished first.
-        for claim, (result, cost_delta) in zip(claims, computed):
-            # I-run11-001 (#1042): on the PARALLEL path the worker's verifier spend was isolated in
-            # a copied context; thread it into the SINGLE parent run-budget accumulator HERE and
-            # enforce the cap. `BudgetExceededError` propagates to the existing budget-abort path
-            # (it is NEVER caught here — the finally below only closes the KG store). On the
-            # SEQUENTIAL path `cost_delta is None`: RecordingTransport already accounted + capped
-            # live on the parent counter, so re-adding would double-count (byte-equivalence).
-            if cost_delta is not None:
-                _add_run_cost(cost_delta)
-                check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
-
+        # Codex iter-2 P1.1: the run-budget cap is now enforced DURING compute inside
+        # `_compute_claim_results` (parallel path) — the per-claim `cost_delta` was ALREADY re-added
+        # to the parent counter and the cap re-checked there. This reduction is therefore PARENT-only
+        # and budget-NEUTRAL: it touches ONLY d8_rows / all_records / final_verdicts / role_call_log /
+        # coverage / kg_store.write_claim / the incremental log. `cost_delta` is retained in the tuple
+        # for audit but is NOT re-added here (re-adding would double-count the verifier spend).
+        for claim, (result, _cost_delta) in zip(claims, computed):
             d8_rows.append(result.d8_row)
             all_records.extend(result.records)
             final_verdicts[claim.claim_id] = result.final_verdict

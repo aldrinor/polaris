@@ -92,6 +92,39 @@ File: `src/polaris_graph/roles/sweep_integration.py` only (+ a new test file).
    `BudgetExceededError` from the parent `check_run_budget` is fine inside the try/finally — the
    finally closes kg_store and the error propagates.
 
+## Iter-2 changes (Codex diff-gate iter-1 REQUEST_CHANGES → applied)
+
+Codex iter-1 (`codex_diff_audit.txt`) returned REQUEST_CHANGES with 2 P1 + 3 P2. All applied in
+`sweep_integration.py` (`_compute_claim_results` + the reduction loop in `run_four_role_evaluation`):
+
+1. **P1.2 (CRITICAL — context copied in the wrong thread):** `copy_context()` was taken INSIDE the
+   worker, snapshotting the worker's EMPTY default context, so the parent Path-B capture sink
+   (`pathB_capture._SINK` / `_ROLE`, registered by `pathB_runner.gate_around_question` on the PARENT)
+   was ABSENT in workers and verifier capture no-oped (post-run completeness fails when workers>1).
+   FIX: the per-claim snapshot is now taken ON THE PARENT at submit —
+   `pool.submit(_compute_one, idx, claim, contextvars.copy_context())`. Each claim gets its OWN copy;
+   the worker calls `worker_ctx.run(_run)`; inside `_run`, `reset_run_cost()` isolates THIS claim's
+   cost in the copied ctx, then `run_claim_pipeline(...)`, then returns `current_run_cost()`.
+2. **P1.1 (budget enforced too late):** the parallel branch no longer drains-all-then-charges. It now
+   iterates `as_completed`; per completed future `_add_run_cost(delta)` + `check_run_budget(0)`, so a
+   cap breach raises after only ~(workers-in-flight) claims have spent, not all N. On
+   `BudgetExceededError` / any worker exception the pool is `shutdown(wait=False, cancel_futures=True)`
+   then re-raised (P2.2 cancel-on-fail). The pool is managed MANUALLY (try/except/finally), NOT `with`.
+   The now-duplicated cost re-add was REMOVED from the reduction loop (it would double-count);
+   `cost_delta` is kept in the returned tuple for audit only. Reduction stays parent-only, input-order,
+   for d8_rows / all_records / final_verdicts / role_call_log / coverage / kg / incremental-log only.
+3. **P2.3 (mid-compute monitorability):** the `as_completed` loop writes
+   `run_dir/four_role_compute_progress.json` = `{"done": k, "total": n}` after each completion (parent
+   only) so a hung COMPUTE is visible on disk during compute.
+4. **P2.1 (aborted-run cost under-accounting):** documented as parity with the seam-timeout wrapper
+   (`run_honest_sweep_r3.py` ~L4587-4596) — a worker's partial spend on an aborted run is not
+   reconciled; fail-closed termination outranks exact accounting. Not over-engineered.
+
+Two tests ADDED to `tests/roles/test_seam_parallel.py`: `test_pathb_sink_visible_in_workers` (proves
+P1.2 — parent sink receives ALL workers' captures; FAILS with copy_context inside the worker) and
+`test_cap_trip_is_bounded_in_flight` (proves P1.1 — a cumulative cap trip runs a bounded prefix, not
+all N; FAILS with the old drain-all behavior). Existing 6 kept green → 8/8; `tests/roles/` 310/310.
+
 ## Acceptance criteria (tests in tests/roles/test_seam_parallel.py)
 
 - (a) output order (final_verdicts iteration / d8_rows / role_call_log) == INPUT order regardless

@@ -124,3 +124,92 @@ shared. The one honest scope statement (criterion (b)'s same-total claim holds f
 with the tip on the tripping claim's last call; the general path has the accepted ~(workers-1)
 in-flight overspend window, Codex risk #5) is documented in both the test and this audit. No P0/P1
 self-identified.
+
+---
+
+## Iter-2 fixes (Codex diff-gate iter-1 REQUEST_CHANGES → applied)
+
+Codex iter-1 (`.codex/I-run11-001/codex_diff_audit.txt`) returned REQUEST_CHANGES with two P1 and
+three P2. All five are now fixed in `sweep_integration.py`. Line references below are post-fix.
+
+### P1.2 (CRITICAL) — copy_context was taken in the WRONG thread → parent Path-B sink absent in workers — FIXED + VERIFIED
+
+- **Root cause (iter-1):** `_compute_one` called `contextvars.copy_context()` INSIDE the worker
+  thread, so it snapshotted the worker's EMPTY default context. The parent `_PATHB_SINK` / `_PATHB_ROLE`
+  (registered by `pathB_runner.gate_around_question` → `register_pathB_capture()` on the PARENT) was
+  ABSENT in workers; `capture_llm_call` reads `_SINK.get()` → None → no-op, so verifier capture was
+  lost and the M4 post-run completeness gate would fail when `workers>1`.
+- **Fix:** the per-claim context snapshot is now taken ON THE PARENT THREAD at submit time —
+  `pool.submit(_compute_one, idx, claim, contextvars.copy_context())` (sweep_integration.py:323). Each
+  claim gets its OWN copy (never one shared copy across concurrent workers). The worker calls
+  `worker_ctx.run(_run)` (line 279); inside `_run`, `reset_run_cost()` (line 264) zeroes ONLY this
+  copy's `_RUN_COST_CTX` while leaving the parent's `_SINK`/`_ROLE` references (carried by the same
+  copy) intact, so verifier captures land at the parent sink. `_compute_one(idx, claim, worker_ctx)`
+  takes the context as a parameter (line 255).
+- **Verification that the parent `_SINK` is captured:** `pathB_capture._SINK` (pathB_capture.py:48) is a
+  `ContextVar` holding a REFERENCE to a list set by `register_pathB_capture()` on the parent. A
+  `copy_context()` taken on the parent AFTER that `set([])` captures the SAME list object by reference;
+  `worker_ctx.run(_run)` executes the verifier calls under that snapshot, so `capture_llm_call`'s
+  `_SINK.get()` returns the parent's list and `list.append` (GIL-atomic) is visible at the parent. New
+  test `test_pathb_sink_visible_in_workers` registers the sink on the parent exactly as `pathB_runner`
+  does, runs the seam with 4 workers + a transport that emits captureable calls, and asserts the PARENT
+  sink received ALL `n*4` captures across all three verifier roles. Proven regression-catching: with
+  `copy_context()` reverted INSIDE the worker the test FAILS with "parent sink saw 0 captures, expected
+  16"; with the fix it PASSES (16/16, all roles, served-identity metadata present).
+
+### P1.1 — budget enforced too late (drain-all then re-add) → cap could be exceeded by ALL claims — FIXED + VERIFIED
+
+- **Root cause (iter-1):** the parallel branch submitted AND drained ALL futures, THEN the reduction
+  loop re-added cost. An early cumulative cap trip still let every claim run and spend.
+- **Fix:** the cap is now enforced DURING compute. The `as_completed` loop (sweep_integration.py:326)
+  re-adds each completed claim's `delta` to the single parent counter (`_add_run_cost(delta)`, line 334)
+  and re-checks immediately (`check_run_budget(0)`, line 335). On a breach (or any worker exception via
+  `future.result()`) the `except BaseException` arm calls `pool.shutdown(wait=False, cancel_futures=True)`
+  (line 349) to cancel still-queued claims, then re-raises — bounding overspend to the workers in flight
+  at the breach (~workers-1). The pool is managed MANUALLY (`pool = ThreadPoolExecutor(...)` line 320 +
+  `try/except/finally`), NOT via `with` (whose `__exit__` waits for all). The **now-duplicated** cost
+  re-add was REMOVED from `run_four_role_evaluation`'s reduction loop — the loop head is now
+  `for claim, (result, _cost_delta) in zip(claims, computed):` (line 493) with the `_add_run_cost` /
+  `check_run_budget` block deleted; `_cost_delta` is retained in the tuple for audit but NOT re-added
+  (re-adding would double-count). The reduction stays parent-only, input-order, for d8_rows /
+  all_records / final_verdicts / role_call_log / coverage / kg_store.write_claim / incremental-log only.
+- **Bounded in-flight — VERIFIED:** new test `test_cap_trip_is_bounded_in_flight` runs 12 claims, each
+  individually under the cap, with `workers=2` and a per-claim delay so workers advance in bounded
+  waves. The cumulative cap (0.30) crosses after ~3 claims' deltas are re-added; the test asserts
+  `ran < n` AND `ran <= 3 + 2*workers`. Proven regression-catching: with the old drain-all behavior
+  re-simulated the test FAILS with "ran 12/12 claims"; with the fix it PASSES (a small bounded prefix).
+
+### P2.3 — mid-compute monitorability — FIXED
+
+- The `as_completed` loop writes `run_dir/four_role_compute_progress.json` = `{"done": k, "total": n}`
+  after each completion (sweep_integration.py:340, constant `FOUR_ROLE_COMPUTE_PROGRESS_FILENAME` at
+  line 92). Parent-only write. This makes a hung COMPUTE visible on disk DURING compute, before the
+  role_call_log (which only grows in the later parent-only reduction) exists.
+
+### P2.2 — cancel-on-fail — FIXED
+
+- The manual `except BaseException` arm (sweep_integration.py:343) calls
+  `pool.shutdown(wait=False, cancel_futures=True)` (line 349) before re-raising, so a worker failure or
+  cap breach cancels pending claims instead of waiting for the whole pool to drain.
+
+### P2.1 — aborted-run cost under-accounting — DOCUMENTED (parity, not over-engineered)
+
+- A one-line/paragraph comment at the head of the parallel block (sweep_integration.py:~313) notes that
+  on a worker exception the worker's partial paid spend lives in the worker's isolated copied context
+  and is NOT reconciled into the parent counter — the SAME accepted tradeoff the seam-timeout wrapper
+  documents (run_honest_sweep_r3.py ~L4587-4596: in-flight verifier cost on the held/aborted path is not
+  reconciled; prompt fail-closed termination outranks exact accounting on an already-aborted run,
+  operator-authorized spend). Not over-engineered with a holder list — the fail-closed propagation stays
+  simple.
+
+### Iter-2 test execution evidence
+
+- `tests/roles/test_seam_parallel.py`: **8/8 PASS** (the original 6 + the 2 new iter-2 tests).
+- `tests/roles/` full regression: **310/310 PASS**.
+- Both new tests proven to FAIL on a re-simulated regression (P1.2: 0/16 captures; P1.1: 12/12 ran) and
+  PASS with the fix — no assertion was relaxed.
+- `py_compile src/polaris_graph/roles/sweep_integration.py`: OK.
+
+Constraints held: sequential fast path (`PG_FOUR_ROLE_CLAIM_WORKERS=1` / single claim) byte-equivalent
+(lines 285-298, unchanged); no `except: pass` (the `except BaseException` re-raises); fail closed; LAW
+VI env-only. D8 policy / KG / coverage / sequential byte-equivalence unchanged.

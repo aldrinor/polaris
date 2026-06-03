@@ -41,6 +41,7 @@ import time
 
 import pytest
 
+import src.polaris_graph.benchmark.pathB_capture as pathB_capture
 import src.polaris_graph.llm.openrouter_client as openrouter_client
 from src.polaris_graph.llm.openrouter_client import BudgetExceededError
 from src.polaris_graph.roles import sweep_integration
@@ -413,3 +414,190 @@ def test_parallel_cost_equals_sequential_cost_under_cap(monkeypatch, tmp_path):
     par_total = total_for(4, "par")
     assert seq_total > 0.0
     assert seq_total == pytest.approx(par_total, rel=1e-9)
+
+
+# === Codex iter-2 P1.2 — the PARENT Path-B capture sink is visible inside workers ===============
+class _CapturingFakeTransport:
+    """Fake `RoleTransport` that emits a CAPTUREABLE verifier call exactly as the real transports
+    do: it scopes the role via `pathB_capture.llm_role(request.role)` and calls
+    `pathB_capture.capture_llm_call(...)` for EVERY role call. The capture only lands in the parent
+    `_PATHB_SINK` if the worker runs under a context snapshot that was taken on the PARENT (P1.2);
+    with `copy_context()` taken INSIDE the worker the sink is the worker's empty default (None) and
+    capture no-ops, so the parent sink stays empty. Verdicts are fixed VERIFIED so the seam reduces
+    cleanly; this test is about CAPTURE VISIBILITY, not verdict math.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.completions = 0
+
+    def complete(self, request: RoleRequest) -> RoleResponse:
+        with self._lock:
+            self.completions += 1
+        # Emit a captureable call THE SAME WAY the real OpenRouter/OpenAI-compatible transports do:
+        # scope the role, then capture. A minimal served-identity raw response so the capture record
+        # carries response_metadata (the M4 gate's served==pinned surface).
+        with pathB_capture.llm_role(request.role):
+            pathB_capture.capture_llm_call(
+                role=request.role,
+                messages=[{"role": "user", "content": request.prompt or ""}],
+                raw_response={"provider": "FakeProvider", "model": request.model_slug},
+            )
+
+        if request.role == "mirror":
+            if "pass2_input" in (request.params or {}):
+                content_hash = request.params["pass2_input"]["content_hash"]
+                return RoleResponse(
+                    raw_text=json.dumps(
+                        {"content_hash": content_hash, "classification": "supported"}
+                    ),
+                    served_model=request.model_slug,
+                    usage=None,
+                )
+            idx = _DelayedFakeTransport._index_from_request(request)
+            return RoleResponse(
+                raw_text="grounded answer",
+                served_model=request.model_slug,
+                citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(f"doc-{idx}",))],
+                usage=None,
+            )
+        if request.role == "sentinel":
+            return RoleResponse(
+                raw_text="<score>no</score>", served_model=request.model_slug, usage=None
+            )
+        if request.role == "judge":
+            return RoleResponse(
+                raw_text="VERIFIED", served_model=request.model_slug, usage=None
+            )
+        raise AssertionError(f"unexpected role {request.role!r}")
+
+
+def test_pathb_sink_visible_in_workers(monkeypatch, tmp_path):
+    # P1.2: register a Path-B capture sink on the PARENT (as pathB_runner does), run the seam with
+    # 4 workers + a fake transport that emits captureable verifier calls, and assert the PARENT sink
+    # received ALL workers' captures. This FAILS with copy_context() taken INSIDE the worker (the
+    # worker's empty default context has _SINK=None, so capture no-ops and the parent sink stays
+    # empty), and PASSES once the snapshot is taken on the parent before submit.
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 4)
+    n = 4
+    claims = [_claim(i, covers=[f"elem-{i}"]) for i in range(n)]
+    ledger = CoverageLedger(required_element_ids=[f"elem-{i}" for i in range(n)])
+    transport = _CapturingFakeTransport()
+
+    # Register the parent capture sink THE SAME WAY pathB_runner.gate_around_question does, and
+    # always clear it so the contextvar never leaks into another test.
+    pathB_capture.register_pathB_capture()
+    try:
+        result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+        captured = pathB_capture.collected_calls()
+    finally:
+        pathB_capture.clear_pathB_capture()
+
+    assert result.final_verdicts == {f"claim-{i}": "VERIFIED" for i in range(n)}
+    # Every claim runs Mirror(x2) + Sentinel + Judge == 4 captureable calls -> 4 claims * 4 = 16.
+    # The exact count proves NO worker's captures were lost to an isolated empty context.
+    assert len(captured) == n * 4, (
+        f"parent sink saw {len(captured)} captures, expected {n * 4}; a missing batch means a "
+        f"worker ran under an empty context and capture no-oped (P1.2 regression)."
+    )
+    # All three verifier roles are present at the parent (capture visibility is per-role).
+    roles_seen = {c["role"] for c in captured}
+    assert roles_seen == {"mirror", "sentinel", "judge"}, roles_seen
+    # Every captured call carries the served-identity metadata the M4 gate reads (proves the
+    # capture pipeline ran end-to-end inside the worker, not just an empty append).
+    assert all(c["response_metadata"].get("provider_name") == "FakeProvider" for c in captured)
+
+
+# === Codex iter-2 P1.1 — a cumulative cap trip is BOUNDED to ~(workers) in-flight ===============
+class _CountingCostTransport:
+    """Fake `RoleTransport` that bills a FIXED cost on each claim's JUDGE call (the LAST call of the
+    pipeline) and records WHICH claim indices actually started, so a test can prove that a cumulative
+    cap trip stops further claims rather than running all N. Thread-safe; NEVER a socket.
+
+    Each claim's Mirror PASS-1 (its FIRST call) sleeps `per_claim_delay` so workers process claims in
+    bounded WAVES instead of racing the whole batch to completion before the parent re-adds any
+    delta — without the delay a near-instant fake would let all N claims finish before the parent's
+    cumulative cap check fires, defeating the in-flight-bound assertion.
+    """
+
+    def __init__(self, *, judge_usage: dict, per_claim_delay: float = 0.0) -> None:
+        self._judge_usage = judge_usage
+        self._delay = per_claim_delay
+        self._lock = threading.Lock()
+        self.started_indices: set[int] = set()
+        self.completions = 0
+
+    def complete(self, request: RoleRequest) -> RoleResponse:
+        idx = _DelayedFakeTransport._index_from_request(request)
+        with self._lock:
+            self.completions += 1
+            if idx is not None:
+                self.started_indices.add(idx)
+
+        if request.role == "mirror":
+            if "pass2_input" in (request.params or {}):
+                content_hash = request.params["pass2_input"]["content_hash"]
+                return RoleResponse(
+                    raw_text=json.dumps(
+                        {"content_hash": content_hash, "classification": "supported"}
+                    ),
+                    served_model=request.model_slug,
+                    usage=None,
+                )
+            # Pass-1 is the FIRST call of the claim -> sleep here so workers advance in bounded waves.
+            if self._delay:
+                time.sleep(self._delay)
+            return RoleResponse(
+                raw_text="grounded answer",
+                served_model=request.model_slug,
+                citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(f"doc-{idx}",))],
+                usage=None,
+            )
+        if request.role == "sentinel":
+            return RoleResponse(
+                raw_text="<score>no</score>", served_model=request.model_slug, usage=None
+            )
+        if request.role == "judge":
+            return RoleResponse(
+                raw_text="VERIFIED",
+                served_model=request.model_slug,
+                usage=dict(self._judge_usage),
+            )
+        raise AssertionError(f"unexpected role {request.role!r}")
+
+
+def test_cap_trip_is_bounded_in_flight(monkeypatch, tmp_path):
+    # P1.1: N claims, each individually UNDER the cap, but the CUMULATIVE spend crosses the cap after
+    # a few claims. With the cap enforced DURING compute (parent re-adds each completed claim's delta
+    # and re-checks immediately), a BudgetExceededError fires and the pool is shut down with
+    # cancel_futures=True — so the number of claims that ACTUALLY RAN is bounded near the worker count
+    # in-flight at the breach, NOT all N. With the OLD code (submit+drain ALL, then re-add in the
+    # reduction) every one of the N claims would have run and spent before the cap tripped.
+    workers = 2
+    n = 12
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", workers)
+    # Each claim's Judge bills ~$0.1207 (the _BIG_JUDGE_USAGE block). Cap 0.30 -> the cumulative
+    # total crosses after claim #3's delta is re-added (3 * 0.1207 = 0.3621 > 0.30), so only a
+    # SMALL prefix of the 12 claims should ever start.
+    monkeypatch.setattr(openrouter_client, "PG_MAX_COST_PER_RUN", 0.30)
+    openrouter_client.reset_run_cost()
+    judge_usage = dict(_BIG_JUDGE_USAGE)
+    claims, ledger = _cost_claims(n)
+    # A small per-claim delay makes workers advance in bounded waves of `workers`, so the parent's
+    # cumulative cap check fires BEFORE the whole batch of 12 finishes (a near-instant fake would let
+    # all N complete first and defeat the in-flight bound).
+    transport = _CountingCostTransport(judge_usage=judge_usage, per_claim_delay=0.05)
+
+    with pytest.raises(BudgetExceededError):
+        _run(transport, claims, run_dir=tmp_path, ledger=ledger)
+
+    ran = len(transport.started_indices)
+    # BOUNDED: each Judge bills ~$0.1207; the cumulative cap (0.30) crosses once the parent has
+    # re-added ~3 claims' deltas (3 * 0.1207 = 0.3621 > 0.30). At the breach at most `workers` more
+    # claims can be in flight, so `ran` is bounded near (3 + workers), NEVER all 12. The headline
+    # assertion is `ran < n`: the OLD submit-and-drain-all code would have run every one of the 12.
+    assert ran < n, f"cap trip ran {ran}/{n} claims — should be bounded near the worker count, not all N"
+    assert ran <= 3 + 2 * workers, (
+        f"cap trip ran {ran} claims; the cumulative cap crosses after ~3 claims and only a bounded "
+        f"number more can be in-flight at the breach (bounded overspend, P1.1, workers={workers})."
+    )
