@@ -31,10 +31,13 @@ def _disable_core_by_default(monkeypatch):
     deterministic M-56 OA-full-text tests. frame_fetcher._core_enabled()
     reads PG_CORE_ENABLED at call time, so a plain setenv disables it.
     Tests exercising the CORE wiring opt in via
-    monkeypatch.setenv("PG_CORE_ENABLED", "1").
+    monkeypatch.setenv("PG_CORE_ENABLED", "1") IN THEIR OWN BODY — that
+    setenv runs AFTER this autouse fixture, so it wins.
     """
-    if "PG_CORE_ENABLED" not in os.environ:
-        monkeypatch.setenv("PG_CORE_ENABLED", "0")
+    # Force off UNCONDITIONALLY (not setdefault): an inherited
+    # PG_CORE_ENABLED=1 in the CI/dev shell must NOT let an unrelated test
+    # reach live api.core.ac.uk just because CORE_API_KEY is also present.
+    monkeypatch.setenv("PG_CORE_ENABLED", "0")
     yield
 
 

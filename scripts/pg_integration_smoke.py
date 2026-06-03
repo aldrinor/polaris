@@ -56,7 +56,9 @@ async def main():
     # ONLY on explicit operator opt-in (PG_SCIHUB_ENABLED=1) so the smoke never
     # issues a sci-hub.* request by default.
     print("\n[3/7] Sci-Hub access (DOI fetch)...")
+    scihub_skipped = False
     if os.getenv("PG_SCIHUB_ENABLED", "0") != "1":
+        scihub_skipped = True
         print("  SKIP: Sci-Hub disabled (PG_SCIHUB_ENABLED!=1); legal/provenance."); passed += 1
     else:
         from src.tools.access_bypass import AccessBypass
@@ -169,7 +171,10 @@ async def main():
         print("Proven without LLM credits:")
         print("  - Scholar delivers 70%+ academic sources")
         print("  - S2 works in parallel mode")
-        print("  - Sci-Hub delivers full papers for paywalled DOIs")
+        if scihub_skipped:
+            print("  - Sci-Hub disabled by default (legal/provenance); CORE is the OA full-text source")
+        else:
+            print("  - Sci-Hub delivers full papers for paywalled DOIs")
         print("  - Wiki handles 100+ evidence / 25+ sources")
         print("  - 5-lens compose prompts fit in context")
         print("  - All .env caps set for 300 evidence scale")

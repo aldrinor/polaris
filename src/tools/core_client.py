@@ -61,14 +61,15 @@ _CORE_TIMEOUT = float(os.getenv("PG_CORE_TIMEOUT", "15"))
 _CORE_CONTENT_CAP = int(os.getenv("PG_CORE_CONTENT_CAP", "25000"))
 # DOI-resolver prefixes stripped during normalization.
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi:")
-# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1×2):
+# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1×3):
 # CORE mis-tags distinct papers under one DOI, so DOI-equality alone returned
-# the WRONG paper. `_title_matches` requires (a) no identity-conflict between
-# the candidate and the caller's expected title and (b) coverage of the
-# expected title ≥ this fraction. A SHORT/SUBSET wrong title ("Automation"
-# vs the 6-token expected) fails on coverage (1/6 < 0.5); a genuinely
-# truncated correct title (4 of 6 tokens, 0.67) passes; a drug-substituted
-# SIBLING trial fails on the identity-conflict rule regardless of coverage.
+# the WRONG paper. `_title_matches` requires (a) the candidate adds NO
+# significant token absent from the caller's expected (CrossRef) title — i.e.
+# `cand ⊆ exp`, rejecting both a drug substitution and an identity-adding
+# superset (population/subgroup/phase/acronym = a sibling trial) — and (b)
+# coverage of the expected title ≥ this fraction. A SHORT/SUBSET wrong title
+# ("Automation" vs the 6-token expected) fails on coverage (1/6 < 0.5); a
+# genuinely truncated correct title (4 of 6 tokens, 0.67) passes.
 _TITLE_MATCH_MIN = float(os.getenv("PG_CORE_TITLE_MATCH_MIN", "0.5"))
 # Absolute floor on shared significant tokens — blocks a single-token
 # coincidence from passing on coverage alone.
@@ -115,17 +116,20 @@ def _title_matches(candidate: str | None, expected: str | None) -> bool:
     conservative clinical-safe default):
 
     1. ≥ `_TITLE_MIN_SHARED_TOKENS` shared significant tokens.
-    2. NO IDENTITY CONFLICT — the two titles do not EACH carry a significant
-       token the other lacks. A pure truncation/subset of the expected title
-       (`cand ⊆ exp`) or a pure superset (`exp ⊆ cand`, CORE carries an extra
-       subtitle) is allowed; a SUBSTITUTION is not. This is the #1039 iter-2
-       clinical guard: a mis-tagged SIBLING trial — candidate "Semaglutide
-       Once Weekly for the Treatment of Obesity" vs expected "Tirzepatide
-       Once Weekly for the Treatment of Obesity" — shares 4 tokens but each
-       side asserts a different intervention token (`semaglutide` vs
-       `tirzepatide`), so it is rejected even though overlap is high. Without
-       this, CORE mis-tagging a sibling drug's trial under the exact DOI would
-       admit wrong-drug fullText into the clinical span-grounded path.
+    2. NO EXTRA CANDIDATE TOKEN — the candidate introduces NO significant
+       token absent from the expected (CrossRef) title (`cand ⊆ exp`). This
+       rejects BOTH a SUBSTITUTION and an IDENTITY-ADDING SUPERSET, the two
+       clinical wrong-paper vectors #1039 surfaced:
+         * substitution — candidate "Semaglutide Once Weekly for the
+           Treatment of Obesity" vs expected "Tirzepatide …": `semaglutide`
+           ∉ expected → reject (iter-2);
+         * superset adding a population/subgroup/phase/acronym — candidate
+           "Tirzepatide … Obesity in People with Type 2 Diabetes" vs expected
+           "Tirzepatide … Obesity": `diabetes`/`type`/`people` ∉ expected →
+           reject (iter-3). These name a DIFFERENT trial, not a subtitle.
+       Only a pure subset/truncation of the expected title (the candidate is
+       a clean abbreviation of CrossRef's authoritative title) is allowed —
+       a truncation cannot introduce a different population or intervention.
     3. COVERAGE — enough of the expected title's identity is present:
        `|shared| / |expected| ≥ _TITLE_MATCH_MIN`."""
     cand = _title_tokens(candidate)
@@ -135,9 +139,12 @@ def _title_matches(candidate: str | None, expected: str | None) -> bool:
     shared = cand & exp
     if len(shared) < _TITLE_MIN_SHARED_TOKENS:
         return False
-    # Identity conflict: each side carries ≥1 significant token the other
-    # lacks → different works (e.g. a drug-substituted sibling trial).
-    if (cand - exp) and (exp - cand):
+    # The candidate must NOT assert a significant token the expected
+    # (CrossRef-authoritative) title lacks. Any extra token is a different
+    # work — a drug substitution OR a population/subgroup/phase/acronym that
+    # names a SIBLING trial. Only a clean subset/truncation of the expected
+    # title is admissible.
+    if cand - exp:
         return False
     return (len(shared) / len(exp)) >= _TITLE_MATCH_MIN
 

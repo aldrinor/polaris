@@ -460,19 +460,25 @@ def test_clinical_sibling_drug_substitution_rejected() -> None:
     assert (content, url) == ("", "")
 
 
-def test_superset_core_title_allowed() -> None:
-    # The benign opposite of substitution: CORE carries the FULLER title (adds
-    # a subtitle) but every expected token is present and no expected token is
-    # contradicted -> allowed (exp ⊆ cand, no conflict).
+def test_superset_core_title_with_extra_identity_terms_rejected() -> None:
+    # Codex diff-gate iter-3 P1: a SUPERSET that adds identity terms
+    # (population/subgroup/phase/acronym) names a DIFFERENT trial, not a
+    # subtitle, and must be rejected. Expected "Tirzepatide ... Obesity" vs
+    # CORE "... Obesity in People with Type 2 Diabetes" (exp ⊆ cand, coverage
+    # 1.0) -> rejected because the candidate adds `diabetes`/`type`/`people`.
+    expected = "Tirzepatide Once Weekly for the Treatment of Obesity"
     body = _search_response([
         _work(
             doi=_TARGET_DOI,
-            title="Automation and New Tasks in Modern Industry",
-            full_text=_FULL_TEXT,
+            title=(
+                "Tirzepatide Once Weekly for the Treatment of Obesity in "
+                "People with Type 2 Diabetes"
+            ),
+            full_text="WRONG POPULATION body text",
         ),
     ])
-    content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, expected_title=_MATCH_TITLE, api_key="test-key",
+    content, url = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=expected, api_key="test-key",
         client=_client(_static_handler(body)),
     )
-    assert content == _FULL_TEXT
+    assert (content, url) == ("", "")

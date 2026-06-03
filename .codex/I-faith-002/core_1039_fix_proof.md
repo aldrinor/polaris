@@ -97,3 +97,18 @@ title anchor, 0 with no anchor. 132 tests pass (4 new #1039 identity tests added
 - **iter-2 P2 (smoke false issue):** pg_integration_smoke_v2 no longer reports
   "Sci-Hub returned nothing" when the stage is skipped by default (checks
   `skipped`). 127–134 tests pass across suites.
+
+## Codex diff-gate iter 3 → iter 4 (superset-population P1 + 2 P2s)
+- **iter-3 P1 (superset adds identity terms):** a SUPERSET that adds a
+  population/subgroup/phase/acronym ("Tirzepatide … Obesity in People with Type
+  2 Diabetes" vs "Tirzepatide … Obesity") names a DIFFERENT trial yet passed
+  (exp ⊆ cand, coverage 1.0). FIXED: `_title_matches` now rejects ANY extra
+  candidate token (`cand ⊆ exp` required) — closes both substitution AND
+  identity-adding superset; only a clean subset/truncation of the
+  CrossRef-authoritative title is admitted. Unit-verified all 6 cases.
+- **iter-3 P2.1 (conftest):** PG_CORE_ENABLED now forced "0" UNCONDITIONALLY
+  (was setdefault) so an inherited =1 + CORE_API_KEY cannot let a test hit live CORE.
+- **iter-3 P2.2 (v1 smoke overstatement):** the default Sci-Hub skip no longer
+  prints "Sci-Hub delivers full papers"; it prints the legal-default line instead.
+Live: Acemoglu → 0 (CrossRef anchor); happy path → 25k chars when CORE title ⊆
+the anchor (the real-world direction). 107–134 tests pass.
