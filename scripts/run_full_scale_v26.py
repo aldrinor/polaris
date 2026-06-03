@@ -74,7 +74,7 @@ _V26_ENV: dict[str, str] = {
     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
 
     # Sci-Hub last-resort (unchanged from V25)
-    "PG_SCIHUB_ENABLED":      "1",
+    "PG_SCIHUB_ENABLED":      "0",
 
     # M-42d knob: HC T3 quota. 2 = default (new in V26). 1 = legacy
     # M-41d behavior. Override via shell env to experiment.

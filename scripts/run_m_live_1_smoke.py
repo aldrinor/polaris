@@ -65,7 +65,7 @@ M_LIVE_1_ENV: dict[str, str] = {
     "PG_UNPAYWALL_ENABLED":            "1",
     "PG_CRAWL4AI_ENABLED":             "0",
     "PG_TRAFILATURA_ENABLED":          "1",
-    "PG_SCIHUB_ENABLED":               "1",
+    "PG_SCIHUB_ENABLED":               "0",
     # v2 (post-empirical-R1):
     # endpoint smokes need the trusted-test-header gate (auth
     # middleware ignores X-Polaris-Caller without this)

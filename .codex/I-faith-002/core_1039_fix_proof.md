@@ -63,3 +63,24 @@ True-positive happy path (proves Bug 1's redirect fix lets CORE serve content):
 test_m23_access_bypass_fixes.py test_access_bypass_backend_timeout.py
 test_access_bypass_teardown_drain.py test_faith_rescue_guard.py` → **130 passed**.
 New: 7 #1039 regression tests (1 redirect + 6 identity-guard) on top of the 14 base.
+
+## Codex diff-gate iter 1 → iter 2 hardening (3 P1s, all addressed)
+Codex iter 1 returned REQUEST_CHANGES with 3 P1s; all fixed:
+- **P1.1 (title match too weak):** overlap-coefficient-over-min let a short/subset
+  wrong title pass ("Automation" vs the 6-token title → 1/1=1.0). Switched to
+  **Jaccard** (intersection/union) ≥ `PG_CORE_TITLE_MATCH_MIN`=0.5 **AND** a floor
+  of `PG_CORE_TITLE_MIN_SHARED_TOKENS`=2 shared tokens. Now "Automation" (1/6≈0.17,
+  1 shared) and "Automation and Labor" (2/6≈0.33) both REJECT; a genuinely
+  truncated correct title (4/6≈0.67) still passes.
+- **P1.2 (no-hint path trusted DOI alone):** an independent title anchor is now
+  REQUIRED for ANY positive return. No `expected_title` (incl. CrossRef failure →
+  None) ⇒ `("", "")`. CORE fullText is never trusted on DOI-equality alone.
+- **P1.3 (runnable scripts still touched Sci-Hub):** flipped `PG_SCIHUB_ENABLED`
+  default `"1"`→`"0"` in 11 launcher/smoke config dicts (run_full_scale_v10..v30,
+  run_m_live_1_smoke, run_phase_g_full_scale); gated the 2 direct `_try_scihub`
+  calls (pg_integration_smoke.py, pg_integration_smoke_v2.py) behind
+  `PG_SCIHUB_ENABLED=="1"` so the smokes never issue a sci-hub.* request by default.
+
+Live re-verify (hardened): Acemoglu DOI → 0 with CrossRef anchor, 0 with no anchor,
+0 with a subset "Automation" anchor; true-positive OA DOI → 25 000 chars with its
+title anchor, 0 with no anchor. 132 tests pass (4 new #1039 identity tests added).

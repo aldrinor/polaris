@@ -60,7 +60,7 @@ PHASE_G_ENV: dict[str, str] = {
     "PG_UNPAYWALL_ENABLED":            "1",
     "PG_CRAWL4AI_ENABLED":             "0",  # Playwright EPIPE on this box
     "PG_TRAFILATURA_ENABLED":          "1",
-    "PG_SCIHUB_ENABLED":               "1",
+    "PG_SCIHUB_ENABLED":               "0",
     # Scraper circuit breakers
     "PG_CRAWL4AI_TIMEOUT":             "30",
     "PG_CIRCUIT_BREAKER_THRESHOLD":    "8",

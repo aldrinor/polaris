@@ -51,20 +51,26 @@ async def main():
     else:
         print(f"  FAIL: status={resp.status_code}"); failed += 1
 
-    # 3. Sci-Hub fetch
+    # 3. Sci-Hub fetch — DISABLED by default (legal/provenance, I-faith-002);
+    # CORE (core.ac.uk) is the legal OA full-text source now. This step runs
+    # ONLY on explicit operator opt-in (PG_SCIHUB_ENABLED=1) so the smoke never
+    # issues a sci-hub.* request by default.
     print("\n[3/7] Sci-Hub access (DOI fetch)...")
-    from src.tools.access_bypass import AccessBypass
-    bypass = AccessBypass()
-    scihub_result = await bypass._try_scihub(
-        "https://www.nejm.org/doi/full/10.1056/NEJMra1905136"
-    )
-    if scihub_result.success and len(scihub_result.content) > 500:
-        method = scihub_result.access_method
-        chars = len(scihub_result.content)
-        pages = scihub_result.metadata.get("pages", "?")
-        print(f"  PASS: {chars} chars, {pages} pages via {method}"); passed += 1
+    if os.getenv("PG_SCIHUB_ENABLED", "0") != "1":
+        print("  SKIP: Sci-Hub disabled (PG_SCIHUB_ENABLED!=1); legal/provenance."); passed += 1
     else:
-        print(f"  FAIL: success={scihub_result.success}, {scihub_result.metadata}"); failed += 1
+        from src.tools.access_bypass import AccessBypass
+        bypass = AccessBypass()
+        scihub_result = await bypass._try_scihub(
+            "https://www.nejm.org/doi/full/10.1056/NEJMra1905136"
+        )
+        if scihub_result.success and len(scihub_result.content) > 500:
+            method = scihub_result.access_method
+            chars = len(scihub_result.content)
+            pages = scihub_result.metadata.get("pages", "?")
+            print(f"  PASS: {chars} chars, {pages} pages via {method}"); passed += 1
+        else:
+            print(f"  FAIL: success={scihub_result.success}, {scihub_result.metadata}"); failed += 1
 
     # 4. Authority gate on scholar results
     print("\n[4/7] Source quality of Scholar results...")

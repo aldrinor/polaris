@@ -50,7 +50,7 @@ _V23_ENV: dict[str, str] = {
     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
 
     # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
-    "PG_SCIHUB_ENABLED":      "1",
+    "PG_SCIHUB_ENABLED":      "0",
 }
 
 

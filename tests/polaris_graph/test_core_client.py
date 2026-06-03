@@ -25,6 +25,11 @@ from src.tools.core_client import _normalize_doi, fetch_core_oa_fulltext
 _CORE_HOST = "api.core.ac.uk"
 _TARGET_DOI = "10.1257/jep.33.2.3"  # Acemoglu — the verified fuzzy case
 _FULL_TEXT = "Automation and New Tasks: full open-access body text ..."
+# A ≥2-significant-token title used as the identity anchor in the positive
+# tests. The content-identity guard (#1039) REQUIRES a matching expected_title
+# for any positive return, so base tests pass this as both the result title
+# and the anchor.
+_MATCH_TITLE = "Automation and New Tasks"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -35,7 +40,7 @@ def _work(
     doi: str,
     full_text: str | None = _FULL_TEXT,
     download_url: str | None = None,
-    title: str = "A paper",
+    title: str = _MATCH_TITLE,
     year: int | None = None,
 ) -> dict[str, Any]:
     work: dict[str, Any] = {"doi": doi, "title": title}
@@ -79,7 +84,8 @@ def _static_handler(
 def test_exact_doi_match_returns_full_text() -> None:
     body = _search_response([_work(doi=_TARGET_DOI)])
     content, url = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert content == _FULL_TEXT
     # Default source_url is the canonical DOI resolver URL.
@@ -92,7 +98,8 @@ def test_exact_doi_match_prefers_download_url() -> None:
         [_work(doi=_TARGET_DOI, download_url=download)]
     )
     content, url = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert content == _FULL_TEXT
     assert url == download
@@ -108,7 +115,8 @@ def test_authorization_header_sent() -> None:
         )
 
     content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="secret-key", client=_client(handler)
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="secret-key", client=_client(handler)
     )
     assert content == _FULL_TEXT
     assert captured["auth"] == "Bearer secret-key"
@@ -124,7 +132,8 @@ def test_fuzzy_mismatch_returns_empty() -> None:
         [_work(doi="10.5209/rev_xyz.2018.v99.99999")]
     )
     content, url = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert (content, url) == ("", "")
 
@@ -138,7 +147,8 @@ def test_exact_match_after_fuzzy_hit_is_selected() -> None:
         ]
     )
     content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert content == _FULL_TEXT
 
@@ -149,7 +159,8 @@ def test_exact_match_after_fuzzy_hit_is_selected() -> None:
 def test_zero_hits_returns_empty() -> None:
     body = _search_response([])
     content, url = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert (content, url) == ("", "")
 
@@ -157,7 +168,8 @@ def test_zero_hits_returns_empty() -> None:
 def test_exact_match_with_empty_full_text_returns_empty() -> None:
     body = _search_response([_work(doi=_TARGET_DOI, full_text="")])
     content, url = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert (content, url) == ("", "")
 
@@ -196,7 +208,7 @@ def test_api_key_falls_back_to_env(
         )
 
     content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, client=_client(handler)
+        _TARGET_DOI, expected_title=_MATCH_TITLE, client=_client(handler)
     )
     assert content == _FULL_TEXT
     assert captured["auth"] == "Bearer env-key"
@@ -211,6 +223,7 @@ def test_doi_normalization_prefix_input_matches() -> None:
     body = _search_response([_work(doi=_TARGET_DOI)])
     content, url = fetch_core_oa_fulltext(
         f"https://doi.org/{_TARGET_DOI}",
+        expected_title=_MATCH_TITLE,
         api_key="test-key",
         client=_client(_static_handler(body)),
     )
@@ -225,7 +238,8 @@ def test_doi_normalization_returned_prefixed_matches() -> None:
         [_work(doi=f"https://doi.org/{_TARGET_DOI.upper()}")]
     )
     content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key", client=_client(_static_handler(body))
+        _TARGET_DOI, expected_title=_MATCH_TITLE,
+        api_key="test-key", client=_client(_static_handler(body))
     )
     assert content == _FULL_TEXT
 
@@ -283,7 +297,9 @@ def test_production_client_follows_redirects(
         )
 
     monkeypatch.setattr("src.tools.core_client.httpx.Client", fake_client)
-    content, _ = fetch_core_oa_fulltext(_TARGET_DOI, api_key="test-key")
+    content, _ = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=_MATCH_TITLE, api_key="test-key"
+    )
     assert content == _FULL_TEXT
     assert captured.get("follow_redirects") is True
 
@@ -368,13 +384,13 @@ def test_year_mismatch_rejected() -> None:
     assert (content, url) == ("", "")
 
 
-def test_conflicting_titles_no_hint_rejected() -> None:
-    # No caller hint, but the exact-DOI set DISAGREES on title -> a mis-tag
-    # is present and we cannot tell which paper is real -> reject.
-    body = _search_response([
-        _work(doi=_TARGET_DOI, title=_SPANISH_TITLE, full_text="WRONG"),
-        _work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text="ALSO"),
-    ])
+def test_no_anchor_rejects_even_with_exact_match() -> None:
+    # Codex diff-gate P1.2: with NO independent title anchor, CORE fullText
+    # must NOT be trusted on DOI-equality alone (CORE mis-tags). A single
+    # clean exact-DOI result with fullText still returns ("","").
+    body = _search_response(
+        [_work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text=_FULL_TEXT)]
+    )
     content, url = fetch_core_oa_fulltext(
         _TARGET_DOI, api_key="test-key",
         client=_client(_static_handler(body)),
@@ -382,14 +398,42 @@ def test_conflicting_titles_no_hint_rejected() -> None:
     assert (content, url) == ("", "")
 
 
-def test_no_hint_single_result_returns_full_text() -> None:
-    # Back-compat: a single exact-DOI result, no conflicting sibling and no
-    # caller hint, still returns its fullText.
+def test_blank_anchor_rejects() -> None:
+    # An empty/whitespace expected_title is treated as "no anchor" -> reject.
     body = _search_response(
-        [_work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE)]
+        [_work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text=_FULL_TEXT)]
     )
     content, _ = fetch_core_oa_fulltext(
-        _TARGET_DOI, api_key="test-key",
+        _TARGET_DOI, expected_title="   ", api_key="test-key",
         client=_client(_static_handler(body)),
     )
-    assert content == _FULL_TEXT
+    assert content == ""
+
+
+def test_short_subset_wrong_title_rejected() -> None:
+    # Codex diff-gate P1.1: a SHORT/SUBSET wrong title must NOT pass. A CORE
+    # record titled just "Automation" (1 significant token) under the exact
+    # DOI, carrying fullText, vs the full expected title -> Jaccard 1/6 ≈
+    # 0.17 < 0.5 AND shared 1 < min_shared 2 -> rejected.
+    body = _search_response([
+        _work(doi=_TARGET_DOI, title="Automation", full_text="WRONG SUBSET"),
+    ])
+    content, url = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, api_key="test-key",
+        client=_client(_static_handler(body)),
+    )
+    assert (content, url) == ("", "")
+
+
+def test_partial_two_token_overlap_rejected() -> None:
+    # "Automation and Labor" shares 2 tokens with the 6-token expected title
+    # but Jaccard 2/6 ≈ 0.33 < 0.5 -> rejected (overlap-over-min would have
+    # wrongly passed this at 2/2=1.0; Jaccard is why it doesn't).
+    body = _search_response([
+        _work(doi=_TARGET_DOI, title="Automation and Labor", full_text="WRONG"),
+    ])
+    content, url = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, api_key="test-key",
+        client=_client(_static_handler(body)),
+    )
+    assert (content, url) == ("", "")

@@ -61,14 +61,19 @@ _CORE_TIMEOUT = float(os.getenv("PG_CORE_TIMEOUT", "15"))
 _CORE_CONTENT_CAP = int(os.getenv("PG_CORE_CONTENT_CAP", "25000"))
 # DOI-resolver prefixes stripped during normalization.
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi:")
-# Content-identity guard (#1039 Bug 2): a result's title-token overlap
-# with the caller's expected title must reach this overlap-coefficient
-# before its fullText is trusted. CORE mis-tags distinct papers under one
-# DOI, so DOI-equality alone returned the WRONG paper. 0.5 cleanly
-# separates the correct paper (overlap ~1.0) from a different-language /
-# different-topic mis-tag (overlap ~0.0) while tolerating a truncated or
-# subtitle-trimmed CORE title.
+# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1): a
+# result's title must reach this Jaccard (intersection-over-union of
+# significant tokens) with the caller's expected title before its fullText
+# is trusted. CORE mis-tags distinct papers under one DOI, so DOI-equality
+# alone returned the WRONG paper. Jaccard (NOT overlap-over-min) is required
+# so a SHORT/SUBSET wrong title — e.g. candidate "Automation" vs expected
+# "Automation and New Tasks: How Technology Displaces and Reinstates Labor"
+# — cannot pass: Jaccard 1/6≈0.17 < 0.5, whereas a genuinely truncated
+# correct title (4 of 6 tokens) scores 4/6≈0.67 ≥ 0.5.
 _TITLE_MATCH_MIN = float(os.getenv("PG_CORE_TITLE_MATCH_MIN", "0.5"))
+# Absolute floor on shared significant tokens — blocks a single-token
+# coincidence from passing on Jaccard alone.
+_TITLE_MIN_SHARED_TOKENS = int(os.getenv("PG_CORE_TITLE_MIN_SHARED_TOKENS", "2"))
 # Publication-year jitter tolerance for the secondary identity signal.
 _YEAR_TOLERANCE = int(os.getenv("PG_CORE_YEAR_TOLERANCE", "1"))
 # Short function words dropped before title-token comparison so they do
@@ -105,23 +110,24 @@ def _title_tokens(title: str | None) -> frozenset[str]:
     )
 
 
-def _title_key(title: str | None) -> str:
-    """Order-independent canonical key of a title's significant tokens —
-    used to detect a mis-tag (conflicting titles under one DOI)."""
-    return " ".join(sorted(_title_tokens(title)))
-
-
 def _title_matches(candidate: str | None, expected: str | None) -> bool:
-    """True iff `candidate` and `expected` share enough significant title
-    tokens (overlap coefficient against the smaller set ≥
-    `_TITLE_MATCH_MIN`). Empty/blank on either side → False (cannot
-    confirm identity ⇒ reject, the conservative clinical-safe default)."""
+    """True iff `candidate` and `expected` are the same work by title:
+    they share at least `_TITLE_MIN_SHARED_TOKENS` significant tokens AND
+    their Jaccard (intersection / union of significant tokens) ≥
+    `_TITLE_MATCH_MIN`. Empty/blank on either side → False (cannot confirm
+    identity ⇒ reject, the conservative clinical-safe default).
+
+    Jaccard (not overlap-over-min) is deliberate: it makes a short/subset
+    wrong title fail while a genuinely truncated correct title still
+    passes — the #1039 Bug-2 wrong-paper guard."""
     cand = _title_tokens(candidate)
     exp = _title_tokens(expected)
     if not cand or not exp:
         return False
-    denom = min(len(cand), len(exp))
-    return (len(cand & exp) / denom) >= _TITLE_MATCH_MIN
+    shared = cand & exp
+    if len(shared) < _TITLE_MIN_SHARED_TOKENS:
+        return False
+    return (len(shared) / len(cand | exp)) >= _TITLE_MATCH_MIN
 
 
 def fetch_core_oa_fulltext(
@@ -256,26 +262,21 @@ def _fetch_inner(
         # No exact-DOI match among the fuzzy hits.
         return "", ""
 
-    # Stage 2 — content-identity guard (#1039 Bug 2). A result's fullText
-    # is trusted only when its identity is confirmed beyond the
-    # (mis-taggable) DOI. With no caller hint, reject outright if the
-    # exact-DOI set carries CONFLICTING titles — a mis-tag is present and
-    # we cannot tell which paper is the real one.
-    if expected_title is None and len(exact) > 1:
-        title_keys = {_title_key(w.get("title")) for w in exact}
-        title_keys.discard("")
-        if len(title_keys) > 1:
-            logger.info(
-                "core_client: %s has conflicting titles under one DOI and "
-                "no expected_title; rejecting (mis-tag).",
-                norm_doi,
-            )
-            return "", ""
+    # Stage 2 — content-identity guard (#1039 Bug 2, hardened per Codex
+    # diff-gate P1). A result's fullText is trusted ONLY when its identity
+    # is confirmed beyond the (mis-taggable) DOI by an INDEPENDENT title
+    # anchor. CORE is proven to mis-tag distinct papers under one exact DOI,
+    # so without an anchor we cannot tell which paper is real — reject.
+    if not (expected_title or "").strip():
+        logger.info(
+            "core_client: %s — no independent title anchor; refusing to "
+            "trust CORE fullText on DOI-equality alone (mis-tag risk).",
+            norm_doi,
+        )
+        return "", ""
 
     for work in exact:
-        if expected_title and not _title_matches(
-            work.get("title"), expected_title
-        ):
+        if not _title_matches(work.get("title"), expected_title):
             logger.info(
                 "core_client: title mismatch for %s (expected %r, got %r); "
                 "rejecting wrong-paper fullText.",
