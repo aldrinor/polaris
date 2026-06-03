@@ -315,6 +315,15 @@ def _compute_claim_results(
     # held/aborted path is not reconciled) — prompt fail-closed termination outranks exact accounting
     # on an already-aborted run, and the operator authorized the spend.
     computed: list[tuple[ClaimPipelineResult, float | None] | None] = [None] * n
+    # Codex iter-2 P1 (REGRESSION FIX): the progress write below targets `run_dir`, but
+    # `_compute_claim_results` runs BEFORE `VerifiedClaimGraphStore(run_dir=...)` (which is what
+    # historically created `run_dir`). Existing callers (scripts/dr_benchmark/offline_e2e.py,
+    # tests/dr_benchmark/test_offline_e2e.py) pass a `run_dir` that does NOT yet exist, so the
+    # parallel path's progress write raised FileNotFoundError. Ensure the dir exists exactly once
+    # at the TOP of the parallel branch (idempotent; the later kg_store reuses the same dir —
+    # harmless). The SEQUENTIAL fast path does NOT mkdir (it writes no progress file) so it stays
+    # byte-equivalent to the pre-#1042 behaviour.
+    run_dir.mkdir(parents=True, exist_ok=True)
     progress_path = run_dir / FOUR_ROLE_COMPUTE_PROGRESS_FILENAME
     done = 0
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=_CLAIM_WORKERS)
@@ -327,20 +336,24 @@ def _compute_claim_results(
             # `future.result()` re-raises any worker exception (fail closed) — handled below.
             idx, result, delta = future.result()
             computed[idx] = (result, delta)
+            # P2.3 + Codex iter-2 P2 (observability): write the tiny on-disk progress marker BEFORE
+            # the budget enforcement below, so the just-completed claim — INCLUDING a cap-breaching
+            # one — is reflected in four_role_compute_progress.json even when the very next
+            # check_run_budget(0) raises BudgetExceededError. `done` counts completed claims
+            # including the current one. Parent-only write — never inside a worker. A hung compute
+            # is thus visible on disk DURING compute (the role_call_log only grows during the later,
+            # parent-only reduction).
+            done += 1
+            progress_path.write_text(
+                json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             # Enforce the run budget DURING compute (P1.1): thread this claim's verifier spend into
             # the SINGLE parent run counter and re-check the cap immediately. A `BudgetExceededError`
             # here bounds overspend to the workers in-flight at the breach (~workers-1), not all n.
             if delta is not None:
                 _add_run_cost(delta)
                 check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
-            # P2.3: write a tiny on-disk progress marker after each completion so a hung compute is
-            # visible on disk DURING compute (the role_call_log only grows during the later, parent-
-            # only reduction). Parent-only write — never inside a worker.
-            done += 1
-            progress_path.write_text(
-                json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
     except BaseException:
         # On ANY failure (BudgetExceededError from the cap OR a propagated worker exception) cancel
         # still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the

@@ -161,3 +161,14 @@ all N; FAILS with the old drain-all behavior). Existing 6 kept green → 8/8; `t
 - `scripts/dr_benchmark/pathB_run_gate.py` — M4 consumer; uses `call_id` as an error label only.
 - `tests/roles/test_sweep_integration.py`, `tests/roles/test_four_role_budget_cap.py`,
   `tests/dr_benchmark/test_gate_b_seam.py` — existing 4-role suites; must still pass unchanged.
+
+---
+
+## Codex iter-3 follow-up (P1 regression + P2 observability)
+
+Applied two fixes to `_compute_claim_results` (PARALLEL branch only; sequential fast path stays byte-equivalent — no mkdir, no progress write):
+
+- **P1 (REGRESSION I introduced — FileNotFoundError):** the as_completed loop wrote `run_dir/four_role_compute_progress.json` BEFORE `run_dir` existed. Existing callers (`scripts/dr_benchmark/offline_e2e.py:344`, `tests/dr_benchmark/test_offline_e2e.py:376`) pass `tmp_path/run` without mkdir; the pre-#1042 code only wrote under `run_dir` AFTER `VerifiedClaimGraphStore(run_dir=...)` created it, but `_compute_claim_results` runs BEFORE that, so the default parallel path raised FileNotFoundError. FIX: `run_dir.mkdir(parents=True, exist_ok=True)` once at the TOP of the parallel branch, before the pool runs (idempotent; kg_store reuses the dir).
+- **P2 (observability):** the progress marker was written AFTER `check_run_budget(0)`, so a budget-breaching completed claim was absent from the progress file. FIX: write the `{done, total}` marker BEFORE the `_add_run_cost(delta)`+`check_run_budget(0)` enforcement, so the just-completed (incl. breaching) claim is reflected before a possible BudgetExceededError raises.
+
+**Test:** added `test_parallel_run_dir_created_when_missing` to `tests/roles/test_seam_parallel.py` — non-existent run_dir + workers=4 + trivial fake transport; asserts no FileNotFoundError and progress file exists with done==total. Proven regression-catching: with the source fix stashed it fails at `progress_path.write_text` with FileNotFoundError. Existing 8 stay green (9 total); `tests/dr_benchmark/test_offline_e2e.py` 13 green. py_compile OK.

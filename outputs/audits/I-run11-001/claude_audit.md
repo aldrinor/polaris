@@ -213,3 +213,20 @@ three P2. All five are now fixed in `sweep_integration.py`. Line references belo
 Constraints held: sequential fast path (`PG_FOUR_ROLE_CLAIM_WORKERS=1` / single claim) byte-equivalent
 (lines 285-298, unchanged); no `except: pass` (the `except BaseException` re-raises); fail closed; LAW
 VI env-only. D8 policy / KG / coverage / sequential byte-equivalence unchanged.
+
+---
+
+## Iter-3 follow-up — P1 regression (FileNotFoundError) + P2 observability
+
+**P1 (REGRESSION introduced in iter-2 by the P2.3 progress write):** `_compute_claim_results` runs BEFORE `VerifiedClaimGraphStore(run_dir=...)`, which is historically the first thing that created `run_dir`. The iter-2 parallel progress write (`run_dir/four_role_compute_progress.json`) therefore raised `FileNotFoundError` for callers that pass a not-yet-created `run_dir` — confirmed at `scripts/dr_benchmark/offline_e2e.py:344` (via `run_four_role_seam`) and `tests/dr_benchmark/test_offline_e2e.py:376` (`run_dir=tmp_path/"run"`, no mkdir). VERIFIED against `src/polaris_graph/memory/verified_claim_graph.py:129` — the store does `resolved.parent.mkdir(parents=True, exist_ok=True)` where `resolved.parent == run_dir`, i.e. the store WAS the dir creator. FIX: `run_dir.mkdir(parents=True, exist_ok=True)` once at the TOP of the parallel branch (before the pool), idempotent with the later store. Sequential fast path unchanged (no mkdir, writes no progress file) — byte-equivalence preserved.
+
+**P2 (observability):** progress marker was written AFTER `check_run_budget(0)`, so a budget-breaching completed claim never appeared in the progress file. FIX: write `{done, total}` BEFORE the `_add_run_cost`+`check_run_budget(0)` enforcement so the just-completed (incl. breaching) claim is on disk before a possible `BudgetExceededError` raises.
+
+**Test execution evidence (iter-3):**
+- Added `test_parallel_run_dir_created_when_missing` to `tests/roles/test_seam_parallel.py`.
+- `tests/roles/test_seam_parallel.py`: **9/9 PASS** (8 prior + 1 new).
+- `tests/dr_benchmark/test_offline_e2e.py`: **13/13 PASS** (exercises the real not-yet-created-run_dir caller).
+- New test proven regression-catching: with the source fix stashed it FAILS at `sweep_integration.py:340` `progress_path.write_text` -> `FileNotFoundError`; PASSES with the fix. No assertion relaxed.
+- `py_compile src/polaris_graph/roles/sweep_integration.py tests/roles/test_seam_parallel.py`: OK.
+
+Constraints held: sequential fast path byte-equivalent (no mkdir, no progress write); no `except: pass`; determinism + parent-only reduction + cost/KG semantics unchanged; LAW VI env-only.

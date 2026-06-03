@@ -53,6 +53,7 @@ from src.polaris_graph.roles.role_transport import (
     RoleResponse,
 )
 from src.polaris_graph.roles.sweep_integration import (
+    FOUR_ROLE_COMPUTE_PROGRESS_FILENAME,
     FOUR_ROLE_ROLE_CALLS_FILENAME,
     FourRoleClaim,
     run_four_role_evaluation,
@@ -244,6 +245,31 @@ def test_output_order_is_input_order_under_reversed_completion(monkeypatch, tmp_
     assert block_ids == [f"claim-{i}" for i in range(n)], "claim blocks must not interleave"
     per_claim_counts = {cid: sum(1 for e in log if e["claim_id"] == cid) for cid in block_ids}
     assert all(c == 4 for c in per_claim_counts.values()), per_claim_counts
+
+
+# === Codex iter-2 P1 — the PARALLEL path mkdir's a missing run_dir (regression guard) ===========
+def test_parallel_run_dir_created_when_missing(monkeypatch, tmp_path):
+    # Codex iter-2 P1 (REGRESSION): the parallel as_completed loop writes
+    # four_role_compute_progress.json under run_dir BEFORE VerifiedClaimGraphStore (which is what
+    # historically created run_dir). With a run_dir that does NOT pre-exist, the pre-fix progress
+    # write raised FileNotFoundError. Pass a non-existent run_dir + workers>=2 + a trivial fake
+    # transport and assert the run does NOT raise and the progress marker landed with done==total.
+    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 4)
+    run_dir = tmp_path / "nonexistent_run"
+    assert not run_dir.exists()  # the seam must create it itself, not the test.
+    n = 2
+    claims = [_claim(i, covers=[f"elem-{i}"]) for i in range(n)]
+    ledger = CoverageLedger(required_element_ids=[f"elem-{i}" for i in range(n)])
+    transport = _DelayedFakeTransport()
+
+    # Without the mkdir this raises FileNotFoundError on the first progress write inside the pool.
+    result = _run(transport, claims, run_dir=run_dir, ledger=ledger)
+
+    assert result.final_verdicts == {"claim-0": "VERIFIED", "claim-1": "VERIFIED"}
+    progress_path = run_dir / FOUR_ROLE_COMPUTE_PROGRESS_FILENAME
+    assert progress_path.exists(), "parallel compute must write the progress marker"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    assert progress == {"done": n, "total": n}
 
 
 # === (e) PG_FOUR_ROLE_CLAIM_WORKERS=1 result == multi-worker result =============================
