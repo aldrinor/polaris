@@ -79,15 +79,32 @@ _NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
     "no_integer_overlap_any_cited_span",
 })
 
+# I-faith-001 Fix A refinement (Codex gate P1): a deterministic gap-disclosure
+# ("<field>: not extractable from available primary content") is an HONEST
+# disclosure, never a numeric CLAIM. A digit embedded in the field LABEL
+# (e.g. "Baseline HbA1c", "COVID-19", "T2 diabetes") must NOT make it look
+# like a numeric fabrication and strip its rescue eligibility -> the honest
+# disclosure would vanish from a partially-rendered slot. Such disclosures
+# are always rescue-eligible. (Real narrative numeric fabrications are
+# already rescue-INELIGIBLE via Fix B's allow_rescue=False narrative stream,
+# independent of this guard.)
+_GAP_DISCLOSURE_MARKER = "not extractable from available primary content"
+
 
 def _drop_is_numeric(sv: Any) -> bool:
-    """True iff a dropped SentenceVerification failed for a NUMERIC reason.
+    """True iff a dropped SentenceVerification failed for a NUMERIC reason
+    AND is not a deterministic gap-disclosure.
 
     Inspects the `failure_reasons` LIST (there is no scalar drop_reason)
     and returns True if ANY reason's prefix (the text before the first
     ':') is a numeric-failure prefix. Used by the M-69 rescue loop to
-    exclude numeric fabrications from rescue (I-faith-001 Fix A).
+    exclude numeric fabrications from rescue (I-faith-001 Fix A). Gap-
+    disclosure sentences are exempt (Codex P1): an embedded label digit
+    must not block their rescue.
     """
+    sentence = str(getattr(sv, "sentence", "") or "")
+    if _GAP_DISCLOSURE_MARKER in sentence.lower():
+        return False
     failure_reasons = getattr(sv, "failure_reasons", None) or []
     return any(
         str(reason).split(":", 1)[0] in _NUMERIC_DROP_PREFIXES

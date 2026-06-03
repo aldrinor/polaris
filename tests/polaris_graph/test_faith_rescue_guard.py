@@ -166,6 +166,37 @@ def test_content_overlap_dropped_not_extractable_sentence_is_rescued():
     assert _drop_is_numeric(sv) is False
 
 
+def test_not_extractable_disclosure_with_embedded_label_digit_is_rescued():
+    """Codex gate P1: a gap-disclosure whose field LABEL has an embedded digit
+    (e.g. "Baseline HbA1c") drops for a NUMERIC reason (the verifier reads the
+    '1' in 'hba1c') — but it is an HONEST disclosure, NOT a numeric claim, so
+    the guard must keep it rescue-eligible. Without the exemption, clinical
+    gap-disclosures would vanish from partially-rendered slots."""
+    unrelated_span = (
+        "The provincial electricity supply is dominated by hydroelectric "
+        "generation across the northern grid corridor."
+    )
+    pool = {_CONTRACT_EV_ID: {"direct_quote": unrelated_span}}
+    span_len = len(unrelated_span)
+    # Embedded digit in the field label "HbA1c" -> the verifier extracts '1'.
+    sentence = (
+        "Baseline HbA1c: not extractable from available primary content "
+        f"[#ev:{_CONTRACT_EV_ID}:0-{span_len}]."
+    )
+
+    sv = verify_sentence_provenance(sentence, pool)
+
+    assert sv.is_verified is False
+    # It DID drop for a numeric reason (the embedded '1') — guard against a
+    # vacuous test: if it didn't, this test isn't exercising the exemption.
+    assert any(
+        str(r).split(":", 1)[0] in _NUMERIC_DROP_PREFIXES
+        for r in sv.failure_reasons
+    ), sv.failure_reasons
+    # ...yet the gap-disclosure exemption keeps it rescue-ELIGIBLE.
+    assert _drop_is_numeric(sv) is False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # (3) Fix D — integer SUBSET: "15 percent over 35 weeks" FAILS against a span
 #     containing only 15 (the 35 is missing).
