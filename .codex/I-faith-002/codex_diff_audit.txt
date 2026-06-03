@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "scripts/run_full_scale_v10.py and v23-v26 retain stale comments saying Sci-Hub is kept on/unchanged even though PG_SCIHUB_ENABLED is now 0; comment-only, no execution impact."
+  - "scripts/pg_integration_smoke_v2.py still uses Sci-Hub-centric stage/summary wording on the default skipped path; operator-output cleanup only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
