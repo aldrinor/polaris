@@ -68,6 +68,19 @@ _TIMESTAMP = "2026-05-29T00:00:00Z"
 _REQUIRED_S0 = ["contraindications"]
 
 
+def _sentinel_raw_for_mode(request: RoleRequest, grounded: bool) -> str:
+    """I-run11-002 L1: the Sentinel raw output that MATCHES the active groundedness mode.
+
+    `run_sentinel` selects the inverted `<score>yes|no</score>` parser when the request carries the
+    `<guardian>` block (sovereign self_host) and the non-inverted GROUNDED/UNGROUNDED parser
+    otherwise (benchmark default). The fake emits the SAME-mode format so canned output and parser
+    always pair (whatever PG_SENTINEL_GROUNDEDNESS_MODE / PG_FOUR_ROLE_TRANSPORT resolve to)."""
+    final_instruction = request.messages[-1]["content"] if request.messages else ""
+    if "<guardian>" in final_instruction:
+        return "<score>no</score>" if grounded else "<score>yes</score>"
+    return "GROUNDED" if grounded else "UNGROUNDED"
+
+
 # A per-claim marker embedded in BOTH the claim text and the evidence text so the fake can recover
 # a claim's index from ANY role call: the Mirror pass-1 + Sentinel calls carry it via the
 # `documents` payload, and the Judge call carries it via its prompt (claim + evidence rendered in).
@@ -158,9 +171,8 @@ class _DelayedFakeTransport:
         idx = self._index_from_request(request)
         if request.role == "sentinel":
             grounded = self._sentinel_grounded.get(idx, True)
-            score = "no" if grounded else "yes"
             return RoleResponse(
-                raw_text=f"<score>{score}</score>",
+                raw_text=_sentinel_raw_for_mode(request, grounded),
                 served_model=request.model_slug,
                 usage=self._usage.get((idx, "sentinel")),
             )
@@ -489,7 +501,9 @@ class _CapturingFakeTransport:
             )
         if request.role == "sentinel":
             return RoleResponse(
-                raw_text="<score>no</score>", served_model=request.model_slug, usage=None
+                raw_text=_sentinel_raw_for_mode(request, grounded=True),
+                served_model=request.model_slug,
+                usage=None,
             )
         if request.role == "judge":
             return RoleResponse(
@@ -581,7 +595,9 @@ class _CountingCostTransport:
             )
         if request.role == "sentinel":
             return RoleResponse(
-                raw_text="<score>no</score>", served_model=request.model_slug, usage=None
+                raw_text=_sentinel_raw_for_mode(request, grounded=True),
+                served_model=request.model_slug,
+                usage=None,
             )
         if request.role == "judge":
             return RoleResponse(

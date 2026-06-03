@@ -310,6 +310,144 @@ def test_whitespace_doc_id_span_is_rejected() -> None:
         run_mirror(transport, _CLAIM, docs, model_slug=_MODEL)
 
 
+# --- I-run11-002 L2: robust pass-2 classification extraction (format-noise tolerance) -----
+def _pass2_raw(pass1: MirrorPass1, body_inner: str) -> RoleResponse:
+    """A pass-2 RoleResponse whose raw_text is exactly `body_inner` (so a test can hand-craft
+    fenced / alternate-key / nested JSON). Binds to `pass1` via the embedded expected hash so the
+    test isolates the CLASSIFICATION extraction, not the binding guard (which has its own tests).
+    """
+    return RoleResponse(raw_text=body_inner, served_model=_MODEL)
+
+
+def test_pass2_code_fenced_json_classification_recovered() -> None:
+    # ```json\n{...}\n``` wrapper (run-11: 5/70 fenced) -> fence stripped, classification recovered.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(
+        raw_text="HbA1c fell 2.3 points.", served_model=_MODEL, citations=spans
+    )
+    expected_pass1 = MirrorPass1(answer_text="HbA1c fell 2.3 points.", citation_spans=spans)
+    h = _pass2_hash_for(expected_pass1)
+    fenced = (
+        "```json\n"
+        + json.dumps({"content_hash": h, "classification": "Reinstatement Effect"})
+        + "\n```"
+    )
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, fenced)])
+    pass2, records = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert pass2.classification == "Reinstatement Effect"
+    assert len(records) == 2
+
+
+def test_pass2_code_fenced_no_newline_and_bare_fence_recovered() -> None:
+    # Both the ```json{...``` no-newline-after-tag form (run-11 sample 9) and the bare ``` ... ```
+    # no-language-tag form must unwrap and recover the verdict.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    h = _pass2_hash_for(expected_pass1)
+
+    # no-newline-after-language-tag form
+    p1a = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    body_no_nl = "```json{" + json.dumps({"content_hash": h, "classification": "Claim"})[1:] + "```"
+    t_a = _SequencedTransport([p1a, _pass2_raw(expected_pass1, body_no_nl)])
+    pass2_a, _ = run_mirror(t_a, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert pass2_a.classification == "Claim"
+
+    # bare ``` fence with no language tag
+    p1b = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    body_bare = "```\n" + json.dumps({"content_hash": h, "classification": "Polarization"}) + "\n```"
+    t_b = _SequencedTransport([p1b, _pass2_raw(expected_pass1, body_bare)])
+    pass2_b, _ = run_mirror(t_b, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert pass2_b.classification == "Polarization"
+
+
+def test_pass2_alternate_classification_keys_recovered() -> None:
+    # Canonical `classification` absent but a common alternate present (answer/category/label/class).
+    # Run-11 evidence: answer x3, category x2, label x1. Each must recover the verdict.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    h = _pass2_hash_for(expected_pass1)
+    for alt_key, value in (
+        ("answer", "Claim"),
+        ("category", "Economics"),
+        ("label", "AI"),
+        ("class", "Method"),
+    ):
+        p1 = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+        body = json.dumps({"content_hash": h, alt_key: value})
+        transport = _SequencedTransport([p1, _pass2_raw(expected_pass1, body)])
+        pass2, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+        assert pass2.classification == value, f"alt key {alt_key!r} not recovered"
+
+
+def test_pass2_nested_classification_dict_recovered_as_string() -> None:
+    # Run-11: 17/70 bodies put a NESTED dict under `classification` (heterogeneous sub-keys). The
+    # field is typed str, so the dict is deterministically serialized to a stable, non-empty string
+    # (NOT a Python repr, NOT fail-closed). The recovered string must contain a sub-value.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    h = _pass2_hash_for(expected_pass1)
+    nested = {"domain": "Economics", "subdomain": "Labor Economics"}
+    body = json.dumps({"content_hash": h, "classification": nested})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    pass2, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert isinstance(pass2.classification, str)
+    assert "Economics" in pass2.classification  # sub-value preserved, not lost
+    assert pass2.classification.startswith("{")  # serialized, deterministic
+
+
+def test_pass2_pure_garbage_raises_mirror_parse_error_fail_closed() -> None:
+    # A non-JSON body that is NOT a fenced wrapper of valid JSON stays unrecoverable -> fail-closed.
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    transport = _SequencedTransport(
+        [pass1_response, _pass2_raw(expected_pass1, "I think the classification is probably a Claim.")]
+    )
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_pass2_fenced_garbage_raises_mirror_parse_error_fail_closed() -> None:
+    # A fenced wrapper whose BODY is still not JSON must remain fail-closed (the fence strip is not
+    # an escape hatch that fabricates a verdict).
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    transport = _SequencedTransport(
+        [pass1_response, _pass2_raw(expected_pass1, "```json\nnot json at all\n```")]
+    )
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_pass2_answer_text_only_is_not_a_verdict_fail_closed() -> None:
+    # NO-FALSE-ACCEPT regression guard: a body carrying ONLY the echoed pass-1 `answer_text` key
+    # (no classification, no alternate) must NOT be laundered into a verdict. Exact key matching
+    # means "answer" != "answer_text", so nothing recovers -> MirrorParseError (fail-closed).
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    h = _pass2_hash_for(expected_pass1)
+    body = json.dumps({"content_hash": h, "answer_text": "Automation enables capital to..."})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_no_co_span_claim_still_unsupported_pass1_grounding_untouched() -> None:
+    # HARD CONSTRAINT proof: a claim with NO valid <co> span (and no structured citations) still
+    # fails closed at pass-1 grounding (MirrorCitationError) REGARDLESS of how lenient pass-2 is.
+    # pass-2 is never reached -> len(requests)==1 proves the pass-1 grounding gate is untouched.
+    pass1_response = RoleResponse(
+        raw_text="A bare grounded-sounding answer with no citation spans.", served_model=_MODEL
+    )
+    transport = _SequencedTransport([pass1_response])
+    with pytest.raises(MirrorCitationError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert len(transport.requests) == 1  # pass-2 never reached; grounding gate fired first
+
+
 # --- build_mirror_pass2_request shape ----------------------------------------------
 def test_pass2_request_has_response_format_and_no_documents() -> None:
     pass1 = MirrorPass1(
