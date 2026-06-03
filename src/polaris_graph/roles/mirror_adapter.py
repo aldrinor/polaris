@@ -23,6 +23,7 @@ raised — an unbound pass-2 is never trusted.
 from __future__ import annotations
 
 import json
+import re
 
 from src.polaris_graph.roles.mirror_contract import (
     CitationSpan,
@@ -47,6 +48,23 @@ _ROLE = "mirror"
 _CLASSIFICATION_KEY = "classification"
 _RATIONALE_KEY = "rationale"
 _CONTENT_HASH_KEY = "content_hash"
+
+# Common ALTERNATE keys a reasoning-first verifier (GLM-5.1) uses for the verdict when it omits
+# the canonical `classification` key (run-11 evidence: answer/label/category observed; class is a
+# harmless common synonym). EXACT match only — never substring/prefix — so the echoed pass-1
+# `answer_text` key can NEVER be laundered as a verdict ("answer" != "answer_text"). The canonical
+# `classification` key is tried first; alternates are consulted ONLY when it is absent.
+_ALTERNATE_CLASSIFICATION_KEYS = ("answer", "category", "label", "class")
+
+# Strip a fenced JSON wrapper ```json ... ``` or ``` ... ``` that reasoning-first models emit
+# around the JSON body before json.loads. Tolerates an optional language tag (json/JSON/...) and
+# the no-newline-after-fence form (```json{...```, run-11 sample). DOTALL so the body may span
+# lines; non-greedy so it stops at the FIRST closing fence. Only a leading-fence body is rewritten;
+# a body with no leading fence is returned unchanged.
+_CODE_FENCE_RE = re.compile(
+    r"^\s*`{3}[a-zA-Z0-9]*\s*(?P<body>.*?)\s*`{3}\s*$",
+    re.DOTALL,
+)
 
 
 class MirrorCitationError(ValueError):
@@ -175,31 +193,104 @@ def build_mirror_pass2_request(pass1: MirrorPass1, *, model_slug: str) -> RoleRe
     )
 
 
+def _strip_code_fence(raw_text: str) -> str:
+    """Strip a leading ```json ... ``` (or bare ``` ... ```) code-fence wrapper, if present.
+
+    Reasoning-first models (GLM-5.1) often wrap the JSON body in a markdown fence even under
+    `response_format=json_object`. We unwrap ONLY a body that both opens and closes with a triple-
+    backtick fence; any other text is returned unchanged so `json.loads` sees it verbatim. This is
+    pure FORMAT noise removal — it never alters the parsed verdict, only the wrapper around it.
+    """
+    match = _CODE_FENCE_RE.match(raw_text)
+    if match is not None:
+        return match.group("body")
+    return raw_text
+
+
+def _coerce_classification_value(value: object) -> str | None:
+    """Coerce a recovered classification value to a non-empty verdict string, else None.
+
+    - A non-empty (after strip) `str` is returned as-is.
+    - A non-empty `dict` (the heterogeneous NESTED-classification shape GLM-5.1 emits, e.g.
+      `{"domain": "Economics", ...}`) is deterministically serialized with sorted keys so a
+      meaningful, stable string verdict survives — we do NOT guess a "primary" sub-key (the nested
+      shapes are heterogeneous: primary_domain / domain / content_type / ...). Serialization is
+      safe: `classification` is NOT part of the pass-1<->pass-2 binding hash and NOT the grounding
+      gate, so it cannot affect either guard.
+    - Anything else (empty string/whitespace, empty dict, list, number, bool, None) -> None,
+      signalling "no recoverable verdict here".
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        return value if stripped else None
+    if isinstance(value, dict) and value:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return None
+
+
+def _recover_classification(payload: dict) -> str | None:
+    """Recover a classification verdict string from the pass-2 payload, else None.
+
+    Lookup precedence (EXACT key match only — never substring/prefix, so the echoed pass-1
+    `answer_text` key can never masquerade as a verdict):
+      1. the canonical `classification` key (string OR nested-dict, via `_coerce_classification_value`)
+      2. a small set of common alternates (answer/category/label/class), tried only when the
+         canonical key is absent OR yielded no recoverable value.
+    Returns the first recovered non-empty string, else None.
+    """
+    if _CLASSIFICATION_KEY in payload:
+        recovered = _coerce_classification_value(payload[_CLASSIFICATION_KEY])
+        if recovered is not None:
+            return recovered
+    for alt_key in _ALTERNATE_CLASSIFICATION_KEYS:
+        if alt_key in payload:
+            recovered = _coerce_classification_value(payload[alt_key])
+            if recovered is not None:
+                return recovered
+    return None
+
+
 def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
     """Parse a pass-2 transport response into MirrorPass2.
 
-    The classification JSON must carry a `classification` (the verdict); an optional `rationale`
-    is preserved. `content_hash` is the pass-1<->pass-2 binding the model is ASKED to echo, but
-    `expected_content_hash` (the caller-computed `_compute_content_hash(pass1)`) is authoritative:
-    in a synchronous single call the pass-2 response is necessarily about the pass-1 artifact we
-    built, so when a reasoning-first verifier OMITS the redundant echo we fall back to the
-    expected hash and the real classification is salvaged (#1028). A model-RETURNED hash is kept
-    as-is so `verify_pass2_binding` still catches a present-but-MISMATCHED hash (a genuine mixup).
+    ROBUST classification extraction (I-run11-002 L2): a reasoning-first verifier (GLM-5.1) returns
+    RECOVERABLE formatting noise even when pass-1 grounding SUCCEEDED. We therefore, in order:
+      1. strip a markdown code fence (```json ... ``` / ``` ... ```) before `json.loads`;
+      2. accept the verdict under the canonical `classification` key (string OR nested dict) OR a
+         small set of common alternates (answer/category/label/class) via `_recover_classification`.
+    ONLY when NO classification string can be recovered at all -> `MirrorParseError` (still fail
+    closed). This is purely about not failing a GROUNDED claim on classification-FORMAT noise; it
+    does NOT touch pass-1 grounding (the `<co>` citation binding stays the strict groundedness gate)
+    and introduces NO false-accept (a claim with no valid `<co>` span never reaches here — it has
+    already failed closed via MirrorCitationError in `run_mirror`).
 
-    A non-JSON body or a JSON missing `classification` is unrecoverable -> `MirrorParseError`
-    (a VERDICT-level failure that drives the fail-closed -> UNSUPPORTED path, NOT a whole-run
-    crash). Never fabricates a verdict.
+    `content_hash` is the pass-1<->pass-2 binding the model is ASKED to echo, but
+    `expected_content_hash` (the caller-computed `_compute_content_hash(pass1)`) is authoritative:
+    when a reasoning-first verifier OMITS the redundant echo we fall back to the expected hash and
+    the real classification is salvaged (#1028). A model-RETURNED hash is kept as-is so
+    `verify_pass2_binding` still catches a present-but-MISMATCHED hash (a genuine mixup).
+
+    A non-JSON body (even after fence-strip) or a JSON with no recoverable classification is
+    unrecoverable -> `MirrorParseError` (a VERDICT-level failure that drives the fail-closed ->
+    UNSUPPORTED path, NOT a whole-run crash). Never fabricates a verdict.
     """
+    unfenced = _strip_code_fence(raw_text)
     try:
-        payload = json.loads(raw_text)
+        payload = json.loads(unfenced)
     except (json.JSONDecodeError, ValueError) as exc:
         raise MirrorParseError(
             f"Mirror pass-2 returned a non-JSON body: {exc}"
         ) from exc
-    if not isinstance(payload, dict) or _CLASSIFICATION_KEY not in payload:
+    if not isinstance(payload, dict):
         raise MirrorParseError(
-            "Mirror pass-2 JSON is missing the required 'classification' verdict "
-            f"(keys={list(payload) if isinstance(payload, dict) else type(payload).__name__})"
+            "Mirror pass-2 body is not a JSON object "
+            f"(type={type(payload).__name__})"
+        )
+    classification = _recover_classification(payload)
+    if classification is None:
+        raise MirrorParseError(
+            "Mirror pass-2 JSON has no recoverable classification verdict "
+            f"(keys={list(payload)})"
         )
     return MirrorPass2(
         # Salvage ONLY on genuine key ABSENCE. A PRESENT content_hash is kept verbatim — even an
@@ -211,7 +302,7 @@ def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
             if _CONTENT_HASH_KEY in payload
             else expected_content_hash
         ),
-        classification=payload[_CLASSIFICATION_KEY],
+        classification=classification,
         rationale=payload.get(_RATIONALE_KEY),
     )
 
