@@ -125,41 +125,40 @@ def parse_sentinel_score(raw: str) -> SentinelResult:
 # Word-boundary count (NOT substring): `\bgrounded\b` does NOT match inside "ungrounded" (no left
 # word boundary before the 'g'), so a clean `UNGROUNDED` yields grounded_count=0, ungrounded_count=1
 # -> UNGROUNDED. `re.ASCII` reuses the inverted parser's homoglyph defense (Unicode case-folding
-# under bare IGNORECASE would accept homoglyphs like U+017F LONG S). A strict full-string match was
-# rejected: it would over-block a trailing period ("GROUNDED.") and silently tank coverage; the
-# word-boundary COUNT both recovers the common single-word-plus-punctuation case AND fails closed on
-# any ambiguity (both/neither/repeated).
-_GROUNDED_WORD_RE = re.compile(r"\bgrounded\b", re.IGNORECASE | re.ASCII)
-_UNGROUNDED_WORD_RE = re.compile(r"\bungrounded\b", re.IGNORECASE | re.ASCII)
+# under bare IGNORECASE would accept homoglyphs like U+017F LONG S).
+#
+# STRICT WHOLE-OUTPUT grammar (Codex diff-gate P1, no-false-accept): the ENTIRE response, after
+# stripping surrounding whitespace, must be EXACTLY `GROUNDED` or `UNGROUNDED` with at most a single
+# trailing period. A word-boundary COUNT was REJECTED because it false-accepts negated prose — e.g.
+# "not grounded" / "The claim is not grounded." would count one standalone `grounded`, zero
+# `ungrounded` -> a WRONG GROUNDED parsed_ok=True (a genuinely-ungrounded claim laundered to
+# VERIFIED, §-1.1 clinically lethal). With the anchored full match, "not grounded", "grounded: no",
+# "not fully grounded", and any prose all FAIL the match and fall CLOSED to UNGROUNDED (also the
+# correct verdict for a "not grounded" answer). Trailing-period tolerance keeps the common
+# "GROUNDED." case clean. `^\s*grounded\s*\.?\s*$` does NOT match "ungrounded" (the `un` prefix
+# breaks the start anchor), so the substring trap cannot mis-fire.
+_GROUNDED_FULL_RE = re.compile(r"^\s*grounded\s*\.?\s*$", re.IGNORECASE | re.ASCII)
+_UNGROUNDED_FULL_RE = re.compile(r"^\s*ungrounded\s*\.?\s*$", re.IGNORECASE | re.ASCII)
 
 
 def parse_sentinel_grounded_token(raw: str) -> SentinelResult:
     """Parse a NON-INVERTED groundedness output (one word: GROUNDED | UNGROUNDED) -> SentinelResult.
 
-    Direct polarity (I-run11-002 L1, validated on `ibm-granite/granite-4.1-8b` by the probe):
-        exactly one `UNGROUNDED` (and zero standalone `GROUNDED`) -> UNGROUNDED, parsed_ok=True
-        exactly one `GROUNDED`   (and zero `UNGROUNDED`)          -> GROUNDED,  parsed_ok=True
+    Direct polarity (I-run11-002 L1, validated on `ibm-granite/granite-4.1-8b`), STRICT whole-output:
+        whole output == `UNGROUNDED` (optional trailing `.`) -> UNGROUNDED, parsed_ok=True
+        whole output == `GROUNDED`   (optional trailing `.`) -> GROUNDED,  parsed_ok=True
 
-    FAIL CLOSED (never a silent GROUNDED on bad input):
-        - BOTH tokens present                        -> UNGROUNDED, parsed_ok=False
-        - NEITHER token present                      -> UNGROUNDED, parsed_ok=False
-        - a token repeated (>1 occurrence)           -> UNGROUNDED, parsed_ok=False
-        - non-string input                           -> UNGROUNDED, parsed_ok=False
-
-    Word-boundary counting means `\bgrounded\b` does not fire inside `ungrounded`, so the
-    substring trap (UNGROUNDED containing 'grounded') cannot register as "both present".
+    FAIL CLOSED to UNGROUNDED (never a silent GROUNDED) on ANYTHING else — negated/prose output
+    ("not grounded", "grounded: no", "not fully grounded"), extra tokens, both/neither token, a
+    repeated token, or non-string input.
     """
     if not isinstance(raw, str):
         return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
 
-    ungrounded_count = len(_UNGROUNDED_WORD_RE.findall(raw))
-    grounded_count = len(_GROUNDED_WORD_RE.findall(raw))
-
-    # Exactly one UNGROUNDED and no standalone GROUNDED -> a clean UNGROUNDED.
-    if ungrounded_count == 1 and grounded_count == 0:
+    # UNGROUNDED checked first (mutually exclusive under full anchoring; order-safe regardless).
+    if _UNGROUNDED_FULL_RE.match(raw):
         return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-    # Exactly one GROUNDED and no UNGROUNDED -> a clean GROUNDED.
-    if grounded_count == 1 and ungrounded_count == 0:
+    if _GROUNDED_FULL_RE.match(raw):
         return SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
-    # Everything else (both present, neither present, a token repeated) fails CLOSED.
+    # Negated prose, extra tokens, both/neither, repeats, non-clean output -> fail CLOSED.
     return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)

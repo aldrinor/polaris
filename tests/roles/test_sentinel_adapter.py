@@ -231,8 +231,17 @@ def test_explicit_mode_env_overrides_transport_default(monkeypatch) -> None:
     assert sentinel_groundedness_mode() == "guardian"
 
 
-def test_unrecognized_mode_falls_back_to_transport_default(monkeypatch) -> None:
+def test_unrecognized_mode_raises_loud(monkeypatch) -> None:
+    # Codex diff-gate P2 (no-silent-fallback): an EXPLICIT but unrecognized
+    # PG_SENTINEL_GROUNDEDNESS_MODE must FAIL LOUD, not silently derive from the transport
+    # (a mode typo must never desync the prompt+parser from the served model).
+    import pytest
     monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "bogus")
+    monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
+    with pytest.raises(ValueError):
+        sentinel_groundedness_mode()
+    # When the env is UNSET (not a typo), the transport-derived default still applies.
+    monkeypatch.delenv("PG_SENTINEL_GROUNDEDNESS_MODE", raising=False)
     monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
     assert sentinel_groundedness_mode() == "guardian"
     monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "openrouter")

@@ -67,21 +67,40 @@ def sentinel_groundedness_mode() -> str:
     """Resolve the active Sentinel groundedness mode (LAW VI). Returns "noninverted" | "guardian".
 
     Precedence: an explicit `PG_SENTINEL_GROUNDEDNESS_MODE` ("noninverted" | "guardian") wins.
-    When unset (or set to an unrecognized value), DERIVE from `PG_FOUR_ROLE_TRANSPORT` so the
-    prompt+parser never desync from the served model: "self_host" -> "guardian" (sovereign
-    granite-Guardian); anything else (incl. the "openrouter" default) -> "noninverted" (benchmark
-    general granite). The DEFAULT for the OpenRouter/benchmark Sentinel is therefore "noninverted".
+    An explicit but UNRECOGNIZED value raises ValueError (Codex diff-gate P2, no-silent-fallback:
+    a mode typo must not silently desync the prompt+parser from the served model). When the env is
+    UNSET, DERIVE from `PG_FOUR_ROLE_TRANSPORT` so the prompt+parser match the served model:
+    "self_host" -> "guardian" (sovereign granite-Guardian); anything else (incl. the "openrouter"
+    default) -> "noninverted" (benchmark general granite).
     """
     override = os.getenv(_GROUNDEDNESS_MODE_ENV)
-    if override is not None:
+    if override is not None and override.strip():
         token = override.strip().lower()
         if token in (_MODE_NONINVERTED, _MODE_GUARDIAN):
             return token
-    # Unset/unrecognized: derive from the transport so the sovereign path gets guardian.
+        # Fail LOUD on an explicit unrecognized mode (LAW II no-silent-fallback).
+        raise ValueError(
+            f"{_GROUNDEDNESS_MODE_ENV}={override!r} is invalid; "
+            f"expected {_MODE_NONINVERTED!r} or {_MODE_GUARDIAN!r}."
+        )
+    # Unset/blank: derive from the transport so the sovereign path gets guardian.
     transport = os.getenv(_FOUR_ROLE_TRANSPORT_ENV, "").strip().lower()
     if transport == _TRANSPORT_SELF_HOST:
         return _MODE_GUARDIAN
     return _MODE_NONINVERTED
+
+
+def _resolve_mode(mode: str | None) -> str:
+    """Resolve + VALIDATE the active mode (Codex diff-gate P2, no-silent-fallback). An explicit
+    but unrecognized `mode` argument must NOT silently select noninverted — it raises ValueError,
+    so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution."""
+    resolved = mode if mode is not None else sentinel_groundedness_mode()
+    if resolved not in (_MODE_NONINVERTED, _MODE_GUARDIAN):
+        raise ValueError(
+            f"sentinel groundedness mode {resolved!r} is invalid; "
+            f"expected {_MODE_NONINVERTED!r} or {_MODE_GUARDIAN!r}."
+        )
+    return resolved
 
 
 # The prescribed groundedness instruction wrapped in the final user `<guardian>` block.
@@ -133,7 +152,7 @@ def build_sentinel_request(
     When `mode` is None it resolves from `sentinel_groundedness_mode()` (env-gated, LAW VI;
     DEFAULT "noninverted" for the OpenRouter/benchmark route, "guardian" for self_host).
     """
-    resolved_mode = mode if mode is not None else sentinel_groundedness_mode()
+    resolved_mode = _resolve_mode(mode)
     instruction = _GUARDIAN_BLOCK if resolved_mode == _MODE_GUARDIAN else _NONINVERTED_BLOCK
     messages = [
         {"role": "assistant", "content": claim},
@@ -171,7 +190,7 @@ def run_sentinel(
       - "guardian"    -> inverted `<score>yes|no</score>` parser (`parse_sentinel_score`).
       - "noninverted" -> direct GROUNDED/UNGROUNDED parser (`parse_sentinel_grounded_token`).
     """
-    resolved_mode = mode if mode is not None else sentinel_groundedness_mode()
+    resolved_mode = _resolve_mode(mode)
     parser = (
         parse_sentinel_score
         if resolved_mode == _MODE_GUARDIAN

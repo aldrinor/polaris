@@ -273,3 +273,37 @@ def test_noninverted_never_silently_grounded_anti_inversion() -> None:
             result.verdict is SentinelVerdict.GROUNDED and result.parsed_ok
         ):
             assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
+
+
+# === I-run11-002 L1 iter-2: strict non-inverted parser — no false-accept (Codex diff-gate P1) ===
+import pytest as _pytest  # noqa: E402
+from src.polaris_graph.roles.sentinel_contract import (  # noqa: E402
+    parse_sentinel_grounded_token as _pg,
+    SentinelVerdict as _SV,
+)
+
+
+@_pytest.mark.parametrize("raw,verdict,ok", [
+    ("GROUNDED", _SV.GROUNDED, True),
+    ("UNGROUNDED", _SV.UNGROUNDED, True),
+    ("GROUNDED.", _SV.GROUNDED, True),
+    ("  ungrounded  ", _SV.UNGROUNDED, True),
+    # FALSE-ACCEPT guards (Codex P1): negated/prose must FAIL CLOSED to UNGROUNDED.
+    ("not grounded", _SV.UNGROUNDED, False),
+    ("The claim is not grounded.", _SV.UNGROUNDED, False),
+    ("not fully grounded", _SV.UNGROUNDED, False),
+    ("grounded: no", _SV.UNGROUNDED, False),
+    ("ungrounded grounded", _SV.UNGROUNDED, False),
+    ("", _SV.UNGROUNDED, False),
+    (None, _SV.UNGROUNDED, False),
+])
+def test_noninverted_parser_strict_no_false_accept(raw, verdict, ok):
+    r = _pg(raw)
+    assert r.verdict == verdict and r.parsed_ok == ok
+
+
+def test_sentinel_mode_invalid_env_raises(monkeypatch):
+    from src.polaris_graph.roles.sentinel_adapter import sentinel_groundedness_mode
+    monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "guardain")  # typo
+    with _pytest.raises(ValueError):
+        sentinel_groundedness_mode()
