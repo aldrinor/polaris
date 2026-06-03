@@ -78,10 +78,18 @@ class MockTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
             )
         if request.role == "sentinel":
-            score = "no" if self._sentinel_grounded else "yes"
-            return RoleResponse(
-                raw_text=f"<score>{score}</score>", served_model=request.model_slug
-            )
+            # Emit the format that MATCHES the active groundedness mode (I-run11-002 L1) so the
+            # MockTransport stays faithful whichever mode the adapter resolved: the inverted
+            # `<score>yes|no</score>` when the request carries the `<guardian>` block, else the
+            # non-inverted one-word GROUNDED/UNGROUNDED. (run_sentinel selects the matching parser
+            # off the same mode, so the canned output and the parser always pair.)
+            final_instruction = request.messages[-1]["content"] if request.messages else ""
+            if "<guardian>" in final_instruction:
+                score = "no" if self._sentinel_grounded else "yes"
+                raw_text = f"<score>{score}</score>"
+            else:
+                raw_text = "GROUNDED" if self._sentinel_grounded else "UNGROUNDED"
+            return RoleResponse(raw_text=raw_text, served_model=request.model_slug)
         if request.role == "judge":
             return RoleResponse(
                 raw_text=self._judge_verdict, served_model=request.model_slug
@@ -185,6 +193,73 @@ def test_claim_id_flows_into_d8_row() -> None:
     transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
     result = _run(transport, claim_id="custom-claim-id-xyz")
     assert result.d8_row.claim_id == "custom-claim-id-xyz"
+
+
+# === I-run11-002 L1: composition is byte-unchanged under the NON-INVERTED Sentinel path ======
+# These assert the §-1.1 false-accept guard SURVIVES the new non-inverted parser: a grounded
+# claim composes to VERIFIED (the run-11 wipeout is fixed) AND a genuinely-ungrounded claim STILL
+# fail-closes to UNSUPPORTED (the new GROUNDED-returning parser did NOT blanket-pass).
+@pytest.fixture
+def _noninverted_env(monkeypatch):
+    """Force the benchmark non-inverted Sentinel mode (the run-11 default)."""
+    monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "noninverted")
+    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)
+
+
+def test_noninverted_grounded_verified_passes_through(_noninverted_env) -> None:
+    """The run-11 fix: under the non-inverted Sentinel, a grounded claim + Judge VERIFIED composes
+    to VERIFIED — the verbatim-grounded claims that wrongly wiped to UNSUPPORTED in run 11 now
+    pass. (MockTransport emits the one-word `GROUNDED` for the non-inverted prompt.)"""
+    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
+    result = _run(transport)
+    assert result.raw_judge_verdict == "VERIFIED"
+    assert result.final_verdict == "VERIFIED"
+    assert result.d8_row.verdict == "VERIFIED"
+
+
+def test_noninverted_ungrounded_still_unsupported_false_accept_guard(_noninverted_env) -> None:
+    """THE §-1.1 false-accept guard: a genuinely-ungrounded claim under the non-inverted Sentinel
+    (emits `UNGROUNDED`) STILL downgrades a Judge VERIFIED to UNSUPPORTED. Proves the new
+    GROUNDED-returning parser did NOT make composition blanket-pass; the fail-closed safety
+    property holds for the non-inverted path exactly as for guardian."""
+    transport = MockTransport(sentinel_grounded=False, judge_verdict="VERIFIED")
+    result = _run(transport)
+    assert result.raw_judge_verdict == "VERIFIED"   # raw preserved
+    assert result.final_verdict == "UNSUPPORTED"    # overridden by UNGROUNDED Sentinel
+    assert result.d8_row.verdict == "UNSUPPORTED"
+
+
+def test_noninverted_ungrounded_preserves_worse_judge_fabricated(_noninverted_env) -> None:
+    """Under the non-inverted Sentinel, an UNGROUNDED claim still PRESERVES a worse Judge
+    FABRICATED (never upgraded to merely UNSUPPORTED) — same preserve-branch behavior."""
+    transport = MockTransport(sentinel_grounded=False, judge_verdict="FABRICATED")
+    result = _run(transport)
+    assert result.raw_judge_verdict == "FABRICATED"
+    assert result.final_verdict == "FABRICATED"
+    assert result.d8_row.verdict == "FABRICATED"
+
+
+def test_guardian_env_still_composes_grounded_verified(monkeypatch) -> None:
+    """The SOVEREIGN path is intact: with the guardian mode forced, the SAME pipeline composes a
+    grounded claim (MockTransport emits `<score>no</score>`) + Judge VERIFIED to VERIFIED."""
+    monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "guardian")
+    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
+    result = _run(transport)
+    assert result.final_verdict == "VERIFIED"
+    assert result.d8_row.verdict == "VERIFIED"
+
+
+def test_self_host_transport_env_routes_guardian_in_pipeline(monkeypatch) -> None:
+    """The runtime-desync guard end-to-end: PG_FOUR_ROLE_TRANSPORT=self_host (no explicit mode)
+    makes the pipeline's Sentinel resolve to guardian, so the MockTransport's `<guardian>` request
+    + `<score>no</score>` output composes correctly to VERIFIED — the sovereign granite-Guardian
+    gets the inverted prompt it is trained on without any extra env."""
+    monkeypatch.delenv("PG_SENTINEL_GROUNDEDNESS_MODE", raising=False)
+    monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
+    transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
+    result = _run(transport)
+    assert result.final_verdict == "VERIFIED"
+    assert result.d8_row.verdict == "VERIFIED"
 
 
 # --- citation_id is harvested from the Mirror grounded span on the success path ---

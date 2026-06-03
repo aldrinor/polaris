@@ -14,6 +14,7 @@ import pytest
 from src.polaris_graph.roles.sentinel_contract import (
     SentinelResult,
     SentinelVerdict,
+    parse_sentinel_grounded_token,
     parse_sentinel_score,
 )
 
@@ -190,4 +191,85 @@ def test_no_malformed_input_ever_returns_grounded() -> None:
     for raw in ("", "yes", "<score>maybe</score>", "garbage", "<score>no", None):
         result = parse_sentinel_score(raw)  # type: ignore[arg-type]
         if not result.parsed_ok:
+            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
+
+
+# === NON-INVERTED parser (benchmark Sentinel, I-run11-002 L1) =======================
+# Direct polarity: GROUNDED -> GROUNDED, UNGROUNDED -> UNGROUNDED. EVERY ambiguous output
+# (both tokens, neither, repeated, non-string) fails CLOSED to UNGROUNDED with parsed_ok=False.
+# NOT a flip of the inverted parser — a separate contract over the non-inverted prompt's output.
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "GROUNDED",
+        "grounded",
+        " GROUNDED ",
+        "GROUNDED.",                 # word-boundary count tolerates a trailing period
+        "\nGROUNDED\n",
+    ],
+)
+def test_noninverted_grounded_token_maps_to_grounded(raw: str) -> None:
+    result = parse_sentinel_grounded_token(raw)
+    assert result == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True), repr(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "UNGROUNDED",
+        "ungrounded",
+        " UNGROUNDED ",
+        "UNGROUNDED.",
+        "\nUNGROUNDED\n",
+    ],
+)
+def test_noninverted_ungrounded_token_maps_to_ungrounded(raw: str) -> None:
+    # The substring trap: UNGROUNDED contains "grounded", but `\bgrounded\b` does NOT fire inside
+    # it (no left word boundary), so this is a CLEAN UNGROUNDED, not a both-present fail-close.
+    result = parse_sentinel_grounded_token(raw)
+    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True), repr(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",                                  # empty
+        "   ",                               # whitespace only
+        "maybe",                             # neither token
+        "the model refused to answer",       # prose, neither token
+        "GROUNDED UNGROUNDED",               # both present -> ambiguous
+        "UNGROUNDED GROUNDED",               # both present, other order
+        "The claim is GROUNDED and also UNGROUNDED",  # both in prose
+        "GROUNDED GROUNDED",                 # repeated GROUNDED -> ambiguous
+        "UNGROUNDED UNGROUNDED",             # repeated UNGROUNDED -> ambiguous
+        "groundedness",                      # NOT a \bgrounded\b match (no right boundary)
+    ],
+)
+def test_noninverted_ambiguous_or_missing_fails_closed(raw: str) -> None:
+    result = parse_sentinel_grounded_token(raw)
+    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), repr(raw)
+
+
+def test_noninverted_non_string_fails_closed() -> None:
+    result = parse_sentinel_grounded_token(None)  # type: ignore[arg-type]
+    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+
+def test_noninverted_score_tag_output_fails_closed() -> None:
+    """The non-inverted parser must NOT accept the INVERTED `<score>` tags — a model emitting the
+    wrong format under the non-inverted prompt is ambiguous and must fail closed, never a silent
+    GROUNDED (the `<score>no</score>` would otherwise be mis-trusted)."""
+    for raw in ("<score>no</score>", "<score>yes</score>"):
+        result = parse_sentinel_grounded_token(raw)
+        assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False), raw
+
+
+def test_noninverted_never_silently_grounded_anti_inversion() -> None:
+    """The lethal property for the non-inverted contract: no ambiguous/garbage input may yield a
+    GROUNDED. The ONLY GROUNDED path is exactly one standalone `GROUNDED` and zero `UNGROUNDED`."""
+    for raw in ("", "maybe", "UNGROUNDED", "GROUNDED UNGROUNDED", "groundedness", None):
+        result = parse_sentinel_grounded_token(raw)  # type: ignore[arg-type]
+        if not (
+            result.verdict is SentinelVerdict.GROUNDED and result.parsed_ok
+        ):
             assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)

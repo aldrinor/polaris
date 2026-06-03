@@ -64,8 +64,16 @@ class MockTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=("doc1",))],
             )
         if request.role == "sentinel":
-            score = "no" if self._sentinel_grounded else "yes"
-            return RoleResponse(raw_text=f"<score>{score}</score>", served_model=request.model_slug)
+            # I-run11-002 L1: emit the format matching the active groundedness mode (the request's
+            # final instruction reveals it) so the canned output pairs with the parser run_sentinel
+            # selected — `<score>yes|no</score>` for the inverted guardian block, else the
+            # non-inverted one-word GROUNDED/UNGROUNDED (the benchmark default).
+            final_instruction = request.messages[-1]["content"] if request.messages else ""
+            if "<guardian>" in final_instruction:
+                raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
+            else:
+                raw_text = "GROUNDED" if self._sentinel_grounded else "UNGROUNDED"
+            return RoleResponse(raw_text=raw_text, served_model=request.model_slug)
         if request.role == "judge":
             return RoleResponse(raw_text=self._judge_verdict, served_model=request.model_slug)
         raise AssertionError(f"unexpected role {request.role!r}")
@@ -219,12 +227,18 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
 
     class _Mixed(MockTransport):
         def complete(self, request: RoleRequest) -> RoleResponse:
-            # Sentinel UNGROUNDED only for the 'bad' claim's evidence text.
+            # Sentinel UNGROUNDED only for the 'bad' claim's evidence text. Emit the format
+            # matching the active groundedness mode (I-run11-002 L1) so canned output pairs with
+            # the parser run_sentinel selected (non-inverted by default).
             if request.role == "sentinel":
                 docs = request.params.get("documents", [])
                 grounded = not any(d.get("text") == "x" for d in docs)
-                score = "no" if grounded else "yes"
-                return RoleResponse(raw_text=f"<score>{score}</score>", served_model=request.model_slug)
+                final_instruction = request.messages[-1]["content"] if request.messages else ""
+                if "<guardian>" in final_instruction:
+                    raw_text = "<score>no</score>" if grounded else "<score>yes</score>"
+                else:
+                    raw_text = "GROUNDED" if grounded else "UNGROUNDED"
+                return RoleResponse(raw_text=raw_text, served_model=request.model_slug)
             return super().complete(request)
 
     result = _run(_Mixed(judge_verdict="VERIFIED"), [verified, bad], run_dir=tmp_path, ledger=ledger)
