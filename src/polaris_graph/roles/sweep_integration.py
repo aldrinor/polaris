@@ -35,11 +35,21 @@ Fail-closed contract (Codex P2 directives, binding):
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextvars
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from src.polaris_graph.llm.openrouter_client import (
+    BudgetExceededError,
+    _add_run_cost,
+    check_run_budget,
+    current_run_cost,
+    reset_run_cost,
+)
 from src.polaris_graph.roles.release_policy import (
     CoverageLedger,
     D8ClaimRow,
@@ -48,7 +58,10 @@ from src.polaris_graph.roles.release_policy import (
     apply_d8_release_policy,
     load_d8_policy_config,
 )
-from src.polaris_graph.roles.role_pipeline import run_claim_pipeline
+from src.polaris_graph.roles.role_pipeline import (
+    ClaimPipelineResult,
+    run_claim_pipeline,
+)
 from src.polaris_graph.roles.role_transport import (
     EvidenceDocument,
     RoleCallRecord,
@@ -61,6 +74,17 @@ _VERDICT_VERIFIED = "VERIFIED"
 
 # The three role slots the per-claim pipeline expects in its `model_slugs` map.
 _REQUIRED_ROLE_SLUG_KEYS = ("mirror", "sentinel", "judge")
+
+# I-run11-001 (#1042): bounded per-claim COMPUTE parallelism for the 4-role seam. The per-claim
+# Mirror->Sentinel->Judge pipeline is independent across claims (each `run_claim_pipeline` builds
+# its OWN `RecordingTransport`), so the COMPUTE half can run in a small thread pool while ALL
+# reduction + persistence (D8 policy, coverage credit, KG write, run-budget cap) stays on the
+# PARENT thread in ORIGINAL claim order (Codex Path-B SAFE design, .codex/I-run11-seam). At the
+# benchmark stage (xhigh reasoning, minutes/claim) this is what makes the seam finish in time;
+# run 10 died on the sequential operational failure mode. LAW VI: worker count from env only.
+# `1` (or a single claim) preserves the EXACT sequential behaviour, including the live per-call
+# budget enforcement inside `RecordingTransport.complete()`.
+_CLAIM_WORKERS = max(1, int(os.getenv("PG_FOUR_ROLE_CLAIM_WORKERS", "6")))
 
 
 @dataclass
@@ -169,6 +193,117 @@ def build_evaluator_agrees_map(
     return agrees_map
 
 
+def _write_role_call_log(path: Path, role_call_log: list[dict]) -> None:
+    """Write the per-role-call reasoning log as one sorted-key JSON object per line.
+
+    I-run11-001 (#1042): factored out of `run_four_role_evaluation` so the SAME serialization is
+    used by both the INCREMENTAL per-claim write (mid-run monitorability) and the final idempotent
+    write. Byte-identical to the prior inline `write_text` (`ensure_ascii=False, sort_keys=True`),
+    so a partial file rewritten on the next claim is just a longer prefix of the same content.
+    """
+    path.write_text(
+        "".join(
+            json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
+            for entry in role_call_log
+        ),
+        encoding="utf-8",
+    )
+
+
+def _compute_claim_results(
+    transport: RoleTransport,
+    *,
+    claims: list[FourRoleClaim],
+    model_slugs: dict[str, str],
+    timestamp: str,
+) -> list[tuple[ClaimPipelineResult, float | None]]:
+    """COMPUTE the per-claim 4-role pipeline for every claim, returning results BY INPUT INDEX.
+
+    I-run11-001 (#1042), Codex Path-B SAFE design (.codex/I-run11-seam). This is the ONLY half
+    that runs the (already-paid) verifier calls; it makes NO reduction decision — the parent
+    reduces in input order. Each element is `(ClaimPipelineResult, cost_delta)` for `claims[idx]`,
+    where:
+
+      * SEQUENTIAL (`_CLAIM_WORKERS == 1` or a single claim): `run_claim_pipeline` is called
+        DIRECTLY on the parent thread (no copied context, no `reset_run_cost`), so
+        `RecordingTransport.complete()` enforces the LIVE per-call run budget on the parent
+        `_RUN_COST_CTX` EXACTLY as today. `cost_delta is None` signals the parent "already
+        accounted — do not re-add" (byte-equivalence with the pre-#1042 behaviour).
+
+      * PARALLEL: each claim runs inside its OWN `contextvars.copy_context()` so the per-claim
+        verifier spend + the pathB `_ROLE` tag are ISOLATED per worker (a plain shared context
+        would cross-contaminate role tags AND a copied `ContextVar[float]` does NOT converge into
+        the parent counter — Codex naive-B trap). The worker `reset_run_cost()`s its copy, runs
+        the pipeline, and returns `current_run_cost()` as `cost_delta`; the PARENT re-adds it to
+        the single run counter and enforces the cap. The pathB capture `_SINK` is shared BY
+        REFERENCE through the copied context (atomic `list.append`), so verifier captures still
+        land at the parent for the M4 gate — it is NOT isolated. A worker exception PROPAGATES
+        (fail closed; no `except: pass`).
+    """
+    n = len(claims)
+
+    def _compute_one(idx: int, claim: FourRoleClaim) -> tuple[int, ClaimPipelineResult, float]:
+        ctx = contextvars.copy_context()
+
+        def _run() -> tuple[ClaimPipelineResult, float]:
+            # Isolate THIS claim's verifier spend in the copied context so the parent can re-add a
+            # clean per-claim delta and enforce the cap deterministically at the claim boundary.
+            reset_run_cost()
+            res = run_claim_pipeline(
+                transport,
+                claim_id=claim.claim_id,
+                claim=claim.claim_text,
+                evidence_documents=claim.evidence_documents,
+                severity=claim.severity,
+                s0_categories=claim.s0_categories,
+                model_slugs=model_slugs,
+                timestamp=timestamp,
+            )
+            return res, current_run_cost()
+
+        result, delta = ctx.run(_run)
+        return idx, result, delta
+
+    # SEQUENTIAL fast path: byte-equivalent to the pre-#1042 loop (live per-call budget preserved,
+    # cost_delta None so the parent does not re-account). A single claim also takes this path (a
+    # thread pool for one item is pure overhead).
+    if _CLAIM_WORKERS == 1 or n <= 1:
+        out: list[tuple[ClaimPipelineResult, float | None]] = []
+        for claim in claims:
+            result = run_claim_pipeline(
+                transport,
+                claim_id=claim.claim_id,
+                claim=claim.claim_text,
+                evidence_documents=claim.evidence_documents,
+                severity=claim.severity,
+                s0_categories=claim.s0_categories,
+                model_slugs=model_slugs,
+                timestamp=timestamp,
+            )
+            out.append((result, None))
+        return out
+
+    # PARALLEL path: bounded thread pool; collect BY INDEX (never as_completed order). A worker
+    # exception surfaces from `future.result()` and propagates (fail closed) — the seam HOLDS,
+    # never partial-releases.
+    computed: list[tuple[ClaimPipelineResult, float | None] | None] = [None] * n
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_CLAIM_WORKERS) as pool:
+        futures = [pool.submit(_compute_one, idx, claim) for idx, claim in enumerate(claims)]
+        for future in concurrent.futures.as_completed(futures):
+            idx, result, delta = future.result()  # re-raises any worker exception (fail closed).
+            computed[idx] = (result, delta)
+
+    # Defensive: every index must be filled (a None here would mean a future silently dropped — a
+    # real bug, never a vacuous pass). Fail loud rather than reduce a partial result set.
+    for idx, item in enumerate(computed):
+        if item is None:
+            raise RuntimeError(
+                f"run_four_role_evaluation: claim index {idx} produced no result from the "
+                f"compute pool (fail-closed — a dropped future must never reduce silently)."
+            )
+    return [item for item in computed if item is not None]
+
+
 def run_four_role_evaluation(
     transport: RoleTransport,
     *,
@@ -261,6 +396,20 @@ def run_four_role_evaluation(
     # for line-by-line review. `reasoning` is its OWN field — NEVER concatenated into the verdict.
     role_call_log: list[dict] = []
 
+    # I-run11-001 (#1042): COMPUTE the per-claim pipeline (possibly in parallel), then REDUCE on
+    # the parent thread in ORIGINAL claim order. `computed[idx]` holds `(ClaimPipelineResult,
+    # cost_delta)` for `claims[idx]`; `cost_delta` is the per-claim verifier spend captured INSIDE
+    # the worker's isolated `_RUN_COST_CTX` (parallel path) or None (sequential path, where
+    # RecordingTransport already enforced the LIVE per-call budget on the parent counter).
+    computed: list[tuple[ClaimPipelineResult, float | None]] = _compute_claim_results(
+        transport,
+        claims=claims,
+        model_slugs=model_slugs,
+        timestamp=timestamp,
+    )
+
+    role_calls_path = run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME
+
     # I-meta-002-q1d (#948): campaign-scoped KG when given, else per-question run_dir (default).
     kg_store = (
         VerifiedClaimGraphStore(db_path=campaign_kg_db)
@@ -268,17 +417,20 @@ def run_four_role_evaluation(
         else VerifiedClaimGraphStore(run_dir=run_dir)
     )
     try:
-        for claim in claims:
-            result = run_claim_pipeline(
-                transport,
-                claim_id=claim.claim_id,
-                claim=claim.claim_text,
-                evidence_documents=claim.evidence_documents,
-                severity=claim.severity,
-                s0_categories=claim.s0_categories,
-                model_slugs=model_slugs,
-                timestamp=timestamp,
-            )
+        # Reduce in INPUT order (zip over claims + the index-ordered `computed` list). Completion
+        # order NEVER drives any reduction — the parallel path collected results BY INDEX, so this
+        # is byte-identical to the sequential reduction regardless of which claim finished first.
+        for claim, (result, cost_delta) in zip(claims, computed):
+            # I-run11-001 (#1042): on the PARALLEL path the worker's verifier spend was isolated in
+            # a copied context; thread it into the SINGLE parent run-budget accumulator HERE and
+            # enforce the cap. `BudgetExceededError` propagates to the existing budget-abort path
+            # (it is NEVER caught here — the finally below only closes the KG store). On the
+            # SEQUENTIAL path `cost_delta is None`: RecordingTransport already accounted + capped
+            # live on the parent counter, so re-adding would double-count (byte-equivalence).
+            if cost_delta is not None:
+                _add_run_cost(cost_delta)
+                check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
+
             d8_rows.append(result.d8_row)
             all_records.extend(result.records)
             final_verdicts[claim.claim_id] = result.final_verdict
@@ -297,6 +449,12 @@ def run_four_role_evaluation(
                     }
                 )
 
+            # I-run11-001 (#1042): INCREMENTALLY persist the role-call log after EACH claim is
+            # reduced (rewrite the whole file in claim order — small, fine) so a mid-run hang is
+            # monitorable on disk instead of the log only landing after the full loop. The final
+            # write below is kept (idempotent: it rewrites the same complete content).
+            _write_role_call_log(role_calls_path, role_call_log)
+
             # Coverage credit ONLY on a VERIFIED final verdict, against the CANONICAL required
             # ids this claim covers — a dropped/UNSUPPORTED claim adds nothing (denominator is
             # the fixed required set, so this can only ever lower the achieved fraction).
@@ -305,7 +463,8 @@ def run_four_role_evaluation(
 
             # Snowball KG: persist EVERY outcome (audit); only VERIFIED rows are reusable
             # (anti-poisoning is enforced inside the store). role_verdicts records the raw
-            # Mirror/Sentinel/Judge signals for provenance.
+            # Mirror/Sentinel/Judge signals for provenance. KG writes stay PARENT-only (single
+            # SQLite connection) — never inside a worker (Codex Path-B risk #2).
             kg_store.write_claim(
                 claim_text=claim.claim_text,
                 claim_id=claim.claim_id,
@@ -332,14 +491,9 @@ def run_four_role_evaluation(
 
     # I-meta-002-q1b (#939): persist the per-role-call reasoning log next to the run — one JSON
     # object per line, `reasoning` in its own field, NEVER mixed into the verdict. Reviewable
-    # line-by-line alongside the generator's reasoning_trace.jsonl.
-    (run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME).write_text(
-        "".join(
-            json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
-            for entry in role_call_log
-        ),
-        encoding="utf-8",
-    )
+    # line-by-line alongside the generator's reasoning_trace.jsonl. (Kept as the final write even
+    # though I-run11-001 also writes incrementally above — idempotent same-content rewrite.)
+    _write_role_call_log(role_calls_path, role_call_log)
 
     # The D8 threshold is loaded from config (LAW VI, pure file read — no network).
     config = load_d8_policy_config(d8_config_path)
