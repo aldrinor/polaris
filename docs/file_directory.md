@@ -63,6 +63,7 @@ produced, see `docs/live_code_audit.json`.
 | `src/polaris_graph/tracing.py` | JSONL trace writer | A | |
 | `src/auth/` | Auth routes + middleware | B | |
 | `src/tools/` | Active tool clients (8 commits in last 60 days) | B | |
+| `src/tools/core_client.py` | CORE (core.ac.uk) v3 legal-OA full-text fetch by DOI (I-faith-002, GH #1035) | A | `fetch_core_oa_fulltext(doi)` returns `(content, source_url)` or `("", "")`; EXACT-DOI guard rejects fuzzy wrong-paper hits; never raises (caller falls back to abstract). CORE-first access path (gated `PG_CORE_ENABLED`, default on) replacing Sci-Hub, which is now disabled by default (`PG_SCIHUB_ENABLED` default "0"). |
 | `src/audit/` | Automated deep audit | B | |
 | `src/config/` | Config loaders | A, B | |
 | `src/providers/llm_provider.py` | Provider abstraction | A | |

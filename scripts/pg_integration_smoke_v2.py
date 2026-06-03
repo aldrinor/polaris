@@ -152,6 +152,10 @@ async def main():
     # ──────────────────────────────────────────────────────────
     # STAGE 5: Sci-Hub on 5 paywalled DOIs
     # ──────────────────────────────────────────────────────────
+    # Sci-Hub is DISABLED by default (legal/provenance, I-faith-002); CORE
+    # (core.ac.uk) is the legal OA full-text source. This stage runs ONLY on
+    # explicit operator opt-in (PG_SCIHUB_ENABLED=1) so the smoke never issues
+    # a sci-hub.* request by default.
     print("\n[STAGE 5] Sci-Hub on 5 paywalled DOIs...")
     dois = [
         ("10.1056/NEJMra1905136", "NEJM"),
@@ -161,23 +165,27 @@ async def main():
         ("10.1016/j.cels.2015.10.014", "Cell Systems"),
     ]
     scihub_success = 0
-    for doi, journal in dois:
-        try:
-            r = await asyncio.wait_for(
-                bypass._try_scihub(f"https://doi.org/{doi}"),
-                timeout=25,
-            )
-            if r.success and len(r.content) > 500:
-                print(f"  PASS {len(r.content):6d} chars | {r.access_method:15s} | {journal}")
-                scihub_success += 1
-            else:
-                print(f"  FAIL             | {r.metadata.get('error', '?')[:30]:30s} | {journal}")
-        except asyncio.TimeoutError:
-            print(f"  TIMEOUT          | {'timeout':30s} | {journal}")
-        except Exception as e:
-            print(f"  ERROR            | {str(e)[:30]:30s} | {journal}")
-    print(f"  Sci-Hub success: {scihub_success}/{len(dois)}")
-    results["scihub"] = {"total": len(dois), "success": scihub_success}
+    if os.getenv("PG_SCIHUB_ENABLED", "0") != "1":
+        print("  SKIP: Sci-Hub disabled (PG_SCIHUB_ENABLED!=1); legal/provenance.")
+        results["scihub"] = {"total": len(dois), "success": 0, "skipped": True}
+    else:
+        for doi, journal in dois:
+            try:
+                r = await asyncio.wait_for(
+                    bypass._try_scihub(f"https://doi.org/{doi}"),
+                    timeout=25,
+                )
+                if r.success and len(r.content) > 500:
+                    print(f"  PASS {len(r.content):6d} chars | {r.access_method:15s} | {journal}")
+                    scihub_success += 1
+                else:
+                    print(f"  FAIL             | {r.metadata.get('error', '?')[:30]:30s} | {journal}")
+            except asyncio.TimeoutError:
+                print(f"  TIMEOUT          | {'timeout':30s} | {journal}")
+            except Exception as e:
+                print(f"  ERROR            | {str(e)[:30]:30s} | {journal}")
+        print(f"  Sci-Hub success: {scihub_success}/{len(dois)}")
+        results["scihub"] = {"total": len(dois), "success": scihub_success}
 
     # ──────────────────────────────────────────────────────────
     # STAGE 6: Format compatibility check
@@ -255,7 +263,10 @@ async def main():
         issues.append(f"Scholar academic rate too low: {results['scholar']['academic_pct']*100:.0f}%")
     if results["fetch"]["success_rate"] < 0.3:
         issues.append(f"Fetch success rate too low: {results['fetch']['success_rate']*100:.0f}%")
-    if results["scihub"]["success"] == 0:
+    # Sci-Hub is DISABLED by default now (legal/provenance, I-faith-002); a
+    # skipped stage is NOT an issue — only flag zero-retrieval when the
+    # operator explicitly opted in (PG_SCIHUB_ENABLED=1).
+    if not results["scihub"].get("skipped") and results["scihub"]["success"] == 0:
         issues.append("Sci-Hub returned nothing")
     if results.get("format", {}).get("missing"):
         issues.append(f"Scholar format incompatible: missing {results['format']['missing']}")

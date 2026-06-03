@@ -1,0 +1,1501 @@
+diff --git a/scripts/pg_integration_smoke.py b/scripts/pg_integration_smoke.py
+index 840bad21..a4bdeb36 100644
+--- a/scripts/pg_integration_smoke.py
++++ b/scripts/pg_integration_smoke.py
+@@ -51,20 +51,28 @@ async def main():
+     else:
+         print(f"  FAIL: status={resp.status_code}"); failed += 1
+ 
+-    # 3. Sci-Hub fetch
++    # 3. Sci-Hub fetch — DISABLED by default (legal/provenance, I-faith-002);
++    # CORE (core.ac.uk) is the legal OA full-text source now. This step runs
++    # ONLY on explicit operator opt-in (PG_SCIHUB_ENABLED=1) so the smoke never
++    # issues a sci-hub.* request by default.
+     print("\n[3/7] Sci-Hub access (DOI fetch)...")
+-    from src.tools.access_bypass import AccessBypass
+-    bypass = AccessBypass()
+-    scihub_result = await bypass._try_scihub(
+-        "https://www.nejm.org/doi/full/10.1056/NEJMra1905136"
+-    )
+-    if scihub_result.success and len(scihub_result.content) > 500:
+-        method = scihub_result.access_method
+-        chars = len(scihub_result.content)
+-        pages = scihub_result.metadata.get("pages", "?")
+-        print(f"  PASS: {chars} chars, {pages} pages via {method}"); passed += 1
++    scihub_skipped = False
++    if os.getenv("PG_SCIHUB_ENABLED", "0") != "1":
++        scihub_skipped = True
++        print("  SKIP: Sci-Hub disabled (PG_SCIHUB_ENABLED!=1); legal/provenance."); passed += 1
+     else:
+-        print(f"  FAIL: success={scihub_result.success}, {scihub_result.metadata}"); failed += 1
++        from src.tools.access_bypass import AccessBypass
++        bypass = AccessBypass()
++        scihub_result = await bypass._try_scihub(
++            "https://www.nejm.org/doi/full/10.1056/NEJMra1905136"
++        )
++        if scihub_result.success and len(scihub_result.content) > 500:
++            method = scihub_result.access_method
++            chars = len(scihub_result.content)
++            pages = scihub_result.metadata.get("pages", "?")
++            print(f"  PASS: {chars} chars, {pages} pages via {method}"); passed += 1
++        else:
++            print(f"  FAIL: success={scihub_result.success}, {scihub_result.metadata}"); failed += 1
+ 
+     # 4. Authority gate on scholar results
+     print("\n[4/7] Source quality of Scholar results...")
+@@ -163,7 +171,10 @@ async def main():
+         print("Proven without LLM credits:")
+         print("  - Scholar delivers 70%+ academic sources")
+         print("  - S2 works in parallel mode")
+-        print("  - Sci-Hub delivers full papers for paywalled DOIs")
++        if scihub_skipped:
++            print("  - Sci-Hub disabled by default (legal/provenance); CORE is the OA full-text source")
++        else:
++            print("  - Sci-Hub delivers full papers for paywalled DOIs")
+         print("  - Wiki handles 100+ evidence / 25+ sources")
+         print("  - 5-lens compose prompts fit in context")
+         print("  - All .env caps set for 300 evidence scale")
+diff --git a/scripts/pg_integration_smoke_v2.py b/scripts/pg_integration_smoke_v2.py
+index 8673c933..b42f1e55 100644
+--- a/scripts/pg_integration_smoke_v2.py
++++ b/scripts/pg_integration_smoke_v2.py
+@@ -152,6 +152,10 @@ async def main():
+     # ──────────────────────────────────────────────────────────
+     # STAGE 5: Sci-Hub on 5 paywalled DOIs
+     # ──────────────────────────────────────────────────────────
++    # Sci-Hub is DISABLED by default (legal/provenance, I-faith-002); CORE
++    # (core.ac.uk) is the legal OA full-text source. This stage runs ONLY on
++    # explicit operator opt-in (PG_SCIHUB_ENABLED=1) so the smoke never issues
++    # a sci-hub.* request by default.
+     print("\n[STAGE 5] Sci-Hub on 5 paywalled DOIs...")
+     dois = [
+         ("10.1056/NEJMra1905136", "NEJM"),
+@@ -161,23 +165,27 @@ async def main():
+         ("10.1016/j.cels.2015.10.014", "Cell Systems"),
+     ]
+     scihub_success = 0
+-    for doi, journal in dois:
+-        try:
+-            r = await asyncio.wait_for(
+-                bypass._try_scihub(f"https://doi.org/{doi}"),
+-                timeout=25,
+-            )
+-            if r.success and len(r.content) > 500:
+-                print(f"  PASS {len(r.content):6d} chars | {r.access_method:15s} | {journal}")
+-                scihub_success += 1
+-            else:
+-                print(f"  FAIL             | {r.metadata.get('error', '?')[:30]:30s} | {journal}")
+-        except asyncio.TimeoutError:
+-            print(f"  TIMEOUT          | {'timeout':30s} | {journal}")
+-        except Exception as e:
+-            print(f"  ERROR            | {str(e)[:30]:30s} | {journal}")
+-    print(f"  Sci-Hub success: {scihub_success}/{len(dois)}")
+-    results["scihub"] = {"total": len(dois), "success": scihub_success}
++    if os.getenv("PG_SCIHUB_ENABLED", "0") != "1":
++        print("  SKIP: Sci-Hub disabled (PG_SCIHUB_ENABLED!=1); legal/provenance.")
++        results["scihub"] = {"total": len(dois), "success": 0, "skipped": True}
++    else:
++        for doi, journal in dois:
++            try:
++                r = await asyncio.wait_for(
++                    bypass._try_scihub(f"https://doi.org/{doi}"),
++                    timeout=25,
++                )
++                if r.success and len(r.content) > 500:
++                    print(f"  PASS {len(r.content):6d} chars | {r.access_method:15s} | {journal}")
++                    scihub_success += 1
++                else:
++                    print(f"  FAIL             | {r.metadata.get('error', '?')[:30]:30s} | {journal}")
++            except asyncio.TimeoutError:
++                print(f"  TIMEOUT          | {'timeout':30s} | {journal}")
++            except Exception as e:
++                print(f"  ERROR            | {str(e)[:30]:30s} | {journal}")
++        print(f"  Sci-Hub success: {scihub_success}/{len(dois)}")
++        results["scihub"] = {"total": len(dois), "success": scihub_success}
+ 
+     # ──────────────────────────────────────────────────────────
+     # STAGE 6: Format compatibility check
+@@ -255,7 +263,10 @@ async def main():
+         issues.append(f"Scholar academic rate too low: {results['scholar']['academic_pct']*100:.0f}%")
+     if results["fetch"]["success_rate"] < 0.3:
+         issues.append(f"Fetch success rate too low: {results['fetch']['success_rate']*100:.0f}%")
+-    if results["scihub"]["success"] == 0:
++    # Sci-Hub is DISABLED by default now (legal/provenance, I-faith-002); a
++    # skipped stage is NOT an issue — only flag zero-retrieval when the
++    # operator explicitly opted in (PG_SCIHUB_ENABLED=1).
++    if not results["scihub"].get("skipped") and results["scihub"]["success"] == 0:
+         issues.append("Sci-Hub returned nothing")
+     if results.get("format", {}).get("missing"):
+         issues.append(f"Scholar format incompatible: missing {results['format']['missing']}")
+diff --git a/scripts/run_full_scale_v10.py b/scripts/run_full_scale_v10.py
+index 9d7b30e8..17ca2524 100644
+--- a/scripts/run_full_scale_v10.py
++++ b/scripts/run_full_scale_v10.py
+@@ -50,7 +50,7 @@ _V10_ENV: dict[str, str] = {
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+ 
+     # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ }
+ 
+ 
+diff --git a/scripts/run_full_scale_v23.py b/scripts/run_full_scale_v23.py
+index 0eb4c890..17e13148 100644
+--- a/scripts/run_full_scale_v23.py
++++ b/scripts/run_full_scale_v23.py
+@@ -50,7 +50,7 @@ _V23_ENV: dict[str, str] = {
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+ 
+     # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ }
+ 
+ 
+diff --git a/scripts/run_full_scale_v24.py b/scripts/run_full_scale_v24.py
+index fad8b8bd..831043d7 100644
+--- a/scripts/run_full_scale_v24.py
++++ b/scripts/run_full_scale_v24.py
+@@ -57,7 +57,7 @@ _V24_ENV: dict[str, str] = {
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+ 
+     # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ }
+ 
+ 
+diff --git a/scripts/run_full_scale_v25.py b/scripts/run_full_scale_v25.py
+index 83ef1841..4487cb7a 100644
+--- a/scripts/run_full_scale_v25.py
++++ b/scripts/run_full_scale_v25.py
+@@ -59,7 +59,7 @@ _V25_ENV: dict[str, str] = {
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+ 
+     # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ }
+ 
+ 
+diff --git a/scripts/run_full_scale_v26.py b/scripts/run_full_scale_v26.py
+index 8c043a0d..1d9122b9 100644
+--- a/scripts/run_full_scale_v26.py
++++ b/scripts/run_full_scale_v26.py
+@@ -74,7 +74,7 @@ _V26_ENV: dict[str, str] = {
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+ 
+     # Sci-Hub last-resort (unchanged from V25)
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ 
+     # M-42d knob: HC T3 quota. 2 = default (new in V26). 1 = legacy
+     # M-41d behavior. Override via shell env to experiment.
+diff --git a/scripts/run_full_scale_v27.py b/scripts/run_full_scale_v27.py
+index 8ebb3f80..a5afae48 100644
+--- a/scripts/run_full_scale_v27.py
++++ b/scripts/run_full_scale_v27.py
+@@ -58,7 +58,7 @@ _V27_ENV: dict[str, str] = {
+     "PG_CRAWL4AI_TIMEOUT":    "30",
+     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ 
+     # M-42d knob: HC T3 quota
+     "PG_M41D_HC_QUOTA":       "2",
+diff --git a/scripts/run_full_scale_v28.py b/scripts/run_full_scale_v28.py
+index fdc7284d..452fc0e0 100644
+--- a/scripts/run_full_scale_v28.py
++++ b/scripts/run_full_scale_v28.py
+@@ -73,7 +73,7 @@ _V28_ENV: dict[str, str] = {
+     "PG_CRAWL4AI_TIMEOUT":    "30",
+     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ 
+     # M-42d knob: HC T3 quota (unchanged from V27)
+     "PG_M41D_HC_QUOTA":       "2",
+diff --git a/scripts/run_full_scale_v29.py b/scripts/run_full_scale_v29.py
+index 5f21e0b6..4da6431e 100644
+--- a/scripts/run_full_scale_v29.py
++++ b/scripts/run_full_scale_v29.py
+@@ -50,7 +50,7 @@ _V29_ENV: dict[str, str] = {
+     "PG_CRAWL4AI_TIMEOUT":    "30",
+     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ 
+     # M-42d: HC T3 quota
+     "PG_M41D_HC_QUOTA":       "2",
+diff --git a/scripts/run_full_scale_v30_phase2.py b/scripts/run_full_scale_v30_phase2.py
+index 74864d14..6385e769 100644
+--- a/scripts/run_full_scale_v30_phase2.py
++++ b/scripts/run_full_scale_v30_phase2.py
+@@ -57,7 +57,7 @@ _V30_PHASE2_ENV: dict[str, str] = {
+     "PG_CRAWL4AI_TIMEOUT":    "30",
+     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
+     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
+-    "PG_SCIHUB_ENABLED":      "1",
++    "PG_SCIHUB_ENABLED":      "0",
+ 
+     # M-42d: HC T3 quota
+     "PG_M41D_HC_QUOTA":       "2",
+diff --git a/scripts/run_m_live_1_smoke.py b/scripts/run_m_live_1_smoke.py
+index 8e041ad2..4738a402 100644
+--- a/scripts/run_m_live_1_smoke.py
++++ b/scripts/run_m_live_1_smoke.py
+@@ -65,7 +65,7 @@ M_LIVE_1_ENV: dict[str, str] = {
+     "PG_UNPAYWALL_ENABLED":            "1",
+     "PG_CRAWL4AI_ENABLED":             "0",
+     "PG_TRAFILATURA_ENABLED":          "1",
+-    "PG_SCIHUB_ENABLED":               "1",
++    "PG_SCIHUB_ENABLED":               "0",
+     # v2 (post-empirical-R1):
+     # endpoint smokes need the trusted-test-header gate (auth
+     # middleware ignores X-Polaris-Caller without this)
+diff --git a/scripts/run_phase_g_full_scale.py b/scripts/run_phase_g_full_scale.py
+index 0c17f2ae..18c38e15 100644
+--- a/scripts/run_phase_g_full_scale.py
++++ b/scripts/run_phase_g_full_scale.py
+@@ -60,7 +60,7 @@ PHASE_G_ENV: dict[str, str] = {
+     "PG_UNPAYWALL_ENABLED":            "1",
+     "PG_CRAWL4AI_ENABLED":             "0",  # Playwright EPIPE on this box
+     "PG_TRAFILATURA_ENABLED":          "1",
+-    "PG_SCIHUB_ENABLED":               "1",
++    "PG_SCIHUB_ENABLED":               "0",
+     # Scraper circuit breakers
+     "PG_CRAWL4AI_TIMEOUT":             "30",
+     "PG_CIRCUIT_BREAKER_THRESHOLD":    "8",
+diff --git a/src/polaris_graph/retrieval/frame_fetcher.py b/src/polaris_graph/retrieval/frame_fetcher.py
+index 7ec7abf0..0b68a473 100644
+--- a/src/polaris_graph/retrieval/frame_fetcher.py
++++ b/src/polaris_graph/retrieval/frame_fetcher.py
+@@ -68,6 +68,7 @@ from xml.etree import ElementTree as ET
+ import httpx
+ 
+ from ..nodes.frame_compiler import EvidenceBinding
++from src.tools.core_client import fetch_core_oa_fulltext
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -146,9 +147,11 @@ class FrameRow:
+     rendering_slot: str
+     provenance_class: ProvenanceClass
+     direct_quote: str           # empty when gap
+-    quote_source: str           # "crossref_abstract" | "unpaywall_oa_fulltext"
+-                                # | "pubmed_abstract" | "url_pattern_placeholder"
+-                                # | "none"
++    quote_source: str           # "crossref_abstract" | "openalex_abstract"
++                                # | "pubmed_abstract" | "oa_full_text"
++                                # | "core_oa_fulltext" (legal CORE OA fetch,
++                                #   I-faith-002) | "url_pattern_fetch"
++                                # | "url_pattern_placeholder" | "none"
+     # Resolved locators (may be empty for gap rows)
+     doi: str | None
+     pmid: str | None            # string form to handle both int/str inputs
+@@ -236,6 +239,20 @@ _FULLTEXT_ENTITY_TYPES = frozenset(
+     if t.strip()
+ )
+ 
++def _core_enabled() -> bool:
++    """CORE (core.ac.uk) legal OA full-text fetch toggle (I-faith-002).
++
++    Read at CALL TIME (not as an import-time module constant) so a test
++    or operator can flip ``PG_CORE_ENABLED`` with a plain
++    ``monkeypatch.setenv`` / env change after import and have it take
++    effect. Default "1" (on): CORE is the legal full-text source that
++    replaced the now-disabled Sci-Hub path. Set "0" to disable.
++    """
++    return os.getenv("PG_CORE_ENABLED", "1").strip().lower() not in (
++        "0", "false", "no", "off",
++    )
++
++
+ _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
+ _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
+ # Fixed backoff schedule; deterministic (no jitter).
+@@ -1128,6 +1145,9 @@ def _fetch_frame_entity_inner(
+     oa_pdf_url: str | None = None
+     oa_html_url: str | None = None
+     oa_full_text: str | None = None
++    # Which source produced oa_full_text — drives the quote_source label
++    # downstream ("core" -> "core_oa_fulltext"; AccessBypass -> "oa_full_text").
++    oa_full_text_source: str | None = None
+     if doi:
+         up_data, up_attempts, up_timings = _call_unpaywall(client, doi)
+         attempts.extend(up_attempts)
+@@ -1156,24 +1176,69 @@ def _fetch_frame_entity_inner(
+             outcome="skipped:prefer_abstract",
+         ))
+     elif oa_locator:
+-        full_text, final_url = _fetch_url_pattern(oa_locator)
+-        if full_text:
+-            oa_full_text = full_text
+-            attempts.append(RetrievalAttempt(
+-                source="access_bypass",
+-                url=f"oa_full_text:{final_url or oa_locator}",
+-                attempt_index=1,
+-                http_status=200,
+-                outcome="success",
+-            ))
+-        else:
+-            attempts.append(RetrievalAttempt(
+-                source="access_bypass",
+-                url=f"oa_full_text:{oa_locator}",
+-                attempt_index=1,
+-                http_status=None,
+-                outcome="error:fetch_returned_no_content",
+-            ))
++        # Step 2b.0 (I-faith-002): try CORE (core.ac.uk) FIRST as the LEGAL
++        # OA full-text source that replaced the now-disabled Sci-Hub path.
++        # CORE is DOI-keyed and exact-DOI-guarded (wrong-paper-fabrication
++        # guard lives in core_client). It returns ("", "") on a missing
++        # key / fuzzy mismatch / empty fullText / network failure, in which
++        # case we fall through to the existing (Sci-Hub-free) AccessBypass
++        # scrape. The usability guards (_is_usable_full_text /
++        # _looks_like_html_junk) run downstream, source-agnostically, on
++        # whatever oa_full_text we capture here.
++        core_text = ""
++        if _core_enabled() and doi:
++            # Pass the CrossRef-resolved title/year as the INDEPENDENT
++            # identity anchor (#1039 Bug 2): CORE mis-tags distinct papers
++            # under one DOI, so core_client requires this anchor to match
++            # before trusting a result's fullText. When CrossRef did not
++            # resolve a title, the anchor is None and core_client falls
++            # back to its conservative no-hint / mis-tag-conflict rejection.
++            core_text, core_url = fetch_core_oa_fulltext(
++                doi, expected_title=title, expected_year=year
++            )
++            if core_text:
++                oa_full_text = core_text
++                oa_full_text_source = "core"
++                attempts.append(RetrievalAttempt(
++                    source="core",
++                    url=f"oa_full_text:{core_url or oa_locator}",
++                    attempt_index=1,
++                    http_status=200,
++                    outcome="success",
++                ))
++            else:
++                # Telemetry parity (module contract lines 42-46: every
++                # attempt logged): a CORE miss (no key / fuzzy mismatch /
++                # empty fullText / network failure) records an error
++                # attempt so a frame_gap_unrecoverable row shows CORE was
++                # tried before falling through to AccessBypass.
++                attempts.append(RetrievalAttempt(
++                    source="core",
++                    url=f"oa_full_text:doi={doi}",
++                    attempt_index=1,
++                    http_status=None,
++                    outcome="error:core_returned_no_content",
++                ))
++        if not core_text:
++            full_text, final_url = _fetch_url_pattern(oa_locator)
++            if full_text:
++                oa_full_text = full_text
++                oa_full_text_source = "access_bypass"
++                attempts.append(RetrievalAttempt(
++                    source="access_bypass",
++                    url=f"oa_full_text:{final_url or oa_locator}",
++                    attempt_index=1,
++                    http_status=200,
++                    outcome="success",
++                ))
++            else:
++                attempts.append(RetrievalAttempt(
++                    source="access_bypass",
++                    url=f"oa_full_text:{oa_locator}",
++                    attempt_index=1,
++                    http_status=None,
++                    outcome="error:fetch_returned_no_content",
++                ))
+ 
+     # Step 3: PubMed EFetch when PMID present and we still lack abstract
+     abstract_pubmed: str | None = None
+@@ -1307,8 +1372,13 @@ def _fetch_frame_entity_inner(
+     elif real_full_text:
+         # V30 Phase-2 M-66b-T: real OA full text — rich source for
+         # M-58's multi-field extractions (default path; clinical rosters).
++        # I-faith-002: label by source so the manifest distinguishes a
++        # legal CORE OA fetch from an AccessBypass scrape.
+         direct_quote = real_full_text
+-        quote_source = "oa_full_text"
++        quote_source = (
++            "core_oa_fulltext" if oa_full_text_source == "core"
++            else "oa_full_text"
++        )
+         provenance = ProvenanceClass.OPEN_ACCESS
+         failure_reason = None
+     elif abstract_text:
+diff --git a/src/tools/access_bypass.py b/src/tools/access_bypass.py
+index f8241d8c..e9c36120 100644
+--- a/src/tools/access_bypass.py
++++ b/src/tools/access_bypass.py
+@@ -944,9 +944,15 @@ class AccessBypass:
+                 if not self._detect_paywall(retry_result.content):
+                     return retry_result
+ 
+-        # PL: Sci-Hub fallback for paywalled academic papers (last resort)
++        # Sci-Hub is DISABLED BY DEFAULT (I-faith-002): the legal OA full-text
++        # path is now CORE (src/tools/core_client.py) wired at
++        # frame_fetcher.py Step 2b. PG_SCIHUB_ENABLED defaults to "0" so NO
++        # outbound request is ever issued to any sci-hub.* host unless an
++        # operator explicitly opts in by setting PG_SCIHUB_ENABLED=1. When
++        # the flag is not "1" this block is skipped entirely — _try_scihub
++        # (the sole sci-hub.* URL builder) is never called.
+         # Use resolved DOI if available (more reliable than URL-based DOI extraction)
+-        if os.getenv("PG_SCIHUB_ENABLED", "1") == "1":
++        if os.getenv("PG_SCIHUB_ENABLED", "0") == "1":
+             scihub_url = url
+             if resolved_doi:
+                 scihub_url = f"https://doi.org/{resolved_doi}"
+diff --git a/src/tools/core_client.py b/src/tools/core_client.py
+new file mode 100644
+index 00000000..9397607a
+--- /dev/null
++++ b/src/tools/core_client.py
+@@ -0,0 +1,337 @@
++"""CORE API v3 client — legal OA full-text fetch by DOI (I-faith-002).
++
++Replaces the Sci-Hub access path (`src/tools/access_bypass.py`
++`_try_scihub`) with the CORE (core.ac.uk) aggregator's v3 search API,
++a LEGAL best-effort full-text source for open-access works.
++
++## Why a DOI guard is non-negotiable
++
++The CORE `/v3/search/works?q=doi:"<doi>"` endpoint is FUZZY: for the
++Acemoglu DOI `10.1257/jep.33.2.3` it returned a *Spanish* paper with a
++different DOI (verified — see `.codex/I-faith-002/core_api_facts.md`).
++Returning that paper's `fullText` to the caller would be wrong-paper
++fabrication. So this client REJECTS every result whose normalized
++`work["doi"]` does not EXACTLY equal the normalized queried DOI.
++
++## Contract
++
++`fetch_core_oa_fulltext(doi, *, api_key=None, client=None)` returns
++`(content, source_url)` on success or `("", "")` otherwise. It NEVER
++raises on a missing key, a network failure, a fuzzy mismatch, or an
++empty result — coverage is partial by design and the caller falls
++back to the abstract on `("", "")`.
++
++## Dependency injection (testability — mirrors frame_fetcher M-56)
++
++`client` is an optional `httpx.Client`. Production callers pass None
++(a fresh, bounded-timeout client is created per call and closed in a
++`finally`); tests inject an `httpx.MockTransport`-backed client. No
++test needs to monkeypatch module globals.
++
++## Determinism
++
++Given the same DOI and the same upstream CORE response, the same
++`(content, source_url)` is returned: explicit normalization, in-order
++result iteration, no randomness, no wall-clock in the payload. Content
++is capped at `_CORE_CONTENT_CAP` chars for prompt-budget predictability.
++"""
++from __future__ import annotations
++
++import logging
++import os
++import re
++
++import httpx
++
++logger = logging.getLogger(__name__)
++
++
++# ─────────────────────────────────────────────────────────────────────
++# Config (LAW VI — all tunables from env, never hardcoded)
++# ─────────────────────────────────────────────────────────────────────
++_CORE_SEARCH_URL = os.getenv(
++    "PG_CORE_SEARCH_URL", "https://api.core.ac.uk/v3/search/works"
++)
++# Number of fuzzy hits to inspect for an exact-DOI match.
++_CORE_SEARCH_LIMIT = int(os.getenv("PG_CORE_SEARCH_LIMIT", "3"))
++_CORE_TIMEOUT = float(os.getenv("PG_CORE_TIMEOUT", "15"))
++# Content cap mirrors frame_fetcher._M66_CONTENT_CAP (~25000) for
++# prompt-budget predictability; kept local to avoid cross-module
++# coupling (LAW VII CLI isolation).
++_CORE_CONTENT_CAP = int(os.getenv("PG_CORE_CONTENT_CAP", "25000"))
++# DOI-resolver prefixes stripped during normalization.
++_DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi:")
++# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1×3):
++# CORE mis-tags distinct papers under one DOI, so DOI-equality alone returned
++# the WRONG paper. `_title_matches` requires (a) the candidate adds NO
++# significant token absent from the caller's expected (CrossRef) title — i.e.
++# `cand ⊆ exp`, rejecting both a drug substitution and an identity-adding
++# superset (population/subgroup/phase/acronym = a sibling trial) — and (b)
++# coverage of the expected title ≥ this fraction. A SHORT/SUBSET wrong title
++# ("Automation" vs the 6-token expected) fails on coverage (1/6 < 0.5); a
++# genuinely truncated correct title (4 of 6 tokens, 0.67) passes.
++_TITLE_MATCH_MIN = float(os.getenv("PG_CORE_TITLE_MATCH_MIN", "0.5"))
++# Absolute floor on shared significant tokens — blocks a single-token
++# coincidence from passing on coverage alone.
++_TITLE_MIN_SHARED_TOKENS = int(os.getenv("PG_CORE_TITLE_MIN_SHARED_TOKENS", "2"))
++# Publication-year jitter tolerance for the secondary identity signal.
++_YEAR_TOLERANCE = int(os.getenv("PG_CORE_YEAR_TOLERANCE", "1"))
++# Short function words dropped before title-token comparison so they do
++# not inflate the overlap of two unrelated titles.
++_TITLE_STOPWORDS = frozenset({
++    "the", "and", "for", "with", "from", "how", "new", "via",
++    "into", "over", "under", "between", "about", "across",
++})
++
++
++def _normalize_doi(doi: str) -> str:
++    """Normalize a DOI for exact comparison: strip a doi.org / doi:
++    prefix, lowercase, and rstrip a trailing slash.
++
++    Mirrors the normalization in
++    `frame_fetcher._parse_openalex_response` so the two retrieval paths
++    agree on DOI identity.
++    """
++    norm = (doi or "").strip().lower()
++    for prefix in _DOI_PREFIXES:
++        if norm.startswith(prefix):
++            norm = norm[len(prefix):]
++            break
++    return norm.rstrip("/")
++
++
++def _title_tokens(title: str | None) -> frozenset[str]:
++    """Significant lowercased alphanumeric tokens of a title (len > 2,
++    stopwords removed). Deterministic; used for the content-identity
++    guard."""
++    toks = re.findall(r"[a-z0-9]+", (title or "").lower())
++    return frozenset(
++        t for t in toks if len(t) > 2 and t not in _TITLE_STOPWORDS
++    )
++
++
++def _title_matches(candidate: str | None, expected: str | None) -> bool:
++    """True iff `candidate` is the SAME work as `expected` by title. Three
++    conditions, all required (empty/blank on either side → False, the
++    conservative clinical-safe default):
++
++    1. ≥ `_TITLE_MIN_SHARED_TOKENS` shared significant tokens.
++    2. NO EXTRA CANDIDATE TOKEN — the candidate introduces NO significant
++       token absent from the expected (CrossRef) title (`cand ⊆ exp`). This
++       rejects BOTH a SUBSTITUTION and an IDENTITY-ADDING SUPERSET, the two
++       clinical wrong-paper vectors #1039 surfaced:
++         * substitution — candidate "Semaglutide Once Weekly for the
++           Treatment of Obesity" vs expected "Tirzepatide …": `semaglutide`
++           ∉ expected → reject (iter-2);
++         * superset adding a population/subgroup/phase/acronym — candidate
++           "Tirzepatide … Obesity in People with Type 2 Diabetes" vs expected
++           "Tirzepatide … Obesity": `diabetes`/`type`/`people` ∉ expected →
++           reject (iter-3). These name a DIFFERENT trial, not a subtitle.
++       Only a pure subset/truncation of the expected title (the candidate is
++       a clean abbreviation of CrossRef's authoritative title) is allowed —
++       a truncation cannot introduce a different population or intervention.
++    3. COVERAGE — enough of the expected title's identity is present:
++       `|shared| / |expected| ≥ _TITLE_MATCH_MIN`."""
++    cand = _title_tokens(candidate)
++    exp = _title_tokens(expected)
++    if not cand or not exp:
++        return False
++    shared = cand & exp
++    if len(shared) < _TITLE_MIN_SHARED_TOKENS:
++        return False
++    # The candidate must NOT assert a significant token the expected
++    # (CrossRef-authoritative) title lacks. Any extra token is a different
++    # work — a drug substitution OR a population/subgroup/phase/acronym that
++    # names a SIBLING trial. Only a clean subset/truncation of the expected
++    # title is admissible.
++    if cand - exp:
++        return False
++    return (len(shared) / len(exp)) >= _TITLE_MATCH_MIN
++
++
++def fetch_core_oa_fulltext(
++    doi: str,
++    *,
++    expected_title: str | None = None,
++    expected_year: int | None = None,
++    api_key: str | None = None,
++    client: httpx.Client | None = None,
++) -> tuple[str, str]:
++    """Fetch legal OA full text for `doi` from CORE v3.
++
++    Args:
++        doi: the target DOI. Accepts bare (`10.1257/jep.33.2.3`) or
++            resolver-prefixed (`https://doi.org/10.1257/...`) form; it is
++            normalized before querying and comparison.
++        expected_title: the DOI's title from an INDEPENDENT source
++            (CrossRef, in the frame_fetcher caller). When supplied, a
++            CORE result's `title` must share enough significant tokens
++            with it (overlap ≥ `_TITLE_MATCH_MIN`) before its `fullText`
++            is trusted — the #1039 Bug-2 wrong-paper guard. Without it,
++            DOI-equality alone is NOT safe (CORE mis-tags distinct papers
++            under one DOI).
++        expected_year: the DOI's publication year from an independent
++            source. Secondary signal: a CORE result whose
++            `yearPublished` differs by more than `_YEAR_TOLERANCE` is
++            rejected.
++        api_key: CORE API key. Defaults to `os.getenv("CORE_API_KEY")`.
++            If absent, returns `("", "")` WITHOUT making any request and
++            WITHOUT raising (LAW VI: never hardcode the key).
++        client: optional `httpx.Client` for dependency injection
++            (testing). When None, a fresh bounded-timeout client is
++            created per call and closed in a `finally`.
++
++    Returns:
++        `(content, source_url)` when a result whose normalized DOI
++        EXACTLY matches the queried DOI AND whose identity is confirmed
++        (title/year guard, or — with no caller hint — no conflicting-title
++        mis-tag in the result set) carries non-empty `fullText`;
++        otherwise `("", "")`. Never raises on missing key, network
++        failure, non-200 status, malformed JSON, fuzzy mismatch, mis-tag,
++        or zero hits — the caller falls back to the abstract on
++        `("", "")`.
++    """
++    norm_doi = _normalize_doi(doi)
++    if not norm_doi:
++        logger.debug("core_client: empty/blank DOI; returning empty.")
++        return "", ""
++
++    key = api_key if api_key is not None else os.getenv("CORE_API_KEY")
++    if not key:
++        # No key — return empty rather than crash; caller falls back to
++        # the abstract. LAW VI: the key is never hardcoded.
++        logger.info(
++            "core_client: CORE_API_KEY missing; skipping CORE fetch for %s.",
++            norm_doi,
++        )
++        return "", ""
++
++    owns_client = client is None
++    if client is None:
++        # follow_redirects=True is REQUIRED (#1039 Bug 1): CORE v3
++        # 301-redirects `/v3/search/works` -> `/v3/search/works/`. Without
++        # it every call hits the non-200 branch and returns ("","") for
++        # EVERY DOI — a silent dead path that also hides the Bug-2 guard.
++        client = httpx.Client(timeout=_CORE_TIMEOUT, follow_redirects=True)
++    try:
++        return _fetch_inner(client, norm_doi, key, expected_title, expected_year)
++    finally:
++        if owns_client:
++            client.close()
++
++
++def _fetch_inner(
++    client: httpx.Client,
++    norm_doi: str,
++    key: str,
++    expected_title: str | None,
++    expected_year: int | None,
++) -> tuple[str, str]:
++    """Inner fetch given a normalized DOI + resolved key + DI client."""
++    params = {
++        # Query with the NORMALIZED bare DOI so a resolver-prefixed
++        # input still produces the canonical CORE query.
++        "q": f'doi:"{norm_doi}"',
++        "limit": _CORE_SEARCH_LIMIT,
++    }
++    headers = {"Authorization": f"Bearer {key}"}
++
++    try:
++        response = client.get(
++            _CORE_SEARCH_URL, params=params, headers=headers
++        )
++    except httpx.HTTPError as exc:
++        logger.warning(
++            "core_client: request failed for %s: %s", norm_doi, exc
++        )
++        return "", ""
++
++    if response.status_code != 200:
++        logger.info(
++            "core_client: non-200 (%s) for %s.",
++            response.status_code,
++            norm_doi,
++        )
++        return "", ""
++
++    try:
++        data = response.json()
++    except ValueError as exc:
++        logger.warning(
++            "core_client: malformed JSON for %s: %s", norm_doi, exc
++        )
++        return "", ""
++
++    results = data.get("results") if isinstance(data, dict) else None
++    if not isinstance(results, list) or not results:
++        return "", ""
++
++    # Stage 1 — DOI guard: the CORE search is FUZZY (it returned a Spanish
++    # paper for Acemoglu's DOI), so keep only results whose normalized DOI
++    # EXACTLY equals the queried DOI. Necessary, but NOT sufficient (#1039
++    # Bug 2): CORE also mis-tags DISTINCT papers under one exact DOI.
++    exact = [
++        work
++        for work in results
++        if isinstance(work, dict)
++        and isinstance(work.get("doi"), str)
++        and _normalize_doi(work["doi"]) == norm_doi
++    ]
++    if not exact:
++        # No exact-DOI match among the fuzzy hits.
++        return "", ""
++
++    # Stage 2 — content-identity guard (#1039 Bug 2, hardened per Codex
++    # diff-gate P1). A result's fullText is trusted ONLY when its identity
++    # is confirmed beyond the (mis-taggable) DOI by an INDEPENDENT title
++    # anchor. CORE is proven to mis-tag distinct papers under one exact DOI,
++    # so without an anchor we cannot tell which paper is real — reject.
++    if not (expected_title or "").strip():
++        logger.info(
++            "core_client: %s — no independent title anchor; refusing to "
++            "trust CORE fullText on DOI-equality alone (mis-tag risk).",
++            norm_doi,
++        )
++        return "", ""
++
++    for work in exact:
++        if not _title_matches(work.get("title"), expected_title):
++            logger.info(
++                "core_client: title mismatch for %s (expected %r, got %r); "
++                "rejecting wrong-paper fullText.",
++                norm_doi,
++                (expected_title or "")[:60],
++                (work.get("title") or "")[:60],
++            )
++            continue
++        if expected_year is not None:
++            cand_year = work.get("yearPublished")
++            if (
++                isinstance(cand_year, int)
++                and abs(cand_year - expected_year) > _YEAR_TOLERANCE
++            ):
++                logger.info(
++                    "core_client: year mismatch for %s (expected %s, got %s); "
++                    "rejecting.",
++                    norm_doi,
++                    expected_year,
++                    cand_year,
++                )
++                continue
++
++        full_text = work.get("fullText")
++        if isinstance(full_text, str) and full_text.strip():
++            # Source URL: prefer the OA downloadUrl marker the caller can
++            # re-fetch; else the canonical DOI resolver URL. Keep it
++            # simple — PDF fetching (AccessBypass) is left to the caller.
++            download_url = work.get("downloadUrl")
++            if isinstance(download_url, str) and download_url.strip():
++                source_url = download_url.strip()
++            else:
++                source_url = f"https://doi.org/{norm_doi}"
++            return full_text[:_CORE_CONTENT_CAP], source_url
++        # Identity-confirmed but empty fullText — keep scanning; another
++        # exact+matching copy may carry the text.
++
++    # No identity-confirmed result with usable fullText.
++    return "", ""
+diff --git a/tests/polaris_graph/conftest.py b/tests/polaris_graph/conftest.py
+index e5f66880..b2b5ffd7 100644
+--- a/tests/polaris_graph/conftest.py
++++ b/tests/polaris_graph/conftest.py
+@@ -21,6 +21,26 @@ def _disable_openalex_by_default(monkeypatch):
+     yield
+ 
+ 
++@pytest.fixture(autouse=True)
++def _disable_core_by_default(monkeypatch):
++    """Default CORE (core.ac.uk) OA full-text fetch off for all tests
++    (I-faith-002). Hermeticity: a developer/CI shell (or a loaded .env)
++    may carry CORE_API_KEY, and the frame_fetcher Step 2b CORE call uses
++    its OWN client (not the test's injected MockTransport), so leaving
++    CORE on would let it reach the real api.core.ac.uk and break the
++    deterministic M-56 OA-full-text tests. frame_fetcher._core_enabled()
++    reads PG_CORE_ENABLED at call time, so a plain setenv disables it.
++    Tests exercising the CORE wiring opt in via
++    monkeypatch.setenv("PG_CORE_ENABLED", "1") IN THEIR OWN BODY — that
++    setenv runs AFTER this autouse fixture, so it wins.
++    """
++    # Force off UNCONDITIONALLY (not setdefault): an inherited
++    # PG_CORE_ENABLED=1 in the CI/dev shell must NOT let an unrelated test
++    # reach live api.core.ac.uk just because CORE_API_KEY is also present.
++    monkeypatch.setenv("PG_CORE_ENABLED", "0")
++    yield
++
++
+ @pytest.fixture(autouse=True)
+ def _disable_strict_verify_entailment_by_default(monkeypatch):
+     """I-bug-095: production default for PG_STRICT_VERIFY_ENTAILMENT is
+diff --git a/tests/polaris_graph/test_core_client.py b/tests/polaris_graph/test_core_client.py
+new file mode 100644
+index 00000000..444c998f
+--- /dev/null
++++ b/tests/polaris_graph/test_core_client.py
+@@ -0,0 +1,484 @@
++"""Tests for the CORE API v3 client (I-faith-002).
++
++All tests are deterministic and run WITHOUT network access — CORE is
++mocked via an injected `httpx.MockTransport` (mirrors the M-56
++frame_fetcher test style). The transport matches on the CORE host so it
++is robust to httpx percent-encoding the `doi:"..."` query value.
++
++Covers the contract:
++  1. Exact-DOI match -> returns (fullText, source_url).
++  2. FUZZY mismatch (CORE returns a different DOI) -> ("", "").
++  3. Zero hits -> ("", "").
++  4. Missing api_key (env + arg) -> ("", "") with NO request made.
++  5. DOI normalization (https://doi.org/ prefix input still matches a
++     bare returned DOI).
++"""
++from __future__ import annotations
++
++from typing import Any, Callable
++
++import httpx
++import pytest
++
++from src.tools.core_client import _normalize_doi, fetch_core_oa_fulltext
++
++_CORE_HOST = "api.core.ac.uk"
++_TARGET_DOI = "10.1257/jep.33.2.3"  # Acemoglu — the verified fuzzy case
++_FULL_TEXT = "Automation and New Tasks: full open-access body text ..."
++# A ≥2-significant-token title used as the identity anchor in the positive
++# tests. The content-identity guard (#1039) REQUIRES a matching expected_title
++# for any positive return, so base tests pass this as both the result title
++# and the anchor.
++_MATCH_TITLE = "Automation and New Tasks"
++
++
++# ─────────────────────────────────────────────────────────────────────
++# Fixture helpers
++# ─────────────────────────────────────────────────────────────────────
++def _work(
++    *,
++    doi: str,
++    full_text: str | None = _FULL_TEXT,
++    download_url: str | None = None,
++    title: str = _MATCH_TITLE,
++    year: int | None = None,
++) -> dict[str, Any]:
++    work: dict[str, Any] = {"doi": doi, "title": title}
++    if full_text is not None:
++        work["fullText"] = full_text
++    if download_url is not None:
++        work["downloadUrl"] = download_url
++    if year is not None:
++        work["yearPublished"] = year
++    return work
++
++
++def _search_response(results: list[dict[str, Any]]) -> dict[str, Any]:
++    return {"totalHits": len(results), "results": results}
++
++
++def _client(
++    handler: Callable[[httpx.Request], httpx.Response],
++) -> httpx.Client:
++    return httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0)
++
++
++def _static_handler(
++    body: dict[str, Any],
++    *,
++    status: int = 200,
++    call_log: list[str] | None = None,
++) -> Callable[[httpx.Request], httpx.Response]:
++    def handler(request: httpx.Request) -> httpx.Response:
++        if call_log is not None:
++            call_log.append(str(request.url))
++        assert _CORE_HOST in str(request.url)
++        return httpx.Response(status, json=body)
++
++    return handler
++
++
++# ─────────────────────────────────────────────────────────────────────
++# (1) Exact-DOI match returns fullText
++# ─────────────────────────────────────────────────────────────────────
++def test_exact_doi_match_returns_full_text() -> None:
++    body = _search_response([_work(doi=_TARGET_DOI)])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert content == _FULL_TEXT
++    # Default source_url is the canonical DOI resolver URL.
++    assert url == f"https://doi.org/{_TARGET_DOI}"
++
++
++def test_exact_doi_match_prefers_download_url() -> None:
++    download = "https://oa.example.org/paper.pdf"
++    body = _search_response(
++        [_work(doi=_TARGET_DOI, download_url=download)]
++    )
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert content == _FULL_TEXT
++    assert url == download
++
++
++def test_authorization_header_sent() -> None:
++    captured: dict[str, str] = {}
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        captured["auth"] = request.headers.get("authorization", "")
++        return httpx.Response(
++            200, json=_search_response([_work(doi=_TARGET_DOI)])
++        )
++
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="secret-key", client=_client(handler)
++    )
++    assert content == _FULL_TEXT
++    assert captured["auth"] == "Bearer secret-key"
++
++
++# ─────────────────────────────────────────────────────────────────────
++# (2) Fuzzy mismatch (different DOI) returns empty
++# ─────────────────────────────────────────────────────────────────────
++def test_fuzzy_mismatch_returns_empty() -> None:
++    # CORE's fuzzy search returned a SPANISH paper with a DIFFERENT DOI
++    # for the Acemoglu query — must be rejected as wrong-paper.
++    body = _search_response(
++        [_work(doi="10.5209/rev_xyz.2018.v99.99999")]
++    )
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert (content, url) == ("", "")
++
++
++def test_exact_match_after_fuzzy_hit_is_selected() -> None:
++    # First hit is a fuzzy mismatch; the exact match follows -> selected.
++    body = _search_response(
++        [
++            _work(doi="10.9999/wrong.paper", full_text="wrong body"),
++            _work(doi=_TARGET_DOI),
++        ]
++    )
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert content == _FULL_TEXT
++
++
++# ─────────────────────────────────────────────────────────────────────
++# (3) Zero hits returns empty
++# ─────────────────────────────────────────────────────────────────────
++def test_zero_hits_returns_empty() -> None:
++    body = _search_response([])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert (content, url) == ("", "")
++
++
++def test_exact_match_with_empty_full_text_returns_empty() -> None:
++    body = _search_response([_work(doi=_TARGET_DOI, full_text="")])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert (content, url) == ("", "")
++
++
++# ─────────────────────────────────────────────────────────────────────
++# (4) Missing api_key returns empty WITHOUT making a request
++# ─────────────────────────────────────────────────────────────────────
++def test_missing_api_key_returns_empty_no_request(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.delenv("CORE_API_KEY", raising=False)
++    called = {"n": 0}
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        called["n"] += 1
++        return httpx.Response(200, json=_search_response([]))
++
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, api_key=None, client=_client(handler)
++    )
++    assert (content, url) == ("", "")
++    # No HTTP request must be made when the key is absent.
++    assert called["n"] == 0
++
++
++def test_api_key_falls_back_to_env(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setenv("CORE_API_KEY", "env-key")
++    captured: dict[str, str] = {}
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        captured["auth"] = request.headers.get("authorization", "")
++        return httpx.Response(
++            200, json=_search_response([_work(doi=_TARGET_DOI)])
++        )
++
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE, client=_client(handler)
++    )
++    assert content == _FULL_TEXT
++    assert captured["auth"] == "Bearer env-key"
++
++
++# ─────────────────────────────────────────────────────────────────────
++# (5) DOI normalization (https://doi.org/ prefix input)
++# ─────────────────────────────────────────────────────────────────────
++def test_doi_normalization_prefix_input_matches() -> None:
++    # Caller passes a resolver-prefixed DOI; CORE returns the bare form.
++    # Normalization must make them compare equal.
++    body = _search_response([_work(doi=_TARGET_DOI)])
++    content, url = fetch_core_oa_fulltext(
++        f"https://doi.org/{_TARGET_DOI}",
++        expected_title=_MATCH_TITLE,
++        api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert content == _FULL_TEXT
++    # source_url uses the normalized (bare-prefixed) DOI.
++    assert url == f"https://doi.org/{_TARGET_DOI}"
++
++
++def test_doi_normalization_returned_prefixed_matches() -> None:
++    # Inverse: caller passes bare; CORE returns a resolver-prefixed DOI.
++    body = _search_response(
++        [_work(doi=f"https://doi.org/{_TARGET_DOI.upper()}")]
++    )
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE,
++        api_key="test-key", client=_client(_static_handler(body))
++    )
++    assert content == _FULL_TEXT
++
++
++def test_normalize_doi_helper() -> None:
++    assert _normalize_doi("https://doi.org/10.1/AbC/") == "10.1/abc"
++    assert _normalize_doi("doi:10.1/abc") == "10.1/abc"
++    assert _normalize_doi("  10.1/ABC  ") == "10.1/abc"
++    assert _normalize_doi("") == ""
++
++
++# ─────────────────────────────────────────────────────────────────────
++# Robustness: non-200 / malformed JSON
++# ─────────────────────────────────────────────────────────────────────
++def test_non_200_returns_empty() -> None:
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI,
++        api_key="test-key",
++        client=_client(_static_handler({}, status=503)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_malformed_json_returns_empty() -> None:
++    def handler(request: httpx.Request) -> httpx.Response:
++        return httpx.Response(200, text="not json")
++
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, api_key="test-key", client=_client(handler)
++    )
++    assert (content, url) == ("", "")
++
++
++# ─────────────────────────────────────────────────────────────────────
++# #1039 Bug 1 — the production client MUST follow redirects
++# ─────────────────────────────────────────────────────────────────────
++def test_production_client_follows_redirects(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    # CORE v3 301-redirects `/v3/search/works` -> `/v3/search/works/`.
++    # Without follow_redirects=True every production call lands on the
++    # non-200 branch and returns ("","") for EVERY DOI — a silent dead
++    # path that also hides the Bug-2 wrong-paper guard. Assert the
++    # client fetch_core_oa_fulltext builds is redirect-following.
++    captured: dict[str, Any] = {}
++    real_client_cls = httpx.Client
++
++    def fake_client(*args: Any, **kwargs: Any) -> httpx.Client:
++        captured.update(kwargs)
++        return real_client_cls(
++            transport=httpx.MockTransport(
++                _static_handler(_search_response([_work(doi=_TARGET_DOI)]))
++            ),
++            timeout=5.0,
++        )
++
++    monkeypatch.setattr("src.tools.core_client.httpx.Client", fake_client)
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_MATCH_TITLE, api_key="test-key"
++    )
++    assert content == _FULL_TEXT
++    assert captured.get("follow_redirects") is True
++
++
++# ─────────────────────────────────────────────────────────────────────
++# #1039 Bug 2 — content-identity guard (CORE mis-tags papers under a DOI)
++# ─────────────────────────────────────────────────────────────────────
++_ACEMOGLU_TITLE = (
++    "Automation and New Tasks: How Technology Displaces and Reinstates Labor"
++)
++_SPANISH_TITLE = (
++    "Impacto de las nuevas tecnologias en los salarios en Colombia"
++)
++
++
++def test_wrong_paper_rejected_on_title_mismatch() -> None:
++    # The LIVE #1039 Bug 2: CORE returns the WRONG (Spanish) paper tagged
++    # with the EXACT Acemoglu DOI, carrying fullText; the correct paper
++    # also appears under the same DOI but with empty fullText. With the
++    # CrossRef title as the anchor, the wrong paper's fullText must be
++    # rejected -> empty (no wrong-paper fabrication).
++    body = _search_response([
++        _work(
++            doi=_TARGET_DOI, title=_SPANISH_TITLE,
++            full_text="WRONG PAPER BODY about Colombian wages", year=2022,
++        ),
++        _work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text="", year=2019),
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, expected_year=2019,
++        api_key="test-key", client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_correct_paper_returned_when_title_matches() -> None:
++    # Same mis-tagged set but now the CORRECT paper carries fullText —
++    # the title anchor selects it, not the wrong-paper sibling.
++    body = _search_response([
++        _work(
++            doi=_TARGET_DOI, title=_SPANISH_TITLE,
++            full_text="WRONG PAPER BODY", year=2022,
++        ),
++        _work(
++            doi=_TARGET_DOI, title=_ACEMOGLU_TITLE,
++            full_text=_FULL_TEXT, year=2019,
++        ),
++    ])
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, expected_year=2019,
++        api_key="test-key", client=_client(_static_handler(body)),
++    )
++    assert content == _FULL_TEXT
++
++
++def test_title_match_tolerates_truncated_core_title() -> None:
++    # CORE truncates long titles; overlap-coefficient vs the smaller token
++    # set still confirms identity.
++    truncated = "Automation and New Tasks How Technology Displaces"
++    body = _search_response(
++        [_work(doi=_TARGET_DOI, title=truncated, full_text=_FULL_TEXT)]
++    )
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE,
++        api_key="test-key", client=_client(_static_handler(body)),
++    )
++    assert content == _FULL_TEXT
++
++
++def test_year_mismatch_rejected() -> None:
++    # Title matches but the year is implausibly far off -> reject.
++    body = _search_response([
++        _work(
++            doi=_TARGET_DOI, title=_ACEMOGLU_TITLE,
++            full_text=_FULL_TEXT, year=1990,
++        )
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, expected_year=2019,
++        api_key="test-key", client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_no_anchor_rejects_even_with_exact_match() -> None:
++    # Codex diff-gate P1.2: with NO independent title anchor, CORE fullText
++    # must NOT be trusted on DOI-equality alone (CORE mis-tags). A single
++    # clean exact-DOI result with fullText still returns ("","").
++    body = _search_response(
++        [_work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text=_FULL_TEXT)]
++    )
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_blank_anchor_rejects() -> None:
++    # An empty/whitespace expected_title is treated as "no anchor" -> reject.
++    body = _search_response(
++        [_work(doi=_TARGET_DOI, title=_ACEMOGLU_TITLE, full_text=_FULL_TEXT)]
++    )
++    content, _ = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title="   ", api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert content == ""
++
++
++def test_short_subset_wrong_title_rejected() -> None:
++    # Codex diff-gate P1.1: a SHORT/SUBSET wrong title must NOT pass. A CORE
++    # record titled just "Automation" (1 significant token) under the exact
++    # DOI, carrying fullText, vs the full expected title -> Jaccard 1/6 ≈
++    # 0.17 < 0.5 AND shared 1 < min_shared 2 -> rejected.
++    body = _search_response([
++        _work(doi=_TARGET_DOI, title="Automation", full_text="WRONG SUBSET"),
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_partial_two_token_overlap_rejected() -> None:
++    # "Automation and Labor" shares 2 tokens with the 6-token expected title
++    # but coverage 2/6 ≈ 0.33 < 0.5 -> rejected (overlap-over-min would have
++    # wrongly passed this at 2/2=1.0).
++    body = _search_response([
++        _work(doi=_TARGET_DOI, title="Automation and Labor", full_text="WRONG"),
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=_ACEMOGLU_TITLE, api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_clinical_sibling_drug_substitution_rejected() -> None:
++    # Codex diff-gate iter-2 P1 (clinical-safety): a mis-tagged SIBLING trial
++    # whose title differs only in the INTERVENTION token must be rejected even
++    # though token overlap is high (4/6, would-be coverage 0.8). The drug
++    # substitution semaglutide<->tirzepatide is the wrong-drug fabrication the
++    # span-grounded clinical path must never admit.
++    expected = "Tirzepatide Once Weekly for the Treatment of Obesity"
++    body = _search_response([
++        _work(
++            doi=_TARGET_DOI,
++            title="Semaglutide Once Weekly for the Treatment of Obesity",
++            full_text="WRONG DRUG body text",
++        ),
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=expected, api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
++
++
++def test_superset_core_title_with_extra_identity_terms_rejected() -> None:
++    # Codex diff-gate iter-3 P1: a SUPERSET that adds identity terms
++    # (population/subgroup/phase/acronym) names a DIFFERENT trial, not a
++    # subtitle, and must be rejected. Expected "Tirzepatide ... Obesity" vs
++    # CORE "... Obesity in People with Type 2 Diabetes" (exp ⊆ cand, coverage
++    # 1.0) -> rejected because the candidate adds `diabetes`/`type`/`people`.
++    expected = "Tirzepatide Once Weekly for the Treatment of Obesity"
++    body = _search_response([
++        _work(
++            doi=_TARGET_DOI,
++            title=(
++                "Tirzepatide Once Weekly for the Treatment of Obesity in "
++                "People with Type 2 Diabetes"
++            ),
++            full_text="WRONG POPULATION body text",
++        ),
++    ])
++    content, url = fetch_core_oa_fulltext(
++        _TARGET_DOI, expected_title=expected, api_key="test-key",
++        client=_client(_static_handler(body)),
++    )
++    assert (content, url) == ("", "")
+diff --git a/tests/polaris_graph/test_m56_frame_fetcher.py b/tests/polaris_graph/test_m56_frame_fetcher.py
+index 62c67a5c..b99ae146 100644
+--- a/tests/polaris_graph/test_m56_frame_fetcher.py
++++ b/tests/polaris_graph/test_m56_frame_fetcher.py
+@@ -1657,3 +1657,177 @@ class TestHtmlJunkAndPreferAbstract:
+             row = fetch_frame_entity(_binding(), client=client)
+         assert row.quote_source == "oa_full_text"
+         assert "Clean genuine full text" in row.direct_quote
++
++
++class TestCoreOaFullTextWiring:
++    """I-faith-002: CORE (core.ac.uk) is the LEGAL OA full-text source
++    wired into Step 2b ahead of the (now Sci-Hub-free) AccessBypass
++    scrape. CORE is DOI-keyed; on a hit its content becomes oa_full_text
++    with source='core' (quote_source='core_oa_fulltext'); on a miss the
++    code falls through to the existing AccessBypass path.
++
++    CORE is disabled-by-default in the polaris_graph conftest for
++    hermeticity, so these tests opt in via PG_CORE_ENABLED=1 and stub the
++    `frame_fetcher.fetch_core_oa_fulltext` seam so NO network is touched.
++    """
++
++    def test_core_hit_used_as_oa_full_text(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """CORE returns substantial clean full text -> it becomes the
++        direct_quote with quote_source='core_oa_fulltext' and a
++        RetrievalAttempt(source='core', outcome='success'). The
++        AccessBypass scrape is NOT consulted (no _fetch_url_pattern
++        call)."""
++        from src.polaris_graph.retrieval import frame_fetcher as ff
++
++        monkeypatch.setenv("PG_CORE_ENABLED", "1")
++        core_full = (
++            "CORE legal OA full text: SURPASS-2 roster and endpoints. " * 60
++        )
++        monkeypatch.setattr(
++            ff, "fetch_core_oa_fulltext",
++            lambda doi, **kwargs: (
++                core_full, "https://core.ac.uk/download/123.pdf"
++            ),
++        )
++
++        # If AccessBypass were (wrongly) consulted it would raise, proving
++        # the CORE hit short-circuits the scrape.
++        def _must_not_be_called(url: str) -> tuple[str, str]:
++            raise AssertionError(
++                "AccessBypass scrape called despite CORE hit"
++            )
++        monkeypatch.setattr(ff, "_fetch_url_pattern", _must_not_be_called)
++
++        transport = _Transport([
++            ("api.crossref.org", 200, _crossref_response()),
++            ("api.unpaywall.org", 200, _unpaywall_response(
++                is_oa=True, pdf_url="https://oa.example/x.pdf")),
++        ])
++        with _client_with_transport(transport) as client:
++            row = ff.fetch_frame_entity(_binding(), client=client)
++
++        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
++        assert row.quote_source == "core_oa_fulltext"
++        assert "SURPASS-2 roster" in row.direct_quote
++        assert len(row.direct_quote) <= ff._M66_CONTENT_CAP
++        core_attempts = [
++            a for a in row.retrieval_attempts if a.source == "core"
++        ]
++        assert len(core_attempts) == 1
++        assert core_attempts[0].outcome == "success"
++        # No access_bypass attempt was logged (CORE short-circuited it).
++        assert not [
++            a for a in row.retrieval_attempts if a.source == "access_bypass"
++        ]
++
++    def test_core_miss_falls_through_to_access_bypass(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """CORE returns ('', '') (no key / fuzzy mismatch / empty) ->
++        fall through to the existing AccessBypass scrape, which yields the
++        full text labelled 'oa_full_text' (NOT 'core_oa_fulltext')."""
++        from src.polaris_graph.retrieval import frame_fetcher as ff
++
++        monkeypatch.setenv("PG_CORE_ENABLED", "1")
++        monkeypatch.setattr(
++            ff, "fetch_core_oa_fulltext", lambda doi, **kwargs: ("", ""),
++        )
++        bypass_full = "AccessBypass clean OA full text body. " * 80
++        monkeypatch.setattr(
++            ff, "_fetch_url_pattern", lambda url: (bypass_full, url),
++        )
++
++        transport = _Transport([
++            ("api.crossref.org", 200, _crossref_response()),
++            ("api.unpaywall.org", 200, _unpaywall_response(
++                is_oa=True, pdf_url="https://oa.example/x.pdf")),
++        ])
++        with _client_with_transport(transport) as client:
++            row = ff.fetch_frame_entity(_binding(), client=client)
++
++        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
++        assert row.quote_source == "oa_full_text"
++        assert "AccessBypass clean OA full text" in row.direct_quote
++        # CORE was attempted and logged an error attempt (telemetry
++        # parity) but produced NO success attempt; the AccessBypass
++        # success attempt is present.
++        core_attempts = [
++            a for a in row.retrieval_attempts if a.source == "core"
++        ]
++        assert len(core_attempts) == 1
++        assert core_attempts[0].outcome.startswith("error:")
++        ab_attempts = [
++            a for a in row.retrieval_attempts if a.source == "access_bypass"
++        ]
++        assert len(ab_attempts) == 1
++        assert ab_attempts[0].outcome == "success"
++
++    def test_core_disabled_skips_core_uses_access_bypass(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """PG_CORE_ENABLED=0 -> CORE seam is never invoked; the
++        AccessBypass path runs as before."""
++        from src.polaris_graph.retrieval import frame_fetcher as ff
++
++        monkeypatch.setenv("PG_CORE_ENABLED", "0")
++
++        def _core_must_not_run(doi: str, **kwargs: object) -> tuple[str, str]:
++            raise AssertionError("CORE called despite PG_CORE_ENABLED=0")
++        monkeypatch.setattr(ff, "fetch_core_oa_fulltext", _core_must_not_run)
++        bypass_full = "AccessBypass full text when CORE disabled. " * 80
++        monkeypatch.setattr(
++            ff, "_fetch_url_pattern", lambda url: (bypass_full, url),
++        )
++
++        transport = _Transport([
++            ("api.crossref.org", 200, _crossref_response()),
++            ("api.unpaywall.org", 200, _unpaywall_response(
++                is_oa=True, pdf_url="https://oa.example/x.pdf")),
++        ])
++        with _client_with_transport(transport) as client:
++            row = ff.fetch_frame_entity(_binding(), client=client)
++
++        assert row.quote_source == "oa_full_text"
++        assert "AccessBypass full text when CORE disabled" in row.direct_quote
++
++    def test_core_not_tried_for_narrative_prefer_abstract_entity(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """Narrative (econ) entity under prefer-abstract SKIPS the OA
++        scrape branch entirely — CORE must NOT be consulted, the clean
++        abstract is the source (econ entities still skip the scrape)."""
++        from src.polaris_graph.retrieval import frame_fetcher as ff
++
++        monkeypatch.setenv("PG_CORE_ENABLED", "1")
++        monkeypatch.setattr(
++            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
++            True,
++        )
++
++        def _core_must_not_run(doi: str, **kwargs: object) -> tuple[str, str]:
++            raise AssertionError(
++                "CORE called for narrative prefer-abstract entity"
++            )
++        monkeypatch.setattr(ff, "fetch_core_oa_fulltext", _core_must_not_run)
++
++        def _bypass_must_not_run(url: str) -> tuple[str, str]:
++            raise AssertionError("scrape called for narrative entity")
++        monkeypatch.setattr(ff, "_fetch_url_pattern", _bypass_must_not_run)
++
++        transport = _Transport([
++            ("api.crossref.org", 200, _crossref_response()),
++            ("api.unpaywall.org", 200, _unpaywall_response(
++                is_oa=True, pdf_url="https://oa.example/x.pdf")),
++        ])
++        with _client_with_transport(transport) as client:
++            row = ff.fetch_frame_entity(
++                _binding(entity_type="economic_report"), client=client
++            )
++        # Clean abstract is the source; the OA scrape (incl. CORE) skipped.
++        assert row.quote_source == "crossref_abstract"
++        assert any(
++            a.outcome.startswith("skipped:prefer_abstract")
++            for a in row.retrieval_attempts
++        )

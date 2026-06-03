@@ -944,9 +944,15 @@ class AccessBypass:
                 if not self._detect_paywall(retry_result.content):
                     return retry_result
 
-        # PL: Sci-Hub fallback for paywalled academic papers (last resort)
+        # Sci-Hub is DISABLED BY DEFAULT (I-faith-002): the legal OA full-text
+        # path is now CORE (src/tools/core_client.py) wired at
+        # frame_fetcher.py Step 2b. PG_SCIHUB_ENABLED defaults to "0" so NO
+        # outbound request is ever issued to any sci-hub.* host unless an
+        # operator explicitly opts in by setting PG_SCIHUB_ENABLED=1. When
+        # the flag is not "1" this block is skipped entirely — _try_scihub
+        # (the sole sci-hub.* URL builder) is never called.
         # Use resolved DOI if available (more reliable than URL-based DOI extraction)
-        if os.getenv("PG_SCIHUB_ENABLED", "1") == "1":
+        if os.getenv("PG_SCIHUB_ENABLED", "0") == "1":
             scihub_url = url
             if resolved_doi:
                 scihub_url = f"https://doi.org/{resolved_doi}"

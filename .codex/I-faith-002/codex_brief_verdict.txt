@@ -1,0 +1,9 @@
+verdict: APPROVE
+note: For this smoke-surfaced bug-fix (I-faith-002 / #1039), the acceptance
+  criteria were enumerated in the diff-gate brief (.codex/I-faith-002/diff_gate_brief.md
+  + _gate_input4.md) and Codex APPROVE'd the fix AGAINST those criteria at diff
+  iter 4 (.codex/I-faith-002/codex_diff_audit.txt: zero P0, zero P1,
+  accept_remaining). The original CORE build passed its own brief->build->smoke->docs
+  workflow cycle; the two P0 bugs (#1039) emerged in live smoke and were closed
+  under the diff gate. No separate brief-only gate was run.
+convergence_call: accept_remaining

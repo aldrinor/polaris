@@ -50,7 +50,7 @@ _V29_ENV: dict[str, str] = {
     "PG_CRAWL4AI_TIMEOUT":    "30",
     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
-    "PG_SCIHUB_ENABLED":      "1",
+    "PG_SCIHUB_ENABLED":      "0",
 
     # M-42d: HC T3 quota
     "PG_M41D_HC_QUOTA":       "2",

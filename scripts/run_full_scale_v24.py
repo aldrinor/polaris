@@ -56,8 +56,8 @@ _V24_ENV: dict[str, str] = {
     "PG_CIRCUIT_BREAKER_THRESHOLD": "8",
     "PG_CIRCUIT_BREAKER_COOLDOWN":  "120",
 
-    # Sci-Hub last-resort (kept on for unreachable paywalled DOIs)
-    "PG_SCIHUB_ENABLED":      "1",
+    # Sci-Hub DISABLED by default (legal/provenance, I-faith-002); CORE is the OA full-text source
+    "PG_SCIHUB_ENABLED":      "0",
 }
 
 
