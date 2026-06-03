@@ -61,18 +61,17 @@ _CORE_TIMEOUT = float(os.getenv("PG_CORE_TIMEOUT", "15"))
 _CORE_CONTENT_CAP = int(os.getenv("PG_CORE_CONTENT_CAP", "25000"))
 # DOI-resolver prefixes stripped during normalization.
 _DOI_PREFIXES = ("https://doi.org/", "http://doi.org/", "doi:")
-# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1): a
-# result's title must reach this Jaccard (intersection-over-union of
-# significant tokens) with the caller's expected title before its fullText
-# is trusted. CORE mis-tags distinct papers under one DOI, so DOI-equality
-# alone returned the WRONG paper. Jaccard (NOT overlap-over-min) is required
-# so a SHORT/SUBSET wrong title — e.g. candidate "Automation" vs expected
-# "Automation and New Tasks: How Technology Displaces and Reinstates Labor"
-# — cannot pass: Jaccard 1/6≈0.17 < 0.5, whereas a genuinely truncated
-# correct title (4 of 6 tokens) scores 4/6≈0.67 ≥ 0.5.
+# Content-identity guard (#1039 Bug 2, hardened per Codex diff-gate P1×2):
+# CORE mis-tags distinct papers under one DOI, so DOI-equality alone returned
+# the WRONG paper. `_title_matches` requires (a) no identity-conflict between
+# the candidate and the caller's expected title and (b) coverage of the
+# expected title ≥ this fraction. A SHORT/SUBSET wrong title ("Automation"
+# vs the 6-token expected) fails on coverage (1/6 < 0.5); a genuinely
+# truncated correct title (4 of 6 tokens, 0.67) passes; a drug-substituted
+# SIBLING trial fails on the identity-conflict rule regardless of coverage.
 _TITLE_MATCH_MIN = float(os.getenv("PG_CORE_TITLE_MATCH_MIN", "0.5"))
 # Absolute floor on shared significant tokens — blocks a single-token
-# coincidence from passing on Jaccard alone.
+# coincidence from passing on coverage alone.
 _TITLE_MIN_SHARED_TOKENS = int(os.getenv("PG_CORE_TITLE_MIN_SHARED_TOKENS", "2"))
 # Publication-year jitter tolerance for the secondary identity signal.
 _YEAR_TOLERANCE = int(os.getenv("PG_CORE_YEAR_TOLERANCE", "1"))
@@ -111,15 +110,24 @@ def _title_tokens(title: str | None) -> frozenset[str]:
 
 
 def _title_matches(candidate: str | None, expected: str | None) -> bool:
-    """True iff `candidate` and `expected` are the same work by title:
-    they share at least `_TITLE_MIN_SHARED_TOKENS` significant tokens AND
-    their Jaccard (intersection / union of significant tokens) ≥
-    `_TITLE_MATCH_MIN`. Empty/blank on either side → False (cannot confirm
-    identity ⇒ reject, the conservative clinical-safe default).
+    """True iff `candidate` is the SAME work as `expected` by title. Three
+    conditions, all required (empty/blank on either side → False, the
+    conservative clinical-safe default):
 
-    Jaccard (not overlap-over-min) is deliberate: it makes a short/subset
-    wrong title fail while a genuinely truncated correct title still
-    passes — the #1039 Bug-2 wrong-paper guard."""
+    1. ≥ `_TITLE_MIN_SHARED_TOKENS` shared significant tokens.
+    2. NO IDENTITY CONFLICT — the two titles do not EACH carry a significant
+       token the other lacks. A pure truncation/subset of the expected title
+       (`cand ⊆ exp`) or a pure superset (`exp ⊆ cand`, CORE carries an extra
+       subtitle) is allowed; a SUBSTITUTION is not. This is the #1039 iter-2
+       clinical guard: a mis-tagged SIBLING trial — candidate "Semaglutide
+       Once Weekly for the Treatment of Obesity" vs expected "Tirzepatide
+       Once Weekly for the Treatment of Obesity" — shares 4 tokens but each
+       side asserts a different intervention token (`semaglutide` vs
+       `tirzepatide`), so it is rejected even though overlap is high. Without
+       this, CORE mis-tagging a sibling drug's trial under the exact DOI would
+       admit wrong-drug fullText into the clinical span-grounded path.
+    3. COVERAGE — enough of the expected title's identity is present:
+       `|shared| / |expected| ≥ _TITLE_MATCH_MIN`."""
     cand = _title_tokens(candidate)
     exp = _title_tokens(expected)
     if not cand or not exp:
@@ -127,7 +135,11 @@ def _title_matches(candidate: str | None, expected: str | None) -> bool:
     shared = cand & exp
     if len(shared) < _TITLE_MIN_SHARED_TOKENS:
         return False
-    return (len(shared) / len(cand | exp)) >= _TITLE_MATCH_MIN
+    # Identity conflict: each side carries ≥1 significant token the other
+    # lacks → different works (e.g. a drug-substituted sibling trial).
+    if (cand - exp) and (exp - cand):
+        return False
+    return (len(shared) / len(exp)) >= _TITLE_MATCH_MIN
 
 
 def fetch_core_oa_fulltext(

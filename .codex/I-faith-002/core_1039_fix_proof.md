@@ -84,3 +84,16 @@ Codex iter 1 returned REQUEST_CHANGES with 3 P1s; all fixed:
 Live re-verify (hardened): Acemoglu DOI → 0 with CrossRef anchor, 0 with no anchor,
 0 with a subset "Automation" anchor; true-positive OA DOI → 25 000 chars with its
 title anchor, 0 with no anchor. 132 tests pass (4 new #1039 identity tests added).
+
+## Codex diff-gate iter 2 → iter 3 (clinical-sibling P1 + smoke P2)
+- **iter-2 P1 (clinical sibling substitution):** Jaccard 0.5 still admitted a
+  drug-substituted SIBLING trial ("Semaglutide …Obesity" vs "Tirzepatide …Obesity",
+  4/6 shared). FIXED: `_title_matches` now rejects an IDENTITY CONFLICT — when the
+  candidate and expected EACH carry a significant token the other lacks (drug
+  substitution) — while still allowing a pure subset (truncation) or superset
+  (CORE subtitle). Unit-verified: drug-sub→reject; exact/subset/superset→pass;
+  short-subset→reject. New test `test_clinical_sibling_drug_substitution_rejected`
+  + `test_superset_core_title_allowed`.
+- **iter-2 P2 (smoke false issue):** pg_integration_smoke_v2 no longer reports
+  "Sci-Hub returned nothing" when the stage is skipped by default (checks
+  `skipped`). 127–134 tests pass across suites.

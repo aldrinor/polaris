@@ -263,7 +263,10 @@ async def main():
         issues.append(f"Scholar academic rate too low: {results['scholar']['academic_pct']*100:.0f}%")
     if results["fetch"]["success_rate"] < 0.3:
         issues.append(f"Fetch success rate too low: {results['fetch']['success_rate']*100:.0f}%")
-    if results["scihub"]["success"] == 0:
+    # Sci-Hub is DISABLED by default now (legal/provenance, I-faith-002); a
+    # skipped stage is NOT an issue — only flag zero-retrieval when the
+    # operator explicitly opted in (PG_SCIHUB_ENABLED=1).
+    if not results["scihub"].get("skipped") and results["scihub"]["success"] == 0:
         issues.append("Sci-Hub returned nothing")
     if results.get("format", {}).get("missing"):
         issues.append(f"Scholar format incompatible: missing {results['format']['missing']}")

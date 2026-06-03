@@ -427,8 +427,8 @@ def test_short_subset_wrong_title_rejected() -> None:
 
 def test_partial_two_token_overlap_rejected() -> None:
     # "Automation and Labor" shares 2 tokens with the 6-token expected title
-    # but Jaccard 2/6 ≈ 0.33 < 0.5 -> rejected (overlap-over-min would have
-    # wrongly passed this at 2/2=1.0; Jaccard is why it doesn't).
+    # but coverage 2/6 ≈ 0.33 < 0.5 -> rejected (overlap-over-min would have
+    # wrongly passed this at 2/2=1.0).
     body = _search_response([
         _work(doi=_TARGET_DOI, title="Automation and Labor", full_text="WRONG"),
     ])
@@ -437,3 +437,42 @@ def test_partial_two_token_overlap_rejected() -> None:
         client=_client(_static_handler(body)),
     )
     assert (content, url) == ("", "")
+
+
+def test_clinical_sibling_drug_substitution_rejected() -> None:
+    # Codex diff-gate iter-2 P1 (clinical-safety): a mis-tagged SIBLING trial
+    # whose title differs only in the INTERVENTION token must be rejected even
+    # though token overlap is high (4/6, would-be coverage 0.8). The drug
+    # substitution semaglutide<->tirzepatide is the wrong-drug fabrication the
+    # span-grounded clinical path must never admit.
+    expected = "Tirzepatide Once Weekly for the Treatment of Obesity"
+    body = _search_response([
+        _work(
+            doi=_TARGET_DOI,
+            title="Semaglutide Once Weekly for the Treatment of Obesity",
+            full_text="WRONG DRUG body text",
+        ),
+    ])
+    content, url = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=expected, api_key="test-key",
+        client=_client(_static_handler(body)),
+    )
+    assert (content, url) == ("", "")
+
+
+def test_superset_core_title_allowed() -> None:
+    # The benign opposite of substitution: CORE carries the FULLER title (adds
+    # a subtitle) but every expected token is present and no expected token is
+    # contradicted -> allowed (exp ⊆ cand, no conflict).
+    body = _search_response([
+        _work(
+            doi=_TARGET_DOI,
+            title="Automation and New Tasks in Modern Industry",
+            full_text=_FULL_TEXT,
+        ),
+    ])
+    content, _ = fetch_core_oa_fulltext(
+        _TARGET_DOI, expected_title=_MATCH_TITLE, api_key="test-key",
+        client=_client(_static_handler(body)),
+    )
+    assert content == _FULL_TEXT
