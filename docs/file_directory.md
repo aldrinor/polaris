@@ -330,3 +330,5 @@ PRIORITY (I-safety-002b / #925). Benchmarks POLARIS as a deep-research tool vs C
 | (pending) `src/polaris_graph/benchmark/claim_audit_scorer.py` | Two-lane audit ledger (faithfulness + pre-registered rubric coverage) — REPLACES the §-1.1-banned/rigged `dimension_scorers.py`/`beat_both_scorer.py`. |
 
 **NOTE**: the legacy `src/polaris_graph/benchmark/dimension_scorers.py` + `beat_both_scorer.py` ("BEAT-BOTH", 7-dimension) are §-1.1-INVALID (count/pattern/string-match scoring + POLARIS auto-win dimensions) — DO NOT use as a benchmark scorer; being replaced by `claim_audit_scorer.py`.
+
+- `scripts/diagnostics/sentinel_groundedness_probe.py` / `sentinel_multifixture_smoke.py` — I-run11-002 (#1044) live OpenRouter groundedness-discrimination probes for the benchmark Sentinel (granite + non-inverted GROUNDED/UNGROUNDED prompt). Sovereign self-host Guardian path (inverted yes=risk) unchanged.
