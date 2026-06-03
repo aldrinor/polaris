@@ -68,6 +68,7 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from ..nodes.frame_compiler import EvidenceBinding
+from src.tools.core_client import fetch_core_oa_fulltext
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +147,11 @@ class FrameRow:
     rendering_slot: str
     provenance_class: ProvenanceClass
     direct_quote: str           # empty when gap
-    quote_source: str           # "crossref_abstract" | "unpaywall_oa_fulltext"
-                                # | "pubmed_abstract" | "url_pattern_placeholder"
-                                # | "none"
+    quote_source: str           # "crossref_abstract" | "openalex_abstract"
+                                # | "pubmed_abstract" | "oa_full_text"
+                                # | "core_oa_fulltext" (legal CORE OA fetch,
+                                #   I-faith-002) | "url_pattern_fetch"
+                                # | "url_pattern_placeholder" | "none"
     # Resolved locators (may be empty for gap rows)
     doi: str | None
     pmid: str | None            # string form to handle both int/str inputs
@@ -235,6 +238,20 @@ _FULLTEXT_ENTITY_TYPES = frozenset(
     ).split(",")
     if t.strip()
 )
+
+def _core_enabled() -> bool:
+    """CORE (core.ac.uk) legal OA full-text fetch toggle (I-faith-002).
+
+    Read at CALL TIME (not as an import-time module constant) so a test
+    or operator can flip ``PG_CORE_ENABLED`` with a plain
+    ``monkeypatch.setenv`` / env change after import and have it take
+    effect. Default "1" (on): CORE is the legal full-text source that
+    replaced the now-disabled Sci-Hub path. Set "0" to disable.
+    """
+    return os.getenv("PG_CORE_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
 
 _DEFAULT_TIMEOUT = float(os.getenv("PG_FRAME_FETCHER_TIMEOUT", "15"))
 _MAX_RETRIES = int(os.getenv("PG_FRAME_FETCHER_MAX_RETRIES", "3"))
@@ -1128,6 +1145,9 @@ def _fetch_frame_entity_inner(
     oa_pdf_url: str | None = None
     oa_html_url: str | None = None
     oa_full_text: str | None = None
+    # Which source produced oa_full_text — drives the quote_source label
+    # downstream ("core" -> "core_oa_fulltext"; AccessBypass -> "oa_full_text").
+    oa_full_text_source: str | None = None
     if doi:
         up_data, up_attempts, up_timings = _call_unpaywall(client, doi)
         attempts.extend(up_attempts)
@@ -1156,24 +1176,69 @@ def _fetch_frame_entity_inner(
             outcome="skipped:prefer_abstract",
         ))
     elif oa_locator:
-        full_text, final_url = _fetch_url_pattern(oa_locator)
-        if full_text:
-            oa_full_text = full_text
-            attempts.append(RetrievalAttempt(
-                source="access_bypass",
-                url=f"oa_full_text:{final_url or oa_locator}",
-                attempt_index=1,
-                http_status=200,
-                outcome="success",
-            ))
-        else:
-            attempts.append(RetrievalAttempt(
-                source="access_bypass",
-                url=f"oa_full_text:{oa_locator}",
-                attempt_index=1,
-                http_status=None,
-                outcome="error:fetch_returned_no_content",
-            ))
+        # Step 2b.0 (I-faith-002): try CORE (core.ac.uk) FIRST as the LEGAL
+        # OA full-text source that replaced the now-disabled Sci-Hub path.
+        # CORE is DOI-keyed and exact-DOI-guarded (wrong-paper-fabrication
+        # guard lives in core_client). It returns ("", "") on a missing
+        # key / fuzzy mismatch / empty fullText / network failure, in which
+        # case we fall through to the existing (Sci-Hub-free) AccessBypass
+        # scrape. The usability guards (_is_usable_full_text /
+        # _looks_like_html_junk) run downstream, source-agnostically, on
+        # whatever oa_full_text we capture here.
+        core_text = ""
+        if _core_enabled() and doi:
+            # Pass the CrossRef-resolved title/year as the INDEPENDENT
+            # identity anchor (#1039 Bug 2): CORE mis-tags distinct papers
+            # under one DOI, so core_client requires this anchor to match
+            # before trusting a result's fullText. When CrossRef did not
+            # resolve a title, the anchor is None and core_client falls
+            # back to its conservative no-hint / mis-tag-conflict rejection.
+            core_text, core_url = fetch_core_oa_fulltext(
+                doi, expected_title=title, expected_year=year
+            )
+            if core_text:
+                oa_full_text = core_text
+                oa_full_text_source = "core"
+                attempts.append(RetrievalAttempt(
+                    source="core",
+                    url=f"oa_full_text:{core_url or oa_locator}",
+                    attempt_index=1,
+                    http_status=200,
+                    outcome="success",
+                ))
+            else:
+                # Telemetry parity (module contract lines 42-46: every
+                # attempt logged): a CORE miss (no key / fuzzy mismatch /
+                # empty fullText / network failure) records an error
+                # attempt so a frame_gap_unrecoverable row shows CORE was
+                # tried before falling through to AccessBypass.
+                attempts.append(RetrievalAttempt(
+                    source="core",
+                    url=f"oa_full_text:doi={doi}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome="error:core_returned_no_content",
+                ))
+        if not core_text:
+            full_text, final_url = _fetch_url_pattern(oa_locator)
+            if full_text:
+                oa_full_text = full_text
+                oa_full_text_source = "access_bypass"
+                attempts.append(RetrievalAttempt(
+                    source="access_bypass",
+                    url=f"oa_full_text:{final_url or oa_locator}",
+                    attempt_index=1,
+                    http_status=200,
+                    outcome="success",
+                ))
+            else:
+                attempts.append(RetrievalAttempt(
+                    source="access_bypass",
+                    url=f"oa_full_text:{oa_locator}",
+                    attempt_index=1,
+                    http_status=None,
+                    outcome="error:fetch_returned_no_content",
+                ))
 
     # Step 3: PubMed EFetch when PMID present and we still lack abstract
     abstract_pubmed: str | None = None
@@ -1307,8 +1372,13 @@ def _fetch_frame_entity_inner(
     elif real_full_text:
         # V30 Phase-2 M-66b-T: real OA full text — rich source for
         # M-58's multi-field extractions (default path; clinical rosters).
+        # I-faith-002: label by source so the manifest distinguishes a
+        # legal CORE OA fetch from an AccessBypass scrape.
         direct_quote = real_full_text
-        quote_source = "oa_full_text"
+        quote_source = (
+            "core_oa_fulltext" if oa_full_text_source == "core"
+            else "oa_full_text"
+        )
         provenance = ProvenanceClass.OPEN_ACCESS
         failure_reason = None
     elif abstract_text:

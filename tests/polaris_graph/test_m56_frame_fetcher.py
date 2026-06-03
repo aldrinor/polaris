@@ -1657,3 +1657,177 @@ class TestHtmlJunkAndPreferAbstract:
             row = fetch_frame_entity(_binding(), client=client)
         assert row.quote_source == "oa_full_text"
         assert "Clean genuine full text" in row.direct_quote
+
+
+class TestCoreOaFullTextWiring:
+    """I-faith-002: CORE (core.ac.uk) is the LEGAL OA full-text source
+    wired into Step 2b ahead of the (now Sci-Hub-free) AccessBypass
+    scrape. CORE is DOI-keyed; on a hit its content becomes oa_full_text
+    with source='core' (quote_source='core_oa_fulltext'); on a miss the
+    code falls through to the existing AccessBypass path.
+
+    CORE is disabled-by-default in the polaris_graph conftest for
+    hermeticity, so these tests opt in via PG_CORE_ENABLED=1 and stub the
+    `frame_fetcher.fetch_core_oa_fulltext` seam so NO network is touched.
+    """
+
+    def test_core_hit_used_as_oa_full_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CORE returns substantial clean full text -> it becomes the
+        direct_quote with quote_source='core_oa_fulltext' and a
+        RetrievalAttempt(source='core', outcome='success'). The
+        AccessBypass scrape is NOT consulted (no _fetch_url_pattern
+        call)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+
+        monkeypatch.setenv("PG_CORE_ENABLED", "1")
+        core_full = (
+            "CORE legal OA full text: SURPASS-2 roster and endpoints. " * 60
+        )
+        monkeypatch.setattr(
+            ff, "fetch_core_oa_fulltext",
+            lambda doi, **kwargs: (
+                core_full, "https://core.ac.uk/download/123.pdf"
+            ),
+        )
+
+        # If AccessBypass were (wrongly) consulted it would raise, proving
+        # the CORE hit short-circuits the scrape.
+        def _must_not_be_called(url: str) -> tuple[str, str]:
+            raise AssertionError(
+                "AccessBypass scrape called despite CORE hit"
+            )
+        monkeypatch.setattr(ff, "_fetch_url_pattern", _must_not_be_called)
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "core_oa_fulltext"
+        assert "SURPASS-2 roster" in row.direct_quote
+        assert len(row.direct_quote) <= ff._M66_CONTENT_CAP
+        core_attempts = [
+            a for a in row.retrieval_attempts if a.source == "core"
+        ]
+        assert len(core_attempts) == 1
+        assert core_attempts[0].outcome == "success"
+        # No access_bypass attempt was logged (CORE short-circuited it).
+        assert not [
+            a for a in row.retrieval_attempts if a.source == "access_bypass"
+        ]
+
+    def test_core_miss_falls_through_to_access_bypass(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CORE returns ('', '') (no key / fuzzy mismatch / empty) ->
+        fall through to the existing AccessBypass scrape, which yields the
+        full text labelled 'oa_full_text' (NOT 'core_oa_fulltext')."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+
+        monkeypatch.setenv("PG_CORE_ENABLED", "1")
+        monkeypatch.setattr(
+            ff, "fetch_core_oa_fulltext", lambda doi, **kwargs: ("", ""),
+        )
+        bypass_full = "AccessBypass clean OA full text body. " * 80
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern", lambda url: (bypass_full, url),
+        )
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(_binding(), client=client)
+
+        assert row.provenance_class == ProvenanceClass.OPEN_ACCESS
+        assert row.quote_source == "oa_full_text"
+        assert "AccessBypass clean OA full text" in row.direct_quote
+        # CORE was attempted and logged an error attempt (telemetry
+        # parity) but produced NO success attempt; the AccessBypass
+        # success attempt is present.
+        core_attempts = [
+            a for a in row.retrieval_attempts if a.source == "core"
+        ]
+        assert len(core_attempts) == 1
+        assert core_attempts[0].outcome.startswith("error:")
+        ab_attempts = [
+            a for a in row.retrieval_attempts if a.source == "access_bypass"
+        ]
+        assert len(ab_attempts) == 1
+        assert ab_attempts[0].outcome == "success"
+
+    def test_core_disabled_skips_core_uses_access_bypass(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PG_CORE_ENABLED=0 -> CORE seam is never invoked; the
+        AccessBypass path runs as before."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+
+        monkeypatch.setenv("PG_CORE_ENABLED", "0")
+
+        def _core_must_not_run(doi: str, **kwargs: object) -> tuple[str, str]:
+            raise AssertionError("CORE called despite PG_CORE_ENABLED=0")
+        monkeypatch.setattr(ff, "fetch_core_oa_fulltext", _core_must_not_run)
+        bypass_full = "AccessBypass full text when CORE disabled. " * 80
+        monkeypatch.setattr(
+            ff, "_fetch_url_pattern", lambda url: (bypass_full, url),
+        )
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(_binding(), client=client)
+
+        assert row.quote_source == "oa_full_text"
+        assert "AccessBypass full text when CORE disabled" in row.direct_quote
+
+    def test_core_not_tried_for_narrative_prefer_abstract_entity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Narrative (econ) entity under prefer-abstract SKIPS the OA
+        scrape branch entirely — CORE must NOT be consulted, the clean
+        abstract is the source (econ entities still skip the scrape)."""
+        from src.polaris_graph.retrieval import frame_fetcher as ff
+
+        monkeypatch.setenv("PG_CORE_ENABLED", "1")
+        monkeypatch.setattr(
+            "src.polaris_graph.retrieval.frame_fetcher._FRAME_PREFER_ABSTRACT",
+            True,
+        )
+
+        def _core_must_not_run(doi: str, **kwargs: object) -> tuple[str, str]:
+            raise AssertionError(
+                "CORE called for narrative prefer-abstract entity"
+            )
+        monkeypatch.setattr(ff, "fetch_core_oa_fulltext", _core_must_not_run)
+
+        def _bypass_must_not_run(url: str) -> tuple[str, str]:
+            raise AssertionError("scrape called for narrative entity")
+        monkeypatch.setattr(ff, "_fetch_url_pattern", _bypass_must_not_run)
+
+        transport = _Transport([
+            ("api.crossref.org", 200, _crossref_response()),
+            ("api.unpaywall.org", 200, _unpaywall_response(
+                is_oa=True, pdf_url="https://oa.example/x.pdf")),
+        ])
+        with _client_with_transport(transport) as client:
+            row = ff.fetch_frame_entity(
+                _binding(entity_type="economic_report"), client=client
+            )
+        # Clean abstract is the source; the OA scrape (incl. CORE) skipped.
+        assert row.quote_source == "crossref_abstract"
+        assert any(
+            a.outcome.startswith("skipped:prefer_abstract")
+            for a in row.retrieval_attempts
+        )

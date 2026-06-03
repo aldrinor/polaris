@@ -22,6 +22,23 @@ def _disable_openalex_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_core_by_default(monkeypatch):
+    """Default CORE (core.ac.uk) OA full-text fetch off for all tests
+    (I-faith-002). Hermeticity: a developer/CI shell (or a loaded .env)
+    may carry CORE_API_KEY, and the frame_fetcher Step 2b CORE call uses
+    its OWN client (not the test's injected MockTransport), so leaving
+    CORE on would let it reach the real api.core.ac.uk and break the
+    deterministic M-56 OA-full-text tests. frame_fetcher._core_enabled()
+    reads PG_CORE_ENABLED at call time, so a plain setenv disables it.
+    Tests exercising the CORE wiring opt in via
+    monkeypatch.setenv("PG_CORE_ENABLED", "1").
+    """
+    if "PG_CORE_ENABLED" not in os.environ:
+        monkeypatch.setenv("PG_CORE_ENABLED", "0")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _disable_strict_verify_entailment_by_default(monkeypatch):
     """I-bug-095: production default for PG_STRICT_VERIFY_ENTAILMENT is
     'enforce', which lazy-constructs an OpenRouter judge if the test

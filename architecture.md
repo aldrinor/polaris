@@ -219,6 +219,13 @@ Per `live_retriever.py`:
 Query amplification: 10-25 variants per seed question. Web concurrency
 20, academic concurrency 1.
 
+### Full-text access layer
+
+The DOI full-text access path uses **CORE (core.ac.uk, legal OA)** via
+`src/tools/core_client.py` (exact-DOI-guarded, falls back to the
+abstract on a miss); **Sci-Hub is disabled by default**
+(`PG_SCIHUB_ENABLED` defaults to `"0"`, I-faith-002 / #1035 closed).
+
 ---
 
 ## 4. Generation architecture
