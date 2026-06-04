@@ -1,8 +1,17 @@
+diff --git a/.gitattributes b/.gitattributes
+index 4b7bcd2e..49f4c6b7 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -3,3 +3,4 @@
+ # the kernel cannot find `/bin/bash\r`) and shebang resolution. I-cd-001 / #494.
+ *.sh text eol=lf
+ Dockerfile* text eol=lf
++config/architecture/polaris_runtime_lock.yaml text eol=lf
 diff --git a/config/architecture/polaris_runtime_lock.yaml b/config/architecture/polaris_runtime_lock.yaml
-index 171d76c4..accd64c2 100644
+index 171d76c4..2773e2fd 100644
 --- a/config/architecture/polaris_runtime_lock.yaml
 +++ b/config/architecture/polaris_runtime_lock.yaml
-@@ -57,24 +57,32 @@ required_roles:
+@@ -57,24 +57,35 @@ required_roles:
        non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
  
    mirror:
@@ -34,7 +43,11 @@ index 171d76c4..accd64c2 100644
 +    model_slug: minimax/minimax-m2
 +    family: minimax
      serving_route: vast_self_host
-     license: Apache 2.0
+-    license: Apache 2.0
++    license: modified-mit  # HF MiniMaxAI/MiniMax-M2 tag = "modified-mit": MIT + a large-product UI
++    # attribution condition (Codex brief-gate P2, web-verified vs HF + github.com/MiniMax-AI/MiniMax-M2
++    # /blob/main/LICENSE). Permissive open-weight; POLARIS calls the hosted model (no weight
++    # redistribution), so the attribution condition does not bind our use. Still non-US-vendor-OK.
      released: 2026
      role_description: |
 -      Purpose-built RAG hallucination detector. RAGTruth BAcc 0.841.
@@ -45,7 +58,7 @@ index 171d76c4..accd64c2 100644
    judge:
      model_slug: qwen/qwen3.6-35b-a3b
 diff --git a/config/serving/verifier_roles.yaml b/config/serving/verifier_roles.yaml
-index b087dd77..4ba3ef4d 100644
+index b087dd77..e4710fd4 100644
 --- a/config/serving/verifier_roles.yaml
 +++ b/config/serving/verifier_roles.yaml
 @@ -36,25 +36,24 @@ roles:
@@ -79,7 +92,7 @@ index b087dd77..4ba3ef4d 100644
        tensor_parallel_size: 8
        dtype: bfloat16
        quantization: null            # bf16 full precision; Mirror's job IS calibration
-@@ -64,30 +63,32 @@ roles:
+@@ -64,30 +63,38 @@ roles:
        guided_decoding: false
  
    sentinel:
@@ -98,20 +111,30 @@ index b087dd77..4ba3ef4d 100644
 +    model_source: MiniMaxAI/MiniMax-M2
      base_url_env: PG_SENTINEL_BASE_URL
      api_key_env: PG_SENTINEL_API_KEY
++    # I-run11-004 (Codex diff-gate iter-2 P1-3): MiniMax-M2 is a ~229B-param MoE
++    # (https://huggingface.co/MiniMaxAI/MiniMax-M2) — bf16 weights alone are ~458GB and DO NOT fit on
++    # 1xA100 80GB. At the BENCHMARK stage the Sentinel is served via OpenRouter (PG_FOUR_ROLE_TRANSPORT
++    # default = openrouter), so this self-host block is NOT exercised by the drb_72 benchmark / run 13.
++    # The sovereign self-host topology below is PENDING the GPU procurement (I-C-07/#90, operator-gated)
++    # and is sized for FP8 on a multi-GPU box; final count/kind confirmed at procurement, not here.
      gpu:
 -      # 1xA100 80GB — ample VRAM, no KV bottleneck
 -      # (docs/vast_ai_budget_i_meta_002.md §1.3).
-       count: 1
-       kind: A100
+-      count: 1
+-      kind: A100
++      count: 8                     # ~229B MoE @ FP8 needs a multi-GPU box (8x80GB class); not 1xA100
++      kind: H100
        vram_gb_each: 80
 -      box_note: "1xA100 80GB (EU/sovereignty-clean); dense 8B guardrail model"
-+      box_note: "1xA100 80GB (EU/sovereignty-clean); decomposition faithfulness detector"
++      box_note: "PENDING sovereign GPU procurement (#90/I-C-07). ~229B MoE; 1xA100 is infeasible (~458GB bf16). Benchmark stage routes Sentinel via OpenRouter."
      vllm_args:
 -      served_model_name: ibm-granite/granite-guardian-4.1-8b
+-      tensor_parallel_size: 1
 +      served_model_name: minimax/minimax-m2
-       tensor_parallel_size: 1
++      tensor_parallel_size: 8      # match gpu.count; ~229B MoE cannot run TP=1
        dtype: bfloat16
-       quantization: null
+-      quantization: null
++      quantization: fp8            # FP8 to fit ~229B weights on an 8x80GB box (confirm at procurement)
        max_model_len: 16384
 -      structured_outputs: false     # Granite emits <score>, not JSON
 -      guided_decoding: false
@@ -122,11 +145,49 @@ index b087dd77..4ba3ef4d 100644
  
    judge:
      # Terminal arbiter — Qwen3.6-35B-A3B (MoE, 3B active). MUST emit a stable
+diff --git a/docs/canonical_pin.txt b/docs/canonical_pin.txt
+index 8cee3fbc..51eba93c 100644
+--- a/docs/canonical_pin.txt
++++ b/docs/canonical_pin.txt
+@@ -8,7 +8,7 @@ b93b98718f8e64ef9e9bcf31d33d4c538cbc322992925ed28ef0df2c8b25bf3a  docs/agent_arc
+ ab396f133a0a5c53036a89629a53869dfec8a207f93e092b8f79deb924ad8886  .codex/REVIEW_BRIEF_FORMAT.md
+ 2ec2f10bb4726ff658dc1e89cf72c7c86f392838a76f98811b031def2edefa4c  .codex/AUDIT_CYCLE_PROTOCOL.md
+ 69306b4a2b17d26c8ea0a5f84319b223c4c08755b30bbf882fa41520cf1d50aa  CLAUDE.md
+-7f3f12a24464047db3273485813feee160d1f9c173e47b193435de4548b504ef  config/architecture/polaris_runtime_lock.yaml
++1dd2e7882b930f7e032fbbc39ec474402051150630a1d03f6a4b318a66a8bb99  config/architecture/polaris_runtime_lock.yaml
+ 9b4e8935d945a7f96c9be575db32bc3515f9ba3a8bc44cac93f3d1c8cc72aa7d  docs/polaris_step_b_full_set_audit_2026_05_27.md
+ 60c7fb58119ef53004cb95d1d4558ac4977317c5ca3423d0f162102d705608ef  scripts/architecture/verify_lock.py
+ dbb4311828ea1fb0d626519577551dd77639fb121e82887d9568f3a19ff38d34  docs/polaris_pipeline_canonical.md
+diff --git a/docs/file_directory.md b/docs/file_directory.md
+index 1e29a152..39c50488 100644
+--- a/docs/file_directory.md
++++ b/docs/file_directory.md
+@@ -253,10 +253,16 @@ point to non-existent paths / deprecated concepts. Treat as stale:
+ - "Kimi K2.5 1T" — historical generator. The locked architecture for the
+   Carney demo is the 4-role stack in
+   `config/architecture/polaris_runtime_lock.yaml` (I-meta-001 #933):
+-  Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM
+-  Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B). The earlier 2-LLM
+-  framing (DeepSeek V4 Pro generator + Gemma 4 31B evaluator) is superseded;
+-  earlier pipelines used DeepSeek V3.2-Exp + Qwen3-8B.
++  Generator (DeepSeek V4 Pro) + Mirror (GLM-5.1) + Sentinel (MiniMax-M2,
++  decomposition mode) + Judge (Qwen3.6-35B-A3B) — four DISTINCT open-weight
++  lineages (deepseek/glm/minimax/qwen), all permissive licenses. I-run11-004
++  (#1046) re-picked Mirror Cohere Command A+ -> GLM-5.1 (Cohere is not on
++  OpenRouter) and replaced the broken Granite-Guardian Sentinel (over-rejected
++  grounded clinical claims -> run-12 coverage 0.286) with the CERTIFIED
++  MiniMax-M2 claim-decomposition+span-coverage detector (0 false-accepts on 28
++  fabrications across 5 error types). The earlier 2-LLM framing (DeepSeek V4 Pro
++  generator + Gemma 4 31B evaluator) is superseded; earlier pipelines used
++  DeepSeek V3.2-Exp + Qwen3-8B.
+ - "175 vectors exactly" — old invariant from P0-P12. Not applicable
+   to any currently-active pipeline.
+ 
 diff --git a/logs/session_log.md b/logs/session_log.md
-index b50beb54..87e1d865 100644
+index b50beb54..6e368ea4 100644
 --- a/logs/session_log.md
 +++ b/logs/session_log.md
-@@ -4059,3 +4059,11 @@
+@@ -4059,3 +4059,21 @@
    - TESTS (tests/roles/test_seam_parallel.py, 6): test_output_order_is_input_order_under_reversed_completion (a: inverse-sleep so completion reverses input, assert input order preserved); test_sequential_path_matches_multi_worker (e: `PG_FOUR_ROLE_CLAIM_WORKERS=1` == multi-worker); test_coverage_credit_only_on_verified_parallel (c); test_parallel_and_sequential_trip_cap_at_same_total (b: same `PG_MAX_COST_PER_RUN` cap trips at same accumulated spend); test_single_claim_over_cap_trips_in_worker_fail_closed (worker exception propagates, fail-closed); test_parallel_cost_equals_sequential_cost_under_cap (b: total cost equality). HARD constraints respected: run_claim_pipeline / RecordingTransport / D8 / coverage math / KG store unchanged; no `except: pass`.
  - STATUS: Diff + acceptance suite written on branch; sweep_integration.py modified, test_seam_parallel.py new. NOT yet Codex diff-gated, NOT yet committed/merged, run 11 NOT yet launched. Source correctness governed by the pending Codex diff gate.
  - NEXT_STEP: Codex diff-gate (`codex_diff_audit` per §3.0) on the I-run11-001 diff; on APPROVE, deploy and launch run 11.
@@ -138,11 +199,21 @@ index b50beb54..87e1d865 100644
 +- AFFECTED_FILES: src/polaris_graph/roles/sentinel_{adapter,contract}.py, mirror_adapter.py, tests/roles/*, scripts/diagnostics/sentinel_{multifixture_smoke,groundedness_probe}.py.
 +- STATUS: PR #1045 open (base seam branch). Run 12 live on VM (q1_run12), still generating as of this entry.
 +- NEXT_STEP: monitor run 12 — must RELEASE (Sentinel verdicts now a GROUNDED/UNGROUNDED mix, coverage > 0.70), then §-1.1 benchmark vs ChatGPT+Gemini.
++
++[2026-06-03 20:10:00]
++- ACTION: I-run11-004 (#1046) — certified MiniMax-M2 decomposition Sentinel + GLM-5.1 Mirror; diff-gate APPROVE iter-6 (lethal fail-open closed).
++- RATIONALE: Run-12 granite Sentinel still over-rejected grounded clinical claims (coverage 0.286). Per operator directive (voters must be the strongest LATEST open-weight frontier LLMs, NO encoders/old models, NO closed-source) + §-1.1 line-by-line: bake-off certified MiniMax-M2 running claim-decomposition+span-coverage (0 false-accepts on 28 fabrications across 5 error types, over-flag 0.107). Mirror re-picked Cohere Command A+ -> GLM-5.1 (Cohere not on OpenRouter). 4 distinct open-weight families (deepseek/glm/minimax/qwen), all permissive (MIT/Apache-2). Codex diff-gate ran 6 iters: each of iters 1-5 surfaced a real §-1.1 lethal fail-OPEN in parse_sentinel_decomposition (a fabricated claim could be laundered GROUNDED->VERIFIED); iter-5 P1 = bool/null/[] unsupported_atoms skipped the veto. iter-6 (past 5-cap by §8.3.6 lethal exception — fix, do not force-approve) keyed the veto on KEY PRESENCE; Codex independently ran the 12-case truth table + 99-test suite + re-verified _compose_final_verdict fail-closed -> APPROVE, zero P0/P1/P2.
++- DOCS/RESEARCH: MiniMax-M2 MIT (HuggingFace MiniMaxAI/MiniMax-M2); GLM-5.1 MIT (z-ai/glm-5.1); certified GLM_PROMPT in scripts/diagnostics/sentinel_bakeoff.py.
++- SYNC: docs/file_directory.md role-table updated (Granite/Cohere -> MiniMax/GLM). architecture.md NOTE left UNCHANGED — it is canonical-pinned; updating it would break the boot pin check (deferred to the queued architecture.md full-rewrite PR). config/architecture/polaris_runtime_lock.yaml + docs/canonical_pin.txt lock-SHA reconciled (7f4be774, LF-pinned) in the prior code commit.
++- AFFECTED_FILES: src/polaris_graph/roles/sentinel_{contract,adapter}.py, openai_compatible_transport.py, openrouter_role_transport.py, llm/openrouter_client.py, config/architecture/polaris_runtime_lock.yaml, config/serving/verifier_roles.yaml, scripts/run_honest_sweep_r3.py, tests/roles/*, tests/dr_benchmark/test_verify_serving_identity.py, docs/canonical_pin.txt, docs/file_directory.md, state/polaris_restart/iteration_trajectory.md, .codex/I-run11-004/*.
++- EVIDENCE: tests/roles+architecture+dr_benchmark = 661 passed; tests/roles/test_sentinel_contract.py 99 passed (incl. iter-5 regressions true/false/null/[]/{}); Codex diff-gate iter-6 verdict APPROVE (codex_diff_audit_iter6.txt, 12-case truth table all correct). verify_lock.py: roles+code-defaults+canonical-pin checkpoints OK (tests_pass = CI-recorded).
++- STATUS: code committed (HEAD 01465865, amended with iter-5 fix). PRE-EXISTING FINDING surfaced for operator: autoloop _verify_canonical_pin shows HEAD/pin line-ending mismatch on 5 canonical files (architecture.md, task_acceptance_matrix.yaml, agent_architecture.md, REVIEW_BRIEF_FORMAT.md, CLAUDE.md) — none touched by this PR; separate infra issue (pin SHAs vs LF/CRLF recompute), candidate follow-up Issue.
++- NEXT_STEP: commit artifacts+docs, push bot/I-run11-004-minimax-sentinel, open PR #1046 (queued for OPERATOR merge — Claude has no merge authority), then deploy run-13 on VM (q1_run13, decomposition Sentinel, seam timeout 7200s) and §-1.1 benchmark vs ChatGPT+Gemini on RELEASE.
 diff --git a/scripts/dr_benchmark/gate_a_dry_run.py b/scripts/dr_benchmark/gate_a_dry_run.py
-index 86f63622..0d42d675 100644
+index 86f63622..5c2bc78f 100644
 --- a/scripts/dr_benchmark/gate_a_dry_run.py
 +++ b/scripts/dr_benchmark/gate_a_dry_run.py
-@@ -242,15 +242,47 @@ def check_role_contracts() -> CheckResult:
+@@ -242,15 +242,50 @@ def check_role_contracts() -> CheckResult:
      claim = "The grounded answer."
      problems: list[str] = []
  
@@ -177,7 +248,10 @@ index 86f63622..0d42d675 100644
 +        )
 +    decomp_supported = _GateAMockTransport(
 +        judge_raw=_JUDGE_OFF_ENUM,
-+        sentinel_raw='{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}',
++        # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs a
++        # non-empty atoms list + unsupported_atoms, else the parser fails closed (a bare/non-atomized
++        # "supported" did no per-atom work and must not release).
++        sentinel_raw='{"verdict": "supported", "unsupported_atoms": 0, "atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}',
 +    )
 +    decomp_grounded, _ = run_sentinel(
 +        decomp_supported, claim, evidence,
@@ -192,7 +266,7 @@ index 86f63622..0d42d675 100644
      # Judge through the adapter+transport: an off-enum token must RAISE (no silent default).
      try:
          run_judge(
-@@ -271,7 +303,7 @@ def check_role_contracts() -> CheckResult:
+@@ -271,7 +306,7 @@ def check_role_contracts() -> CheckResult:
      # Mirror through the adapter+transport: the two-pass grounded round trip binds and returns.
      try:
          mirror_pass2, mirror_records = run_mirror(
@@ -201,7 +275,7 @@ index 86f63622..0d42d675 100644
          )
          if mirror_pass2 is None or len(mirror_records) != 2:
              problems.append(
-@@ -286,7 +318,8 @@ def check_role_contracts() -> CheckResult:
+@@ -286,7 +321,8 @@ def check_role_contracts() -> CheckResult:
      return CheckResult(
          "role_contracts",
          True,
@@ -212,10 +286,10 @@ index 86f63622..0d42d675 100644
  
  
 diff --git a/scripts/dr_benchmark/offline_e2e.py b/scripts/dr_benchmark/offline_e2e.py
-index 2b72e86e..ea07daed 100644
+index 2b72e86e..debb9c64 100644
 --- a/scripts/dr_benchmark/offline_e2e.py
 +++ b/scripts/dr_benchmark/offline_e2e.py
-@@ -218,8 +218,18 @@ class PerClaimFakeRoleTransport:
+@@ -218,8 +218,21 @@ class PerClaimFakeRoleTransport:
                  citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
              )
          if request.role == "sentinel":
@@ -227,7 +301,10 @@ index 2b72e86e..ea07daed 100644
 +            # noninverted -> one-word GROUNDED.
 +            final_instruction = request.messages[-1]["content"] if request.messages else ""
 +            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
-+                sentinel_raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
++                # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs
++                # a non-empty atoms list + unsupported_atoms, else the parser fails closed.
++                sentinel_raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
++                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
 +            elif "<guardian>" in final_instruction:
 +                sentinel_raw = "<score>no</score>"
 +            else:
@@ -294,8 +371,42 @@ index 45c907b4..c21ddf2b 100644
      # Closed frontier families included for completeness (off-MVP, but if
      # ever allowed via a closed-source fallback they get their own family).
      "openai":   ("openai/", "gpt-"),
+diff --git a/src/polaris_graph/roles/openai_compatible_transport.py b/src/polaris_graph/roles/openai_compatible_transport.py
+index 50255492..b7e20c77 100644
+--- a/src/polaris_graph/roles/openai_compatible_transport.py
++++ b/src/polaris_graph/roles/openai_compatible_transport.py
+@@ -62,6 +62,13 @@ _EXCLUDED_ROLE = "generator"
+ # guard set so an unknown / excluded role fails before any endpoint lookup.
+ _SERVED_ROLES = ("mirror", "sentinel", "judge")
+ 
++# I-run11-004 (Codex diff-gate iter-2 P1-1): self-host decomposition-Sentinel output-budget floor.
++# The certified MiniMax-M2 decomposition call needs max_tokens>=3000 to emit its JSON verdict; a
++# starved cap truncates -> parse failure -> fail-closed UNGROUNDED on every claim. Kept in sync
++# with openrouter_role_transport._SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS.
++_SENTINEL_ROLE = "sentinel"
++_SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS = 3000
++
+ # Per-role env var stems: PG_<ROLE>_BASE_URL / PG_<ROLE>_API_KEY (LAW VI: zero hard-coding).
+ _BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
+ _API_KEY_ENV_TEMPLATE = "PG_{role}_API_KEY"
+@@ -288,6 +295,15 @@ def _build_body(
+     for key in _PASSTHROUGH_PARAM_KEYS:
+         if key in params and params[key] is not None:
+             body[key] = params[key]
++    # I-run11-004 (Codex diff-gate iter-2 P1-1): floor the SELF-HOST decomposition Sentinel's output
++    # budget so the JSON verdict is never truncated (the run-12 coverage-collapse mode, on the
++    # sovereign path). Decomposition requests are uniquely identified by role==sentinel + a
++    # json_object response_format (guardian/noninverted Sentinel set neither). Floor only; never
++    # lower an explicit higher cap. (`reasoning` is OpenRouter-specific, not a vLLM body key.)
++    if request.role == _SENTINEL_ROLE and isinstance(params.get("response_format"), dict):
++        body["max_tokens"] = max(
++            int(body.get("max_tokens") or 0), _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS
++        )
+     return body
+ 
+ 
 diff --git a/src/polaris_graph/roles/openrouter_role_transport.py b/src/polaris_graph/roles/openrouter_role_transport.py
-index d793726d..c2133cec 100644
+index d793726d..f086ced0 100644
 --- a/src/polaris_graph/roles/openrouter_role_transport.py
 +++ b/src/polaris_graph/roles/openrouter_role_transport.py
 @@ -150,7 +150,10 @@ _BENCHMARK_LINEUP_ENV = {
@@ -334,7 +445,7 @@ index d793726d..c2133cec 100644
  # I-meta-008 / #1026: blank-verdict step-down ladder. When a reasoning-first verifier returns a
  # BLANK bare verdict (reasoning budget exhausted without converging under the high effort), retry
  # with the effort stepped DOWN this ladder so the model is forced to spend tokens on the VERDICT,
-@@ -294,30 +305,56 @@ _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
+@@ -294,30 +305,61 @@ _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
  # WHY per-role: Mirror (`z-ai/glm-5.1`) and Judge (`qwen/qwen3.6-35b-a3b`) are DELIBERATIVE
  # verifiers — they weigh evidence and argue a verdict, so they get MAX reasoning effort
  # (`xhigh`) AND `provider.require_parameters=True` (only route to a provider that honors
@@ -362,7 +473,8 @@ index d793726d..c2133cec 100644
  _ROLE_REASONING_DEFAULT = {"mirror": True, "sentinel": False, "judge": True}
  
  
-+def sentinel_decomposition_active() -> bool:
+-def role_reasoning_enabled(role: str) -> bool:
++def sentinel_decomposition_active(slug_override: str | None = None) -> bool:
 +    """True iff the ACTIVE Sentinel groundedness mode is "decomposition" (I-run11-004).
 +
 +    Lazily resolves `sentinel_adapter.sentinel_groundedness_mode()` (env- + model-aware, LAW VI)
@@ -370,6 +482,10 @@ index d793726d..c2133cec 100644
 +    dependency on the adapter (the adapter does not import this transport — no cycle). Any
 +    resolution error is swallowed to the conservative non-decomposition answer (the certified
 +    MiniMax call is only requested when the mode UNAMBIGUOUSLY resolves to decomposition).
++
++    `slug_override` (Codex diff-gate iter-4 P2) is the slug ACTUALLY being served on this call —
++    threaded through from the request so the reasoning/max_tokens gate keys on the real served
++    model, not a stale `PG_SENTINEL_MODEL` env, in any direct/future call path.
 +    """
 +    try:
 +        from src.polaris_graph.roles.sentinel_adapter import (
@@ -377,12 +493,12 @@ index d793726d..c2133cec 100644
 +            sentinel_groundedness_mode,
 +        )
 +
-+        return sentinel_groundedness_mode() == _MODE_DECOMPOSITION
++        return sentinel_groundedness_mode(slug_override) == _MODE_DECOMPOSITION
 +    except Exception:  # noqa: BLE001 — conservative: unknown -> not decomposition.
 +        return False
 +
 +
- def role_reasoning_enabled(role: str) -> bool:
++def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
      """Whether the given verifier role should send the MAX-reasoning request params.
  
      Returns the per-role default from `_ROLE_REASONING_DEFAULT`, overridable per role via the
@@ -397,14 +513,24 @@ index d793726d..c2133cec 100644
      """
 -    default = _ROLE_REASONING_DEFAULT.get(role, False)
 +    if role == "sentinel" and os.getenv(f"PG_{role.upper()}_REASONING") is None:
-+        # No explicit override: the Sentinel default is mode-aware (decomposition -> reasoning ON).
-+        default = sentinel_decomposition_active()
++        # No explicit override: the Sentinel default is mode-aware (decomposition -> reasoning ON),
++        # keyed on the ACTUAL served slug when supplied (Codex diff-gate iter-4 P2).
++        default = sentinel_decomposition_active(slug_override)
 +    else:
 +        default = _ROLE_REASONING_DEFAULT.get(role, False)
      override = os.getenv(f"PG_{role.upper()}_REASONING")
      if override is None:
          return default
-@@ -445,7 +482,18 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
+@@ -427,7 +469,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
+     # MAX reasoning + `provider.require_parameters=True`. The Sentinel classifier gets NEITHER —
+     # its OpenRouter slug does not advertise `reasoning`, so `require_parameters=True` would refuse
+     # to route and fail the first call. See `role_reasoning_enabled` for the full rationale.
+-    if role_reasoning_enabled(request.role):
++    if role_reasoning_enabled(request.role, request.model_slug):
+         body["reasoning"] = {"enabled": True, "effort": _REASONING_EFFORT}
+         # require_parameters=True makes OpenRouter ONLY route to a provider that actually HONORS the
+         # `reasoning` param (OpenRouter's default when absent is False — it could otherwise route a
+@@ -445,7 +487,18 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
          # #1017 fix popped it, so xhigh ate ~95% of an unknown provider default and STARVED the verdict
          # to empty for a reasoning-first Mirror (GLM-5.1) / Judge (Qwen) -> fail-loud crash on the run.
          # 16384 -> reasoning ~15564 + verdict room ~820 (generous for Mirror JSON + Judge enum).
@@ -424,8 +550,17 @@ index d793726d..c2133cec 100644
      else:
          # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
          # on an unknown provider default (no pop-and-hope). Small budget is plenty for a label verdict.
+@@ -584,7 +637,7 @@ class OpenRouterRoleTransport:
+         # non-converging xhigh response cannot crash the whole 4-role run. The non-reasoning
+         # Sentinel makes a SINGLE attempt (its body has no `reasoning` block to step down) — its
+         # behavior is unchanged.
+-        reasoning_role = role_reasoning_enabled(request.role)
++        reasoning_role = role_reasoning_enabled(request.role, request.model_slug)
+         effort_ladder: tuple[object, ...] = (
+             _VERIFIER_EFFORT_LADDER if reasoning_role else (_REASONING_EFFORT,)
+         )
 diff --git a/src/polaris_graph/roles/sentinel_adapter.py b/src/polaris_graph/roles/sentinel_adapter.py
-index 9da8eb27..05090728 100644
+index 9da8eb27..250332f3 100644
 --- a/src/polaris_graph/roles/sentinel_adapter.py
 +++ b/src/polaris_graph/roles/sentinel_adapter.py
 @@ -1,13 +1,21 @@
@@ -466,7 +601,7 @@ index 9da8eb27..05090728 100644
      parse_sentinel_grounded_token,
      parse_sentinel_score,
  )
-@@ -57,48 +66,97 @@ _ROLE = "sentinel"
+@@ -57,48 +66,105 @@ _ROLE = "sentinel"
  _GROUNDEDNESS_MODE_ENV = "PG_SENTINEL_GROUNDEDNESS_MODE"
  _MODE_NONINVERTED = "noninverted"
  _MODE_GUARDIAN = "guardian"
@@ -491,8 +626,16 @@ index 9da8eb27..05090728 100644
 +# adapter has no import-time dependency on the family registry.
 +_SENTINEL_GUARDIAN_SLUG_TOKEN = "granite-guardian"
 +_SENTINEL_DECOMPOSITION_SLUG_TOKENS = ("minimax/", "minimax-")
-+
-+
+ 
+-def sentinel_groundedness_mode() -> str:
+-    """Resolve the active Sentinel groundedness mode (LAW VI). Returns "noninverted" | "guardian".
+ 
+-    Precedence: an explicit `PG_SENTINEL_GROUNDEDNESS_MODE` ("noninverted" | "guardian") wins.
+-    An explicit but UNRECOGNIZED value raises ValueError (Codex diff-gate P2, no-silent-fallback:
+-    a mode typo must not silently desync the prompt+parser from the served model). When the env is
+-    UNSET, DERIVE from `PG_FOUR_ROLE_TRANSPORT` so the prompt+parser match the served model:
+-    "self_host" -> "guardian" (sovereign granite-Guardian); anything else (incl. the "openrouter"
+-    default) -> "noninverted" (benchmark general granite).
 +def _configured_sentinel_slug() -> str:
 +    """The active Sentinel model slug (LAW VI), for the model-aware default mode (I-run11-004).
 +
@@ -503,7 +646,7 @@ index 9da8eb27..05090728 100644
 +    return os.getenv("PG_SENTINEL_MODEL") or getattr(_orc, "PG_SENTINEL_MODEL", "") or ""
 +
 +
-+def _model_aware_default_mode() -> str:
++def _model_aware_default_mode(slug_override: str | None = None) -> str:
 +    """Default Sentinel mode when PG_SENTINEL_GROUNDEDNESS_MODE is UNSET (I-run11-004).
 +
 +    MODEL-AWARE first, so the lock Sentinel (MiniMax-M2) gets the DECOMPOSITION prompt+parser and a
@@ -513,8 +656,14 @@ index 9da8eb27..05090728 100644
 +      - configured slug is a minimax model          -> "decomposition";
 +      - otherwise -> the prior transport-derived default ("self_host" -> "guardian", else
 +        "noninverted" — the benchmark general-granite route, preserved for back-compat).
++
++    `slug_override` (Codex diff-gate iter-3 P1) is the slug ACTUALLY being served on THIS call — the
++    adapter passes its `model_slug` parameter, which on the self-host path is the LOCK slug resolved
++    by `role_endpoint`. Deriving the mode from the real served slug (not the `PG_SENTINEL_MODEL` env)
++    closes the desync where a stale `PG_SENTINEL_MODEL=granite-guardian` would build the Guardian
++    prompt/parser for a lock-served MiniMax model. Falls back to `_configured_sentinel_slug()`.
 +    """
-+    slug = _configured_sentinel_slug().strip().lower()
++    slug = (slug_override or _configured_sentinel_slug()).strip().lower()
 +    if _SENTINEL_GUARDIAN_SLUG_TOKEN in slug:
 +        return _MODE_GUARDIAN
 +    if any(token in slug for token in _SENTINEL_DECOMPOSITION_SLUG_TOKENS):
@@ -525,16 +674,8 @@ index 9da8eb27..05090728 100644
 +        return _MODE_GUARDIAN
 +    return _MODE_NONINVERTED
 +
- 
- def sentinel_groundedness_mode() -> str:
--    """Resolve the active Sentinel groundedness mode (LAW VI). Returns "noninverted" | "guardian".
--
--    Precedence: an explicit `PG_SENTINEL_GROUNDEDNESS_MODE` ("noninverted" | "guardian") wins.
--    An explicit but UNRECOGNIZED value raises ValueError (Codex diff-gate P2, no-silent-fallback:
--    a mode typo must not silently desync the prompt+parser from the served model). When the env is
--    UNSET, DERIVE from `PG_FOUR_ROLE_TRANSPORT` so the prompt+parser match the served model:
--    "self_host" -> "guardian" (sovereign granite-Guardian); anything else (incl. the "openrouter"
--    default) -> "noninverted" (benchmark general granite).
++
++def sentinel_groundedness_mode(slug_override: str | None = None) -> str:
 +    """Resolve the active Sentinel groundedness mode (LAW VI).
 +
 +    Returns "noninverted" | "guardian" | "decomposition".
@@ -563,17 +704,22 @@ index 9da8eb27..05090728 100644
 -    if transport == _TRANSPORT_SELF_HOST:
 -        return _MODE_GUARDIAN
 -    return _MODE_NONINVERTED
-+    # Unset/blank: model-aware default (then transport-derived for an unrecognized model).
-+    return _model_aware_default_mode()
++    # Unset/blank: model-aware default (then transport-derived for an unrecognized model). The
++    # served slug (Codex diff-gate iter-3 P1) is threaded so the mode matches the ACTUAL model.
++    return _model_aware_default_mode(slug_override)
  
  
- def _resolve_mode(mode: str | None) -> str:
+-def _resolve_mode(mode: str | None) -> str:
++def _resolve_mode(mode: str | None, model_slug: str | None = None) -> str:
      """Resolve + VALIDATE the active mode (Codex diff-gate P2, no-silent-fallback). An explicit
 -    but unrecognized `mode` argument must NOT silently select noninverted — it raises ValueError,
-+    but unrecognized `mode` argument must NOT silently select a parser — it raises ValueError,
-     so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution."""
-     resolved = mode if mode is not None else sentinel_groundedness_mode()
+-    so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution."""
+-    resolved = mode if mode is not None else sentinel_groundedness_mode()
 -    if resolved not in (_MODE_NONINVERTED, _MODE_GUARDIAN):
++    but unrecognized `mode` argument must NOT silently select a parser — it raises ValueError,
++    so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution keyed
++    on the ACTUAL `model_slug` being served (iter-3 P1: no PG_SENTINEL_MODEL-vs-lock desync)."""
++    resolved = mode if mode is not None else sentinel_groundedness_mode(model_slug)
 +    if resolved not in _VALID_MODES:
          raise ValueError(
              f"sentinel groundedness mode {resolved!r} is invalid; "
@@ -582,7 +728,7 @@ index 9da8eb27..05090728 100644
          )
      return resolved
  
-@@ -129,6 +187,47 @@ _NONINVERTED_BLOCK = (
+@@ -129,6 +195,47 @@ _NONINVERTED_BLOCK = (
      "Answer with EXACTLY one word: GROUNDED or UNGROUNDED. Output only that single word."
  )
  
@@ -630,7 +776,7 @@ index 9da8eb27..05090728 100644
  # The fail-closed result returned on transport error / malformed output. NEVER GROUNDED.
  _FAIL_CLOSED = SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
  
-@@ -140,29 +239,54 @@ def build_sentinel_request(
+@@ -140,29 +247,61 @@ def build_sentinel_request(
      model_slug: str,
      mode: str | None = None,
  ) -> RoleRequest:
@@ -658,12 +804,14 @@ index 9da8eb27..05090728 100644
 +    a SINGLE user message carrying `_DECOMPOSITION_PROMPT.format(span=<all evidence .text joined>,
 +    claim=claim)` (NOT the guardian documents-channel layout), with `response_format`
 +    {"type":"json_object"} requested (the transport forwards it; the robust parser also handles
-+    non-JSON-mode output). `documents` is still carried in params for introspection/identity, but the
-+    SPAN is inlined into the prompt — the model reads the span from the message, exactly as certified.
++    non-JSON-mode output). Decomposition carries NO documents in params (the SPAN is inlined into the
++    single prompt message, exactly as certified) so the transport prepends no separate evidence
++    message — the live body is the certified ONE user message (Codex diff-gate iter-2 P1-2).
 +
 +    When `mode` is None it resolves from `sentinel_groundedness_mode()` (env- + model-aware, LAW VI).
      """
-     resolved_mode = _resolve_mode(mode)
+-    resolved_mode = _resolve_mode(mode)
++    resolved_mode = _resolve_mode(mode, model_slug=model_slug)
 +    documents = [{"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents]
 +
 +    if resolved_mode == _MODE_DECOMPOSITION:
@@ -674,8 +822,14 @@ index 9da8eb27..05090728 100644
 +        span = "\n\n".join(doc.text for doc in evidence_documents)
 +        user_content = _DECOMPOSITION_PROMPT.format(span=span, claim=claim)
 +        messages = [{"role": "user", "content": user_content}]
++        # NO documents in decomposition mode (Codex diff-gate iter-2 P1-2): the SPAN is already
++        # inlined into `user_content`, exactly as the certification ran. If documents were carried
++        # here, the transport's _normalize_messages would PREPEND a separate evidence user message,
++        # making the live body TWO user messages instead of the certified ONE — diverging from the
++        # certified call and invalidating the 0-false-accept guarantee. Pass an empty list so the
++        # transport prepends nothing; the model reads the span from the single prompt message.
 +        params = {
-+            "documents": documents,
++            "documents": [],
 +            "response_format": {"type": "json_object"},
 +        }
 +        return RoleRequest(
@@ -699,7 +853,7 @@ index 9da8eb27..05090728 100644
      return RoleRequest(
          role=_ROLE,
          model_slug=model_slug,
-@@ -185,17 +309,19 @@ def run_sentinel(
+@@ -185,17 +324,19 @@ def run_sentinel(
      completion, iter-3 P1-a). A transport error OR a malformed/empty `raw_text` both yield
      `SentinelResult(UNGROUNDED, parsed_ok=False)` — never GROUNDED, in EITHER mode.
  
@@ -713,12 +867,13 @@ index 9da8eb27..05090728 100644
 +      - "noninverted"   -> direct GROUNDED/UNGROUNDED parser (`parse_sentinel_grounded_token`).
 +      - "decomposition" -> certified JSON-verdict parser (`parse_sentinel_decomposition`).
      """
-     resolved_mode = _resolve_mode(mode)
+-    resolved_mode = _resolve_mode(mode)
 -    parser = (
 -        parse_sentinel_score
 -        if resolved_mode == _MODE_GUARDIAN
 -        else parse_sentinel_grounded_token
 -    )
++    resolved_mode = _resolve_mode(mode, model_slug=model_slug)
 +    if resolved_mode == _MODE_GUARDIAN:
 +        parser = parse_sentinel_score
 +    elif resolved_mode == _MODE_DECOMPOSITION:
@@ -729,7 +884,7 @@ index 9da8eb27..05090728 100644
          claim, evidence_documents, model_slug=model_slug, mode=resolved_mode
      )
 diff --git a/src/polaris_graph/roles/sentinel_contract.py b/src/polaris_graph/roles/sentinel_contract.py
-index 1a962910..fb1146bc 100644
+index 1a962910..e75dcfee 100644
 --- a/src/polaris_graph/roles/sentinel_contract.py
 +++ b/src/polaris_graph/roles/sentinel_contract.py
 @@ -19,6 +19,7 @@ deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
@@ -740,7 +895,7 @@ index 1a962910..fb1146bc 100644
  import re
  from enum import Enum
  from typing import NamedTuple
-@@ -162,3 +163,94 @@ def parse_sentinel_grounded_token(raw: str) -> SentinelResult:
+@@ -162,3 +163,152 @@ def parse_sentinel_grounded_token(raw: str) -> SentinelResult:
          return SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
      # Negated prose, extra tokens, both/neither, repeats, non-clean output -> fail CLOSED.
      return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
@@ -814,8 +969,13 @@ index 1a962910..fb1146bc 100644
 +      - unparseable JSON (after the robust `_strip_json` fence/prefix/trailing-comma handling),
 +      - a missing `verdict` key,
 +      - an off-enum verdict (anything other than the exact tokens "supported"/"unsupported"),
++      - a "supported" verdict that OMITS the decomposition contract — no non-empty `atoms` list
++        (with >=1 atom object) OR no `unsupported_atoms` field (Codex brief-gate P1: a bare/
++        truncated/non-atomized "supported" did no per-atom work and must not release),
 +    yields UNGROUNDED with parsed_ok=False. There is NO path that returns GROUNDED on bad input.
-+    `parsed_ok=True` is reserved for a clean JSON object carrying exactly one recognized verdict.
++    `parsed_ok=True` is reserved for a clean JSON object carrying a recognized verdict AND, for
++    "supported", the full decomposition contract (non-empty atoms + unsupported_atoms count == 0,
++    every atom supported).
 +    """
 +    if not isinstance(raw, str):
 +        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
@@ -834,7 +994,86 @@ index 1a962910..fb1146bc 100644
 +    if verdict is None:
 +        # Missing/odd/off-enum verdict -> fail CLOSED (never a silent GROUNDED).
 +        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++    # SAFETY cross-check (Codex diff-gate iter-3 P1): a top-level "supported" verdict that
++    # SIMULTANEOUSLY reports unsupported atoms is an INTERNALLY CONTRADICTORY output. Trusting the
++    # top-level "supported" there is a fail-OPEN path — a fabricated claim laundered to VERIFIED.
++    # When the verdict is GROUNDED but the model's OWN atom analysis flags any unsupported
++    # sub-assertion (unsupported_atoms > 0, or an atom whose status is "unsupported"), VETO to
++    # UNGROUNDED — the clinical-safe side. The atom analysis OVERRIDES an over-confident top verdict.
++    if verdict is SentinelVerdict.GROUNDED:
++        # CONTRACT GATE (Codex BRIEF-gate P1 fail-open fix): the certified decomposition output is
++        # STRICT JSON {verdict, unsupported_atoms, atoms}. A top-level "supported" verdict that OMITS
++        # the decomposition — no non-empty `atoms` list (with >=1 atom object), or no
++        # `unsupported_atoms` field — is a non-atomized / truncated / lazy answer that did NOT do the
++        # per-atom span-coverage work. Trusting it as GROUNDED is a fail-OPEN: a bare
++        # {"verdict":"supported"} could release a fabricated claim if the Judge verifies. FAIL CLOSED
++        # (parsed_ok=False: the output did not meet the decomposition contract). Validated against the
++        # certification cache: all 25 real "supported" outputs carry BOTH a non-empty atoms list AND
++        # unsupported_atoms, so this contract gate has ZERO false-drops on the real model.
++        atoms = parsed.get("atoms")
++        has_atoms = isinstance(atoms, list) and any(isinstance(a, dict) for a in atoms)
++        if not has_atoms or "unsupported_atoms" not in parsed:
++            return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++        # Robustly coerce unsupported_atoms (Codex diff-gate iter-4 P1 + iter-5 P1). A JSON-mode model
++        # can QUOTE the number ("unsupported_atoms": "1"), emit a bool (true/false), null, or a list —
++        # a bare numeric check would FAIL OPEN. The field is REQUIRED (contract gate above); a value is
++        # released ONLY if it coerces to a CLEAN ZERO; anything else (>0, fractional, bool, null,
++        # non-numeric) VETOES to UNGROUNDED.
++        raw_count = parsed["unsupported_atoms"]
++        count: float | None
++        if isinstance(raw_count, bool):
++            count = None  # a JSON bool is not a count -> present-but-invalid
++        elif isinstance(raw_count, (int, float)):
++            count = raw_count
++        elif isinstance(raw_count, str):
++            token = raw_count.strip()
++            try:
++                count = int(token)
++            except ValueError:
++                try:
++                    count = float(token)
++                except ValueError:
++                    count = None
++        else:
++            count = None  # null (None), list, dict, ... -> present-but-invalid
++        if count is None or count != 0:
++            return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++        # atoms is a non-empty list with >=1 atom object (contract gate): veto if ANY atom is unsupported.
++        for atom in atoms:
++            if not isinstance(atom, dict):
++                continue
++            status = atom.get("status") or atom.get("verdict")
++            if isinstance(status, str) and status.strip().lower() == "unsupported":
++                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++            if atom.get("supported") is False:
++                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
 +    return SentinelResult(verdict, parsed_ok=True)
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 1c3de7e4..eb611ff4 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -1357,3 +1357,21 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
+ - iter2: addressed all 3 (narrative skip Step 2b; _fetch_url_pattern rejects access_method scihub;
+   _FULLTEXT_ENTITY_TYPES keep clinical full text). Both APPROVE. Live-verified Acemoglu 3x deterministic
+   crossref_abstract + scrape_skipped. 63/63 + 94/94 tests. #1035 = URGENT follow-up (access_bypass gating).
++
++## I-run11-004 #1046 (certified MiniMax-M2 decomposition Sentinel + GLM-5.1 Mirror) — diff-gate 6 iters
++- Replaced broken Granite-Guardian Sentinel (over-rejected grounded clinical claims -> run-12 coverage
++  0.286) with CERTIFIED MiniMax-M2 claim-decomposition+span-coverage detector (0 false-accepts on 28
++  fabrications across 5 error types, over-flag 0.107). Mirror re-picked Cohere Command A+ -> GLM-5.1
++  (Cohere not on OpenRouter). Both open-weight MIT; 4 distinct families (deepseek/glm/minimax/qwen).
++- diff-gate iters 1-5 each surfaced a real fail-OPEN in parse_sentinel_decomposition (the §-1.1 lethal
++  class — a fabricated claim laundered to GROUNDED->VERIFIED). iter-2 P1s: 2-message body / self-host
++  missing max_tokens floor / 1xA100 infeasible / license / stale cert. iter-3 P1: parser fail-open on
++  {verdict:supported,unsupported_atoms:1} -> atom-veto cross-check + served-slug-aware mode. iter-4 P1:
++  quoted "1" bypass. iter-5 P1: bool/null/[] unsupported_atoms skipped the veto (keyed on coerced value
++  `is not None`, so a present bool/null coerced to None == absent-key path -> fail-open).
++- iter-6 FOCUSED re-gate (past the 5-cap by the §-1.1 + §8.3.6 lethal exception — fix, do not
++  force-approve): keyed the veto on KEY PRESENCE (`if "unsupported_atoms" in parsed:`); present
++  bool/null/list/non-coercible -> count=None -> VETO; only absent-key or clean zero stays GROUNDED.
++  Codex independently ran the 12-case truth table (all correct), the 99-test contract suite (99 passed),
++  and re-verified _compose_final_verdict fail-closed. **verdict: APPROVE**, zero P0/P1/P2,
++  convergence_call accept_remaining. Full suite tests/roles+architecture+dr_benchmark = 661 passed.
 diff --git a/tests/architecture/test_runtime_lock.py b/tests/architecture/test_runtime_lock.py
 index a832150e..f1fa6f07 100644
 --- a/tests/architecture/test_runtime_lock.py
@@ -887,10 +1126,10 @@ index a832150e..f1fa6f07 100644
      }
  
 diff --git a/tests/dr_benchmark/test_gate_b_seam.py b/tests/dr_benchmark/test_gate_b_seam.py
-index 56df7c8a..eb4ba5e9 100644
+index 56df7c8a..50b58a14 100644
 --- a/tests/dr_benchmark/test_gate_b_seam.py
 +++ b/tests/dr_benchmark/test_gate_b_seam.py
-@@ -87,8 +87,19 @@ class _FakeRoleTransport:
+@@ -87,8 +87,23 @@ class _FakeRoleTransport:
                  citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
              )
          if request.role == "sentinel":
@@ -900,10 +1139,14 @@ index 56df7c8a..eb4ba5e9 100644
 +            # decomposition (MiniMax-M2 default) -> JSON; guardian -> `<score>`; noninverted -> word.
 +            final_instruction = request.messages[-1]["content"] if request.messages else ""
 +            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
-+                verdict = "supported" if self._sentinel_grounded else "unsupported"
-+                n = "0" if self._sentinel_grounded else "1"
-+                raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-+                            + n + ', "atoms": []}')
++                # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict MUST
++                # carry a non-empty atoms list + unsupported_atoms, else the parser fails CLOSED.
++                if self._sentinel_grounded:
++                    raw_text = ('{"verdict": "supported", "unsupported_atoms": 0, '
++                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
++                else:
++                    raw_text = ('{"verdict": "unsupported", "unsupported_atoms": 1, '
++                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "unsupported"}]}')
 +            elif "<guardian>" in final_instruction:
 +                raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
 +            else:
@@ -912,7 +1155,7 @@ index 56df7c8a..eb4ba5e9 100644
          if request.role == "judge":
              return RoleResponse(raw_text=self._judge_verdict, served_model=request.model_slug)
          raise AssertionError(f"unexpected role {request.role!r}")
-@@ -327,8 +338,8 @@ def test_seam_builder_wins_over_static_inputs(tmp_path):
+@@ -327,8 +342,8 @@ def test_seam_builder_wins_over_static_inputs(tmp_path):
          coverage_ledger=CoverageLedger(required_element_ids=["static-elem"]),
          required_s0_categories=[],
          model_slugs={
@@ -923,7 +1166,7 @@ index 56df7c8a..eb4ba5e9 100644
              "judge": "qwen/qwen3.6-35b-a3b",
          },
          rewrite_already_attempted=True,
-@@ -385,8 +396,8 @@ def test_seam_static_inputs_used_as_is_no_audit(tmp_path):
+@@ -385,8 +400,8 @@ def test_seam_static_inputs_used_as_is_no_audit(tmp_path):
          coverage_ledger=CoverageLedger(required_element_ids=["elem-1"]),
          required_s0_categories=["contraindications"],
          model_slugs={
@@ -980,7 +1223,7 @@ index f9fb6558..e406f1e1 100644
  
  _FOUR_ROLE_SLUGS = {
 diff --git a/tests/dr_benchmark/test_verify_serving_identity.py b/tests/dr_benchmark/test_verify_serving_identity.py
-index 56bc5f9a..f3b36851 100644
+index 56bc5f9a..5537b6d1 100644
 --- a/tests/dr_benchmark/test_verify_serving_identity.py
 +++ b/tests/dr_benchmark/test_verify_serving_identity.py
 @@ -172,9 +172,10 @@ def test_serving_config_judge_structured_outputs_enabled_mirror_plain_chat():
@@ -996,6 +1239,19 @@ index 56bc5f9a..f3b36851 100644
  
  
  def test_serving_config_gpu_specs_per_role():
+@@ -182,7 +183,11 @@ def test_serving_config_gpu_specs_per_role():
+     mirror_gpu = config["roles"]["mirror"]["gpu"]
+     assert mirror_gpu["count"] == 8 and mirror_gpu["kind"] == "H100"
+     sentinel_gpu = config["roles"]["sentinel"]["gpu"]
+-    assert sentinel_gpu["count"] == 1 and sentinel_gpu["kind"] == "A100"
++    # I-run11-004: Sentinel is now MiniMax-M2 (~229B MoE) — a 1xA100 80GB is infeasible (~458GB bf16),
++    # so the sovereign self-host topology is an 8x80GB-class box @ fp8 (PENDING GPU procurement #90;
++    # the benchmark stage routes the Sentinel via OpenRouter). Codex diff-gate iter-2 P1-3.
++    assert sentinel_gpu["count"] == 8 and sentinel_gpu["kind"] == "H100"
++    assert config["roles"]["sentinel"]["vllm_args"]["quantization"] == "fp8"
+     judge_gpu = config["roles"]["judge"]["gpu"]
+     assert judge_gpu["count"] == 1 and judge_gpu["kind"] == "H100"
+     # Judge runs fp8 (the lock's vast_self_host_fp8 route).
 diff --git a/tests/roles/test_four_role_budget_cap.py b/tests/roles/test_four_role_budget_cap.py
 index 73c103ac..61bb4756 100644
 --- a/tests/roles/test_four_role_budget_cap.py
@@ -1319,10 +1575,10 @@ index 406886c4..458768e0 100644
  
  def test_blank_attempt_bills_tokens_into_run_budget(monkeypatch):
 diff --git a/tests/roles/test_role_pipeline.py b/tests/roles/test_role_pipeline.py
-index 8cc54881..0ae05d43 100644
+index 8cc54881..21be5525 100644
 --- a/tests/roles/test_role_pipeline.py
 +++ b/tests/roles/test_role_pipeline.py
-@@ -78,13 +78,22 @@ class MockTransport:
+@@ -78,13 +78,24 @@ class MockTransport:
                  citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
              )
          if request.role == "sentinel":
@@ -1343,15 +1599,17 @@ index 8cc54881..0ae05d43 100644
 +            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
 +                verdict = "supported" if self._sentinel_grounded else "unsupported"
 +                n_unsupported = "0" if self._sentinel_grounded else "1"
++                # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty
++                # atoms list + count, else the parser fails closed (bare/non-atomized supported).
 +                raw_text = (
 +                    '{"verdict": "' + verdict + '", "unsupported_atoms": '
-+                    + n_unsupported + ', "atoms": []}'
++                    + n_unsupported + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}'
 +                )
 +            elif "<guardian>" in final_instruction:
                  score = "no" if self._sentinel_grounded else "yes"
                  raw_text = f"<score>{score}</score>"
              else:
-@@ -251,11 +260,14 @@ def test_guardian_env_still_composes_grounded_verified(monkeypatch) -> None:
+@@ -251,11 +262,14 @@ def test_guardian_env_still_composes_grounded_verified(monkeypatch) -> None:
  
  def test_self_host_transport_env_routes_guardian_in_pipeline(monkeypatch) -> None:
      """The runtime-desync guard end-to-end: PG_FOUR_ROLE_TRANSPORT=self_host (no explicit mode)
@@ -1370,10 +1628,10 @@ index 8cc54881..0ae05d43 100644
      result = _run(transport)
      assert result.final_verdict == "VERIFIED"
 diff --git a/tests/roles/test_seam_parallel.py b/tests/roles/test_seam_parallel.py
-index 74993b64..c082cd6d 100644
+index 74993b64..16ec93a9 100644
 --- a/tests/roles/test_seam_parallel.py
 +++ b/tests/roles/test_seam_parallel.py
-@@ -69,13 +69,19 @@ _REQUIRED_S0 = ["contraindications"]
+@@ -69,13 +69,22 @@ _REQUIRED_S0 = ["contraindications"]
  
  
  def _sentinel_raw_for_mode(request: RoleRequest, grounded: bool) -> str:
@@ -1395,23 +1653,44 @@ index 74993b64..c082cd6d 100644
 +    if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
 +        verdict = "supported" if grounded else "unsupported"
 +        n = "0" if grounded else "1"
-+        return '{"verdict": "' + verdict + '", "unsupported_atoms": ' + n + ', "atoms": []}'
++        # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty atoms
++        # list + count, else the parser fails closed (bare/non-atomized supported).
++        return ('{"verdict": "' + verdict + '", "unsupported_atoms": ' + n
++                + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
      if "<guardian>" in final_instruction:
          return "<score>no</score>" if grounded else "<score>yes</score>"
      return "GROUNDED" if grounded else "UNGROUNDED"
+@@ -139,6 +148,13 @@ class _DelayedFakeTransport:
+             m = _CLAIM_IDX_RE.search(request.prompt)
+             if m:
+                 return int(m.group(1))
++        # I-run11-004: the decomposition Sentinel carries the span (with its [[CLAIMIDX]] marker)
++        # INLINE in the single user message (NOT in documents — see sentinel_adapter P1-2), so the
++        # fake recovers the index from the message content, like the Judge prompt.
++        for message in request.messages or []:
++            m = _CLAIM_IDX_RE.search(message.get("content", "") or "")
++            if m:
++                return int(m.group(1))
+         return None
+ 
+     def complete(self, request: RoleRequest) -> RoleResponse:
 diff --git a/tests/roles/test_sentinel_adapter.py b/tests/roles/test_sentinel_adapter.py
-index 01b703fb..1993ca1a 100644
+index 01b703fb..567790f6 100644
 --- a/tests/roles/test_sentinel_adapter.py
 +++ b/tests/roles/test_sentinel_adapter.py
-@@ -200,59 +200,205 @@ def test_benchmark_transport_error_fails_closed() -> None:
+@@ -200,59 +200,211 @@ def test_benchmark_transport_error_fails_closed() -> None:
      assert "transport_error" in records[0].raw_text
  
  
 -# === mode resolver (PG_SENTINEL_GROUNDEDNESS_MODE / PG_FOUR_ROLE_TRANSPORT) ==========
 +# === DECOMPOSITION (certified MiniMax-M2) mode tests (I-run11-004) ===================
 +_MINIMAX_MODEL = "minimax/minimax-m2"
-+_SUPPORTED_JSON = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
-+_UNSUPPORTED_JSON = '{"verdict": "unsupported", "unsupported_atoms": 1, "atoms": []}'
++# Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs a non-empty
++# atoms list + unsupported_atoms or the parser fails closed (a bare/non-atomized supported did no work).
++_SUPPORTED_JSON = ('{"verdict": "supported", "unsupported_atoms": 0, '
++                   '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
++_UNSUPPORTED_JSON = ('{"verdict": "unsupported", "unsupported_atoms": 1, '
++                     '"atoms": [{"atom": "x", "type": "mechanism", "status": "unsupported"}]}')
 +_MULTI_DOCS = [
 +    EvidenceDocument(doc_id="doc_a", text="HbA1c fell 2.3 points across arms."),
 +    EvidenceDocument(doc_id="doc_b", text="The reduction was sustained at 52 weeks."),
@@ -1441,9 +1720,11 @@ index 01b703fb..1993ca1a 100644
 +    # No guardian block / no one-word block in this layout.
 +    assert "<guardian>" not in user_content
 +    assert "GROUNDED or UNGROUNDED" not in user_content
-+    # JSON response_format requested; documents still carried for identity/introspection.
++    # JSON response_format requested; NO documents — the span is inlined into the single message, so
++    # the transport prepends no separate evidence message and the live body is the certified ONE
++    # user message (Codex diff-gate iter-2 P1-2).
 +    assert request.params["response_format"] == {"type": "json_object"}
-+    assert request.params["documents"][0]["doc_id"] == "doc_a"
++    assert request.params["documents"] == []
 +
 +
 +def test_decomposition_supported_json_parses_grounded() -> None:
@@ -1620,7 +1901,7 @@ index 01b703fb..1993ca1a 100644
      transport = _CannedTransport("GROUNDED", served_model=_BENCHMARK_MODEL)
      result, _records = run_sentinel(
          transport, _CLAIM, _DOCS, model_slug=_BENCHMARK_MODEL
-@@ -265,3 +411,25 @@ def test_run_sentinel_uses_env_mode_when_mode_arg_none(monkeypatch) -> None:
+@@ -265,3 +417,25 @@ def test_run_sentinel_uses_env_mode_when_mode_arg_none(monkeypatch) -> None:
      result2, _r2 = run_sentinel(transport2, _CLAIM, _DOCS, model_slug=_MODEL)
      assert result2.verdict is SentinelVerdict.GROUNDED
      assert result2.parsed_ok is True
@@ -1633,7 +1914,7 @@ index 01b703fb..1993ca1a 100644
 +    monkeypatch.delenv("PG_SENTINEL_GROUNDEDNESS_MODE", raising=False)
 +    monkeypatch.setenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 +    transport = _CannedTransport(
-+        '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}',
++        _SUPPORTED_JSON,
 +        served_model="minimax/minimax-m2",
 +    )
 +    result, _records = run_sentinel(transport, _CLAIM, _DOCS, model_slug="minimax/minimax-m2")
@@ -1647,7 +1928,7 @@ index 01b703fb..1993ca1a 100644
 +    assert result2.verdict is SentinelVerdict.UNGROUNDED
 +    assert result2.parsed_ok is True
 diff --git a/tests/roles/test_sentinel_contract.py b/tests/roles/test_sentinel_contract.py
-index 5a28e92c..01bd4b84 100644
+index 5a28e92c..0b7f5a97 100644
 --- a/tests/roles/test_sentinel_contract.py
 +++ b/tests/roles/test_sentinel_contract.py
 @@ -14,6 +14,7 @@ import pytest
@@ -1658,7 +1939,7 @@ index 5a28e92c..01bd4b84 100644
      parse_sentinel_grounded_token,
      parse_sentinel_score,
  )
-@@ -307,3 +308,112 @@ def test_sentinel_mode_invalid_env_raises(monkeypatch):
+@@ -307,3 +308,172 @@ def test_sentinel_mode_invalid_env_raises(monkeypatch):
      monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "guardain")  # typo
      with _pytest.raises(ValueError):
          sentinel_groundedness_mode()
@@ -1668,7 +1949,9 @@ index 5a28e92c..01bd4b84 100644
 +# Mapping: "supported" -> GROUNDED, "unsupported" -> UNGROUNDED. EVERY parse failure / missing /
 +# off-enum / non-string fails CLOSED to UNGROUNDED parsed_ok=False. NO silent GROUNDED on bad input.
 +def test_decomposition_supported_json_maps_grounded() -> None:
-+    raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
++    # Full decomposition contract (non-empty atoms + unsupported_atoms == 0) -> GROUNDED.
++    raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
++           '"atoms": [{"atom": "x", "status": "supported"}]}')
 +    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
 +
 +
@@ -1682,8 +1965,10 @@ index 5a28e92c..01bd4b84 100644
 +@pytest.mark.parametrize(
 +    "raw,verdict",
 +    [
-+        ('{"verdict": "SUPPORTED"}', SentinelVerdict.GROUNDED),       # case-insensitive
-+        ('{"verdict": " supported "}', SentinelVerdict.GROUNDED),     # whitespace tolerant
++        # supported cases carry the full contract (atoms + count) so they reach GROUNDED;
++        # this isolates VERDICT-TOKEN casing/whitespace parsing, not the contract gate.
++        ('{"verdict": "SUPPORTED", "unsupported_atoms": 0, "atoms": [{"atom": "x", "status": "supported"}]}', SentinelVerdict.GROUNDED),       # case-insensitive
++        ('{"verdict": " supported ", "unsupported_atoms": 0, "atoms": [{"atom": "x", "status": "supported"}]}', SentinelVerdict.GROUNDED),     # whitespace tolerant
 +        ('{"verdict": "Unsupported"}', SentinelVerdict.UNGROUNDED),
 +    ],
 +)
@@ -1694,7 +1979,8 @@ index 5a28e92c..01bd4b84 100644
 +
 +
 +def test_decomposition_fenced_json_parses() -> None:
-+    raw = '```json\n{"verdict": "supported", "atoms": []}\n```'
++    raw = ('```json\n{"verdict": "supported", "unsupported_atoms": 0, '
++           '"atoms": [{"atom": "x", "status": "supported"}]}\n```')
 +    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
 +
 +
@@ -1707,7 +1993,8 @@ index 5a28e92c..01bd4b84 100644
 +
 +def test_decomposition_trailing_comma_json_parses() -> None:
 +    # The certified _strip_json repairs a trailing comma before the closing brace.
-+    raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": [],}'
++    raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
++           '"atoms": [{"atom": "x", "status": "supported"}],}')
 +    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
 +
 +
@@ -1747,14 +2034,68 @@ index 5a28e92c..01bd4b84 100644
 +    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
 +
 +
-+def test_decomposition_both_verdicts_takes_object_verdict_key() -> None:
-+    # A nested 'unsupported' atom plus a top-level "supported" verdict: the TOP-LEVEL verdict key
-+    # is authoritative (the certified harness reads parsed['verdict']). Still a clean parse.
++def test_decomposition_supported_verdict_with_unsupported_atom_vetoes_to_ungrounded() -> None:
++    # SAFETY (Codex diff-gate iter-3 P1): a top-level "supported" verdict that SIMULTANEOUSLY
++    # reports an unsupported atom (unsupported_atoms=1 + atom status "unsupported") is INTERNALLY
++    # CONTRADICTORY. The PRODUCTION parser — not an upstream harness — must VETO this to UNGROUNDED;
++    # trusting the top-level "supported" would be a fail-OPEN path (a fabricated claim -> VERIFIED).
 +    raw = ('{"atoms": [{"atom": "a", "status": "unsupported"}], '
 +           '"unsupported_atoms": 1, "verdict": "supported"}')
-+    # The decomposition contract trusts the model's own top-level verdict; the atom-count
-+    # fail-closed union is applied UPSTREAM in the certified harness, not re-derived here.
++    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++
++
++def test_decomposition_supported_verdict_clean_atoms_stays_grounded() -> None:
++    # The complement: a "supported" verdict with NO unsupported atoms is a clean GROUNDED parse.
++    raw = '{"atoms": [{"atom": "a", "status": "supported"}], "unsupported_atoms": 0, "verdict": "supported"}'
 +    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
++
++
++_ATOMS = '"atoms":[{"atom":"x","status":"supported"}]'  # full-contract atoms list (isolates count logic)
++
++
++def test_decomposition_quoted_unsupported_atoms_count_vetoes_to_ungrounded() -> None:
++    # Codex diff-gate iter-4 P1: JSON-mode models can QUOTE the count ("unsupported_atoms": "1").
++    # A bare numeric check would miss it -> fail-OPEN. The parser coerces int-like strings and
++    # vetoes, and fail-closes on a present-but-non-coercible count under a "supported" verdict.
++    # (Full-contract atoms present so these reach the count veto, not the contract gate.)
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"1",%s}' % _ATOMS) == \
++        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"abc",%s}' % _ATOMS) == \
++        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":1.5,%s}' % _ATOMS) == \
++        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
++    # A quoted clean zero with full-contract atoms is still GROUNDED.
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"0",%s}' % _ATOMS) == \
++        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
++
++
++def test_decomposition_non_numeric_unsupported_atoms_vetoes_to_ungrounded() -> None:
++    # Codex diff-gate iter-5 P1 (continuing iter-4): a JSON bool/null/container as
++    # "unsupported_atoms" under a "supported" verdict is a PRESENT-but-non-coercible count.
++    # A bare `is not None` check would treat bool/null like an absent key and fail-OPEN.
++    # Any present-but-non-clean-zero count vetoes to UNGROUNDED (full-contract atoms present so the
++    # count veto, parsed_ok=True, is reached rather than the contract gate).
++    for present_value in ("true", "false", "null", "[]", '["a"]', "{}"):
++        payload = '{"verdict":"supported","unsupported_atoms":%s,%s}' % (present_value, _ATOMS)
++        assert parse_sentinel_decomposition(payload) == \
++            SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True), present_value
++    # PRESENT clean numeric zero with full-contract atoms stays GROUNDED.
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":0,%s}' % _ATOMS) == \
++        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
++
++
++def test_decomposition_supported_without_full_contract_fails_closed() -> None:
++    # Codex BRIEF-gate P1 (NEW fail-open the diff gate missed): a top-level "supported" verdict that
++    # OMITS the decomposition contract did no per-atom span-coverage work. Trusting it as GROUNDED is
++    # a fail-OPEN — a bare/truncated/non-atomized "supported" could release a fabricated claim if the
++    # Judge verifies. EVERY such case fails CLOSED to UNGROUNDED parsed_ok=False.
++    fail_closed = SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
++    assert parse_sentinel_decomposition('{"verdict":"supported"}') == fail_closed                         # bare
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":0}') == fail_closed   # no atoms
++    assert parse_sentinel_decomposition('{"verdict":"supported","atoms":[]}') == fail_closed              # empty atoms
++    assert parse_sentinel_decomposition('{"verdict":"supported","atoms":[{"atom":"x","status":"supported"}]}') == fail_closed  # no count
++    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":0,"atoms":["nope"]}') == fail_closed       # no atom OBJECT
++    # Validated against the cert cache: all 25 real "supported" outputs carry both -> zero false-drops.
 +
 +
 +def test_decomposition_never_silently_grounded_anti_inversion() -> None:
@@ -1772,10 +2113,10 @@ index 5a28e92c..01bd4b84 100644
 +        if not (result.verdict is SentinelVerdict.GROUNDED and result.parsed_ok):
 +            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)
 diff --git a/tests/roles/test_sweep_integration.py b/tests/roles/test_sweep_integration.py
-index 7e6f4a1d..b8e686e4 100644
+index 7e6f4a1d..c6b1cefd 100644
 --- a/tests/roles/test_sweep_integration.py
 +++ b/tests/roles/test_sweep_integration.py
-@@ -64,12 +64,16 @@ class MockTransport:
+@@ -64,12 +64,18 @@ class MockTransport:
                  citations=[CitationSpan(span_start=0, span_end=8, doc_ids=("doc1",))],
              )
          if request.role == "sentinel":
@@ -1791,13 +2132,24 @@ index 7e6f4a1d..b8e686e4 100644
 +            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
 +                verdict = "supported" if self._sentinel_grounded else "unsupported"
 +                n = "0" if self._sentinel_grounded else "1"
++                # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty
++                # atoms list + count, else the parser fails closed (bare/non-atomized supported).
 +                raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-+                            + n + ', "atoms": []}')
++                            + n + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
 +            elif "<guardian>" in final_instruction:
                  raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
              else:
                  raw_text = "GROUNDED" if self._sentinel_grounded else "UNGROUNDED"
-@@ -228,13 +232,18 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
+@@ -219,7 +225,7 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
+     bad = FourRoleClaim(
+         claim_id="bad",
+         claim_text="A different unrelated dosing statement.",
+-        evidence_documents=[EvidenceDocument(doc_id="doc1", text="x")],
++        evidence_documents=[EvidenceDocument(doc_id="doc1", text="UNGROUNDED_EV_MARKER")],
+         severity="S1",
+         s0_categories=[],
+         covered_element_ids=["elem-2"],
+@@ -228,13 +234,27 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
      class _Mixed(MockTransport):
          def complete(self, request: RoleRequest) -> RoleResponse:
              # Sentinel UNGROUNDED only for the 'bad' claim's evidence text. Emit the format
@@ -1806,16 +2158,29 @@ index 7e6f4a1d..b8e686e4 100644
 +            # matching the active groundedness mode (I-run11-002 L1 + I-run11-004) so canned output
 +            # pairs with the parser run_sentinel selected (decomposition JSON by default).
              if request.role == "sentinel":
-                 docs = request.params.get("documents", [])
-                 grounded = not any(d.get("text") == "x" for d in docs)
+-                docs = request.params.get("documents", [])
+-                grounded = not any(d.get("text") == "x" for d in docs)
                  final_instruction = request.messages[-1]["content"] if request.messages else ""
 -                if "<guardian>" in final_instruction:
++                # The 'bad' claim is identified by its distinctive evidence marker, found in the
++                # documents (guardian/noninverted layout) OR inline in the decomposition span
++                # (I-run11-004 P1-2: decomposition carries NO documents — the span is in the prompt).
++                docs = request.params.get("documents", [])
++                marker = "UNGROUNDED_EV_MARKER"
++                grounded = not (
++                    any(marker in (d.get("text") or "") for d in docs)
++                    or marker in final_instruction
++                )
 +                if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
 +                    verdict = "supported" if grounded else "unsupported"
 +                    n = "0" if grounded else "1"
++                    # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a
++                    # non-empty atoms list + count, else the parser fails closed.
 +                    raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-+                                + n + ', "atoms": []}')
++                                + n + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
 +                elif "<guardian>" in final_instruction:
                      raw_text = "<score>no</score>" if grounded else "<score>yes</score>"
                  else:
                      raw_text = "GROUNDED" if grounded else "UNGROUNDED"
+
+# canonical-diff-sha256: 1ff0f1909768398193caae8448d052fb25ae3beecc3f22d250a806d0157492ed
