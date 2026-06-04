@@ -2503,6 +2503,136 @@ async def run_one_query(
             except Exception as exc:
                 _log(f"[deepener]    FAILED (fail-open): {exc}")
 
+        # I-cap-002 feature 3/4 (#1060): agentic search as URL-DISCOVERY. Default OFF (it SPENDS +
+        # makes network calls). The agentic loop DISCOVERS additional high-quality URLs; those URLs are
+        # fetched VERBATIM through the SAME run_live_retrieval(seed_urls=…, seed_only=True) chokepoint
+        # the deepener uses, so each discovered source earns its tier only from fetched content and is
+        # strict_verify'd + 4-role-checked identically. The agentic notebook/summaries are NEVER read
+        # (faithfulness: no model paraphrase can become a direct_quote). Budget: content reading is
+        # forced OFF (the only un-enveloped LLM term) and a CONSERVATIVE envelope (rounds × per-round)
+        # is booked + the cap ENFORCED BEFORE the loop (STORM pattern); the loop runs in an ISOLATED
+        # context so its real spend is discarded (the envelope IS the parent's accounting). Fail-open:
+        # any agentic/fetch/merge error leaves the post-deepener corpus untouched.
+        if os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
+            "1", "true", "True",
+        ):
+            import asyncio as _ag_asyncio
+            import contextvars as _ag_cv
+            import src.polaris_graph.agents.searcher as _ag_mod
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient as _AgClient,
+                PG_GENERATOR_MODEL as _AG_MODEL,
+                _RUN_COST_CTX,
+                check_run_budget as _ag_check_budget,
+            )
+            from src.polaris_graph.retrieval.agentic_url_harvester import (
+                harvest_agentic_urls,
+                merge_seed_url_evidence,
+            )
+
+            # Conservative cost envelope: with content reading OFF the only LLM work is the per-round
+            # analysis (<= PG_AGENTIC_MAX_ROUNDS calls). Book it + enforce the cap BEFORE the loop.
+            _ag_max_rounds = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "12"))
+            _ag_per_round_usd = float(os.getenv("PG_AGENTIC_PER_ROUND_COST_USD", "0.10"))
+            _ag_cost_envelope = max(0.0, _ag_max_rounds * _ag_per_round_usd)
+            if _ag_cost_envelope > 0:
+                _RUN_COST_CTX.set(current_run_cost() + _ag_cost_envelope)
+            # Raises BudgetExceededError (-> the sweep's abort_budget_exceeded handler) if the agentic
+            # envelope would breach the cap. This precedes the try, so it PROPAGATES (matches STORM) —
+            # the fail-open except below must NEVER swallow a budget abort.
+            _ag_check_budget(0)
+            _ag_url_cap = max(0, int(os.getenv("PG_AGENTIC_BENCHMARK_URL_CAP", "100")))
+            _ag_urls: list[str] = []
+            # Create the client AFTER the budget precheck so a clean envelope-breach abort does not
+            # leave an unclosed client.
+            _ag_client = _AgClient(model=_AG_MODEL)
+            _ag_ctx = _ag_cv.copy_context()
+            _ag_prev_reading = _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED
+            _ag_prev_enabled = _ag_mod.PG_AGENTIC_SEARCH_ENABLED
+            # Force content reading OFF (we discard the notebook anyway; this removes the only
+            # un-enveloped LLM term so the budget envelope is airtight). Toggle the import-cached module
+            # constants for the call; restore BOTH in finally.
+            _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = False
+            _ag_mod.PG_AGENTIC_SEARCH_ENABLED = True
+            try:
+                _ag_state = {
+                    "original_query": q["question"],
+                    "region": q.get("region", "global"),
+                    "sub_queries": list(_amplified_effective),
+                    "web_results": [],
+                    "academic_results": [],
+                }
+                _ag_result = await _ag_asyncio.create_task(
+                    _ag_mod.execute_agentic_search(_ag_state, _ag_client),
+                    context=_ag_ctx,
+                )
+                # Harvest URLs ONLY, then DISCARD the full result immediately so no notebook/summary
+                # field is in scope near the merge below (faithfulness defense-in-depth).
+                _ag_urls = harvest_agentic_urls(_ag_result, cap=_ag_url_cap)
+                del _ag_result
+                _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
+            except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
+                _log(
+                    f"[agentic]     agentic discovery failed: {_ag_exc} — "
+                    f"proceeding without agentic URLs"
+                )
+                _ag_urls = []
+            finally:
+                _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = _ag_prev_reading
+                _ag_mod.PG_AGENTIC_SEARCH_ENABLED = _ag_prev_enabled
+                try:
+                    await _ag_client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            if _ag_urls:
+                try:
+                    agentic_retrieval = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=[],
+                        protocol=protocol,
+                        fetch_cap=min(len(_ag_urls), _ag_url_cap),
+                        enable_openalex_enrich=True,
+                        enable_prefetch_filter=False,
+                        seed_urls=_ag_urls,
+                        seed_only=True,   # ONLY the agentic URLs — no Serper/S2/domain fan-out
+                    )
+                    # ATOMIC merge via the pure helper (dedup by URL + global ev_### renumber), then
+                    # recompute dist/completeness/adequacy over the staged corpus and COMMIT only after
+                    # every recompute succeeds — mirrors the deepener so a recompute error leaves the
+                    # post-deepener corpus untouched (the outer except is fail-open).
+                    _ag_sources, _ag_rows, _ag_acc_src, _ag_acc_rows = merge_seed_url_evidence(
+                        retrieval.classified_sources,
+                        retrieval.evidence_rows,
+                        agentic_retrieval.classified_sources,
+                        agentic_retrieval.evidence_rows,
+                    )
+                    _ag_dist = compute_tier_distribution(_ag_sources, protocol)
+                    if not _use_research_planner:
+                        _ag_completeness = check_completeness(
+                            domain=q["domain"],
+                            research_question=q["question"],
+                            evidence_rows=_ag_rows,
+                        )
+                    else:
+                        _ag_completeness = completeness
+                    _ag_adequacy = assess_corpus_adequacy(
+                        tier_counts=_ag_dist.tier_counts,
+                        evidence_row_count=len(_ag_rows),
+                        domain=q["domain"],
+                        protocol=protocol,
+                    )
+                    retrieval.classified_sources = _ag_sources
+                    retrieval.evidence_rows = _ag_rows
+                    dist = _ag_dist
+                    completeness = _ag_completeness
+                    adequacy = _ag_adequacy
+                    _log(f"[agentic]     merged +{_ag_acc_rows} evidence rows from "
+                         f"+{_ag_acc_src} sources (post-chokepoint); adequacy={adequacy.decision} "
+                         f"uncovered={completeness.total_uncovered}")
+                except Exception as _ag_merge_exc:  # noqa: BLE001 — fail-open
+                    _log(f"[agentic]     merge FAILED (fail-open): {_ag_merge_exc}")
+
         # I-meta-002-q1d (#945): all retrieval (base + R-6 + deepener) is complete here — flush the
         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
