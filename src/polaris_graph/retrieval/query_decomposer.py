@@ -15,6 +15,7 @@ are preserved BY CONSTRUCTION.
 
 from __future__ import annotations
 
+import os
 import re
 
 # Content-word tokenization (stopword-filtered, 3+ chars) — mirrors the lexical notion used by the
@@ -33,7 +34,9 @@ MIN_FRAGMENT_CONTENT_WORDS = 3
 MIN_SPLIT_CONTENT_WORDS = 4
 # Hard cap on emitted sub-queries (keeps the per-question query fan-out bounded; PR1's total
 # fetch_cap + rerank keep the corpus bounded regardless).
-DEFAULT_MAX_SUBQUERIES = 6
+# I-cap-001 (#1059) Part A: un-throttled to Tier-A SOTA (operator-approved 6->15) + made env-overridable
+# (LAW VI). The default IS full capability (no-downgrade directive) — a run with no env set fans out to 15.
+DEFAULT_MAX_SUBQUERIES = int(os.getenv("PG_MAX_SUBQUERIES", "15"))
 
 # Top-level connective boundaries we MAY split on (only when both sides are query-like).
 # "vs." is normalized to "vs" up front so it never reaches the terminator regex as a period.
