@@ -17,3 +17,8 @@ roles:
     model: qwen/qwen3.6-35b-a3b
     order: [wandb, atlas-cloud]
     ignore: [akashml]
+# served display provider name -> routing slug (camelCase + spaced cases the naive fold would break)
+provider_aliases:
+  "Friendli": friendli
+  "AtlasCloud": atlas-cloud
+  "Io Net": io-net

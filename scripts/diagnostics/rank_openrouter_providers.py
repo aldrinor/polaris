@@ -95,6 +95,11 @@ def rank(eps: list[dict]) -> tuple[list[str], list[str], list[str]]:
     return order, ignore, notes
 
 
+def _slug_of(e: dict) -> str:
+    tag = e.get("tag") or ""
+    return tag.split("/")[0] if tag else (e.get("provider_name") or "").lower().replace(" ", "-")
+
+
 def main():
     out_lines = [
         "# I-run11-007 (#1051): per-role OpenRouter provider routing — ranked HEALTHY chain.",
@@ -105,11 +110,16 @@ def main():
         "roles:",
     ]
     print(f"floor={UPTIME_FLOOR} top_n={TOP_N}\n")
+    aliases: dict[str, str] = {}  # served display provider_name -> routing slug (for empty-retry exclusion)
     for role, model in ROLE_MODELS.items():
         try:
             eps = endpoints(model)
         except Exception as ex:  # noqa: BLE001
             print(f"{role} {model}: FETCH ERROR {str(ex)[:80]}"); continue
+        for e in eps:
+            name = e.get("provider_name")
+            if name:
+                aliases.setdefault(name, _slug_of(e))
         order, ignore, notes = rank(eps)
         print(f"{role:10} ({model}): order={order}  ignore={ignore}  {notes}")
         out_lines += [
@@ -120,6 +130,13 @@ def main():
         ]
         if notes:
             out_lines.append(f"    notes: \"{'; '.join(notes)}\"")
+    # provider_aliases: maps the served display `provider` (e.g. 'AtlasCloud', 'Io Net') back to the
+    # routing slug ('atlas-cloud', 'io-net') so the empty-retry excludes the SAME identity that
+    # `provider.ignore`/`order` use (Codex diff-gate iter-1 P1 — a naive lower/space-fold mis-maps
+    # camelCase providers like AtlasCloud -> atlascloud).
+    out_lines.append("provider_aliases:")
+    for name in sorted(aliases):
+        out_lines.append(f"  {json.dumps(name)}: {aliases[name]}")
     os.makedirs("config/settings", exist_ok=True)
     with open("config/settings/openrouter_provider_routing.yaml", "w", encoding="utf-8") as f:
         f.write("\n".join(out_lines) + "\n")

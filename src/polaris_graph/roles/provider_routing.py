@@ -33,19 +33,35 @@ def _enabled() -> bool:
     return os.getenv(_ENABLE_ENV, "1").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _roles_config() -> dict:
+def _full_config() -> dict:
     path = os.getenv(_CONFIG_PATH_ENV, _DEFAULT_CONFIG_PATH)
     if path in _cache:
         return _cache[path]
     p = Path(path)
-    if not p.is_file():
-        _cache[path] = {}
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    roles = data.get("roles") if isinstance(data, dict) else None
-    result = roles if isinstance(roles, dict) else {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+    result = data if isinstance(data, dict) else {}
     _cache[path] = result
     return result
+
+
+def _roles_config() -> dict:
+    roles = _full_config().get("roles")
+    return roles if isinstance(roles, dict) else {}
+
+
+def slug_for_provider(provider: str | None) -> str | None:
+    """Map a served `provider` DISPLAY name (OpenRouter response field, e.g. 'AtlasCloud', 'Io Net')
+    back to the routing SLUG ('atlas-cloud', 'io-net') that `provider.order`/`ignore` use, via the
+    config's `provider_aliases` map. Falls back to a lower/space-fold for providers not in the map.
+    Returns the input unchanged if falsy. (Codex diff-gate iter-1 P1: a naive fold mis-maps camelCase
+    providers, so the empty-retry could ignore an identity OpenRouter does not match -> retry the same
+    blank provider.)"""
+    if not provider:
+        return provider
+    aliases = _full_config().get("provider_aliases")
+    if isinstance(aliases, dict) and provider in aliases:
+        return str(aliases[provider])
+    return provider.strip().lower().replace(" ", "-")
 
 
 def reset_cache() -> None:

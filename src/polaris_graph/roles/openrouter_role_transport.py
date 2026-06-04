@@ -103,7 +103,11 @@ from src.polaris_graph.roles.openai_compatible_transport import (
     _separate_reasoning,
     _sanitize_raw_for_capture,
 )
-from src.polaris_graph.roles.provider_routing import apply_provider_routing, role_provider_routing
+from src.polaris_graph.roles.provider_routing import (
+    apply_provider_routing,
+    role_provider_routing,
+    slug_for_provider,
+)
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
 logger = logging.getLogger(__name__)
@@ -733,10 +737,10 @@ class OpenRouterRoleTransport:
                     _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now crossed.
                     # I-run11-007 (#1051): exclude the provider that just returned blank so the NEXT
                     # attempt advances to the next HEALTHY provider in the ranked order (OpenRouter
-                    # will NOT auto-advance on an empty 200). The served `provider` is the display
-                    # name; OpenRouter accepts it in `ignore` (verified it accepts the same names in
-                    # `order`). Persists across the reasoning-effort step-down too.
-                    blanked_provider = raw.get("provider")
+                    # will NOT auto-advance on an empty 200). The served `provider` is the DISPLAY
+                    # name; map it back to the routing SLUG so `ignore` uses the SAME identity as
+                    # `order` (Codex diff-gate iter-1 P1). Persists across the reasoning step-down too.
+                    blanked_provider = slug_for_provider(raw.get("provider"))
                     if blanked_provider and isinstance(body.get("provider"), dict):
                         ignore_list = body["provider"].setdefault("ignore", [])
                         if blanked_provider not in ignore_list:

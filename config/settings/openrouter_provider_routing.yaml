@@ -6,19 +6,46 @@
 roles:
   generator:
     model: deepseek/deepseek-v4-pro
-    order: [streamlake, alibaba, siliconflow, novita, deepseek, venice]
-    ignore: [baidu, gmicloud, atlas-cloud, fireworks, together]
+    order: [streamlake, siliconflow, novita, alibaba, deepseek, venice]
+    ignore: [baidu, gmicloud, atlas-cloud, fireworks, digitalocean, together]
   mirror:
     model: z-ai/glm-5.1
-    order: [friendli, fireworks, io-net, siliconflow, baidu, deepinfra]
-    ignore: [chutes, phala, baseten, together, parasail, ambient, inceptron]
+    order: [friendli, io-net, parasail, fireworks, baidu, siliconflow]
+    ignore: [chutes, phala, baseten, together, ambient]
     notes: "some providers have NULL uptime (ranked last)"
   sentinel:
     model: minimax/minimax-m2
-    order: [novita, minimax, atlas-cloud, google-vertex]
+    order: [google-vertex, novita, atlas-cloud, minimax]
     ignore: []
     notes: "some providers have NULL uptime (ranked last)"
   judge:
     model: qwen/qwen3.6-35b-a3b
-    order: [wandb, io-net, atlas-cloud, ambient, parasail]
-    ignore: [akashml, siliconflow]
+    order: [wandb, io-net, atlas-cloud]
+    ignore: [ambient, parasail, akashml, siliconflow]
+provider_aliases:
+  "AkashML": akashml
+  "Alibaba": alibaba
+  "Ambient": ambient
+  "AtlasCloud": atlas-cloud
+  "Baidu": baidu
+  "BaseTen": baseten
+  "Chutes": chutes
+  "DeepInfra": deepinfra
+  "DeepSeek": deepseek
+  "DigitalOcean": digitalocean
+  "Fireworks": fireworks
+  "Friendli": friendli
+  "GMICloud": gmicloud
+  "Google": google-vertex
+  "Inceptron": inceptron
+  "Io Net": io-net
+  "Minimax": minimax
+  "Novita": novita
+  "Parasail": parasail
+  "Phala": phala
+  "SiliconFlow": siliconflow
+  "StreamLake": streamlake
+  "Together": together
+  "Venice": venice
+  "WandB": wandb
+  "Z.AI": z-ai

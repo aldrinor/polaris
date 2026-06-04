@@ -93,10 +93,12 @@ def _completion(provider: str, content: str):
 
 
 def test_empty_response_excludes_provider_and_retries(_routing_on):
-    # 1st provider (friendli) returns an empty 200 (the blank); 2nd returns a real cited answer.
+    # 1st provider returns an empty 200 (the blank); the served `provider` is the DISPLAY name
+    # "Friendli" — the retry must exclude the routing SLUG "friendli" (Codex iter-1 P1), not the
+    # display form, so OpenRouter actually advances to the next healthy provider.
     handler, state = _sequence_handler([
-        _completion("friendli", ""),                      # blank -> must exclude + retry
-        _completion("fireworks", "<co>x</co:d1>"),        # healthy fallback
+        _completion("Friendli", ""),                      # blank (DISPLAY name) -> exclude slug + retry
+        _completion("Fireworks", "<co>x</co:d1>"),        # healthy fallback
     ])
     transport = OpenRouterRoleTransport(httpx.Client(transport=httpx.MockTransport(handler)))
     req = RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide", params={})
@@ -108,7 +110,19 @@ def test_empty_response_excludes_provider_and_retries(_routing_on):
     assert len(state["bodies"]) == 2
     # 1st attempt: routed to the ranked order, friendli NOT yet ignored
     assert "friendli" not in (state["bodies"][0]["provider"].get("ignore") or [])
-    # 2nd attempt: the blanked provider (friendli) was added to ignore so OpenRouter advances
+    # 2nd attempt: the blanked provider's SLUG (friendli, mapped from display "Friendli") is ignored
     assert "friendli" in state["bodies"][1]["provider"]["ignore"]
     # the pre-configured ignores survive the retry too
     assert "phala" in state["bodies"][1]["provider"]["ignore"]
+
+
+def test_served_display_name_maps_to_slug(_routing_on):
+    # the camelCase / spaced display names a naive lower/space-fold would mis-map
+    from src.polaris_graph.roles.provider_routing import slug_for_provider
+
+    assert slug_for_provider("AtlasCloud") == "atlas-cloud"   # alias map (naive fold -> 'atlascloud')
+    assert slug_for_provider("Io Net") == "io-net"
+    assert slug_for_provider("Friendli") == "friendli"
+    # not in the map -> best-effort fold
+    assert slug_for_provider("SomeNewProvider") == "somenewprovider"
+    assert slug_for_provider(None) is None
