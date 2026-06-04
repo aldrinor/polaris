@@ -103,6 +103,11 @@ from src.polaris_graph.roles.openai_compatible_transport import (
     _separate_reasoning,
     _sanitize_raw_for_capture,
 )
+from src.polaris_graph.roles.provider_routing import (
+    apply_provider_routing,
+    role_provider_routing,
+    slug_for_provider,
+)
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
 logger = logging.getLogger(__name__)
@@ -478,7 +483,9 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # (openrouter_client.py:1484-1487, OPENROUTER_REQUIRE_PARAMETERS default "true"). The
         # I-bug-946 singleton-routing half (resolved per-role provider) is M4/PENDING and
         # intentionally NOT here.
-        body["provider"] = {"require_parameters": True}
+        # I-run11-007 (#1051): pin to the ranked HEALTHY provider chain (order + ignore +
+        # allow_fallbacks:False) so a verifier call never lands on a slow/flaky provider.
+        body["provider"] = apply_provider_routing({"require_parameters": True}, request.role)
         # I-meta-008 FULL-POWER (CORRECTS #1017): a reasoning verifier MUST carry a GENEROUS top-level
         # `max_tokens`, NOT have it popped. OpenRouter `effort=xhigh` allocates ~95% of `max_tokens`
         # to the reasoning budget, and `max_tokens` MUST be strictly higher than that budget so the
@@ -503,6 +510,12 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
         # on an unknown provider default (no pop-and-hope). Small budget is plenty for a label verdict.
         body["max_tokens"] = int(os.getenv("PG_SENTINEL_MAX_TOKENS", "256"))
+        # I-run11-007 (#1051): pin the non-reasoning role to its ranked HEALTHY provider chain too
+        # (NO require_parameters — its slug does not advertise reasoning, so require_parameters would
+        # refuse to route). Only set the block when routing is configured for the role.
+        routed = apply_provider_routing({}, request.role)
+        if routed:
+            body["provider"] = routed
     return body
 
 
@@ -638,8 +651,19 @@ class OpenRouterRoleTransport:
         # Sentinel makes a SINGLE attempt (its body has no `reasoning` block to step down) — its
         # behavior is unchanged.
         reasoning_role = role_reasoning_enabled(request.role, request.model_slug)
+        # I-run11-007 (#1051): a NON-reasoning role made a SINGLE attempt, so a blank from a flaky
+        # provider had no recovery (OpenRouter does not auto-advance on an empty 200). When the role
+        # is PINNED to a ranked provider chain, give it (1 + PG_PROVIDER_BLANK_RETRIES) attempts at
+        # the same effort; each blank excludes the served provider so the retry advances to the next
+        # HEALTHY provider. WITHOUT routing there is no chain to fail over to, so it keeps the original
+        # single attempt (the reasoning-roles-only step-down ladder is unchanged when routing is off).
+        provider_blank_retries = max(0, int(os.getenv("PG_PROVIDER_BLANK_RETRIES", "3")))
+        role_is_routed = role_provider_routing(request.role) is not None
+        non_reasoning_attempts = (1 + provider_blank_retries) if role_is_routed else 1
         effort_ladder: tuple[object, ...] = (
-            _VERIFIER_EFFORT_LADDER if reasoning_role else (_REASONING_EFFORT,)
+            _VERIFIER_EFFORT_LADDER
+            if reasoning_role
+            else (_REASONING_EFFORT,) * non_reasoning_attempts
         )
         last_blank: BlankVerdictError | None = None
 
@@ -711,6 +735,16 @@ class OpenRouterRoleTransport:
                         compute_role_call_cost(request.model_slug, raw.get("usage"))
                     )
                     _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now crossed.
+                    # I-run11-007 (#1051): exclude the provider that just returned blank so the NEXT
+                    # attempt advances to the next HEALTHY provider in the ranked order (OpenRouter
+                    # will NOT auto-advance on an empty 200). The served `provider` is the DISPLAY
+                    # name; map it back to the routing SLUG so `ignore` uses the SAME identity as
+                    # `order` (Codex diff-gate iter-1 P1). Persists across the reasoning step-down too.
+                    blanked_provider = slug_for_provider(raw.get("provider"))
+                    if blanked_provider and isinstance(body.get("provider"), dict):
+                        ignore_list = body["provider"].setdefault("ignore", [])
+                        if blanked_provider not in ignore_list:
+                            ignore_list.append(blanked_provider)
                     if attempt + 1 < len(effort_ladder):
                         logger.warning(
                             "[polaris graph] #1026: %s blank verdict at reasoning effort=%s "

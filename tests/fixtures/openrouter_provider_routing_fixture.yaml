@@ -1,0 +1,24 @@
+# Deterministic fixture for tests/roles/test_provider_routing.py (I-run11-007 / #1051).
+# Stable hand-authored values so routing tests do not depend on live OpenRouter health data.
+roles:
+  generator:
+    model: deepseek/deepseek-v4-pro
+    order: [alpha, beta, gamma]
+    ignore: [flaky_gen]
+  mirror:
+    model: z-ai/glm-5.1
+    order: [friendli, fireworks, deepinfra]
+    ignore: [phala, together]
+  sentinel:
+    model: minimax/minimax-m2
+    order: [novita, minimax]
+    ignore: []
+  judge:
+    model: qwen/qwen3.6-35b-a3b
+    order: [wandb, atlas-cloud]
+    ignore: [akashml]
+# served display provider name -> routing slug (camelCase + spaced cases the naive fold would break)
+provider_aliases:
+  "Friendli": friendli
+  "AtlasCloud": atlas-cloud
+  "Io Net": io-net
