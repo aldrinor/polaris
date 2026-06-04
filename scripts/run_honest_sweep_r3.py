@@ -5093,54 +5093,74 @@ async def run_one_query(
         # nli_status:"unavailable" LOUDLY (NliUnavailableError), never a false clean pass. Default OFF
         # (heavy deps; the live model loads on the VM, not the dev loop — §8.4); Gate-B activates it.
         if os.environ.get("PG_NLI_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
-            from src.polaris_graph.retrieval.nli_benchmark_annotator import (
-                NliUnavailableError,
-                annotate_nli_entailment,
-                build_nli_pairs,
-            )
-            _nli_threshold = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
+            # Codex diff-gate iter-1 P1: ALL NLI setup (import + threshold parse + pair build) lives
+            # inside fail-open guards so a bad PG_NLI_DISPUTE_THRESHOLD value or an import hiccup records
+            # nli_status:"error" instead of ABORTING run_one_query before the manifest is written.
+            # NliUnavailableError is imported first and handled distinctly (model-missing -> unavailable).
             try:
+                from src.polaris_graph.retrieval.nli_benchmark_annotator import (
+                    NliUnavailableError,
+                    annotate_nli_entailment,
+                    build_nli_pairs,
+                )
+            except Exception as _nli_imp_exc:  # noqa: BLE001 — advisory; import failure must not abort
+                _log(f"[nli]         WARN annotator import failed (fail-open): {_nli_imp_exc}")
+                manifest["nli_verification"] = {
+                    "nli_status": "error", "reason": f"import failed: {_nli_imp_exc}",
+                    "advisory": True,
+                }
+            else:
                 _nli_kept: list[dict] = []
-                for _sr in multi.sections:
-                    if getattr(_sr, "dropped_due_to_failure", False):
-                        continue
-                    for _sv in (getattr(_sr, "kept_sentences_pre_resolve", None) or []):
-                        _nli_kept.append({
-                            "sentence": _sv.sentence,
-                            "section": _sr.title,
-                            "tokens": [
-                                {"evidence_id": _t.evidence_id, "start": _t.start, "end": _t.end}
-                                for _t in _sv.tokens
-                            ],
-                        })
-                _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
-                _nli_result = await annotate_nli_entailment(
-                    _nli_pairs, threshold=_nli_threshold
-                )
-                (run_dir / "nli_verification.json").write_text(
-                    json.dumps(_nli_result, indent=2, sort_keys=True, default=str) + "\n",
-                    encoding="utf-8",
-                )
-                manifest["nli_verification"] = _nli_result
-                _log(
-                    f"[nli]         checked={_nli_result['sentences_checked']} "
-                    f"disputed={_nli_result['disputed_count']} "
-                    f"min_prob={_nli_result['min_prob']} (advisory, non-gating)"
-                )
-            except NliUnavailableError as _nli_unavail:
-                # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
-                _log(
-                    f"[nli]         WARN model UNAVAILABLE ({_nli_unavail}) — NLI annotation NOT "
-                    f"produced; surfaced as nli_status=unavailable (NOT a silent clean pass)"
-                )
-                manifest["nli_verification"] = {
-                    "nli_status": "unavailable", "reason": str(_nli_unavail), "advisory": True,
-                }
-            except Exception as _nli_exc:  # noqa: BLE001 — transient scoring fault; advisory, never abort
-                _log(f"[nli]         WARN NLI scoring failed (fail-open): {_nli_exc}")
-                manifest["nli_verification"] = {
-                    "nli_status": "error", "reason": str(_nli_exc), "advisory": True,
-                }
+                try:
+                    _nli_threshold = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
+                    for _sr in multi.sections:
+                        if getattr(_sr, "dropped_due_to_failure", False):
+                            continue
+                        for _sv in (getattr(_sr, "kept_sentences_pre_resolve", None) or []):
+                            _nli_kept.append({
+                                "sentence": _sv.sentence,
+                                "section": _sr.title,
+                                "tokens": [
+                                    {"evidence_id": _t.evidence_id, "start": _t.start, "end": _t.end}
+                                    for _t in _sv.tokens
+                                ],
+                            })
+                    _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
+                    _nli_result = await annotate_nli_entailment(
+                        _nli_pairs, threshold=_nli_threshold
+                    )
+                    # P2.2: disambiguate sentences_checked:0 — record how many delivered sentences were
+                    # eligible vs skipped (no resolvable span), so a clean-looking 0 is not mistaken for
+                    # "verified" when pairs were actually dropped.
+                    _nli_result["eligible_sentences"] = len(_nli_kept)
+                    _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
+                    (run_dir / "nli_verification.json").write_text(
+                        json.dumps(_nli_result, indent=2, sort_keys=True, default=str) + "\n",
+                        encoding="utf-8",
+                    )
+                    manifest["nli_verification"] = _nli_result
+                    _log(
+                        f"[nli]         checked={_nli_result['sentences_checked']} "
+                        f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
+                        f"disputed={_nli_result['disputed_count']} "
+                        f"min_prob={_nli_result['min_prob']} (advisory, non-gating)"
+                    )
+                except NliUnavailableError as _nli_unavail:
+                    # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
+                    _log(
+                        f"[nli]         WARN model UNAVAILABLE ({_nli_unavail}) — NLI annotation NOT "
+                        f"produced; surfaced as nli_status=unavailable (NOT a silent clean pass)"
+                    )
+                    manifest["nli_verification"] = {
+                        "nli_status": "unavailable", "reason": str(_nli_unavail),
+                        "eligible_sentences": len(_nli_kept), "advisory": True,
+                    }
+                except Exception as _nli_exc:  # noqa: BLE001 — transient fault; advisory, never abort
+                    _log(f"[nli]         WARN NLI scoring failed (fail-open): {_nli_exc}")
+                    manifest["nli_verification"] = {
+                        "nli_status": "error", "reason": str(_nli_exc),
+                        "eligible_sentences": len(_nli_kept), "advisory": True,
+                    }
 
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",

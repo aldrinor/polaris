@@ -51,6 +51,34 @@ def test_pairs_clean_tokens_and_concat_all_spans():
     assert pairs[0]["section"] == "Efficacy"
 
 
+def test_pairs_strip_calc_and_atom_artifacts():
+    # Codex diff-gate iter-1 P2.3: [#calc:...] tokens and (atom_NNN) markers must be stripped from the
+    # claim or they create false NLI disputes (the cited span won't entail those artifacts).
+    ev_pool = {"ev_000": {"direct_quote": "Total cost fell to 4.2 million dollars."}}
+    kept = [{
+        "sentence": "Cost fell to $4.2M [#calc:m1:abc123:tco] (atom_007) [#ev:ev_000:0-39]",
+        "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 39}],
+    }]
+    pairs = build_nli_pairs(kept, ev_pool)
+    assert len(pairs) == 1
+    assert "[#calc:" not in pairs[0]["sentence"]
+    assert "atom_007" not in pairs[0]["sentence"]
+    assert "[#ev:" not in pairs[0]["sentence"]
+    assert pairs[0]["sentence"] == "Cost fell to $4.2M"
+
+
+def test_pairs_prefer_direct_quote_over_full_text_for_span():
+    # Codex diff-gate iter-1 P2.1: offsets index into direct_quote/statement (what strict_verify
+    # validates) — a row with BOTH must slice direct_quote, not full_text.
+    ev_pool = {"ev_000": {
+        "direct_quote": "ABCDEFGHIJ",                 # offsets 0-5 -> "ABCDE"
+        "full_text": "zzzzzzzzzzzzzzzzzzzz",           # different bytes; must NOT be sliced
+    }}
+    kept = [{"sentence": "claim", "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 5}]}]
+    pairs = build_nli_pairs(kept, ev_pool)
+    assert pairs[0]["span"] == "ABCDE"
+
+
 def test_pairs_skip_when_no_resolvable_span_or_empty_claim():
     ev_pool = {"ev_000": {"full_text": "short"}}
     kept = [

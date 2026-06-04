@@ -18,16 +18,20 @@ the VM (CLAUDE.md §8.4).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from src.polaris_graph.clinical_generator.provenance import (
-    extract_tokens,
-    strip_tokens,
-)
+from src.polaris_graph.clinical_generator.provenance import strip_tokens
 
-# Field preference for the cited-span text in a benchmark evidence row, mirroring
-# provenance.get_span_text (full_text, else snippet) plus the benchmark row aliases.
-_SPAN_TEXT_FIELDS = ("full_text", "snippet", "direct_quote", "statement", "text", "source_text")
+# Codex diff-gate iter-1 P2.1: the benchmark's provenance offsets index into the row's
+# ``direct_quote`` / ``statement`` (the field strict_verify validates against), so those MUST be tried
+# FIRST — slicing ``full_text`` for a row that carries both would pick the wrong byte range.
+_SPAN_TEXT_FIELDS = ("direct_quote", "statement", "full_text", "snippet", "text", "source_text")
+
+# Codex diff-gate iter-1 P2.3: strip_tokens removes only ``[#ev:...]``; a pre-resolve sentence can still
+# carry ``[#calc:model:hash:field]`` calc tokens and ``(atom_NNN)`` markers that are cleaned from the
+# final delivered prose elsewhere. Strip those too, or they create advisory false NLI disputes.
+_RESIDUAL_ARTIFACT_RE = re.compile(r"\[#calc:[^\]]*\]|\(?\batom_\d+\b\)?")
 
 
 class NliUnavailableError(RuntimeError):
@@ -65,7 +69,9 @@ def build_nli_pairs(
     pairs: list[dict[str, Any]] = []
     for ks in kept_sentences or []:
         raw = ks.get("sentence") or ""
-        claim = strip_tokens(raw).strip()
+        # P2.1: drop [#ev:...] tokens; P2.3: also drop [#calc:...] + (atom_NNN) residuals; collapse ws.
+        claim = _RESIDUAL_ARTIFACT_RE.sub(" ", strip_tokens(raw))
+        claim = re.sub(r"\s+", " ", claim).strip()
         if not claim:
             continue
         spans: list[str] = []
