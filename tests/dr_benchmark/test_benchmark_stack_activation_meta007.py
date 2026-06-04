@@ -22,6 +22,8 @@ def _clear_flags():
     os.environ.pop("PG_DEPTH_ANNOTATION_IN_BENCHMARK", None)
     # I-cap-002 feature 3/4 (#1060): agentic URL-discovery activation flag.
     os.environ.pop("PG_AGENTIC_SEARCH_IN_BENCHMARK", None)
+    # I-cap-002 feature 4/4 (#1060): NLI entailment annotation activation flag.
+    os.environ.pop("PG_NLI_IN_BENCHMARK", None)
 
 
 def test_families_are_four_distinct_lineages():
@@ -55,6 +57,8 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
         captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = os.environ.get(
             "PG_AGENTIC_SEARCH_IN_BENCHMARK"
         )
+        # I-cap-002 feature 4/4 (#1060): NLI entailment annotation must be ON for the benchmark.
+        captured["PG_NLI_IN_BENCHMARK"] = os.environ.get("PG_NLI_IN_BENCHMARK")
         captured["transport"] = kwargs.get("four_role_transport")
         return {"status": "ok"}
 
@@ -71,6 +75,7 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
     assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
     assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "1"    # agentic URL-discovery ON for benchmark
+    assert captured["PG_NLI_IN_BENCHMARK"] == "1"              # NLI entailment annotation ON for benchmark
     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
     _clear_flags()
 
