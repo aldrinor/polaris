@@ -1,0 +1,432 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 15658e3c..89149580 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -463,6 +463,12 @@ async def run_gate_b_query(
+     # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
+     # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
+     os.environ.setdefault("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "1")
++    # I-cap-002 feature 3/4 (#1060): turn on agentic URL-DISCOVERY for the benchmark/paid run ONLY here.
++    # The agentic loop discovers additional URLs that are fetched VERBATIM via the same seed_only
++    # chokepoint + strict_verify + 4-role (notebook/summaries never become evidence). Budget-bounded
++    # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
++    # override (LAW VI).
++    os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
+     if transport is not None:
+         active_transport = transport               # offline/test: injected fake
+     else:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 2a41f44f..28bf5fb5 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2503,6 +2503,136 @@ async def run_one_query(
+             except Exception as exc:
+                 _log(f"[deepener]    FAILED (fail-open): {exc}")
+ 
++        # I-cap-002 feature 3/4 (#1060): agentic search as URL-DISCOVERY. Default OFF (it SPENDS +
++        # makes network calls). The agentic loop DISCOVERS additional high-quality URLs; those URLs are
++        # fetched VERBATIM through the SAME run_live_retrieval(seed_urls=…, seed_only=True) chokepoint
++        # the deepener uses, so each discovered source earns its tier only from fetched content and is
++        # strict_verify'd + 4-role-checked identically. The agentic notebook/summaries are NEVER read
++        # (faithfulness: no model paraphrase can become a direct_quote). Budget: content reading is
++        # forced OFF (the only un-enveloped LLM term) and a CONSERVATIVE envelope (rounds × per-round)
++        # is booked + the cap ENFORCED BEFORE the loop (STORM pattern); the loop runs in an ISOLATED
++        # context so its real spend is discarded (the envelope IS the parent's accounting). Fail-open:
++        # any agentic/fetch/merge error leaves the post-deepener corpus untouched.
++        if os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
++            "1", "true", "True",
++        ):
++            import asyncio as _ag_asyncio
++            import contextvars as _ag_cv
++            import src.polaris_graph.agents.searcher as _ag_mod
++            from src.polaris_graph.llm.openrouter_client import (
++                OpenRouterClient as _AgClient,
++                PG_GENERATOR_MODEL as _AG_MODEL,
++                _RUN_COST_CTX,
++                check_run_budget as _ag_check_budget,
++            )
++            from src.polaris_graph.retrieval.agentic_url_harvester import (
++                harvest_agentic_urls,
++                merge_seed_url_evidence,
++            )
++
++            # Conservative cost envelope: with content reading OFF the only LLM work is the per-round
++            # analysis (<= PG_AGENTIC_MAX_ROUNDS calls). Book it + enforce the cap BEFORE the loop.
++            _ag_max_rounds = int(os.getenv("PG_AGENTIC_MAX_ROUNDS", "12"))
++            _ag_per_round_usd = float(os.getenv("PG_AGENTIC_PER_ROUND_COST_USD", "0.10"))
++            _ag_cost_envelope = max(0.0, _ag_max_rounds * _ag_per_round_usd)
++            if _ag_cost_envelope > 0:
++                _RUN_COST_CTX.set(current_run_cost() + _ag_cost_envelope)
++            # Raises BudgetExceededError (-> the sweep's abort_budget_exceeded handler) if the agentic
++            # envelope would breach the cap. This precedes the try, so it PROPAGATES (matches STORM) —
++            # the fail-open except below must NEVER swallow a budget abort.
++            _ag_check_budget(0)
++            _ag_url_cap = max(0, int(os.getenv("PG_AGENTIC_BENCHMARK_URL_CAP", "100")))
++            _ag_urls: list[str] = []
++            # Create the client AFTER the budget precheck so a clean envelope-breach abort does not
++            # leave an unclosed client.
++            _ag_client = _AgClient(model=_AG_MODEL)
++            _ag_ctx = _ag_cv.copy_context()
++            _ag_prev_reading = _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED
++            _ag_prev_enabled = _ag_mod.PG_AGENTIC_SEARCH_ENABLED
++            # Force content reading OFF (we discard the notebook anyway; this removes the only
++            # un-enveloped LLM term so the budget envelope is airtight). Toggle the import-cached module
++            # constants for the call; restore BOTH in finally.
++            _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = False
++            _ag_mod.PG_AGENTIC_SEARCH_ENABLED = True
++            try:
++                _ag_state = {
++                    "original_query": q["question"],
++                    "region": q.get("region", "global"),
++                    "sub_queries": list(_amplified_effective),
++                    "web_results": [],
++                    "academic_results": [],
++                }
++                _ag_result = await _ag_asyncio.create_task(
++                    _ag_mod.execute_agentic_search(_ag_state, _ag_client),
++                    context=_ag_ctx,
++                )
++                # Harvest URLs ONLY, then DISCARD the full result immediately so no notebook/summary
++                # field is in scope near the merge below (faithfulness defense-in-depth).
++                _ag_urls = harvest_agentic_urls(_ag_result, cap=_ag_url_cap)
++                del _ag_result
++                _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
++            except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
++                _log(
++                    f"[agentic]     agentic discovery failed: {_ag_exc} — "
++                    f"proceeding without agentic URLs"
++                )
++                _ag_urls = []
++            finally:
++                _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = _ag_prev_reading
++                _ag_mod.PG_AGENTIC_SEARCH_ENABLED = _ag_prev_enabled
++                try:
++                    await _ag_client.close()
++                except Exception:  # noqa: BLE001
++                    pass
++
++            if _ag_urls:
++                try:
++                    agentic_retrieval = run_live_retrieval(
++                        research_question=q["question"],
++                        amplified_queries=[],
++                        protocol=protocol,
++                        fetch_cap=min(len(_ag_urls), _ag_url_cap),
++                        enable_openalex_enrich=True,
++                        enable_prefetch_filter=False,
++                        seed_urls=_ag_urls,
++                        seed_only=True,   # ONLY the agentic URLs — no Serper/S2/domain fan-out
++                    )
++                    # ATOMIC merge via the pure helper (dedup by URL + global ev_### renumber), then
++                    # recompute dist/completeness/adequacy over the staged corpus and COMMIT only after
++                    # every recompute succeeds — mirrors the deepener so a recompute error leaves the
++                    # post-deepener corpus untouched (the outer except is fail-open).
++                    _ag_sources, _ag_rows, _ag_acc_src, _ag_acc_rows = merge_seed_url_evidence(
++                        retrieval.classified_sources,
++                        retrieval.evidence_rows,
++                        agentic_retrieval.classified_sources,
++                        agentic_retrieval.evidence_rows,
++                    )
++                    _ag_dist = compute_tier_distribution(_ag_sources, protocol)
++                    if not _use_research_planner:
++                        _ag_completeness = check_completeness(
++                            domain=q["domain"],
++                            research_question=q["question"],
++                            evidence_rows=_ag_rows,
++                        )
++                    else:
++                        _ag_completeness = completeness
++                    _ag_adequacy = assess_corpus_adequacy(
++                        tier_counts=_ag_dist.tier_counts,
++                        evidence_row_count=len(_ag_rows),
++                        domain=q["domain"],
++                        protocol=protocol,
++                    )
++                    retrieval.classified_sources = _ag_sources
++                    retrieval.evidence_rows = _ag_rows
++                    dist = _ag_dist
++                    completeness = _ag_completeness
++                    adequacy = _ag_adequacy
++                    _log(f"[agentic]     merged +{_ag_acc_rows} evidence rows from "
++                         f"+{_ag_acc_src} sources (post-chokepoint); adequacy={adequacy.decision} "
++                         f"uncovered={completeness.total_uncovered}")
++                except Exception as _ag_merge_exc:  # noqa: BLE001 — fail-open
++                    _log(f"[agentic]     merge FAILED (fail-open): {_ag_merge_exc}")
++
+         # I-meta-002-q1d (#945): all retrieval (base + R-6 + deepener) is complete here — flush the
+         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
+         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
+diff --git a/src/polaris_graph/retrieval/agentic_url_harvester.py b/src/polaris_graph/retrieval/agentic_url_harvester.py
+new file mode 100644
+index 00000000..d89db9b7
+--- /dev/null
++++ b/src/polaris_graph/retrieval/agentic_url_harvester.py
+@@ -0,0 +1,116 @@
++"""I-cap-002 feature 3/4 (#1060): harvest DISCOVERED URLs from an agentic-search result + a pure
++seed-URL evidence merge core.
++
++The agentic loop (``agents/searcher.execute_agentic_search``) is used in the benchmark for **URL
++DISCOVERY ONLY**. Its LLM-written page summaries (``agentic_research_notebook``) must NEVER become
++evidence — POLARIS's core invariant is verbatim-span faithfulness, and a model paraphrase masquerading
++as a ``direct_quote`` would be a fabrication. So we read ONLY the discovered URLs here; the discovered
++URLs are then fetched **verbatim** by ``live_retriever.run_live_retrieval(seed_urls=…, seed_only=True)``
++and verified by strict_verify + the 4-role seam, exactly like the rest of the corpus.
++
++Two pure, stdlib-light functions (no network, no LLM, no new dependency):
++- ``harvest_agentic_urls`` — ordered, canonical-deduped, capped list of discovered URLs (originals).
++- ``merge_seed_url_evidence`` — the deepener's dedup-by-URL + global evidence-id renumber core, factored
++  out so it is unit-testable (and a future PR can repoint the deepener at it).
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++from src.polaris_graph.retrieval.saturation import canonical_source_url
++
++
++def harvest_agentic_urls(
++    agentic_result: dict[str, Any] | None,
++    cap: int = 200,
++) -> list[str]:
++    """Return ONLY the discovered URLs from an ``execute_agentic_search`` result.
++
++    Order-preserving and DETERMINISTIC: harvests from the ordered ``web_results`` then
++    ``academic_results`` streams first (these are the authoritative, complete, append-ordered streams —
++    incl. post-loop DDG / citation-chase URLs), then supplements with any ``agentic_url_accumulator``
++    entries not already seen. De-duplicates by ``canonical_source_url`` (scheme/tracking-stripped) but
++    RETURNS the original fetchable URL (canonical strings would hurt the live fetch yield). Returns at
++    most ``cap`` URLs. NEVER reads ``agentic_research_notebook`` / summaries / snippets. Robust to
++    missing/empty keys (returns ``[]`` rather than raising). ``cap <= 0`` → ``[]``.
++    """
++    if cap <= 0:
++        return []
++    result = agentic_result or {}
++    seen_canonical: set[str] = set()
++    out: list[str] = []
++
++    def _consider(raw: Any) -> None:
++        if len(out) >= cap:
++            return
++        url = (raw or "").strip() if isinstance(raw, str) else ""
++        if not url:
++            return
++        try:
++            key = canonical_source_url(url) or url
++        except Exception:  # noqa: BLE001 — a malformed URL must not abort discovery
++            key = url
++        if key in seen_canonical:
++            return
++        seen_canonical.add(key)
++        out.append(url)
++
++    # Ordered result streams first (deterministic, complete).
++    for stream_key in ("web_results", "academic_results"):
++        for rec in result.get(stream_key, []) or []:
++            if len(out) >= cap:
++                return out
++            if isinstance(rec, dict):
++                _consider(rec.get("url"))
++    # Supplement with the accumulator (subset; set-ordered, so appended last for completeness only).
++    for url in result.get("agentic_url_accumulator", []) or []:
++        if len(out) >= cap:
++            return out
++        _consider(url)
++    return out
++
++
++def merge_seed_url_evidence(
++    staged_sources: list[Any],
++    staged_rows: list[dict[str, Any]],
++    new_sources: list[Any],
++    new_rows: list[dict[str, Any]],
++) -> tuple[list[Any], list[dict[str, Any]], int, int]:
++    """Dedup-by-URL source merge + global evidence-id renumber (the deepener's accepted-source core).
++
++    - ``new_sources`` whose ``.url`` is not already among ``staged_sources`` are appended; their URLs
++      form the ACCEPTED set.
++    - Only ``new_rows`` whose source URL (``source_url`` or ``url``) is in the ACCEPTED set are
++      appended — so a duplicate source contributes NO rows (no evidence_row_count inflation).
++    - Appended rows get a fresh ``evidence_id`` = ``ev_{base + i:03d}`` from ``len(staged_rows)`` so ids
++      never collide/overwrite.
++
++    Returns ``(merged_sources, merged_rows, accepted_source_count, accepted_row_count)``. Operates on
++    COPIES; the inputs are not mutated. No I/O.
++    """
++    merged_sources = list(staged_sources)
++    seen_urls = {getattr(s, "url", None) for s in merged_sources}
++    accepted_src_urls: set[str] = set()
++    accepted_sources = 0
++    for src in new_sources:
++        url = getattr(src, "url", None)
++        if url and url not in seen_urls:
++            seen_urls.add(url)
++            merged_sources.append(src)
++            accepted_src_urls.add(url)
++            accepted_sources += 1
++
++    merged_rows = list(staged_rows)
++    base = len(merged_rows)
++    accepted_rows = 0
++    for ev in new_rows:
++        ev_url = (ev.get("source_url") or ev.get("url") or "").strip()
++        if not ev_url or ev_url not in accepted_src_urls:
++            continue  # duplicate / not an accepted source — skip (no inflation)
++        ev = dict(ev)  # copy so the caller's row object is not mutated
++        ev["evidence_id"] = f"ev_{base + accepted_rows:03d}"
++        merged_rows.append(ev)
++        accepted_rows += 1
++
++    return merged_sources, merged_rows, accepted_sources, accepted_rows
+diff --git a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+index 767fc89a..79257d9e 100644
+--- a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
++++ b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+@@ -20,6 +20,8 @@ def _clear_flags():
+     os.environ.pop("PG_ENABLE_QUANTIFIED_ANALYSIS", None)
+     # I-cap-002 feature 2/4 (#1060): advisory analytical-depth annotation activation flag.
+     os.environ.pop("PG_DEPTH_ANNOTATION_IN_BENCHMARK", None)
++    # I-cap-002 feature 3/4 (#1060): agentic URL-discovery activation flag.
++    os.environ.pop("PG_AGENTIC_SEARCH_IN_BENCHMARK", None)
+ 
+ 
+ def test_families_are_four_distinct_lineages():
+@@ -49,6 +51,10 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+         captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = os.environ.get(
+             "PG_DEPTH_ANNOTATION_IN_BENCHMARK"
+         )
++        # I-cap-002 feature 3/4 (#1060): agentic URL-discovery must be ON for the benchmark.
++        captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = os.environ.get(
++            "PG_AGENTIC_SEARCH_IN_BENCHMARK"
++        )
+         captured["transport"] = kwargs.get("four_role_transport")
+         return {"status": "ok"}
+ 
+@@ -64,6 +70,7 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+     assert captured["PG_FOUR_ROLE_MODE"] == "1"
+     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
+     assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
++    assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "1"    # agentic URL-discovery ON for benchmark
+     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
+     _clear_flags()
+ 
+diff --git a/tests/polaris_graph/test_agentic_url_harvester.py b/tests/polaris_graph/test_agentic_url_harvester.py
+new file mode 100644
+index 00000000..0bab8062
+--- /dev/null
++++ b/tests/polaris_graph/test_agentic_url_harvester.py
+@@ -0,0 +1,114 @@
++"""I-cap-002 feature 3/4 (#1060): tests for the agentic URL harvester + the pure seed-URL merge core.
++
++Faithfulness-critical: ``harvest_agentic_urls`` must read ONLY discovered URLs and NEVER the
++``agentic_research_notebook`` summaries. ``merge_seed_url_evidence`` must reject duplicate-URL sources
++and renumber evidence ids without inflation.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++from src.polaris_graph.retrieval.agentic_url_harvester import (
++    harvest_agentic_urls,
++    merge_seed_url_evidence,
++)
++
++
++# --------------------------------------------------------------------------- #
++# harvest_agentic_urls
++# --------------------------------------------------------------------------- #
++
++def test_harvests_ordered_union_of_web_then_academic():
++    result = {
++        "web_results": [{"url": "https://a.com/1"}, {"url": "https://b.com/2"}],
++        "academic_results": [{"url": "https://c.org/3"}],
++        "agentic_url_accumulator": ["https://d.net/4"],
++    }
++    out = harvest_agentic_urls(result)
++    assert out == [
++        "https://a.com/1",
++        "https://b.com/2",
++        "https://c.org/3",
++        "https://d.net/4",
++    ]
++
++
++def test_dedup_by_canonical_keeps_original_fetchable_url():
++    # http vs https of the same canonical resource -> one entry, the FIRST (original) URL is kept.
++    result = {
++        "web_results": [
++            {"url": "https://example.com/paper"},
++            {"url": "http://example.com/paper"},        # same canonical -> dropped
++        ],
++    }
++    out = harvest_agentic_urls(result)
++    assert out == ["https://example.com/paper"]
++    # the returned URL is the original (scheme intact), NOT the scheme-stripped canonical
++    assert out[0].startswith("https://")
++
++
++def test_notebook_and_summaries_are_never_read():
++    # A malicious/である result with a rich notebook + snippets must contribute NOTHING but the urls.
++    result = {
++        "web_results": [{"url": "https://real.com/x", "snippet": "model paraphrase"}],
++        "agentic_research_notebook": [
++            {"summary": "LLM-written paraphrase that must never be evidence", "url": "https://fake/note"},
++        ],
++    }
++    out = harvest_agentic_urls(result)
++    assert out == ["https://real.com/x"]            # notebook url NOT harvested, snippet ignored
++
++
++def test_cap_and_empty_and_malformed_are_safe():
++    assert harvest_agentic_urls(None) == []
++    assert harvest_agentic_urls({}) == []
++    assert harvest_agentic_urls({"web_results": []}) == []
++    assert harvest_agentic_urls({"web_results": [{"url": "https://a/1"}]}, cap=0) == []
++    # malformed records / missing url keys are skipped, not raised
++    safe = harvest_agentic_urls({"web_results": ["not a dict", {"no_url": 1}, {"url": ""}, {"url": "https://ok/1"}]})
++    assert safe == ["https://ok/1"]
++    capped = harvest_agentic_urls(
++        {"web_results": [{"url": f"https://h/{i}"} for i in range(50)]}, cap=10
++    )
++    assert len(capped) == 10
++    assert capped[0] == "https://h/0"
++
++
++# --------------------------------------------------------------------------- #
++# merge_seed_url_evidence
++# --------------------------------------------------------------------------- #
++
++@dataclass
++class _Src:
++    url: str
++
++
++def test_merge_dedup_sources_and_renumber_rows():
++    staged_sources = [_Src("https://a/1")]
++    staged_rows = [{"evidence_id": "ev_000", "source_url": "https://a/1"}]
++    new_sources = [_Src("https://a/1"), _Src("https://b/2")]   # first is a duplicate
++    new_rows = [
++        {"source_url": "https://a/1", "direct_quote": "dup source row -> rejected"},
++        {"source_url": "https://b/2", "direct_quote": "new source row -> accepted"},
++    ]
++    sources, rows, acc_src, acc_rows = merge_seed_url_evidence(
++        staged_sources, staged_rows, new_sources, new_rows
++    )
++    assert acc_src == 1                              # only b/2 is a new source
++    assert acc_rows == 1                             # only the b/2 row is appended
++    assert [s.url for s in sources] == ["https://a/1", "https://b/2"]
++    # the new row was renumbered from the staged base (len==1 -> ev_001), no collision with ev_000
++    assert rows[-1]["evidence_id"] == "ev_001"
++    assert rows[-1]["source_url"] == "https://b/2"
++    assert len(rows) == 2                            # no inflation: the duplicate-source row was dropped
++
++
++def test_merge_does_not_mutate_inputs():
++    staged_sources = [_Src("https://a/1")]
++    staged_rows = [{"evidence_id": "ev_000", "source_url": "https://a/1"}]
++    new_rows = [{"source_url": "https://b/2", "direct_quote": "x"}]
++    merge_seed_url_evidence(staged_sources, staged_rows, [_Src("https://b/2")], new_rows)
++    assert len(staged_sources) == 1                  # caller's list untouched
++    assert len(staged_rows) == 1
++    assert "evidence_id" not in new_rows[0]          # caller's row dict not mutated

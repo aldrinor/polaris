@@ -2555,10 +2555,15 @@ async def run_one_query(
             _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = False
             _ag_mod.PG_AGENTIC_SEARCH_ENABLED = True
             try:
+                # Codex diff-gate iter-1 P2: searcher checks PG_AGENTIC_MAX_QUERIES only BEFORE each
+                # round, so round 1 would issue every seed if upstream expansion grew. Slice the seeds
+                # to the query budget so round-1 spend/runtime stays predictable (the envelope already
+                # bounds total LLM cost; this bounds round-1 fan-out too).
+                _ag_max_queries = max(1, int(os.getenv("PG_AGENTIC_MAX_QUERIES", "160")))
                 _ag_state = {
                     "original_query": q["question"],
                     "region": q.get("region", "global"),
-                    "sub_queries": list(_amplified_effective),
+                    "sub_queries": list(_amplified_effective)[:_ag_max_queries],
                     "web_results": [],
                     "academic_results": [],
                 }
