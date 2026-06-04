@@ -172,9 +172,10 @@ def test_serving_config_judge_structured_outputs_enabled_mirror_plain_chat():
     # Mirror serves plain chat for <co> citations — NO structured-output constraint.
     mirror_args = config["roles"]["mirror"]["vllm_args"]
     assert mirror_args["structured_outputs"] is False
-    # Sentinel emits a <score> element, not JSON — also plain chat.
+    # I-run11-004: the CERTIFIED MiniMax-M2 decomposition Sentinel requests a JSON object, so its
+    # self-host serving config binds structured-outputs (the robust parser also tolerates non-JSON).
     sentinel_args = config["roles"]["sentinel"]["vllm_args"]
-    assert sentinel_args["structured_outputs"] is False
+    assert sentinel_args["structured_outputs"] is True
 
 
 def test_serving_config_gpu_specs_per_role():
@@ -182,7 +183,11 @@ def test_serving_config_gpu_specs_per_role():
     mirror_gpu = config["roles"]["mirror"]["gpu"]
     assert mirror_gpu["count"] == 8 and mirror_gpu["kind"] == "H100"
     sentinel_gpu = config["roles"]["sentinel"]["gpu"]
-    assert sentinel_gpu["count"] == 1 and sentinel_gpu["kind"] == "A100"
+    # I-run11-004: Sentinel is now MiniMax-M2 (~229B MoE) — a 1xA100 80GB is infeasible (~458GB bf16),
+    # so the sovereign self-host topology is an 8x80GB-class box @ fp8 (PENDING GPU procurement #90;
+    # the benchmark stage routes the Sentinel via OpenRouter). Codex diff-gate iter-2 P1-3.
+    assert sentinel_gpu["count"] == 8 and sentinel_gpu["kind"] == "H100"
+    assert config["roles"]["sentinel"]["vllm_args"]["quantization"] == "fp8"
     judge_gpu = config["roles"]["judge"]["gpu"]
     assert judge_gpu["count"] == 1 and judge_gpu["kind"] == "H100"
     # Judge runs fp8 (the lock's vast_self_host_fp8 route).

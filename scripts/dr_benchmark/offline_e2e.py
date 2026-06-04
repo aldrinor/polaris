@@ -218,8 +218,18 @@ class PerClaimFakeRoleTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
             )
         if request.role == "sentinel":
-            # "no" => no risk => GROUNDED (lethal-polarity: yes=risk=ungrounded).
-            return RoleResponse(raw_text="<score>no</score>", served_model=request.model_slug)
+            # GROUNDED in whichever groundedness mode the adapter resolved (I-run11-002 L1 +
+            # I-run11-004): decomposition (MiniMax-M2 default) -> JSON {"verdict": "supported"};
+            # guardian -> `<score>no</score>` (no risk => grounded, lethal-polarity yes=risk);
+            # noninverted -> one-word GROUNDED.
+            final_instruction = request.messages[-1]["content"] if request.messages else ""
+            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                sentinel_raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
+            elif "<guardian>" in final_instruction:
+                sentinel_raw = "<score>no</score>"
+            else:
+                sentinel_raw = "GROUNDED"
+            return RoleResponse(raw_text=sentinel_raw, served_model=request.model_slug)
         if request.role == "judge":
             verdict = (
                 JUDGE_FABRICATED

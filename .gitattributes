@@ -3,3 +3,4 @@
 # the kernel cannot find `/bin/bash\r`) and shebang resolution. I-cd-001 / #494.
 *.sh text eol=lf
 Dockerfile* text eol=lf
+config/architecture/polaris_runtime_lock.yaml text eol=lf

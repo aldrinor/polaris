@@ -578,17 +578,18 @@ def test_full_control_surface_includes_retrieval_creds() -> None:
 
 
 # --- I-meta-002 PR-9/M4: self-host served==pinned (NO NETWORK, stub metadata) -------------
-# The runtime lock pins three self-hosted vLLM verifier roles (serving_route: vast_self_host*):
-#   mirror   -> cohere/command-a-plus           (vast_self_host_bf16)
-#   sentinel -> ibm-granite/granite-guardian-4.1-8b (vast_self_host)
-#   judge    -> qwen/qwen3.6-35b-a3b            (vast_self_host_fp8)
+# The runtime lock pins three self-hosted vLLM verifier roles (serving_route: vast_self_host*).
+# I-run11-004:
+#   mirror   -> z-ai/glm-5.1        (vast_self_host_bf16)
+#   sentinel -> minimax/minimax-m2  (vast_self_host)  — CERTIFIED decomposition detector
+#   judge    -> qwen/qwen3.6-35b-a3b (vast_self_host_fp8)
 # Preflight branches on serving_route (NO OpenRouter resolution; validate PG_<ROLE>_BASE_URL);
 # assert_post_run consumes the M1 _pathb_served {endpoint, model} (flattened by
 # build_response_metadata onto top-level model+endpoint keys) and fails closed on a wrong
 # model / wrong box. These tests inject stub captured-metadata dicts — no real endpoint.
 
-_MIRROR_SLUG = "cohere/command-a-plus"
-_SENTINEL_SLUG = "ibm-granite/granite-guardian-4.1-8b"
+_MIRROR_SLUG = "z-ai/glm-5.1"
+_SENTINEL_SLUG = "minimax/minimax-m2"
 _MIRROR_BASE_URL = "http://10.0.0.5:8000"
 
 

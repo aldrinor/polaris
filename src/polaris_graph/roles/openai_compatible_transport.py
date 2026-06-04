@@ -62,6 +62,13 @@ _EXCLUDED_ROLE = "generator"
 # guard set so an unknown / excluded role fails before any endpoint lookup.
 _SERVED_ROLES = ("mirror", "sentinel", "judge")
 
+# I-run11-004 (Codex diff-gate iter-2 P1-1): self-host decomposition-Sentinel output-budget floor.
+# The certified MiniMax-M2 decomposition call needs max_tokens>=3000 to emit its JSON verdict; a
+# starved cap truncates -> parse failure -> fail-closed UNGROUNDED on every claim. Kept in sync
+# with openrouter_role_transport._SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS.
+_SENTINEL_ROLE = "sentinel"
+_SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS = 3000
+
 # Per-role env var stems: PG_<ROLE>_BASE_URL / PG_<ROLE>_API_KEY (LAW VI: zero hard-coding).
 _BASE_URL_ENV_TEMPLATE = "PG_{role}_BASE_URL"
 _API_KEY_ENV_TEMPLATE = "PG_{role}_API_KEY"
@@ -288,6 +295,15 @@ def _build_body(
     for key in _PASSTHROUGH_PARAM_KEYS:
         if key in params and params[key] is not None:
             body[key] = params[key]
+    # I-run11-004 (Codex diff-gate iter-2 P1-1): floor the SELF-HOST decomposition Sentinel's output
+    # budget so the JSON verdict is never truncated (the run-12 coverage-collapse mode, on the
+    # sovereign path). Decomposition requests are uniquely identified by role==sentinel + a
+    # json_object response_format (guardian/noninverted Sentinel set neither). Floor only; never
+    # lower an explicit higher cap. (`reasoning` is OpenRouter-specific, not a vLLM body key.)
+    if request.role == _SENTINEL_ROLE and isinstance(params.get("response_format"), dict):
+        body["max_tokens"] = max(
+            int(body.get("max_tokens") or 0), _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS
+        )
     return body
 
 

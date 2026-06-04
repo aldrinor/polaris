@@ -19,6 +19,7 @@ deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
 
 from __future__ import annotations
 
+import json
 import re
 from enum import Enum
 from typing import NamedTuple
@@ -162,3 +163,137 @@ def parse_sentinel_grounded_token(raw: str) -> SentinelResult:
         return SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
     # Negated prose, extra tokens, both/neither, repeats, non-clean output -> fail CLOSED.
     return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+
+# === DECOMPOSITION (certified MiniMax-M2) groundedness parser (I-run11-004) ===================
+# WHY a THIRD parser: the broken Granite Guardian Sentinel was replaced with the CERTIFIED
+# MiniMax-M2 claim-DECOMPOSITION detector. On the 56-item fixture (28 grounded + 28 fabricated
+# across NUMBER_SWAP / ENTITY_SWAP / NEGATION / FABRICATED_ATTRIBUTION / SCOPE_INFLATION) the
+# certified prompt+parse scored 0 false-accepts on all 28 fabrications and over-flag 0.107. The
+# certified call returns STRICT JSON {verdict: "supported"|"unsupported", unsupported_atoms, atoms}
+# (scripts/diagnostics/sentinel_bakeoff.py: GLM_PROMPT + _strip_json + run_glm_decomposition).
+#
+# This parser PORTS the certified `_strip_json` robust extraction (strip ```json fences, json.loads,
+# largest {...} span, trailing-comma repair) and maps the certified verdict to the SentinelResult:
+#     "supported"   -> GROUNDED,   parsed_ok=True
+#     "unsupported" -> UNGROUNDED,  parsed_ok=True
+# It preserves the LETHAL fail-closed property identical to the other two parsers: ANY parse
+# failure, a missing verdict, an off-enum verdict, or a non-string input -> UNGROUNDED,
+# parsed_ok=False. There is NO code path that returns GROUNDED on bad input — an unverifiable
+# claim is HELD, never released (§-1.1 clinical-safety).
+
+
+def _strip_json(text: str) -> dict:
+    """Robust JSON extraction from a frontier-LLM response (ported VERBATIM-in-behavior from
+    scripts/diagnostics/sentinel_bakeoff.py `_strip_json`, the CERTIFIED harness).
+
+    Frontier models wrap JSON in markdown fences, prepend reasoning text, or emit trailing commas.
+    A brittle `json.loads` crashes on one such reply. This handles: fenced ```json blocks, reasoning
+    prefixes/suffixes (largest {...} span), and trailing commas. Raises ValueError when NO parseable
+    JSON object is present (the caller maps that to a fail-closed UNGROUNDED).
+    """
+    if not isinstance(text, str):
+        raise ValueError(f"non-string response: {type(text).__name__}")
+    s = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL | re.IGNORECASE)
+    if fence:
+        s = fence.group(1).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+    start, end = s.find("{"), s.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        block = s[start:end + 1]
+        for attempt in (block, re.sub(r",(\s*[}\]])", r"\1", block)):
+            try:
+                return json.loads(attempt)
+            except json.JSONDecodeError:
+                continue
+    raise ValueError(f"no parseable JSON object in response: {text[:200]!r}")
+
+
+# The two valid decomposition verdict tokens and their groundedness mapping (LOCKED, certified).
+_DECOMPOSITION_VERDICT_SUPPORTED = "supported"
+_DECOMPOSITION_VERDICT_UNSUPPORTED = "unsupported"
+_DECOMPOSITION_VERDICT_TO_VERDICT = {
+    _DECOMPOSITION_VERDICT_SUPPORTED: SentinelVerdict.GROUNDED,
+    _DECOMPOSITION_VERDICT_UNSUPPORTED: SentinelVerdict.UNGROUNDED,
+}
+
+
+def parse_sentinel_decomposition(raw: str) -> SentinelResult:
+    """Parse a CERTIFIED MiniMax-M2 DECOMPOSITION output (JSON) into a SentinelResult (I-run11-004).
+
+    The certified output is STRICT JSON {"verdict": "supported"|"unsupported", "unsupported_atoms":
+    <int>, "atoms": [...]}. Mapping (LOCKED): "supported" -> GROUNDED, "unsupported" -> UNGROUNDED.
+
+    FAIL CLOSED (lethal-inversion guard, identical safety to the other two parsers): ANY of —
+      - non-string input,
+      - unparseable JSON (after the robust `_strip_json` fence/prefix/trailing-comma handling),
+      - a missing `verdict` key,
+      - an off-enum verdict (anything other than the exact tokens "supported"/"unsupported"),
+    yields UNGROUNDED with parsed_ok=False. There is NO path that returns GROUNDED on bad input.
+    `parsed_ok=True` is reserved for a clean JSON object carrying exactly one recognized verdict.
+    """
+    if not isinstance(raw, str):
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    try:
+        parsed = _strip_json(raw)
+    except ValueError:
+        # Unparseable / no JSON object -> fail CLOSED (clinical-safe: hold, never release).
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    if not isinstance(parsed, dict):
+        # A bare JSON array / scalar carries no verdict -> fail CLOSED.
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    verdict_token = parsed.get("verdict")
+    if not isinstance(verdict_token, str):
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    verdict = _DECOMPOSITION_VERDICT_TO_VERDICT.get(verdict_token.strip().lower())
+    if verdict is None:
+        # Missing/odd/off-enum verdict -> fail CLOSED (never a silent GROUNDED).
+        return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+    # SAFETY cross-check (Codex diff-gate iter-3 P1): a top-level "supported" verdict that
+    # SIMULTANEOUSLY reports unsupported atoms is an INTERNALLY CONTRADICTORY output. Trusting the
+    # top-level "supported" there is a fail-OPEN path — a fabricated claim laundered to VERIFIED.
+    # When the verdict is GROUNDED but the model's OWN atom analysis flags any unsupported
+    # sub-assertion (unsupported_atoms > 0, or an atom whose status is "unsupported"), VETO to
+    # UNGROUNDED — the clinical-safe side. The atom analysis OVERRIDES an over-confident top verdict.
+    if verdict is SentinelVerdict.GROUNDED:
+        # Robustly coerce unsupported_atoms (Codex diff-gate iter-4 P1 + iter-5 P1). A JSON-mode model
+        # can QUOTE the number ("unsupported_atoms": "1"), emit a bool (true/false), null, or a list —
+        # a bare numeric check or a `.get() is not None` skip would FAIL OPEN. Distinguish ABSENT (key
+        # not present -> rely on the atoms list + top verdict) from PRESENT-BUT-INVALID (bool / null /
+        # non-coercible -> coerces to None -> VETO). A present value is released ONLY if it coerces to a
+        # CLEAN ZERO; anything else (>0, fractional, bool, null, non-numeric) VETOES to UNGROUNDED.
+        if "unsupported_atoms" in parsed:
+            raw_count = parsed["unsupported_atoms"]
+            count: float | None
+            if isinstance(raw_count, bool):
+                count = None  # a JSON bool is not a count -> present-but-invalid
+            elif isinstance(raw_count, (int, float)):
+                count = raw_count
+            elif isinstance(raw_count, str):
+                token = raw_count.strip()
+                try:
+                    count = int(token)
+                except ValueError:
+                    try:
+                        count = float(token)
+                    except ValueError:
+                        count = None
+            else:
+                count = None  # null (None), list, dict, ... -> present-but-invalid
+            if count is None or count != 0:
+                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+        atoms = parsed.get("atoms")
+        if isinstance(atoms, list):
+            for atom in atoms:
+                if not isinstance(atom, dict):
+                    continue
+                status = atom.get("status") or atom.get("verdict")
+                if isinstance(status, str) and status.strip().lower() == "unsupported":
+                    return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+                if atom.get("supported") is False:
+                    return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    return SentinelResult(verdict, parsed_ok=True)

@@ -87,8 +87,19 @@ class _FakeRoleTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
             )
         if request.role == "sentinel":
-            score = "no" if self._sentinel_grounded else "yes"
-            return RoleResponse(raw_text=f"<score>{score}</score>", served_model=request.model_slug)
+            # Emit the format matching the active groundedness mode (I-run11-002 L1 + I-run11-004):
+            # decomposition (MiniMax-M2 default) -> JSON; guardian -> `<score>`; noninverted -> word.
+            final_instruction = request.messages[-1]["content"] if request.messages else ""
+            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                verdict = "supported" if self._sentinel_grounded else "unsupported"
+                n = "0" if self._sentinel_grounded else "1"
+                raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
+                            + n + ', "atoms": []}')
+            elif "<guardian>" in final_instruction:
+                raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
+            else:
+                raw_text = "GROUNDED" if self._sentinel_grounded else "UNGROUNDED"
+            return RoleResponse(raw_text=raw_text, served_model=request.model_slug)
         if request.role == "judge":
             return RoleResponse(raw_text=self._judge_verdict, served_model=request.model_slug)
         raise AssertionError(f"unexpected role {request.role!r}")
@@ -327,8 +338,8 @@ def test_seam_builder_wins_over_static_inputs(tmp_path):
         coverage_ledger=CoverageLedger(required_element_ids=["static-elem"]),
         required_s0_categories=[],
         model_slugs={
-            "mirror": "cohere/command-a-plus",
-            "sentinel": "ibm-granite/granite-guardian-4.1-8b",
+            "mirror": "z-ai/glm-5.1",
+            "sentinel": "minimax/minimax-m2",
             "judge": "qwen/qwen3.6-35b-a3b",
         },
         rewrite_already_attempted=True,
@@ -385,8 +396,8 @@ def test_seam_static_inputs_used_as_is_no_audit(tmp_path):
         coverage_ledger=CoverageLedger(required_element_ids=["elem-1"]),
         required_s0_categories=["contraindications"],
         model_slugs={
-            "mirror": "cohere/command-a-plus",
-            "sentinel": "ibm-granite/granite-guardian-4.1-8b",
+            "mirror": "z-ai/glm-5.1",
+            "sentinel": "minimax/minimax-m2",
             "judge": "qwen/qwen3.6-35b-a3b",
         },
         rewrite_already_attempted=True,

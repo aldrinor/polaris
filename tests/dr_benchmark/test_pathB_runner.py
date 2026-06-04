@@ -17,8 +17,9 @@ from scripts.dr_benchmark.pathB_run_gate import GateError
 # the post-run gate enforces completeness in BOTH directions (every pinned role observed AND
 # every observed role pinned), so the captured calls must be exactly these four roles.
 _GEN_SLUG = "deepseek/deepseek-v4-pro"
-_MIRROR_SLUG = "cohere/command-a-plus"
-_SENTINEL_SLUG = "ibm-granite/granite-guardian-4.1-8b"
+# I-run11-004: Mirror z-ai/glm-5.1, Sentinel CERTIFIED minimax/minimax-m2 (decomposition).
+_MIRROR_SLUG = "z-ai/glm-5.1"
+_SENTINEL_SLUG = "minimax/minimax-m2"
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
 
 _FOUR_ROLE_SLUGS = {

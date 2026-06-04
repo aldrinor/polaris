@@ -14,6 +14,7 @@ import pytest
 from src.polaris_graph.roles.sentinel_contract import (
     SentinelResult,
     SentinelVerdict,
+    parse_sentinel_decomposition,
     parse_sentinel_grounded_token,
     parse_sentinel_score,
 )
@@ -307,3 +308,150 @@ def test_sentinel_mode_invalid_env_raises(monkeypatch):
     monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "guardain")  # typo
     with _pytest.raises(ValueError):
         sentinel_groundedness_mode()
+
+
+# === DECOMPOSITION parser (certified MiniMax-M2, I-run11-004) ========================
+# Mapping: "supported" -> GROUNDED, "unsupported" -> UNGROUNDED. EVERY parse failure / missing /
+# off-enum / non-string fails CLOSED to UNGROUNDED parsed_ok=False. NO silent GROUNDED on bad input.
+def test_decomposition_supported_json_maps_grounded() -> None:
+    raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_unsupported_json_maps_ungrounded() -> None:
+    raw = '{"verdict": "unsupported", "unsupported_atoms": 2, "atoms": [{"atom": "x"}]}'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(
+        SentinelVerdict.UNGROUNDED, parsed_ok=True
+    )
+
+
+@pytest.mark.parametrize(
+    "raw,verdict",
+    [
+        ('{"verdict": "SUPPORTED"}', SentinelVerdict.GROUNDED),       # case-insensitive
+        ('{"verdict": " supported "}', SentinelVerdict.GROUNDED),     # whitespace tolerant
+        ('{"verdict": "Unsupported"}', SentinelVerdict.UNGROUNDED),
+    ],
+)
+def test_decomposition_verdict_case_and_whitespace_tolerant(raw, verdict) -> None:
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is verdict
+    assert result.parsed_ok is True
+
+
+def test_decomposition_fenced_json_parses() -> None:
+    raw = '```json\n{"verdict": "supported", "atoms": []}\n```'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_bare_fence_no_lang_parses() -> None:
+    raw = '```\n{"verdict": "unsupported"}\n```'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(
+        SentinelVerdict.UNGROUNDED, parsed_ok=True
+    )
+
+
+def test_decomposition_trailing_comma_json_parses() -> None:
+    # The certified _strip_json repairs a trailing comma before the closing brace.
+    raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": [],}'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_reasoning_prefix_then_json_parses() -> None:
+    # Reasoning prose before the JSON object: _strip_json extracts the largest {...} span.
+    raw = 'Let me decompose the claim.\nHere is my verdict:\n{"verdict": "unsupported", "atoms": []}'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(
+        SentinelVerdict.UNGROUNDED, parsed_ok=True
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",                                      # empty
+        "   ",                                   # whitespace only
+        "not json at all",                       # prose, no JSON
+        "{ this is not valid json",              # malformed, unparseable
+        '{"unsupported_atoms": 0, "atoms": []}',  # missing verdict key
+        '{"verdict": "maybe"}',                  # off-enum verdict
+        '{"verdict": ""}',                       # empty verdict
+        '{"verdict": null}',                     # non-string verdict
+        '{"verdict": 1}',                        # numeric verdict
+        '{"verdict": "grounded"}',               # wrong vocabulary (not supported/unsupported)
+        '["supported"]',                          # JSON array, no verdict object
+        '"supported"',                            # bare JSON string scalar
+    ],
+)
+def test_decomposition_malformed_fails_closed_to_ungrounded(raw) -> None:
+    result = parse_sentinel_decomposition(raw)
+    assert result.verdict is SentinelVerdict.UNGROUNDED
+    assert result.parsed_ok is False
+
+
+def test_decomposition_non_string_fails_closed() -> None:
+    result = parse_sentinel_decomposition(None)  # type: ignore[arg-type]
+    assert result == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
+
+
+def test_decomposition_supported_verdict_with_unsupported_atom_vetoes_to_ungrounded() -> None:
+    # SAFETY (Codex diff-gate iter-3 P1): a top-level "supported" verdict that SIMULTANEOUSLY
+    # reports an unsupported atom (unsupported_atoms=1 + atom status "unsupported") is INTERNALLY
+    # CONTRADICTORY. The PRODUCTION parser — not an upstream harness — must VETO this to UNGROUNDED;
+    # trusting the top-level "supported" would be a fail-OPEN path (a fabricated claim -> VERIFIED).
+    raw = ('{"atoms": [{"atom": "a", "status": "unsupported"}], '
+           '"unsupported_atoms": 1, "verdict": "supported"}')
+    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+
+
+def test_decomposition_supported_verdict_clean_atoms_stays_grounded() -> None:
+    # The complement: a "supported" verdict with NO unsupported atoms is a clean GROUNDED parse.
+    raw = '{"atoms": [{"atom": "a", "status": "supported"}], "unsupported_atoms": 0, "verdict": "supported"}'
+    assert parse_sentinel_decomposition(raw) == SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_quoted_unsupported_atoms_count_vetoes_to_ungrounded() -> None:
+    # Codex diff-gate iter-4 P1: JSON-mode models can QUOTE the count ("unsupported_atoms": "1").
+    # A bare numeric check would miss it -> fail-OPEN. The parser coerces int-like strings and
+    # vetoes, and fail-closes on a present-but-non-coercible count under a "supported" verdict.
+    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"1"}') == \
+        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"abc"}') == \
+        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":1.5}') == \
+        SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+    # A quoted clean zero is still GROUNDED.
+    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":"0"}') == \
+        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_non_numeric_unsupported_atoms_vetoes_to_ungrounded() -> None:
+    # Codex diff-gate iter-5 P1 (continuing iter-4): a JSON bool/null/container as
+    # "unsupported_atoms" under a "supported" verdict is a PRESENT-but-non-coercible count.
+    # A bare `is not None` check would treat bool/null like an absent key and fail-OPEN.
+    # The parser keys on PRESENCE: any present-but-non-clean-zero count vetoes to UNGROUNDED.
+    for present_value in ("true", "false", "null", "[]", '["a"]', "{}"):
+        payload = '{"verdict":"supported","unsupported_atoms":%s}' % present_value
+        assert parse_sentinel_decomposition(payload) == \
+            SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True), present_value
+    # ABSENT key (not present at all) is the only path that may stay GROUNDED on a clean verdict.
+    assert parse_sentinel_decomposition('{"verdict":"supported"}') == \
+        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+    # PRESENT clean numeric zero stays GROUNDED.
+    assert parse_sentinel_decomposition('{"verdict":"supported","unsupported_atoms":0}') == \
+        SentinelResult(SentinelVerdict.GROUNDED, parsed_ok=True)
+
+
+def test_decomposition_never_silently_grounded_anti_inversion() -> None:
+    """The lethal property: no malformed/garbage input may yield GROUNDED. The ONLY GROUNDED path
+    is a clean JSON object with verdict == 'supported'."""
+    for raw in (
+        "",
+        "garbage",
+        '{"verdict": "maybe"}',
+        '{"no_verdict": true}',
+        '{"verdict": "unsupported"}',
+        None,
+    ):
+        result = parse_sentinel_decomposition(raw)  # type: ignore[arg-type]
+        if not (result.verdict is SentinelVerdict.GROUNDED and result.parsed_ok):
+            assert result.verdict is SentinelVerdict.UNGROUNDED, repr(raw)

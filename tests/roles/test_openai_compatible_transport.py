@@ -27,9 +27,10 @@ from src.polaris_graph.roles.openai_compatible_transport import (
 )
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
-# Lock-pinned slugs (config/architecture/polaris_runtime_lock.yaml).
-_MIRROR_SLUG = "cohere/command-a-plus"
-_SENTINEL_SLUG = "ibm-granite/granite-guardian-4.1-8b"
+# Lock-pinned slugs (config/architecture/polaris_runtime_lock.yaml). I-run11-004: Mirror
+# z-ai/glm-5.1, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge qwen.
+_MIRROR_SLUG = "z-ai/glm-5.1"
+_SENTINEL_SLUG = "minimax/minimax-m2"
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
 
 _MIRROR_BASE = "http://mirror.internal:8001"

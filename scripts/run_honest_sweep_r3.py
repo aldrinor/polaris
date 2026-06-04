@@ -4527,8 +4527,13 @@ async def run_one_query(
                 BudgetExceededError as _SeamBudgetExceededError,
                 _RUN_COST_CTX as _seam_cost_ctx,
             )
+            # I-run11-004: default raised 2400 -> 7200s. 2400 was the run-12 truncator — the
+            # 4-role seam (now incl. the reasoning-ON MiniMax-M2 decomposition Sentinel + the xhigh
+            # Mirror/Judge) takes minutes per claim, and a 2400s cap fired mid-run and held a
+            # truncated manifest. PG_VERIFIER_LLM_TIMEOUT_SECONDS (the per-call budget) stays 900.
+            # LAW VI: env-overridable.
             _seam_timeout = float(
-                os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS", "2400")
+                os.environ.get("PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS", "7200")
             )
             _seam_kg_path = out_root / "verified_claim_graph_campaign.db"
             _seam_parent_cost = _seam_cost_ctx.get()

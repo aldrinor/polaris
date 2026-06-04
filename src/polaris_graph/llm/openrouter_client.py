@@ -265,6 +265,10 @@ _PRICE_TABLE_USD_PER_M: dict[str, tuple[float, float]] = {
     "qwen/":           (0.10, 0.60),
     "z-ai/glm-5.1":    (0.60, 2.20),
     "z-ai/":           (0.60, 2.20),
+    # I-run11-004: MiniMax-M2 Sentinel (decomposition). Conservative upper-bound $/M so the
+    # budget-impute fallback never UNDERcharges (over-counting is the safe direction for the cap).
+    "minimax/minimax-m2": (0.55, 2.20),
+    "minimax/":           (0.55, 2.20),
     "meta-llama/":     (0.30, 0.90),
     "google/gemma-4-31b-it": (0.13, 0.38),
     "google/gemma":    (0.05, 0.30),
@@ -414,8 +418,13 @@ PG_GENERATOR_MODEL = os.getenv(
 # (config/architecture/polaris_runtime_lock.yaml). Each role has its own knob;
 # the legacy PG_EVALUATOR_MODEL is compat-mapped to PG_MIRROR_MODEL until
 # 2026-09-06 (Carney demo) after which it fails the gate at preflight.
-PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "cohere/command-a-plus")
-PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
+# I-run11-004: the 4-role lock SENTINEL is now the certified MiniMax-M2 decomposition
+# detector (minimax/minimax-m2 — 0 false-accepts on 28 fabrications, over-flag 0.107 on the
+# 56-item fixture) and the MIRROR is z-ai/glm-5.1 (the operator re-pick; Cohere is not on
+# OpenRouter). These defaults MUST equal config/architecture/polaris_runtime_lock.yaml
+# (verify_lock asserts lock model_slug == code default). Judge unchanged.
+PG_MIRROR_MODEL = os.getenv("PG_MIRROR_MODEL", "z-ai/glm-5.1")
+PG_SENTINEL_MODEL = os.getenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
 PG_JUDGE_MODEL = os.getenv("PG_JUDGE_MODEL", "qwen/qwen3.6-35b-a3b")
 
 # Legacy 2-LLM stub env. Resolves to PG_MIRROR_MODEL when unset (the Mirror
@@ -448,6 +457,7 @@ _FAMILY_PREFIXES: dict[str, tuple[str, ...]] = {
     "kimi":        ("moonshotai/", "moonshot/", "kimi/"),
     "cohere":      ("cohere/", "coherelabs/", "command-"),       # I-meta-001
     "ibm-granite": ("ibm-granite/", "ibm/granite", "granite-"),  # I-meta-001
+    "minimax":     ("minimax/", "minimaxai/"),                   # I-run11-004 (MiniMax-M2 Sentinel)
     # Closed frontier families included for completeness (off-MVP, but if
     # ever allowed via a closed-source fallback they get their own family).
     "openai":   ("openai/", "gpt-"),

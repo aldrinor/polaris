@@ -64,12 +64,16 @@ class MockTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=("doc1",))],
             )
         if request.role == "sentinel":
-            # I-run11-002 L1: emit the format matching the active groundedness mode (the request's
-            # final instruction reveals it) so the canned output pairs with the parser run_sentinel
-            # selected — `<score>yes|no</score>` for the inverted guardian block, else the
-            # non-inverted one-word GROUNDED/UNGROUNDED (the benchmark default).
+            # Emit the format matching the active groundedness mode (I-run11-002 L1 + I-run11-004):
+            # decomposition (MiniMax-M2 default) -> JSON {"verdict": ...}; guardian -> inverted
+            # `<score>yes|no</score>`; noninverted -> one-word GROUNDED/UNGROUNDED.
             final_instruction = request.messages[-1]["content"] if request.messages else ""
-            if "<guardian>" in final_instruction:
+            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                verdict = "supported" if self._sentinel_grounded else "unsupported"
+                n = "0" if self._sentinel_grounded else "1"
+                raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
+                            + n + ', "atoms": []}')
+            elif "<guardian>" in final_instruction:
                 raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
             else:
                 raw_text = "GROUNDED" if self._sentinel_grounded else "UNGROUNDED"
@@ -219,7 +223,7 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
     bad = FourRoleClaim(
         claim_id="bad",
         claim_text="A different unrelated dosing statement.",
-        evidence_documents=[EvidenceDocument(doc_id="doc1", text="x")],
+        evidence_documents=[EvidenceDocument(doc_id="doc1", text="UNGROUNDED_EV_MARKER")],
         severity="S1",
         s0_categories=[],
         covered_element_ids=["elem-2"],
@@ -228,13 +232,25 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
     class _Mixed(MockTransport):
         def complete(self, request: RoleRequest) -> RoleResponse:
             # Sentinel UNGROUNDED only for the 'bad' claim's evidence text. Emit the format
-            # matching the active groundedness mode (I-run11-002 L1) so canned output pairs with
-            # the parser run_sentinel selected (non-inverted by default).
+            # matching the active groundedness mode (I-run11-002 L1 + I-run11-004) so canned output
+            # pairs with the parser run_sentinel selected (decomposition JSON by default).
             if request.role == "sentinel":
-                docs = request.params.get("documents", [])
-                grounded = not any(d.get("text") == "x" for d in docs)
                 final_instruction = request.messages[-1]["content"] if request.messages else ""
-                if "<guardian>" in final_instruction:
+                # The 'bad' claim is identified by its distinctive evidence marker, found in the
+                # documents (guardian/noninverted layout) OR inline in the decomposition span
+                # (I-run11-004 P1-2: decomposition carries NO documents — the span is in the prompt).
+                docs = request.params.get("documents", [])
+                marker = "UNGROUNDED_EV_MARKER"
+                grounded = not (
+                    any(marker in (d.get("text") or "") for d in docs)
+                    or marker in final_instruction
+                )
+                if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                    verdict = "supported" if grounded else "unsupported"
+                    n = "0" if grounded else "1"
+                    raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
+                                + n + ', "atoms": []}')
+                elif "<guardian>" in final_instruction:
                     raw_text = "<score>no</score>" if grounded else "<score>yes</score>"
                 else:
                     raw_text = "GROUNDED" if grounded else "UNGROUNDED"

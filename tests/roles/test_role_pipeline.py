@@ -78,13 +78,22 @@ class MockTransport:
                 citations=[CitationSpan(span_start=0, span_end=8, doc_ids=(doc_id,))],
             )
         if request.role == "sentinel":
-            # Emit the format that MATCHES the active groundedness mode (I-run11-002 L1) so the
-            # MockTransport stays faithful whichever mode the adapter resolved: the inverted
-            # `<score>yes|no</score>` when the request carries the `<guardian>` block, else the
-            # non-inverted one-word GROUNDED/UNGROUNDED. (run_sentinel selects the matching parser
-            # off the same mode, so the canned output and the parser always pair.)
+            # Emit the format that MATCHES the active groundedness mode (I-run11-002 L1 +
+            # I-run11-004) so the MockTransport stays faithful whichever mode the adapter resolved:
+            #   - decomposition (MiniMax-M2 default): JSON {"verdict": "supported"|"unsupported"};
+            #   - guardian (request carries `<guardian>`): inverted `<score>yes|no</score>`;
+            #   - noninverted: one-word GROUNDED/UNGROUNDED.
+            # (run_sentinel selects the matching parser off the same mode, so canned output + parser
+            # always pair.)
             final_instruction = request.messages[-1]["content"] if request.messages else ""
-            if "<guardian>" in final_instruction:
+            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                verdict = "supported" if self._sentinel_grounded else "unsupported"
+                n_unsupported = "0" if self._sentinel_grounded else "1"
+                raw_text = (
+                    '{"verdict": "' + verdict + '", "unsupported_atoms": '
+                    + n_unsupported + ', "atoms": []}'
+                )
+            elif "<guardian>" in final_instruction:
                 score = "no" if self._sentinel_grounded else "yes"
                 raw_text = f"<score>{score}</score>"
             else:
@@ -251,11 +260,14 @@ def test_guardian_env_still_composes_grounded_verified(monkeypatch) -> None:
 
 def test_self_host_transport_env_routes_guardian_in_pipeline(monkeypatch) -> None:
     """The runtime-desync guard end-to-end: PG_FOUR_ROLE_TRANSPORT=self_host (no explicit mode)
-    makes the pipeline's Sentinel resolve to guardian, so the MockTransport's `<guardian>` request
-    + `<score>no</score>` output composes correctly to VERIFIED — the sovereign granite-Guardian
-    gets the inverted prompt it is trained on without any extra env."""
+    with a granite-guardian Sentinel slug resolves to guardian, so the MockTransport's `<guardian>`
+    request + `<score>no</score>` output composes correctly to VERIFIED — the sovereign
+    granite-Guardian gets the inverted prompt it is trained on. (I-run11-004: with the minimax
+    lock slug the self_host default would instead be decomposition; here we pin a guardian slug to
+    exercise the transport-derived guardian fall-through.)"""
     monkeypatch.delenv("PG_SENTINEL_GROUNDEDNESS_MODE", raising=False)
     monkeypatch.setenv("PG_FOUR_ROLE_TRANSPORT", "self_host")
+    monkeypatch.setenv("PG_SENTINEL_MODEL", "ibm-granite/granite-guardian-4.1-8b")
     transport = MockTransport(sentinel_grounded=True, judge_verdict="VERIFIED")
     result = _run(transport)
     assert result.final_verdict == "VERIFIED"

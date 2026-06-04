@@ -150,7 +150,10 @@ _BENCHMARK_LINEUP_ENV = {
 }
 _BENCHMARK_LINEUP_DEFAULT_SLUG = {
     "mirror": "z-ai/glm-5.1",
-    "sentinel": "ibm-granite/granite-4.1-8b",
+    # I-run11-004: benchmark Sentinel is the CERTIFIED MiniMax-M2 decomposition detector
+    # (replaces the general ibm-granite/granite-4.1-8b, which mislabeled grounded claims). The
+    # benchmark default mode for the Sentinel is "decomposition" (see sentinel_adapter).
+    "sentinel": "minimax/minimax-m2",
     "judge": "qwen/qwen3.6-35b-a3b",
 }
 # Expected DEFAULT family lane per benchmark verifier role (the lane each role's
@@ -164,7 +167,8 @@ _BENCHMARK_LINEUP_DEFAULT_SLUG = {
 # four lineup members `slug.split("/")[0]` IS the family (z-ai / ibm-granite / qwen / deepseek).
 _BENCHMARK_VERIFIER_DEFAULT_FAMILY = {
     "mirror": "z-ai",
-    "sentinel": "ibm-granite",
+    # I-run11-004: MiniMax-M2 Sentinel — its `provider/` prefix `minimax` IS the family lane.
+    "sentinel": "minimax",
     "judge": "qwen",
 }
 
@@ -267,6 +271,13 @@ FOUR_ROLE_STAGE = "benchmark_openrouter"
 # LAW VI: effort is overridable via PG_FOUR_ROLE_REASONING_EFFORT (default "xhigh" = MAX).
 _REASONING_EFFORT = os.getenv("PG_FOUR_ROLE_REASONING_EFFORT", "xhigh")
 
+# I-run11-004: hard floor on the decomposition Sentinel's top-level max_tokens. The certified
+# MiniMax-M2 call used reasoning + max_tokens>=3000; anything below that truncates the JSON
+# {verdict, atoms} mid-emission (the run-12 truncator) and collapses every claim to a fail-closed
+# UNGROUNDED. An env override (PG_SENTINEL_DECOMPOSITION_MAX_TOKENS) can RAISE but never lower past
+# this floor.
+_SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS = 3000
+
 # I-meta-008 / #1026: blank-verdict step-down ladder. When a reasoning-first verifier returns a
 # BLANK bare verdict (reasoning budget exhausted without converging under the high effort), retry
 # with the effort stepped DOWN this ladder so the model is forced to spend tokens on the VERDICT,
@@ -294,30 +305,61 @@ _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
 # WHY per-role: Mirror (`z-ai/glm-5.1`) and Judge (`qwen/qwen3.6-35b-a3b`) are DELIBERATIVE
 # verifiers — they weigh evidence and argue a verdict, so they get MAX reasoning effort
 # (`xhigh`) AND `provider.require_parameters=True` (only route to a provider that honors
-# reasoning). Sentinel (`ibm-granite/granite-4.1-8b`) is a faithfulness CLASSIFIER — its
-# self-host destination is the task-trained granite-GUARDIAN, also a classifier — and the
-# OpenRouter general granite slug does NOT advertise `reasoning` in its `supported_parameters`.
-# So Sentinel sends NO reasoning param and NO `provider.require_parameters`, keeping its route
-# executable: with `require_parameters=True` OpenRouter REFUSES to route to a provider that
-# can't honor `reasoning`, which would fail the very first Sentinel call.
+# reasoning).
 #
-# This is NOT a downgrade of the operator's MAX-reasoning directive — that directive targets the
-# DELIBERATIVE verifiers; a classifier has no reasoning channel to maximize, so withholding the
-# param keeps it faithful to its role rather than under-serving it. LAW VI: each role's default
-# is overridable via the env knob `PG_<ROLE>_REASONING`.
+# Sentinel is MODE-AWARE (I-run11-004): the CERTIFIED MiniMax-M2 DECOMPOSITION Sentinel
+# (`minimax/minimax-m2`, the benchmark + lock default) was certified WITH reasoning ON and
+# max_tokens>=3000 — turning reasoning OFF (or starving max_tokens to the 256 classifier budget)
+# truncates the JSON {verdict, atoms} mid-emission and collapses every claim to a fail-closed
+# UNGROUNDED (the run-12 truncator). So when the active Sentinel groundedness mode is
+# "decomposition", the Sentinel sends MAX reasoning + a GENEROUS max_tokens, exactly replicating
+# the certified call. The SOVEREIGN `guardian`/`noninverted` granite Sentinel modes stay
+# reasoning-OFF (a <score>/one-word classifier whose self-host slug does not advertise
+# `reasoning`); their settings are NOT regressed. LAW VI: overridable via `PG_SENTINEL_REASONING`.
 _ROLE_REASONING_DEFAULT = {"mirror": True, "sentinel": False, "judge": True}
 
 
-def role_reasoning_enabled(role: str) -> bool:
+def sentinel_decomposition_active(slug_override: str | None = None) -> bool:
+    """True iff the ACTIVE Sentinel groundedness mode is "decomposition" (I-run11-004).
+
+    Lazily resolves `sentinel_adapter.sentinel_groundedness_mode()` (env- + model-aware, LAW VI)
+    so the transport can mode-gate the Sentinel's reasoning + max_tokens WITHOUT an import-time
+    dependency on the adapter (the adapter does not import this transport — no cycle). Any
+    resolution error is swallowed to the conservative non-decomposition answer (the certified
+    MiniMax call is only requested when the mode UNAMBIGUOUSLY resolves to decomposition).
+
+    `slug_override` (Codex diff-gate iter-4 P2) is the slug ACTUALLY being served on this call —
+    threaded through from the request so the reasoning/max_tokens gate keys on the real served
+    model, not a stale `PG_SENTINEL_MODEL` env, in any direct/future call path.
+    """
+    try:
+        from src.polaris_graph.roles.sentinel_adapter import (
+            _MODE_DECOMPOSITION,
+            sentinel_groundedness_mode,
+        )
+
+        return sentinel_groundedness_mode(slug_override) == _MODE_DECOMPOSITION
+    except Exception:  # noqa: BLE001 — conservative: unknown -> not decomposition.
+        return False
+
+
+def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
     """Whether the given verifier role should send the MAX-reasoning request params.
 
     Returns the per-role default from `_ROLE_REASONING_DEFAULT`, overridable per role via the
     env var `PG_<ROLE>_REASONING` (LAW VI): "1"/"true"/"yes" -> True, "0"/"false"/"no" -> False;
     absent (or any other value) falls back to the role default. Mirror/Judge default True
-    (deliberative verifiers -> MAX reasoning); Sentinel defaults False (classifier whose
-    OpenRouter slug does not advertise `reasoning`, so reasoning would break routing).
+    (deliberative verifiers -> MAX reasoning). Sentinel is MODE-AWARE (I-run11-004): in
+    "decomposition" mode (the certified MiniMax-M2 detector) it defaults True (reasoning ON, as
+    certified); in the sovereign granite `guardian`/`noninverted` modes it defaults False (a
+    classifier whose slug does not advertise `reasoning`, so reasoning would break routing).
     """
-    default = _ROLE_REASONING_DEFAULT.get(role, False)
+    if role == "sentinel" and os.getenv(f"PG_{role.upper()}_REASONING") is None:
+        # No explicit override: the Sentinel default is mode-aware (decomposition -> reasoning ON),
+        # keyed on the ACTUAL served slug when supplied (Codex diff-gate iter-4 P2).
+        default = sentinel_decomposition_active(slug_override)
+    else:
+        default = _ROLE_REASONING_DEFAULT.get(role, False)
     override = os.getenv(f"PG_{role.upper()}_REASONING")
     if override is None:
         return default
@@ -427,7 +469,7 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
     # MAX reasoning + `provider.require_parameters=True`. The Sentinel classifier gets NEITHER —
     # its OpenRouter slug does not advertise `reasoning`, so `require_parameters=True` would refuse
     # to route and fail the first call. See `role_reasoning_enabled` for the full rationale.
-    if role_reasoning_enabled(request.role):
+    if role_reasoning_enabled(request.role, request.model_slug):
         body["reasoning"] = {"enabled": True, "effort": _REASONING_EFFORT}
         # require_parameters=True makes OpenRouter ONLY route to a provider that actually HONORS the
         # `reasoning` param (OpenRouter's default when absent is False — it could otherwise route a
@@ -445,7 +487,18 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # #1017 fix popped it, so xhigh ate ~95% of an unknown provider default and STARVED the verdict
         # to empty for a reasoning-first Mirror (GLM-5.1) / Judge (Qwen) -> fail-loud crash on the run.
         # 16384 -> reasoning ~15564 + verdict room ~820 (generous for Mirror JSON + Judge enum).
-        body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "16384"))
+        #
+        # I-run11-004: the DECOMPOSITION Sentinel (MiniMax-M2, reasoning ON) emits a JSON
+        # {verdict, unsupported_atoms, atoms} body — a multi-atom list needs MORE output room than a
+        # bare verdict, AND the certification used reasoning + max_tokens>=3000. So the decomposition
+        # Sentinel gets its OWN generous budget (default 16384, hard-floored at 3000 so an env
+        # override can never re-introduce the run-12 truncation that collapses every claim to a
+        # fail-closed UNGROUNDED). Other reasoning verifiers keep PG_VERIFIER_REASONING_MAX_TOKENS.
+        if request.role == "sentinel":
+            decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "16384"))
+            body["max_tokens"] = max(decomp_budget, _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS)
+        else:
+            body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "16384"))
     else:
         # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
         # on an unknown provider default (no pop-and-hope). Small budget is plenty for a label verdict.
@@ -584,7 +637,7 @@ class OpenRouterRoleTransport:
         # non-converging xhigh response cannot crash the whole 4-role run. The non-reasoning
         # Sentinel makes a SINGLE attempt (its body has no `reasoning` block to step down) — its
         # behavior is unchanged.
-        reasoning_role = role_reasoning_enabled(request.role)
+        reasoning_role = role_reasoning_enabled(request.role, request.model_slug)
         effort_ladder: tuple[object, ...] = (
             _VERIFIER_EFFORT_LADDER if reasoning_role else (_REASONING_EFFORT,)
         )

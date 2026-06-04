@@ -1,13 +1,21 @@
-"""Sentinel (IBM Granite Guardian 4.1) adapter — request builder + FAIL-CLOSED caller.
+"""Sentinel adapter — request builder + FAIL-CLOSED caller (3 groundedness modes).
 
-Granite Guardian groundedness calling convention (F3, I-meta-002 iter-2): an assistant turn
-carrying the claim to be checked, then a FINAL user `<guardian>` groundedness block, plus the
-`documents`. The model emits `<score>yes|no</score>` (NOT JSON), so the request carries NO
-structured-output spec — the score is parsed by `parse_sentinel_score`.
+THREE (prompt, parser) contracts, selected by mode (env- + model-aware, LAW VI):
+  - "guardian"      (sovereign granite-Guardian): assistant claim turn + a FINAL user
+    `<guardian>` groundedness block + `documents`; the model emits `<score>yes|no</score>`
+    (parsed by `parse_sentinel_score`, yes=UNGROUNDED).
+  - "noninverted"   (general granite): the DIRECT one-word GROUNDED/UNGROUNDED block
+    (parsed by `parse_sentinel_grounded_token`).
+  - "decomposition" (CERTIFIED MiniMax-M2, I-run11-004): a SINGLE user message with the certified
+    claim-DECOMPOSITION + span-coverage prompt (span+claim inline), `response_format` json_object;
+    the model emits JSON {verdict, unsupported_atoms, atoms} (parsed by
+    `parse_sentinel_decomposition`, "supported"=GROUNDED / "unsupported"=UNGROUNDED). The
+    production decomposition call REPLICATES the certified call (verbatim `_DECOMPOSITION_PROMPT`,
+    reasoning ON via the transport, max_tokens>=3000) so the 0-false-accept certification transfers.
 
-FAIL CLOSED (lethal-inversion guard): a malformed/empty output OR a transport error yields
-`SentinelResult(UNGROUNDED, parsed_ok=False)`. There is NO path that returns GROUNDED on bad
-or missing output. `yes=UNGROUNDED` polarity lives in the contract, never re-derived here.
+FAIL CLOSED (lethal-inversion guard, ALL modes): a malformed/empty output OR a transport error
+yields `SentinelResult(UNGROUNDED, parsed_ok=False)`. There is NO path that returns GROUNDED on
+bad or missing output. Polarity/mapping lives in the contract, never re-derived here.
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ from src.polaris_graph.roles.role_transport import (
 from src.polaris_graph.roles.sentinel_contract import (
     SentinelResult,
     SentinelVerdict,
+    parse_sentinel_decomposition,
     parse_sentinel_grounded_token,
     parse_sentinel_score,
 )
@@ -57,48 +66,105 @@ _ROLE = "sentinel"
 _GROUNDEDNESS_MODE_ENV = "PG_SENTINEL_GROUNDEDNESS_MODE"
 _MODE_NONINVERTED = "noninverted"
 _MODE_GUARDIAN = "guardian"
+# I-run11-004: the CERTIFIED MiniMax-M2 claim-decomposition + span-coverage mode (the new lock +
+# benchmark Sentinel). Single-user-message span+claim prompt, JSON verdict parsed by
+# `parse_sentinel_decomposition`. Valid for PG_SENTINEL_GROUNDEDNESS_MODE=decomposition.
+_MODE_DECOMPOSITION = "decomposition"
+_VALID_MODES = (_MODE_NONINVERTED, _MODE_GUARDIAN, _MODE_DECOMPOSITION)
 # The transport env the default derives from (literals kept in sync with run_gate_b.py's
 # `_FOUR_ROLE_TRANSPORT_ENV` / `_TRANSPORT_SELF_HOST`; NOT imported, to avoid a scripts->src cycle).
 _FOUR_ROLE_TRANSPORT_ENV = "PG_FOUR_ROLE_TRANSPORT"
 _TRANSPORT_SELF_HOST = "self_host"
 
+# I-run11-004: model-aware default mode selection. When PG_SENTINEL_GROUNDEDNESS_MODE is UNSET, the
+# default mode depends on the CONFIGURED Sentinel slug so the prompt+parser can never silently
+# desync from the served model:
+#   - a granite-guardian model -> "guardian"  (the inverted <score>yes|no</score> contract);
+#   - a minimax model          -> "decomposition" (the certified MiniMax-M2 detector);
+#   - else                     -> the transport-derived default (self_host->guardian, else noninverted).
+# Substring tokens (matched case-insensitively against the lock/PG_SENTINEL_MODEL slug). Kept in
+# sync with openrouter_client._FAMILY_PREFIXES (granite / minimax) WITHOUT importing it, so the
+# adapter has no import-time dependency on the family registry.
+_SENTINEL_GUARDIAN_SLUG_TOKEN = "granite-guardian"
+_SENTINEL_DECOMPOSITION_SLUG_TOKENS = ("minimax/", "minimax-")
 
-def sentinel_groundedness_mode() -> str:
-    """Resolve the active Sentinel groundedness mode (LAW VI). Returns "noninverted" | "guardian".
 
-    Precedence: an explicit `PG_SENTINEL_GROUNDEDNESS_MODE` ("noninverted" | "guardian") wins.
-    An explicit but UNRECOGNIZED value raises ValueError (Codex diff-gate P2, no-silent-fallback:
-    a mode typo must not silently desync the prompt+parser from the served model). When the env is
-    UNSET, DERIVE from `PG_FOUR_ROLE_TRANSPORT` so the prompt+parser match the served model:
-    "self_host" -> "guardian" (sovereign granite-Guardian); anything else (incl. the "openrouter"
-    default) -> "noninverted" (benchmark general granite).
+def _configured_sentinel_slug() -> str:
+    """The active Sentinel model slug (LAW VI), for the model-aware default mode (I-run11-004).
+
+    Reads `PG_SENTINEL_MODEL` from the env (the lock's per-role primary knob), falling back to the
+    code default `openrouter_client.PG_SENTINEL_MODEL` (the single source of truth that
+    verify_lock pins against the architecture lock). Read lazily so a post-import override is
+    honored; returns "" only if neither is set (never raises)."""
+    return os.getenv("PG_SENTINEL_MODEL") or getattr(_orc, "PG_SENTINEL_MODEL", "") or ""
+
+
+def _model_aware_default_mode(slug_override: str | None = None) -> str:
+    """Default Sentinel mode when PG_SENTINEL_GROUNDEDNESS_MODE is UNSET (I-run11-004).
+
+    MODEL-AWARE first, so the lock Sentinel (MiniMax-M2) gets the DECOMPOSITION prompt+parser and a
+    granite-guardian Sentinel still gets the inverted guardian contract — no silent desync between
+    the served model and the prompt:
+      - configured slug is a granite-guardian model -> "guardian";
+      - configured slug is a minimax model          -> "decomposition";
+      - otherwise -> the prior transport-derived default ("self_host" -> "guardian", else
+        "noninverted" — the benchmark general-granite route, preserved for back-compat).
+
+    `slug_override` (Codex diff-gate iter-3 P1) is the slug ACTUALLY being served on THIS call — the
+    adapter passes its `model_slug` parameter, which on the self-host path is the LOCK slug resolved
+    by `role_endpoint`. Deriving the mode from the real served slug (not the `PG_SENTINEL_MODEL` env)
+    closes the desync where a stale `PG_SENTINEL_MODEL=granite-guardian` would build the Guardian
+    prompt/parser for a lock-served MiniMax model. Falls back to `_configured_sentinel_slug()`.
     """
-    override = os.getenv(_GROUNDEDNESS_MODE_ENV)
-    if override is not None and override.strip():
-        token = override.strip().lower()
-        if token in (_MODE_NONINVERTED, _MODE_GUARDIAN):
-            return token
-        # Fail LOUD on an explicit unrecognized mode (LAW II no-silent-fallback).
-        raise ValueError(
-            f"{_GROUNDEDNESS_MODE_ENV}={override!r} is invalid; "
-            f"expected {_MODE_NONINVERTED!r} or {_MODE_GUARDIAN!r}."
-        )
-    # Unset/blank: derive from the transport so the sovereign path gets guardian.
+    slug = (slug_override or _configured_sentinel_slug()).strip().lower()
+    if _SENTINEL_GUARDIAN_SLUG_TOKEN in slug:
+        return _MODE_GUARDIAN
+    if any(token in slug for token in _SENTINEL_DECOMPOSITION_SLUG_TOKENS):
+        return _MODE_DECOMPOSITION
+    # Model not recognized as guardian/minimax: fall back to the transport-derived default.
     transport = os.getenv(_FOUR_ROLE_TRANSPORT_ENV, "").strip().lower()
     if transport == _TRANSPORT_SELF_HOST:
         return _MODE_GUARDIAN
     return _MODE_NONINVERTED
 
 
-def _resolve_mode(mode: str | None) -> str:
+def sentinel_groundedness_mode(slug_override: str | None = None) -> str:
+    """Resolve the active Sentinel groundedness mode (LAW VI).
+
+    Returns "noninverted" | "guardian" | "decomposition".
+
+    Precedence: an explicit `PG_SENTINEL_GROUNDEDNESS_MODE` ("noninverted" | "guardian" |
+    "decomposition") ALWAYS wins. An explicit but UNRECOGNIZED value raises ValueError (Codex
+    diff-gate P2, no-silent-fallback: a mode typo must not silently desync the prompt+parser from
+    the served model). When the env is UNSET, the default is MODEL-AWARE (I-run11-004): a
+    granite-guardian slug -> "guardian"; a minimax slug -> "decomposition"; otherwise the
+    transport-derived default ("self_host" -> "guardian", else "noninverted").
+    """
+    override = os.getenv(_GROUNDEDNESS_MODE_ENV)
+    if override is not None and override.strip():
+        token = override.strip().lower()
+        if token in _VALID_MODES:
+            return token
+        # Fail LOUD on an explicit unrecognized mode (LAW II no-silent-fallback).
+        raise ValueError(
+            f"{_GROUNDEDNESS_MODE_ENV}={override!r} is invalid; "
+            f"expected one of {_VALID_MODES!r}."
+        )
+    # Unset/blank: model-aware default (then transport-derived for an unrecognized model). The
+    # served slug (Codex diff-gate iter-3 P1) is threaded so the mode matches the ACTUAL model.
+    return _model_aware_default_mode(slug_override)
+
+
+def _resolve_mode(mode: str | None, model_slug: str | None = None) -> str:
     """Resolve + VALIDATE the active mode (Codex diff-gate P2, no-silent-fallback). An explicit
-    but unrecognized `mode` argument must NOT silently select noninverted — it raises ValueError,
-    so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution."""
-    resolved = mode if mode is not None else sentinel_groundedness_mode()
-    if resolved not in (_MODE_NONINVERTED, _MODE_GUARDIAN):
+    but unrecognized `mode` argument must NOT silently select a parser — it raises ValueError,
+    so a caller typo cannot desync the prompt from the parser. None -> env-gated resolution keyed
+    on the ACTUAL `model_slug` being served (iter-3 P1: no PG_SENTINEL_MODEL-vs-lock desync)."""
+    resolved = mode if mode is not None else sentinel_groundedness_mode(model_slug)
+    if resolved not in _VALID_MODES:
         raise ValueError(
             f"sentinel groundedness mode {resolved!r} is invalid; "
-            f"expected {_MODE_NONINVERTED!r} or {_MODE_GUARDIAN!r}."
+            f"expected one of {_VALID_MODES!r}."
         )
     return resolved
 
@@ -129,6 +195,47 @@ _NONINVERTED_BLOCK = (
     "Answer with EXACTLY one word: GROUNDED or UNGROUNDED. Output only that single word."
 )
 
+# === CERTIFIED DECOMPOSITION prompt (MiniMax-M2, I-run11-004) =================================
+# COPIED VERBATIM from the CERTIFIED harness scripts/diagnostics/sentinel_bakeoff.py `GLM_PROMPT`
+# so the certification (0 false-accepts on 28 fabrications, over-flag 0.107 on the 56-item fixture)
+# TRANSFERS to production. It has `{span}` and `{claim}` `.format` fields and `{{...}}` escaped
+# JSON braces. The atomic-decomposition + grammatical-voice attribution rules are the heart of the
+# detector — DO NOT paraphrase or trim. The production decomposition call inlines span+claim in a
+# SINGLE user message (NOT the guardian documents-channel layout) so the served call matches the
+# certified one exactly.
+_DECOMPOSITION_PROMPT = """You are a strict faithfulness checker for a clinical-grade research pipeline. You are given a SPAN of source text and a CLAIM that cites ONLY that span. Your job: decide whether EVERY factual assertion in the CLAIM is supported by the SPAN alone.
+
+STEP 1 — Decompose the CLAIM into atomic sub-assertions. Separate them into:
+  - mechanism/fact atoms (what happens, numbers, findings),
+  - attribution atoms (WHO said / did / authored / found something — any named person, group, or framework),
+  - relation atoms (causal or "offsets / counterbalances / compensates" links between two things).
+List every atom; do not merge two assertions into one.
+
+STEP 2 — Check EACH atom against the SPAN ONLY. An atom is:
+  - "supported" if the SPAN states it (conservative paraphrase allowed), OR
+  - "unsupported" if the SPAN does not state it.
+
+Rules that decide hard cases:
+  - SCOPE / OFFSET: if the CLAIM says one thing "offsets / counterbalances / compensates for / cancels" another, the SPAN must actually state that offsetting relation. The SPAN merely listing both things separately (e.g. "raises output" AND "displaces labor") does NOT support an "offset" relation atom — that atom is unsupported.
+  - ATTRIBUTION by grammatical voice:
+      * If the SPAN attributes a result with FIRST PERSON ("We present...", "We show...", "Our framework..."), then a CLAIM atom that names the cited source's own authors as the source IS supported (the source is speaking about itself).
+      * If the SPAN attributes a result with a THIRD-PERSON pronoun that has NO proper-noun antecedent inside the SPAN ("He applies...", "She finds...", "They argue..."), then a CLAIM atom that names a SPECIFIC PERSON as the source is UNSUPPORTED — that named identity is not present in the SPAN.
+      * If the SPAN names the person explicitly, an attribution atom naming that same person is supported.
+  - SPECIFICITY: if the CLAIM names a specific entity/number/mechanism the SPAN does not contain, that atom is unsupported.
+
+STEP 3 — Verdict: "unsupported" if ANY atom is unsupported; otherwise "supported".
+
+Return STRICT JSON only, no prose outside it:
+{{"atoms": [{{"atom": "<text>", "type": "mechanism|attribution|relation", "status": "supported|unsupported", "why": "<short>"}}], "unsupported_atoms": <int>, "verdict": "supported" | "unsupported"}}
+
+SPAN:
+{span}
+
+CLAIM:
+{claim}
+
+JSON:"""
+
 # The fail-closed result returned on transport error / malformed output. NEVER GROUNDED.
 _FAIL_CLOSED = SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
 
@@ -140,29 +247,61 @@ def build_sentinel_request(
     model_slug: str,
     mode: str | None = None,
 ) -> RoleRequest:
-    """Build a Sentinel groundedness request for the active mode (I-run11-002 L1).
+    """Build a Sentinel groundedness request for the active mode (I-run11-002 L1 / I-run11-004).
 
-    Layout (F3, identical across modes): assistant turn = the claim under check; final user turn =
-    the groundedness instruction; documents ride in `params["documents"]` (Granite's documents
-    channel). NO structured-output spec — both modes emit free text the contract parses, not JSON.
-
-    `mode` selects the FINAL user instruction:
+    `mode` selects BOTH the message LAYOUT and the FINAL user instruction:
       - "guardian"    -> the INVERTED `<guardian>` block (sovereign self-host granite-Guardian).
-      - "noninverted" -> the DIRECT one-word GROUNDED/UNGROUNDED block (benchmark general granite).
-    When `mode` is None it resolves from `sentinel_groundedness_mode()` (env-gated, LAW VI;
-    DEFAULT "noninverted" for the OpenRouter/benchmark route, "guardian" for self_host).
+      - "noninverted" -> the DIRECT one-word GROUNDED/UNGROUNDED block (general granite).
+      - "decomposition" -> the CERTIFIED MiniMax-M2 single-user-message span+claim prompt.
+
+    GUARDIAN / NONINVERTED layout (F3): assistant turn = the claim under check; final user turn =
+    the groundedness instruction; documents ride in `params["documents"]` (rendered model-visible by
+    the transport). NO structured-output spec — these emit free text the contract parses.
+
+    DECOMPOSITION layout (I-run11-004) REPLICATES the certified call so the certification transfers:
+    a SINGLE user message carrying `_DECOMPOSITION_PROMPT.format(span=<all evidence .text joined>,
+    claim=claim)` (NOT the guardian documents-channel layout), with `response_format`
+    {"type":"json_object"} requested (the transport forwards it; the robust parser also handles
+    non-JSON-mode output). Decomposition carries NO documents in params (the SPAN is inlined into the
+    single prompt message, exactly as certified) so the transport prepends no separate evidence
+    message — the live body is the certified ONE user message (Codex diff-gate iter-2 P1-2).
+
+    When `mode` is None it resolves from `sentinel_groundedness_mode()` (env- + model-aware, LAW VI).
     """
-    resolved_mode = _resolve_mode(mode)
+    resolved_mode = _resolve_mode(mode, model_slug=model_slug)
+    documents = [{"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents]
+
+    if resolved_mode == _MODE_DECOMPOSITION:
+        # Certified single-user-message layout: span = all evidence document texts joined (the
+        # certified harness passed one `cited_evidence_text` span; multi-doc evidence is joined so
+        # the whole cited pool is in-span). response_format requests JSON; the parser is robust to
+        # non-JSON output too.
+        span = "\n\n".join(doc.text for doc in evidence_documents)
+        user_content = _DECOMPOSITION_PROMPT.format(span=span, claim=claim)
+        messages = [{"role": "user", "content": user_content}]
+        # NO documents in decomposition mode (Codex diff-gate iter-2 P1-2): the SPAN is already
+        # inlined into `user_content`, exactly as the certification ran. If documents were carried
+        # here, the transport's _normalize_messages would PREPEND a separate evidence user message,
+        # making the live body TWO user messages instead of the certified ONE — diverging from the
+        # certified call and invalidating the 0-false-accept guarantee. Pass an empty list so the
+        # transport prepends nothing; the model reads the span from the single prompt message.
+        params = {
+            "documents": [],
+            "response_format": {"type": "json_object"},
+        }
+        return RoleRequest(
+            role=_ROLE,
+            model_slug=model_slug,
+            messages=messages,
+            params=params,
+        )
+
     instruction = _GUARDIAN_BLOCK if resolved_mode == _MODE_GUARDIAN else _NONINVERTED_BLOCK
     messages = [
         {"role": "assistant", "content": claim},
         {"role": "user", "content": instruction},
     ]
-    params = {
-        "documents": [
-            {"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents
-        ],
-    }
+    params = {"documents": documents}
     return RoleRequest(
         role=_ROLE,
         model_slug=model_slug,
@@ -185,17 +324,19 @@ def run_sentinel(
     completion, iter-3 P1-a). A transport error OR a malformed/empty `raw_text` both yield
     `SentinelResult(UNGROUNDED, parsed_ok=False)` — never GROUNDED, in EITHER mode.
 
-    `mode` (None -> `sentinel_groundedness_mode()`, env-gated, LAW VI) selects BOTH the prompt
-    (via `build_sentinel_request`) AND the parser, so they always pair correctly:
-      - "guardian"    -> inverted `<score>yes|no</score>` parser (`parse_sentinel_score`).
-      - "noninverted" -> direct GROUNDED/UNGROUNDED parser (`parse_sentinel_grounded_token`).
+    `mode` (None -> `sentinel_groundedness_mode()`, env- + model-aware, LAW VI) selects BOTH the
+    prompt (via `build_sentinel_request`) AND the parser, so they always pair correctly:
+      - "guardian"      -> inverted `<score>yes|no</score>` parser (`parse_sentinel_score`).
+      - "noninverted"   -> direct GROUNDED/UNGROUNDED parser (`parse_sentinel_grounded_token`).
+      - "decomposition" -> certified JSON-verdict parser (`parse_sentinel_decomposition`).
     """
-    resolved_mode = _resolve_mode(mode)
-    parser = (
-        parse_sentinel_score
-        if resolved_mode == _MODE_GUARDIAN
-        else parse_sentinel_grounded_token
-    )
+    resolved_mode = _resolve_mode(mode, model_slug=model_slug)
+    if resolved_mode == _MODE_GUARDIAN:
+        parser = parse_sentinel_score
+    elif resolved_mode == _MODE_DECOMPOSITION:
+        parser = parse_sentinel_decomposition
+    else:
+        parser = parse_sentinel_grounded_token
     request = build_sentinel_request(
         claim, evidence_documents, model_slug=model_slug, mode=resolved_mode
     )

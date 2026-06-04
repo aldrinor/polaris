@@ -57,24 +57,32 @@ required_roles:
       non-abstention failure mode is mitigated by downstream Mirror/Sentinel/Judge layers.
 
   mirror:
-    model_slug: cohere/command-a-plus
-    family: cohere
+    # I-run11-004: Mirror re-picked to z-ai/glm-5.1 (family glm). Cohere Command A+ is NOT on
+    # OpenRouter and the benchmark + lock now converge on GLM-5.1 as the calibration auditor.
+    model_slug: z-ai/glm-5.1
+    family: glm
     serving_route: vast_self_host_bf16
-    license: Apache 2.0
+    license: MIT
     released: 2026-05-20
     role_description: |
-      Calibration auditor. Best calibration in pool (14.1% AA-Omniscience).
-      Native citation grounding. Tests claims the Generator cannot self-verify.
+      Calibration auditor. Native citation grounding via <co> spans.
+      Tests claims the Generator cannot self-verify.
 
   sentinel:
-    model_slug: ibm-granite/granite-guardian-4.1-8b
-    family: ibm-granite
+    # I-run11-004: Sentinel replaced (broken Granite Guardian -> CERTIFIED MiniMax-M2 running the
+    # claim-DECOMPOSITION + span-coverage prompt). On the 56-item fixture (28 grounded + 28
+    # fabricated across NUMBER_SWAP/ENTITY_SWAP/NEGATION/FABRICATED_ATTRIBUTION/SCOPE_INFLATION)
+    # it scored 0 false-accepts on all 28 fabrications, over-flag 0.107. The PRODUCTION
+    # decomposition mode replicates the certified call (verbatim GLM_PROMPT, span+claim inline in a
+    # single user message, JSON response_format, reasoning ON, max_tokens>=3000).
+    model_slug: minimax/minimax-m2
+    family: minimax
     serving_route: vast_self_host
-    license: Apache 2.0
+    license: MIT  # MiniMaxAI/MiniMax-M2 is MIT per HuggingFace (Codex diff-gate iter-2 P2)
     released: 2026
     role_description: |
-      Purpose-built RAG hallucination detector. RAGTruth BAcc 0.841.
-      Broad guardrail coverage. Catches Mirror's misses.
+      Certified claim-decomposition + span-coverage faithfulness detector
+      (MiniMax-M2). Catches Mirror's misses; fail-closed on any parse failure.
 
   judge:
     model_slug: qwen/qwen3.6-35b-a3b

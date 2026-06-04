@@ -36,25 +36,24 @@ roles:
     # Calibration auditor — native <co> citation grounding, served as PLAIN chat
     # (no structured-output constraint): the Mirror emits free-form prose with
     # inline <co>covered text</co:doc_id> spans that mirror_adapter parses.
-    model_slug: cohere/command-a-plus
+    # I-run11-004: Mirror is z-ai/glm-5.1 (Cohere Command A+ retired; GLM-5.1 is the lock pick).
+    model_slug: z-ai/glm-5.1
     serving_route: vast_self_host_bf16
     # model_source = the HF repo / weights path vLLM LOADS (--model). DISTINCT from
     # served_model_name: ONLY served_model_name is bound to the lock slug.
     # model_source must be confirmed against the lock's codex_cross_validation_sources
     # before launch — it is NOT lock-equality checked.
-    model_source: CohereLabs/command-a-plus-05-2026-bf16
+    model_source: zai-org/GLM-5.1
     base_url_env: PG_MIRROR_BASE_URL
     api_key_env: PG_MIRROR_API_KEY
     gpu:
-      # Full-precision bf16 — Command A+ (218B total / 25B active sparse MoE),
-      # ~438 GB weights (docs/vast_ai_budget_i_meta_002.md §1.1).
       count: 8
       kind: H100
       vram_gb_each: 80
-      box_note: "8xH100 bf16 (~438 GB weights); proves sovereign production path"
+      box_note: "8xH100 bf16; calibration auditor, proves sovereign production path"
     vllm_args:
       # served-model-name == the locked slug (M4 served==pinned identity surface).
-      served_model_name: cohere/command-a-plus
+      served_model_name: z-ai/glm-5.1
       tensor_parallel_size: 8
       dtype: bfloat16
       quantization: null            # bf16 full precision; Mirror's job IS calibration
@@ -64,30 +63,38 @@ roles:
       guided_decoding: false
 
   sentinel:
-    # Purpose-built RAG hallucination detector — Granite Guardian 4.1 8B (dense,
-    # ~16 GB). Emits a <score> element (NOT JSON), so NO structured-output spec.
-    model_slug: ibm-granite/granite-guardian-4.1-8b
+    # I-run11-004: certified MiniMax-M2 claim-decomposition + span-coverage faithfulness detector
+    # (replaces the broken Granite Guardian). Runs the verbatim certified GLM_PROMPT with JSON
+    # response_format + reasoning ON; emits JSON {verdict, unsupported_atoms, atoms} parsed by
+    # parse_sentinel_decomposition (fail-closed on any parse failure).
+    model_slug: minimax/minimax-m2
     serving_route: vast_self_host
     # model_source = the weights vLLM LOADS; only served_model_name is lock-bound.
     # Confirm against the lock's codex_cross_validation_sources before launch.
-    model_source: ibm-granite/granite-guardian-4.1-8b
+    model_source: MiniMaxAI/MiniMax-M2
     base_url_env: PG_SENTINEL_BASE_URL
     api_key_env: PG_SENTINEL_API_KEY
+    # I-run11-004 (Codex diff-gate iter-2 P1-3): MiniMax-M2 is a ~229B-param MoE
+    # (https://huggingface.co/MiniMaxAI/MiniMax-M2) — bf16 weights alone are ~458GB and DO NOT fit on
+    # 1xA100 80GB. At the BENCHMARK stage the Sentinel is served via OpenRouter (PG_FOUR_ROLE_TRANSPORT
+    # default = openrouter), so this self-host block is NOT exercised by the drb_72 benchmark / run 13.
+    # The sovereign self-host topology below is PENDING the GPU procurement (I-C-07/#90, operator-gated)
+    # and is sized for FP8 on a multi-GPU box; final count/kind confirmed at procurement, not here.
     gpu:
-      # 1xA100 80GB — ample VRAM, no KV bottleneck
-      # (docs/vast_ai_budget_i_meta_002.md §1.3).
-      count: 1
-      kind: A100
+      count: 8                     # ~229B MoE @ FP8 needs a multi-GPU box (8x80GB class); not 1xA100
+      kind: H100
       vram_gb_each: 80
-      box_note: "1xA100 80GB (EU/sovereignty-clean); dense 8B guardrail model"
+      box_note: "PENDING sovereign GPU procurement (#90/I-C-07). ~229B MoE; 1xA100 is infeasible (~458GB bf16). Benchmark stage routes Sentinel via OpenRouter."
     vllm_args:
-      served_model_name: ibm-granite/granite-guardian-4.1-8b
-      tensor_parallel_size: 1
+      served_model_name: minimax/minimax-m2
+      tensor_parallel_size: 8      # match gpu.count; ~229B MoE cannot run TP=1
       dtype: bfloat16
-      quantization: null
+      quantization: fp8            # FP8 to fit ~229B weights on an 8x80GB box (confirm at procurement)
       max_model_len: 16384
-      structured_outputs: false     # Granite emits <score>, not JSON
-      guided_decoding: false
+      # Decomposition mode requests a JSON object; structured-output constraint enabled so the
+      # served self-host path can bind response_format (the robust parser also tolerates non-JSON).
+      structured_outputs: true
+      guided_decoding: true
 
   judge:
     # Terminal arbiter — Qwen3.6-35B-A3B (MoE, 3B active). MUST emit a stable

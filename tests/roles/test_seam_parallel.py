@@ -69,13 +69,19 @@ _REQUIRED_S0 = ["contraindications"]
 
 
 def _sentinel_raw_for_mode(request: RoleRequest, grounded: bool) -> str:
-    """I-run11-002 L1: the Sentinel raw output that MATCHES the active groundedness mode.
+    """The Sentinel raw output that MATCHES the active groundedness mode (I-run11-002 L1 +
+    I-run11-004).
 
-    `run_sentinel` selects the inverted `<score>yes|no</score>` parser when the request carries the
-    `<guardian>` block (sovereign self_host) and the non-inverted GROUNDED/UNGROUNDED parser
-    otherwise (benchmark default). The fake emits the SAME-mode format so canned output and parser
-    always pair (whatever PG_SENTINEL_GROUNDEDNESS_MODE / PG_FOUR_ROLE_TRANSPORT resolve to)."""
+    `run_sentinel` selects the parser off the resolved mode: decomposition (MiniMax-M2 default) ->
+    JSON {"verdict": "supported"|"unsupported"}; guardian (`<guardian>` block) -> inverted
+    `<score>yes|no</score>`; noninverted -> one-word GROUNDED/UNGROUNDED. The fake emits the
+    SAME-mode format so canned output and parser always pair (whatever
+    PG_SENTINEL_GROUNDEDNESS_MODE / PG_SENTINEL_MODEL / PG_FOUR_ROLE_TRANSPORT resolve to)."""
     final_instruction = request.messages[-1]["content"] if request.messages else ""
+    if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+        verdict = "supported" if grounded else "unsupported"
+        n = "0" if grounded else "1"
+        return '{"verdict": "' + verdict + '", "unsupported_atoms": ' + n + ', "atoms": []}'
     if "<guardian>" in final_instruction:
         return "<score>no</score>" if grounded else "<score>yes</score>"
     return "GROUNDED" if grounded else "UNGROUNDED"
@@ -137,6 +143,13 @@ class _DelayedFakeTransport:
                 return int(m.group(1))
         if request.prompt:
             m = _CLAIM_IDX_RE.search(request.prompt)
+            if m:
+                return int(m.group(1))
+        # I-run11-004: the decomposition Sentinel carries the span (with its [[CLAIMIDX]] marker)
+        # INLINE in the single user message (NOT in documents — see sentinel_adapter P1-2), so the
+        # fake recovers the index from the message content, like the Judge prompt.
+        for message in request.messages or []:
+            m = _CLAIM_IDX_RE.search(message.get("content", "") or "")
             if m:
                 return int(m.group(1))
         return None

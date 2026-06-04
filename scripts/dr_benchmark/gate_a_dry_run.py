@@ -242,13 +242,45 @@ def check_role_contracts() -> CheckResult:
     claim = "The grounded answer."
     problems: list[str] = []
 
-    # Sentinel through the adapter+transport: yes => UNGROUNDED, parsed_ok True.
+    # Sentinel GUARDIAN polarity through the adapter+transport: yes => UNGROUNDED, parsed_ok True.
+    # mode="guardian" is pinned so this lethal-polarity fixture is mode-deterministic regardless of
+    # the global default (I-run11-004: the default is now the MiniMax-M2 decomposition mode).
     sentinel_result, _ = run_sentinel(
-        transport, claim, evidence, model_slug="ibm-granite/granite-guardian-4.1-8b"
+        transport, claim, evidence,
+        model_slug="ibm-granite/granite-guardian-4.1-8b", mode="guardian",
     )
     if sentinel_result.verdict is not SentinelVerdict.UNGROUNDED or not sentinel_result.parsed_ok:
         problems.append(
             f"Sentinel polarity wrong via transport: {sentinel_result} (expected UNGROUNDED)"
+        )
+
+    # Sentinel DECOMPOSITION contract (I-run11-004): the CERTIFIED MiniMax-M2 JSON verdict
+    # "unsupported" => UNGROUNDED, "supported" => GROUNDED (mode pinned for determinism).
+    decomp_unsupported = _GateAMockTransport(
+        judge_raw=_JUDGE_OFF_ENUM,
+        sentinel_raw='{"verdict": "unsupported", "unsupported_atoms": 1, "atoms": []}',
+    )
+    decomp_result, _ = run_sentinel(
+        decomp_unsupported, claim, evidence,
+        model_slug="minimax/minimax-m2", mode="decomposition",
+    )
+    if decomp_result.verdict is not SentinelVerdict.UNGROUNDED or not decomp_result.parsed_ok:
+        problems.append(
+            f"Sentinel decomposition unsupported wrong via transport: {decomp_result} "
+            "(expected UNGROUNDED)"
+        )
+    decomp_supported = _GateAMockTransport(
+        judge_raw=_JUDGE_OFF_ENUM,
+        sentinel_raw='{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}',
+    )
+    decomp_grounded, _ = run_sentinel(
+        decomp_supported, claim, evidence,
+        model_slug="minimax/minimax-m2", mode="decomposition",
+    )
+    if decomp_grounded.verdict is not SentinelVerdict.GROUNDED or not decomp_grounded.parsed_ok:
+        problems.append(
+            f"Sentinel decomposition supported wrong via transport: {decomp_grounded} "
+            "(expected GROUNDED)"
         )
 
     # Judge through the adapter+transport: an off-enum token must RAISE (no silent default).
@@ -271,7 +303,7 @@ def check_role_contracts() -> CheckResult:
     # Mirror through the adapter+transport: the two-pass grounded round trip binds and returns.
     try:
         mirror_pass2, mirror_records = run_mirror(
-            transport, claim, evidence, model_slug="cohere/command-a-plus"
+            transport, claim, evidence, model_slug="z-ai/glm-5.1"
         )
         if mirror_pass2 is None or len(mirror_records) != 2:
             problems.append(
@@ -286,7 +318,8 @@ def check_role_contracts() -> CheckResult:
     return CheckResult(
         "role_contracts",
         True,
-        "via transport: Sentinel yes=UNGROUNDED, Judge off-enum raises, Mirror two-pass binds",
+        "via transport: Sentinel guardian yes=UNGROUNDED + decomposition "
+        "supported=GROUNDED/unsupported=UNGROUNDED, Judge off-enum raises, Mirror two-pass binds",
     )
 
 

@@ -24,9 +24,17 @@ def test_family_registry_has_cohere():
 
 
 def test_family_registry_has_ibm_granite():
-    """I-meta-001 V4 regression — ibm-granite family added for Sentinel role."""
+    """I-meta-001 V4 regression — ibm-granite family still registered (sovereign Mirror history)."""
     assert "ibm-granite" in _FAMILY_PREFIXES
     assert family_from_model("ibm-granite/granite-guardian-4.1-8b") == "ibm-granite"
+
+
+def test_family_registry_has_minimax():
+    """I-run11-004 regression — minimax family added for the CERTIFIED MiniMax-M2 Sentinel."""
+    assert "minimax" in _FAMILY_PREFIXES
+    assert family_from_model("minimax/minimax-m2") == "minimax"
+    # minimax must NOT collide with any other lock family (4 distinct lineages).
+    assert family_from_model("minimax/minimax-m2") not in ("deepseek", "glm", "qwen")
 
 
 def test_family_registry_existing_families_unchanged():
@@ -39,10 +47,12 @@ def test_family_registry_existing_families_unchanged():
 
 # --- N-way family segregation ---
 
+# I-run11-004: the locked stack is now Generator deepseek + Mirror z-ai/glm-5.1 (glm) +
+# Sentinel CERTIFIED minimax/minimax-m2 (minimax) + Judge qwen — four distinct lineages.
 _LOCKED_4_ROLE_MAP = {
     "generator": "deepseek/deepseek-v4-pro",
-    "mirror":    "cohere/command-a-plus",
-    "sentinel":  "ibm-granite/granite-guardian-4.1-8b",
+    "mirror":    "z-ai/glm-5.1",
+    "sentinel":  "minimax/minimax-m2",
     "judge":     "qwen/qwen3.6-35b-a3b",
 }
 
@@ -52,8 +62,8 @@ def test_validate_role_families_passes_for_locked_stack():
     out = validate_role_families(_LOCKED_4_ROLE_MAP)
     assert out == {
         "generator": "deepseek",
-        "mirror":    "cohere",
-        "sentinel":  "ibm-granite",
+        "mirror":    "glm",
+        "sentinel":  "minimax",
         "judge":     "qwen",
     }
 

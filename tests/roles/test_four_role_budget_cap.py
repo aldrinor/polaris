@@ -123,13 +123,18 @@ class _FakeRoleTransport:
                 usage=usage,
             )
         if request.role == "sentinel":
-            # I-run11-002 L1: emit the format matching the active groundedness mode so the canned
-            # GROUNDED output pairs with the parser run_sentinel selected (non-inverted GROUNDED by
-            # default; `<score>no</score>` only under the guardian/self_host mode).
+            # Emit the format matching the active groundedness mode so the canned GROUNDED verdict
+            # pairs with the parser run_sentinel selected (I-run11-002 L1 + I-run11-004):
+            #   - decomposition (MiniMax-M2 default): JSON {"verdict": "supported"};
+            #   - guardian (self_host): `<score>no</score>`;
+            #   - noninverted (general granite): one-word `GROUNDED`.
             final_instruction = request.messages[-1]["content"] if request.messages else ""
-            sentinel_raw = (
-                "<score>no</score>" if "<guardian>" in final_instruction else "GROUNDED"
-            )
+            if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
+                sentinel_raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
+            elif "<guardian>" in final_instruction:
+                sentinel_raw = "<score>no</score>"
+            else:
+                sentinel_raw = "GROUNDED"
             return RoleResponse(
                 raw_text=sentinel_raw, served_model=request.model_slug, usage=usage
             )

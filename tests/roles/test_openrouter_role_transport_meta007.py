@@ -4,9 +4,10 @@ SPEND-FREE: every test injects an `httpx.Client(transport=httpx.MockTransport(..
 faked OpenRouter catalog through the same), so there is NO socket / NO real LLM / NO spend in any
 path pytest exercises — the OpenRouter HTTP is monkeypatched at the transport layer.
 
-Asserts the I-meta-007d contract (P1-1..P1-4 + P2 fixes, diff-gate iter-1):
+Asserts the I-meta-007d contract (P1-1..P1-4 + P2 fixes, diff-gate iter-1) updated for I-run11-004
+(the CERTIFIED MiniMax-M2 decomposition Sentinel — reasoning ON, max_tokens>=3000):
   (a) the transport sends each verifier role's BENCHMARK lineup slug (Mirror `z-ai/glm-5.1`,
-      Sentinel `ibm-granite/granite-4.1-8b`, Judge `qwen/qwen3.6-35b-a3b` — NOT the lock's
+      Sentinel `minimax/minimax-m2`, Judge `qwen/qwen3.6-35b-a3b` — NOT the lock's
       self-host slugs; P1-1) + the MAX-reasoning request param
       (`reasoning = {"enabled": True, "effort": "xhigh"}` — `xhigh` is OpenRouter's MAX; P1-2),
       and does NOT forward a top-level `documents` body key (P1-4);
@@ -20,7 +21,7 @@ Asserts the I-meta-007d contract (P1-1..P1-4 + P2 fixes, diff-gate iter-1):
       "self_host";
   (e) the openrouter preflight asserts each BENCHMARK lineup slug is present in a faked catalog
       (by `id` OR `canonical_slug`), fails LOUD on a missing slug, and keeps the
-      4-distinct-family check over the deepseek/z-ai/ibm-granite/qwen benchmark lineup.
+      4-distinct-family check over the deepseek/z-ai/minimax/qwen benchmark lineup.
 
 NO network: the real OpenRouter endpoint is never hit; the `OpenAICompatibleRoleTransport`
 self-host path is also never constructed against a live endpoint here.
@@ -47,11 +48,10 @@ from src.polaris_graph.roles.openrouter_role_transport import (
 )
 from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
 
-# BENCHMARK-STAGE OpenRouter lineup slugs (P1-1 — role_selection_final.md, NOT the lock's
-# self-host slugs). Mirror + Sentinel differ from the lock (cohere / granite-GUARDIAN are not on
-# OpenRouter); Judge is identical to the lock.
+# BENCHMARK-STAGE OpenRouter lineup slugs (P1-1). I-run11-004: lock + benchmark now converge —
+# Mirror z-ai/glm-5.1, Sentinel CERTIFIED minimax/minimax-m2 (decomposition), Judge qwen.
 _MIRROR_SLUG = "z-ai/glm-5.1"
-_SENTINEL_SLUG = "ibm-granite/granite-4.1-8b"
+_SENTINEL_SLUG = "minimax/minimax-m2"
 _JUDGE_SLUG = "qwen/qwen3.6-35b-a3b"
 
 # Writer/generator (unchanged in the lock + benchmark lineup) — referenced by the preflight
@@ -143,18 +143,15 @@ def test_sends_pinned_slug_and_max_reasoning(role, slug):
     # the lock self-host slug, NOT the request). It also equals the pin verifier_model_slugs feeds
     # into RoleRequest.model_slug, so served == pinned (asserted in its own test below).
     assert body["model"] == slug
-    # Codex iter-2 P1: reasoning is PER-ROLE. The Sentinel classifier sends NEITHER reasoning nor
-    # provider/require_parameters (its OpenRouter slug does not advertise `reasoning`, so those
-    # params would break routing). The deliberative verifiers (Mirror/Judge) send BOTH.
-    if role == "sentinel":
-        assert "reasoning" not in body
-        assert "provider" not in body
-    else:
-        # P1-2 MAX reasoning: enabled + effort "xhigh" (OpenRouter's documented MAXIMUM effort).
-        assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
-        # require_parameters=True makes OpenRouter only route to a provider that HONORS reasoning
-        # (otherwise the max-reasoning request could be silently ignored on a fallback provider).
-        assert body["provider"] == {"require_parameters": True}
+    # I-run11-004: reasoning is PER-ROLE and the Sentinel is now MODE-AWARE. The default
+    # PG_SENTINEL_MODEL (minimax/minimax-m2) resolves to "decomposition" mode, which the
+    # certification ran WITH reasoning ON (reasoning OFF / starved max_tokens truncates the JSON ->
+    # all-UNGROUNDED collapse). So ALL THREE roles now send MAX reasoning + require_parameters.
+    # P1-2 MAX reasoning: enabled + effort "xhigh" (OpenRouter's documented MAXIMUM effort).
+    assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
+    # require_parameters=True makes OpenRouter only route to a provider that HONORS reasoning
+    # (otherwise the max-reasoning request could be silently ignored on a fallback provider).
+    assert body["provider"] == {"require_parameters": True}
     # P1-4: a top-level `documents` key is NOT forwarded (OpenRouter's chat-completions schema
     # has no such param; with require_parameters=True it would fail routing). The evidence is
     # already rendered into `messages` by _normalize_messages, so model-visibility is preserved.
@@ -443,15 +440,20 @@ def _catalog_client(catalog_data: list[dict], status_code: int = 200) -> httpx.C
 
 
 def test_preflight_openrouter_resolves_all_slugs_present_as_id():
-    # P1-1: the preflight resolves the BENCHMARK lineup slugs (z-ai/glm-5.1, granite-4.1-8b,
-    # qwen3.6-35b-a3b) against the catalog — NOT the lock self-host slugs.
+    # P1-1 / I-run11-004: the preflight resolves the BENCHMARK lineup slugs (z-ai/glm-5.1,
+    # minimax/minimax-m2, qwen3.6-35b-a3b) against the catalog — NOT the lock self-host slugs.
+    # The decomposition Sentinel is reasoning-enabled, so its catalog entry advertises `reasoning`.
     catalog = [
         {
             "id": _MIRROR_SLUG,
             "canonical_slug": "z-ai/glm-5.1-20260520",
             "supported_parameters": ["reasoning", "max_tokens"],
         },
-        {"id": _SENTINEL_SLUG, "canonical_slug": _SENTINEL_SLUG},
+        {
+            "id": _SENTINEL_SLUG,
+            "canonical_slug": _SENTINEL_SLUG,
+            "supported_parameters": ["reasoning", "response_format", "max_tokens"],
+        },
         {
             "id": _JUDGE_SLUG,
             "canonical_slug": _JUDGE_SLUG,
@@ -475,7 +477,7 @@ def test_preflight_openrouter_matches_via_canonical_slug():
             "canonical_slug": _MIRROR_SLUG,
             "supported_parameters": ["reasoning", "max_tokens"],
         },
-        {"id": _SENTINEL_SLUG},
+        {"id": _SENTINEL_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
         {"id": _JUDGE_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
     ]
     resolved = run_gate_b.preflight_openrouter_roles(http_client=_catalog_client(catalog))
@@ -484,11 +486,11 @@ def test_preflight_openrouter_matches_via_canonical_slug():
 
 def test_preflight_openrouter_missing_slug_fails_loud():
     # Judge slug absent from the catalog (neither id nor canonical_slug) -> fail loud.
-    # Mirror advertises `reasoning` so its executability check passes and the loop reaches the
-    # missing Judge, where the PRESENCE failure (match="judge") fires.
+    # Mirror + Sentinel advertise `reasoning` so their executability checks pass and the loop
+    # reaches the missing Judge, where the PRESENCE failure (match="judge") fires.
     catalog = [
         {"id": _MIRROR_SLUG, "supported_parameters": ["reasoning"]},
-        {"id": _SENTINEL_SLUG},
+        {"id": _SENTINEL_SLUG, "supported_parameters": ["reasoning"]},
     ]
     with pytest.raises(RuntimeError, match="judge"):
         run_gate_b.preflight_openrouter_roles(http_client=_catalog_client(catalog))
@@ -497,31 +499,28 @@ def test_preflight_openrouter_missing_slug_fails_loud():
 def test_preflight_openrouter_fails_when_reasoning_role_lacks_reasoning_support():
     # Codex iter-2 P1: a reasoning-enabled role (Mirror) whose slug does NOT advertise `reasoning`
     # must fail preflight — with require_parameters=True OpenRouter would refuse to route. Sentinel
-    # is reasoning-disabled so its lack of `reasoning` is fine; Judge advertises it.
+    # + Judge advertise it (Sentinel is now reasoning-ON in decomposition mode).
     catalog = [
         {"id": _MIRROR_SLUG, "supported_parameters": ["max_tokens"]},
-        {"id": _SENTINEL_SLUG, "supported_parameters": ["max_tokens"]},
+        {"id": _SENTINEL_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
         {"id": _JUDGE_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
     ]
     with pytest.raises(RuntimeError, match="(?i)mirror|reasoning"):
         run_gate_b.preflight_openrouter_roles(http_client=_catalog_client(catalog))
 
 
-def test_preflight_openrouter_sentinel_without_reasoning_passes():
-    # The Sentinel classifier is reasoning-DISABLED, so its slug not advertising `reasoning` must
-    # NOT fail preflight (only reasoning-enabled roles get the executability check). Mirror+Judge
-    # advertise `reasoning`; Sentinel does not -> the preflight still resolves.
+def test_preflight_openrouter_decomposition_sentinel_lacking_reasoning_fails_loud():
+    # I-run11-004: the DECOMPOSITION Sentinel (minimax/minimax-m2) is reasoning-ENABLED (certified
+    # with reasoning ON). A catalog entry that does NOT advertise `reasoning` for it must FAIL the
+    # preflight (with require_parameters=True OpenRouter would refuse to route). Mirror+Judge are
+    # fine; only the Sentinel's missing `reasoning` trips the executability check.
     catalog = [
         {"id": _MIRROR_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
-        {"id": _SENTINEL_SLUG, "supported_parameters": ["max_tokens", "temperature"]},
+        {"id": _SENTINEL_SLUG, "supported_parameters": ["max_tokens", "response_format"]},
         {"id": _JUDGE_SLUG, "supported_parameters": ["reasoning", "max_tokens"]},
     ]
-    resolved = run_gate_b.preflight_openrouter_roles(http_client=_catalog_client(catalog))
-    assert resolved == {
-        "mirror": _MIRROR_SLUG,
-        "sentinel": _SENTINEL_SLUG,
-        "judge": _JUDGE_SLUG,
-    }
+    with pytest.raises(RuntimeError, match="(?i)sentinel|reasoning"):
+        run_gate_b.preflight_openrouter_roles(http_client=_catalog_client(catalog))
 
 
 def test_preflight_openrouter_non_200_fails_loud():
@@ -534,14 +533,14 @@ def test_preflight_openrouter_non_200_fails_loud():
 
 def test_family_check_passes_on_benchmark_lineup(monkeypatch):
     # P1-1: in openrouter mode the 4-distinct-family check asserts on the ACTIVE benchmark
-    # families (generator deepseek from the lock + benchmark verifiers z-ai/ibm-granite/qwen),
+    # families (generator deepseek from the lock + benchmark verifiers z-ai/minimax/qwen),
     # which are 4 distinct lineages — it must PASS (no collision).
     monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)  # default openrouter
     fams = run_gate_b.assert_four_role_families_distinct()
     assert fams == {
         "generator": "deepseek",
         "mirror": "z-ai",
-        "sentinel": "ibm-granite",
+        "sentinel": "minimax",
         "judge": "qwen",
     }
     assert len(set(fams.values())) == 4
@@ -582,7 +581,7 @@ def test_stage_marker_records_benchmark_openrouter(monkeypatch, tmp_path):
     }
     assert marker["verifier_families"] == {
         "mirror": "z-ai",
-        "sentinel": "ibm-granite",
+        "sentinel": "minimax",
         "judge": "qwen",
     }
     path = run_gate_b.write_four_role_stage_marker(tmp_path)
@@ -677,9 +676,48 @@ def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
     assert seen["body"]["max_tokens"] == 8192
 
 
-def test_sentinel_gets_explicit_classifier_budget():
-    # Sentinel is reasoning-disabled (a classifier); it gets an explicit output budget (default 256),
-    # not a pop-and-hope on the provider default, and no reasoning param is sent.
+def test_decomposition_sentinel_gets_reasoning_and_generous_max_tokens():
+    # I-run11-004: the default Sentinel (minimax/minimax-m2) resolves to "decomposition" mode, which
+    # the certification ran WITH reasoning ON + max_tokens>=3000 (a small budget truncates the JSON
+    # {verdict, atoms} -> all-UNGROUNDED collapse). So the decomposition Sentinel sends reasoning
+    # xhigh AND a generous max_tokens (default 16384), NOT the 256 classifier budget.
+    handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(
+            role="sentinel",
+            model_slug=_SENTINEL_SLUG,
+            messages=[{"role": "user", "content": "decompose this"}],
+            params={"documents": [{"doc_id": "d1", "text": "ev"}],
+                    "response_format": {"type": "json_object"}, "max_tokens": 16},
+        )
+    )
+    assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
+    assert seen["body"]["max_tokens"] == 16384
+    # The certified JSON response_format is forwarded to the body (the robust parser also handles
+    # non-JSON-mode output, but the request asks for JSON).
+    assert seen["body"]["response_format"] == {"type": "json_object"}
+
+
+def test_decomposition_sentinel_max_tokens_floored_at_3000(monkeypatch):
+    # LAW VI: the decomposition budget is env-overridable, but a too-small override is HARD-FLOORED
+    # at 3000 so it can never re-introduce the run-12 JSON truncation.
+    monkeypatch.setenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "500")
+    handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "VERIFIED"})
+    _make_transport(handler).complete(
+        RoleRequest(
+            role="sentinel",
+            model_slug=_SENTINEL_SLUG,
+            messages=[{"role": "user", "content": "decompose"}],
+            params={"response_format": {"type": "json_object"}},
+        )
+    )
+    assert seen["body"]["max_tokens"] == 3000
+
+
+def test_sentinel_classifier_budget_when_reasoning_disabled(monkeypatch):
+    # When the Sentinel mode is NOT decomposition (e.g. PG_SENTINEL_REASONING=0 forces it OFF), the
+    # classifier path holds: an explicit 256 output budget and no reasoning param.
+    monkeypatch.setenv("PG_SENTINEL_REASONING", "0")
     handler, seen = _recording_handler(served_model=_SENTINEL_SLUG, message={"content": "<score>no</score>"})
     _make_transport(handler).complete(
         RoleRequest(
@@ -756,15 +794,33 @@ def test_blank_verdict_ladder_exhausted_fails_loud_with_reasoning_off_last():
     assert "provider" not in seen["bodies"][2] or "require_parameters" not in seen["bodies"][2].get("provider", {})
 
 
-def test_sentinel_blank_is_single_attempt_no_stepdown():
-    # The non-reasoning Sentinel has no `reasoning` block to step down — it makes ONE attempt and a
-    # blank still fails loud (unchanged behavior; the ladder is reasoning-roles-only).
+def test_classifier_sentinel_blank_is_single_attempt_no_stepdown(monkeypatch):
+    # A reasoning-DISABLED Sentinel (PG_SENTINEL_REASONING=0, the sovereign classifier path) has no
+    # `reasoning` block to step down — it makes ONE attempt and a blank still fails loud (the ladder
+    # is reasoning-roles-only).
+    monkeypatch.setenv("PG_SENTINEL_REASONING", "0")
     handler, seen = _sequenced_handler([{"content": ""}], served_model=_SENTINEL_SLUG)
     with pytest.raises(RoleTransportError):
         _make_transport(handler).complete(
             RoleRequest(role="sentinel", model_slug=_SENTINEL_SLUG, prompt="x")
         )
-    assert len(seen["bodies"]) == 1, "Sentinel must NOT retry (no reasoning ladder)"
+    assert len(seen["bodies"]) == 1, "classifier Sentinel must NOT retry (no reasoning ladder)"
+
+
+def test_decomposition_sentinel_blank_steps_down_reasoning_and_recovers():
+    # I-run11-004: the reasoning-ON decomposition Sentinel DOES follow the blank-verdict step-down
+    # ladder (xhigh -> low -> off) like the other reasoning verifiers — a non-converging xhigh blank
+    # must not crash the run.
+    blank = {"content": "", "reasoning": "looped without converging"}
+    good = {"content": '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'}
+    handler, seen = _sequenced_handler([blank, good], served_model=_SENTINEL_SLUG)
+    resp = _make_transport(handler).complete(
+        RoleRequest(role="sentinel", model_slug=_SENTINEL_SLUG, prompt="decompose")
+    )
+    assert resp.raw_text == good["content"]
+    assert len(seen["bodies"]) == 2, "decomposition Sentinel retries after a blank"
+    assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh"
+    assert seen["bodies"][1]["reasoning"]["effort"] == "low"
 
 
 def test_blank_attempt_bills_tokens_into_run_budget(monkeypatch):
