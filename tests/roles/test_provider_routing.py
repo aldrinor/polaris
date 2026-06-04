@@ -116,6 +116,28 @@ def test_empty_response_excludes_provider_and_retries(_routing_on):
     assert "phala" in state["bodies"][1]["provider"]["ignore"]
 
 
+def test_routed_non_reasoning_role_retries_and_excludes_provider(_routing_on, monkeypatch):
+    # Codex iter-2 P2: cover the ROUTED non-reasoning (classifier Sentinel) blank-retry. With routing
+    # ON it gets (1 + PG_PROVIDER_BLANK_RETRIES) attempts and excludes the blanked provider's slug, so
+    # a momentarily-empty Sentinel provider fails over instead of crashing the seam.
+    monkeypatch.setenv("PG_SENTINEL_REASONING", "0")  # the reasoning-DISABLED classifier path
+    monkeypatch.setenv("PG_PROVIDER_BLANK_RETRIES", "3")
+    handler, state = _sequence_handler([
+        _completion("Novita", ""),                # 1st routed provider blanks (display name)
+        _completion("Minimax", "GROUNDED"),       # 2nd healthy provider returns a verdict
+    ])
+    transport = OpenRouterRoleTransport(httpx.Client(transport=httpx.MockTransport(handler)))
+    req = RoleRequest(role="sentinel", model_slug="minimax/minimax-m2", prompt="classify", params={})
+
+    resp = transport.complete(req)
+
+    assert resp.raw_text == "GROUNDED"
+    assert len(state["bodies"]) == 2, "routed classifier must retry on blank (not single-attempt)"
+    # non-reasoning role has NO require_parameters but DOES carry the routed order + the excluded slug
+    assert "novita" in state["bodies"][1]["provider"]["ignore"]
+    assert state["bodies"][1]["provider"]["order"] == ["novita", "minimax"]
+
+
 def test_served_display_name_maps_to_slug(_routing_on):
     # the camelCase / spaced display names a naive lower/space-fold would mis-map
     from src.polaris_graph.roles.provider_routing import slug_for_provider
