@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Build pairs from the cleaned delivered sentence, not raw sv.sentence with [#ev:...] / calc / atom artifacts; raw verifier sentences can create false NLI disputes because the cited span will not entail citation tokens."
+  - "Resolve the multi-token policy before implementation: first-token-only spans will over-dispute sentences whose claim is grounded by multiple cited spans; concatenating all cited spans per sentence is the safer advisory signal."
+  - "If PG_NLI_MODEL=faithlens remains an advertised option, the annotator needs either FaithLens .infer handling or an explicit benchmark-supported-model restriction; a hard .score call will surface as nli_status:error for an otherwise available model."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

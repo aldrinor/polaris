@@ -469,6 +469,13 @@ async def run_gate_b_query(
     # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
     # override (LAW VI).
     os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
+    # I-cap-002 feature 4/4 (#1060): turn on the ADDITIVE NLI entailment annotation for the benchmark.
+    # NLI is the second validator path (catches qualitative-negation hallucinations strict_verify's
+    # regex misses); ADVISORY only (4-role D8 stays the single gate) + FAIL-LOUD if the model is
+    # unavailable (records nli_status:unavailable, never a silent clean pass). The live model
+    # (flan-t5-large by default) loads on the VM. setdefault keeps the operator override (LAW VI).
+    os.environ.setdefault("PG_NLI_IN_BENCHMARK", "1")
+    os.environ.setdefault("PG_NLI_MODEL", "flan-t5-large")
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:
