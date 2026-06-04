@@ -1,0 +1,475 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index fbde5a78..15658e3c 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -457,6 +457,12 @@ async def run_gate_b_query(
+     # are abstract-level claims. Prefer it over the scrape; setdefault keeps the operator override.
+     os.environ.setdefault("PG_FRAME_PREFER_ABSTRACT", "1")
+     os.environ.setdefault("PG_OPENALEX_FRAME_FALLBACK", "1")
++    # I-cap-002 feature 2/4 (#1060): turn on the ADVISORY analytical-depth annotation for the
++    # benchmark/paid run ONLY here (gate-B entry), never globally — so manifest['analytical_depth_
++    # advisory'] + analytical_depth.json actually emit on the paid run instead of staying silent.
++    # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
++    # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
++    os.environ.setdefault("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "1")
+     if transport is not None:
+         active_transport = transport               # offline/test: injected fake
+     else:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 41b20b03..2a41f44f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -4903,6 +4903,52 @@ async def run_one_query(
+         run_cost = current_run_cost()
+         manifest["cost_usd"] = run_cost
+ 
++        # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.
++        # Placed here — AFTER the 4-role seam status/release overwrite (L~4740-4751), the V30
++        # block (which appends the Methods disclosure to report.md, L~4810+), and the cost
++        # recompute above — so status / release_allowed / report.md are all FINAL. It only ADDS
++        # manifest['analytical_depth_advisory'] + an analytical_depth.json sidecar; it reads the
++        # delivered report but never mutates status/release/abort. Default OFF in run_one_query
++        # (legacy honest-sweep manifest byte-unchanged); the Gate-B entry turns it ON via
++        # PG_DEPTH_ANNOTATION_IN_BENCHMARK so the paid benchmark emits it. Fail-open: any error
++        # logs + skips. Surface = the FULL on-disk report.md (front Key Findings, body, tables,
++        # Limitations, V30 disclosure), split on ATX headers — see analytical_depth module. The
++        # 'passed'/'deficient_sections' here are a benchmark-split ADVISORY read, NOT the RC-8 gate.
++        if os.environ.get("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "0").strip() in (
++            "1", "true", "True",
++        ):
++            try:
++                from src.polaris_graph.generator.analytical_depth import (
++                    evaluate_analytical_depth,
++                    split_report_into_sections,
++                )
++                try:
++                    _report_text = (run_dir / "report.md").read_text(encoding="utf-8")
++                except Exception:  # noqa: BLE001 — fall back to the in-memory assembly
++                    _report_text = final_report
++                _depth = evaluate_analytical_depth(
++                    split_report_into_sections(_report_text)
++                )
++                _depth["advisory"] = True       # the benchmark NEVER gates on this signal
++                _depth["surface"] = "benchmark_atx_split"
++                # P2.3 (Codex iter-1): write the sidecar FIRST, then stamp the manifest key, so the
++                # manifest can never carry the key while the sidecar is absent.
++                (run_dir / "analytical_depth.json").write_text(
++                    json.dumps(_depth, indent=2, sort_keys=True) + "\n",
++                    encoding="utf-8",
++                )
++                manifest["analytical_depth_advisory"] = _depth
++                _log(
++                    f"[depth]       advisory comparisons={_depth['comparison_markers']} "
++                    f"tables={_depth['tables']} key_findings={_depth['key_findings']} "
++                    f"challenges={_depth['challenge_markers']} "
++                    f"deficient={len(_depth['deficient_sections'])} (non-gating)"
++                )
++            except Exception as _depth_exc:  # noqa: BLE001 — advisory; never abort the run
++                _log(
++                    f"[depth]       WARN advisory annotation skipped (fail-open): {_depth_exc}"
++                )
++
+         (run_dir / "manifest.json").write_text(
+             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+             encoding="utf-8",
+diff --git a/src/polaris_graph/agents/synthesizer.py b/src/polaris_graph/agents/synthesizer.py
+index cca08f79..5c1f806d 100644
+--- a/src/polaris_graph/agents/synthesizer.py
++++ b/src/polaris_graph/agents/synthesizer.py
+@@ -817,67 +817,16 @@ def _evaluate_analytical_depth(
+ 
+     Checks for the 5 analytical operations across all sections.
+     Returns: {"passed": bool, "scores": {...}, "deficient_sections": [...]}
+-    """
+-    import re
+-
+-    comparison_markers = re.compile(
+-        r'\b(compared to|in contrast|whereas|however|unlike|alternatively|'
+-        r'on the other hand|differs from|outperformed|underperformed)\b', re.I
+-    )
+-    aggregation_markers = re.compile(
+-        r'\b(across \d+ studies|multiple sources|ranged from|median of|'
+-        r'average of|converging|majority of evidence|consistently)\b', re.I
+-    )
+-    challenge_markers = re.compile(
+-        r'\b(limitation|however contradictory|conflicting|gap in|'
+-        r'insufficient evidence|notable absence|remains unclear|'
+-        r'further research needed|caveat)\b', re.I
+-    )
+-    table_pattern = re.compile(r'\|[^|]+\|[^|]+\|')
+-    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
+-
+-    total_comparison = 0
+-    total_aggregation = 0
+-    total_challenge = 0
+-    total_tables = 0
+-    total_key_findings = 0
+-    deficient = []
+ 
+-    for section in report_sections:
+-        content = section.get("content", "")
+-        comp = len(comparison_markers.findall(content))
+-        agg = len(aggregation_markers.findall(content))
+-        chal = len(challenge_markers.findall(content))
+-        tables = len(table_pattern.findall(content))
+-        kf = len(key_findings_pattern.findall(content))
+-
+-        total_comparison += comp
+-        total_aggregation += agg
+-        total_challenge += chal
+-        total_tables += tables
+-        total_key_findings += kf
+-
+-        ops_present = sum([comp > 0, agg > 0, chal > 0, tables > 0, kf > 0])
+-        if ops_present < 2:
+-            deficient.append(section.get("title", "?"))
+-
+-    passed = (
+-        total_comparison >= 10 and
+-        total_tables >= 2 and
+-        total_key_findings >= 3 and
+-        total_challenge >= 3 and
+-        len(deficient) <= 2
++    The heuristic body lives in ``src.polaris_graph.generator.analytical_depth`` (stdlib-only, single
++    source of truth shared with the Pipeline-A benchmark advisory annotation, I-cap-002 #1060). This
++    delegate preserves RC-8 behavior byte-for-byte.
++    """
++    from src.polaris_graph.generator.analytical_depth import (
++        evaluate_analytical_depth,
+     )
+ 
+-    return {
+-        "passed": passed,
+-        "comparison_markers": total_comparison,
+-        "aggregation_patterns": total_aggregation,
+-        "challenge_markers": total_challenge,
+-        "tables": total_tables,
+-        "key_findings": total_key_findings,
+-        "deficient_sections": deficient,
+-    }
++    return evaluate_analytical_depth(report_sections)
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/src/polaris_graph/generator/analytical_depth.py b/src/polaris_graph/generator/analytical_depth.py
+new file mode 100644
+index 00000000..89f8ea16
+--- /dev/null
++++ b/src/polaris_graph/generator/analytical_depth.py
+@@ -0,0 +1,148 @@
++"""Analytical-depth heuristic — single source of truth for Pipeline A + Pipeline B.
++
++The depth heuristic (regex counts of comparison / aggregation / challenge markers, markdown tables, and
++``**Key Findings**`` subsections, plus a per-section "deficient" flag and a ``passed`` threshold) was
++historically inlined in ``synthesizer._evaluate_analytical_depth`` and drove the Pipeline-B RC-8 gate.
++It is extracted here, byte-for-byte, so:
++
++1. The benchmark (Pipeline A, ``run_honest_sweep_r3.run_one_query``) can import the heuristic **without**
++   importing ``synthesizer`` (which pulls ``OpenRouterClient`` + tracer + schemas + state — heavy, with
++   construction side-effects). This module is stdlib-only (``re`` + typing); zero new dependency, zero
++   network, zero cost.
++2. The two pipelines share one implementation and cannot drift. ``synthesizer._evaluate_analytical_depth``
++   now delegates here, so RC-8 behavior is unchanged.
++
++The benchmark uses ``evaluate_analytical_depth`` as an **ADVISORY, non-gating** annotation only (see
++``run_honest_sweep_r3``). The ``passed`` boolean and ``deficient_sections`` list are computed over a
++``split_report_into_sections`` view of the assembled report (split on ATX headers), which differs from
++Pipeline B's semantic ``report_sections``: Bibliography / Methods / sub-headers each become their own
++"section", so the benchmark ``passed`` / ``deficient_sections`` are an **advisory split read, NOT the
++RC-8 gate verdict**. The benchmark NEVER gates on this signal.
++"""
++
++from __future__ import annotations
++
++import re
++from typing import Any
++
++# ATX markdown header: 1-6 '#' then whitespace then a title (e.g. "## Key Findings", "### Limitations").
++_ATX_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
++
++
++def evaluate_analytical_depth(report_sections: list[dict]) -> dict:
++    """RC-8: Evaluate analytical depth using regex-based heuristics.
++
++    Checks for the 5 analytical operations across all sections.
++    Returns: {"passed": bool, "scores": {...}, "deficient_sections": [...]}
++
++    Body MOVED VERBATIM from ``synthesizer._evaluate_analytical_depth`` (same regex strings, same
++    per-section ``ops_present`` logic, same thresholds, same return keys) — Pipeline-B RC-8 parity.
++
++    NOTE (benchmark form): the ``key_findings`` regex matches the **bold** ``**Key Findings**``
++    subsection form (the per-section form emitted by the synthesis prompt). The benchmark's *front*
++    aggregated Key Findings block is emitted as an **ATX** header (``## Key Findings`` —
++    ``generator/key_findings.py``), which this regex deliberately does NOT count. Per-section bold
++    ``**Key Findings**`` subsections ARE counted. Kept verbatim rather than broadened so Pipeline-B
++    RC-8 counts cannot shift; the benchmark consumes this advisory-only, so a conservative
++    (undercounting, never inflating) key-findings tally is the safe direction.
++    """
++    comparison_markers = re.compile(
++        r'\b(compared to|in contrast|whereas|however|unlike|alternatively|'
++        r'on the other hand|differs from|outperformed|underperformed)\b', re.I
++    )
++    aggregation_markers = re.compile(
++        r'\b(across \d+ studies|multiple sources|ranged from|median of|'
++        r'average of|converging|majority of evidence|consistently)\b', re.I
++    )
++    challenge_markers = re.compile(
++        r'\b(limitation|however contradictory|conflicting|gap in|'
++        r'insufficient evidence|notable absence|remains unclear|'
++        r'further research needed|caveat)\b', re.I
++    )
++    table_pattern = re.compile(r'\|[^|]+\|[^|]+\|')
++    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
++
++    total_comparison = 0
++    total_aggregation = 0
++    total_challenge = 0
++    total_tables = 0
++    total_key_findings = 0
++    deficient = []
++
++    for section in report_sections:
++        content = section.get("content", "")
++        comp = len(comparison_markers.findall(content))
++        agg = len(aggregation_markers.findall(content))
++        chal = len(challenge_markers.findall(content))
++        tables = len(table_pattern.findall(content))
++        kf = len(key_findings_pattern.findall(content))
++
++        total_comparison += comp
++        total_aggregation += agg
++        total_challenge += chal
++        total_tables += tables
++        total_key_findings += kf
++
++        ops_present = sum([comp > 0, agg > 0, chal > 0, tables > 0, kf > 0])
++        if ops_present < 2:
++            deficient.append(section.get("title", "?"))
++
++    passed = (
++        total_comparison >= 10 and
++        total_tables >= 2 and
++        total_key_findings >= 3 and
++        total_challenge >= 3 and
++        len(deficient) <= 2
++    )
++
++    return {
++        "passed": passed,
++        "comparison_markers": total_comparison,
++        "aggregation_patterns": total_aggregation,
++        "challenge_markers": total_challenge,
++        "tables": total_tables,
++        "key_findings": total_key_findings,
++        "deficient_sections": deficient,
++    }
++
++
++def split_report_into_sections(report_md: str) -> list[dict]:
++    """Split an assembled markdown report into ``[{"title", "content"}]`` on ATX headers.
++
++    Used by the benchmark advisory annotation so the depth metric covers the **full delivered report**
++    (front Key Findings block, body sections, Trial Summary tables, Per-Trial subsections, Limitations,
++    and the V30 Methods disclosure if present) — not just the body ``verified_text``.
++
++    Rules:
++    - Each line matching ``^#{1,6}\\s+<title>`` starts a new section; ``<title>`` is the header text.
++    - Text BEFORE the first header becomes a single ``{"title": "Preamble", "content": ...}`` section
++      (so a leading block with no header is still scored).
++    - The header line itself is excluded from the section ``content`` (only the body text is scored),
++      matching Pipeline B, which scores ``section["content"]`` (body), not the heading.
++    - Empty / whitespace-only input → ``[]``. A report with no headers → one ``Preamble`` section.
++    """
++    if not report_md or not report_md.strip():
++        return []
++
++    sections: list[dict] = []
++    current_title = "Preamble"
++    current_lines: list[str] = []
++
++    def _flush() -> None:
++        content = "\n".join(current_lines).strip()
++        # Drop a leading empty Preamble (report that opens directly with a header), but keep any
++        # later empty section so the deficient-section accounting stays faithful to the structure.
++        if content or current_title != "Preamble" or sections:
++            sections.append({"title": current_title, "content": content})
++
++    for line in report_md.splitlines():
++        match = _ATX_HEADER_RE.match(line)
++        if match:
++            _flush()
++            current_title = match.group(2).strip() or "?"
++            current_lines = []
++        else:
++            current_lines.append(line)
++    _flush()
++
++    return sections
+diff --git a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+index 72792e7a..767fc89a 100644
+--- a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
++++ b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+@@ -18,6 +18,8 @@ from scripts.dr_benchmark import run_gate_b as g
+ def _clear_flags():
+     os.environ.pop("PG_FOUR_ROLE_MODE", None)
+     os.environ.pop("PG_ENABLE_QUANTIFIED_ANALYSIS", None)
++    # I-cap-002 feature 2/4 (#1060): advisory analytical-depth annotation activation flag.
++    os.environ.pop("PG_DEPTH_ANNOTATION_IN_BENCHMARK", None)
+ 
+ 
+ def test_families_are_four_distinct_lineages():
+@@ -43,6 +45,10 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+     async def fake_run_one_query(q, out_root, **kwargs):
+         captured["PG_FOUR_ROLE_MODE"] = os.environ.get("PG_FOUR_ROLE_MODE")
+         captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] = os.environ.get("PG_ENABLE_QUANTIFIED_ANALYSIS")
++        # I-cap-002 feature 2/4 (#1060): advisory depth annotation must be ON for the benchmark.
++        captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = os.environ.get(
++            "PG_DEPTH_ANNOTATION_IN_BENCHMARK"
++        )
+         captured["transport"] = kwargs.get("four_role_transport")
+         return {"status": "ok"}
+ 
+@@ -57,6 +63,7 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+     assert out == {"status": "ok"}
+     assert captured["PG_FOUR_ROLE_MODE"] == "1"
+     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
++    assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
+     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
+     _clear_flags()
+ 
+diff --git a/tests/polaris_graph/test_analytical_depth.py b/tests/polaris_graph/test_analytical_depth.py
+new file mode 100644
+index 00000000..da390125
+--- /dev/null
++++ b/tests/polaris_graph/test_analytical_depth.py
+@@ -0,0 +1,130 @@
++"""I-cap-002 feature 2/4 (#1060): tests for the shared analytical-depth heuristic + report splitter.
++
++Covers BOTH:
++- ``evaluate_analytical_depth`` (the Pipeline-B RC-8 heuristic, now shared) — marker counts, the
++  per-section ``ops_present < 2`` deficient flag, the ``passed`` threshold boundary, and safety on
++  malformed/empty section dicts.
++- ``split_report_into_sections`` (the benchmark surface) — multi-header split, Preamble capture,
++  ``##`` vs ``###`` headers, empty/no-header inputs, and the known benchmark Key-Findings behavior
++  (front ``## Key Findings`` ATX block is NOT counted by the bold-form regex; per-section
++  ``**Key Findings**`` subsections ARE counted).
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.generator.analytical_depth import (
++    evaluate_analytical_depth,
++    split_report_into_sections,
++)
++
++
++# --------------------------------------------------------------------------- #
++# evaluate_analytical_depth — marker counting
++# --------------------------------------------------------------------------- #
++
++def test_counts_markers_across_sections():
++    sections = [
++        {"title": "A", "content": "Drug X outperformed placebo. **Key Findings** here."},
++        {"title": "B", "content": "In contrast, cohort Y differs from Z. A limitation remains."},
++    ]
++    out = evaluate_analytical_depth(sections)
++    # "outperformed", "in contrast", "differs from" = 3 comparison markers
++    assert out["comparison_markers"] == 3
++    assert out["challenge_markers"] == 1          # "limitation"
++    assert out["key_findings"] == 1               # one bold **Key Findings**
++
++
++def test_markdown_table_is_detected():
++    sections = [{"title": "T", "content": "| a | b |\n| 1 | 2 |"}]
++    out = evaluate_analytical_depth(sections)
++    assert out["tables"] >= 2                      # two table rows
++
++
++def test_deficient_section_flag_under_two_ops():
++    # one section with >=2 ops present, one with <2 (only a comparison) -> the latter is deficient
++    rich = {"title": "Rich", "content": "X outperformed Y. **Key Findings** noted."}
++    thin = {"title": "Thin", "content": "However, that is all."}   # 1 op (comparison) only
++    out = evaluate_analytical_depth([rich, thin])
++    assert "Thin" in out["deficient_sections"]
++    assert "Rich" not in out["deficient_sections"]
++
++
++def test_passed_threshold_boundary():
++    # Build a report that JUST clears every threshold: comparison>=10, tables>=2,
++    # key_findings>=3, challenge>=3, deficient<=2.
++    comparisons = " ".join(["outperformed"] * 10)
++    challenges = " ".join(["limitation"] * 3)
++    kfs = " ".join(["**Key Findings**"] * 3)
++    table = "| a | b |\n| c | d |\n| e | f |"
++    passing = [{"title": "All", "content": f"{comparisons} {challenges} {kfs}\n{table}"}]
++    assert evaluate_analytical_depth(passing)["passed"] is True
++
++    # Drop one comparison -> 9 < 10 -> fails (single-axis shortfall flips passed).
++    comparisons_short = " ".join(["outperformed"] * 9)
++    failing = [{"title": "All", "content": f"{comparisons_short} {challenges} {kfs}\n{table}"}]
++    assert evaluate_analytical_depth(failing)["passed"] is False
++
++
++def test_malformed_and_empty_sections_are_safe():
++    assert evaluate_analytical_depth([])["passed"] is False
++    # missing 'content' / 'title' keys must not raise
++    out = evaluate_analytical_depth([{}, {"title": "only-title"}, {"content": "no title here"}])
++    assert out["comparison_markers"] == 0
++    # a section with no content + no title contributes "?" to deficient (its .get('title','?'))
++    assert "?" in out["deficient_sections"]
++
++
++# --------------------------------------------------------------------------- #
++# split_report_into_sections — the benchmark surface
++# --------------------------------------------------------------------------- #
++
++def test_split_multi_header_and_preamble():
++    report = (
++        "# Research report: Q\n\n"
++        "Intro paragraph before any subsection header.\n\n"
++        "### Efficacy\n\nBody of efficacy.\n\n"
++        "### Limitations\n\nBody of limitations.\n"
++    )
++    sections = split_report_into_sections(report)
++    titles = [s["title"] for s in sections]
++    # The H1 title line is itself a header, so 'Research report: Q' is the first section title and
++    # the intro paragraph is its content; then the two H3 sections follow.
++    assert "Efficacy" in titles
++    assert "Limitations" in titles
++    efficacy = next(s for s in sections if s["title"] == "Efficacy")
++    assert "Body of efficacy." in efficacy["content"]
++    # header lines are excluded from content
++    assert "### Efficacy" not in efficacy["content"]
++
++
++def test_split_preamble_when_no_leading_header():
++    report = "Just some text with no header at all.\nSecond line."
++    sections = split_report_into_sections(report)
++    assert len(sections) == 1
++    assert sections[0]["title"] == "Preamble"
++    assert "no header at all" in sections[0]["content"]
++
++
++def test_split_empty_and_blank_are_empty_list():
++    assert split_report_into_sections("") == []
++    assert split_report_into_sections("   \n  \n") == []
++
++
++def test_split_handles_h2_and_h3():
++    report = "## Key Findings\n\n- bullet one\n\n## Per-Trial Summaries\n\nbody\n"
++    titles = [s["title"] for s in split_report_into_sections(report)]
++    assert "Key Findings" in titles
++    assert "Per-Trial Summaries" in titles
++
++
++def test_front_atx_key_findings_is_known_undercount_but_bold_is_counted():
++    # The benchmark front block is emitted as an ATX header `## Key Findings` (generator/key_findings.py),
++    # which the bold-form regex deliberately does NOT count — a known, conservative undercount.
++    front_atx = "## Key Findings\n\n- finding one\n- finding two\n"
++    atx_depth = evaluate_analytical_depth(split_report_into_sections(front_atx))
++    assert atx_depth["key_findings"] == 0          # ATX header form is not counted
++
++    # The per-section bold `**Key Findings**` subsection form IS counted.
++    body_bold = "### Efficacy\n\nResults here.\n\n**Key Findings**\n\n- x\n"
++    bold_depth = evaluate_analytical_depth(split_report_into_sections(body_bold))
++    assert bold_depth["key_findings"] == 1
