@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "`PG_MAX_SUBQUERIES` is captured at `query_decomposer` module import/function-definition time, so later in-process env mutations will not affect omitted-argument calls; acceptable for this benchmark path because `.env`/operator env is loaded before the lazy `run_one_query` import."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
