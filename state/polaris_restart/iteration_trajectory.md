@@ -1357,3 +1357,21 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - iter2: addressed all 3 (narrative skip Step 2b; _fetch_url_pattern rejects access_method scihub;
   _FULLTEXT_ENTITY_TYPES keep clinical full text). Both APPROVE. Live-verified Acemoglu 3x deterministic
   crossref_abstract + scrape_skipped. 63/63 + 94/94 tests. #1035 = URGENT follow-up (access_bypass gating).
+
+## I-run11-004 #1046 (certified MiniMax-M2 decomposition Sentinel + GLM-5.1 Mirror) — diff-gate 6 iters
+- Replaced broken Granite-Guardian Sentinel (over-rejected grounded clinical claims -> run-12 coverage
+  0.286) with CERTIFIED MiniMax-M2 claim-decomposition+span-coverage detector (0 false-accepts on 28
+  fabrications across 5 error types, over-flag 0.107). Mirror re-picked Cohere Command A+ -> GLM-5.1
+  (Cohere not on OpenRouter). Both open-weight MIT; 4 distinct families (deepseek/glm/minimax/qwen).
+- diff-gate iters 1-5 each surfaced a real fail-OPEN in parse_sentinel_decomposition (the §-1.1 lethal
+  class — a fabricated claim laundered to GROUNDED->VERIFIED). iter-2 P1s: 2-message body / self-host
+  missing max_tokens floor / 1xA100 infeasible / license / stale cert. iter-3 P1: parser fail-open on
+  {verdict:supported,unsupported_atoms:1} -> atom-veto cross-check + served-slug-aware mode. iter-4 P1:
+  quoted "1" bypass. iter-5 P1: bool/null/[] unsupported_atoms skipped the veto (keyed on coerced value
+  `is not None`, so a present bool/null coerced to None == absent-key path -> fail-open).
+- iter-6 FOCUSED re-gate (past the 5-cap by the §-1.1 + §8.3.6 lethal exception — fix, do not
+  force-approve): keyed the veto on KEY PRESENCE (`if "unsupported_atoms" in parsed:`); present
+  bool/null/list/non-coercible -> count=None -> VETO; only absent-key or clean zero stays GROUNDED.
+  Codex independently ran the 12-case truth table (all correct), the 99-test contract suite (99 passed),
+  and re-verified _compose_final_verdict fail-closed. **verdict: APPROVE**, zero P0/P1/P2,
+  convergence_call accept_remaining. Full suite tests/roles+architecture+dr_benchmark = 661 passed.

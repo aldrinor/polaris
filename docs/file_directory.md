@@ -253,10 +253,16 @@ point to non-existent paths / deprecated concepts. Treat as stale:
 - "Kimi K2.5 1T" — historical generator. The locked architecture for the
   Carney demo is the 4-role stack in
   `config/architecture/polaris_runtime_lock.yaml` (I-meta-001 #933):
-  Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM
-  Granite Guardian 4.1 8B) + Judge (Qwen3.6-35B-A3B). The earlier 2-LLM
-  framing (DeepSeek V4 Pro generator + Gemma 4 31B evaluator) is superseded;
-  earlier pipelines used DeepSeek V3.2-Exp + Qwen3-8B.
+  Generator (DeepSeek V4 Pro) + Mirror (GLM-5.1) + Sentinel (MiniMax-M2,
+  decomposition mode) + Judge (Qwen3.6-35B-A3B) — four DISTINCT open-weight
+  lineages (deepseek/glm/minimax/qwen), all permissive licenses. I-run11-004
+  (#1046) re-picked Mirror Cohere Command A+ -> GLM-5.1 (Cohere is not on
+  OpenRouter) and replaced the broken Granite-Guardian Sentinel (over-rejected
+  grounded clinical claims -> run-12 coverage 0.286) with the CERTIFIED
+  MiniMax-M2 claim-decomposition+span-coverage detector (0 false-accepts on 28
+  fabrications across 5 error types). The earlier 2-LLM framing (DeepSeek V4 Pro
+  generator + Gemma 4 31B evaluator) is superseded; earlier pipelines used
+  DeepSeek V3.2-Exp + Qwen3-8B.
 - "175 vectors exactly" — old invariant from P0-P12. Not applicable
   to any currently-active pipeline.
 
