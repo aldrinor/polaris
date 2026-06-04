@@ -14,7 +14,7 @@ decision with stable reason codes:
   pass                - no blocking issues
   partial             - report ships but release_allowed=False
   abort               - release-blocking integrity failure
-  advisory_unavailable - judge parse failed; preserve other status
+  advisory_unavailable - judge parse failed; FAILS CLOSED (release_allowed=False, #1055)
 
 The orchestrator reads `gate_class` + `reasons` to select manifest
 status. Two new manifest statuses are added to the taxonomy:
@@ -230,9 +230,17 @@ def compute_evaluator_gate(
         )
 
     if not judge_parse_ok:
-        # Judge unavailable but no rule blockers; preserve other status.
+        # I-run11-009 (#1055): a judge that failed to parse means we CANNOT certify the report's
+        # faithfulness/quality — FAIL CLOSED (LAW II no-silent-downgrade; §-1.1 clinical: an
+        # unjudged report shipping as "ok" is lethal). The PRIOR behavior returned
+        # release_allowed=True here, so in the NON-four-role (legacy honest_sweep) path — where
+        # this gate is the BINDING release gate — a silently-failed judge let the report ship.
+        # In four-role-seam mode this gate is demoted to `evaluator_gate_advisory` and the seam
+        # decides release, so flipping it to fail-closed does NOT over-hold the seam path; it only
+        # closes the legacy fail-open. `gate_class` stays "advisory_unavailable" (the judge advisory
+        # IS unavailable) but release is now withheld; `reasons` already carries "judge_parse_failed".
         return EvaluatorGateResult(
-            release_allowed=True,
+            release_allowed=False,
             gate_class="advisory_unavailable",
             reasons=reasons,
             judge_critical_axes=judge_critical_axes,

@@ -8,8 +8,8 @@ refusal.
 
 Post-fix (deep-dive R5), `compute_evaluator_gate()` produces a
 structured decision with reason codes. Abort-class blocks success;
-partial-class prevents clean success; advisory_unavailable preserves
-other status when judge parse fails.
+partial-class prevents clean success; advisory_unavailable (judge parse
+failed) FAILS CLOSED (release_allowed=False) per I-run11-009 (#1055).
 """
 from __future__ import annotations
 
@@ -157,23 +157,29 @@ def test_m205_three_judge_axes_needs_revision_is_partial_gate() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6. Judge parse failure → advisory_unavailable, doesn't force abort
+# 6. Judge parse failure → advisory_unavailable, FAILS CLOSED (I-run11-009 / #1055)
 # ─────────────────────────────────────────────────────────────────
 
-def test_m205_judge_parse_failure_does_not_mask_success_as_abort() -> None:
+def test_m205_judge_parse_failure_fails_closed() -> None:
+    # I-run11-009 (#1055): a judge that failed to parse means the report's faithfulness/quality
+    # cannot be certified — the gate must WITHHOLD release (§-1.1 clinical: an unjudged report
+    # shipping as "ok" is lethal). The PRIOR behavior returned release_allowed=True here, which let
+    # a silently-failed judge ship in the non-four-role (legacy) path. gate_class stays the honest
+    # "advisory_unavailable" (the judge advisory IS unavailable) but release is now denied.
     ev_out = _FakeEvaluatorOutput(rule_checks=[])
     judge = _FakeJudgeResult(parse_ok=False, verdicts={})
     gate = compute_evaluator_gate(ev_out, judge_result=judge)
     assert gate.gate_class == "advisory_unavailable"
-    assert gate.release_allowed is True  # no rule blockers; preserve other status
+    assert gate.release_allowed is False  # FAIL CLOSED — cannot certify an unjudged report
     assert "judge_parse_failed" in gate.reasons
 
 
 def test_m205_judge_none_treated_as_parse_failure() -> None:
-    """Pipeline can pass judge_result=None when the judge call failed."""
+    """Pipeline can pass judge_result=None when the judge call failed — also fails closed (#1055)."""
     ev_out = _FakeEvaluatorOutput(rule_checks=[])
     gate = compute_evaluator_gate(ev_out, judge_result=None)
     assert gate.gate_class == "advisory_unavailable"
+    assert gate.release_allowed is False  # I-run11-009 (#1055): no judge -> no release
     assert "judge_parse_failed" in gate.reasons
 
 

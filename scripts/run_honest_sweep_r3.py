@@ -4299,6 +4299,14 @@ async def run_one_query(
             # (PT08 contradiction missing, PT11 uncited numerics,
             # PT12 invalid citation marker).
             summary_status = "abort_evaluator_critical"
+        elif not eval_gate.release_allowed:
+            # I-run11-009 (#1055): defense in depth — ANY gate result that WITHHOLDS release must
+            # map to a hold status, never the benign "ok_*" branches or the "ok" fall-through below
+            # (LAW II no-silent-downgrade). This catches the judge-unavailable fail-closed
+            # (gate_class="advisory_unavailable" + release_allowed=False) and any future
+            # release-withholding gate_class, so the manifest status and release_allowed flag can
+            # never contradict (a False release_allowed reading as a shippable "ok").
+            summary_status = "abort_evaluator_critical"
         elif getattr(multi, "outline_fallback_used", False):
             # BUG-M-203: planner failed/retry-failed; fallback used.
             summary_status = "ok_outline_fallback"
@@ -4487,19 +4495,33 @@ async def run_one_query(
             "1", "true", "True",
         )
         # I-meta-008 (#1014) loud guard: PG_FOUR_ROLE_MODE is on but NO transport was injected,
-        # so the 4-role seam stays INERT and this run silently uses the legacy single-evaluator
+        # so the 4-role seam stays INERT and this run would silently use the legacy single-evaluator
         # gate. That is the exact "benchmark started via a legacy entrypoint" trap (#1014): the
         # 4-role benchmark ONLY runs via scripts/dr_benchmark/run_gate_b.py (its main()/the
-        # run_gate_b_query entrypoint INJECTS a transport). Log LOUD so this degradation is never
-        # unnoticed; do NOT raise (legacy callers that never set PG_FOUR_ROLE_MODE are unaffected,
-        # and this preserves existing behavior — only the visibility changes).
+        # run_gate_b_query entrypoint INJECTS a transport).
+        # I-run11-009 (#1055): the loud log alone was NOT enough — the run still fell onto the legacy
+        # gate, whose own judge-unavailable fail-open could ship an unjudged report. A caller that
+        # explicitly asked for 4-role mode (PG_FOUR_ROLE_MODE=1) but supplied no transport is
+        # MISCONFIGURED; it must FAIL CLOSED, never silently downgrade to the legacy gate (LAW II;
+        # §-1.1). Legacy callers that never set PG_FOUR_ROLE_MODE are unaffected (the guard does not
+        # fire for them). Override the manifest built above to a hold.
         if _four_role_on and four_role_transport is None:
             print(
                 "[I-meta-008][GUARD] PG_FOUR_ROLE_MODE is ON but no four_role_transport was "
-                "injected -- the 4-role benchmark seam is INERT; this query runs the LEGACY "
-                "single-evaluator gate. The native 4-role benchmark runs ONLY via "
-                "scripts/dr_benchmark/run_gate_b.py (CLI: python -m scripts.dr_benchmark.run_gate_b)."
+                "injected -- the 4-role benchmark seam is INERT. FAILING CLOSED (release HELD): "
+                "this run will NOT silently fall back to the legacy single-evaluator gate. The "
+                "native 4-role benchmark runs ONLY via scripts/dr_benchmark/run_gate_b.py "
+                "(CLI: python -m scripts.dr_benchmark.run_gate_b)."
             )
+            # Codex diff-gate iter-1 P1: set the LOCAL summary_status/unified_status too, not just the
+            # manifest fields. The tail writes `summary["status"] = summary_status` (~L4813) and
+            # sweep_summary.{json,md} read that top-level status — without this a held misconfiguration
+            # could still surface as "ok"/"warn" in the summary while the manifest says held.
+            summary_status = "four_role_held"
+            unified_status = to_unified_status(summary_status)
+            manifest["release_allowed"] = False
+            manifest["status"] = unified_status
+            manifest["four_role_seam_inert"] = True
         if _four_role_on and four_role_transport is not None:
             # M3b: the seam resolves inputs (builder WINS over static four_role_inputs; both
             # None -> fail-closed), runs the SINGLE binding D8 gate, and persists the per-claim
