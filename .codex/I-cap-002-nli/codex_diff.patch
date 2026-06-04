@@ -1,0 +1,477 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 89149580..a4bcad41 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -469,6 +469,13 @@ async def run_gate_b_query(
+     # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
+     # override (LAW VI).
+     os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
++    # I-cap-002 feature 4/4 (#1060): turn on the ADDITIVE NLI entailment annotation for the benchmark.
++    # NLI is the second validator path (catches qualitative-negation hallucinations strict_verify's
++    # regex misses); ADVISORY only (4-role D8 stays the single gate) + FAIL-LOUD if the model is
++    # unavailable (records nli_status:unavailable, never a silent clean pass). The live model
++    # (flan-t5-large by default) loads on the VM. setdefault keeps the operator override (LAW VI).
++    os.environ.setdefault("PG_NLI_IN_BENCHMARK", "1")
++    os.environ.setdefault("PG_NLI_MODEL", "flan-t5-large")
+     if transport is not None:
+         active_transport = transport               # offline/test: injected fake
+     else:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 3e51862e..a4fb1885 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -5084,6 +5084,84 @@ async def run_one_query(
+                     f"[depth]       WARN advisory annotation skipped (fail-open): {_depth_exc}"
+                 )
+ 
++        # I-cap-002 feature 4/4 (#1060): NLI entailment as an ADDITIVE, advisory verification.
++        # strict_verify is regex/numeric and can pass a qualitative-negation hallucination whose
++        # numbers/content-words still match the span; NLI is the second validator path — it scores
++        # whether each delivered sentence's CITED span entails it. ADVISORY ONLY: adds
++        # manifest['nli_verification'] (+ sidecar); never changes status/release_allowed (4-role D8 is
++        # the single binding gate). NO SILENT DEGRADE: if the model/deps are unavailable the run records
++        # nli_status:"unavailable" LOUDLY (NliUnavailableError), never a false clean pass. Default OFF
++        # (heavy deps; the live model loads on the VM, not the dev loop — §8.4); Gate-B activates it.
++        if os.environ.get("PG_NLI_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
++            # Codex diff-gate iter-1 P1: ALL NLI setup (import + threshold parse + pair build) lives
++            # inside fail-open guards so a bad PG_NLI_DISPUTE_THRESHOLD value or an import hiccup records
++            # nli_status:"error" instead of ABORTING run_one_query before the manifest is written.
++            # NliUnavailableError is imported first and handled distinctly (model-missing -> unavailable).
++            try:
++                from src.polaris_graph.retrieval.nli_benchmark_annotator import (
++                    NliUnavailableError,
++                    annotate_nli_entailment,
++                    build_nli_pairs,
++                )
++            except Exception as _nli_imp_exc:  # noqa: BLE001 — advisory; import failure must not abort
++                _log(f"[nli]         WARN annotator import failed (fail-open): {_nli_imp_exc}")
++                manifest["nli_verification"] = {
++                    "nli_status": "error", "reason": f"import failed: {_nli_imp_exc}",
++                    "advisory": True,
++                }
++            else:
++                _nli_kept: list[dict] = []
++                try:
++                    _nli_threshold = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
++                    for _sr in multi.sections:
++                        if getattr(_sr, "dropped_due_to_failure", False):
++                            continue
++                        for _sv in (getattr(_sr, "kept_sentences_pre_resolve", None) or []):
++                            _nli_kept.append({
++                                "sentence": _sv.sentence,
++                                "section": _sr.title,
++                                "tokens": [
++                                    {"evidence_id": _t.evidence_id, "start": _t.start, "end": _t.end}
++                                    for _t in _sv.tokens
++                                ],
++                            })
++                    _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
++                    _nli_result = await annotate_nli_entailment(
++                        _nli_pairs, threshold=_nli_threshold
++                    )
++                    # P2.2: disambiguate sentences_checked:0 — record how many delivered sentences were
++                    # eligible vs skipped (no resolvable span), so a clean-looking 0 is not mistaken for
++                    # "verified" when pairs were actually dropped.
++                    _nli_result["eligible_sentences"] = len(_nli_kept)
++                    _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
++                    (run_dir / "nli_verification.json").write_text(
++                        json.dumps(_nli_result, indent=2, sort_keys=True, default=str) + "\n",
++                        encoding="utf-8",
++                    )
++                    manifest["nli_verification"] = _nli_result
++                    _log(
++                        f"[nli]         checked={_nli_result['sentences_checked']} "
++                        f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
++                        f"disputed={_nli_result['disputed_count']} "
++                        f"min_prob={_nli_result['min_prob']} (advisory, non-gating)"
++                    )
++                except NliUnavailableError as _nli_unavail:
++                    # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
++                    _log(
++                        f"[nli]         WARN model UNAVAILABLE ({_nli_unavail}) — NLI annotation NOT "
++                        f"produced; surfaced as nli_status=unavailable (NOT a silent clean pass)"
++                    )
++                    manifest["nli_verification"] = {
++                        "nli_status": "unavailable", "reason": str(_nli_unavail),
++                        "eligible_sentences": len(_nli_kept), "advisory": True,
++                    }
++                except Exception as _nli_exc:  # noqa: BLE001 — transient fault; advisory, never abort
++                    _log(f"[nli]         WARN NLI scoring failed (fail-open): {_nli_exc}")
++                    manifest["nli_verification"] = {
++                        "nli_status": "error", "reason": str(_nli_exc),
++                        "eligible_sentences": len(_nli_kept), "advisory": True,
++                    }
++
+         (run_dir / "manifest.json").write_text(
+             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+             encoding="utf-8",
+diff --git a/src/polaris_graph/retrieval/nli_benchmark_annotator.py b/src/polaris_graph/retrieval/nli_benchmark_annotator.py
+new file mode 100644
+index 00000000..698ca3fa
+--- /dev/null
++++ b/src/polaris_graph/retrieval/nli_benchmark_annotator.py
+@@ -0,0 +1,165 @@
++"""I-cap-002 feature 4/4 (#1060): NLI entailment as an ADDITIVE, advisory benchmark annotation.
++
++strict_verify is regex/numeric — it can pass a qualitative-negation hallucination ("drug X did NOT
++reduce mortality") whose numbers/content-words still match the cited span. NLI is the **second validator
++path**: for each delivered sentence it scores whether the CITED evidence span entails the sentence; a low
++entailment prob is a hallucination the regex missed. This is ADVISORY only — it annotates the manifest, it
++never changes ``release_allowed``/``status`` (the 4-role D8 seam remains the single binding gate).
++
++**No silent degrade (LAW II + operator no-downgrade directive):** ``annotate_nli_entailment`` raises
++``NliUnavailableError`` when the model/deps cannot load — it NEVER returns an empty "clean" result that
++reads as "NLI verified". The caller records ``nli_status:"unavailable"`` LOUDLY in the manifest. (This is
++the deliberate difference from ``nli_verifier.verify_evidence_nli``, which returns ``[]`` on a missing model.)
++
++Heavy deps (``torch`` / ``transformers`` / ``minicheck``) are imported LAZILY inside the async function, so
++importing this module pulls nothing heavy; offline tests mock the scorer (no torch). The live model runs on
++the VM (CLAUDE.md §8.4).
++"""
++
++from __future__ import annotations
++
++import re
++from typing import Any
++
++from src.polaris_graph.clinical_generator.provenance import strip_tokens
++
++# Codex diff-gate iter-1 P2.1: the benchmark's provenance offsets index into the row's
++# ``direct_quote`` / ``statement`` (the field strict_verify validates against), so those MUST be tried
++# FIRST — slicing ``full_text`` for a row that carries both would pick the wrong byte range.
++_SPAN_TEXT_FIELDS = ("direct_quote", "statement", "full_text", "snippet", "text", "source_text")
++
++# Codex diff-gate iter-1 P2.3: strip_tokens removes only ``[#ev:...]``; a pre-resolve sentence can still
++# carry ``[#calc:model:hash:field]`` calc tokens and ``(atom_NNN)`` markers that are cleaned from the
++# final delivered prose elsewhere. Strip those too, or they create advisory false NLI disputes.
++_RESIDUAL_ARTIFACT_RE = re.compile(r"\[#calc:[^\]]*\]|\(?\batom_\d+\b\)?")
++
++
++class NliUnavailableError(RuntimeError):
++    """The NLI model/deps could not be loaded. Raised (never silently swallowed) so the caller can
++    surface ``nli_status:"unavailable"`` rather than report a false clean pass."""
++
++
++def _resolve_span_text(row: dict[str, Any], start: int, end: int) -> str:
++    """Slice the cited [start:end] span out of an evidence row's text (get_span_text semantics)."""
++    text = ""
++    for field in _SPAN_TEXT_FIELDS:
++        value = row.get(field)
++        if isinstance(value, str) and value:
++            text = value
++            break
++    if not text or start < 0 or end > len(text) or start > end:
++        return ""
++    return text[start:end]
++
++
++def build_nli_pairs(
++    kept_sentences: list[dict[str, Any]],
++    ev_pool: dict[str, dict[str, Any]],
++) -> list[dict[str, Any]]:
++    """Build ``[{sentence, span, section, evidence_id}]`` NLI pairs from delivered kept sentences.
++
++    Per Codex brief-gate P2: (1) the sentence is CLEANED of ``[#ev:...]`` / atom artifacts via
++    ``strip_tokens`` so citation tokens don't create false NLI disputes; (2) ALL cited spans of the
++    sentence are concatenated as the premise (not first-token-only), so a sentence grounded by multiple
++    spans is not over-disputed. A sentence with no cleanable text or no resolvable span is skipped.
++
++    ``kept_sentences``: ``[{"sentence": str, "tokens": [{"evidence_id","start","end"}], "section": str}]``.
++    Pure (no model, no network).
++    """
++    pairs: list[dict[str, Any]] = []
++    for ks in kept_sentences or []:
++        raw = ks.get("sentence") or ""
++        # P2.1: drop [#ev:...] tokens; P2.3: also drop [#calc:...] + (atom_NNN) residuals; collapse ws.
++        claim = _RESIDUAL_ARTIFACT_RE.sub(" ", strip_tokens(raw))
++        claim = re.sub(r"\s+", " ", claim).strip()
++        if not claim:
++            continue
++        spans: list[str] = []
++        first_ev_id = ""
++        for tok in ks.get("tokens", []) or []:
++            ev_id = tok.get("evidence_id") or ""
++            row = ev_pool.get(ev_id)
++            if not isinstance(row, dict):
++                continue
++            span = _resolve_span_text(row, int(tok.get("start", -1)), int(tok.get("end", -1)))
++            if span:
++                spans.append(span)
++                if not first_ev_id:
++                    first_ev_id = ev_id
++        premise = " ".join(spans).strip()
++        if not premise:
++            continue  # no resolvable cited span -> nothing to entail against; skip
++        pairs.append({
++            "sentence": claim,
++            "span": premise,
++            "section": ks.get("section", ""),
++            "evidence_id": first_ev_id,
++        })
++    return pairs
++
++
++async def annotate_nli_entailment(
++    pairs: list[dict[str, Any]],
++    *,
++    threshold: float = 0.25,
++) -> dict[str, Any]:
++    """Score each (span ⊨ sentence) pair with the NLI model; return an ADVISORY annotation dict.
++
++    Raises ``NliUnavailableError`` if the model cannot load OR exposes neither ``.score`` (MiniCheck)
++    nor ``.infer`` (FaithLens) — NEVER returns a silent empty pass. Returns
++    ``{nli_status:"ok", model, sentences_checked, disputed_count, disputed:[…], min_prob, mean_prob,
++    threshold, advisory:True}``.
++    """
++    # Lazy import: keeps torch/minicheck off the module-import path (offline tests mock this).
++    from src.polaris_graph.agents.nli_verifier import PG_NLI_MODEL, load_nli_model
++
++    if not pairs:
++        return {
++            "nli_status": "ok", "model": PG_NLI_MODEL, "sentences_checked": 0,
++            "disputed_count": 0, "disputed": [], "min_prob": None, "mean_prob": None,
++            "threshold": threshold, "advisory": True,
++        }
++
++    scorer = await load_nli_model()
++    if scorer is None:
++        raise NliUnavailableError(
++            f"NLI model '{PG_NLI_MODEL}' unavailable (deps missing or load failed) — "
++            f"refusing to report a silent clean pass"
++        )
++
++    docs = [p["span"] for p in pairs]
++    claims = [p["sentence"] for p in pairs]
++
++    # Codex brief-gate P2.3: MiniCheck exposes .score(); FaithLens exposes .infer(). Support both so an
++    # otherwise-available model is not mislabeled nli_status:error.
++    if hasattr(scorer, "score"):
++        _labels, raw_probs, _chunks, _chunk_probs = scorer.score(docs=docs, claims=claims)
++        probs = [float(p) for p in raw_probs]
++    elif hasattr(scorer, "infer"):
++        results = scorer.infer(docs=docs, claims=claims)
++        probs = [1.0 if (r.get("prediction", 0) == 1) else 0.0 for r in results]
++    else:
++        raise NliUnavailableError(
++            f"NLI scorer for '{PG_NLI_MODEL}' exposes neither .score nor .infer"
++        )
++
++    disputed = []
++    for pair, prob in zip(pairs, probs):
++        if prob < threshold:
++            disputed.append({
++                "section": pair.get("section", ""),
++                "evidence_id": pair.get("evidence_id", ""),
++                "prob": round(prob, 4),
++                "sentence": pair["sentence"],
++            })
++    return {
++        "nli_status": "ok",
++        "model": PG_NLI_MODEL,
++        "sentences_checked": len(pairs),
++        "disputed_count": len(disputed),
++        "disputed": disputed,
++        "min_prob": round(min(probs), 4) if probs else None,
++        "mean_prob": round(sum(probs) / len(probs), 4) if probs else None,
++        "threshold": threshold,
++        "advisory": True,
++    }
+diff --git a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+index 79257d9e..727db24e 100644
+--- a/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
++++ b/tests/dr_benchmark/test_benchmark_stack_activation_meta007.py
+@@ -22,6 +22,8 @@ def _clear_flags():
+     os.environ.pop("PG_DEPTH_ANNOTATION_IN_BENCHMARK", None)
+     # I-cap-002 feature 3/4 (#1060): agentic URL-discovery activation flag.
+     os.environ.pop("PG_AGENTIC_SEARCH_IN_BENCHMARK", None)
++    # I-cap-002 feature 4/4 (#1060): NLI entailment annotation activation flag.
++    os.environ.pop("PG_NLI_IN_BENCHMARK", None)
+ 
+ 
+ def test_families_are_four_distinct_lineages():
+@@ -55,6 +57,8 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+         captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = os.environ.get(
+             "PG_AGENTIC_SEARCH_IN_BENCHMARK"
+         )
++        # I-cap-002 feature 4/4 (#1060): NLI entailment annotation must be ON for the benchmark.
++        captured["PG_NLI_IN_BENCHMARK"] = os.environ.get("PG_NLI_IN_BENCHMARK")
+         captured["transport"] = kwargs.get("four_role_transport")
+         return {"status": "ok"}
+ 
+@@ -71,6 +75,7 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
+     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
+     assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
+     assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "1"    # agentic URL-discovery ON for benchmark
++    assert captured["PG_NLI_IN_BENCHMARK"] == "1"              # NLI entailment annotation ON for benchmark
+     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
+     _clear_flags()
+ 
+diff --git a/tests/polaris_graph/test_nli_benchmark_annotator.py b/tests/polaris_graph/test_nli_benchmark_annotator.py
+new file mode 100644
+index 00000000..37f9936d
+--- /dev/null
++++ b/tests/polaris_graph/test_nli_benchmark_annotator.py
+@@ -0,0 +1,163 @@
++"""I-cap-002 feature 4/4 (#1060): tests for the NLI benchmark annotator.
++
++Offline + torch-free: the NLI scorer + ``load_nli_model`` are MOCKED via monkeypatch, so no
++torch/minicheck is imported (CLAUDE.md §8.4 — the live model runs only on the VM).
++
++Covers: (a) pair-building cleans ``[#ev:...]`` tokens and concatenates ALL cited spans (Codex
++brief-gate P2.1+P2.2); (b) the ok-path flags a low-prob sentence as disputed; (c) the
++model-unavailable path RAISES (no silent clean pass — LAW II); (d) the FaithLens ``.infer`` API split
++(P2.3).
++"""
++
++from __future__ import annotations
++
++import asyncio
++
++import pytest
++
++from src.polaris_graph.retrieval import nli_benchmark_annotator as nba
++from src.polaris_graph.retrieval.nli_benchmark_annotator import (
++    NliUnavailableError,
++    annotate_nli_entailment,
++    build_nli_pairs,
++)
++
++
++# --------------------------------------------------------------------------- #
++# build_nli_pairs — cleaning + multi-span concat
++# --------------------------------------------------------------------------- #
++
++def test_pairs_clean_tokens_and_concat_all_spans():
++    ev_pool = {
++        "ev_000": {"full_text": "Aspirin reduced mortality by 12% in the trial."},
++        "ev_001": {"full_text": "No serious adverse events were reported."},
++    }
++    kept = [{
++        "sentence": "Aspirin reduced mortality and was safe [#ev:ev_000:0-46][#ev:ev_001:0-40]",
++        "section": "Efficacy",
++        "tokens": [
++            {"evidence_id": "ev_000", "start": 0, "end": 46},
++            {"evidence_id": "ev_001", "start": 0, "end": 40},
++        ],
++    }]
++    pairs = build_nli_pairs(kept, ev_pool)
++    assert len(pairs) == 1
++    # citation tokens are stripped from the claim (P2.1)
++    assert "[#ev:" not in pairs[0]["sentence"]
++    assert pairs[0]["sentence"] == "Aspirin reduced mortality and was safe"
++    # BOTH cited spans are concatenated into the premise (P2.2)
++    assert "Aspirin reduced mortality by 12%" in pairs[0]["span"]
++    assert "No serious adverse events" in pairs[0]["span"]
++    assert pairs[0]["section"] == "Efficacy"
++
++
++def test_pairs_strip_calc_and_atom_artifacts():
++    # Codex diff-gate iter-1 P2.3: [#calc:...] tokens and (atom_NNN) markers must be stripped from the
++    # claim or they create false NLI disputes (the cited span won't entail those artifacts).
++    ev_pool = {"ev_000": {"direct_quote": "Total cost fell to 4.2 million dollars."}}
++    kept = [{
++        "sentence": "Cost fell to $4.2M [#calc:m1:abc123:tco] (atom_007) [#ev:ev_000:0-39]",
++        "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 39}],
++    }]
++    pairs = build_nli_pairs(kept, ev_pool)
++    assert len(pairs) == 1
++    assert "[#calc:" not in pairs[0]["sentence"]
++    assert "atom_007" not in pairs[0]["sentence"]
++    assert "[#ev:" not in pairs[0]["sentence"]
++    assert pairs[0]["sentence"] == "Cost fell to $4.2M"
++
++
++def test_pairs_prefer_direct_quote_over_full_text_for_span():
++    # Codex diff-gate iter-1 P2.1: offsets index into direct_quote/statement (what strict_verify
++    # validates) — a row with BOTH must slice direct_quote, not full_text.
++    ev_pool = {"ev_000": {
++        "direct_quote": "ABCDEFGHIJ",                 # offsets 0-5 -> "ABCDE"
++        "full_text": "zzzzzzzzzzzzzzzzzzzz",           # different bytes; must NOT be sliced
++    }}
++    kept = [{"sentence": "claim", "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 5}]}]
++    pairs = build_nli_pairs(kept, ev_pool)
++    assert pairs[0]["span"] == "ABCDE"
++
++
++def test_pairs_skip_when_no_resolvable_span_or_empty_claim():
++    ev_pool = {"ev_000": {"full_text": "short"}}
++    kept = [
++        {"sentence": "[#ev:ev_000:0-5]", "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 5}]},  # claim empty after strip
++        {"sentence": "Claim with bad span", "tokens": [{"evidence_id": "ev_000", "start": 0, "end": 999}]},  # span out of range
++        {"sentence": "Claim with missing ev", "tokens": [{"evidence_id": "nope", "start": 0, "end": 3}]},
++    ]
++    assert build_nli_pairs(kept, ev_pool) == []
++    assert build_nli_pairs([], {}) == []
++
++
++# --------------------------------------------------------------------------- #
++# annotate_nli_entailment — scoring + fail-loud
++# --------------------------------------------------------------------------- #
++
++class _FakeMiniCheck:
++    """Mimics the MiniCheck .score(docs, claims) -> (labels, probs, chunks, chunk_probs) API."""
++    def __init__(self, probs):
++        self._probs = probs
++
++    def score(self, docs, claims):
++        return [1] * len(claims), list(self._probs), None, None
++
++
++class _FakeFaithLens:
++    """Mimics the FaithLens .infer(docs, claims) -> [ {prediction, explanation} ] API."""
++    def __init__(self, preds):
++        self._preds = preds
++
++    def infer(self, docs, claims):
++        return [{"prediction": p, "explanation": "x"} for p in self._preds]
++
++
++def _patch_loader(monkeypatch, scorer):
++    # The annotator does `from ...nli_verifier import PG_NLI_MODEL, load_nli_model` INSIDE the async
++    # function, so patching the module attributes before the call binds the fakes at call time —
++    # importing nli_verifier here does NOT pull torch (load_nli_model imports it lazily).
++    async def _fake_load():
++        return scorer
++    import src.polaris_graph.agents.nli_verifier as nli_verifier
++    monkeypatch.setattr(nli_verifier, "load_nli_model", _fake_load)
++    monkeypatch.setattr(nli_verifier, "PG_NLI_MODEL", "flan-t5-large", raising=False)
++
++
++def test_ok_path_flags_low_prob_as_disputed(monkeypatch):
++    _patch_loader(monkeypatch, _FakeMiniCheck(probs=[0.95, 0.10]))
++    pairs = [
++        {"sentence": "grounded claim", "span": "support", "section": "A", "evidence_id": "ev_000"},
++        {"sentence": "hallucinated claim", "span": "unrelated", "section": "B", "evidence_id": "ev_001"},
++    ]
++    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
++    assert out["nli_status"] == "ok"
++    assert out["sentences_checked"] == 2
++    assert out["disputed_count"] == 1                       # only the 0.10 sentence
++    assert out["disputed"][0]["sentence"] == "hallucinated claim"
++    assert out["min_prob"] == 0.10
++    assert out["advisory"] is True
++
++
++def test_faithlens_infer_api_is_supported(monkeypatch):
++    _patch_loader(monkeypatch, _FakeFaithLens(preds=[1, 0]))
++    pairs = [
++        {"sentence": "entailed", "span": "s", "section": "A", "evidence_id": "e0"},
++        {"sentence": "not entailed", "span": "s", "section": "B", "evidence_id": "e1"},
++    ]
++    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
++    assert out["nli_status"] == "ok"
++    assert out["disputed_count"] == 1                       # pred 0 -> prob 0.0 < 0.25
++
++
++def test_unavailable_model_raises_not_silent(monkeypatch):
++    _patch_loader(monkeypatch, None)                        # load_nli_model returns None
++    pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
++    with pytest.raises(NliUnavailableError):
++        asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
++
++
++def test_empty_pairs_is_ok_zero(monkeypatch):
++    # No pairs -> a clean ok with zero checked (does not even load the model).
++    out = asyncio.run(annotate_nli_entailment([], threshold=0.25))
++    assert out["nli_status"] == "ok"
++    assert out["sentences_checked"] == 0
