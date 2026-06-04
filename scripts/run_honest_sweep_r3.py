@@ -3684,9 +3684,18 @@ async def run_one_query(
             # narrative_length tuning. v1.0 BEAT-BOTH on 4 of 7 dims;
             # narrative_length is BEHIND-BOTH at 2346 vs 4830/6835.
             # PG_SECTION_MAX_TOKENS lets Phase G capacity tuning
-            # adjust without code change. Default unchanged (2400).
+            # adjust without code change.
+            # I-cap-001 (#1059) Part A: default un-throttled to Tier-A SOTA
+            # (operator-approved 2400->5000) so a run with no env set is NOT
+            # silently capped below the frontier narrative length (no-downgrade).
             section_max_tokens=int(os.environ.get(
-                "PG_SECTION_MAX_TOKENS", "2400",
+                "PG_SECTION_MAX_TOKENS", "5000",
+            )),
+            # I-cap-001 (#1059) Part A: the Limitations section default (400) was
+            # not passed here, so a run used the throttled 400-token cap. Wire it
+            # to PG_LIMITATIONS_MAX_TOKENS with the Tier-A SOTA default 1500.
+            limitations_max_tokens=int(os.environ.get(
+                "PG_LIMITATIONS_MAX_TOKENS", "1500",
             )),
             min_kept_fraction=float(os.environ.get(
                 "PG_MIN_KEPT_FRACTION", "0.4",
