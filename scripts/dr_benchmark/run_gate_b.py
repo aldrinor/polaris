@@ -457,6 +457,12 @@ async def run_gate_b_query(
     # are abstract-level claims. Prefer it over the scrape; setdefault keeps the operator override.
     os.environ.setdefault("PG_FRAME_PREFER_ABSTRACT", "1")
     os.environ.setdefault("PG_OPENALEX_FRAME_FALLBACK", "1")
+    # I-cap-002 feature 2/4 (#1060): turn on the ADVISORY analytical-depth annotation for the
+    # benchmark/paid run ONLY here (gate-B entry), never globally — so manifest['analytical_depth_
+    # advisory'] + analytical_depth.json actually emit on the paid run instead of staying silent.
+    # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
+    # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
+    os.environ.setdefault("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "1")
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:

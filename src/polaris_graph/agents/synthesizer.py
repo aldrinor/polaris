@@ -817,67 +817,16 @@ def _evaluate_analytical_depth(
 
     Checks for the 5 analytical operations across all sections.
     Returns: {"passed": bool, "scores": {...}, "deficient_sections": [...]}
+
+    The heuristic body lives in ``src.polaris_graph.generator.analytical_depth`` (stdlib-only, single
+    source of truth shared with the Pipeline-A benchmark advisory annotation, I-cap-002 #1060). This
+    delegate preserves RC-8 behavior byte-for-byte.
     """
-    import re
-
-    comparison_markers = re.compile(
-        r'\b(compared to|in contrast|whereas|however|unlike|alternatively|'
-        r'on the other hand|differs from|outperformed|underperformed)\b', re.I
-    )
-    aggregation_markers = re.compile(
-        r'\b(across \d+ studies|multiple sources|ranged from|median of|'
-        r'average of|converging|majority of evidence|consistently)\b', re.I
-    )
-    challenge_markers = re.compile(
-        r'\b(limitation|however contradictory|conflicting|gap in|'
-        r'insufficient evidence|notable absence|remains unclear|'
-        r'further research needed|caveat)\b', re.I
-    )
-    table_pattern = re.compile(r'\|[^|]+\|[^|]+\|')
-    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
-
-    total_comparison = 0
-    total_aggregation = 0
-    total_challenge = 0
-    total_tables = 0
-    total_key_findings = 0
-    deficient = []
-
-    for section in report_sections:
-        content = section.get("content", "")
-        comp = len(comparison_markers.findall(content))
-        agg = len(aggregation_markers.findall(content))
-        chal = len(challenge_markers.findall(content))
-        tables = len(table_pattern.findall(content))
-        kf = len(key_findings_pattern.findall(content))
-
-        total_comparison += comp
-        total_aggregation += agg
-        total_challenge += chal
-        total_tables += tables
-        total_key_findings += kf
-
-        ops_present = sum([comp > 0, agg > 0, chal > 0, tables > 0, kf > 0])
-        if ops_present < 2:
-            deficient.append(section.get("title", "?"))
-
-    passed = (
-        total_comparison >= 10 and
-        total_tables >= 2 and
-        total_key_findings >= 3 and
-        total_challenge >= 3 and
-        len(deficient) <= 2
+    from src.polaris_graph.generator.analytical_depth import (
+        evaluate_analytical_depth,
     )
 
-    return {
-        "passed": passed,
-        "comparison_markers": total_comparison,
-        "aggregation_patterns": total_aggregation,
-        "challenge_markers": total_challenge,
-        "tables": total_tables,
-        "key_findings": total_key_findings,
-        "deficient_sections": deficient,
-    }
+    return evaluate_analytical_depth(report_sections)
 
 
 # ---------------------------------------------------------------------------
