@@ -24,6 +24,13 @@ def _clear_flags():
     os.environ.pop("PG_AGENTIC_SEARCH_IN_BENCHMARK", None)
     # I-cap-002 feature 4/4 (#1060): NLI entailment annotation activation flag.
     os.environ.pop("PG_NLI_IN_BENCHMARK", None)
+    # I-cap-005 (#1068): clear the full-capability slate too, so the test proves run_gate_b_query SETS
+    # them (rather than a leaked value from another test passing the assertion).
+    for _k in (
+        "PG_STORM_ENABLED_IN_BENCHMARK", "PG_ENABLE_TOOL_TRACKER", "PG_SWEEP_EVIDENCE_DEEPENER",
+        "PG_SWEEP_FETCH_CAP", "PG_SWEEP_MAX_SERPER", "PG_SWEEP_MAX_S2",
+    ):
+        os.environ.pop(_k, None)
 
 
 def test_families_are_four_distinct_lineages():
@@ -59,6 +66,14 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
         )
         # I-cap-002 feature 4/4 (#1060): NLI entailment annotation must be ON for the benchmark.
         captured["PG_NLI_IN_BENCHMARK"] = os.environ.get("PG_NLI_IN_BENCHMARK")
+        # I-cap-005 (#1068) KEYSTONE: STORM + tracker + deepener + the REAL retrieval caps must be set
+        # by run_gate_b_query (the prior ~40-URL throttle was a missing/wrong-named slate).
+        captured["PG_STORM_ENABLED_IN_BENCHMARK"] = os.environ.get("PG_STORM_ENABLED_IN_BENCHMARK")
+        captured["PG_ENABLE_TOOL_TRACKER"] = os.environ.get("PG_ENABLE_TOOL_TRACKER")
+        captured["PG_SWEEP_EVIDENCE_DEEPENER"] = os.environ.get("PG_SWEEP_EVIDENCE_DEEPENER")
+        captured["PG_SWEEP_FETCH_CAP"] = os.environ.get("PG_SWEEP_FETCH_CAP")
+        captured["PG_SWEEP_MAX_SERPER"] = os.environ.get("PG_SWEEP_MAX_SERPER")
+        captured["PG_SWEEP_MAX_S2"] = os.environ.get("PG_SWEEP_MAX_S2")
         captured["transport"] = kwargs.get("four_role_transport")
         return {"status": "ok"}
 
@@ -76,7 +91,28 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
     assert captured["PG_AGENTIC_SEARCH_IN_BENCHMARK"] == "1"    # agentic URL-discovery ON for benchmark
     assert captured["PG_NLI_IN_BENCHMARK"] == "1"              # NLI entailment annotation ON for benchmark
+    # I-cap-005 (#1068) KEYSTONE assertions: full-capability slate applied + preflight passed.
+    assert captured["PG_STORM_ENABLED_IN_BENCHMARK"] == "1"    # STORM was wired-but-dead; now ON
+    assert captured["PG_ENABLE_TOOL_TRACKER"] == "1"           # tracker ON so feature firing is provable
+    assert captured["PG_SWEEP_EVIDENCE_DEEPENER"] == "1"       # deepener alias fixed (sweep flag)
+    assert int(captured["PG_SWEEP_FETCH_CAP"]) >= 500          # the REAL fetch knob, above the floor
+    assert int(captured["PG_SWEEP_MAX_SERPER"]) >= 50          # not the dead PG_LIVE_* name
+    assert int(captured["PG_SWEEP_MAX_S2"]) >= 50
     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
+    _clear_flags()
+
+
+def test_preflight_full_capability_fails_closed_on_silent_throttle(monkeypatch):
+    # I-cap-005 (#1068): a deliberate throttle below the full-capability floor MUST be caught (the
+    # operator no-downgrade directive) — preflight_full_capability raises rather than letting a
+    # ~40-URL run reach a paid endpoint silently.
+    g.apply_full_capability_benchmark_slate()
+    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK"):
+        os.environ[f] = "1"
+    g.preflight_full_capability()                              # full slate -> passes
+    monkeypatch.setenv("PG_SWEEP_FETCH_CAP", "40")             # the exact prior-bug value
+    with pytest.raises(RuntimeError):
+        g.preflight_full_capability()
     _clear_flags()
 
 

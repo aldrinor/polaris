@@ -214,7 +214,10 @@ PG_AGENTIC_MAX_QUERIES = int(os.getenv("PG_AGENTIC_MAX_QUERIES", "160"))
 PG_AGENTIC_MAX_TIME_SECONDS = int(os.getenv("PG_AGENTIC_MAX_TIME_SECONDS", "1800"))
 PG_AGENTIC_SEED_QUERIES = int(os.getenv("PG_AGENTIC_SEED_QUERIES", "9"))
 PG_AGENTIC_QUERIES_PER_ROUND = int(os.getenv("PG_AGENTIC_QUERIES_PER_ROUND", "8"))
-PG_AGENTIC_WEB_PER_ROUND = int(os.getenv("PG_WEB_PER_ROUND", "6"))
+# I-cap-005 (#1068): this read the typo'd env `PG_WEB_PER_ROUND`, so the documented
+# `PG_AGENTIC_WEB_PER_ROUND` knob silently did nothing (the agentic web breadth was stuck at the
+# default 6). Read the correct env FIRST; fall back to the legacy typo'd name for back-compat.
+PG_AGENTIC_WEB_PER_ROUND = int(os.getenv("PG_AGENTIC_WEB_PER_ROUND", os.getenv("PG_WEB_PER_ROUND", "6")))
 PG_AGENTIC_ACADEMIC_PER_ROUND = int(os.getenv("PG_AGENTIC_ACADEMIC_PER_ROUND", "2"))
 PG_AGENTIC_EXA_PER_ROUND = int(os.getenv("PG_AGENTIC_EXA_PER_ROUND", "1"))
 PG_AGENTIC_CONVERGENCE_URL_OVERLAP = float(os.getenv("PG_AGENTIC_CONVERGENCE_URL_OVERLAP", "0.40"))

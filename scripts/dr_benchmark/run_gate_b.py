@@ -403,6 +403,89 @@ def write_four_role_stage_marker(out_root: Path) -> Path:
     return marker_path
 
 
+# I-cap-005 (#1068): the FULL-CAPABILITY benchmark env slate, applied by Gate-B itself so a run is at
+# full depth REGARDLESS of the operator's shell env (the prior throttle was caused by setting the DEAD
+# `PG_LIVE_*` names instead of the real `PG_SWEEP_*` knobs, + STORM/tracker never enabled). Every value
+# is `setdefault` so an explicit operator override still wins (LAW VI). The slate is applied BEFORE the
+# sweep is imported so import-time module constants (caps/timeouts) also see the full values.
+_FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+    # Retrieval breadth — the REAL run_one_query knobs (PG_SWEEP_*, default 12/12/40). NOT PG_LIVE_*.
+    "PG_SWEEP_FETCH_CAP": "1000",   # total URLs fetched+classified per query (operator: ~1000)
+    "PG_SWEEP_MAX_SERPER": "100",
+    "PG_SWEEP_MAX_S2": "100",
+    # Feature activation that Gate-B previously MISSED (STORM was dead-by-config; deepener off).
+    "PG_STORM_ENABLED_IN_BENCHMARK": "1",
+    "PG_SWEEP_EVIDENCE_DEEPENER": "1",
+    # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
+    "PG_ENABLE_TOOL_TRACKER": "1",
+    # Import-time caps/timeouts (read at module load — applied before the sweep import below).
+    "PG_LIVE_CONTENT_MAX": "50000",
+    "PG_LIVE_HTTP_TIMEOUT": "30",
+    "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
+    "PG_POST_FETCH_LOOP_BUDGET": "2400",
+    "PG_LLM_TIMEOUT_SECONDS": "180",
+    # Evidence-extraction depth.
+    "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
+    "PG_DEEPENER_EVIDENCE_CAP": "500",
+    "PG_MOST_MAX_EVIDENCE": "800",
+    # R-6 completeness-expansion breadth (the secondary throttle that was hardcoded 5/5/15/cap-4).
+    "PG_R6_EXPAND_QUERY_CAP": "12",
+    "PG_R6_EXPAND_MAX_SERPER": "20",
+    "PG_R6_EXPAND_MAX_S2": "20",
+    "PG_R6_EXPAND_FETCH_CAP": "60",
+    # Agentic per-round web breadth (was stuck at 6 via the PG_WEB_PER_ROUND typo).
+    "PG_AGENTIC_WEB_PER_ROUND": "10",
+    # Budget cap (spend ceiling enforced per run).
+    "PG_MAX_COST_PER_RUN": "25",
+}
+
+# Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+# a silent throttle). Keyed by the env the run actually reads; floors are "full-capability" thresholds.
+_BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
+    "PG_SWEEP_FETCH_CAP": 500,
+    "PG_SWEEP_MAX_SERPER": 50,
+    "PG_SWEEP_MAX_S2": 50,
+}
+# Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
+_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+    "PG_STORM_ENABLED_IN_BENCHMARK",
+    "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
+    "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+    "PG_NLI_IN_BENCHMARK",
+    "PG_ENABLE_TOOL_TRACKER",
+)
+
+
+def apply_full_capability_benchmark_slate() -> None:
+    """setdefault the full-capability slate so a Gate-B run is at full depth without relying on the
+    shell env. Called BEFORE the sweep import (so import-time caps see it). Operator overrides win."""
+    for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+        os.environ.setdefault(name, value)
+
+
+def preflight_full_capability() -> None:
+    """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
+    silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+    for name, floor in _BENCHMARK_PREFLIGHT_FLOORS.items():
+        # mirror run_one_query's read of the real PG_SWEEP_* knob (defaults 12/12/40 if absent).
+        _defaults = {"PG_SWEEP_FETCH_CAP": "40", "PG_SWEEP_MAX_SERPER": "12", "PG_SWEEP_MAX_S2": "12"}
+        try:
+            eff = int(os.getenv(name, _defaults.get(name, "0")))
+        except ValueError:
+            raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not an int")
+        if eff < floor:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — the run "
+                f"would be SILENTLY THROTTLED (the ~40-URL bug). Set {name}>={floor} or fix the slate."
+            )
+    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+        if os.getenv(flag, "0").strip() not in ("1", "true", "True"):
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
+                f"or its firing is unobservable (tracker off). Enable it before the run."
+            )
+
+
 async def run_gate_b_query(
     q: dict,
     out_root: Path,
@@ -427,6 +510,12 @@ async def run_gate_b_query(
     any test — the seam test exercises `run_four_role_seam` with a fake transport directly.
     Imported lazily so this module's import never pulls the big sweep file.
     """
+    # I-cap-005 (#1068) KEYSTONE: apply the full-capability slate BEFORE importing the sweep, so the
+    # sweep's IMPORT-TIME module constants (content cap / timeouts / workers) also see the full values
+    # — not just the call-time PG_SWEEP_* knobs. This is what makes a Gate-B run full-depth regardless
+    # of the operator's shell env (the prior ~40-URL throttle was a missing/wrong-named slate).
+    apply_full_capability_benchmark_slate()
+
     from scripts.run_honest_sweep_r3 import run_one_query
 
     enable_four_role_mode()
@@ -477,6 +566,11 @@ async def run_gate_b_query(
     # pathB preflight requires PG_ENTAILMENT_MODEL == PG_EVALUATOR_MODEL and the default already
     # satisfies it. setdefault keeps the operator override (LAW VI).
     os.environ.setdefault("PG_NLI_IN_BENCHMARK", "1")
+    # I-cap-005 (#1068) KEYSTONE: FAIL CLOSED here — AFTER every cap+flag is applied, BEFORE a single
+    # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
+    # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
+    # (the ~40-URL bug) can therefore NEVER reach a paid run undetected (operator no-downgrade directive).
+    preflight_full_capability()
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:

@@ -156,6 +156,53 @@ def test_budget_error_propagates_not_swallowed(monkeypatch):
         asyncio.run(annotate_nli_entailment(pairs))
 
 
+def test_judge_error_not_counted_as_entailed(monkeypatch):
+    # I-cap-005 (#1068): the judge FAILS OPEN to ("ENTAILED", "judge_error: ...") on an API/parse error.
+    # That MUST NOT be counted as a genuine entailment (silent downgrade — LAW II). It is counted as an
+    # error, excluded from entailed_count, and surfaced in judge_error_count / judge_errors.
+    class _ErrJudge:
+        _model = "google/gemma-4-31b-it"
+
+        def judge(self, sentence, span):
+            if sentence == "ok":
+                return "ENTAILED", "reason-text"          # genuine entailment
+            return "ENTAILED", "judge_error: TimeoutError"  # fail-open error
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _patch_judge(monkeypatch, _ErrJudge())
+    pairs = [
+        {"sentence": "ok", "span": "s", "section": "A", "evidence_id": "e0"},
+        {"sentence": "boom", "span": "s", "section": "B", "evidence_id": "e1"},
+    ]
+    out = asyncio.run(annotate_nli_entailment(pairs))
+    assert out["nli_status"] == "ok"                  # one real verdict came back -> still ok
+    assert out["entailed_count"] == 1                 # the error is NOT an entailment
+    assert out["judge_error_count"] == 1
+    assert out["sentences_scored"] == 1               # 2 checked, 1 errored
+    assert out["judge_errors"][0]["sentence"] == "boom"
+    assert out["judge_errors"][0]["reason"].startswith("judge_error:")
+
+
+def test_all_judge_errors_maps_to_status_error(monkeypatch):
+    # I-cap-005 (#1068): if EVERY call errors, nothing was actually entailment-checked -> nli_status MUST
+    # be "error" (surfaced loudly), never "ok" with a misleading zero-dispute count.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    class _AllErr:
+        _model = "google/gemma-4-31b-it"
+
+        def judge(self, sentence, span):
+            return "ENTAILED", "judge_error: ConnectionError"
+
+    _patch_judge(monkeypatch, _AllErr())
+    pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
+    out = asyncio.run(annotate_nli_entailment(pairs))
+    assert out["nli_status"] == "error"
+    assert out["entailed_count"] == 0
+    assert out["judge_error_count"] == 1
+    assert out["sentences_scored"] == 0
+
+
 def test_empty_pairs_is_ok_zero(monkeypatch):
     # No pairs -> clean ok with zero checked WITHOUT needing OPENROUTER_API_KEY or a judge.
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)

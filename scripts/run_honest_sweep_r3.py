@@ -2342,13 +2342,17 @@ async def run_one_query(
             expand_q_cap = int(os.getenv("PG_R6_EXPAND_QUERY_CAP", "4"))
             exp_queries = completeness.expand_queries[:expand_q_cap]
             try:
+                # I-cap-005 (#1068): the R-6 completeness-expansion retrieval widths were HARDCODED to
+                # 5/5/15, a silent secondary throttle the benchmark slate could not lift. Make them
+                # env-driven (Gate-B raises them via the full-capability slate); defaults preserve the
+                # prior behavior for any non-benchmark caller.
                 exp_retrieval = run_live_retrieval(
                     research_question=q["question"],
                     amplified_queries=exp_queries,
                     protocol=protocol,
-                    max_serper=5,
-                    max_s2=5,
-                    fetch_cap=15,
+                    max_serper=int(os.getenv("PG_R6_EXPAND_MAX_SERPER", "5")),
+                    max_s2=int(os.getenv("PG_R6_EXPAND_MAX_S2", "5")),
+                    fetch_cap=int(os.getenv("PG_R6_EXPAND_FETCH_CAP", "15")),
                     enable_openalex_enrich=True,
                     enable_prefetch_filter=False,
                     domain=q["domain"],

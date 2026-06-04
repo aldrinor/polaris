@@ -125,8 +125,9 @@ async def annotate_nli_entailment(
     if not pairs:                                   # fast path — needs no API key / no judge
         return {
             "nli_status": "ok", "judge": "llm_entailment", "sentences_checked": 0,
-            "entailed_count": 0, "neutral_count": 0, "contradicted_count": 0,
-            "disputed_count": 0, "disputed": [], "advisory": True,
+            "sentences_scored": 0, "entailed_count": 0, "neutral_count": 0, "contradicted_count": 0,
+            "disputed_count": 0, "disputed": [], "judge_error_count": 0, "judge_errors": [],
+            "advisory": True,
         }
 
     # Fail-loud on a genuine config error BEFORE constructing the judge (the judge __init__ raises a
@@ -140,13 +141,27 @@ async def annotate_nli_entailment(
     from src.polaris_graph.llm.entailment_judge import _get_judge
 
     judge = _get_judge()   # family-segregation RuntimeError propagates (NOT masked as unavailable)
-    entailed = neutral = contradicted = 0
+    entailed = neutral = contradicted = judge_errors = 0
     disputed: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
     for pair in pairs:
         # SYNC call (no asyncio.to_thread): keeps _RUN_COST_CTX in-context so judge spend counts against
         # PG_MAX_COST_PER_RUN and BudgetExceededError propagates. Runs post-generation (last step), so
         # blocking the loop for N sequential entailment calls is fine.
         verdict, reason = judge.judge(pair["sentence"], pair["span"])
+        # I-cap-005 (#1068): the judge FAILS OPEN to ("ENTAILED", "judge_error: ...") on an API/parse
+        # error to keep the run alive. Counting that as a genuine ENTAILED would silently report a
+        # DEGRADED judge as "NLI clean" — a silent downgrade (LAW II / operator no-downgrade directive).
+        # Detect it, count it as an ERROR (NOT entailed), and surface it loudly in the annotation.
+        if isinstance(reason, str) and reason.startswith("judge_error:"):
+            judge_errors += 1
+            errors.append({
+                "section": pair.get("section", ""),
+                "evidence_id": pair.get("evidence_id", ""),
+                "reason": reason,
+                "sentence": pair["sentence"],
+            })
+            continue
         if verdict == "ENTAILED":
             entailed += 1
             continue
@@ -162,15 +177,23 @@ async def annotate_nli_entailment(
             "reason": reason,
             "sentence": pair["sentence"],
         })
+    scored = len(pairs) - judge_errors
+    # If EVERY call errored, nothing was actually entailment-checked — surface nli_status:"error" LOUDLY
+    # (not "ok" with a misleading zero-dispute count). Partial errors keep "ok" but expose the count so
+    # an audit sees the degradation. Errored sentences are excluded from entailed/neutral/contradicted.
+    nli_status = "error" if (pairs and scored == 0) else "ok"
     return {
-        "nli_status": "ok",
+        "nli_status": nli_status,
         "judge": "llm_entailment",
         "model": judge._model,
         "sentences_checked": len(pairs),
+        "sentences_scored": scored,
         "entailed_count": entailed,
         "neutral_count": neutral,
         "contradicted_count": contradicted,
         "disputed_count": len(disputed),
         "disputed": disputed,
+        "judge_error_count": judge_errors,
+        "judge_errors": errors,
         "advisory": True,
     }
