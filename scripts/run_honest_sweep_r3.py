@@ -2869,6 +2869,15 @@ async def run_one_query(
                                           # tier-1 by assumption
                             "v30_frame_row": True,
                             "v30_entity_id": r.entity_id,
+                            # I-run11-010 (#1056, S2): propagate the provenance class so downstream
+                            # consumers can tell a METADATA_ONLY frame row (empty/near-empty
+                            # direct_quote, citable only as a gap) from a real ABSTRACT_ONLY/OA row,
+                            # instead of relying on strict_verify alone to drop an empty T1 span.
+                            "provenance_class": (
+                                r.provenance_class.value
+                                if getattr(r, "provenance_class", None) is not None
+                                else None
+                            ),
                         })
                     # Build one ContractSectionPlanExt per section.
                     # Codex M-63 Medium 1 fix: ev_ids is the UNION of

@@ -109,8 +109,13 @@ def extract_numbers_from_evidence(
         if ev.get("type") == "analysis":  # Skip analysis results
             continue
 
-        statement = ev.get("statement", "")
-        if not statement or len(statement) < 20:
+        # I-run11-010 (#1056, D3): scan the FULL cited span (`direct_quote`, ~1k+ chars), not the
+        # ~71-char `statement` summary — the numbers live in the quote, so scanning `statement`
+        # extracted 0 data points and the phase-7 quantified differentiator never fired. Precedence
+        # mirrors provenance_generator.py (direct_quote -> statement -> ""). Match offsets index into
+        # this string, so context + label below ALSO use it (passing `statement` would mis-offset).
+        text_to_scan = ev.get("direct_quote") or ev.get("statement") or ""
+        if not text_to_scan or len(text_to_scan) < 20:
             continue
 
         processed += 1
@@ -121,7 +126,7 @@ def extract_numbers_from_evidence(
         # Try each pattern (per-pattern flags for case sensitivity)
         for pattern, data_type, default_unit, flags in _EXTRACTION_PATTERNS:
             re_flags = re.IGNORECASE if flags == 0 else flags
-            matches = re.finditer(pattern, statement, re_flags)
+            matches = re.finditer(pattern, text_to_scan, re_flags)
             for match in matches:
                 groups = match.groups()
                 value_str = groups[0]
@@ -139,15 +144,15 @@ def extract_numbers_from_evidence(
                 if unit and unit.lower() in ("billion", "million", "thousand"):
                     multipliers = {"billion": 1e9, "million": 1e6, "thousand": 1e3}
                     value *= multipliers.get(unit.lower(), 1)
-                    unit = "USD" if "$" in statement[:match.start() + 20] else ""
+                    unit = "USD" if "$" in text_to_scan[:match.start() + 20] else ""
 
                 # Build context label from surrounding text
                 start = max(0, match.start() - 40)
-                end = min(len(statement), match.end() + 40)
-                context = statement[start:end].strip()
+                end = min(len(text_to_scan), match.end() + 40)
+                context = text_to_scan[start:end].strip()
 
-                # Generate a descriptive label
-                label = _generate_label(statement, match, data_type)
+                # Generate a descriptive label (capped at 80 chars, so a long quote stays concise)
+                label = _generate_label(text_to_scan, match, data_type)
 
                 data_points.append({
                     "data_type": data_type,

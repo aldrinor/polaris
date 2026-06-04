@@ -28,6 +28,7 @@ import os
 # fail-closed UNGROUNDED verdict). Mirrors entailment_judge.py:255-258.
 import src.polaris_graph.llm.openrouter_client as _orc
 
+from src.polaris_graph.roles.openai_compatible_transport import RoleTransportError
 from src.polaris_graph.roles.role_transport import (
     EvidenceDocument,
     RoleCallRecord,
@@ -350,10 +351,20 @@ def run_sentinel(
         # transport.complete) is a HARD ABORT, never a fail-closed UNGROUNDED verdict. Re-raise
         # BEFORE the broad except below so the cap actually bites on the Sentinel call.
         raise
+    except RoleTransportError:
+        # I-run11-010 (#1056, D4): a transport fault that SURVIVED the bounded transport retries
+        # (openrouter_role_transport, #1053) is NOT a verdict — the verifier never responded. Let it
+        # PROPAGATE so the run HOLDS the claim (matching the Mirror/Judge fail-loud behaviour),
+        # instead of laundering a persistent network fault into a fail-closed UNGROUNDED verdict.
+        # That downgrade (a) silently loses recall and (b) made the SAME blip role-dependent (fatal
+        # on Mirror/Judge, swallowed on Sentinel). Genuine VERDICT-level faults (parse/contract
+        # errors below) still fail-closed UNGROUNDED.
+        raise
     except Exception as exc:  # noqa: BLE001 — deliberate fail-closed; see comment below.
-        # FAIL CLOSED: a transport-layer fault must not be read as GROUNDED. We capture a
-        # record with the safe (UNGROUNDED, parsed_ok=False) result and the error text as
-        # the raw payload so sub-PR-5 can surface the fault rather than silently masking it.
+        # FAIL CLOSED: a VERDICT-level fault (parse / contract failure — the model responded but the
+        # output was un-classifiable) must not be read as GROUNDED. We capture a record with the safe
+        # (UNGROUNDED, parsed_ok=False) result and the error text as the raw payload so sub-PR-5 can
+        # surface the fault rather than silently masking it.
         record = RoleCallRecord(
             role=_ROLE,
             model_slug=model_slug,
