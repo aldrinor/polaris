@@ -18,6 +18,8 @@ from scripts.dr_benchmark import run_gate_b as g
 def _clear_flags():
     os.environ.pop("PG_FOUR_ROLE_MODE", None)
     os.environ.pop("PG_ENABLE_QUANTIFIED_ANALYSIS", None)
+    # I-cap-002 feature 2/4 (#1060): advisory analytical-depth annotation activation flag.
+    os.environ.pop("PG_DEPTH_ANNOTATION_IN_BENCHMARK", None)
 
 
 def test_families_are_four_distinct_lineages():
@@ -43,6 +45,10 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     async def fake_run_one_query(q, out_root, **kwargs):
         captured["PG_FOUR_ROLE_MODE"] = os.environ.get("PG_FOUR_ROLE_MODE")
         captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] = os.environ.get("PG_ENABLE_QUANTIFIED_ANALYSIS")
+        # I-cap-002 feature 2/4 (#1060): advisory depth annotation must be ON for the benchmark.
+        captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = os.environ.get(
+            "PG_DEPTH_ANNOTATION_IN_BENCHMARK"
+        )
         captured["transport"] = kwargs.get("four_role_transport")
         return {"status": "ok"}
 
@@ -57,6 +63,7 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     assert out == {"status": "ok"}
     assert captured["PG_FOUR_ROLE_MODE"] == "1"
     assert captured["PG_ENABLE_QUANTIFIED_ANALYSIS"] == "1"   # calculator ON for benchmark
+    assert captured["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] == "1"  # advisory depth ON for benchmark
     assert captured["transport"] is sentinel_transport        # injected fake used, no preflight
     _clear_flags()
 

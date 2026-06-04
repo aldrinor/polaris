@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "P2: The planned benchmark annotation uses in-memory final_report, but V30 appends disclosure directly to report.md after final_report is built. If the invariant is exact full delivered report surface, compute from report.md after V30 or update final_report when appending."
+  - "P2: The moved heuristic only counts bold **Key Findings** markers, while the benchmark front Key Findings block is emitted as an ATX header (## Key Findings). Tests should cover the actual benchmark form or the annotation will undercount that block."
+  - "P2: Splitting on every ATX header changes deficient_sections semantics versus Pipeline B semantic report_sections, so Bibliography/Methods/subheaders can create advisory false negatives. Acceptable as non-gating, but document that passed is benchmark-split advisory, not RC-8-equivalent."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

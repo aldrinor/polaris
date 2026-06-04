@@ -4903,6 +4903,52 @@ async def run_one_query(
         run_cost = current_run_cost()
         manifest["cost_usd"] = run_cost
 
+        # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.
+        # Placed here — AFTER the 4-role seam status/release overwrite (L~4740-4751), the V30
+        # block (which appends the Methods disclosure to report.md, L~4810+), and the cost
+        # recompute above — so status / release_allowed / report.md are all FINAL. It only ADDS
+        # manifest['analytical_depth_advisory'] + an analytical_depth.json sidecar; it reads the
+        # delivered report but never mutates status/release/abort. Default OFF in run_one_query
+        # (legacy honest-sweep manifest byte-unchanged); the Gate-B entry turns it ON via
+        # PG_DEPTH_ANNOTATION_IN_BENCHMARK so the paid benchmark emits it. Fail-open: any error
+        # logs + skips. Surface = the FULL on-disk report.md (front Key Findings, body, tables,
+        # Limitations, V30 disclosure), split on ATX headers — see analytical_depth module. The
+        # 'passed'/'deficient_sections' here are a benchmark-split ADVISORY read, NOT the RC-8 gate.
+        if os.environ.get("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.generator.analytical_depth import (
+                    evaluate_analytical_depth,
+                    split_report_into_sections,
+                )
+                try:
+                    _report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+                except Exception:  # noqa: BLE001 — fall back to the in-memory assembly
+                    _report_text = final_report
+                _depth = evaluate_analytical_depth(
+                    split_report_into_sections(_report_text)
+                )
+                _depth["advisory"] = True       # the benchmark NEVER gates on this signal
+                _depth["surface"] = "benchmark_atx_split"
+                # P2.3 (Codex iter-1): write the sidecar FIRST, then stamp the manifest key, so the
+                # manifest can never carry the key while the sidecar is absent.
+                (run_dir / "analytical_depth.json").write_text(
+                    json.dumps(_depth, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                manifest["analytical_depth_advisory"] = _depth
+                _log(
+                    f"[depth]       advisory comparisons={_depth['comparison_markers']} "
+                    f"tables={_depth['tables']} key_findings={_depth['key_findings']} "
+                    f"challenges={_depth['challenge_markers']} "
+                    f"deficient={len(_depth['deficient_sections'])} (non-gating)"
+                )
+            except Exception as _depth_exc:  # noqa: BLE001 — advisory; never abort the run
+                _log(
+                    f"[depth]       WARN advisory annotation skipped (fail-open): {_depth_exc}"
+                )
+
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
