@@ -1516,6 +1516,19 @@ class OpenRouterClient:
             provider_block["allow_fallbacks"] = False
         elif provider_order:
             provider_block["order"] = provider_order
+        else:
+            # I-run11-007 (#1051): no env override + no Path-B singleton -> use the ranked HEALTHY
+            # generator provider chain from config (order + ignore + allow_fallbacks:False), so the
+            # generator also never lands on a flaky/slow provider. Lazy import keeps openrouter_client
+            # free of an import-time dep on the roles package (provider_routing has no back-imports).
+            from src.polaris_graph.roles.provider_routing import role_provider_routing
+
+            gen_routing = role_provider_routing("generator")
+            if gen_routing:
+                provider_block["order"] = gen_routing["order"]
+                if gen_routing["ignore"]:
+                    provider_block["ignore"] = gen_routing["ignore"]
+                provider_block["allow_fallbacks"] = False
         body["provider"] = provider_block
 
         start = time.monotonic()
