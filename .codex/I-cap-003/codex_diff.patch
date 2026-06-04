@@ -1,0 +1,353 @@
+diff --git a/requirements.txt b/requirements.txt
+index 75b896bb..aebc8b4e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -85,10 +85,13 @@ semhash==0.4.1  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
+ hdbscan==0.8.43  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
+ 
+ # RAG Verification (Sprint 2)
+-# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
+-# Install separately (not on PyPI):
++# WS-1: MiniCheck-FT5 (EMNLP 2024). LEGACY — Pipeline-B `agents/nli_verifier` only.
++# I-cap-003 (#1066): the BENCHMARK NLI second-validator no longer uses MiniCheck/flan-t5 (old/weak
++# F1-62.1 encoder, git-only, unavailable on the CPU VM). It uses the frontier LLM entailment judge
++# (`src/polaris_graph/llm/entailment_judge.py`, OpenRouter, family-segregated) — NO extra install.
++# MiniCheck is only needed if you still run the legacy Pipeline-B nli_verifier path:
+ #   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
+-# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
++# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large to activate that legacy path.
+ 
+ # Search & Content
+ crawl4ai==0.8.5  # Free Playwright-based web crawler (LLM-ready markdown)
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index a4bcad41..0935cb92 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -469,13 +469,14 @@ async def run_gate_b_query(
+     # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
+     # override (LAW VI).
+     os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
+-    # I-cap-002 feature 4/4 (#1060): turn on the ADDITIVE NLI entailment annotation for the benchmark.
+-    # NLI is the second validator path (catches qualitative-negation hallucinations strict_verify's
+-    # regex misses); ADVISORY only (4-role D8 stays the single gate) + FAIL-LOUD if the model is
+-    # unavailable (records nli_status:unavailable, never a silent clean pass). The live model
+-    # (flan-t5-large by default) loads on the VM. setdefault keeps the operator override (LAW VI).
++    # I-cap-002 feature 4/4 (#1060) + I-cap-003 (#1066): turn on the ADDITIVE NLI entailment annotation
++    # for the benchmark. NLI is the second validator path (catches qualitative-negation hallucinations
++    # strict_verify's regex misses); ADVISORY only (4-role D8 stays the single gate). The scoring
++    # backend is the frontier LLM entailment judge (PG_ENTAILMENT_MODEL, default gemma-4-31b via
++    # OpenRouter, family-segregated) — NOT flan-t5/minicheck. We do NOT pin PG_ENTAILMENT_MODEL here:
++    # pathB preflight requires PG_ENTAILMENT_MODEL == PG_EVALUATOR_MODEL and the default already
++    # satisfies it. setdefault keeps the operator override (LAW VI).
+     os.environ.setdefault("PG_NLI_IN_BENCHMARK", "1")
+-    os.environ.setdefault("PG_NLI_MODEL", "flan-t5-large")
+     if transport is not None:
+         active_transport = transport               # offline/test: injected fake
+     else:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 683eefda..b4a1cc81 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -5121,7 +5121,6 @@ async def run_one_query(
+             else:
+                 _nli_kept: list[dict] = []
+                 try:
+-                    _nli_threshold = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
+                     for _sr in multi.sections:
+                         if getattr(_sr, "dropped_due_to_failure", False):
+                             continue
+@@ -5135,12 +5134,10 @@ async def run_one_query(
+                                 ],
+                             })
+                     _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
+-                    _nli_result = await annotate_nli_entailment(
+-                        _nli_pairs, threshold=_nli_threshold
+-                    )
+-                    # P2.2: disambiguate sentences_checked:0 — record how many delivered sentences were
+-                    # eligible vs skipped (no resolvable span), so a clean-looking 0 is not mistaken for
+-                    # "verified" when pairs were actually dropped.
++                    # I-cap-003 (#1066): LLM entailment judge backend (verdict counts, no threshold/prob).
++                    _nli_result = await annotate_nli_entailment(_nli_pairs)
++                    # Disambiguate sentences_checked:0 — record eligible vs skipped (no resolvable span),
++                    # so a clean-looking 0 is not mistaken for "verified" when pairs were dropped.
+                     _nli_result["eligible_sentences"] = len(_nli_kept)
+                     _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
+                     (run_dir / "nli_verification.json").write_text(
+@@ -5151,9 +5148,14 @@ async def run_one_query(
+                     _log(
+                         f"[nli]         checked={_nli_result['sentences_checked']} "
+                         f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
+-                        f"disputed={_nli_result['disputed_count']} "
+-                        f"min_prob={_nli_result['min_prob']} (advisory, non-gating)"
++                        f"entailed={_nli_result.get('entailed_count')} "
++                        f"disputed={_nli_result['disputed_count']} (advisory, non-gating)"
+                     )
++                except BudgetExceededError:
++                    # I-cap-003 (#1066): the LLM judge re-raises BudgetExceededError on a cap breach; it
++                    # MUST abort the run (-> the sweep's abort_budget_exceeded handler), NOT be masked as
++                    # nli_status:error by the broad advisory catch below.
++                    raise
+                 except NliUnavailableError as _nli_unavail:
+                     # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
+                     _log(
+diff --git a/src/polaris_graph/retrieval/nli_benchmark_annotator.py b/src/polaris_graph/retrieval/nli_benchmark_annotator.py
+index 698ca3fa..41861628 100644
+--- a/src/polaris_graph/retrieval/nli_benchmark_annotator.py
++++ b/src/polaris_graph/retrieval/nli_benchmark_annotator.py
+@@ -18,6 +18,7 @@ the VM (CLAUDE.md §8.4).
+ 
+ from __future__ import annotations
+ 
++import os
+ import re
+ from typing import Any
+ 
+@@ -100,66 +101,76 @@ def build_nli_pairs(
+ 
+ async def annotate_nli_entailment(
+     pairs: list[dict[str, Any]],
+-    *,
+-    threshold: float = 0.25,
+ ) -> dict[str, Any]:
+-    """Score each (span ⊨ sentence) pair with the NLI model; return an ADVISORY annotation dict.
+-
+-    Raises ``NliUnavailableError`` if the model cannot load OR exposes neither ``.score`` (MiniCheck)
+-    nor ``.infer`` (FaithLens) — NEVER returns a silent empty pass. Returns
+-    ``{nli_status:"ok", model, sentences_checked, disputed_count, disputed:[…], min_prob, mean_prob,
+-    threshold, advisory:True}``.
++    """Score each (span ⊨ sentence) pair with the frontier LLM entailment judge; ADVISORY annotation.
++
++    I-cap-003 (#1066): the scoring backend is now the project's LLM entailment judge
++    (``src.polaris_graph.llm.entailment_judge``) — a frontier OPEN-weight model (default
++    ``google/gemma-4-31b-it``) via OpenRouter, family-segregated from the generator, already used by
++    strict_verify. This REPLACES the old flan-t5/minicheck path (an old/weak F1-62.1 encoder that was
++    git-only and unavailable on the CPU VM → the previous ``nli_status:unavailable`` bug).
++
++    Each pair yields a verdict ``ENTAILED | NEUTRAL | CONTRADICTED``. ``disputed`` = NEUTRAL ∪
++    CONTRADICTED (strict_verify's contract is "no unsupported additions"; the per-sentence ``verdict``
++    distinguishes them). Returns ``{nli_status:"ok", judge, model, sentences_checked, entailed_count,
++    neutral_count, contradicted_count, disputed_count, disputed:[…], advisory:True}``.
++
++    FAIL-LOUD only on a genuine config error: a missing ``OPENROUTER_API_KEY`` raises
++    ``NliUnavailableError`` (surfaced as ``nli_status:"unavailable"``, never a silent pass). The judge is
++    called SYNCHRONOUSLY (NOT offloaded to a thread) so its per-call cost accumulates in the run's
++    ``_RUN_COST_CTX`` ContextVar and ``BudgetExceededError`` (re-raised inside ``judge.judge``) propagates
++    out to abort the run on a cap breach. A family-segregation error from ``_get_judge()`` PROPAGATES
++    (not masked as "unavailable").
+     """
+-    # Lazy import: keeps torch/minicheck off the module-import path (offline tests mock this).
+-    from src.polaris_graph.agents.nli_verifier import PG_NLI_MODEL, load_nli_model
+-
+-    if not pairs:
++    if not pairs:                                   # fast path — needs no API key / no judge
+         return {
+-            "nli_status": "ok", "model": PG_NLI_MODEL, "sentences_checked": 0,
+-            "disputed_count": 0, "disputed": [], "min_prob": None, "mean_prob": None,
+-            "threshold": threshold, "advisory": True,
++            "nli_status": "ok", "judge": "llm_entailment", "sentences_checked": 0,
++            "entailed_count": 0, "neutral_count": 0, "contradicted_count": 0,
++            "disputed_count": 0, "disputed": [], "advisory": True,
+         }
+ 
+-    scorer = await load_nli_model()
+-    if scorer is None:
++    # Fail-loud on a genuine config error BEFORE constructing the judge (the judge __init__ raises a
++    # RuntimeError for a missing key that is indistinguishable from a family-collision RuntimeError —
++    # check the key here so only the real missing-key case maps to NliUnavailableError).
++    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+         raise NliUnavailableError(
+-            f"NLI model '{PG_NLI_MODEL}' unavailable (deps missing or load failed) — "
+-            f"refusing to report a silent clean pass"
++            "OPENROUTER_API_KEY missing — the NLI entailment judge cannot run"
+         )
+ 
+-    docs = [p["span"] for p in pairs]
+-    claims = [p["sentence"] for p in pairs]
+-
+-    # Codex brief-gate P2.3: MiniCheck exposes .score(); FaithLens exposes .infer(). Support both so an
+-    # otherwise-available model is not mislabeled nli_status:error.
+-    if hasattr(scorer, "score"):
+-        _labels, raw_probs, _chunks, _chunk_probs = scorer.score(docs=docs, claims=claims)
+-        probs = [float(p) for p in raw_probs]
+-    elif hasattr(scorer, "infer"):
+-        results = scorer.infer(docs=docs, claims=claims)
+-        probs = [1.0 if (r.get("prediction", 0) == 1) else 0.0 for r in results]
+-    else:
+-        raise NliUnavailableError(
+-            f"NLI scorer for '{PG_NLI_MODEL}' exposes neither .score nor .infer"
+-        )
+-
+-    disputed = []
+-    for pair, prob in zip(pairs, probs):
+-        if prob < threshold:
+-            disputed.append({
+-                "section": pair.get("section", ""),
+-                "evidence_id": pair.get("evidence_id", ""),
+-                "prob": round(prob, 4),
+-                "sentence": pair["sentence"],
+-            })
++    from src.polaris_graph.llm.entailment_judge import _get_judge
++
++    judge = _get_judge()   # family-segregation RuntimeError propagates (NOT masked as unavailable)
++    entailed = neutral = contradicted = 0
++    disputed: list[dict[str, Any]] = []
++    for pair in pairs:
++        # SYNC call (no asyncio.to_thread): keeps _RUN_COST_CTX in-context so judge spend counts against
++        # PG_MAX_COST_PER_RUN and BudgetExceededError propagates. Runs post-generation (last step), so
++        # blocking the loop for N sequential entailment calls is fine.
++        verdict, reason = judge.judge(pair["sentence"], pair["span"])
++        if verdict == "ENTAILED":
++            entailed += 1
++            continue
++        if verdict == "CONTRADICTED":
++            contradicted += 1
++        else:
++            verdict = "NEUTRAL"   # normalize any unexpected verdict to NEUTRAL (still disputed)
++            neutral += 1
++        disputed.append({
++            "section": pair.get("section", ""),
++            "evidence_id": pair.get("evidence_id", ""),
++            "verdict": verdict,
++            "reason": reason,
++            "sentence": pair["sentence"],
++        })
+     return {
+         "nli_status": "ok",
+-        "model": PG_NLI_MODEL,
++        "judge": "llm_entailment",
++        "model": judge._model,
+         "sentences_checked": len(pairs),
++        "entailed_count": entailed,
++        "neutral_count": neutral,
++        "contradicted_count": contradicted,
+         "disputed_count": len(disputed),
+         "disputed": disputed,
+-        "min_prob": round(min(probs), 4) if probs else None,
+-        "mean_prob": round(sum(probs) / len(probs), 4) if probs else None,
+-        "threshold": threshold,
+         "advisory": True,
+     }
+diff --git a/tests/polaris_graph/test_nli_benchmark_annotator.py b/tests/polaris_graph/test_nli_benchmark_annotator.py
+index 37f9936d..c06ab550 100644
+--- a/tests/polaris_graph/test_nli_benchmark_annotator.py
++++ b/tests/polaris_graph/test_nli_benchmark_annotator.py
+@@ -94,70 +94,72 @@ def test_pairs_skip_when_no_resolvable_span_or_empty_claim():
+ # annotate_nli_entailment — scoring + fail-loud
+ # --------------------------------------------------------------------------- #
+ 
+-class _FakeMiniCheck:
+-    """Mimics the MiniCheck .score(docs, claims) -> (labels, probs, chunks, chunk_probs) API."""
+-    def __init__(self, probs):
+-        self._probs = probs
++class _FakeJudge:
++    """Mimics entailment_judge._EntailmentJudge: `judge(sentence, span) -> (verdict, reason)`,
++    pulling verdicts from a queue. `_model` mirrors the real attribute the annotator reports."""
++    _model = "google/gemma-4-31b-it"
+ 
+-    def score(self, docs, claims):
+-        return [1] * len(claims), list(self._probs), None, None
++    def __init__(self, verdicts, *, raise_exc=None):
++        self._verdicts = list(verdicts)
++        self._raise_exc = raise_exc
+ 
++    def judge(self, sentence, span):
++        if self._raise_exc is not None:
++            raise self._raise_exc
++        return self._verdicts.pop(0), "reason-text"
+ 
+-class _FakeFaithLens:
+-    """Mimics the FaithLens .infer(docs, claims) -> [ {prediction, explanation} ] API."""
+-    def __init__(self, preds):
+-        self._preds = preds
+ 
+-    def infer(self, docs, claims):
+-        return [{"prediction": p, "explanation": "x"} for p in self._preds]
++def _patch_judge(monkeypatch, judge):
++    # The annotator does `from ...entailment_judge import _get_judge` INSIDE the async function, so
++    # patching the module attribute before the call binds the fake at call time (no OpenRouter call).
++    import src.polaris_graph.llm.entailment_judge as ej
++    monkeypatch.setattr(ej, "_get_judge", lambda: judge)
+ 
+ 
+-def _patch_loader(monkeypatch, scorer):
+-    # The annotator does `from ...nli_verifier import PG_NLI_MODEL, load_nli_model` INSIDE the async
+-    # function, so patching the module attributes before the call binds the fakes at call time —
+-    # importing nli_verifier here does NOT pull torch (load_nli_model imports it lazily).
+-    async def _fake_load():
+-        return scorer
+-    import src.polaris_graph.agents.nli_verifier as nli_verifier
+-    monkeypatch.setattr(nli_verifier, "load_nli_model", _fake_load)
+-    monkeypatch.setattr(nli_verifier, "PG_NLI_MODEL", "flan-t5-large", raising=False)
+-
+-
+-def test_ok_path_flags_low_prob_as_disputed(monkeypatch):
+-    _patch_loader(monkeypatch, _FakeMiniCheck(probs=[0.95, 0.10]))
++def test_ok_path_maps_verdicts_to_counts(monkeypatch):
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    _patch_judge(monkeypatch, _FakeJudge(["ENTAILED", "NEUTRAL", "CONTRADICTED"]))
+     pairs = [
+-        {"sentence": "grounded claim", "span": "support", "section": "A", "evidence_id": "ev_000"},
+-        {"sentence": "hallucinated claim", "span": "unrelated", "section": "B", "evidence_id": "ev_001"},
++        {"sentence": "grounded", "span": "s", "section": "A", "evidence_id": "e0"},
++        {"sentence": "adds a fact", "span": "s", "section": "B", "evidence_id": "e1"},
++        {"sentence": "contradicts", "span": "s", "section": "C", "evidence_id": "e2"},
+     ]
+-    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
++    out = asyncio.run(annotate_nli_entailment(pairs))
+     assert out["nli_status"] == "ok"
+-    assert out["sentences_checked"] == 2
+-    assert out["disputed_count"] == 1                       # only the 0.10 sentence
+-    assert out["disputed"][0]["sentence"] == "hallucinated claim"
+-    assert out["min_prob"] == 0.10
++    assert out["judge"] == "llm_entailment"
++    assert out["model"] == "google/gemma-4-31b-it"
++    assert out["sentences_checked"] == 3
++    assert (out["entailed_count"], out["neutral_count"], out["contradicted_count"]) == (1, 1, 1)
++    assert out["disputed_count"] == 2                       # NEUTRAL + CONTRADICTED
++    verdicts = {d["sentence"]: d["verdict"] for d in out["disputed"]}
++    assert verdicts == {"adds a fact": "NEUTRAL", "contradicts": "CONTRADICTED"}
+     assert out["advisory"] is True
+ 
+ 
+-def test_faithlens_infer_api_is_supported(monkeypatch):
+-    _patch_loader(monkeypatch, _FakeFaithLens(preds=[1, 0]))
+-    pairs = [
+-        {"sentence": "entailed", "span": "s", "section": "A", "evidence_id": "e0"},
+-        {"sentence": "not entailed", "span": "s", "section": "B", "evidence_id": "e1"},
+-    ]
+-    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
+-    assert out["nli_status"] == "ok"
+-    assert out["disputed_count"] == 1                       # pred 0 -> prob 0.0 < 0.25
++def test_unavailable_when_no_api_key(monkeypatch):
++    # Missing OPENROUTER_API_KEY -> FAIL-LOUD NliUnavailableError (surfaced, never a silent pass);
++    # the judge is NOT even constructed.
++    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
++    _patch_judge(monkeypatch, _FakeJudge(["ENTAILED"]))   # must NOT be reached
++    pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
++    with pytest.raises(NliUnavailableError):
++        asyncio.run(annotate_nli_entailment(pairs))
+ 
+ 
+-def test_unavailable_model_raises_not_silent(monkeypatch):
+-    _patch_loader(monkeypatch, None)                        # load_nli_model returns None
++def test_budget_error_propagates_not_swallowed(monkeypatch):
++    # A BudgetExceededError from the judge must PROPAGATE (the annotator has no catch) so the run aborts.
++    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    _patch_judge(monkeypatch, _FakeJudge([], raise_exc=BudgetExceededError("cap")))
+     pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
+-    with pytest.raises(NliUnavailableError):
+-        asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
++    with pytest.raises(BudgetExceededError):
++        asyncio.run(annotate_nli_entailment(pairs))
+ 
+ 
+ def test_empty_pairs_is_ok_zero(monkeypatch):
+-    # No pairs -> a clean ok with zero checked (does not even load the model).
+-    out = asyncio.run(annotate_nli_entailment([], threshold=0.25))
++    # No pairs -> clean ok with zero checked WITHOUT needing OPENROUTER_API_KEY or a judge.
++    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
++    out = asyncio.run(annotate_nli_entailment([]))
+     assert out["nli_status"] == "ok"
+     assert out["sentences_checked"] == 0
++    assert out["judge"] == "llm_entailment"
