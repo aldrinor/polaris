@@ -1,0 +1,101 @@
+diff --git a/web/app/runs/[runId]/page.tsx b/web/app/runs/[runId]/page.tsx
+index a96ea84c..52d5aae2 100644
+--- a/web/app/runs/[runId]/page.tsx
++++ b/web/app/runs/[runId]/page.tsx
+@@ -157,11 +157,28 @@ export default function RunDetailPage({ params }: RunPageProps) {
+         </Button>
+       </div>
+ 
+-      <div className="flex flex-col gap-2">
+-        <span className="text-muted-foreground text-xs tracking-widest uppercase">
++      {/* I-ux-001c sub-PR 7 (#894): v6 marketing-auth chrome. Brand-red
++          category eyebrow + brand-red run-id eyebrow + display H1 (the
++          dynamic question text). Rest of the page (action row, metadata,
++          ErrorState, FollowupPanel, RunProgress, SSE/cancel/bundle logic)
++          preserved verbatim per brief iter-1 APPROVE. */}
++      <div className="flex flex-col gap-3">
++        <span
++          data-testid="runs-runid-category-eyebrow"
++          className="text-primary text-[10px] font-medium tracking-[0.14em] uppercase"
++        >
++          LIVE RUN · POLARIS CLINICAL RESEARCH
++        </span>
++        <span
++          data-testid="runs-runid-eyebrow"
++          className="text-primary text-xs font-medium tracking-widest uppercase"
++        >
+           Run {runId}
+         </span>
+-        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
++        <h1
++          data-testid="runs-runid-h1"
++          className="text-foreground text-3xl leading-[1.1] font-bold tracking-tight text-balance sm:text-4xl"
++        >
+           {/* I-p2-016 (#755): don't show "Loading…" once an error has fired. */}
+           {status?.question ?? (error ? "Couldn't load this run" : "Loading…")}
+         </h1>
+diff --git a/web/tests/e2e/runs_runid_g1_g8.spec.ts b/web/tests/e2e/runs_runid_g1_g8.spec.ts
+index 7c4624c7..dd1bca50 100644
+--- a/web/tests/e2e/runs_runid_g1_g8.spec.ts
++++ b/web/tests/e2e/runs_runid_g1_g8.spec.ts
+@@ -72,3 +72,58 @@ test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
+   await page.goto(`/runs/${TEST_RUN_ID}`);
+   await expectAuthedNav(page);
+ });
++
++// I-ux-001c sub-PR 7 (#894): v6 chrome cases folded into this CI-run
++// spec per the sub-PR 6 pattern (web_ci.yml line 192 runs this file;
++// standalone runs_runid_v6.spec.ts would be dead in CI).
++
++test.describe("I-ux-001c v6 chrome", () => {
++  test.beforeEach(async ({ page }) => {
++    // Mock the getRun endpoint so the 404 doesn't propagate as an error
++    // banner that obscures the chrome.
++    await page.route("**/api/v6/runs/**", async (route) => {
++      const url = route.request().url();
++      // Only intercept the GET /api/v6/runs/{id} status fetch, not SSE.
++      if (url.includes("/stream/")) {
++        return route.continue();
++      }
++      await route.fulfill({
++        status: 200,
++        contentType: "application/json",
++        body: JSON.stringify({
++          run_id: TEST_RUN_ID,
++          question: "Test question for v6 chrome assertions.",
++          template: "clinical",
++          status: "running",
++          queued_at: "2026-05-25T00:00:00Z",
++        }),
++      });
++    });
++    // Mock SSE so the page doesn't open a real EventSource.
++    await page.route("**/api/v6/stream/**", async (route) => {
++      await route.fulfill({
++        status: 200,
++        contentType: "text/event-stream",
++        body: "",
++      });
++    });
++  });
++
++  test("v6 chrome: brand-red category eyebrow + run-id eyebrow + display H1", async ({
++    page,
++  }) => {
++    await page.goto(`/runs/${TEST_RUN_ID}`, {
++      waitUntil: "domcontentloaded",
++    });
++    await expect(page.getByTestId("runs-runid-category-eyebrow")).toContainText(
++      /LIVE RUN.*POLARIS CLINICAL RESEARCH/i,
++    );
++    await expect(page.getByTestId("runs-runid-eyebrow")).toContainText(
++      /Run g1-g8-test-runid/i,
++    );
++    // H1 carries the dynamic question text from the mocked status response.
++    await expect(page.getByTestId("runs-runid-h1")).toContainText(
++      /Test question for v6 chrome assertions/i,
++    );
++  });
++});
+
+# canonical-diff-sha256: 779a6ef792addb8e0cad9e0c9b1e610b4f8f26771f0d9e65df6fa65090355b78

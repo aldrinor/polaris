@@ -72,3 +72,58 @@ test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
   await page.goto(`/runs/${TEST_RUN_ID}`);
   await expectAuthedNav(page);
 });
+
+// I-ux-001c sub-PR 7 (#894): v6 chrome cases folded into this CI-run
+// spec per the sub-PR 6 pattern (web_ci.yml line 192 runs this file;
+// standalone runs_runid_v6.spec.ts would be dead in CI).
+
+test.describe("I-ux-001c v6 chrome", () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock the getRun endpoint so the 404 doesn't propagate as an error
+    // banner that obscures the chrome.
+    await page.route("**/api/v6/runs/**", async (route) => {
+      const url = route.request().url();
+      // Only intercept the GET /api/v6/runs/{id} status fetch, not SSE.
+      if (url.includes("/stream/")) {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          run_id: TEST_RUN_ID,
+          question: "Test question for v6 chrome assertions.",
+          template: "clinical",
+          status: "running",
+          queued_at: "2026-05-25T00:00:00Z",
+        }),
+      });
+    });
+    // Mock SSE so the page doesn't open a real EventSource.
+    await page.route("**/api/v6/stream/**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: "",
+      });
+    });
+  });
+
+  test("v6 chrome: brand-red category eyebrow + run-id eyebrow + display H1", async ({
+    page,
+  }) => {
+    await page.goto(`/runs/${TEST_RUN_ID}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.getByTestId("runs-runid-category-eyebrow")).toContainText(
+      /LIVE RUN.*POLARIS CLINICAL RESEARCH/i,
+    );
+    await expect(page.getByTestId("runs-runid-eyebrow")).toContainText(
+      /Run g1-g8-test-runid/i,
+    );
+    // H1 carries the dynamic question text from the mocked status response.
+    await expect(page.getByTestId("runs-runid-h1")).toContainText(
+      /Test question for v6 chrome assertions/i,
+    );
+  });
+});
