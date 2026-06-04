@@ -1,0 +1,16 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/retrieval/nli_benchmark_annotator.py:101 still accepts threshold and imports src.polaris_graph.agents.nli_verifier.load_nli_model at line 114, then awaits load_nli_model at line 123 and returns min_prob/mean_prob at lines 161-162. The benchmark NLI path is still MiniCheck/flan-t5, so the original nli_status:unavailable failure on the CPU VM is not fixed."
+  - "scripts/run_honest_sweep_r3.py:5167 still has only the broad except Exception for the NLI scoring block; there is no preceding except BudgetExceededError. Any LLM-judge BudgetExceededError would be converted into nli_status:error and the run would continue past PG_MAX_COST_PER_RUN."
+  - "scripts/run_honest_sweep_r3.py:5124-5140 and 5151-5155 are still wired to the old probability API: it reads PG_NLI_DISPUTE_THRESHOLD, passes threshold=, and logs _nli_result['min_prob']. With the requested verdict-count annotator, the caller would fail the NLI annotation instead of recording ok verdict counts."
+p2:
+  - "scripts/dr_benchmark/run_gate_b.py:477-478 still sets PG_NLI_MODEL=flan-t5-large and comments that flan-t5-large is the live model; this obsolete Gate-B pin was supposed to be removed."
+  - "tests/polaris_graph/test_nli_benchmark_annotator.py:97-156 still mock MiniCheck/FaithLens load_nli_model and assert prob/min_prob behavior, so tests do not cover the LLM judge verdict-count contract."
+  - "requirements.txt:88-91 still documents MiniCheck as the NLI activation path and has not been updated to mark it legacy/non-benchmark."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Rewire annotate_nli_entailment to the synchronous OpenRouter LLM entailment judge and remove load_nli_model/MiniCheck probability scoring from the benchmark path."
+  - "Add the typed BudgetExceededError re-raise before the NLI block's broad Exception handler."
+  - "Update run_one_query to call the new annotator signature and log verdict counts instead of threshold/min_prob fields."

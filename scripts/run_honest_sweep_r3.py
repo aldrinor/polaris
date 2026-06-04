@@ -5121,7 +5121,6 @@ async def run_one_query(
             else:
                 _nli_kept: list[dict] = []
                 try:
-                    _nli_threshold = float(os.getenv("PG_NLI_DISPUTE_THRESHOLD", "0.25"))
                     for _sr in multi.sections:
                         if getattr(_sr, "dropped_due_to_failure", False):
                             continue
@@ -5135,12 +5134,10 @@ async def run_one_query(
                                 ],
                             })
                     _nli_pairs = build_nli_pairs(_nli_kept, ev_pool)
-                    _nli_result = await annotate_nli_entailment(
-                        _nli_pairs, threshold=_nli_threshold
-                    )
-                    # P2.2: disambiguate sentences_checked:0 — record how many delivered sentences were
-                    # eligible vs skipped (no resolvable span), so a clean-looking 0 is not mistaken for
-                    # "verified" when pairs were actually dropped.
+                    # I-cap-003 (#1066): LLM entailment judge backend (verdict counts, no threshold/prob).
+                    _nli_result = await annotate_nli_entailment(_nli_pairs)
+                    # Disambiguate sentences_checked:0 — record eligible vs skipped (no resolvable span),
+                    # so a clean-looking 0 is not mistaken for "verified" when pairs were dropped.
                     _nli_result["eligible_sentences"] = len(_nli_kept)
                     _nli_result["skipped_no_span"] = len(_nli_kept) - len(_nli_pairs)
                     (run_dir / "nli_verification.json").write_text(
@@ -5151,9 +5148,14 @@ async def run_one_query(
                     _log(
                         f"[nli]         checked={_nli_result['sentences_checked']} "
                         f"eligible={len(_nli_kept)} skipped_no_span={len(_nli_kept) - len(_nli_pairs)} "
-                        f"disputed={_nli_result['disputed_count']} "
-                        f"min_prob={_nli_result['min_prob']} (advisory, non-gating)"
+                        f"entailed={_nli_result.get('entailed_count')} "
+                        f"disputed={_nli_result['disputed_count']} (advisory, non-gating)"
                     )
+                except BudgetExceededError:
+                    # I-cap-003 (#1066): the LLM judge re-raises BudgetExceededError on a cap breach; it
+                    # MUST abort the run (-> the sweep's abort_budget_exceeded handler), NOT be masked as
+                    # nli_status:error by the broad advisory catch below.
+                    raise
                 except NliUnavailableError as _nli_unavail:
                     # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
                     _log(
