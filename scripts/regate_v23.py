@@ -71,6 +71,11 @@ def _status_from_gate(gate) -> str:
         return "abort_evaluator_critical"
     if gate.gate_class == "partial" and gate.judge_critical_axes:
         return "partial_evaluator_advisory"
+    # I-run11-009 (#1055): a release-withholding gate (e.g. judge_parse_failed ->
+    # advisory_unavailable + release_allowed=False) must NOT map to "success" — mirror the
+    # fail-closed orchestrator ladder so the regate manifest cannot contradict the gate.
+    if not getattr(gate, "release_allowed", True):
+        return "abort_evaluator_critical"
     return "success"
 
 

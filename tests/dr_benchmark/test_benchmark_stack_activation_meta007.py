@@ -68,6 +68,8 @@ def test_double_judge_guard_condition():
         return (str(flag or "0").strip() in ("1", "true", "True")) and transport is not None
 
     assert seam_will_run("1", object()) is True              # both -> skip legacy judge
-    assert seam_will_run("1", None) is False                 # no transport -> legacy runs
-    assert seam_will_run("0", object()) is False             # flag off -> legacy runs
+    # I-run11-009 (#1055): no transport -> seam stays inert. The run NO LONGER silently falls back
+    # to the legacy judge; it FAILS CLOSED (release HELD). The seam itself still does not run here.
+    assert seam_will_run("1", None) is False                 # no transport -> seam inert (fail closed)
+    assert seam_will_run("0", object()) is False             # flag off -> legacy runs (PG_FOUR_ROLE_MODE unset)
     assert seam_will_run(None, object()) is False
