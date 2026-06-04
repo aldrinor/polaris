@@ -1254,17 +1254,22 @@ async def _call_section(
         _REASONING_FIRST_MODELS,
     )
     if model in _REASONING_FIRST_MODELS:
+        # I-run11-010 (#1056, D1): the import is a PRODUCTION dependency and stays OUTSIDE the try.
+        # It was previously inside the try, so when the module was never committed the
+        # ModuleNotFoundError was swallowed and the anti-fabrication allow-list silently no-op'd on
+        # every clean checkout. A missing module must now fail LOUD (LAW II / §9.4); only genuine
+        # EXTRACTION errors remain fail-soft (the caller still has HARD CONTRACT + cold-temp + the
+        # post-hoc strict_verify numeric check as backstops).
+        from src.polaris_graph.generator.evidence_value_extractor import (
+            build_allow_lists, format_allow_list_for_prompt,
+        )
         try:
-            from src.polaris_graph.generator.evidence_value_extractor import (
-                build_allow_lists, format_allow_list_for_prompt,
-            )
             _allow_lists = build_allow_lists(evidence_subset)
             if _allow_lists:
                 system = system + "\n\n" + format_allow_list_for_prompt(_allow_lists)
         except Exception as _allow_exc:
-            # Fail-soft: if extraction errors, fall through to the
-            # generator without the constraint block (caller already
-            # has HARD CONTRACT + cold-temp lever). Log loudly.
+            # Fail-soft: if EXTRACTION errors (malformed evidence text, etc.), fall through to the
+            # generator without the constraint block. Log loudly.
             logger.warning(
                 "[multi_section] I-gen-005 allow-list build failed for "
                 "section %r: %s — proceeding without allow-list",

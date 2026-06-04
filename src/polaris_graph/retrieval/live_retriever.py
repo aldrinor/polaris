@@ -1901,6 +1901,43 @@ _FORMATTING_NOISE_MARKERS = (
 )
 
 
+# I-run11-010 (#1056, S1): bot-challenge / access-denial stub markers. A publisher 302-redirect to a
+# captcha / "are you a robot" page can pass the length + alpha-ratio checks below (the ScienceDirect
+# stub that admitted the required Elsevier journals to the drb_72 pool was 340 chars, ~55% alpha) and
+# enter the evidence pool as a journal article — so claims "grounded" on it cannot verify. These are
+# VERY specific access-denial phrases (not generic short text), matched case-insensitively, and only
+# applied to SHORT bodies so a full article that merely mentions "captcha" is never false-dropped.
+_ACCESS_DENIAL_MARKERS = (
+    "are you a robot",
+    # Codex #1056 diff-gate P2: require the challenge-PAGE phrasing, not a bare "captcha" mention, so
+    # a short legitimate article/abstract that merely DISCUSSES CAPTCHA is not false-dropped.
+    "captcha challenge",
+    "captcha verification",
+    "complete the captcha",
+    "verify you are human",
+    "verifying you are human",
+    "confirm you are a human",
+    "please confirm you are",
+    "access denied",
+    "enable javascript and cookies",
+    "unusual traffic",
+    "checking your browser",
+    "请完成",  # CN: "please complete (the verification)"
+    "人机验证",  # CN: "human-machine verification"
+)
+_ACCESS_DENIAL_MAX_CHARS = int(os.getenv("PG_ACCESS_DENIAL_MAX_CHARS", "3000"))
+
+
+def _is_access_denial_stub(content: str) -> bool:
+    """True if a (short) fetched body looks like a bot-challenge / access-denial page rather than
+    article content (I-run11-010 #1056 S1). Keys on SPECIFIC access-denial phrases AND a short length
+    so a legitimate full article that quotes one of these phrases is not false-dropped."""
+    if not content or len(content.strip()) > _ACCESS_DENIAL_MAX_CHARS:
+        return False
+    low = content.lower()
+    return any(marker in low for marker in _ACCESS_DENIAL_MARKERS)
+
+
 def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
     """R-5 Fix D: detect evidence rows whose fetched content is PDF
     metadata / formatting fragments / empty text — not useful prose.
@@ -1910,10 +1947,16 @@ def is_content_starved(content: str, min_useful_chars: int = 200) -> bool:
 
     Heuristics:
       - Length of visible text < min_useful_chars
+      - Bot-challenge / access-denial stub (I-run11-010 #1056 S1)
       - PDF metadata markers dominate
       - Ratio of alphabetic chars to total chars is low
     """
     if not content or len(content.strip()) < min_useful_chars:
+        return True
+
+    # I-run11-010 (#1056, S1): a captcha / robot-challenge stub is starved even when it clears the
+    # length + alpha-ratio bars — it carries no article content to ground a claim against.
+    if _is_access_denial_stub(content):
         return True
 
     # PDF-metadata dominance check

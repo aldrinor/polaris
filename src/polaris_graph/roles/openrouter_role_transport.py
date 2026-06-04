@@ -345,10 +345,15 @@ def sentinel_decomposition_active(slug_override: str | None = None) -> bool:
             _MODE_DECOMPOSITION,
             sentinel_groundedness_mode,
         )
-
-        return sentinel_groundedness_mode(slug_override) == _MODE_DECOMPOSITION
-    except Exception:  # noqa: BLE001 — conservative: unknown -> not decomposition.
+    except (ImportError, AttributeError):
+        # I-run11-010 (#1056, D4): only a genuine lazy-IMPORT failure (module missing / symbol
+        # renamed) is safe to swallow as "not decomposition". A ValueError from
+        # sentinel_groundedness_mode (an UNRECOGNIZED PG_SENTINEL_GROUNDEDNESS_MODE) is a caller
+        # config bug and must NOT be silently downgraded to the 256-token classifier path (that
+        # truncates the certified MiniMax-M2 JSON -> the run-12 all-UNGROUNDED collapse). It now
+        # propagates (LAW II fail-loud) instead of being swallowed by a broad `except Exception`.
         return False
+    return sentinel_groundedness_mode(slug_override) == _MODE_DECOMPOSITION
 
 
 def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:

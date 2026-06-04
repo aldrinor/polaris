@@ -44,8 +44,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+# I-run11-010 (#1056, S2): minimum direct_quote length (chars) for a frame row to carry a verifiable
+# citation span. A METADATA_ONLY row below this is routed to gap disclosure (LAW VI: env-overridable).
+_MIN_VERIFIABLE_SPAN_CHARS = int(os.getenv("PG_MIN_VERIFIABLE_SPAN_CHARS", "50"))
 
 from ..nodes.contract_outline import ContractSectionPlan, ContractSlotPlan
 from ..nodes.report_contract import RequiredEntity
@@ -351,6 +356,22 @@ async def _fill_one_slot(
 
     if frame_row.provenance_class == ProvenanceClass.FRAME_GAP_UNRECOVERABLE:
         payload = compose_gap_payload(slot, frame_row, required_fields)
+        return payload, 0, 0
+
+    # I-run11-010 (#1056, S2): a METADATA_ONLY frame row with an empty/near-empty direct_quote has no
+    # verifiable span to cite — emit an honest all-not_extractable payload (surfaced by M-59 as
+    # FAIL_MIN_FIELDS / curator-actionable) WITHOUT calling the LLM on an empty span, so strict_verify
+    # is not the ONLY thing standing between an empty authoritatively-cited T1 span and a generated
+    # claim. NOT compose_gap_payload — that helper HARD-RAISES on non-gap provenance by design (the
+    # M-58 symmetric guard); _build_not_extractable_payload is the sanctioned non-gap skip path. A
+    # METADATA_ONLY row that DOES carry a usable quote (>= the verifiable-span floor) still extracts.
+    if (
+        frame_row.provenance_class == ProvenanceClass.METADATA_ONLY
+        and len((frame_row.direct_quote or "").strip()) < _MIN_VERIFIABLE_SPAN_CHARS
+    ):
+        payload = _build_not_extractable_payload(
+            slot, frame_row.entity_id, frame_row, required_fields
+        )
         return payload, 0, 0
 
     # V31 dispatch: regulatory entities go through M-70 prose
