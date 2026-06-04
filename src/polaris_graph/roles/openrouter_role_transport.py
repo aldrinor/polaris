@@ -321,6 +321,9 @@ _VERIFIER_EFFORT_LADDER = _parse_effort_ladder()
 # the certified call. The SOVEREIGN `guardian`/`noninverted` granite Sentinel modes stay
 # reasoning-OFF (a <score>/one-word classifier whose self-host slug does not advertise
 # `reasoning`); their settings are NOT regressed. LAW VI: overridable via `PG_SENTINEL_REASONING`.
+# I-run11-008 (#1053): Mirror keeps reasoning ON (bake-off: reasoning-OFF DOUBLED false_bind 1->2/5,
+# i.e. a worse grounding judge), but its reasoning is BOUNDED numerically below (effort=xhigh is a
+# no-op on GLM, so unbounded thinking exhausted max_tokens → the 47 blanks). Overridable via PG_MIRROR_REASONING.
 _ROLE_REASONING_DEFAULT = {"mirror": True, "sentinel": False, "judge": True}
 
 
@@ -504,6 +507,18 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         if request.role == "sentinel":
             decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "16384"))
             body["max_tokens"] = max(decomp_budget, _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS)
+        elif request.role == "mirror":
+            # I-run11-008 (#1053): BOUND GLM's reasoning. `effort` is a NO-OP on GLM (its OpenRouter
+            # endpoints don't list it), so xhigh let thinking run unbounded and exhaust max_tokens ->
+            # 47 empty-content blanks. Replace effort with a NUMERIC reasoning cap (GLM honors
+            # reasoning.max_tokens) and give the verdict a generous total budget STRICTLY above the cap
+            # (OpenRouter rule). Reasoning STAYS ON (bake-off: reasoning-off doubled false_bind), just
+            # capped so it cannot starve the answer.
+            reasoning_cap = int(os.getenv("PG_MIRROR_REASONING_MAX_TOKENS", "4000"))
+            body["reasoning"] = {"max_tokens": reasoning_cap}
+            body["max_tokens"] = max(
+                int(os.getenv("PG_MIRROR_MAX_TOKENS", "24000")), reasoning_cap + 4000
+            )
         else:
             body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "16384"))
     else:
@@ -651,19 +666,21 @@ class OpenRouterRoleTransport:
         # Sentinel makes a SINGLE attempt (its body has no `reasoning` block to step down) — its
         # behavior is unchanged.
         reasoning_role = role_reasoning_enabled(request.role, request.model_slug)
-        # I-run11-007 (#1051): a NON-reasoning role made a SINGLE attempt, so a blank from a flaky
-        # provider had no recovery (OpenRouter does not auto-advance on an empty 200). When the role
-        # is PINNED to a ranked provider chain, give it (1 + PG_PROVIDER_BLANK_RETRIES) attempts at
-        # the same effort; each blank excludes the served provider so the retry advances to the next
-        # HEALTHY provider. WITHOUT routing there is no chain to fail over to, so it keeps the original
-        # single attempt (the reasoning-roles-only step-down ladder is unchanged when routing is off).
+        # I-run11-008 (#1053): the Mirror uses a FIXED numeric reasoning cap (reasoning.max_tokens), NOT
+        # effort-stepping — so it must NOT use the effort ladder (which would clobber the cap back to
+        # effort=xhigh, the no-op that caused the blanks). Only effort-based reasoning roles (the Judge)
+        # step effort down. The Mirror instead retries to FAIL OVER providers (below), keeping its cap.
+        uses_effort_ladder = reasoning_role and request.role != "mirror"
+        # I-run11-007 (#1051): a non-effort-ladder role gets (1 + PG_PROVIDER_BLANK_RETRIES) attempts
+        # when routed, so a blank from a flaky provider advances to the next HEALTHY provider (OpenRouter
+        # does not auto-advance on an empty 200). WITHOUT routing it keeps the original single attempt.
         provider_blank_retries = max(0, int(os.getenv("PG_PROVIDER_BLANK_RETRIES", "3")))
         role_is_routed = role_provider_routing(request.role) is not None
-        non_reasoning_attempts = (1 + provider_blank_retries) if role_is_routed else 1
+        retry_attempts = (1 + provider_blank_retries) if role_is_routed else 1
         effort_ladder: tuple[object, ...] = (
             _VERIFIER_EFFORT_LADDER
-            if reasoning_role
-            else (_REASONING_EFFORT,) * non_reasoning_attempts
+            if uses_effort_ladder
+            else (_REASONING_EFFORT,) * retry_attempts
         )
         last_blank: BlankVerdictError | None = None
 
@@ -677,7 +694,7 @@ class OpenRouterRoleTransport:
                 # provider that HONORS those constraints (Codex diff-gate P2). Only when reasoning
                 # was the sole constrained param do we drop require_parameters (it would otherwise
                 # have nothing to enforce).
-                if reasoning_role and "reasoning" in body:
+                if uses_effort_ladder and "reasoning" in body:
                     if effort is None:
                         body.pop("reasoning", None)
                         provider = body.get("provider")
@@ -690,14 +707,39 @@ class OpenRouterRoleTransport:
                     else:
                         body["reasoning"] = {"enabled": True, "effort": effort}
 
-                try:
-                    http_response = self._http_client.post(
-                        url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
-                    )
-                except httpx.HTTPError as exc:
-                    raise RoleTransportError(
-                        f"OpenRouter {request.role!r} transport error at {url}: {exc}"
-                    ) from exc
+                # I-run11-008 (#1053): a transient transport failure (connection reset / WinError
+                # 10054, read timeout, remote-protocol error) on a SINGLE role call must NOT abort the
+                # whole 4-role run — these are intermittent OpenRouter-edge blips, not a verdict
+                # failure. Retry the POST a bounded number of times (env-driven, LAW VI) before
+                # fail-loud. HTTP-STATUS errors are handled separately below (not retried here).
+                transport_retries = max(0, int(os.getenv("PG_ROLE_TRANSPORT_RETRIES", "2")))
+                http_response = None
+                for transport_attempt in range(transport_retries + 1):
+                    try:
+                        http_response = self._http_client.post(
+                            url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
+                        )
+                        break
+                    except httpx.TransportError as exc:
+                        # Codex diff-gate P2: retry ONLY transport-layer faults (connection reset /
+                        # WinError 10054, read/connect timeout, remote-protocol error — all
+                        # httpx.TransportError subclasses). A non-transport httpx error (e.g. an
+                        # HTTPStatusError from a future event hook) is NOT a transient blip and falls
+                        # through to the broad fail-loud handler below instead of being retried.
+                        if transport_attempt < transport_retries:
+                            logger.warning(
+                                "[polaris graph] #1053: %s transport error (attempt %d/%d) at %s: "
+                                "%s — retrying.",
+                                request.role, transport_attempt + 1, transport_retries + 1, url, exc,
+                            )
+                            continue
+                        raise RoleTransportError(
+                            f"OpenRouter {request.role!r} transport error at {url}: {exc}"
+                        ) from exc
+                    except httpx.HTTPError as exc:
+                        raise RoleTransportError(
+                            f"OpenRouter {request.role!r} transport error at {url}: {exc}"
+                        ) from exc
 
                 if http_response.status_code != httpx.codes.OK:
                     raise RoleTransportError(
