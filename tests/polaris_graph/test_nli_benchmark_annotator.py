@@ -94,70 +94,72 @@ def test_pairs_skip_when_no_resolvable_span_or_empty_claim():
 # annotate_nli_entailment — scoring + fail-loud
 # --------------------------------------------------------------------------- #
 
-class _FakeMiniCheck:
-    """Mimics the MiniCheck .score(docs, claims) -> (labels, probs, chunks, chunk_probs) API."""
-    def __init__(self, probs):
-        self._probs = probs
+class _FakeJudge:
+    """Mimics entailment_judge._EntailmentJudge: `judge(sentence, span) -> (verdict, reason)`,
+    pulling verdicts from a queue. `_model` mirrors the real attribute the annotator reports."""
+    _model = "google/gemma-4-31b-it"
 
-    def score(self, docs, claims):
-        return [1] * len(claims), list(self._probs), None, None
+    def __init__(self, verdicts, *, raise_exc=None):
+        self._verdicts = list(verdicts)
+        self._raise_exc = raise_exc
 
-
-class _FakeFaithLens:
-    """Mimics the FaithLens .infer(docs, claims) -> [ {prediction, explanation} ] API."""
-    def __init__(self, preds):
-        self._preds = preds
-
-    def infer(self, docs, claims):
-        return [{"prediction": p, "explanation": "x"} for p in self._preds]
+    def judge(self, sentence, span):
+        if self._raise_exc is not None:
+            raise self._raise_exc
+        return self._verdicts.pop(0), "reason-text"
 
 
-def _patch_loader(monkeypatch, scorer):
-    # The annotator does `from ...nli_verifier import PG_NLI_MODEL, load_nli_model` INSIDE the async
-    # function, so patching the module attributes before the call binds the fakes at call time —
-    # importing nli_verifier here does NOT pull torch (load_nli_model imports it lazily).
-    async def _fake_load():
-        return scorer
-    import src.polaris_graph.agents.nli_verifier as nli_verifier
-    monkeypatch.setattr(nli_verifier, "load_nli_model", _fake_load)
-    monkeypatch.setattr(nli_verifier, "PG_NLI_MODEL", "flan-t5-large", raising=False)
+def _patch_judge(monkeypatch, judge):
+    # The annotator does `from ...entailment_judge import _get_judge` INSIDE the async function, so
+    # patching the module attribute before the call binds the fake at call time (no OpenRouter call).
+    import src.polaris_graph.llm.entailment_judge as ej
+    monkeypatch.setattr(ej, "_get_judge", lambda: judge)
 
 
-def test_ok_path_flags_low_prob_as_disputed(monkeypatch):
-    _patch_loader(monkeypatch, _FakeMiniCheck(probs=[0.95, 0.10]))
+def test_ok_path_maps_verdicts_to_counts(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _patch_judge(monkeypatch, _FakeJudge(["ENTAILED", "NEUTRAL", "CONTRADICTED"]))
     pairs = [
-        {"sentence": "grounded claim", "span": "support", "section": "A", "evidence_id": "ev_000"},
-        {"sentence": "hallucinated claim", "span": "unrelated", "section": "B", "evidence_id": "ev_001"},
+        {"sentence": "grounded", "span": "s", "section": "A", "evidence_id": "e0"},
+        {"sentence": "adds a fact", "span": "s", "section": "B", "evidence_id": "e1"},
+        {"sentence": "contradicts", "span": "s", "section": "C", "evidence_id": "e2"},
     ]
-    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
+    out = asyncio.run(annotate_nli_entailment(pairs))
     assert out["nli_status"] == "ok"
-    assert out["sentences_checked"] == 2
-    assert out["disputed_count"] == 1                       # only the 0.10 sentence
-    assert out["disputed"][0]["sentence"] == "hallucinated claim"
-    assert out["min_prob"] == 0.10
+    assert out["judge"] == "llm_entailment"
+    assert out["model"] == "google/gemma-4-31b-it"
+    assert out["sentences_checked"] == 3
+    assert (out["entailed_count"], out["neutral_count"], out["contradicted_count"]) == (1, 1, 1)
+    assert out["disputed_count"] == 2                       # NEUTRAL + CONTRADICTED
+    verdicts = {d["sentence"]: d["verdict"] for d in out["disputed"]}
+    assert verdicts == {"adds a fact": "NEUTRAL", "contradicts": "CONTRADICTED"}
     assert out["advisory"] is True
 
 
-def test_faithlens_infer_api_is_supported(monkeypatch):
-    _patch_loader(monkeypatch, _FakeFaithLens(preds=[1, 0]))
-    pairs = [
-        {"sentence": "entailed", "span": "s", "section": "A", "evidence_id": "e0"},
-        {"sentence": "not entailed", "span": "s", "section": "B", "evidence_id": "e1"},
-    ]
-    out = asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
-    assert out["nli_status"] == "ok"
-    assert out["disputed_count"] == 1                       # pred 0 -> prob 0.0 < 0.25
-
-
-def test_unavailable_model_raises_not_silent(monkeypatch):
-    _patch_loader(monkeypatch, None)                        # load_nli_model returns None
+def test_unavailable_when_no_api_key(monkeypatch):
+    # Missing OPENROUTER_API_KEY -> FAIL-LOUD NliUnavailableError (surfaced, never a silent pass);
+    # the judge is NOT even constructed.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    _patch_judge(monkeypatch, _FakeJudge(["ENTAILED"]))   # must NOT be reached
     pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
     with pytest.raises(NliUnavailableError):
-        asyncio.run(annotate_nli_entailment(pairs, threshold=0.25))
+        asyncio.run(annotate_nli_entailment(pairs))
+
+
+def test_budget_error_propagates_not_swallowed(monkeypatch):
+    # A BudgetExceededError from the judge must PROPAGATE (the annotator has no catch) so the run aborts.
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    _patch_judge(monkeypatch, _FakeJudge([], raise_exc=BudgetExceededError("cap")))
+    pairs = [{"sentence": "x", "span": "y", "section": "A", "evidence_id": "e0"}]
+    with pytest.raises(BudgetExceededError):
+        asyncio.run(annotate_nli_entailment(pairs))
 
 
 def test_empty_pairs_is_ok_zero(monkeypatch):
-    # No pairs -> a clean ok with zero checked (does not even load the model).
-    out = asyncio.run(annotate_nli_entailment([], threshold=0.25))
+    # No pairs -> clean ok with zero checked WITHOUT needing OPENROUTER_API_KEY or a judge.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    out = asyncio.run(annotate_nli_entailment([]))
     assert out["nli_status"] == "ok"
     assert out["sentences_checked"] == 0
+    assert out["judge"] == "llm_entailment"

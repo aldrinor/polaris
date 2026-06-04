@@ -85,10 +85,13 @@ semhash==0.4.1  # FIX-048-K13: Semantic dedup via Model2Vec static embeddings
 hdbscan==0.8.43  # I-f2-001: cluster top-K candidate embeddings for disambiguation modal
 
 # RAG Verification (Sprint 2)
-# WS-1: MiniCheck-FT5 (EMNLP 2024) — matches GPT-4 factuality at 400x lower cost
-# Install separately (not on PyPI):
+# WS-1: MiniCheck-FT5 (EMNLP 2024). LEGACY — Pipeline-B `agents/nli_verifier` only.
+# I-cap-003 (#1066): the BENCHMARK NLI second-validator no longer uses MiniCheck/flan-t5 (old/weak
+# F1-62.1 encoder, git-only, unavailable on the CPU VM). It uses the frontier LLM entailment judge
+# (`src/polaris_graph/llm/entailment_judge.py`, OpenRouter, family-segregated) — NO extra install.
+# MiniCheck is only needed if you still run the legacy Pipeline-B nli_verifier path:
 #   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main"
-# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large in .env to activate
+# Set PG_NLI_MODEL=MiniCheck-Flan-T5-Large to activate that legacy path.
 
 # Search & Content
 crawl4ai==0.8.5  # Free Playwright-based web crawler (LLM-ready markdown)

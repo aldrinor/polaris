@@ -18,6 +18,7 @@ the VM (CLAUDE.md §8.4).
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -100,66 +101,76 @@ def build_nli_pairs(
 
 async def annotate_nli_entailment(
     pairs: list[dict[str, Any]],
-    *,
-    threshold: float = 0.25,
 ) -> dict[str, Any]:
-    """Score each (span ⊨ sentence) pair with the NLI model; return an ADVISORY annotation dict.
+    """Score each (span ⊨ sentence) pair with the frontier LLM entailment judge; ADVISORY annotation.
 
-    Raises ``NliUnavailableError`` if the model cannot load OR exposes neither ``.score`` (MiniCheck)
-    nor ``.infer`` (FaithLens) — NEVER returns a silent empty pass. Returns
-    ``{nli_status:"ok", model, sentences_checked, disputed_count, disputed:[…], min_prob, mean_prob,
-    threshold, advisory:True}``.
+    I-cap-003 (#1066): the scoring backend is now the project's LLM entailment judge
+    (``src.polaris_graph.llm.entailment_judge``) — a frontier OPEN-weight model (default
+    ``google/gemma-4-31b-it``) via OpenRouter, family-segregated from the generator, already used by
+    strict_verify. This REPLACES the old flan-t5/minicheck path (an old/weak F1-62.1 encoder that was
+    git-only and unavailable on the CPU VM → the previous ``nli_status:unavailable`` bug).
+
+    Each pair yields a verdict ``ENTAILED | NEUTRAL | CONTRADICTED``. ``disputed`` = NEUTRAL ∪
+    CONTRADICTED (strict_verify's contract is "no unsupported additions"; the per-sentence ``verdict``
+    distinguishes them). Returns ``{nli_status:"ok", judge, model, sentences_checked, entailed_count,
+    neutral_count, contradicted_count, disputed_count, disputed:[…], advisory:True}``.
+
+    FAIL-LOUD only on a genuine config error: a missing ``OPENROUTER_API_KEY`` raises
+    ``NliUnavailableError`` (surfaced as ``nli_status:"unavailable"``, never a silent pass). The judge is
+    called SYNCHRONOUSLY (NOT offloaded to a thread) so its per-call cost accumulates in the run's
+    ``_RUN_COST_CTX`` ContextVar and ``BudgetExceededError`` (re-raised inside ``judge.judge``) propagates
+    out to abort the run on a cap breach. A family-segregation error from ``_get_judge()`` PROPAGATES
+    (not masked as "unavailable").
     """
-    # Lazy import: keeps torch/minicheck off the module-import path (offline tests mock this).
-    from src.polaris_graph.agents.nli_verifier import PG_NLI_MODEL, load_nli_model
-
-    if not pairs:
+    if not pairs:                                   # fast path — needs no API key / no judge
         return {
-            "nli_status": "ok", "model": PG_NLI_MODEL, "sentences_checked": 0,
-            "disputed_count": 0, "disputed": [], "min_prob": None, "mean_prob": None,
-            "threshold": threshold, "advisory": True,
+            "nli_status": "ok", "judge": "llm_entailment", "sentences_checked": 0,
+            "entailed_count": 0, "neutral_count": 0, "contradicted_count": 0,
+            "disputed_count": 0, "disputed": [], "advisory": True,
         }
 
-    scorer = await load_nli_model()
-    if scorer is None:
+    # Fail-loud on a genuine config error BEFORE constructing the judge (the judge __init__ raises a
+    # RuntimeError for a missing key that is indistinguishable from a family-collision RuntimeError —
+    # check the key here so only the real missing-key case maps to NliUnavailableError).
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
         raise NliUnavailableError(
-            f"NLI model '{PG_NLI_MODEL}' unavailable (deps missing or load failed) — "
-            f"refusing to report a silent clean pass"
+            "OPENROUTER_API_KEY missing — the NLI entailment judge cannot run"
         )
 
-    docs = [p["span"] for p in pairs]
-    claims = [p["sentence"] for p in pairs]
+    from src.polaris_graph.llm.entailment_judge import _get_judge
 
-    # Codex brief-gate P2.3: MiniCheck exposes .score(); FaithLens exposes .infer(). Support both so an
-    # otherwise-available model is not mislabeled nli_status:error.
-    if hasattr(scorer, "score"):
-        _labels, raw_probs, _chunks, _chunk_probs = scorer.score(docs=docs, claims=claims)
-        probs = [float(p) for p in raw_probs]
-    elif hasattr(scorer, "infer"):
-        results = scorer.infer(docs=docs, claims=claims)
-        probs = [1.0 if (r.get("prediction", 0) == 1) else 0.0 for r in results]
-    else:
-        raise NliUnavailableError(
-            f"NLI scorer for '{PG_NLI_MODEL}' exposes neither .score nor .infer"
-        )
-
-    disputed = []
-    for pair, prob in zip(pairs, probs):
-        if prob < threshold:
-            disputed.append({
-                "section": pair.get("section", ""),
-                "evidence_id": pair.get("evidence_id", ""),
-                "prob": round(prob, 4),
-                "sentence": pair["sentence"],
-            })
+    judge = _get_judge()   # family-segregation RuntimeError propagates (NOT masked as unavailable)
+    entailed = neutral = contradicted = 0
+    disputed: list[dict[str, Any]] = []
+    for pair in pairs:
+        # SYNC call (no asyncio.to_thread): keeps _RUN_COST_CTX in-context so judge spend counts against
+        # PG_MAX_COST_PER_RUN and BudgetExceededError propagates. Runs post-generation (last step), so
+        # blocking the loop for N sequential entailment calls is fine.
+        verdict, reason = judge.judge(pair["sentence"], pair["span"])
+        if verdict == "ENTAILED":
+            entailed += 1
+            continue
+        if verdict == "CONTRADICTED":
+            contradicted += 1
+        else:
+            verdict = "NEUTRAL"   # normalize any unexpected verdict to NEUTRAL (still disputed)
+            neutral += 1
+        disputed.append({
+            "section": pair.get("section", ""),
+            "evidence_id": pair.get("evidence_id", ""),
+            "verdict": verdict,
+            "reason": reason,
+            "sentence": pair["sentence"],
+        })
     return {
         "nli_status": "ok",
-        "model": PG_NLI_MODEL,
+        "judge": "llm_entailment",
+        "model": judge._model,
         "sentences_checked": len(pairs),
+        "entailed_count": entailed,
+        "neutral_count": neutral,
+        "contradicted_count": contradicted,
         "disputed_count": len(disputed),
         "disputed": disputed,
-        "min_prob": round(min(probs), 4) if probs else None,
-        "mean_prob": round(sum(probs) / len(probs), 4) if probs else None,
-        "threshold": threshold,
         "advisory": True,
     }
