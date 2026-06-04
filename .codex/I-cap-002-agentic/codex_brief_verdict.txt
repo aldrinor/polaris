@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Harvester should dedupe with canonical_source_url as the key while returning the original fetchable URL; canonical_source_url strips scheme, so returning canonical strings to seed_urls would hurt fetch yield."
+  - "Budget precheck handling should be explicit: if the envelope breaches PG_MAX_COST_PER_RUN, either propagate BudgetExceededError like STORM or roll back the booked envelope before fail-open skip."
+  - "The preferred agentic_url_accumulator is list(set)-ordered today; capped harvest selection is nondeterministic and can miss post-loop DDG/citation URLs unless the ordered web_results/academic_results stream is unioned."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

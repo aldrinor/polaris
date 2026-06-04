@@ -463,6 +463,12 @@ async def run_gate_b_query(
     # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
     # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
     os.environ.setdefault("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "1")
+    # I-cap-002 feature 3/4 (#1060): turn on agentic URL-DISCOVERY for the benchmark/paid run ONLY here.
+    # The agentic loop discovers additional URLs that are fetched VERBATIM via the same seed_only
+    # chokepoint + strict_verify + 4-role (notebook/summaries never become evidence). Budget-bounded
+    # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
+    # override (LAW VI).
+    os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
     if transport is not None:
         active_transport = transport               # offline/test: injected fake
     else:
