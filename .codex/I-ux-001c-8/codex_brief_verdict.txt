@@ -1,0 +1,4038 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e5e39-8020-7091-bdd2-a229ff17acda
+--------
+user
+# I-ux-001c sub-PR 8 — Compare v6 chrome (GH #896)
+
+## Phase: BRIEF REVIEW (not diff review)
+
+Repo equals polaris HEAD. Per CLAUDE.md §3.0: brief → brief APPROVE → diff → diff APPROVE → audit.
+
+## §0 cap directive (CLAUDE.md §8.3.1, verbatim)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Scope (visual-only marketing-auth chrome, sub-PRs 4-7 pattern)
+
+Rebuild `/compare` page header chrome to v6 marketing-auth lock. Sub-PR 8 of approximately 7+ for I-ux-001c.
+
+Current `/compare` (347 LOC, single file `web/app/compare/page.tsx`, per I-ui-004 #543) is the run-vs-run comparison page (distinct from /benchmark). Two completed runs are selected → `compareRuns(l, r)` → ReportComparison rendering. ALL backend logic preserved verbatim.
+
+v6 changes (header region only, lines ~94-104):
+- Brand-red eyebrow "COMPARE · POLARIS CLINICAL RESEARCH" ABOVE the H1
+- Display-weight H1 "Compare two runs side-by-side." (replacing "Compare two runs")
+- Tightened subtitle locked verbatim: "Shared evidence, unique sources, contradiction counts — see what changes from one verified run to the next."
+
+PRESERVED contracts:
+- `data-testid="compare-page"` (existing test selector)
+- `data-testid="comparison-result"`
+- compareRuns + listCompletedRuns API calls
+- All run-picker UI + comparison rendering
+- AppShell chrome (NOT chromeless)
+
+## CI test wiring (UNIQUE to this sub-PR)
+
+`/compare` has NO existing `compare_g1_g8.spec.ts` file (no CI coverage today). Per the sub-PR 6 lesson (#892 follow-up), creating a standalone `compare_v6.spec.ts` would be CI-dead. So sub-PR 8 ADDS BOTH:
+
+1. NEW `web/tests/e2e/compare_g1_g8.spec.ts` — establishes baseline CI coverage for /compare: G1 (one header + main), G2 (no dev-language), G8 (zero console errors), + v6 chrome cases (eyebrow + H1 + subtitle render).
+2. UPDATE `.github/workflows/web_ci.yml` — add a single block enumerating the new spec, mirroring the existing dashboard_g1_g8.spec.ts block at line 185.
+
+This brings /compare into CI parity with /home, /intake, /dashboard, /runs/[runId] etc.
+
+## Operator-locked constraints
+
+Brand-red 3 paths (all preserved):
+1. Brand identity (NEW eyebrow)
+2. Evidence-role T1 (not applicable to /compare)
+3. Interactive affordance (existing text-primary on links)
+
+Honest sovereignty — no "signed bundle" overclaim. NO new copy about signing.
+
+## File plan
+
+REBUILD
+1. `web/app/compare/page.tsx` — header region (lines ~94-104):
+   - Add brand-red eyebrow above the H1
+   - Display H1 + tightened subtitle
+   - Rest of the page (run-picker, compareRuns flow, ReportComparison rendering, ErrorState, LoadingState, EmptyState) PRESERVED VERBATIM
+
+NEW
+2. `web/tests/e2e/compare_g1_g8.spec.ts` — G1 + G2 + G8 + v6 chrome cases (mirror dashboard_g1_g8.spec.ts pattern). Mock `**/api/v6/runs**` to avoid auth-gated listCompletedRuns race.
+
+UPDATE
+3. `.github/workflows/web_ci.yml` — add 1 block to enumerate `tests/e2e/compare_g1_g8.spec.ts` (model: copy the dashboard_g1_g8 block at line 184-185, swap names).
+
+## Files I have ALSO checked
+
+- web/components/app_shell.tsx — /compare in authed routes; no change
+- web/lib/api.ts — compareRuns + listCompletedRuns unchanged
+- web/app/dashboard/page.tsx — was sub-PR 6; no cross-reference to /compare
+- .github/workflows/web_ci.yml — line 185 has the model dashboard_g1_g8 block
+
+## Brief-review check requests
+
+- `scope_visual_only`: PASS / FAIL — only header chrome changes; compare logic preserved
+- `existing_testids_preserved`: PASS / FAIL — compare-page, comparison-result preserved
+- `appshell_chrome_preserved`: PASS / FAIL — /compare stays in AppShell
+- `ci_wired_via_yaml_update`: PASS / FAIL — web_ci.yml updated to enumerate the new compare_g1_g8 spec; not standalone dead
+- `no_signed_bundle_overclaim`: PASS / FAIL — no "signed bundle" copy added
+
+## Output schema (BIND)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+specific_check_responses:
+  scope_visual_only: PASS | FAIL_with_detail
+  existing_testids_preserved: PASS | FAIL_with_detail
+  appshell_chrome_preserved: PASS | FAIL_with_detail
+  ci_wired_via_yaml_update: PASS | FAIL_with_detail
+  no_signed_bundle_overclaim: PASS | FAIL_with_detail
+```
+
+codex
+I’ll treat this as a brief review of the proposed scope and CI wiring, not an implementation diff. I’m going to inspect the existing page, test patterns, and workflow blocks so the pass/fail calls are grounded in the repo shape.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path CLAUDE.md -TotalCount 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\compare\\page.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files web\\tests\\e2e | rg \"(dashboard_g1_g8|home_g1_g8|intake_g1_g8|compare)\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path .github\\workflows\\web_ci.yml" in C:\POLARIS
+ succeeded in 1231ms:
+web\tests\e2e\dashboard_g1_g8.spec.ts
+web\tests\e2e\intake_g1_g8.spec.ts
+web\tests\e2e\home_g1_g8.spec.ts
+
+ succeeded in 1648ms:
+name: web_ci
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "src/polaris_v6/**"
+      - "tests/v6/**"
+      - "requirements*.txt"
+      - ".github/workflows/web_ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  lint_format_typecheck_build:
+    name: lint + format + typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: install_dependencies
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: format_check
+        run: npm run format:check
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build
+
+  e2e_playwright:
+    name: e2e + a11y + perf (Playwright on Chromium)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: install_python_dependencies
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install_npm_dependencies
+        run: npm ci
+
+      - name: install_playwright_chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: start_fastapi_backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHONPATH=src nohup python -m uvicorn polaris_v6.api.app:app \
+            --host 127.0.0.1 --port 8000 \
+            > /tmp/fastapi.log 2>&1 &
+          # Wait for /health to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:8000/health > /dev/null; then
+              echo "backend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start"
+          cat /tmp/fastapi.log
+          exit 1
+
+      - name: build_and_start_next
+        # I-cd-015 (GH#611): POLARIS_TEST_HARNESS_ENABLED=1 lets the prod
+        # build serve harness routes for tests that depend on them
+        # (evidence_tooltip_perf etc.). Real production leaves this UNSET
+        # and the middleware 404s /charts_test/*, /sentence_hover_test/*,
+        # /disambiguation_modal_preview/*, /generation/*, /retrieval/*, /sse/*.
+        env:
+          POLARIS_TEST_HARNESS_ENABLED: "1"
+        run: |
+          npm run build
+          nohup npx next start -p 3738 > /tmp/next.log 2>&1 &
+          # Wait for /dashboard to respond.
+          for i in {1..30}; do
+            if curl -fs http://127.0.0.1:3738/dashboard > /dev/null; then
+              echo "frontend ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "frontend failed to start"
+          cat /tmp/next.log
+          exit 1
+
+      - name: run_e2e_inspector
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector.spec.ts
+
+      - name: run_e2e_accessibility
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/accessibility.spec.ts
+
+      - name: run_e2e_performance
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/performance.spec.ts
+
+      # I-f6-005: 100x tooltip mount-cycle render budget locked at <100ms.
+      # I-cd-015: this spec hits /sentence_hover_test/perf (a harness
+      # route). The next start step above sets POLARIS_TEST_HARNESS_ENABLED=1
+      # so the middleware passes through; real production leaves it UNSET
+      # and 404s the harness paths.
+      - name: run_e2e_evidence_tooltip_perf
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/evidence_tooltip_perf.spec.ts
+
+      # I-cd-021 (#631): offline Inspector — renders a v1.0 signed bundle
+      # tar.gz entirely in-browser. Codex diff iter-1 P2.1 fix: wire the
+      # new spec into the CI workflow.
+      - name: run_e2e_inspector_offline_fallback
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/inspector_offline_fallback.spec.ts
+
+      # I-cd-022 (#612): home route G1-G8 acceptance gates per
+      # state/polaris_ui_rebuild_matrix.md §2.
+      - name: run_e2e_home_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/home_g1_g8.spec.ts
+
+      # I-cd-023 (#613): /intake route G1-G8 acceptance gates.
+      - name: run_e2e_intake_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/intake_g1_g8.spec.ts
+
+      # I-cd-024 (#614): /dashboard route G1-G8 acceptance gates.
+      - name: run_e2e_dashboard_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/dashboard_g1_g8.spec.ts
+
+      # I-cd-025 (#615): /runs/[runId] route G1-G8 acceptance gates.
+      - name: run_e2e_runs_runid_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/runs_runid_g1_g8.spec.ts
+
+      # I-cd-026 (#616): /upload route G1-G8 acceptance gates.
+      - name: run_e2e_upload_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/upload_g1_g8.spec.ts
+
+      # I-cd-027 (#617): /benchmark route G1-G8 acceptance gates.
+      - name: run_e2e_benchmark_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/benchmark_g1_g8.spec.ts
+
+      # I-cd-028 (#618): /contracts route G1-G8 acceptance gates.
+      - name: run_e2e_contracts_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/contracts_g1_g8.spec.ts
+
+      # I-cd-029 (#619): /pin_replay route G1-G8 acceptance gates.
+      - name: run_e2e_pin_replay_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/pin_replay_g1_g8.spec.ts
+
+      # I-cd-030 (#620): /memory route G1-G8 acceptance gates.
+      - name: run_e2e_memory_g1_g8
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/memory_g1_g8.spec.ts
+
+      # I-cd-031 (#621): full demo journey home → intake → dashboard →
+      # inspector (v1-canonical-success fixture). Per the I-A-02b
+      # frozen schema; the run-step itself is hardware-bound.
+      - name: run_e2e_demo_journey
+        env:
+          SCREENSHOT_BASE_URL: http://127.0.0.1:3738
+          POLARIS_V6_BACKEND_URL: http://127.0.0.1:8000
+        run: npx playwright test --project=chromium tests/e2e/demo_journey.spec.ts
+
+      # Visual baselines are *-chromium-win32.png (locally captured on Win).
+      # On Linux CI the snapshot file resolves to a different name and will
+      # be missing; skip visual.spec until Linux baselines are added.
+      # See `.codex/continuous/2057fac_2c2_visual_regression.md` P0.
+
+      - name: upload_playwright_traces_on_failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/**/trace.zip
+          retention-days: 7
+
+  verify_pip_resolution:
+    # F-22 (cycle-7 P1.1 prevention): catches pip dependency conflicts
+    # before they reach pytest_v6_backend or the production Dockerfile.
+    # Cycle-7 caught F-17's protobuf>=6.33.5 pin breaking against
+    # google-generativeai's transitive protobuf<5.0.0 constraint.
+    name: pip install --dry-run (catch ResolutionImpossible early)
+    runs-on: ubuntu-latest
+    needs: lint_format_typecheck_build
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: pip_dry_run_legacy_requirements
+        # If this fails, requirements.txt has a conflict; production
+        # Dockerfile build would fail in the same way.
+        run: pip install --dry-run -r requirements.txt
+
+      - name: pip_dry_run_v6_requirements
+        # Verify the v6 backend's pinned set also resolves cleanly.
+        run: pip install --dry-run -r requirements-v6.txt
+
+  pytest_v6_backend:
+    name: pytest tests/v6/ (Phase 0 backend coverage)
+    runs-on: ubuntu-latest
+    needs: [lint_format_typecheck_build, verify_pip_resolution]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup_python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      # Cycle-3 audit P2.3 (outputs/audits/continuous/bb60495_audit.md):
+      # tests/v6/test_*_middleware.py + test_actors.py + test_broker.py +
+      # test_otel_init.py use pytest.importorskip against dramatiq +
+      # opentelemetry deps. Without -v6.txt installed they SILENTLY SKIP
+      # (LAW II violation). This job uses requirements-v6.txt as the
+      # canonical pin source for v6 backend code.
+      - name: install_v6_dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v6.txt
+
+      - name: run_pytest_v6
+        env:
+          PYTHONPATH: src
+        # `-q` keeps output tight; `--strict-markers` fails on undefined
+        # markers; `--no-header` removes pytest banner from CI logs.
+        # Acceptance suite (tests/v6/acceptance/) is excluded — it requires
+        # a live broker; covered by tests/v6/acceptance/test_dramatiq_acceptance.py
+        # which runs in its own integration job once Vast.ai cluster is live.
+        run: |
+          pytest tests/v6/ \
+            --ignore=tests/v6/acceptance \
+            -q --strict-markers --no-header
+
+ succeeded in 2008ms:
+# POLARIS PROJECT - Operational Directives
+
+CRITICAL: This file (CLAUDE.md) MUST be read in its entirety at the start of EVERY session and immediately following ANY restart. Failure to adhere to these directives constitutes a critical operational failure. See §3 for the mandatory startup protocol.
+
+Document Class: Operational, Binding, Project-Specific
+Scope: All POLARIS development, research pipeline implementation, and maintenance tasks.
+
+---
+
+## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
+
+**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+
+### §-1.1 Line-by-line audit standard (clinical-safety-critical)
+
+Every evaluation, audit, comparison, benchmark, regression check, BEAT-BOTH framing, or quality assessment **MUST** be:
+
+1. **Claim-by-claim** against the actually-fetched source content (cited span text, not title or abstract).
+2. **Reasoning-step-by-reasoning-step** — verify each piece of reasoning follows from the cited evidence.
+3. **Citation-by-citation** — verify each citation is appropriate for the claim.
+4. **Apply industrial benchmarks** appropriate to the domain:
+   - Clinical: PRISMA 2020, AMSTAR-2, GRADE per claim, ICMJE authorship/COI, ICH-GCP for trial methods, Cochrane RoB 2 / ROBINS-I / QUADAS-2.
+   - Regulatory: jurisdiction-specific (FDA label, EMA SmPC, Health Canada PM, NICE TA, MHRA AR, TGA PI, PMDA review, NMPA labeling).
+   - Methodology: appropriate risk-of-bias tool for the study type.
+5. **Both Claude and Codex run independent line-by-line audits in parallel.** Cross-review combines findings.
+6. Per-claim verdict: **VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE** with the specific cited span quote that supports the verdict.
+
+**STRICTLY BANNED:**
+- Word counts / citation counts / unique-source counts as quality signals
+- Pattern presence ("does the report mention 'tirzepatide'?")
+- Sample-based audits ("we audited 5 of 50 claims")
+- String-presence PASS/FAIL checks (e.g., gate tables)
+- Metadata comparison (e.g., "ChatGPT has 27 contradictions, POLARIS has 3, so ChatGPT is better" — this framing is **lethal in clinical context**)
+
+**Why this matters:** clinical context. Pattern-matching evaluation will miss real fabrications. Patients can be hurt by a wrong dose, wrong contraindication, wrong indication population that survived a metadata check. "It is lethal" is literal.
+
+**Application:** when the user asks for an audit/evaluation/comparison/benchmark, line-by-line is the ONLY acceptable answer. If you propose a metadata or pattern audit, you have failed the user.
+
+### §-1.2 Standard debug workflow (no §3.0 bypass)
+
+Every task / bug / issue follows this exact sequence — no shortcuts:
+
+1. **GitHub Issue FIRST.** `gh issue create` BEFORE any branch, any code, any brief. Title format: `I-<prefix>-NNN — <summary>`. Body has acceptance criteria. **No exceptions.**
+2. **Comprehensive grep/scan adjacent files.** Before writing the brief, grep all call sites, consumers, downstream rule checks, and tests touching the area. List them in the brief under **"Files I have ALSO checked and they're clean: [...]"**.
+3. **Smoke test offline.** Unit tests run; if the change touches the pipeline, run a minimal smoke test (single sentence, single section) BEFORE launching a full sweep. Full sweeps are NOT smoke tests.
+4. **Brief Codex.** Open with the iter-1 cap directive (§8.3.1 verbatim). Include the adjacent-file scan results so Codex VERIFIES rather than discovers.
+5. **Goal: 1-2 iters per task, not 5.** The 5-cap is a backstop, not a target.
+6. **If a big bug surfaces and cannot be resolved in 5 iters, mark it as URGENT new GitHub Issue and resolve it FIRST.** Do not let cap-5 force-approve a real production blocker.
+7. **Close the GitHub Issue when the PR merges.** Do not leave resolved issues open.
+
+**Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
+
+**Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+
+---
+
+## §0. Core Identity and Operational Mode
+
+**0.1 Identity:** You operate as a Senior Software Engineer/AI Agent building POLARIS - a production-grade research pipeline. Your responsibility is the high-fidelity implementation of reproducible, fully documented, and production-ready systems.
+
+**0.2 Primary Directive:** Implement the Active Project Definition (APD) as defined in §1.1.
+- **Rigor:** Execute without omission, ad-hoc simplification, or corner-cutting. Do not be sloppy. Do not simplify. Do not silently degrade functionality or quality.
+- **Exploration:** During exploratory phases where the APD is intentionally broad, the directive is to clarify intent, deliver high-value iterations, and rigorously document findings and the evolution of the scope (LAW I).
+
+**0.3 Operational Mode (Mandatory Extended Thinking):** You must always engage extended thinking capabilities for planning. Every task requires this rigorous process:
+1. **Analyze:** Deconstruct the request and synthesize the current APD (§1.1).
+2. **Research:** Proactively search online for the latest best practices, libraries, and solutions (LAW III).
+3. **Plan:** Formulate a detailed, step-by-step execution plan, considering edge cases and alternatives.
+4. **Execute:** Implement the plan rigorously, ensuring synchronization (LAW I).
+5. **Verify:** Validate the output against requirements and log the evidence (LAW II).
+6. **Record:** Update all mandatory documentation and state files (§2).
+
+The reasoning derived from steps 1-3 MUST be captured in the RATIONALE section of the session log (§2.2).
+
+---
+
+## §1. The LAWS (Non-Negotiable Directives)
+
+These LAWS supersede all other instructions.
+
+### LAW I — Active Definition and Synchronization
+You must adhere strictly to the Active Project Definition (APD) and ensure its components are coherent.
+
+**1.1 Active Project Definition (APD) Hierarchy** (updated 2026-05-05 per polaris-restart Plan §9.1 issue-driven workflow): The APD is the dynamic source of truth for the project's current goals. It is derived, in order of precedence, from:
+1. Current Session Instructions: Explicit requests and clarifications made during the active session.
+2. `state/active_issue.json` (The Active Work): currently in_progress GitHub Issue per `state/polaris_restart/issue_breakdown.md`. Cannot start Issue N+1 until Issue N completed.
+3. `state/polaris_restart/issue_breakdown.md` (The Scope): 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria. Authoritative for what's "done" in issue-driven workflow.
+4. `state/polaris_restart/plan.md` (The Restart Plan): Codex APPROVE iter 4. Defines role split, halt conditions, mechanical gates.
+5. `docs/carney_delivery_plan_v6_2.md` (The Long-term Mission): canonical 18-week plan, hash-pinned via `docs/canonical_pin.txt`. Re-read at every session-resume.
+6. Recent `logs/session_log.md` (The History).
+7. `architecture.md` (The Baseline).
+8. `docs/task_acceptance_matrix.yaml` (HISTORICAL — Plan-v13-era pre-Issue tracking; matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR).
+
+**1.2 Mandatory Synchronization:** If a higher-priority item contradicts a lower-priority item, the lower-priority documentation MUST be updated immediately to reflect the higher-priority truth. This synchronization must occur before execution proceeds and must be logged (§2.2).
+
+**1.3 Adherence:** No requirement derived from the synchronized APD may be altered, simplified, or omitted without following the protocols in §6.
+
+### LAW II — No Fake Working (Evidence Required)
+- **Forbidden:** Placeholders, mocked data (outside tests/fixtures/), silent downgrades, "demo-only" hacks.
+- **Evidence:** Claims of completion require verifiable proof logged in the session log: created files, sizes/counts, checksums, and successful test outputs or key findings.
+- **Data & Execution Integrity:**
+  - Real Data Only: Use ONLY real data from verified sources. NO synthetic data, NO np.random/faker outside tests/fixtures/.
+  - Fail Loudly: If data is unavailable, FAIL LOUDLY; never return empty/default values silently.
+  - No Silent Fallbacks: Never silently downgrade capabilities, disable functions, or suppress errors.
+  - Stop on Blockers: If a tool/dependency is missing, STOP, report the blocker, and await resolution.
+  - Definition of Fixed: Do not mark an issue "fixed" unless you have a reproducible failing test that now passes AND artifacts demonstrating the fix.
+
+### LAW III — Proactive Information Seeking
+Do not rely on stale internalized knowledge. You must proactively search the internet for the latest official documentation, best practices, and solutions for every library, API, and function used.
+Log all consulted resources in `logs/session_log.md`.
+
+### LAW IV — Persistence of State (Never Forget)
+The session must be resumable without loss of context.
+Every significant action, decision, or finding must update the durable state files (§2).
+
+### LAW V — Absolute Code and File Hygiene
+Adhere strictly to the standards defined in §4 (Naming Conventions, Modularity, and Structure). The repository must remain clean and tidy at all times.
+
+### LAW VI — Zero Hard-Coding
+All parameters (endpoints, credentials, thresholds, file paths, batch sizes) must come from configuration files, CLI arguments, or environment variables.
+Fixed values for testing must reside exclusively in `tests/fixtures/`.
+
+### LAW VII — CLI Isolation (POLARIS-Specific)
+Phases are standalone CLI scripts. They communicate ONLY through JSON files.
+- Phase N reads ONLY from `outputs/P{N-1}/{vector_id}.json`
+- Phase N writes ONLY to `outputs/P{N}/{vector_id}.json`
+- Phase N NEVER imports code from other phases
+- Shared utilities go in `src/utils/` or `src/schemas/`
+
+---
+
+## §2. Persisted State and Mandatory Documentation
+
+The following files are the authoritative record of the project state. They must be updated continuously with every change, no matter how small.
+
+### 2.1 Authoritative Files (updated 2026-05-05 per polaris-restart Plan §9.5)
+- `state/active_issue.json`: **The Active Work.** Currently in_progress GitHub Issue. Read at session boot per §10 ritual. Updated by user assignment (TaskCreate), NOT by Claude advancing autonomously.
+- `state/polaris_restart/issue_breakdown.md`: **The Scope (issue-driven).** 134 issues, Codex APPROVE iter 4 on 2026-05-05. Per-Issue GREEN criteria.
+- `state/polaris_restart/plan.md`: **The Restart Plan.** Codex APPROVE iter 4. Role split, halt conditions, mechanical gates.
+- `state/polaris_restart/charter_sha_pin.txt`: SHA pins of `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md`. Both verified at every session-resume per §3.1 step 0.
+- `state/polaris_restart/cleanup_audit.md`: Codex APPROVE iter 21. 10-PR Cleanup-PR-1..PR-8 sequential schedule.
+- `logs/session_log.md`: A chronological, append-only audit trail.
+- `docs/task_acceptance_matrix.yaml`: **HISTORICAL** (Plan-v13-era pre-Issue tracking). Matrix-decommission scheduled as post-Cleanup-PR-8 follow-up PR. Do not write new entries here; use `state/active_issue.json` for current issue state.
+- `docs/canonical_pin.txt`: SHA256 pin of 10 canonical files; verified at every session-resume per §3 Step 0.
+- `logs/bug_log.md`: Registry of defects, blockers, clarification requests, and degradation proposals.
+- `docs/file_directory.md`: A hierarchical inventory of all active files, describing the purpose of each.
+- `state/restart_instructions.md`: Precise instructions on how to resume the session from the last executed task.
+- `state/progress_ledger.jsonl`: Machine-readable append-only execution log for pipeline state.
+- `state/last_pointer.json`: Resume point after crash/restart.
+- `state/orchestrator_status.json`: Current autoloop heartbeat (current_task, iter, phase).
+
+### 2.2 Session Log Format (MANDATORY)
+Every action must be appended to `logs/session_log.md` using this structure:
+
+```
+[YYYY-MM-DD HH:MM:SS]
+- ACTION: <Brief description of the action taken>
+- RATIONALE: <Summary of the extended thinking process (§0.3)>
+- DOCS/RESEARCH: <Links to official documentation or resources consulted (LAW III)>
+- SYNC: <Description of documentation synchronized due to APD changes (LAW I, §1.2). "N/A" otherwise.>
+- AFFECTED_FILES: <List of files read/written/modified>
+- EVIDENCE/FINDINGS: <Verifiable output: file sizes, checksums, test results, or key findings (LAW II)>
+- STATUS: <Honest assessment of what works, what is incomplete, and any new bugs>
+- NEXT_STEP: <The single, clear next action to be taken>
+```
+
+---
+
+## §3.0 Issue-driven workflow (mandatory, per polaris-restart Plan §9.1)
+
+**Every unit of work is a GitHub Issue assigned in sequence per `state/polaris_restart/issue_breakdown.md`.** Cannot start Issue N+1 until Issue N is `completed` per TaskCreate state.
+
+**Per-Issue mandatory artifacts** (CI will reject PR without these once PR-D installs the gate workflow; pre-PR-D, this is enforced by Codex review at PR time):
+- `.codex/<issue_id>/brief.md` (Claude-authored, Codex-approved)
+- `.codex/<issue_id>/codex_brief_verdict.txt` (APPROVE)
+- `.codex/<issue_id>/codex_diff.patch` (Claude-written diff committed under this name; Codex reviews it — per plan §7.A LOCKED A2)
+- `.codex/<issue_id>/codex_diff_audit.txt` (APPROVE on Red-Team checklist)
+- `outputs/audits/<issue_id>/claude_audit.md` (Claude's architect review)
+
+**Forbidden patterns:**
+- `gh pr merge --admin` from Claude account/token (revoked per CHARTER §1)
+- PR opened without all 5 artifacts above
+- Issue jump (start `I-X-NNN+1` before `I-X-NNN` merged)
+- "While we're at it" polish in same PR
+- STATUS block / recap text between PR merge and next branch creation (per §8.2)
+
+**Halt conditions (each emits `state/halt_<utc>_<reason>.md`):**
+- canonical pin SHA mismatch
+- CHARTER.md OR PLAN.md SHA pin mismatch (per §10 boot ritual + §3.1 step 0)
+- issue jump attempt
+- PR opened with missing artifact triple
+- Codex unavailable >1h
+- 2-cycle repeated root cause
+- 200-LOC PR cap exceeded
+- 3+ PRs queued for user in 24h (reviewer fatigue)
+
+**Role split (per polaris-restart Plan §7.A LOCKED A2 + §7.B LOCKED B1):**
+- **Claude:** writes code (briefs AND diffs). Author of `.codex/<issue_id>/brief.md` and `.codex/<issue_id>/codex_diff.patch` (Claude commits the diff, Codex reviews it).
+- **Codex:** reviews. Two separate Codex calls per Issue: APPROVE on brief (acceptance criteria correctness) + APPROVE on diff (code correctness against brief). Codex is the only gate.
+- **User:** spec owner + merge gate. Reads `git log` in the morning as the after-the-fact human-at-merge surface (B1 pure auto-merge).
+- Claude has NO `gh pr merge --admin` authority. CI required check `polaris/codex-required` parses Codex's verdict file and gates merge.
+
+---
+
+## §3. Mandatory Session Protocol (Startup/Restart)
+
+This protocol MUST be executed automatically at the start of every session and after any restart or crash.
+
+### 3.1 Startup Protocol (The 12 Steps — Plan v13 §J integration)
+
+**CRITICAL: Step 0 (canonical-pin verification) is non-negotiable. Mismatch = HARD STOP per Plan v13 §A.**
+
+0. **Verify canonical pin (NEW per Plan v13 §J + polaris-restart §9.1):** Read `docs/canonical_pin.txt`. For each of the 10 pinned canonical files, compute SHA256 of working tree + `git show HEAD:<path>` SHA. ALL three (pin / working-tree / HEAD) must match. Mismatch = HARD STOP, emit `state/halt_<ts>_canonical_pin_drift.md`, do NOT proceed without user-signed reconciliation commit. **Additionally verify** BOTH `polaris-controls/CHARTER.md` AND `polaris-controls/PLAN.md` SHAs against `state/polaris_restart/charter_sha_pin.txt`. Either-file mismatch = HARD STOP, emit `state/halt_<ts>_charter_pin_drift.md`.
+
+1. **Read CLAUDE.md:** This file completely.
+2. **Read full canonical (per polaris-restart Plan §9.1 issue-driven workflow + Plan-v13 §J 7-step retained for non-Issue context):**
+   - `state/polaris_restart/plan.md` (restart plan, Codex APPROVE iter 4)
+   - `state/polaris_restart/issue_breakdown.md` (134 issues, Codex APPROVE iter 4 — APD Scope source for issue-driven workflow)
+   - `state/polaris_restart/cleanup_audit.md` (Codex APPROVE iter 21)
+   - `docs/carney_delivery_plan_v6_2.md` (mission)
+   - `architecture.md` (current-state baseline)
+   - `docs/blockers.md` (10 user-side decisions)
+   - `docs/agent_architecture.md`
+   - `docs/substrate_audit_2026-05-01.md`
+   - `.codex/codex_red_team_checklist.md`
+   - `.codex/REVIEW_BRIEF_FORMAT.md`
+   - `.codex/AUDIT_CYCLE_PROTOCOL.md`
+   - **DO NOT trust memory pointers.** Memory entries are TL;DRs of canonical, not canonical itself. Re-read the actual file every session-resume.
+   - **Plan-v13 task_acceptance_matrix.yaml is HISTORICAL** for the issue-driven workflow. Pre-Issue context (Phase 0 task tracking, etc.) may still reference it; matrix-decommission is a post-Cleanup-PR-8 follow-up PR per cleanup_audit.md.
+3. **Synthesize APD:** Per §1.1 hierarchy — Session Instructions > **`state/active_issue.json`** (the in-progress issue) > `state/polaris_restart/issue_breakdown.md` (Scope) > `state/polaris_restart/plan.md` (Restart Plan) > `docs/carney_delivery_plan_v6_2.md` (long-term Mission) > `logs/session_log.md` (History) > `architecture.md` (Baseline) > `docs/task_acceptance_matrix.yaml` (HISTORICAL Phase-0 pre-Issue tracker only).
+4. **Verify Environment:** Check env vars and config files. Run `python scripts/preflight.py`.
+5. **Review Bug Log:** `logs/bug_log.md`.
+6. **Review File Directory:** `docs/file_directory.md`.
+7. **Read Restart Instructions:** `state/restart_instructions.md`.
+8. **Check Progress Ledger:** `state/progress_ledger.jsonl` and `state/last_pointer.json`.
+9. **Check orchestrator status:** `state/orchestrator_status.json` if present.
+10. **Execute Recovery:** If restart_instructions has instructions, execute them.
+11. **Determine Next Action:** Per APD § 1.1 hierarchy + `state/active_issue.json` (if in_progress, resume that issue ONLY) + halt-marker check (`state/halt_*` files). Do NOT pick a task autonomously — user assigns via TaskCreate per CLAUDE.md §3.0 + §10.
+12. **Log Session Initialization:** Append SESSION_INIT entry to `logs/session_log.md` with: canonical_pin SHA256 (computed in step 0), date/time, next action.
+
+
+ succeeded in 2427ms:
+"use client";
+
+import { Check, GitCompareArrows, X } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/states/state_kit";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  compareRuns,
+  listCompletedRuns,
+  type ReportComparison,
+  type RunStatusResponse,
+} from "@/lib/api";
+
+// I-ui-004 (#543): two-run compare. Pick two completed runs → GET
+// /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
+
+const FIELD_CLASS =
+  "border-input bg-transparent focus-visible:border-ring focus-visible:ring-ring/70 w-full rounded-lg border px-2.5 py-2 text-sm transition-colors outline-none focus-visible:ring-3";
+
+function shortDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+}
+
+// Lead with the unique run id + completion date so two runs that share a
+// template/question are still distinguishable (the id never truncates off the
+// end of the select); the question follows for context (Codex visual iter-1 P1).
+function optionLabel(run: RunStatusResponse): string {
+  const q =
+    run.question.length > 44 ? `${run.question.slice(0, 44)}…` : run.question;
+  return `${run.run_id} · ${shortDate(run.finished_at ?? run.queued_at)} · ${run.template} · ${q}`;
+}
+
+function compareErrorMessage(err: unknown): string {
+  const status = (err as { status?: number })?.status;
+  if (status === 400) return "Pick two distinct runs.";
+  if (status === 404) return "One of the runs was not found.";
+  if (status === 422)
+    return "One of the runs has no shippable evidence (aborted or release-blocked).";
+  return "Couldn't compare those runs right now. Please retry shortly.";
+}
+
+export default function ComparePage() {
+  const [runs, setRuns] = useState<RunStatusResponse[] | null>(null);
+  const [left, setLeft] = useState("");
+  const [right, setRight] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<ReportComparison | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCompletedRuns(50)
+      .then((value) => {
+        if (!cancelled) setRuns(value);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const distinct = left !== "" && right !== "" && left !== right;
+
+  async function onCompare() {
+    if (!distinct) return;
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await compareRuns(left, right));
+    } catch (err) {
+      setError(compareErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section
+      data-testid="compare-page"
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10"
+    >
+      <div className="flex flex-col gap-2">
+        <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+          Compare two runs
+        </h1>
+        <p className="text-muted-foreground max-w-2xl text-sm sm:text-base">
+          Pick two completed runs to see shared vs unique evidence, frame
+          coverage overlap, and contradiction counts. This is run-vs-run — for
+          POLARIS-vs-external, use Benchmark.
+        </p>
+      </div>
+
+      {runs === null ? (
+        <LoadingState label="Loading completed runs…" rows={3} />
+      ) : null}
+
+      {runs !== null && runs.length === 0 ? (
+        <EmptyState
+          icon={GitCompareArrows}
+          title="No completed runs to compare yet"
+          description="Once two research runs have finished, pick any two here to diff their evidence, frame coverage, and contradictions."
+          action={
+            <Button
+              nativeButton={false}
+              variant="outline"
+              render={<Link href="/intake">Start a run</Link>}
+            />
+          }
+        />
+      ) : null}
+
+      {runs !== null && runs.length > 0 ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <RunPicker
+                label="Left run"
+                testid="compare-left"
+                runs={runs}
+                value={left}
+                onChange={setLeft}
+              />
+              <RunPicker
+                label="Right run"
+                testid="compare-right"
+                runs={runs}
+                value={right}
+                onChange={setRight}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                onClick={onCompare}
+                disabled={!distinct || submitting}
+              >
+                {submitting ? "Comparing…" : "Compare"}
+              </Button>
+              {left !== "" && right !== "" && left === right ? (
+                <span className="text-muted-foreground text-xs">
+                  Pick two distinct runs.
+                </span>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* I-p2-018 (#757): #750 ErrorState for design-system consistency. */}
+      {error ? (
+        <ErrorState title="Couldn't compare those runs" message={error} />
+      ) : null}
+
+      {result ? <ComparisonView result={result} /> : null}
+    </section>
+  );
+}
+
+function RunPicker({
+  label,
+  testid,
+  runs,
+  value,
+  onChange,
+}: {
+  label: string;
+  testid: string;
+  runs: RunStatusResponse[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+        {label}
+      </span>
+      <select
+        data-testid={testid}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={FIELD_CLASS}
+      >
+        <option value="">Select a run…</option>
+        {runs.map((run) => (
+          <option key={run.run_id} value={run.run_id}>
+            {optionLabel(run)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+// A boolean run-property flag. A pass reads as verified-green; a mismatch is
+// neutral (two runs differing on template/question is informational, not an
+// error) — so it's muted, never the alarm/destructive token.
+function Flag({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      {ok ? (
+        <Check aria-hidden className="text-verified h-3.5 w-3.5" />
+      ) : (
+        <X aria-hidden className="text-muted-foreground h-3.5 w-3.5" />
+      )}
+      {/* The Check/X is decorative (aria-hidden); carry the pass/fail status to
+          assistive tech in text so the flag isn't colour/icon-only. */}
+      <span className="sr-only">{ok ? "match: " : "mismatch: "}</span>
+      <span className={ok ? "text-foreground" : "text-muted-foreground"}>
+        {label}
+      </span>
+    </span>
+  );
+}
+
+function EvidenceColumn({ title, ids }: { title: string; ids: string[] }) {
+  return (
+    <div className="border-border bg-muted/20 flex flex-col gap-1.5 rounded-lg border p-3">
+      <span className="text-foreground text-xs font-semibold">
+        {title}{" "}
+        <span className="text-muted-foreground tabular-nums">
+          ({ids.length})
+        </span>
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {ids.slice(0, 20).map((id) => (
+          <span
+            key={id}
+            className="bg-card text-muted-foreground border-border/60 rounded border px-1.5 py-0.5 font-mono text-[10px]"
+          >
+            {id}
+          </span>
+        ))}
+        {ids.length > 20 ? (
+          <span className="text-muted-foreground text-[10px]">
+            + {ids.length - 20} more
+          </span>
+        ) : null}
+        {ids.length === 0 ? (
+          <span className="text-muted-foreground text-[10px]">—</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ComparisonView({ result }: { result: ReportComparison }) {
+  const pct = Math.round((result.shared_evidence_pct ?? 0) * 100);
+  return (
+    <div data-testid="comparison-result" className="flex flex-col gap-4">
+      {/* Headline: which two runs, shared-evidence overlap, run-property flags. */}
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-2 font-mono text-xs">
+            <span className="text-foreground">{result.left_run_id}</span>
+            <span aria-hidden>↔</span>
+            <span className="text-foreground">{result.right_run_id}</span>
+          </div>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-2">
+            <span className="text-foreground text-4xl font-semibold tabular-nums">
+              {pct}%
+            </span>
+            <span className="text-muted-foreground text-sm">
+              shared evidence between the two runs
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <Flag label="Same template" ok={result.same_template} />
+            <Flag label="Same question" ok={result.same_question} />
+            <Flag
+              label="Pipeline status match"
+              ok={result.pipeline_status_match}
+            />
+            <Flag
+              label="Two-family segregation (both)"
+              ok={result.family_segregation_both_pass}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Evidence</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <EvidenceColumn title="Shared" ids={result.shared_evidence_ids} />
+            <EvidenceColumn
+              title="Only left"
+              ids={result.only_left_evidence_ids}
+            />
+            <EvidenceColumn
+              title="Only right"
+              ids={result.only_right_evidence_ids}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Frame coverage</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <EvidenceColumn
+              title="Overlap"
+              ids={result.frame_coverage_overlap}
+            />
+            <EvidenceColumn title="Only left" ids={result.only_left_frames} />
+            <EvidenceColumn title="Only right" ids={result.only_right_frames} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <span className="text-muted-foreground">
+            Left contradictions{" "}
+            <span className="text-foreground font-mono tabular-nums">
+              {result.left_contradictions}
+            </span>
+          </span>
+          <span className="text-muted-foreground">
+            Right contradictions{" "}
+            <span className="text-foreground font-mono tabular-nums">
+              {result.right_contradictions}
+            </span>
+          </span>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+codex
+The current `/compare` implementation is a single AppShell-routed client page and the workflow currently has no compare G1/G8 block. I’m checking the existing G1/G8 spec style next, because the main review risk is whether the proposed new spec will be stable and actually exercised in CI.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\dashboard_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\home_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\api.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell.tsx" in C:\POLARIS
+ succeeded in 1330ms:
+// I-cd-024 (#614): /dashboard route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: /dashboard has exactly one header + one main", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /dashboard contains no banned dev-language strings", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G1 nav parity: primary nav visible on /dashboard", async ({ page }) => {
+  await setupAuthedNav(page);
+  await page.goto("/dashboard");
+  await expectAuthedNav(page);
+});
+
+test("G8: /dashboard renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/dashboard");
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 1826ms:
+import Link from "next/link";
+
+import { AuthButton } from "@/components/auth_button";
+import { PrimaryNav } from "@/components/primary_nav";
+import { SiteFooter } from "@/components/site_footer";
+
+/**
+ * I-cd-004: the global app shell. A server component that wraps every prod
+ * route with a single header + primary nav. The 8 primary nav entries are
+ * the Codex-APPROVED prod route map (see docs/web/route_map.md):
+ *   Home · Intake · Dashboard · Upload · Benchmark · Contracts · Pin Replay · Memory
+ *
+ * Out of scope for this issue (each its own later issue per the Seq-N order):
+ *  - /sign-in: handled by I-cd-014's auth rebuild; not surfaced in the nav.
+ *  - /inspector/[runId] + /runs/[runId]: run-scoped, deep-linked from
+ *    /dashboard rather than top-nav entries.
+ *  - /audit_live: ABSORBED into /runs/[runId] at I-cd-025; standalone route
+ *    retired at that point (not merely hidden — per Codex P2).
+ *  - /generation, /retrieval, /sse: CUT-from-prod; prod-build exclusion is
+ *    I-cd-015.
+ *  - Auth gating of the nav itself is deferred to I-cd-014.
+ *  - Per-page rebuilds happen in the I-cd-013..030 series.
+ */
+// I-p2-029 (#768): PRIMARY_NAV now lives in @/lib/nav (single source of truth,
+// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <header className="border-border bg-background sticky top-0 z-40 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3">
+          <Link
+            href="/"
+            className="text-foreground font-mono text-sm font-semibold tracking-tight"
+          >
+            POLARIS · Canada
+          </Link>
+          <PrimaryNav />
+          {/* I-p2-023 (#762): sovereign mark — HONEST. Dropped the false
+              present-tense "no external AI vendor": production LLM inference
+              currently routes via OpenRouter (US, transitional, disclosed in
+              /transparency) until the sovereign Canadian GPU cluster lands. The
+              VM IS hosted in OVH Québec, so "Canadian-hosted" is true today. */}
+          <span
+            className="text-muted-foreground border-border ml-auto hidden rounded-full border px-2.5 py-1 text-xs sm:inline-flex"
+            title="Hosted in Canada (Québec); public sources fetched via logged Canadian egress. LLM inference is currently routed via OpenRouter (US, disclosed in /transparency) pending the sovereign Canadian GPU cluster."
+          >
+            ⬡ Canadian-hosted
+          </span>
+          {/* I-p2-038 (#821): auth affordance was MISSING on every non-home
+              route. ml-auto on the sovereign mark above is dropped to sm: only,
+              so on mobile (mark hidden) this button still right-aligns. */}
+          <div className="ml-auto sm:ml-0">
+            <AuthButton />
+          </div>
+        </div>
+      </header>
+      <main className="flex-1">{children}</main>
+      <SiteFooter />
+    </>
+  );
+}
+
+ succeeded in 2200ms:
+// I-cd-022 (#612): home route G1-G8 acceptance gates per
+// state/polaris_ui_rebuild_matrix.md §2. Mechanical assertions only —
+// no subjective polish judgments.
+
+import { expect, test } from "@playwright/test";
+
+import { expectPublicNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: home has exactly one header outside <main>, primary nav visible", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // G1: exactly one <header> element (no duplicate from a forgotten AppShell).
+  const headers = page.locator("header");
+  await expect(headers).toHaveCount(1);
+
+  // I-p2-039 (#825): home is the UNAUTHENTICATED landing page, so the primary
+  // nav must show only the lean public set (Home + Ask); the reviewer tools
+  // (Dashboard/Upload/Benchmark/Compare/Contracts/Pin Replay/Memory) must NOT
+  // appear pre-login. (This is also the canonical unauth public-nav assertion.)
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expectPublicNav(page);
+
+  // G6 (single main landmark — Codex iter-2 P1 fix).
+  const mains = page.locator("main");
+  await expect(mains).toHaveCount(1);
+});
+
+test("I-cd-ui-001: home hero search submits to /intake?q=", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const form = page.getByTestId("home-hero-search");
+  await expect(form).toBeVisible();
+  // The hero is a progressive GET form (works without JS): action=/intake,
+  // input name=q. Submitting routes to /intake?q=<question>.
+  await expect(form).toHaveAttribute("action", "/intake");
+  const input = form.locator("input[name='q']");
+  await expect(input).toBeVisible();
+  await input.fill("does aspirin reduce headaches");
+  await form.locator("button[type='submit']").click();
+  await page.waitForURL(/\/intake\?q=/);
+  expect(page.url()).toContain("q=does");
+});
+
+test("G2: home contains no banned dev-language strings", async ({ page }) => {
+  await page.goto("/");
+  const body_text = (await page.locator("body").textContent()) || "";
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(body_text).not.toMatch(banned);
+  }
+});
+
+test("G3: hero primary CTA has focus-visible styling", async ({ page }) => {
+  await page.goto("/");
+  // I-p2-013 (#752): the one-CTA hero replaced the template grid. The primary
+  // interactive affordance is the hero "Verify" submit button.
+  const verify = page
+    .getByTestId("home-hero-search")
+    .locator("button[type='submit']");
+  await expect(verify).toBeVisible();
+  const className = (await verify.getAttribute("class")) || "";
+  expect(className).toMatch(/focus-visible/);
+});
+
+test("G6: tab key reaches the hero search input", async ({ page }) => {
+  await page.goto("/");
+  // I-p2-013 (#752): Tab until the hero search input (name=q) receives focus.
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    const focusedName = await page.evaluate(
+      () => document.activeElement?.getAttribute("name") ?? null,
+    );
+    if (focusedName === "q") return;
+  }
+  throw new Error("hero search input never received focus via Tab");
+});
+
+test("G8: home renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/");
+  // Idle long enough for hydration + any async errors to surface.
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 2722ms:
+/**
+ * POLARIS v6 API client.
+ *
+ * Mirrors the FastAPI contract in src/polaris_v6/api/{runs,health,stream}.py.
+ *
+ * I-carney-005 (2026-05-13): all requests are browser-relative paths so the
+ * browser only ever talks to the webui origin. Next.js server-side rewrites
+ * (web/next.config.ts) forward `/api/v6/*` → `${INTERNAL_API_URL}/*`, which
+ * in production compose is `http://api:8000` (a Docker service name the
+ * browser cannot resolve directly). In local dev, INTERNAL_API_URL defaults
+ * to http://localhost:8000 so `npm run dev` against a host-port-mapped
+ * backend works without any client-side configuration.
+ *
+ * Codex diff iter-1 P1-B: NEXT_PUBLIC_BACKEND_URL is no longer consulted at
+ * runtime — baking an absolute http://api:8000 into the client bundle would
+ * make production browsers attempt direct Docker-network reach and fail.
+ */
+
+import { authHeader, redirectToSignIn } from "@/lib/auth";
+
+const BACKEND_URL = "/api/v6";
+
+/**
+ * I-rdy-004 (#500) — fetch wrapper for every v6 API call. Injects the
+ * `Authorization: Bearer <jwt>` header, preserves any caller-supplied
+ * headers, and does NOT force a content-type (so `FormData` uploads keep
+ * their auto-generated multipart boundary). On a 401 it clears the token
+ * and routes to /sign-in.
+ */
+async function authFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {});
+  for (const [key, value] of Object.entries(authHeader())) {
+    headers.set(key, value);
+  }
+  const response = await globalThis.fetch(url, { ...init, headers });
+  if (response.status === 401) {
+    redirectToSignIn();
+  }
+  return response;
+}
+
+/**
+ * I-rdy-004 — SSE URL for a run's event stream. Native `EventSource` cannot
+ * set request headers, so the JWT rides as the `access_token` query param;
+ * the backend `require_auth` accepts it for `/stream/*` paths only.
+ */
+export function streamUrl(runId: string): string {
+  const token = authHeader().Authorization?.replace(/^Bearer /, "");
+  const base = `${BACKEND_URL}/stream/${encodeURIComponent(runId)}`;
+  return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
+}
+
+export type TemplateId =
+  | "clinical"
+  | "policy"
+  | "tech"
+  | "due_diligence"
+  | "ai_sovereignty"
+  | "canada_us"
+  | "workforce"
+  | "custom";
+
+export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "abort_scope_rejected"
+  | "abort_corpus_inadequate"
+  | "abort_corpus_approval_denied"
+  | "abort_no_verified_sections";
+
+export interface RunRequest {
+  template: TemplateId;
+  question: string;
+  document_ids?: string[];
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: RunStatus;
+  // I-ui-bug-001 (#725): the pipeline-A verdict (success / abort_* / partial_*
+  // / error_*), distinct from the lifecycle `status`. mark_aborted() stores
+  // lifecycle_status='completed' for aborts, so lifecycle alone CANNOT tell a
+  // successful run from an aborted one — pipeline_status is required to render
+  // a completed run honestly (an aborted run must NOT show as success).
+  pipeline_status?: string | null;
+  // I-rdy-011 (#507): true once a cancel has been requested; lets the run
+  // page show a cancel as in-flight before an in-progress run transitions.
+  cancel_requested?: boolean;
+  template: string;
+  question: string;
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ApiError extends Error {
+  status: number;
+  body: unknown;
+}
+
+async function asJsonOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      `POLARIS backend returned ${response.status}`,
+    ) as ApiError;
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+  return body as T;
+}
+
+/**
+ * Thrown by createRun when POST /runs is rejected by the 1-concurrent-session
+ * constraint (I-rdy-013): a research run is already queued or in progress.
+ */
+export class ConcurrentRunError extends Error {
+  readonly activeRunId: string;
+  readonly activeStatus: string;
+  constructor(message: string, activeRunId: string, activeStatus: string) {
+    super(message);
+    this.name = "ConcurrentRunError";
+    this.activeRunId = activeRunId;
+    this.activeStatus = activeStatus;
+  }
+}
+
+export async function createRun(
+  payload: RunRequest,
+): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (response.status === 409) {
+    // Read the body exactly once, then unwrap FastAPI's { detail: {...} }
+    // envelope. The 1-concurrent-session reject carries a structured detail;
+    // any other 409 falls through to a generic ApiError.
+    const body = (await response.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    const detail = (body?.detail ?? body) as {
+      code?: string;
+      message?: string;
+      active_run_id?: string;
+      active_status?: string;
+    } | null;
+    if (detail && detail.code === "concurrent_run_active") {
+      throw new ConcurrentRunError(
+        detail.message ?? "A research run is already in progress.",
+        detail.active_run_id ?? "",
+        detail.active_status ?? "in_progress",
+      );
+    }
+    const error = new Error("POLARIS backend returned 409") as ApiError;
+    error.status = 409;
+    error.body = body;
+    throw error;
+  }
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+export async function getRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}`);
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-rdy-011 (#507): request cancellation of a run. A queued run cancels
+// instantly; an in-progress run aborts cooperatively at the next pipeline
+// stage boundary. Already-terminal runs are an idempotent no-op.
+export async function cancelRun(runId: string): Promise<RunStatusResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+  return asJsonOrThrow<RunStatusResponse>(response);
+}
+
+// I-ui-003 (#542): report-scoped follow-up. Mirrors FollowUpAnswer in
+// src/polaris_v6/followup/schema.py. POST /runs/{id}/followup is real-run
+// wired (#680): 422 for aborted/release-blocked, 404 for unknown id.
+export type FollowUpStatus =
+  | "answered"
+  | "out_of_scope"
+  | "needs_new_run"
+  | "evidence_insufficient";
+
+export interface FollowUpAnswer {
+  parent_run_id: string;
+  question: string;
+  status: FollowUpStatus;
+  answer_text: string | null;
+  used_evidence_ids: string[];
+  provenance_tokens: string[];
+  rationale: string;
+}
+
+export async function askFollowup(
+  runId: string,
+  question: string,
+): Promise<FollowUpAnswer> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/followup`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question }),
+    },
+  );
+  return asJsonOrThrow<FollowUpAnswer>(response);
+}
+
+// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+// src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
+// run, 422 abort/release-blocked, 404 unknown (real-run wired #680).
+export interface ReportComparison {
+  left_run_id: string;
+  right_run_id: string;
+  same_template: boolean;
+  same_question: boolean;
+  shared_evidence_ids: string[];
+  only_left_evidence_ids: string[];
+  only_right_evidence_ids: string[];
+  shared_evidence_pct: number;
+  frame_coverage_overlap: string[];
+  only_left_frames: string[];
+  only_right_frames: string[];
+  left_contradictions: number;
+  right_contradictions: number;
+  pipeline_status_match: boolean;
+  family_segregation_both_pass: boolean;
+}
+
+export async function listCompletedRuns(
+  limit = 20,
+): Promise<RunStatusResponse[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs?status=completed&limit=${limit}`,
+  );
+  return asJsonOrThrow<RunStatusResponse[]>(response);
+}
+
+export async function compareRuns(
+  left: string,
+  right: string,
+): Promise<ReportComparison> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
+  );
+  return asJsonOrThrow<ReportComparison>(response);
+}
+
+// I-cd-017 (#627): pin-replay snapshot consumed by /pin_replay timeseries.
+// Mirrors PinSnapshot schema in src/polaris_v6/schemas/pin_snapshot.py.
+export interface PinSnapshot {
+  run_id: string;
+  pin_date: string;
+  query: string;
+  verdict: "success" | "abort_no_verified_sections";
+  section_count_kept: number;
+  section_count_dropped: number;
+  verified_sentence_count: number;
+  pass_rate: number;
+  retracted_source_ids?: string[] | null;
+}
+
+export async function fetchPinList(runId: string): Promise<PinSnapshot[]> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins`,
+  );
+  return asJsonOrThrow<PinSnapshot[]>(response);
+}
+
+export async function fetchPin(
+  runId: string,
+  date: string,
+): Promise<PinSnapshot> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${encodeURIComponent(runId)}/pins/${encodeURIComponent(date)}`,
+  );
+  return asJsonOrThrow<PinSnapshot>(response);
+}
+
+export type DataClassification =
+  | "PUBLIC_SYNTHETIC"
+  | "CAN_REAL"
+  | "PRIVATE"
+  | "CLIENT"
+  | "UNKNOWN";
+
+export interface UploadResponse {
+  document_id: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  classification: DataClassification;
+  parse_status: "queued" | "completed" | "failed";
+  chunk_preview: string[];
+  content?: string;
+  html?: string;
+}
+
+export async function getUpload(document_id: string): Promise<UploadResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/upload/${encodeURIComponent(document_id)}`,
+  );
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export async function uploadDocument(
+  file: File,
+  classification: DataClassification = "UNKNOWN",
+): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("classification", classification);
+  const response = await authFetch(`${BACKEND_URL}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return asJsonOrThrow<UploadResponse>(response);
+}
+
+export type ScopeVerdict = "accepted" | "needs_clarification" | "rejected";
+export type RefusalReason =
+  | "clinical_treatment_recommendation"
+  | "individual_legal_advice"
+  | "individual_financial_advice"
+  | "personal_political_endorsement"
+  | "out_of_template_scope";
+
+export interface ScopeDecision {
+  verdict: ScopeVerdict;
+  template: string;
+  question: string;
+  rationale: string;
+  refusals: RefusalReason[];
+  intended_source_tiers: ("T1" | "T2" | "T3")[];
+}
+
+export interface AmbiguityCluster {
+  cluster_id: number;
+  representative_text: string;
+  member_source_ids: string[];
+}
+
+export interface AmbiguityResult {
+  is_ambiguous: boolean;
+  clusters: AmbiguityCluster[];
+  fallback_used: boolean;
+}
+
+export interface AmbiguityCandidate {
+  source_id: string;
+  text: string;
+}
+
+export async function checkAmbiguity(
+  question: string,
+  candidates: AmbiguityCandidate[],
+): Promise<AmbiguityResult> {
+  const response = await authFetch(`${BACKEND_URL}/ambiguity`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      question,
+      candidates,
+      min_cluster_size: 2,
+      similarity_threshold: 0.5,
+    }),
+  });
+  return asJsonOrThrow<AmbiguityResult>(response);
+}
+
+export async function checkScope(
+  template: TemplateId,
+  question: string,
+): Promise<ScopeDecision> {
+  const response = await authFetch(`${BACKEND_URL}/scope/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ template, question }),
+  });
+  return asJsonOrThrow<ScopeDecision>(response);
+}
+
+export interface TemplateContent {
+  template_id: string;
+  template_name: string;
+  summary: string;
+  primary_domains: string[];
+  source_tiers: Record<"T1" | "T2" | "T3", string[]>;
+  min_sources_per_tier: Record<"T1" | "T2" | "T3", number>;
+  frame_manifest: { frame_id: string; frame_name: string }[];
+  refusal_patterns: string[];
+  sample_questions: string[];
+  out_of_scope_examples: string[];
+}
+
+export async function listTemplates(): Promise<TemplateContent[]> {
+  const response = await authFetch(`${BACKEND_URL}/templates`);
+  return asJsonOrThrow<TemplateContent[]>(response);
+}
+
+export interface SourceSpan {
+  evidence_id: string;
+  source_url: string;
+  source_tier: "T1" | "T2" | "T3";
+  span_start: number;
+  span_end: number;
+  span_text: string;
+}
+
+export interface VerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_local_pass: boolean;
+  verifier_global_pass: boolean;
+  drop_reason: string | null;
+}
+
+export interface EvidenceContract {
+  contract_version: "1.0";
+  run_id: string;
+  template: string;
+  question: string;
+  queued_at: string;
+  finished_at: string;
+  pipeline_status: string;
+  evidence_pool: SourceSpan[];
+  verified_sentences: VerifiedSentence[];
+  frame_coverage: {
+    frame_id: string;
+    frame_name: string;
+    sources_assigned: number;
+    coverage_percent: number;
+  }[];
+  contradictions: {
+    contradiction_id: string;
+    section_id: string;
+    claim_a: string;
+    claim_b: string;
+    evidence_a: string[];
+    evidence_b: string[];
+    resolution: string;
+  }[];
+  cost_usd: number;
+  generator_model: string;
+  verifier_model: string;
+  family_segregation_passed: boolean;
+}
+
+export async function getBundle(runId: string): Promise<EvidenceContract> {
+  const response = await authFetch(`${BACKEND_URL}/runs/${runId}/bundle`);
+  return asJsonOrThrow<EvidenceContract>(response);
+}
+
+export type ChartType = "forest_plot" | "comparison_table" | "timeline";
+
+export interface VegaLiteSpec {
+  $schema: string;
+  title?: string;
+  data: { values: Record<string, unknown>[] };
+  mark?: unknown;
+  encoding?: unknown;
+  layer?: unknown;
+  polaris_provenance: {
+    chart_type: ChartType;
+    evidence_ids: string[];
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
+export async function getChart(
+  runId: string,
+  chartType: ChartType,
+): Promise<VegaLiteSpec> {
+  const response = await authFetch(
+    `${BACKEND_URL}/runs/${runId}/charts/${chartType}`,
+  );
+  return asJsonOrThrow<VegaLiteSpec>(response);
+}
+
+export function downloadBundleAsJson(bundle: EvidenceContract): void {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `polaris_bundle_${bundle.run_id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export interface StreamEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Subscribe to /stream/{runId}. Returns the EventSource so the caller can
+ * close it. Per Phase 0 stub, the backend yields 5 deterministic events.
+ */
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: StreamEvent) => void,
+  onError?: (error: Event) => void,
+): EventSource {
+  const source = new EventSource(streamUrl(runId));
+
+  const handler = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      onEvent({ event: event.type, data: parsed });
+    } catch {
+      onEvent({ event: event.type, data: { raw: event.data } });
+    }
+  };
+
+  for (const eventName of [
+    "scope_decision",
+    "retrieval_progress",
+    // I-ui-002 (#707): evidence_id drives the retrieval source feed +
+    // sources-read counter; it was previously emitted by the backend but
+    // never listened for here, so those SSE events were silently dropped.
+    "evidence_id",
+    "verifier_verdict",
+    "section_complete",
+    "run_complete",
+  ]) {
+    source.addEventListener(eventName, handler);
+  }
+
+  if (onError) {
+    source.onerror = onError;
+  }
+  return source;
+}
+
+// ---------------------------------------------------------------------------
+// Slice 001 — Clinical Scope Discovery + Ambiguity Detection
+// Mirrors src/polaris_graph/scope/scope_decision.py + api/intake_route.py.
+// ---------------------------------------------------------------------------
+
+export type IntakeStatus =
+  | "in_scope"
+  | "ambiguous_needs_clarification"
+  | "out_of_scope"
+  | "refused";
+
+export type IntakeScopeClass =
+  | "clinical_efficacy"
+  | "clinical_safety"
+  | "clinical_diagnosis"
+  | "clinical_prognosis"
+  | "out_of_scope";
+
+export type PicoAxisName = "population" | "intervention" | "outcome";
+
+export interface IntakeAmbiguityAxis {
+  axis: PicoAxisName;
+  plausible_interpretations: string[];
+  needs_clarification: boolean;
+}
+
+export interface IntakeScopeDecision {
+  status: IntakeStatus;
+  scope_class: IntakeScopeClass | null;
+  ambiguity_axes: IntakeAmbiguityAxis[];
+  clarifications_needed: string[];
+  provenance: Record<string, unknown>;
+  decision_id: string;
+  decided_at_utc: string;
+  latency_ms: number;
+  needs_disambiguation?: boolean;
+  candidate_snippets?: { text: string; embedding: number[] }[];
+}
+
+export type DisambiguationCluster = {
+  cluster_id: number;
+  label: string;
+  sample_snippets: string[];
+};
+
+export interface DisambiguationResponse {
+  is_ambiguous: boolean;
+  num_clusters: number;
+  clusters: DisambiguationCluster[];
+  server_time_utc: string;
+}
+
+export async function runDisambiguation(
+  candidates: { text: string; embedding: number[] }[],
+): Promise<DisambiguationResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/disambiguation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidates }),
+  });
+  return asJsonOrThrow<DisambiguationResponse>(response);
+}
+
+export interface IntakeSuccessResponse {
+  error: false;
+  decision: IntakeScopeDecision;
+  server_time_utc: string;
+}
+
+export interface IntakeErrorBody {
+  error: true;
+  code: "too_short" | "too_long" | "invalid_input";
+  message: string;
+  raw: string;
+}
+
+export class IntakeBadRequestError extends Error {
+  code: IntakeErrorBody["code"];
+  raw: string;
+  constructor(body: IntakeErrorBody) {
+    super(body.message);
+    this.name = "IntakeBadRequestError";
+    this.code = body.code;
+    this.raw = body.raw;
+  }
+}
+
+export async function runIntake(
+  question: string,
+): Promise<IntakeSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as IntakeErrorBody | null;
+    if (body && body.error) {
+      throw new IntakeBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<IntakeSuccessResponse>(response);
+}
+
+export interface IntakeHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+}
+
+export async function getIntakeHealth(): Promise<IntakeHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/intake/health`);
+  return asJsonOrThrow<IntakeHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 002 — Clinical Retrieval (verified clinical sources)
+// Mirrors src/polaris_graph/retrieval2/evidence_pool.py +
+// api/retrieval_route.py.
+// ---------------------------------------------------------------------------
+
+export type RetrievalSourceTier = "T1" | "T2" | "T3";
+
+export interface RetrievalSource {
+  source_id: string;
+  url: string;
+  domain: string;
+  tier: RetrievalSourceTier;
+  title: string;
+  publication_date: string | null;
+  authors: string[];
+  snippet: string;
+  full_text_available: boolean;
+  full_text: string | null;
+  fetched_at_utc: string;
+  provenance: Record<string, unknown>;
+  retracted?: boolean;
+}
+
+export interface RetrievalAdequacyVerdict {
+  is_adequate: boolean;
+  sources_per_tier: Record<RetrievalSourceTier, number>;
+  min_required_per_tier: Record<RetrievalSourceTier, number>;
+  failure_reason: string | null;
+}
+
+export interface EvidencePool {
+  pool_id: string;
+  decision_id: string;
+  sources: RetrievalSource[];
+  adequacy: RetrievalAdequacyVerdict;
+  queries_executed: string[];
+  retrieval_started_at_utc: string;
+  retrieval_finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+}
+
+export interface RetrievalSuccessResponse {
+  error: false;
+  pool: EvidencePool;
+  server_time_utc: string;
+}
+
+export interface RetrievalErrorBody {
+  error: true;
+  code: "wrong_status" | "wrong_scope_class" | "fetch_backend_unavailable";
+  message: string;
+  decision_id: string | null;
+}
+
+export class RetrievalBadRequestError extends Error {
+  code: RetrievalErrorBody["code"];
+  decision_id: string | null;
+  constructor(body: RetrievalErrorBody) {
+    super(body.message);
+    this.name = "RetrievalBadRequestError";
+    this.code = body.code;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runRetrieval(
+  decision: IntakeScopeDecision,
+): Promise<RetrievalSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as RetrievalErrorBody | null;
+    if (body && body.error) {
+      throw new RetrievalBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<RetrievalSuccessResponse>(response);
+}
+
+export interface RetrievalHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  fetch_backend: string;
+}
+
+export async function getRetrievalHealth(): Promise<RetrievalHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/retrieval/health`);
+  return asJsonOrThrow<RetrievalHealthResponse>(response);
+}
+
+/** Convenience: count sources matching a given tier. */
+export function countSourcesByTier(
+  pool: EvidencePool,
+  tier: RetrievalSourceTier,
+): number {
+  return pool.sources.filter((s) => s.tier === tier).length;
+}
+
+/** Convenience: dedupe + sort sources by tier (T1 first), then by domain. */
+export function sortSourcesByTier(
+  sources: RetrievalSource[],
+): RetrievalSource[] {
+  const tier_rank: Record<RetrievalSourceTier, number> = {
+    T1: 0,
+    T2: 1,
+    T3: 2,
+  };
+  return [...sources].sort((a, b) => {
+    const t = tier_rank[a.tier] - tier_rank[b.tier];
+    if (t !== 0) return t;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 003 — Generator with strict-verify
+// Mirrors src/polaris_graph/generator2/verified_report.py +
+// api/generation_route.py.
+// ---------------------------------------------------------------------------
+
+export type SectionStatus = "verified" | "regenerated" | "dropped";
+
+export type PipelineVerdict = "success" | "abort_no_verified_sections";
+
+export type DropReason =
+  | "invalid_token"
+  | "span_out_of_range"
+  | "numeric_mismatch"
+  | "overlap_too_low"
+  | "no_provenance_token";
+
+export interface ReportVerifiedSentence {
+  section_id: string;
+  sentence_text: string;
+  provenance_tokens: string[];
+  verifier_pass: boolean;
+  drop_reason: DropReason | null;
+  evaluator_agrees: boolean | null;
+  is_synthesis_claim?: boolean;
+  assertion_surface?: AssertionSurface;
+  contradiction?: ContradictionSignal | null;
+  evaluator_disagreement?: EvaluatorDisagreement | null;
+}
+
+export interface EvaluatorDisagreement {
+  generator_reading: string;
+  evaluator_reading: string;
+  cited_sources: string[];
+  evaluator_model: string;
+}
+
+export type ContradictionEvidenceType =
+  | "trial"
+  | "guideline"
+  | "meta_analysis"
+  | "observational"
+  | "regulatory_label"
+  | "expert_opinion"
+  | "unspecified";
+
+export type Jurisdiction =
+  | "canada"
+  | "us"
+  | "eu"
+  | "uk"
+  | "who"
+  | "other"
+  | "unspecified";
+
+export interface ContradictionSide {
+  source_id: string;
+  source_tier: "T1" | "T2" | "T3";
+  sample_size?: number | null;
+  hedge_language: string;
+  pt08_flag?: string | null;
+  claim_excerpt: string;
+  evidence_type?: ContradictionEvidenceType;
+  jurisdiction?: Jurisdiction;
+}
+
+export type ContradictionKind = "multi_source" | "self_contradiction";
+
+export type ContradictionCategory =
+  | "numeric"
+  | "categorical"
+  | "regulatory"
+  | "temporal"
+  | "jurisdictional"
+  | "other";
+
+export interface ContradictionSignal {
+  disagreeing_source_count: number;
+  summary: string;
+  sides?: ContradictionSide[];
+  kind?: ContradictionKind;
+  category?: ContradictionCategory;
+}
+
+export type AssertionSurface =
+  | "prose"
+  | "table"
+  | "summary_bullet"
+  | "limitation"
+  | "caption"
+  | "heading";
+
+export interface VerifiedReportSection {
+  section_id: string;
+  section_title: string;
+  verified_sentences: ReportVerifiedSentence[];
+  section_verify_pass_rate: number;
+  section_status: SectionStatus;
+}
+
+export type GapReason =
+  | "paywalled"
+  | "no_oa"
+  | "source_tier_ineligible"
+  | "language_unavailable"
+  | "retracted_only"
+  | "jurisdiction_outside"
+  | "not_indexed"
+  | "embargoed"
+  | "other";
+
+export interface FrameGap {
+  entity_name: string;
+  reason: GapReason;
+  reason_detail?: string | null;
+}
+
+export interface FrameCoverage {
+  covered_entity_count: number;
+  total_entity_count: number;
+  gaps: FrameGap[];
+}
+
+export interface VerifiedReport {
+  report_id: string;
+  pool_id: string;
+  decision_id: string;
+  sections: VerifiedReportSection[];
+  overall_verify_pass_rate: number;
+  pipeline_verdict: PipelineVerdict;
+  generator_model: string;
+  evaluator_model: string;
+  family_segregation_passed: boolean;
+  verifier_pass_threshold: number;
+  started_at_utc: string;
+  finished_at_utc: string;
+  latency_ms: number;
+  cost_usd: number;
+  frame_coverage?: FrameCoverage | null;
+}
+
+export interface GenerationSuccessResponse {
+  error: false;
+  report: VerifiedReport;
+  server_time_utc: string;
+}
+
+export interface GenerationErrorBody {
+  error: true;
+  code:
+    | "inadequate_pool"
+    | "completion_backend_unavailable"
+    | "malformed_output";
+  message: string;
+  pool_id: string | null;
+  decision_id: string | null;
+}
+
+export class GenerationBadRequestError extends Error {
+  code: GenerationErrorBody["code"];
+  pool_id: string | null;
+  decision_id: string | null;
+  constructor(body: GenerationErrorBody) {
+    super(body.message);
+    this.name = "GenerationBadRequestError";
+    this.code = body.code;
+    this.pool_id = body.pool_id;
+    this.decision_id = body.decision_id;
+  }
+}
+
+export async function runGeneration(
+  pool: EvidencePool,
+  scope_class?: string | null,
+): Promise<GenerationSuccessResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pool, scope_class: scope_class ?? null }),
+  });
+
+  if (response.status === 400) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as GenerationErrorBody | null;
+    if (body && body.error) {
+      throw new GenerationBadRequestError(body);
+    }
+  }
+
+  return asJsonOrThrow<GenerationSuccessResponse>(response);
+}
+
+export interface GenerationHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  completion_backend: string;
+}
+
+export async function getGenerationHealth(): Promise<GenerationHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/generation/health`);
+  return asJsonOrThrow<GenerationHealthResponse>(response);
+}
+
+/** Filter to non-dropped sections (verified + regenerated). */
+export function keptSections(report: VerifiedReport): VerifiedReportSection[] {
+  return report.sections.filter((s) => s.section_status !== "dropped");
+}
+
+/** Filter sentences to those that passed strict_verify. */
+export function keptSentences(
+  section: VerifiedReportSection,
+): ReportVerifiedSentence[] {
+  return section.verified_sentences.filter((s) => s.verifier_pass);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 004 — Audit bundle (GPG-signed .tar.gz export)
+// Mirrors src/polaris_graph/api/audit_bundle_route.py.
+// ---------------------------------------------------------------------------
+
+export interface AuditBundleErrorBody {
+  error: true;
+  code:
+    | "fk_chain_mismatch"
+    | "verdict_not_success"
+    | "cited_span_unreachable_after_snapshot"
+    | "copyrighted_span_in_bundle"
+    | "gpg_unavailable"
+    | "sign_failed";
+  message: string;
+  report_id: string | null;
+}
+
+export class AuditBundleError extends Error {
+  code: AuditBundleErrorBody["code"];
+  report_id: string | null;
+  constructor(body: AuditBundleErrorBody) {
+    super(body.message);
+    this.name = "AuditBundleError";
+    this.code = body.code;
+    this.report_id = body.report_id;
+  }
+}
+
+/**
+ * Build + download a GPG-signed audit bundle for the given research chain.
+ *
+ * Returns a Blob of the audit_<id>.tar.gz on success. On HTTP 4xx/5xx
+ * with a structured error body, throws AuditBundleError with the .code
+ * field set so callers can show specific UX (e.g. "GPG signer not
+ * configured" vs "report verdict not success").
+ */
+export async function downloadAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<Blob> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Audit bundle request failed: HTTP ${response.status}`);
+  }
+  return await response.blob();
+}
+
+export interface BundlePreviewByContentType {
+  count: number;
+  bytes: number;
+}
+
+export interface BundlePreviewResponse {
+  preview_bundle_id: string;
+  generator_model: string;
+  polaris_version: string;
+  file_count: number;
+  total_bytes: number;
+  content_type_breakdown: Record<string, BundlePreviewByContentType>;
+}
+
+export async function previewAuditBundle(
+  decision: IntakeScopeDecision,
+  pool: EvidencePool,
+  report: VerifiedReport,
+): Promise<BundlePreviewResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision, pool, report }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const body = (detail?.detail ?? detail) as AuditBundleErrorBody | null;
+    if (body && body.error) {
+      throw new AuditBundleError(body);
+    }
+    throw new Error(`Bundle preview request failed: HTTP ${response.status}`);
+  }
+  return (await response.json()) as BundlePreviewResponse;
+}
+
+export interface AuditBundleHealthResponse {
+  status: "ok";
+  slice: string;
+  pipeline_stages: string[];
+  signing_backend: string;
+}
+
+export async function getAuditBundleHealth(): Promise<AuditBundleHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/audit-bundle/health`);
+  return asJsonOrThrow<AuditBundleHealthResponse>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Slice 005 — BEAT-BOTH benchmark
+// Mirrors src/polaris_graph/api/benchmark_route.py +
+// src/polaris_graph/benchmark/beat_both_scorer.py.
+// ---------------------------------------------------------------------------
+
+export type BenchmarkDimension =
+  | "sourcing_tier_mix"
+  | "numeric_grounding"
+  | "provenance_density"
+  | "refusal_correctness"
+  | "coverage_completeness"
+  | "latency"
+  | "auditability";
+
+export interface BenchmarkSystemScores {
+  system: string;
+  by_dimension: Record<BenchmarkDimension, number | null>;
+  evidence: Record<BenchmarkDimension, string[]>;
+}
+
+export interface BenchmarkQuestionScores {
+  question_id: string;
+  question_text: string;
+  is_refusal_bait: boolean;
+  polaris: BenchmarkSystemScores;
+  chatgpt: BenchmarkSystemScores;
+  gemini: BenchmarkSystemScores;
+}
+
+export interface BenchmarkAggregateScoreboard {
+  polaris_mean: Record<BenchmarkDimension, number | null>;
+  chatgpt_mean: Record<BenchmarkDimension, number | null>;
+  gemini_mean: Record<BenchmarkDimension, number | null>;
+  n_questions: number;
+}
+
+export interface BenchmarkScoreboard {
+  benchmark_id: string;
+  ran_at_utc: string;
+  per_question: BenchmarkQuestionScores[];
+  aggregate: BenchmarkAggregateScoreboard;
+  polaris_wins: number;
+  external_wins: number;
+  ties: number;
+}
+
+export interface BenchmarkHealthResponse {
+  status: "ok";
+  slice: string;
+  results_root: string | null;
+  available_benchmarks: string[];
+}
+
+export const BENCHMARK_DIMENSION_LABELS: Record<BenchmarkDimension, string> = {
+  sourcing_tier_mix: "Sourcing tier mix",
+  numeric_grounding: "Numeric grounding",
+  provenance_density: "Provenance density",
+  refusal_correctness: "Refusal correctness",
+  coverage_completeness: "Coverage completeness",
+  latency: "Latency",
+  auditability: "Auditability",
+};
+
+export const ALL_BENCHMARK_DIMENSIONS: BenchmarkDimension[] = [
+  "sourcing_tier_mix",
+  "numeric_grounding",
+  "provenance_density",
+  "refusal_correctness",
+  "coverage_completeness",
+  "latency",
+  "auditability",
+];
+
+export async function getBenchmarkHealth(): Promise<BenchmarkHealthResponse> {
+  const response = await authFetch(`${BACKEND_URL}/api/benchmark/health`);
+  return asJsonOrThrow<BenchmarkHealthResponse>(response);
+}
+
+export async function getBenchmarkScoreboard(
+  benchmark_id: string,
+): Promise<BenchmarkScoreboard> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/scoreboard`,
+  );
+  return asJsonOrThrow<BenchmarkScoreboard>(response);
+}
+
+export async function getBenchmarkSummary(
+  benchmark_id: string,
+): Promise<string> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/benchmark/${encodeURIComponent(benchmark_id)}/summary`,
+  );
+  if (!response.ok) {
+    throw new Error(`benchmark summary fetch failed: HTTP ${response.status}`);
+  }
+  return await response.text();
+}
+
+// I-f14-002 — workspace memory client. Mirrors src/polaris_v6/api/memory.py.
+export type MemoryKind =
+  | "user_preference"
+  | "domain_assumption"
+  | "prior_run_summary"
+  | "rejected_source"
+  | "preferred_source";
+
+export interface MemoryEntry {
+  entry_id: string;
+  workspace_id: string;
+  kind: MemoryKind;
+  content: string;
+  created_at: string;
+  last_used_at?: string | null;
+  use_count: number;
+  derived_from_run_ids: string[];
+}
+
+const _ws = (ws: string) =>
+  `${BACKEND_URL}/workspaces/${encodeURIComponent(ws)}/memory`;
+
+export async function listMemory(ws: string): Promise<MemoryEntry[]> {
+  return asJsonOrThrow<MemoryEntry[]>(await authFetch(_ws(ws)));
+}
+
+export async function rememberMemory(
+  ws: string,
+  payload: {
+    kind: MemoryKind;
+    content: string;
+    derived_from_run_ids?: string[];
+  },
+): Promise<MemoryEntry> {
+  return asJsonOrThrow<MemoryEntry>(
+    await authFetch(_ws(ws), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+}
+
+export async function forgetMemory(
+  ws: string,
+  entry_id: string,
+): Promise<void> {
+  const r = await authFetch(`${_ws(ws)}/${encodeURIComponent(entry_id)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok && r.status !== 404)
+    throw new Error(`forget memory failed: HTTP ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// F-snowball graph (I-snowball-002 backend + I-snowball-003a frontend).
+// Cytoscape-format graph payload mirroring src/polaris_graph/api/graph_route.py.
+// ---------------------------------------------------------------------------
+
+export type GraphNodeType = "sentence" | "source" | "section" | "frame";
+export type GraphEdgeType = "cites" | "contradicts" | "section_member";
+export type GraphTier = "T1" | "T2" | "T3" | "T4" | "T5" | "T6" | "T7";
+export type GraphFrameStatus = "pass" | "partial" | "fail";
+
+export interface GraphNodeData {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  tier?: GraphTier;
+  sentence_text?: string;
+  source_url?: string;
+  section_title?: string;
+  frame_status?: GraphFrameStatus;
+  classes?: string;
+}
+
+export interface GraphPosition {
+  x: number;
+  y: number;
+}
+
+export interface GraphNode {
+  data: GraphNodeData;
+  position?: GraphPosition | null;
+}
+
+export interface GraphEdgeData {
+  id: string;
+  source: string;
+  target: string;
+  edge_type: GraphEdgeType;
+}
+
+export interface GraphEdge {
+  data: GraphEdgeData;
+}
+
+export interface GraphDiagnostics {
+  bibliography_count: number;
+  fallback_source_count: number;
+  missing_reference_occurrence_count: number;
+  referenced_unknown_evidence_ids: string[];
+}
+
+export interface GraphPayload {
+  elements: { nodes: GraphNode[]; edges: GraphEdge[] };
+  run_id: string;
+  elements_hash: string;
+  diagnostics: GraphDiagnostics;
+  schema_version: "1.0";
+}
+
+export async function getRunGraph(runId: string): Promise<GraphPayload> {
+  const res = await authFetch(`${BACKEND_URL}/api/runs/${runId}/graph`);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(
+      `getRunGraph(${runId}) HTTP ${res.status}: ${body}`,
+    ) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  return res.json() as Promise<GraphPayload>;
+}
+
+// ---------------------------------------------------------------------------
+// I-rdy-008 (#504) slice 2 — live-run AuditIR client.
+// Mirrors the to_json_dict() projection of the AuditIR dataclass tree in
+// src/polaris_graph/audit_ir/loader.py. The canonical faithful shape for the
+// rich UI surfaces (Option A, Codex arch-decision consult): raw T1-T7 tiers,
+// range-keyed evidence-span tokens, no EvidenceContract coercion. The UI
+// migration off getBundle()/EvidenceContract is slice 3.
+// ---------------------------------------------------------------------------
+
+export interface AuditIrEvidenceSpanToken {
+  evidence_id: string;
+  start: number;
+  end: number;
+}
+
+export interface AuditIrBibliographyEntry {
+  num: number;
+  evidence_id: string;
+  statement: string;
+  tier: string;
+  url: string;
+}
+
+export interface AuditIrSentence {
+  claim_id: string;
+  section: string;
+  text: string;
+  tokens: AuditIrEvidenceSpanToken[];
+  is_verified: boolean;
+  failure_reasons: string[];
+}
+
+export interface AuditIrSection {
+  title: string;
+  kept_count: number;
+  dropped_count: number;
+  total_in: number;
+  dropped_due_to_failure: number;
+  sentences: AuditIrSentence[];
+}
+
+export interface AuditIrVerifiedReport {
+  sections: AuditIrSection[];
+  sentences_verified: number;
+  sentences_dropped: number;
+  drop_reason_counts: Record<string, number>;
+}
+
+export interface AuditIrContradictionClaim {
+  evidence_id: string;
+  subject: string;
+  predicate: string;
+  arm: string;
+  dose: string;
+  value: number;
+  unit: string;
+  source_tier: string;
+  source_url: string;
+  context_snippet: string;
+  endpoint_phrase: string;
+}
+
+export interface AuditIrContradictionCluster {
+  cluster_id: number;
+  subject: string;
+  predicate: string;
+  severity: string;
+  absolute_difference: number;
+  relative_difference: number;
+  recommended_action: string;
+  claims: AuditIrContradictionClaim[];
+}
+
+export interface AuditIrRetrievalAttempt {
+  attempt_index: number;
+  source: string;
+  url: string;
+  outcome: string;
+  http_status: number | null;
+}
+
+export interface AuditIrFrameCoverageEntry {
+  entity_id: string;
+  entity_type: string;
+  section: string;
+  slot_id: string;
+  subsection_title: string;
+  status: string;
+  doi: string | null;
+  pmid: string | null;
+  failure_reason: string | null;
+  available_artifacts: string[];
+  required_fields: string[];
+  min_fields_for_completion: number;
+  provenance_class: string;
+  human_completion_eligible: boolean;
+  human_curated_provenance: string | null;
+  is_pipeline_fault: boolean;
+  retrieval_attempt_log: AuditIrRetrievalAttempt[];
+}
+
+export interface AuditIrFrameCoverageReport {
+  pass_count: number;
+  partial_count: number;
+  frame_gap_count: number;
+  pipeline_fault_count: number;
+  total_entities: number;
+  total_slots: number;
+  research_question: string;
+  schema_version: string;
+  semantics_warning: string | null;
+  entries: AuditIrFrameCoverageEntry[];
+}
+
+export interface AuditIrTierMix {
+  fractions: Record<string, number>;
+  corpus_count: number;
+  approved: boolean;
+  material_deviation: boolean;
+}
+
+export interface AuditIrEvaluatorGate {
+  gate_class: string;
+  release_allowed: boolean;
+  reasons: string[];
+  rule_blockers: string[];
+  judge_critical_axes: string[];
+  judge_parse_ok: boolean;
+}
+
+export interface AuditIrRetrievalStats {
+  pre_filter: number;
+  fetched: number;
+  failed: number;
+  by_provider: Record<string, number>;
+  queries: string[];
+}
+
+export interface AuditIrManifest {
+  run_id: string;
+  slug: string;
+  status: string;
+  question: string;
+  protocol_sha256: string;
+  cost_usd: number;
+  budget_cap_usd: number;
+  word_count: number;
+  sentences_verified: number;
+  sentences_dropped: number;
+  contradictions_found: number;
+  completeness_percent: number;
+  evaluator_gate: AuditIrEvaluatorGate;
+  release_allowed: boolean;
+  v30_enabled: boolean;
+  v30_warnings: string[];
+  retrieval_stats: AuditIrRetrievalStats | null;
+}
+
+export interface AuditIrRuleCheck {
+  item_id: string;
+  name: string;
+  passed: boolean;
+  details: string;
+}
+
+export interface AuditIrModelProvenance {
+  generator_family: string;
+  generator_model: string;
+  evaluator_family: string;
+  evaluator_model: string;
+  judge_model: string;
+  judge_parse_ok: boolean;
+  judge_input_tokens: number;
+  judge_output_tokens: number;
+  contradictions_disclosed: number;
+  contradictions_missing: string[];
+  rule_checks: AuditIrRuleCheck[];
+}
+
+export interface AuditIrTierExpectation {
+  tier: string;
+  min_fraction: number;
+  max_fraction: number;
+  rationale: string;
+}
+
+export interface AuditIrProtocolMetadata {
+  research_question: string;
+  created_at_iso: string;
+  created_at_unix: number;
+  scope_decision: string;
+  expected_tier_distribution: AuditIrTierExpectation[];
+}
+
+export interface AuditIrAdequacyGate {
+  decision: string;
+  findings_ok: number;
+  findings_total: number;
+  critical_count: number;
+}
+
+export interface AuditIrCorpusApprovalGate {
+  approved: boolean;
+  decision_at_iso: string;
+  user_note: string;
+  approved_count: number;
+  rejected_count: number;
+}
+
+/** The full faithful AuditIR for one completed run — the canonical shape. */
+export interface AuditIrRun {
+  ir_schema_version: string;
+  run_id: string;
+  artifact_dir: string;
+  report_md: string;
+  manifest: AuditIrManifest;
+  bibliography: AuditIrBibliographyEntry[];
+  contradictions: AuditIrContradictionCluster[];
+  frame_coverage: AuditIrFrameCoverageReport;
+  tier_mix: AuditIrTierMix;
+  verified_report: AuditIrVerifiedReport;
+  model_provenance: AuditIrModelProvenance | null;
+  protocol: AuditIrProtocolMetadata | null;
+  adequacy: AuditIrAdequacyGate | null;
+  corpus_approval: AuditIrCorpusApprovalGate | null;
+}
+
+/**
+ * Fetch the faithful AuditIR for a completed run from the v6 live-inspector
+ * route (I-rdy-008 slice 1, `GET /api/inspector/runs/{run_id}`). Throws an
+ * ApiError on 404 (unknown run), 409 (not completed), or 422 (abort/error run
+ * or unloadable artifact_dir).
+ */
+export async function getAuditRun(runId: string): Promise<AuditIrRun> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}`,
+  );
+  return asJsonOrThrow<AuditIrRun>(response);
+}
+
+/**
+ * I-rdy-008 (#504) slice 7a/7b — one verified evidence span cited by a run.
+ * The exact `body[start:end]` slice from `evidence_pool.json` (the auditable
+ * source text behind a claim). `tier` is the raw T1-T7/UNKNOWN string — not
+ * coerced. A single `evidence_id` may appear in multiple spans (ranges).
+ */
+export interface AuditIrEvidenceSpan {
+  evidence_id: string;
+  span_start: number;
+  span_end: number;
+  span_text: string;
+  tier: string;
+  source_url: string;
+  claim_ids: string[];
+}
+
+/** The verified evidence spans for one completed run. */
+export interface AuditIrEvidenceResponse {
+  run_id: string;
+  spans: AuditIrEvidenceSpan[];
+}
+
+/**
+ * Fetch the verified evidence spans for a completed run from the v6
+ * live-inspector route (I-rdy-008 slice 7a,
+ * `GET /api/inspector/runs/{run_id}/evidence`). Throws an ApiError on 404
+ * (unknown run), 409 (not completed), or 422 (abort/error run, unloadable
+ * artifact, or no evidence_pool.json — the route fails loud, never degrading
+ * to a bibliography statement).
+ */
+export async function getInspectorEvidence(
+  runId: string,
+): Promise<AuditIrEvidenceResponse> {
+  const response = await authFetch(
+    `${BACKEND_URL}/api/inspector/runs/${encodeURIComponent(runId)}/evidence`,
+  );
+  return asJsonOrThrow<AuditIrEvidenceResponse>(response);
+}
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"AppShell|children\" web\\app -g \"layout.tsx\" -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"compare\" web\\components web\\lib web\\app -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\_nav_auth.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\playwright.config.ts" in C:\POLARIS
+ succeeded in 1388ms:
+web\app\layout.tsx:4:import { AppShellGate } from "@/components/app_shell_gate";
+web\app\layout.tsx:29:  children,
+web\app\layout.tsx:31:  children: React.ReactNode;
+web\app\layout.tsx:39:        <AppShellGate>{children}</AppShellGate>
+
+ succeeded in 1844ms:
+web\lib\api.ts:221:// I-ui-004 (#543): two-run compare. Mirrors ReportComparison in
+web\lib\api.ts:222:// src/polaris_v6/compare/differ.py. GET /runs/{l}/compare/{r}: 400 if same
+web\lib\api.ts:251:export async function compareRuns(
+web\lib\api.ts:256:    `${BACKEND_URL}/runs/${encodeURIComponent(left)}/compare/${encodeURIComponent(right)}`,
+web\app\benchmark\page.tsx:49:          office can re-run the benchmark and compare bytewise.
+web\app\compare\page.tsx:15:  compareRuns,
+web\app\compare\page.tsx:21:// I-ui-004 (#543): two-run compare. Pick two completed runs → GET
+web\app\compare\page.tsx:22:// /runs/{l}/compare/{r}. Distinct from /benchmark (POLARIS-vs-external).
+web\app\compare\page.tsx:43:function compareErrorMessage(err: unknown): string {
+web\app\compare\page.tsx:49:  return "Couldn't compare those runs right now. Please retry shortly.";
+web\app\compare\page.tsx:82:      setResult(await compareRuns(left, right));
+web\app\compare\page.tsx:84:      setError(compareErrorMessage(err));
+web\app\compare\page.tsx:92:      data-testid="compare-page"
+web\app\compare\page.tsx:113:          title="No completed runs to compare yet"
+web\app\compare\page.tsx:131:                testid="compare-left"
+web\app\compare\page.tsx:138:                testid="compare-right"
+web\app\compare\page.tsx:164:        <ErrorState title="Couldn't compare those runs" message={error} />
+web\app\generation\page.tsx:83:            benchmark) compares POLARIS&rsquo;s output head-to-head against
+web\lib\nav.ts:31:  { href: "/compare", label: "Compare", visibility: "app" },
+web\app\generation\components\two_run_picker.tsx:70:        data-testid="compare-button"
+web\app\sentence_hover_test\two_run_picker\page.tsx:51:        data-testid="last-compared-pair"
+
+ succeeded in 2193ms:
+// I-p2-039 (#825): shared helpers for the AUTH-AWARE primary-nav contract.
+//
+// The nav is now public/app split: unauthenticated visitors see Home + Ask only;
+// the reviewer tools appear once signed in. lib/auth.isAuthenticated() is a
+// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+// test can seed a dummy non-expired token to exercise the authed nav without real
+// signing. The inline nav is xl-only (≥1280px), so we assert on a desktop viewport.
+
+import { expect, type Page } from "@playwright/test";
+
+export const PUBLIC_NAV_LABELS = ["Home", "Ask"] as const;
+export const APP_ONLY_NAV_LABELS = [
+  "Dashboard",
+  "Upload",
+  "Benchmark",
+  "Compare",
+  "Contracts",
+  "Pin Replay",
+  "Memory",
+] as const;
+export const APP_NAV_LABELS = [
+  ...PUBLIC_NAV_LABELS,
+  ...APP_ONLY_NAV_LABELS,
+] as const;
+
+const DESKTOP = { width: 1440, height: 900 };
+
+/** Seed an authenticated session (matches lib/auth's sessionStorage keys) + a
+ * desktop viewport so the inline (xl) primary nav renders. Call BEFORE page.goto. */
+export async function setupAuthedNav(page: Page): Promise<void> {
+  await page.setViewportSize(DESKTOP);
+  await page.addInitScript(() => {
+    sessionStorage.setItem("polaris_jwt", "e2e-dummy-token");
+    sessionStorage.setItem(
+      "polaris_jwt_expiry_ms",
+      String(Date.now() + 12 * 60 * 60 * 1000),
+    );
+  });
+}
+
+/** Desktop viewport only (no token) for the unauthenticated public-nav test.
+ * Call BEFORE page.goto. */
+export async function setupPublicNav(page: Page): Promise<void> {
+  await page.setViewportSize(DESKTOP);
+}
+
+/** Assert the authed app nav: nav present + every app label visible. */
+export async function expectAuthedNav(page: Page): Promise<void> {
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of APP_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toBeVisible();
+  }
+}
+
+/** Assert the unauthenticated public nav: Home + Ask only; app tools absent. */
+export async function expectPublicNav(page: Page): Promise<void> {
+  const nav = page.locator("nav[aria-label='Primary']");
+  await expect(nav).toBeVisible();
+  for (const label of PUBLIC_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toBeVisible();
+  }
+  for (const label of APP_ONLY_NAV_LABELS) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toHaveCount(0);
+  }
+}
+
+ succeeded in 2599ms:
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Playwright e2e config for POLARIS frontend.
+ *
+ * Tests assume both servers are already running (frontend on
+ * SCREENSHOT_BASE_URL, backend on POLARIS_V6_BACKEND_URL). Phase 0 ships the
+ * tests; CI wiring (auto-spawn servers + run on push) lands when the v6 dev
+ * cluster is live (Task 0.3).
+ *
+ * Run locally:
+ *   1. Terminal A: PYTHONPATH=src python -m uvicorn polaris_v6.api.app:app --port 8000
+ *   2. Terminal B: cd web && npx next start -p 3738
+ *   3. Terminal C: cd web && SCREENSHOT_BASE_URL=http://127.0.0.1:3738 npx playwright test
+ */
+export default defineConfig({
+  testDir: "./tests/e2e",
+  // F-5 from outputs/audits/continuous/4fe03f7_audit.md: visual baselines
+  // are *-chromium-win32.png. On Linux CI the snapshot filename resolves
+  // to *-chromium-linux.png and is missing → Playwright would auto-write
+  // a new baseline (silent regression). Skip visual.spec.ts on Linux until
+  // Linux baselines are generated.
+  // I-cd-013b (GH#669): inspector_route.spec.ts visual baselines are
+  // `test.fixme()` (deferred until baselines captured by --update-snapshots
+  // run); non-visual cases run on all platforms. Linux ignore only
+  // applies to visual.spec.ts.
+  testIgnore: process.platform === "linux" ? ["**/visual.spec.ts"] : undefined,
+  timeout: 30_000,
+  fullyParallel: false, // single browser instance to keep memory bounded on dev
+  retries: 0,
+  workers: 1,
+  reporter: [["list"]],
+  use: {
+    baseURL: process.env.SCREENSHOT_BASE_URL ?? "http://127.0.0.1:3738",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\components\\app_shell_gate.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\app\\layout.tsx" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"signed bundle|signature|signing|bundle\" web\\app\\compare web\\tests\\e2e -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"run_e2e_.*g1_g8\" .github\\workflows\\web_ci.yml -n" in C:\POLARIS
+ succeeded in 1266ms:
+// I-cd-022 (#612): pathname-aware AppShell gate. On `/`, suppress BOTH
+// the AppShell header AND its <main> wrapper so the home route can
+// provide its own header (with the same primary nav) + its own <main>.
+// This avoids G1 (double header) + G6 (nested main) landmark violations.
+//
+// Tiny "use client" boundary so the otherwise server-rendered AppShell
+// can still wrap every non-home route on the server.
+"use client";
+
+import { usePathname } from "next/navigation";
+
+import { AppShell } from "@/components/app_shell";
+
+interface AppShellGateProps {
+  children: React.ReactNode;
+}
+
+// Chromeless routes own their full viewport (no app header/nav):
+//  - `/`        : home owns its own header + main.
+//  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+//                 nav is auth-gated anyway, so it must not show pre-login.
+const CHROMELESS_ROUTES = new Set(["/", "/sign-in"]);
+
+// I-p2-019 (#762): the claim-graph drill-down (/runs/<id>/graph) is a focused
+// full-screen view that renders its OWN header (with "Back to Inspector") +
+// <main>. It must be chromeless too, else AppShell double-wraps it (G1 double
+// header + G6 nested main).
+// I-p2-020 (#759): the audit/export drill-down (/runs/<id>/audit) follows the
+// same focused full-screen pattern (own header + <main>).
+const CHROMELESS_PATTERNS = [
+  /^\/runs\/[^/]+\/graph$/,
+  /^\/runs\/[^/]+\/audit$/,
+];
+
+function isChromeless(pathname: string): boolean {
+  return (
+    CHROMELESS_ROUTES.has(pathname) ||
+    CHROMELESS_PATTERNS.some((re) => re.test(pathname))
+  );
+}
+
+export function AppShellGate({ children }: AppShellGateProps) {
+  const pathname = usePathname();
+  if (isChromeless(pathname)) {
+    return <>{children}</>;
+  }
+  return <AppShell>{children}</AppShell>;
+}
+
+ succeeded in 1658ms:
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+
+import { AppShellGate } from "@/components/app_shell_gate";
+import { Toaster } from "@/components/ui/sonner";
+
+import "./globals.css";
+
+const geist_sans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geist_mono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  // I-p2-044 (#835): honest wording — "Canadian-hosted", not the present-tense
+  // "Sovereign" overclaim (LLM inference is routed via OpenRouter-US, disclosed
+  // at /transparency). Codex diff-review P1.
+  title: "POLARIS Canada — Canadian-hosted Deep Research",
+  description:
+    "Two-family verified evidence pipelines for Government of Canada policy work.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="en"
+      className={`${geist_sans.variable} ${geist_mono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col">
+        <AppShellGate>{children}</AppShellGate>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+
+ succeeded in 1978ms:
+167:      - name: run_e2e_home_g1_g8
+174:      - name: run_e2e_intake_g1_g8
+181:      - name: run_e2e_dashboard_g1_g8
+188:      - name: run_e2e_runs_runid_g1_g8
+195:      - name: run_e2e_upload_g1_g8
+202:      - name: run_e2e_benchmark_g1_g8
+209:      - name: run_e2e_contracts_g1_g8
+216:      - name: run_e2e_pin_replay_g1_g8
+223:      - name: run_e2e_memory_g1_g8
+
+ succeeded in 2435ms:
+web\tests\e2e\bundle_preview.spec.ts:44:  preview_bundle_id: "abcdef0123456789-aaaa",
+web\tests\e2e\bundle_preview.spec.ts:99:test("bundle preview renders manifest summary on success", async ({ page }) => {
+web\tests\e2e\bundle_preview.spec.ts:101:  await fulfill(page, "/api/audit-bundle/preview", PREVIEW);
+web\tests\e2e\bundle_preview.spec.ts:105:  await expect(page.getByTestId("bundle-preview")).toBeVisible({
+web\tests\e2e\bundle_preview.spec.ts:108:  await expect(page.getByTestId("bundle-preview-id")).toContainText(
+web\tests\e2e\bundle_preview.spec.ts:111:  await expect(page.getByTestId("bundle-preview-file-count")).toContainText(
+web\tests\e2e\bundle_preview.spec.ts:121:    await expect(page.getByTestId(`bundle-preview-row-${ct}`)).toBeVisible();
+web\tests\e2e\bundle_preview.spec.ts:125:test("bundle preview surfaces structured error code on failure", async ({
+web\tests\e2e\bundle_preview.spec.ts:131:    "/api/audit-bundle/preview",
+web\tests\e2e\bundle_preview.spec.ts:145:  await expect(page.getByTestId("bundle-preview-error")).toBeVisible({
+web\tests\e2e\bundle_preview.spec.ts:148:  await expect(page.getByTestId("bundle-preview-error-code")).toHaveText(
+web\tests\e2e\accessibility.spec.ts:74:// describes with axe assertions against the new signed-bundle Inspector.
+web\tests\e2e\accessibility.spec.ts:80:test.describe("WCAG-AA — Inspector (signed-bundle, post-I-cd-013a)", () => {
+web\tests\e2e\accessibility.spec.ts:117:  test("bundle-pending CTA (unknown runId) is WCAG-AA clean", async ({
+web\tests\e2e\accessibility.spec.ts:187:  // target-size sweep with one against the signed-bundle Inspector
+web\tests\e2e\accessibility.spec.ts:249:// axe test was MIGRATED into the "WCAG-AA — Inspector (signed-bundle,
+web\tests\e2e\accessibility.spec.ts:250:// post-I-cd-013a)" describe above as the bundle-pending CTA axe check.
+web\tests\e2e\audit_bundle.spec.ts:4: * Slice 004 — Audit bundle download e2e.
+web\tests\e2e\audit_bundle.spec.ts:7: * produces a VerifiedReport, the "Download audit bundle" button is
+web\tests\e2e\audit_bundle.spec.ts:12:test.describe("Slice 004 — audit-bundle download from /generation", () => {
+web\tests\e2e\audit_bundle.spec.ts:39:      await expect(page.getByTestId("download-audit-bundle")).toBeVisible();
+web\tests\e2e\audit_bundle.spec.ts:71:    await page.getByTestId("download-audit-bundle").click();
+web\tests\e2e\audit_bundle.spec.ts:77:          .getByTestId("audit-bundle-error")
+web\tests\e2e\audit_bundle.spec.ts:89:      await expect(page.getByTestId("audit-bundle-error")).toBeVisible();
+web\tests\e2e\audit_bundle.spec.ts:90:      await expect(page.getByTestId("audit-bundle-error")).toContainText(
+web\tests\e2e\inspector_offline_fallback.spec.ts:4:// Builds a tar.gz from tests/fixtures/signed_bundle/v1_canonical_success/
+web\tests\e2e\inspector_offline_fallback.spec.ts:16:  "tests/fixtures/signed_bundle/v1_canonical_success",
+web\tests\e2e\inspector_offline_fallback.spec.ts:22:  "i-cd-021-bundles",
+web\tests\e2e\inspector_offline_fallback.spec.ts:35:test("Offline Inspector parses + renders a v1.0 tar.gz bundle in-browser", async ({
+web\tests\e2e\inspector_offline_fallback.spec.ts:52:    /POLARIS|bundle|run/i,
+web\tests\e2e\inspector_route.spec.ts:9:// states · G4 async states (covered by server-side bundle load) ·
+web\tests\e2e\inspector_route.spec.ts:43:  test("app shell + bundle header render (G1)", async ({ page }) => {
+web\tests\e2e\inspector_route.spec.ts:46:    await expect(page.getByTestId("bundle-header")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:137:  test("unknown runId shows bundle-pending CTA, not a fixture", async ({
+web\tests\e2e\inspector_route.spec.ts:141:    await expect(page.getByTestId("bundle-pending-cta")).toBeVisible();
+web\tests\e2e\inspector_route.spec.ts:143:    // CTA must NOT render a bundle inspector for unknown runIds.
+web\tests\e2e\inspector_route.spec.ts:172:        mask: [page.locator('[data-testid="bundle-header"]')],
+web\tests\e2e\inspector_route.spec.ts:181:      mask: [page.locator('[data-testid="bundle-header"]')],
+web\tests\e2e\inspector_route.spec.ts:185:  test.fixme("bundle-pending CTA visual baseline", async ({ page }) => {
+web\tests\e2e\inspector_route.spec.ts:187:    await expect(page).toHaveScreenshot("inspector-bundle-pending-cta.png", {
+web\tests\e2e\visual.spec.ts:13: * to consume signed-bundle fixtures. The new Inspector visual baselines
+web\tests\e2e\_nav_auth.ts:5:// presence/expiry check on a sessionStorage token (NOT a signature check), so a
+web\tests\e2e\_nav_auth.ts:7:// signing. The inline nav is xl-only (≥1280px), so we assert on a desktop viewport.
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"text-primary|brand|red|primary\" web\\app web\\components web\\lib -g \"*.tsx\" -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"listCompletedRuns\\(|compareRuns\\(\" web -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg "COMPARE|POLARIS CLINICAL RESEARCH|Compare two runs side-by-side|Shared evidence" web -n' in C:\POLARIS
+ succeeded in 1203ms:
+web\components\app_shell_gate.tsx:3:// provide its own header (with the same primary nav) + its own <main>.
+web\components\app_shell_gate.tsx:6:// Tiny "use client" boundary so the otherwise server-rendered AppShell
+web\components\app_shell_gate.tsx:20://  - `/sign-in` : institutional full-screen auth (I-p2-021 #760); the primary
+web\components\app_shell.tsx:4:import { PrimaryNav } from "@/components/primary_nav";
+web\components\app_shell.tsx:9: * route with a single header + primary nav. The 8 primary nav entries are
+web\components\app_shell.tsx:18: *    retired at that point (not merely hidden — per Codex P2).
+web\components\app_shell.tsx:21: *  - Auth gating of the nav itself is deferred to I-cd-014.
+web\components\app_shell.tsx:25:// shared with HomeKeyboardShell); role-aware via navForRole (presentation-only).
+web\components\auth_redirect.tsx:4:// This component is a UX convenience that redirects unauthenticated
+web\components\auth_redirect.tsx:15:// Used by route pages to redirect to /sign-in when a JWT is missing. Do
+web\components\auth_redirect.tsx:36:  const [authState] = useState<"authed" | "redirect" | "ssr">(() => {
+web\components\auth_redirect.tsx:38:    return isAuthenticated() ? "authed" : "redirect";
+web\components\auth_redirect.tsx:42:    if (authState !== "redirect") return;
+web\components\auth_redirect.tsx:47:  // SSR / not-yet-checked / about-to-redirect: render nothing rather
+web\components\site_footer.tsx:1:// I-p2-038 (#821): the shared global footer — the SINGLE source of truth for
+web\components\site_footer.tsx:29:            verified — span by span — against its primary source by an
+web\components\primary_nav.tsx:1:// I-p2-034 (#790): responsive primary nav. Inline links on desktop; a hamburger
+web\components\primary_nav.tsx:8:// authed set + brand + Canadian-hosted mark + AuthButton overflows (Codex P1).
+web\components\primary_nav.tsx:63:          aria-controls="primary-nav-mobile"
+web\components\primary_nav.tsx:82:              id="primary-nav-mobile"
+web\components\contradiction\contradiction_panel.tsx:22:    "No claim could be verified against a primary source.",
+web\components\inspector\evidence_pool_table.tsx:18:  min_required_per_tier: Record<string, number>;
+web\components\inspector\evidence_pool_table.tsx:46:            No sources captured for this run.
+web\app\upload\page.tsx:63:                <step.icon aria-hidden className="text-primary h-4 w-4" />
+web\app\upload\page.tsx:76:          className="text-primary focus-visible:ring-ring/70 inline-flex w-fit items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\states\state_kit.tsx:49:          className="bg-muted h-4 w-full animate-pulse rounded motion-reduce:animate-none"
+web\components\states\state_kit.tsx:60:  /something went wrong|unknown error|failed to load|an error occurred/i;
+web\components\states\state_kit.tsx:97:          className="text-primary focus-visible:ring-ring/70 self-start rounded text-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\components\proof_replay\proof_replay.tsx:3:// shared resolveSpan (#743) + SourceCard (#745) + VerdictChip (#744). Honest:
+web\components\proof_replay\proof_replay.tsx:133:                      <blockquote className="border-primary text-muted-foreground max-h-48 overflow-auto border-l-2 pl-3 text-xs leading-relaxed">
+web\components\proof_replay\proof_replay.tsx:138:                            <mark className="bg-primary/10 text-foreground rounded-[3px] box-decoration-clone px-0.5 font-medium">
+web\components\proof_replay\proof_replay.tsx:209:                    ? "bg-primary/10 text-foreground border-primary border-l-2"
+web\components\source\source_card.tsx:18:  /** Run-level stance toward a claim — rendered ONLY when the consumer passes
+web\components\source\source_card.tsx:21:  /** Bundle/source content hash — rendered ONLY when provided (never invented). */
+web\components\source\source_card.tsx:79:            className="text-foreground hover:text-primary focus-visible:ring-ring/70 inline-flex items-start gap-1 font-medium underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+web\components\sovereignty\sovereignty_panel.tsx:16:  /** metadata.schema_version / manifest.bundle_version — rendered only if present. */
+web\components\sovereignty\sovereignty_panel.tsx:53:          className="text-primary mt-0.5 h-4 w-4 shrink-0"
+web\components\citation\citation_chip.tsx:23:  if (t === "T1" || t === "1") return "bg-tier-1"; // primary evidence (red)
+web\components\inspector\metadata_panel.tsx:2:// `LoadedBundle.metadata` was parsed but never rendered. Adds explicit
+web\components\signature\maple_leaf_signature.tsx:1:// I-p2-028 (#767): the flying maple-leaf signature, rendered in fine-grained
+web\components\signature\maple_leaf_signature.tsx:4:// luminance grid is mapped to Braille glyphs (dark-red leaf on white). Decorative
+web\components\signature\maple_leaf_signature.tsx:5:// (aria-hidden); prefers-reduced-motion → one static frame; WebGL-unavailable →
+web\components\signature\maple_leaf_signature.tsx:14:// camera frustum (below) is sized to the SAME aspect so the rendered leaf is not
+web\components\signature\maple_leaf_signature.tsx:32:// mirrored to form the full leaf. Normalized to roughly [-1, 1]. I-p2-050 (#847):
+web\components\signature\maple_leaf_signature.tsx:58:  // Mirror back down the left side (skip the shared top + bottom points).
+web\components\signature\maple_leaf_signature.tsx:112:      // I-p2-050 (#847): frustum aspect = PX_W:PX_H (0.8) so the rendered leaf is
+web\components\signature\maple_leaf_signature.tsx:129:      material = new THREE.MeshBasicMaterial({ color: 0xc8102e }); // Canada red
+web\components\signature\maple_leaf_signature.tsx:146:      const reduce = window.matchMedia(
+web\components\signature\maple_leaf_signature.tsx:147:        "(prefers-reduced-motion: reduce)",
+web\components\signature\maple_leaf_signature.tsx:150:      if (reduce) {
+web\components\inspector\inspector_proof_header.tsx:56:        {/* primary proof artifact line — the verify rate is the headline number */}
+web\app\page.tsx:109:    body: "Click any claim and see the exact source passage it came from. Frontier tools hallucinate 3–13% of their citations — every POLARIS claim is span-anchored to a primary source.",
+web\app\page.tsx:128:          {/* Hero — one primary action, compact so the proof artifact enters the
+web\app\page.tsx:143:              Every sentence is tied to a primary source with a provenance token
+web\app\page.tsx:183:                  className="text-primary h-5 w-5 shrink-0"
+web\app\page.tsx:199:        {/* I-p2-038 (#821): shared SiteFooter — replaces the thin inline home
+web\app\intake\page.tsx:25:    body: "Every sentence is span-checked against a primary source by an independent two-family evaluator.",
+web\app\intake\page.tsx:54:          POLARIS first confirms your question can be answered from clinical
+web\app\intake\page.tsx:58:          answered as written.
+web\app\intake\page.tsx:76:              <step.icon aria-hidden className="text-primary h-4 w-4" />
+web\app\components\recent_runs_strip.tsx:11:// failure / empty — never an error and never a /sign-in redirect (that is
+web\app\components\recent_runs_strip.tsx:12:// why it uses authHeader() directly, not authFetch which redirects).
+web\app\components\recent_runs_strip.tsx:26:  // rendered CJK dates on a non-English server. Deterministic English dates.
+web\app\components\recent_runs_strip.tsx:78:              className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring group flex max-w-xs flex-col gap-1 rounded-lg border px-3 py-2 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+web\app\components\recent_runs_strip.tsx:80:              <span className="text-primary text-[10px] font-semibold tracking-widest uppercase">
+web\app\dashboard\page.tsx:30:  // which rendered CJK dates ("2026年5月21日") on a non-English server. The demo
+web\app\dashboard\page.tsx:165:                      <span className="text-primary font-medium tracking-wide uppercase">
+web\app\components\proof_showcase.tsx:95:            Verified against a primary source
+web\app\components\proof_showcase.tsx:114:          <blockquote className="border-primary/40 text-muted-foreground border-l-2 pl-3 text-sm leading-relaxed break-words hyphens-auto">
+web\app\components\proof_showcase.tsx:119:                <mark className="bg-primary/10 text-foreground rounded-[3px] box-decoration-clone px-0.5 font-medium">
+web\app\components\proof_showcase.tsx:157:          className="text-primary focus-visible:ring-ring/70 inline-flex items-center gap-1 rounded text-sm font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+web\app\memory\page.tsx:31:  preferred_source: "Preferred source",
+web\app\memory\page.tsx:36:// Meaning-only tinting (tokens, never raw palette): a preferred source reads as
+web\app\memory\page.tsx:41:  // Brand red is reserved for the single primary action (Remember); a prior run
+web\app\memory\page.tsx:44:  preferred_source: "border-verified/30 bg-verified/10 text-verified",
+web\app\memory\page.tsx:186:              placeholder="e.g. Prefer Health Canada and CMHC as primary sources."
+web\app\contracts\_editor.tsx:21:// I-p2-041 (#829) P2 visual redo: Contracts was Codex-graded D+ ("raw internal
+web\app\contracts\_editor.tsx:69:      required_jurisdictions: ["CA"],
+web\app\contracts\_editor.tsx:80:        required_jurisdictions: cl.required_jurisdictions.filter((j) =>
+web\app\contracts\_editor.tsx:177:                        ? "border-primary bg-primary/10 text-foreground"
+web\app\contracts\_editor.tsx:363:                  Required in:
+web\app\contracts\_editor.tsx:366:                  const on = cl.required_jurisdictions.includes(j);
+web\app\contracts\_editor.tsx:372:                          ? "border-primary bg-primary/10 text-foreground"
+web\app\contracts\_editor.tsx:385:                            required_jurisdictions: e.target.checked
+web\app\contracts\_editor.tsx:386:                              ? [...cl.required_jurisdictions, j]
+web\app\contracts\_editor.tsx:387:                              : cl.required_jurisdictions.filter(
+web\app\contracts\_editor.tsx:414:                  required_jurisdictions: [...jurisdictions],
+web\app\contracts\_editor.tsx:439:      {/* I-p2-046 (#839): crafted action bar (ring + brand shadow + explainer) — a
+web\app\plan\page.tsx:56:    title: "Retrieve primary sources",
+web\app\plan\page.tsx:67:    body: "Each sentence is generated section by section, then span-verified against its primary source by an independent evaluator family.",
+web\app\plan\page.tsx:318:            className="text-primary text-xs underline-offset-2 hover:underline"
+web\app\components\home_keyboard_shell.tsx:7:import { PrimaryNav } from "@/components/primary_nav";
+web\app\components\home_keyboard_shell.tsx:24:// the single shared source @/lib/nav (no more duplicated const), role-aware via
+web\app\pin_replay\page.tsx:81:  // routes through the shared EmptyState kit (#750) — matching the 8 other pages
+web\app\pin_replay\page.tsx:118:                  className={`bg-muted w-full rounded-md ${h} ${i % 2 ? "" : "animate-pulse motion-reduce:animate-none"}`}
+web\app\pin_replay\page.tsx:120:                <span className="bg-primary/15 h-2.5 w-2.5 rounded-full" />
+web\app\intake\components\intake_form.tsx:30:  "Does aspirin reduce headaches in adults?",
+web\app\intake\components\intake_form.tsx:130:              placeholder="e.g. Does aspirin reduce headaches in adults?"
+web\app\upload\components\upload_drop_zone.tsx:184:            ? "border-primary bg-primary/10"
+web\app\upload\components\upload_drop_zone.tsx:185:            : "border-border bg-muted/10 hover:border-primary/40 hover:bg-muted/30"
+web\app\upload\components\upload_drop_zone.tsx:191:              ? "bg-primary/15 text-primary"
+web\app\components\command_palette.tsx:60:    // pre-selects the top-scored result.
+web\app\components\command_palette.tsx:68:  const scored = templates
+web\app\components\command_palette.tsx:75:    scored.length === 0
+web\app\components\command_palette.tsx:77:      : Math.max(0, Math.min(active_index, scored.length - 1));
+web\app\components\command_palette.tsx:82:      set_active_index((p) => Math.min(p + 1, scored.length - 1));
+web\app\components\command_palette.tsx:88:      const tpl = scored[clamped];
+web\app\components\command_palette.tsx:127:            {scored.map((t, i) => (
+web\components\ui\card.tsx:15:        // I-p2-042 (#831) S-tier foundation: brand-tinted card elevation
+web\components\ui\card.tsx:16:        // (shadow-card) + the shared motion primitive on shadow transitions.
+web\app\source_review\page.tsx:14:// is not wired into the user flow).
+web\app\source_review\page.tsx:52:  T1: "Tier 1 — primary / regulatory",
+web\app\source_review\page.tsx:64:  minRequired,
+web\app\source_review\page.tsx:68:  minRequired: number;
+web\app\source_review\page.tsx:84:            minRequired > 0
+web\app\source_review\page.tsx:89:          {minRequired > 0 ? `min ${minRequired} required` : "no minimum"}
+web\app\source_review\page.tsx:212:                  minRequired={template.min_sources_per_tier[tier] ?? 0}
+web\app\source_review\page.tsx:242:              How sources are gathered
+web\app\source_review\page.tsx:269:                <Link className="text-primary underline" href="/intake">
+web\app\retrieval\components\corpus_brief.tsx:14:  T2: "T2 — Peer-reviewed primary",
+web\app\retrieval\components\corpus_brief.tsx:27:  required,
+web\app\retrieval\components\corpus_brief.tsx:31:  required: number;
+web\app\retrieval\components\corpus_brief.tsx:33:  const ok = count >= required;
+web\app\retrieval\components\corpus_brief.tsx:45:        {count} / {required}
+web\app\retrieval\components\corpus_brief.tsx:79:              required={pool.adequacy.min_required_per_tier[tier] ?? 0}
+web\components\ui\button.tsx:11:        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+web\components\ui\button.tsx:20:        link: "text-primary underline-offset-4 hover:underline",
+web\app\inspector\[runId]\inspector_view.tsx:4:// "compliance tooling before the product" (Codex). Restructured so a bespoke
+web\app\inspector\[runId]\inspector_view.tsx:58:            was built but wired into NO route; this surfaces it as the default
+web\app\benchmark\components\benchmark_board.tsx:44:// Winner = strictly ahead of every populated peer → brand "verified" token.
+web\app\benchmark\components\benchmark_board.tsx:118:  // Both "no results directory configured" and "directory configured but empty"
+web\app\benchmark\components\benchmark_board.tsx:166:              className="border-border bg-background hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-ring/70 ease-standard text-foreground flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left font-mono text-sm transition-colors duration-150 focus-visible:ring-2 focus-visible:outline-none"
+web\app\benchmark\components\benchmark_board.tsx:248:                  <th className="text-primary py-2 pl-4 text-right font-semibold">
+web\app\benchmark\components\benchmark_board.tsx:320:                { label: "POLARIS", value: p, peers: [c, g], brand: true },
+web\app\benchmark\components\benchmark_board.tsx:321:                { label: "ChatGPT DR", value: c, peers: [p, g], brand: false },
+web\app\benchmark\components\benchmark_board.tsx:322:                { label: "Gemini DR", value: g, peers: [p, c], brand: false },
+web\app\benchmark\components\benchmark_board.tsx:343:                            cell.brand
+web\app\benchmark\components\benchmark_board.tsx:344:                              ? "text-primary font-semibold"
+web\app\compare\page.tsx:100:          Pick two completed runs to see shared vs unique evidence, frame
+web\app\compare\page.tsx:260:  const pct = Math.round((result.shared_evidence_pct ?? 0) * 100);
+web\app\compare\page.tsx:263:      {/* Headline: which two runs, shared-evidence overlap, run-property flags. */}
+web\app\compare\page.tsx:276:              shared evidence between the two runs
+web\app\compare\page.tsx:300:            <EvidenceColumn title="Shared" ids={result.shared_evidence_ids} />
+web\app\sign-in\page.tsx:22:  { icon: BadgeCheck, text: "Every claim span-anchored to a primary source." },
+web\app\sign-in\page.tsx:31: * I-cd-014 (GH#610): same-origin validation for `?next=` redirect.
+web\app\sign-in\page.tsx:112:      {/* Left: institutional brand + trust panel (lg+ only) */}
+web\app\sign-in\page.tsx:131:                  className="text-primary mt-0.5 h-5 w-5 shrink-0"
+web\app\sign-in\page.tsx:164:                  Enter your POLARIS reviewer credentials.
+web\app\sign-in\page.tsx:183:                    required
+web\app\sign-in\page.tsx:201:                    required
+web\app\generation\page.tsx:10:    "End-to-end clinical research: intake → retrieval → generation with strict-verify. Every sentence carries a provenance token tied to a primary source.",
+web\app\inspector\offline\page.tsx:75:            The bundle is verified and rendered entirely in your browser — no
+web\app\inspector\offline\page.tsx:76:            backend or GPU required. SHA-256 of every file is checked against
+web\app\inspector\offline\page.tsx:103:                ? "border-primary/50 bg-primary/5"
+web\app\inspector\offline\page.tsx:104:                : "border-border bg-muted/20 hover:border-primary/30 hover:bg-muted/40"
+web\app\inspector\offline\page.tsx:111:                  className="text-muted-foreground h-7 w-7 animate-pulse motion-reduce:animate-none"
+web\app\inspector\offline\page.tsx:124:                  className={`h-7 w-7 ${dragOver ? "text-primary" : "text-muted-foreground"}`}
+web\app\sentence_hover_test\coverage\page.tsx:13:  searchParams: Promise<{ covered?: string; gap_count?: string }>;
+web\app\sentence_hover_test\coverage\page.tsx:16:  const covered = clamp_non_negative_int(params.covered, 14);
+web\app\sentence_hover_test\coverage\page.tsx:18:  return <CoverageHarness covered={covered} gap_count={gap_count} />;
+web\app\sentence_hover_test\memory_cite\page.tsx:20:            "Prior workspace research found tirzepatide outperforms semaglutide on weight reduction.",
+web\app\sentence_hover_test\memory_cite\page.tsx:29:            "A separate trial corroborated the cardiovascular outcome reduction.",
+web\app\charts_test\click_through\page.tsx:46:      "MACE composite endpoint: -20% relative risk reduction (95% CI -27% to -13%) at 3-year follow-up.",
+web\app\runs\[runId]\page.tsx:94:  // abort_*/error_* (a completed run with null pipeline_status predates the
+web\app\runs\[runId]\page.tsx:165:          {/* I-p2-016 (#755): don't show "Loading…" once an error has fired. */}
+web\app\generation\components\frame_coverage_panel.tsx:59:  const { covered_entity_count, total_entity_count, gaps } = coverage;
+web\app\generation\components\frame_coverage_panel.tsx:65:    (covered_entity_count / total_entity_count) * 100,
+web\app\generation\components\frame_coverage_panel.tsx:67:  const all_covered = gaps.length === 0;
+web\app\generation\components\frame_coverage_panel.tsx:72:        all_covered ? "frame-coverage-complete" : "frame-coverage-gaps"
+web\app\generation\components\frame_coverage_panel.tsx:76:        all_covered
+web\app\generation\components\frame_coverage_panel.tsx:86:              all_covered
+web\app\generation\components\frame_coverage_panel.tsx:91:            {covered_entity_count}/{total_entity_count} entities covered
+web\app\generation\components\frame_coverage_panel.tsx:109:              all_covered ? "bg-emerald-500" : "bg-amber-500",
+web\app\sentence_hover_test\_demo_stress.tsx:39:      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+web\app\sentence_hover_test\_demo.tsx:19:  "The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction at outcomes assessment.";
+web\app\sentence_hover_test\_demo.tsx:96:    min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+web\app\sentence_hover_test\_demo.tsx:150:              "Generator concluded: drug X reduces 30-day mortality by 30% in adults.",
+web\app\sentence_hover_test\_demo.tsx:282:                  "Aspirin significantly reduces headache at 81mg dose.",
+web\app\sentence_hover_test\_demo.tsx:465:    covered_entity_count: 14,
+web\app\generation\components\sentence_inspector.tsx:29:  T2: "Peer-reviewed primary research (RCTs, cohorts, meta-analyses)",
+web\app\runs\[runId]\components\run_progress.tsx:155:    const lastObserved = STAGES.reduce(
+web\app\runs\[runId]\components\run_progress.tsx:203:    ? sections.reduce((acc, s) => acc + s.verified, 0)
+web\app\runs\[runId]\components\run_progress.tsx:299:        className="border-primary size-4 animate-spin rounded-full border-2 border-t-transparent"
+web\app\runs\[runId]\components\run_progress.tsx:305:    // (--verified), not the brand-red accent (a red ✓ reads as an alarm).
+web\app\generation\components\verified_report_view.tsx:91:  hovered_id,
+web\app\generation\components\verified_report_view.tsx:101:  hovered_id: string | null;
+web\app\generation\components\verified_report_view.tsx:154:        hovered_id === sentence_id && "bg-yellow-100 dark:bg-yellow-900/40",
+web\app\generation\components\verified_report_view.tsx:300:  hovered_id,
+web\app\generation\components\verified_report_view.tsx:309:  hovered_id: string | null;
+web\app\generation\components\verified_report_view.tsx:354:                hovered_id={hovered_id}
+web\app\generation\components\verified_report_view.tsx:384:  const { hovered_id, root_ref } = useSentenceHover();
+web\app\generation\components\verified_report_view.tsx:476:          hovered_id={hovered_id}
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:25:          Aspirin reduces headache pain in adults
+web\app\sentence_hover_test\_demo_evidence_tooltip.tsx:31:            spanText="The randomized trial enrolled 1247 adults with chronic migraines and demonstrated significant aspirin headache reduction."
+web\app\generation\components\two_run_picker.tsx:77:        className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground inline-flex items-center rounded-md px-4 py-2 text-sm font-medium disabled:cursor-not-allowed"
+web\app\generation\components\split_screen.tsx:49:        <Separator className="bg-border hover:bg-primary focus:bg-primary w-1 cursor-col-resize touch-none focus:outline-none" />
+web\app\runs\[runId]\components\followup_panel.tsx:19:  | { kind: "answered"; answer: FollowUpAnswer }
+web\app\runs\[runId]\components\followup_panel.tsx:39:  answered: "Answered",
+web\app\runs\[runId]\components\followup_panel.tsx:59:      setState({ kind: "answered", answer });
+web\app\runs\[runId]\components\followup_panel.tsx:101:      {state.kind === "answered" && <AnswerView answer={state.answer} />}
+web\app\runs\[runId]\components\followup_panel.tsx:113:      <span className="text-primary text-[10px] font-semibold tracking-widest uppercase">
+web\app\runs\[runId]\components\followup_panel.tsx:117:      {answer.status === "answered" && answer.answer_text && (
+web\app\runs\[runId]\components\followup_panel.tsx:129:          <a className="text-primary underline" href="/intake">
+web\app\sentence_hover_test\_demo_evaluator_edge.tsx:42:      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+web\app\sentence_hover_test\_demo_coverage.tsx:47:  covered,
+web\app\sentence_hover_test\_demo_coverage.tsx:50:  covered: number;
+web\app\sentence_hover_test\_demo_coverage.tsx:53:  const total = covered + gap_count;
+web\app\sentence_hover_test\_demo_coverage.tsx:66:      min_required_per_tier: { T1: 1, T2: 0, T3: 0 },
+web\app\sentence_hover_test\_demo_coverage.tsx:82:        section_title: `Coverage harness (${covered}/${total})`,
+web\app\sentence_hover_test\_demo_coverage.tsx:103:      covered_entity_count: covered,
+web\app\sentence_hover_test\_demo_coverage.tsx:115:      data-testid={`coverage-harness-${covered}-${gap_count}`}
+web\app\runs\[runId]\audit\page.tsx:12:// GPG seal was deliberately deferred — operator "skip the seal, build the real
+web\app\runs\[runId]\audit\page.tsx:64:  return report.sections.reduce(
+web\app\runs\[runId]\audit\page.tsx:71:  return report.sections.reduce(
+web\app\runs\[runId]\audit\page.tsx:147:  const totalBytes = files.reduce((sum, f) => sum + f.size_bytes, 0);
+web\app\runs\[runId]\audit\page.tsx:198:                aborted/failing bundles, not only cleared ones. */}
+web\app\runs\[runId]\graph\page.tsx:80:            role=alert/status + motion-reduce) instead of hand-rolled. */}
+web\app\sentence_hover_test\two_run_picker\page.tsx:51:        data-testid="last-compared-pair"
+web\app\runs\[runId]\graph\components\claim_graph.tsx:22:const _cy = cytoscape as unknown as { _fcoseRegistered?: boolean };
+web\app\runs\[runId]\graph\components\claim_graph.tsx:23:if (!_cy._fcoseRegistered) {
+web\app\runs\[runId]\graph\components\claim_graph.tsx:25:  _cy._fcoseRegistered = true;
+web\app\runs\[runId]\graph\components\claim_graph.tsx:96:      const rendered = node.renderedPosition();
+web\app\runs\[runId]\graph\components\claim_graph.tsx:103:        x: rendered.x,
+web\app\runs\[runId]\graph\components\claim_graph.tsx:104:        y: rendered.y,
+web\app\runs\[runId]\graph\components\claim_graph.tsx:129:  // Search-highlight (Codex iter-2 P2-1.5 + iter-3 share-predicate fix:
+web\app\runs\[runId]\graph\components\claim_graph.tsx:156:  // Selection sync — the selected node gets the Canada-red halo, and everything
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:89:function orderedNodes(payload: GraphPayload): GraphNode[] {
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:112:  const ordered = useMemo(() => orderedNodes(payload), [payload]);
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:113:  const visibleOrdered = useMemo(
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:114:    () => ordered.filter((n) => state.visible_node_ids.has(n.data.id)),
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:115:    [ordered, state.visible_node_ids],
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:140:    const idx = visibleOrdered.findIndex(
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:145:      const next = visibleOrdered[Math.min(idx + 1, visibleOrdered.length - 1)];
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:149:      const prev = visibleOrdered[Math.max(idx - 1, 0)];
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:173:        {visibleOrdered.map((n) => {
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:203:                className="text-muted-foreground hover:text-primary size-7 shrink-0"
+web\app\runs\[runId]\graph\components\accessible_graph_list.tsx:218:        {visibleOrdered.length === 0 && (
+
+ succeeded in 1734ms:
+?? .codex/I-ux-001b/
+?? .codex/I-ux-001c-2/
+?? .codex/I-ux-001c-3/
+?? .codex/I-ux-001c/
+?? .codex/I-ux-001d/
+?? live/
+?? web/p2shots/
+?? web/playwright-source-review-next.err.log
+?? web/playwright-source-review-next.out.log
+?? web/scripts/screenshot_home_v6.mjs
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+
+ succeeded in 2069ms:
+web\lib\api.ts:242:export async function listCompletedRuns(
+web\lib\api.ts:251:export async function compareRuns(
+web\app\compare\page.tsx:62:    listCompletedRuns(50)
+web\app\compare\page.tsx:82:      setResult(await compareRuns(left, right));
+web\app\dashboard\page.tsx:76:        const runs = await listCompletedRuns(50);
+
+2026-05-25T08:22:26.139602Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 2.5 seconds
+Output:
+
+ exited 1 in 2541ms:
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\auth.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\lib\\nav.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"console errors\" web\\tests\\e2e -n" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg \"page.route\" web\\tests\\e2e -n" in C:\POLARIS
+ succeeded in 1272ms:
+/**
+ * I-rdy-004 (#500) — client-side auth: JWT store + login + header injection.
+ *
+ * Carney demo scope. The JWT is held in sessionStorage: survives a page
+ * refresh, cleared when the tab closes, not shared with a fresh tab —
+ * the safer browser-storage choice per the Codex I-rdy-004 brief review.
+ * 12h JWT expiry (matches the backend); cleared on any 401.
+ */
+
+const TOKEN_KEY = "polaris_jwt";
+const EXPIRY_KEY = "polaris_jwt_expiry_ms";
+const DEFAULT_EXPIRY_SECONDS = 12 * 60 * 60;
+
+export interface LoginResult {
+  ok: boolean;
+  status: number;
+  error?: string;
+}
+
+function store(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
+/** Current JWT, or null if absent or past its 12h expiry. */
+export function getToken(): string | null {
+  const s = store();
+  if (!s) return null;
+  const token = s.getItem(TOKEN_KEY);
+  const expiry = s.getItem(EXPIRY_KEY);
+  if (!token || !expiry) return null;
+  if (Date.now() >= Number(expiry)) {
+    clearToken();
+    return null;
+  }
+  return token;
+}
+
+export function setToken(token: string, expiresInSeconds: number): void {
+  const s = store();
+  if (!s) return;
+  const ttl = expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_EXPIRY_SECONDS;
+  s.setItem(TOKEN_KEY, token);
+  s.setItem(EXPIRY_KEY, String(Date.now() + ttl * 1000));
+}
+
+export function clearToken(): void {
+  const s = store();
+  if (!s) return;
+  s.removeItem(TOKEN_KEY);
+  s.removeItem(EXPIRY_KEY);
+}
+
+export function isAuthenticated(): boolean {
+  return getToken() !== null;
+}
+
+/**
+ * POST credentials to the backend. On 200, store the JWT and report ok.
+ * A 401 here is invalid-credentials feedback for the sign-in form — it is
+ * NOT routed through the generic 401-redirect (that would loop the page).
+ */
+export async function login(
+  username: string,
+  password: string,
+): Promise<LoginResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v6/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Could not reach POLARIS. Check the connection.",
+    };
+  }
+  if (response.status === 200) {
+    const body = (await response.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+    setToken(body.access_token, body.expires_in ?? DEFAULT_EXPIRY_SECONDS);
+    return { ok: true, status: 200 };
+  }
+  if (response.status === 401) {
+    return { ok: false, status: 401, error: "Invalid username or password." };
+  }
+  return {
+    ok: false,
+    status: response.status,
+    error: `Sign-in failed (HTTP ${response.status}).`,
+  };
+}
+
+/** Authorization header for the current token, or {} if unauthenticated. */
+export function authHeader(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Clear the token and route to /sign-in. Called on a generic 401. */
+export function redirectToSignIn(): void {
+  if (typeof window === "undefined") return;
+  clearToken();
+  if (window.location.pathname !== "/sign-in") {
+    window.location.href = "/sign-in";
+  }
+}
+
+ succeeded in 1638ms:
+// I-p2-029 (#768): single source of truth for the primary nav.
+// Consumed by BOTH AppShell and HomeKeyboardShell so the nav can never drift
+// between shells (previously the PRIMARY_NAV const was duplicated in each).
+//
+// I-p2-039 (#825): the nav is now AUTH-AWARE (public/app split). An
+// unauthenticated visitor sees only the lean public set (Home + Ask); the
+// reviewer tools (Dashboard + the rest) appear only once signed in — so the
+// pre-login product no longer reads like an internal tool suite, and gated
+// links no longer dead-end at /sign-in. This is PRESENTATION only, never an
+// authorization gate (per-route RBAC is the security control).
+
+import type { RoleId } from "@/lib/roles";
+
+export interface NavItem {
+  href: string;
+  label: string;
+  /** I-p2-039: who SEES this item. "public" = always (signed in or not);
+   * "app" = only when authenticated. Presentation-only, not authorization. */
+  visibility: "public" | "app";
+  /** Roles that may SEE this item (presentation-only). Omitted = all roles. */
+  roles?: readonly RoleId[];
+}
+
+export const PRIMARY_NAV: readonly NavItem[] = [
+  { href: "/", label: "Home", visibility: "public" },
+  // "Intake" was internal jargon (I-p2-039) — the public action is "Ask".
+  { href: "/intake", label: "Ask", visibility: "public" },
+  { href: "/dashboard", label: "Dashboard", visibility: "app" },
+  { href: "/upload", label: "Upload", visibility: "app" },
+  { href: "/benchmark", label: "Benchmark", visibility: "app" },
+  { href: "/compare", label: "Compare", visibility: "app" },
+  { href: "/contracts", label: "Contracts", visibility: "app" },
+  { href: "/pin_replay", label: "Pin Replay", visibility: "app" },
+  { href: "/memory", label: "Memory", visibility: "app" },
+];
+
+/** I-p2-039: presentation-only auth filter. Public items always show; app items
+ * only when authenticated. Pure + isomorphic (safe in server or client). */
+export function navForAuth(
+  items: readonly NavItem[],
+  authed: boolean,
+): readonly NavItem[] {
+  return items.filter((item) => item.visibility === "public" || authed);
+}
+
+/** Presentation-only nav filter by role. Pure + isomorphic (safe in server or
+ * client). Items without a `roles` list are visible to every role. Orthogonal
+ * to navForAuth; retained for future per-persona nav. */
+export function navForRole(
+  items: readonly NavItem[],
+  role: RoleId,
+): readonly NavItem[] {
+  return items.filter((item) => !item.roles || item.roles.includes(role));
+}
+
+ succeeded in 1993ms:
+web\tests\e2e\audit_live.spec.ts:11:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\audit_live_adversarial.spec.ts:7:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\bundle_preview.spec.ts:59:  await page.route(`**${path}`, async (route) => {
+web\tests\e2e\cross_browser_smoke.spec.ts:31:    await page.route("**/api/audit/stream**", (route) => {
+web\tests\e2e\cross_session_surface.spec.ts:26:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\f2_walkthrough.spec.ts:24:  await page.route("**/api/intake", async (r) =>
+web\tests\e2e\f2_walkthrough.spec.ts:38:  await page.route("**/api/disambiguation", async (r) =>
+web\tests\e2e\f2_walkthrough.spec.ts:111:    await page.route("**/api/disambiguation", (r) => {
+web\tests\e2e\f2_walkthrough.spec.ts:150:    await page.route("**/api/intake", (r) => {
+web\tests\e2e\f2_walkthrough.spec.ts:212:  await page.route("**/api/intake", (r) => {
+web\tests\e2e\graph_page_smoke.spec.ts:14:    await page.route("**/api/runs/*/graph", (route) => {
+web\tests\e2e\graph_page_smoke.spec.ts:60:    await page.route("**/api/runs/no_such_run/graph", (route) =>
+web\tests\e2e\intake_disambiguation.spec.ts:6:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation.spec.ts:33:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:23:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:36:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:58:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\intake_disambiguation_negative.spec.ts:78:  await page.route("**/api/disambiguation", async (route) => {
+web\tests\e2e\memory_page_controls.spec.ts:25:  await page.route("**/workspaces/ws_demo/memory/*", async (route) => {
+web\tests\e2e\memory_page_controls.spec.ts:34:  await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\intake_edge.spec.ts:7:  await page.route("**/api/intake", async (route) => {
+web\tests\e2e\upload_doc_preview.spec.ts:8:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_doc_preview.spec.ts:26:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web\tests\e2e\upload_dropzone.spec.ts:5:  await page.route("**/upload", async (route) => {
+web\tests\e2e\sse_client.spec.ts:5:  await page.route("**/mock/sse", async (route) => {
+web\tests\e2e\sse_client.spec.ts:27:  await page.route("**/mock/sse-fail", async (route) => {
+web\tests\e2e\upload_evidence_toggle.spec.ts:10:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_parse_status.spec.ts:27:  await page.route("**/upload", async (route) => {
+web\tests\e2e\upload_parse_status.spec.ts:43:  await page.route(`**/upload/${DOC_ID}`, async (route) => {
+web\tests\e2e\visual_60_baselines.spec.ts:104:        await page.route("**/workspaces/ws_demo/memory", async (route) => {
+web\tests\e2e\visual_60_baselines.spec.ts:113:        await page.route("**/api/benchmark/**", async (route) => {
+
+ succeeded in 2358ms:
+web\tests\e2e\benchmark_g1_g8.spec.ts:55:test("G8: /benchmark renders with zero console errors", async ({ page }) => {
+web\tests\e2e\dashboard_g1_g8.spec.ts:39:test("G8: /dashboard renders with zero console errors", async ({ page }) => {
+web\tests\e2e\contracts_g1_g8.spec.ts:57:test("G8: /contracts renders with zero console errors", async ({ page }) => {
+web\tests\e2e\memory_g1_g8.spec.ts:54:test("G8: /memory renders with zero console errors", async ({ page }) => {
+web\tests\e2e\home_g1_g8.spec.ts:89:test("G8: home renders with zero console errors", async ({ page }) => {
+web\tests\e2e\intake_g1_g8.spec.ts:34:test("G8: /intake renders with zero console errors", async ({ page }) => {
+web\tests\e2e\pin_replay_g1_g8.spec.ts:57:test("G8: /pin_replay renders with zero console errors", async ({ page }) => {
+web\tests\e2e\inspector_route.spec.ts:12:// (covered by visual snapshot) · G8 no console errors.
+web\tests\e2e\inspector_route.spec.ts:92:  test("no console errors during render (G8)", async ({ page }) => {
+web\tests\e2e\runs_runid_g1_g8.spec.ts:55:test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
+web\tests\e2e\sign_in.spec.ts:39:  test("no console errors on render (G8)", async ({ page }) => {
+web\tests\e2e\upload_g1_g8.spec.ts:53:test("G8: /upload renders with zero console errors", async ({ page }) => {
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\benchmark_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\memory_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\pin_replay_g1_g8.spec.ts" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path web\\tests\\e2e\\runs_runid_g1_g8.spec.ts" in C:\POLARIS
+ succeeded in 1309ms:
+// I-cd-027 (#617): /benchmark route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bphase 1\b/i,
+  /\bphase 2[a-z]?\b/i,
+  /\bF4 plan\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+test("G1 + G6: /benchmark has exactly one header + one main", async ({
+  page,
+}) => {
+  await page.goto("/benchmark");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /benchmark contains no banned dev-language strings (body + titles + aria-labels)", async ({
+  page,
+}) => {
+  await page.goto("/benchmark");
+  const body_text = (await page.locator("body").textContent()) || "";
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(all_text).not.toMatch(banned);
+  }
+});
+
+test("G1 nav parity: primary nav visible on /benchmark", async ({ page }) => {
+  await setupAuthedNav(page);
+  await page.goto("/benchmark");
+  await expectAuthedNav(page);
+});
+
+test("G8: /benchmark renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/benchmark");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500);
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 1773ms:
+// I-cd-030 (#620): /memory route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bphase 1\b/i,
+  /\bphase 2[a-z]?\b/i,
+  /\bF4 plan\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+  /\bi-f14-/i,
+];
+
+test("G1 + G6: /memory has exactly one header + one main", async ({ page }) => {
+  await page.goto("/memory");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /memory contains no banned dev-language strings (body + titles + aria-labels)", async ({
+  page,
+}) => {
+  await page.goto("/memory");
+  const body_text = (await page.locator("body").textContent()) || "";
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(all_text).not.toMatch(banned);
+  }
+});
+
+test("G1 nav parity: primary nav visible on /memory", async ({ page }) => {
+  await setupAuthedNav(page);
+  await page.goto("/memory");
+  await expectAuthedNav(page);
+});
+
+test("G8: /memory renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/memory");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500);
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 2100ms:
+// I-cd-029 (#619): /pin_replay route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bphase 1\b/i,
+  /\bphase 2[a-z]?\b/i,
+  /\bF4 plan\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+  /\bM-INT-0b\b/i,
+  /\bI-A-12\b/i,
+];
+
+test("G1 + G6: /pin_replay has exactly one header + one main", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /pin_replay contains no banned dev-language strings (body + titles + aria-labels)", async ({
+  page,
+}) => {
+  await page.goto("/pin_replay");
+  const body_text = (await page.locator("body").textContent()) || "";
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(all_text).not.toMatch(banned);
+  }
+});
+
+test("G1 nav parity: primary nav visible on /pin_replay", async ({ page }) => {
+  await setupAuthedNav(page);
+  await page.goto("/pin_replay");
+  await expectAuthedNav(page);
+});
+
+test("G8: /pin_replay renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto("/pin_replay");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500);
+  expect(errors).toEqual([]);
+});
+
+ succeeded in 2520ms:
+// I-cd-025 (#615): /runs/[runId] route G1-G8 acceptance gates.
+
+import { expect, test } from "@playwright/test";
+import { setupAuthedNav, expectAuthedNav } from "./_nav_auth";
+
+const BANNED_DEV_LANGUAGE = [
+  /\bslice\b/i,
+  /\bscaffold\b/i,
+  /\bplaceholder\b/i,
+  /\bphase 0\b/i,
+  /\bphase 1\b/i, // Codex iter-2 P1: guard against reintroduction.
+  /\bphase 2[a-z]?\b/i, // Phase 2A / Phase 2B
+  /\bF4 plan\b/i,
+  /\bpost[- ]carney\b/i,
+  /\bi-cd-/i,
+];
+
+// Use a deterministic run id; the live route 404s the SSE stream and
+// status fetch, but the page still renders its shell (G1-G8 gates assert
+// landmarks/nav, not data).
+const TEST_RUN_ID = "g1-g8-test-runid";
+
+test("G1 + G6: /runs/[runId] has exactly one header + one main", async ({
+  page,
+}) => {
+  await page.goto(`/runs/${TEST_RUN_ID}`);
+  await expect(page.locator("header")).toHaveCount(1);
+  await expect(page.locator("main")).toHaveCount(1);
+});
+
+test("G2: /runs/[runId] contains no banned dev-language strings (body + titles + aria-labels)", async ({
+  page,
+}) => {
+  await page.goto(`/runs/${TEST_RUN_ID}`);
+  const body_text = (await page.locator("body").textContent()) || "";
+  // Also inspect title attributes + aria-labels (Codex iter-1 P1 fix).
+  const title_text =
+    (await page
+      .locator("[title]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("title") || "").join(" · "),
+      )) || "";
+  const aria_text =
+    (await page
+      .locator("[aria-label]")
+      .evaluateAll((els: Element[]) =>
+        els.map((el) => el.getAttribute("aria-label") || "").join(" · "),
+      )) || "";
+  const all_text = `${body_text} · ${title_text} · ${aria_text}`;
+  for (const banned of BANNED_DEV_LANGUAGE) {
+    expect(all_text).not.toMatch(banned);
+  }
+});
+
+test("G8: /runs/[runId] renders with zero console errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await page.goto(`/runs/${TEST_RUN_ID}`);
+  // Use domcontentloaded; networkidle would hang on the live SSE
+  // EventSource subscription this page opens (Codex iter-2 P1 fix).
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1500); // surface async post-mount errors
+  expect(errors).toEqual([]);
+});
+
+test("G1 nav parity: primary nav visible on /runs/[runId]", async ({
+  page,
+}) => {
+  await setupAuthedNav(page);
+  await page.goto(`/runs/${TEST_RUN_ID}`);
+  await expectAuthedNav(page);
+});
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+specific_check_responses:
+  scope_visual_only: PASS
+  existing_testids_preserved: PASS
+  appshell_chrome_preserved: PASS
+  ci_wired_via_yaml_update: PASS
+  no_signed_bundle_overclaim: PASS
+tokens used
+68,426
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution: []
+specific_check_responses:
+  scope_visual_only: PASS
+  existing_testids_preserved: PASS
+  appshell_chrome_preserved: PASS
+  ci_wired_via_yaml_update: PASS
+  no_signed_bundle_overclaim: PASS
