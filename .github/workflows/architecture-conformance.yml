@@ -85,5 +85,15 @@ jobs:
 
       - name: Run architecture lock verifier
         run: |
-          python -m pip install -U pyyaml
-          python -m scripts.architecture.verify_lock
+          # I-cap-002 (#1060): two fixes so the gate actually validates per-PR conformance.
+          # (1) verify_lock imports src.polaris_graph.llm.openrouter_client, whose import chain
+          #     (src/__init__.py -> dotenv; openrouter_client -> httpx + pydantic) needs these runtime
+          #     deps; without them the verifier crashed with ModuleNotFoundError BEFORE validating.
+          # (2) The bare `verify_lock` runs report() = the LOCK-PROMOTION check, which routes through
+          #     check_propagation_manifest() that hardwires tests_pass=False — so it returns 1 on EVERY
+          #     PR regardless of conformance (promotion needs operator signature, orthogonal to a PR).
+          #     The PURPOSE-BUILT per-PR gate is `--consistency` (status-independent: families
+          #     registered + family_policy holds + code defaults match lock + canonical_pin includes
+          #     lock). It still FAILS a real violation (model_slug drift, removed family, broken policy).
+          python -m pip install -U pyyaml python-dotenv httpx pydantic
+          python -m scripts.architecture.verify_lock --consistency

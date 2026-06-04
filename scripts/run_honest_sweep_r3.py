@@ -1992,6 +1992,94 @@ async def run_one_query(
                 trial=_trial_queries,
             )
 
+        # I-cap-002 feature 1/4 (#1060): STORM multi-perspective query expansion (default OFF,
+        # fallback-safe). When PG_STORM_ENABLED_IN_BENCHMARK=1, call STORM to generate diverse
+        # perspective QUESTIONS and append them as additional SEARCH QUERIES. STORM only widens the
+        # query fan-out — evidence is still fetched verbatim by live_retriever and verified by
+        # strict_verify + the 4-role seam, so NO faithfulness path is touched (STORM never produces
+        # direct_quote/evidence rows here). A STORM failure NEVER aborts the run (logged loud, fall
+        # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
+        # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
+        if os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+            import asyncio as _storm_asyncio
+            import contextvars as _storm_cv
+            import src.polaris_graph.agents.storm_interviews as _storm_mod
+            from src.polaris_graph.llm.openrouter_client import (
+                OpenRouterClient as _StormClient,
+                PG_GENERATOR_MODEL as _STORM_MODEL,
+                _RUN_COST_CTX,
+                check_run_budget as _storm_check_budget,
+            )
+            from src.polaris_graph.retrieval.storm_query_extractor import (
+                extract_storm_questions,
+            )
+
+            _storm_state = {
+                "original_query": q["question"],
+                "region": q.get("region", "global"),
+                "web_results": [],
+                "academic_results": [],
+            }
+            _storm_out: dict = {}
+            # Codex diff-gate iter-2 P1-a: STORM runs its interviews under asyncio.gather, whose child
+            # tasks each get their OWN copied context. ContextVars do NOT propagate cost UP from
+            # concurrent children, so STORM's _RUN_COST_CTX spend can be captured NEITHER by a parent
+            # copy_context read NOR by a post-hoc check_run_budget — it would silently bypass
+            # PG_MAX_COST_PER_RUN. Robust fix: book a CONSERVATIVE cost ENVELOPE (scaled by the STORM
+            # perspective/round config) into the parent run cost and ENFORCE the cap BEFORE STORM runs.
+            # STORM then runs in an ISOLATED context (its real spend is discarded from the parent total —
+            # the envelope IS the parent's accounting for STORM). The envelope-inclusive isolated context
+            # also makes STORM's OWN internal budget checks stop early if actual spend nears the cap.
+            # Conservative by design: over-books, never under-enforces (LAW VI). The per-round estimate
+            # is env-tunable.
+            _storm_perspectives = int(os.getenv("PG_STORM_PERSPECTIVES_COUNT", "8"))
+            _storm_rounds = int(os.getenv("PG_STORM_ROUNDS_PER_PERSPECTIVE", "4"))
+            _storm_per_round_usd = float(os.getenv("PG_STORM_PER_ROUND_COST_USD", "0.10"))
+            _storm_cost_envelope = max(
+                0.0, _storm_perspectives * _storm_rounds * _storm_per_round_usd
+            )
+            if _storm_cost_envelope > 0:
+                _RUN_COST_CTX.set(current_run_cost() + _storm_cost_envelope)
+            # Raises BudgetExceededError (-> the sweep's abort_budget_exceeded handler) if the STORM
+            # envelope would breach the cap; STORM does NOT run in that case (the raise precedes the try).
+            _storm_check_budget(0)
+            # Codex diff-gate iter-3 P2: create the client AFTER the budget precheck so a clean
+            # envelope-breach abort does not leave an unclosed OpenRouterClient.
+            _storm_client = _StormClient(model=_STORM_MODEL)
+            _storm_ctx = _storm_cv.copy_context()
+            _storm_prev = _storm_mod.PG_STORM_ENABLED
+            _storm_mod.PG_STORM_ENABLED = True
+            try:
+                _storm_out = await _storm_asyncio.create_task(
+                    _storm_mod.run_storm_interviews(_storm_client, _storm_state),
+                    context=_storm_ctx,
+                )
+            except Exception as _storm_exc:  # noqa: BLE001 — STORM faults (incl. its own internal
+                # BudgetExceededError from the isolated context) never abort the run: the parent budget
+                # was already booked + enforced via the envelope above.
+                _log(
+                    f"[storm]       STORM query expansion failed: {_storm_exc} — "
+                    f"proceeding without STORM queries"
+                )
+            finally:
+                _storm_mod.PG_STORM_ENABLED = _storm_prev
+                try:
+                    await _storm_client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            _storm_questions = extract_storm_questions(
+                _storm_out.get("storm_conversations", []),
+                cap=int(os.getenv("PG_STORM_MAX_BENCHMARK_QUERIES", "30")),
+            )
+            if _storm_questions:
+                _seen_lower = {x.lower() for x in _amplified_effective}
+                _storm_added = [x for x in _storm_questions if x.lower() not in _seen_lower]
+                _amplified_effective = _amplified_effective + _storm_added
+                _log(
+                    f"[storm]       +{len(_storm_added)} perspective queries from "
+                    f"{len(_storm_out.get('storm_conversations', []))} interviews (slug={q['slug']})"
+                )
+
         # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
         # computes NO template-keyed expander. The #817-L4 DOI-seed expander
         # reads the domain scope template (None on-mode); it is gated on

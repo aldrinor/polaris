@@ -1,0 +1,11 @@
+```yaml
+novel_p0: []
+continuing_p0: []
+p1:
+  - "STORM benchmark integration is not present in the live worktree: scripts/run_honest_sweep_r3.py:1968 goes directly from decompose to build_amplified_query_list, and repo search finds PG_STORM_ENABLED_IN_BENCHMARK only in .codex brief text/logs. The iter-3 fix cannot execute or be verified."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Apply the actual run_one_query STORM fan-out patch and tests; current code has no flag, no module-attribute toggle, no run_storm_interviews call, and no extractor."
+verdict: REQUEST_CHANGES
+```
