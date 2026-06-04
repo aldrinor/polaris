@@ -89,9 +89,11 @@ class MockTransport:
             if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
                 verdict = "supported" if self._sentinel_grounded else "unsupported"
                 n_unsupported = "0" if self._sentinel_grounded else "1"
+                # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty
+                # atoms list + count, else the parser fails closed (bare/non-atomized supported).
                 raw_text = (
                     '{"verdict": "' + verdict + '", "unsupported_atoms": '
-                    + n_unsupported + ', "atoms": []}'
+                    + n_unsupported + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}'
                 )
             elif "<guardian>" in final_instruction:
                 score = "no" if self._sentinel_grounded else "yes"

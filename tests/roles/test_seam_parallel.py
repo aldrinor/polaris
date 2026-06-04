@@ -81,7 +81,10 @@ def _sentinel_raw_for_mode(request: RoleRequest, grounded: bool) -> str:
     if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
         verdict = "supported" if grounded else "unsupported"
         n = "0" if grounded else "1"
-        return '{"verdict": "' + verdict + '", "unsupported_atoms": ' + n + ', "atoms": []}'
+        # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty atoms
+        # list + count, else the parser fails closed (bare/non-atomized supported).
+        return ('{"verdict": "' + verdict + '", "unsupported_atoms": ' + n
+                + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
     if "<guardian>" in final_instruction:
         return "<score>no</score>" if grounded else "<score>yes</score>"
     return "GROUNDED" if grounded else "UNGROUNDED"

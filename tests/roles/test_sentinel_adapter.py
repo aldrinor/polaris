@@ -202,8 +202,12 @@ def test_benchmark_transport_error_fails_closed() -> None:
 
 # === DECOMPOSITION (certified MiniMax-M2) mode tests (I-run11-004) ===================
 _MINIMAX_MODEL = "minimax/minimax-m2"
-_SUPPORTED_JSON = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
-_UNSUPPORTED_JSON = '{"verdict": "unsupported", "unsupported_atoms": 1, "atoms": []}'
+# Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs a non-empty
+# atoms list + unsupported_atoms or the parser fails closed (a bare/non-atomized supported did no work).
+_SUPPORTED_JSON = ('{"verdict": "supported", "unsupported_atoms": 0, '
+                   '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
+_UNSUPPORTED_JSON = ('{"verdict": "unsupported", "unsupported_atoms": 1, '
+                     '"atoms": [{"atom": "x", "type": "mechanism", "status": "unsupported"}]}')
 _MULTI_DOCS = [
     EvidenceDocument(doc_id="doc_a", text="HbA1c fell 2.3 points across arms."),
     EvidenceDocument(doc_id="doc_b", text="The reduction was sustained at 52 weeks."),
@@ -422,7 +426,7 @@ def test_run_sentinel_minimax_default_uses_decomposition(monkeypatch) -> None:
     monkeypatch.delenv("PG_SENTINEL_GROUNDEDNESS_MODE", raising=False)
     monkeypatch.setenv("PG_SENTINEL_MODEL", "minimax/minimax-m2")
     transport = _CannedTransport(
-        '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}',
+        _SUPPORTED_JSON,
         served_model="minimax/minimax-m2",
     )
     result, _records = run_sentinel(transport, _CLAIM, _DOCS, model_slug="minimax/minimax-m2")

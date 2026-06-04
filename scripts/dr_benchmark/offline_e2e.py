@@ -224,7 +224,10 @@ class PerClaimFakeRoleTransport:
             # noninverted -> one-word GROUNDED.
             final_instruction = request.messages[-1]["content"] if request.messages else ""
             if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
-                sentinel_raw = '{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}'
+                # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs
+                # a non-empty atoms list + unsupported_atoms, else the parser fails closed.
+                sentinel_raw = ('{"verdict": "supported", "unsupported_atoms": 0, '
+                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
             elif "<guardian>" in final_instruction:
                 sentinel_raw = "<score>no</score>"
             else:

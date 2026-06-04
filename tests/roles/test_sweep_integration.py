@@ -71,8 +71,10 @@ class MockTransport:
             if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
                 verdict = "supported" if self._sentinel_grounded else "unsupported"
                 n = "0" if self._sentinel_grounded else "1"
+                # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a non-empty
+                # atoms list + count, else the parser fails closed (bare/non-atomized supported).
                 raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-                            + n + ', "atoms": []}')
+                            + n + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
             elif "<guardian>" in final_instruction:
                 raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
             else:
@@ -248,8 +250,10 @@ def test_coverage_credit_only_on_verified(tmp_path) -> None:
                 if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
                     verdict = "supported" if grounded else "unsupported"
                     n = "0" if grounded else "1"
+                    # Full decomposition contract (I-run11-004 brief-gate P1): supported needs a
+                    # non-empty atoms list + count, else the parser fails closed.
                     raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-                                + n + ', "atoms": []}')
+                                + n + ', "atoms": [{"atom": "x", "status": "' + verdict + '"}]}')
                 elif "<guardian>" in final_instruction:
                     raw_text = "<score>no</score>" if grounded else "<score>yes</score>"
                 else:

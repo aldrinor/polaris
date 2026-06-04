@@ -233,8 +233,13 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
       - unparseable JSON (after the robust `_strip_json` fence/prefix/trailing-comma handling),
       - a missing `verdict` key,
       - an off-enum verdict (anything other than the exact tokens "supported"/"unsupported"),
+      - a "supported" verdict that OMITS the decomposition contract — no non-empty `atoms` list
+        (with >=1 atom object) OR no `unsupported_atoms` field (Codex brief-gate P1: a bare/
+        truncated/non-atomized "supported" did no per-atom work and must not release),
     yields UNGROUNDED with parsed_ok=False. There is NO path that returns GROUNDED on bad input.
-    `parsed_ok=True` is reserved for a clean JSON object carrying exactly one recognized verdict.
+    `parsed_ok=True` is reserved for a clean JSON object carrying a recognized verdict AND, for
+    "supported", the full decomposition contract (non-empty atoms + unsupported_atoms count == 0,
+    every atom supported).
     """
     if not isinstance(raw, str):
         return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
@@ -260,40 +265,50 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
     # sub-assertion (unsupported_atoms > 0, or an atom whose status is "unsupported"), VETO to
     # UNGROUNDED — the clinical-safe side. The atom analysis OVERRIDES an over-confident top verdict.
     if verdict is SentinelVerdict.GROUNDED:
+        # CONTRACT GATE (Codex BRIEF-gate P1 fail-open fix): the certified decomposition output is
+        # STRICT JSON {verdict, unsupported_atoms, atoms}. A top-level "supported" verdict that OMITS
+        # the decomposition — no non-empty `atoms` list (with >=1 atom object), or no
+        # `unsupported_atoms` field — is a non-atomized / truncated / lazy answer that did NOT do the
+        # per-atom span-coverage work. Trusting it as GROUNDED is a fail-OPEN: a bare
+        # {"verdict":"supported"} could release a fabricated claim if the Judge verifies. FAIL CLOSED
+        # (parsed_ok=False: the output did not meet the decomposition contract). Validated against the
+        # certification cache: all 25 real "supported" outputs carry BOTH a non-empty atoms list AND
+        # unsupported_atoms, so this contract gate has ZERO false-drops on the real model.
+        atoms = parsed.get("atoms")
+        has_atoms = isinstance(atoms, list) and any(isinstance(a, dict) for a in atoms)
+        if not has_atoms or "unsupported_atoms" not in parsed:
+            return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=False)
         # Robustly coerce unsupported_atoms (Codex diff-gate iter-4 P1 + iter-5 P1). A JSON-mode model
         # can QUOTE the number ("unsupported_atoms": "1"), emit a bool (true/false), null, or a list —
-        # a bare numeric check or a `.get() is not None` skip would FAIL OPEN. Distinguish ABSENT (key
-        # not present -> rely on the atoms list + top verdict) from PRESENT-BUT-INVALID (bool / null /
-        # non-coercible -> coerces to None -> VETO). A present value is released ONLY if it coerces to a
-        # CLEAN ZERO; anything else (>0, fractional, bool, null, non-numeric) VETOES to UNGROUNDED.
-        if "unsupported_atoms" in parsed:
-            raw_count = parsed["unsupported_atoms"]
-            count: float | None
-            if isinstance(raw_count, bool):
-                count = None  # a JSON bool is not a count -> present-but-invalid
-            elif isinstance(raw_count, (int, float)):
-                count = raw_count
-            elif isinstance(raw_count, str):
-                token = raw_count.strip()
+        # a bare numeric check would FAIL OPEN. The field is REQUIRED (contract gate above); a value is
+        # released ONLY if it coerces to a CLEAN ZERO; anything else (>0, fractional, bool, null,
+        # non-numeric) VETOES to UNGROUNDED.
+        raw_count = parsed["unsupported_atoms"]
+        count: float | None
+        if isinstance(raw_count, bool):
+            count = None  # a JSON bool is not a count -> present-but-invalid
+        elif isinstance(raw_count, (int, float)):
+            count = raw_count
+        elif isinstance(raw_count, str):
+            token = raw_count.strip()
+            try:
+                count = int(token)
+            except ValueError:
                 try:
-                    count = int(token)
+                    count = float(token)
                 except ValueError:
-                    try:
-                        count = float(token)
-                    except ValueError:
-                        count = None
-            else:
-                count = None  # null (None), list, dict, ... -> present-but-invalid
-            if count is None or count != 0:
+                    count = None
+        else:
+            count = None  # null (None), list, dict, ... -> present-but-invalid
+        if count is None or count != 0:
+            return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+        # atoms is a non-empty list with >=1 atom object (contract gate): veto if ANY atom is unsupported.
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            status = atom.get("status") or atom.get("verdict")
+            if isinstance(status, str) and status.strip().lower() == "unsupported":
                 return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-        atoms = parsed.get("atoms")
-        if isinstance(atoms, list):
-            for atom in atoms:
-                if not isinstance(atom, dict):
-                    continue
-                status = atom.get("status") or atom.get("verdict")
-                if isinstance(status, str) and status.strip().lower() == "unsupported":
-                    return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
-                if atom.get("supported") is False:
-                    return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
+            if atom.get("supported") is False:
+                return SentinelResult(SentinelVerdict.UNGROUNDED, parsed_ok=True)
     return SentinelResult(verdict, parsed_ok=True)

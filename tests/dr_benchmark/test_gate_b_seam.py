@@ -91,10 +91,14 @@ class _FakeRoleTransport:
             # decomposition (MiniMax-M2 default) -> JSON; guardian -> `<score>`; noninverted -> word.
             final_instruction = request.messages[-1]["content"] if request.messages else ""
             if "Decompose the CLAIM into atomic sub-assertions" in final_instruction:
-                verdict = "supported" if self._sentinel_grounded else "unsupported"
-                n = "0" if self._sentinel_grounded else "1"
-                raw_text = ('{"verdict": "' + verdict + '", "unsupported_atoms": '
-                            + n + ', "atoms": []}')
+                # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict MUST
+                # carry a non-empty atoms list + unsupported_atoms, else the parser fails CLOSED.
+                if self._sentinel_grounded:
+                    raw_text = ('{"verdict": "supported", "unsupported_atoms": 0, '
+                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}')
+                else:
+                    raw_text = ('{"verdict": "unsupported", "unsupported_atoms": 1, '
+                                '"atoms": [{"atom": "x", "type": "mechanism", "status": "unsupported"}]}')
             elif "<guardian>" in final_instruction:
                 raw_text = "<score>no</score>" if self._sentinel_grounded else "<score>yes</score>"
             else:

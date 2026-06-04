@@ -271,7 +271,10 @@ def check_role_contracts() -> CheckResult:
         )
     decomp_supported = _GateAMockTransport(
         judge_raw=_JUDGE_OFF_ENUM,
-        sentinel_raw='{"verdict": "supported", "unsupported_atoms": 0, "atoms": []}',
+        # Full decomposition contract (I-run11-004 brief-gate P1): a "supported" verdict needs a
+        # non-empty atoms list + unsupported_atoms, else the parser fails closed (a bare/non-atomized
+        # "supported" did no per-atom work and must not release).
+        sentinel_raw='{"verdict": "supported", "unsupported_atoms": 0, "atoms": [{"atom": "x", "type": "mechanism", "status": "supported"}]}',
     )
     decomp_grounded, _ = run_sentinel(
         decomp_supported, claim, evidence,

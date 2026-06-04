@@ -78,7 +78,10 @@ required_roles:
     model_slug: minimax/minimax-m2
     family: minimax
     serving_route: vast_self_host
-    license: MIT  # MiniMaxAI/MiniMax-M2 is MIT per HuggingFace (Codex diff-gate iter-2 P2)
+    license: modified-mit  # HF MiniMaxAI/MiniMax-M2 tag = "modified-mit": MIT + a large-product UI
+    # attribution condition (Codex brief-gate P2, web-verified vs HF + github.com/MiniMax-AI/MiniMax-M2
+    # /blob/main/LICENSE). Permissive open-weight; POLARIS calls the hosted model (no weight
+    # redistribution), so the attribution condition does not bind our use. Still non-US-vendor-OK.
     released: 2026
     role_description: |
       Certified claim-decomposition + span-coverage faithfulness detector
