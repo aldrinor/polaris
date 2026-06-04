@@ -147,8 +147,14 @@ def test_sends_pinned_slug_and_max_reasoning(role, slug):
     # PG_SENTINEL_MODEL (minimax/minimax-m2) resolves to "decomposition" mode, which the
     # certification ran WITH reasoning ON (reasoning OFF / starved max_tokens truncates the JSON ->
     # all-UNGROUNDED collapse). So ALL THREE roles now send MAX reasoning + require_parameters.
-    # P1-2 MAX reasoning: enabled + effort "xhigh" (OpenRouter's documented MAXIMUM effort).
-    assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
+    # P1-2 MAX reasoning: enabled + effort "xhigh" (OpenRouter's documented MAXIMUM effort) for the
+    # effort-reasoning roles (Judge, decomposition Sentinel). I-run11-008 (#1053): the Mirror instead
+    # sends a BOUNDED numeric reasoning cap (effort=xhigh is a no-op on GLM and unbounded thinking
+    # exhausted the budget -> 47 blanks), so its reasoning block is a fixed max_tokens cap.
+    if role == "mirror":
+        assert body["reasoning"] == {"max_tokens": 4000}
+    else:
+        assert body["reasoning"] == {"enabled": True, "effort": "xhigh"}
     # require_parameters=True makes OpenRouter only route to a provider that HONORS reasoning
     # (otherwise the max-reasoning request could be silently ignored on a fallback provider).
     assert body["provider"] == {"require_parameters": True}
@@ -661,9 +667,16 @@ def test_reasoning_role_sets_generous_max_tokens(role, slug):
     _make_transport(handler).complete(
         RoleRequest(role=role, model_slug=slug, prompt="decide", params={"max_tokens": 16})
     )
-    assert seen["body"]["max_tokens"] == 16384, f"{role}: reasoning role must get the generous verifier budget"
-    # reasoning is still requested at MAX effort.
-    assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
+    if role == "mirror":
+        # I-run11-008 (#1053): the Mirror uses BOUNDED reasoning — a NUMERIC reasoning.max_tokens cap
+        # (effort=xhigh is a no-op on GLM, so unbounded thinking exhausted the budget -> 47 blanks) and
+        # a generous total budget STRICTLY above the cap so the <co>+JSON verdict always has room.
+        assert seen["body"]["reasoning"] == {"max_tokens": 4000}
+        assert seen["body"]["max_tokens"] == 24000
+    else:
+        assert seen["body"]["max_tokens"] == 16384, f"{role}: reasoning role must get the generous verifier budget"
+        # the Judge still requests MAX effort.
+        assert seen["body"]["reasoning"] == {"enabled": True, "effort": "xhigh"}
 
 
 def test_reasoning_role_max_tokens_env_overridable(monkeypatch):
@@ -762,13 +775,16 @@ def _sequenced_handler(responses: list[dict], *, served_model: str, provider: st
 
 
 def test_blank_verdict_steps_down_reasoning_and_recovers():
-    # First xhigh response is blank-after-reasoning; the retry (effort stepped DOWN to "low")
-    # returns a real verdict. complete() must return that verdict, NOT raise.
+    # I-run11-008 (#1053): the effort-step-down ladder is now an EFFORT-reasoning-role behavior (the
+    # Judge), NOT the Mirror — the Mirror uses a fixed numeric reasoning cap + provider-failover for
+    # blank recovery (tested in test_provider_routing.py). First xhigh response is blank-after-
+    # reasoning; the retry (effort stepped DOWN to "low") returns a real verdict. complete() must
+    # return that verdict, NOT raise.
     blank = {"content": "", "reasoning": "looped without converging on a verdict"}
     good = {"content": "VERIFIED"}
-    handler, seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    handler, seen = _sequenced_handler([blank, good], served_model=_JUDGE_SLUG)
     resp = _make_transport(handler).complete(
-        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+        RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
     )
     assert resp.raw_text == "VERIFIED"
     assert len(seen["bodies"]) == 2, "should have retried exactly once after the blank"
@@ -779,12 +795,12 @@ def test_blank_verdict_steps_down_reasoning_and_recovers():
 def test_blank_verdict_ladder_exhausted_fails_loud_with_reasoning_off_last():
     # Every attempt blanks -> fail loud after the ladder (xhigh -> low -> off). The FINAL attempt
     # disables reasoning entirely (no `reasoning` block) to force content; when even that blanks the
-    # transport raises BlankVerdictError (a RoleTransportError subclass).
+    # transport raises BlankVerdictError (a RoleTransportError subclass). (Judge: the effort-ladder role.)
     blank = {"content": "", "reasoning": "never converges"}
-    handler, seen = _sequenced_handler([blank], served_model=_MIRROR_SLUG)
+    handler, seen = _sequenced_handler([blank], served_model=_JUDGE_SLUG)
     with pytest.raises(BlankVerdictError):
         _make_transport(handler).complete(
-            RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+            RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
         )
     assert len(seen["bodies"]) == 3, "default ladder is (xhigh, low, off) = 3 attempts"
     assert seen["bodies"][0]["reasoning"]["effort"] == "xhigh"
@@ -837,9 +853,9 @@ def test_blank_attempt_bills_tokens_into_run_budget(monkeypatch):
 
     blank = {"content": "", "reasoning": "looped without converging"}
     good = {"content": "VERIFIED"}
-    handler, _seen = _sequenced_handler([blank, good], served_model=_MIRROR_SLUG)
+    handler, _seen = _sequenced_handler([blank, good], served_model=_JUDGE_SLUG)
     resp = _make_transport(handler).complete(
-        RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
+        RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
     )
     assert resp.raw_text == "VERIFIED"
     assert len(billed) == 1, "exactly the ONE blank attempt's tokens are billed inline"
@@ -867,3 +883,50 @@ def test_blank_attempt_budget_exceeded_aborts_before_next_retry(monkeypatch):
             RoleRequest(role="mirror", model_slug=_MIRROR_SLUG, prompt="decide")
         )
     assert len(seen["bodies"]) == 1, "the cap abort must prevent the next paid retry"
+
+
+# --------------------------------------------------------------------------------------
+# I-run11-008 (#1053): transient transport failure (connection reset / WinError 10054) on a single
+# role call is RETRIED (bounded), not allowed to abort the whole multi-hundred-call run.
+# --------------------------------------------------------------------------------------
+def test_transport_error_retries_then_recovers():
+    # The first POST raises a connection reset; the bounded transport retry re-issues it and the
+    # second POST returns a real verdict. complete() must return that verdict, NOT crash the run.
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("WinError 10054 connection reset by peer", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "model": _JUDGE_SLUG,
+                "provider": "DeepInfra",
+                "choices": [{"message": {"role": "assistant", "content": "VERIFIED"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 5},
+            },
+        )
+
+    resp = _make_transport(handler).complete(
+        RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
+    )
+    assert resp.raw_text == "VERIFIED"
+    assert calls["n"] == 2, "the reset retried exactly once before succeeding"
+
+
+def test_transport_error_exhausted_fails_loud(monkeypatch):
+    # LAW II (fail loud, no silent fallback): when EVERY retry hits a transport error the transport
+    # raises RoleTransportError — it never silently returns an empty/None verdict.
+    monkeypatch.setenv("PG_ROLE_TRANSPORT_RETRIES", "1")
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("reset", request=request)
+
+    with pytest.raises(RoleTransportError):
+        _make_transport(handler).complete(
+            RoleRequest(role="judge", model_slug=_JUDGE_SLUG, prompt="decide")
+        )
+    assert calls["n"] == 2, "PG_ROLE_TRANSPORT_RETRIES=1 -> 1 original + 1 retry = 2 attempts"
