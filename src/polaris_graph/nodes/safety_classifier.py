@@ -61,18 +61,27 @@ _PERSON = (
 # never over-refuse legitimate prevention / poison-management / first-aid queries (the product).
 _LETHAL_CARE_GUARD = re.compile(
     r"\b(?:prevent|preventing|stop|stopping|protect|save|rescu(?:e|ing)|talk\s+\w+\s+out\s+of|"
-    r"first\s+aid|antidote|reverse|how\s+to\s+help|support\s+(?:someone|a\s+\w+|them))\b",
+    r"first\s+aid|antidote|reverse|reversal|how\s+to\s+help|support\s+(?:someone|a\s+\w+|them)|"
+    # Codex diff-gate iter-1 P1: clinical-MANAGEMENT framing is a HELP query, not a harm request, even
+    # when the case presentation describes a third party's lethal intent ("management of intentional
+    # insulin overdose intended to kill a patient"). The product MUST answer these.
+    r"manage|management|treat(?:ment|ing|s)?|clinical|emergency|\bicu\b|hospital|"
+    r"poison\s+control|overdose\s+management|resuscitat|supportive\s+care|nursing|paramedic)\b",
     re.IGNORECASE,
 )
 
 # 1) LETHAL INTENT AGAINST PERSONS — requires an explicit intent-to-kill/poison clause toward a
-#    person. Bare "drug + dose" carries no intent verb -> never matches.
+#    person. Bare "drug + dose" carries no intent verb -> never matches. Codex diff-gate iter-1 P1:
+#    the intent verb may be "would/will/that-would kill", not only "to kill" ("what dose of insulin
+#    WOULD KILL my roommate" was missed).
 _LETHAL_INTENT = re.compile(
-    r"\bto\s+(?:kill|murder|poison|fatally\s+harm|cause\s+(?:the\s+)?death\s+of|"
+    r"\b(?:to|would|will)\s+(?:kill|murder|poison|fatally\s+harm|cause\s+(?:the\s+)?death\s+of|"
     r"end\s+the\s+life\s+of|euthani[sz]e\s+(?!myself))\s+" + _PERSON
-    + r"|\b(?:lethal|fatal|deadly)\s+dose\s+(?:to|that\s+(?:would\s+)?(?:kill|cause))"
+    + r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount|quantity)\s+(?:to|that\s+(?:would\s+)?(?:kill|cause)|"
+    r"of\s+\w+\s+(?:to|that\s+(?:would|will|could))\s+kill)"
     r"|\bhow\s+to\s+(?:kill|murder|poison)\s+" + _PERSON
-    + r"|\b(?:overdose|dose|amount)\b.{0,40}?\bto\s+(?:kill|murder|fatally\s+harm|cause\s+death)"
+    + r"|\b(?:overdose|dose|amount|quantity|how\s+much)\b.{0,45}?"
+    r"\b(?:to|would|will|that\s+(?:would|will|could|can))\s+(?:kill|murder|fatally\s+harm|cause\s+death)"
     r"|\bso\s+(?:that\s+)?(?:it|they|he|she|the\s+(?:patient|person|victim|baby|infant))\s+"
     r"(?:dies|die|will\s+die|won['’]t\s+survive)"
     r"|\bundetectable\s+poison|\buntraceable\s+(?:poison|method)\b",
@@ -120,13 +129,17 @@ _SELF_HARM_HELP_GUARD = re.compile(
     re.IGNORECASE,
 )
 
-# 5) ILLICIT DRUG SYNTHESIS — requires a synthesis/manufacture verb. "fentanyl overdose deaths",
-#    "the opioid epidemic", "methamphetamine addiction treatment" carry no synthesis verb -> no match.
+# 5) ILLICIT DRUG SYNTHESIS — requires a synthesis/manufacture verb OR a recipe/instructions request.
+#    "fentanyl overdose deaths", "the opioid epidemic", "methamphetamine addiction treatment" carry no
+#    synthesis verb -> no match. Codex diff-gate iter-1 P1: "recipe for methamphetamine" was missed.
 _ILLICIT_SYNTHESIS = re.compile(
     r"\b(?:synthesi[sz]e|synthesi[sz]ing|cook|cooking|manufactur|produc(?:e|ing)|make|making|"
     r"extract(?:ing)?|brew|refin(?:e|ing))\w*\s+(?:a\s+|some\s+|your\s+own\s+|home(?:made)?\s+)?"
     r".{0,20}?\b(?:methamphetamine|crystal\s+meth|\bmeth\b|fentanyl|carfentanil|heroin|cocaine|"
     r"\bmdma\b|\blsd\b|\bpcp\b|ghb)\b"
+    r"|\b(?:recipe|instructions|guide|blueprint|formula|protocol)\s+for\s+"
+    r"(?:making\s+|cooking\s+|synthesi[sz]ing\s+|producing\s+)?"
+    r"(?:methamphetamine|crystal\s+meth|\bmeth\b|fentanyl|carfentanil|heroin|cocaine|\bmdma\b)\b"
     r"|\bclandestine\s+(?:drug\s+)?(?:synthesis|lab|manufactur)"
     r"|\bsynthesis\s+route\s+(?:for|of)\s+(?:fentanyl|methamphetamine|meth|heroin|mdma|carfentanil)\b"
     r"|\bhow\s+to\s+(?:cook|make|synthesi[sz]e|manufacture)\s+(?:meth|methamphetamine|fentanyl|"
@@ -134,14 +147,21 @@ _ILLICIT_SYNTHESIS = re.compile(
     re.IGNORECASE,
 )
 
-# Ordered (category_name, compiled_pattern). First hit wins. NOTE: lethal-intent and self-harm are
-# handled SEPARATELY in classify_harm_intent (each carries its own guard veto), so they are NOT in
-# this loop — re-matching lethal here would bypass _LETHAL_CARE_GUARD.
-_CATEGORIES: list[tuple[str, re.Pattern[str]]] = [
-    ("weaponization", _WEAPONIZATION),
-    ("csam", _CSAM),
-    ("illicit_synthesis", _ILLICIT_SYNTHESIS),
-]
+# Prevention / policy / enforcement framing for the MAKE/BUILD categories (weaponization, illicit
+# synthesis). Codex diff-gate iter-1 P1: "public health interventions to prevent people from making
+# fentanyl" and "policy to stop bioweapon proliferation" are legitimate policy queries, not how-to
+# requests. This guard requires explicit POLICY/PREVENTION nouns (not a bare "stop"), so an
+# adversarial "...to stop my enemy" suffix does NOT trip it.
+_ACTION_PREVENTION_GUARD = re.compile(
+    r"\b(?:public\s+health|policy|policies|regulat\w*|enforcement|law\s+enforcement|interdict\w*|"
+    r"nonproliferation|non-?proliferation|counter[-\s]?(?:terror\w*|prolifer\w*|narcotic\w*)|"
+    r"treaty|treaties|convention|disarmament|crackdown|seizure|surveillance|epidemiolog\w*|"
+    r"prevent\w*\s+(?:people|the\s+public|others|them|the\s+spread|production|traffick\w*|"
+    r"proliferat\w*|access|\w+\s+from\s+(?:making|producing|synthesi))|"
+    r"(?:reduce|disrupt|combat\w*|stop|curb|tackle)\s+(?:the\s+)?(?:production|traffick\w*|spread|"
+    r"proliferat\w*|manufactur\w*|supply|distribution|epidemic))\b",
+    re.IGNORECASE,
+)
 
 
 def classify_harm_intent(question: str) -> HarmDecision:
@@ -150,7 +170,9 @@ def classify_harm_intent(question: str) -> HarmDecision:
     Returns ``harmful=True`` only on an explicit harm-intent / weaponization-action / CSAM /
     suicide-method / illicit-synthesis clause. Bare clinical / policy / epidemiology subjects
     (no intent clause) return ``harmful=False`` so the legitimate research product is never
-    over-refused. Any internal error returns ``harmful=False`` (fail-open-to-proceed)."""
+    over-refused. Each category with a legitimate counterpart (lethal/self-harm → care/help;
+    weaponization/illicit → policy/prevention) carries its own guard veto — handled INLINE below, NOT
+    a generic loop, so a guard can never be bypassed. Any internal error returns ``harmful=False``."""
     try:
         q = (question or "").strip()
         if not q:
@@ -160,16 +182,24 @@ def classify_harm_intent(question: str) -> HarmDecision:
         if _SELF_HARM_METHOD.search(q) and not _SELF_HARM_HELP_GUARD.search(q):
             return HarmDecision(True, "self_harm_method", 0.9, ["self_harm_method_seeking"])
 
-        # Lethal-against-persons: explicit intent AND not a care / prevention / first-aid context.
+        # Lethal-against-persons: explicit intent AND not a care / management / prevention context.
         if _LETHAL_INTENT.search(q) and not _LETHAL_CARE_GUARD.search(q):
             return HarmDecision(
                 True, "lethal_intent_against_persons", 0.9,
                 ["lethal_intent_against_persons_explicit_intent"],
             )
 
-        for name, pattern in _CATEGORIES:
-            if pattern.search(q):
-                return HarmDecision(True, name, 0.9, [f"{name}_explicit_intent"])
+        # Weaponization: make/build ACTION AND not a policy / prevention / enforcement context.
+        if _WEAPONIZATION.search(q) and not _ACTION_PREVENTION_GUARD.search(q):
+            return HarmDecision(True, "weaponization", 0.9, ["weaponization_explicit_intent"])
+
+        # Illicit synthesis: synthesis verb / recipe AND not a policy / prevention / enforcement context.
+        if _ILLICIT_SYNTHESIS.search(q) and not _ACTION_PREVENTION_GUARD.search(q):
+            return HarmDecision(True, "illicit_synthesis", 0.9, ["illicit_synthesis_explicit_intent"])
+
+        # CSAM: no legitimate counterpart -> any literal hit refuses (no guard).
+        if _CSAM.search(q):
+            return HarmDecision(True, "csam", 0.9, ["csam_explicit"])
 
         return HarmDecision(False, "", 0.0, ["no_explicit_harm_intent"])
     except Exception as exc:  # noqa: BLE001 — fail open: a classifier bug must never abort a run.
