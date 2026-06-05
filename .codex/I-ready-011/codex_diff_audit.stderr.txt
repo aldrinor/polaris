@@ -1,0 +1,1957 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e9998-11af-7bb1-81a4-50e85ba97f2c
+--------
+user
+# Codex DIFF review — I-ready-011 (#1077): PG_DOC_INGEST_BACKEND — ITER 2
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**REVIEW ONLY — do not modify any file. Return the YAML verdict block ONLY. Claude authored the diff (commits a2c17ada + the P2 fixup on bot/I-ready-011-doc-ingest-backend).**
+
+---
+
+## 0. Your iter-1 verdict: APPROVE (0 P0/P1, default_backend_correct=yes, 2 P2). Both folded in.
+
+- **P2-1 (blank local extraction → deferred /runs 400):** the `local` branch now FAILS LOUD at upload (HTTP 422) when `_extract_text_local` returns blank/whitespace (DocumentIngester can return "" without raising — scanned/figure-only PDF), with an actionable "enable the VLM-OCR backend" message — consistent with the parse-error 422 branch.
+- **P2-2 (unknown backend silently → legacy):** an unrecognised `PG_DOC_INGEST_BACKEND` value now FAILS LOUD (HTTP 400) via `_KNOWN_BACKENDS` validation at the top of the dispatch, instead of silently behaving as legacy. LAW II — no silent config degradation. (legacy/unset is still in `_KNOWN_BACKENDS` → byte-identical.)
+
+These two guards are the only change since iter-1.
+
+## 1. Verify this iter
+
+- Both new fail-loud guards are correct; `legacy`/unset is still byte-identical (legacy ∈ _KNOWN_BACKENDS; a blank guard only fires under the `local` branch); no new regression to the iter-1-APPROVE'd behavior.
+- No NEW P0/P1.
+
+## 2. Verification done (offline, no spend, no OCR model)
+
+11 behavioral tests pass (added unknown-backend→400 + blank-local→422) + 8 adversarial upload regression green.
+
+## 3. Output schema (return EXACTLY this; loose prose rejected)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+
+## 4. The full committed diff (`git diff bot/I-ready-013-analyst-synthesis-verified..HEAD`)
+
+```diff
+diff --git a/src/polaris_v6/api/upload.py b/src/polaris_v6/api/upload.py
+index 4901acf3..91825a43 100644
+--- a/src/polaris_v6/api/upload.py
++++ b/src/polaris_v6/api/upload.py
+@@ -21,6 +21,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import html as _html
++import os
+ import uuid
+ from typing import Literal
+ 
+@@ -47,6 +48,51 @@ MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
+ CHUNK_SIZE = 280
+ MAX_GROUNDING_CHUNKS = 40
+ 
++# I-ready-011 (#1077): document-ingest backend selector (LAW VI). `legacy` (DEFAULT) keeps the
++# .md/.txt-only behavior byte-identical (PDF/DOCX still fail loud downstream). `local` routes
++# PDF/DOCX through the EXISTING DocumentIngester (PyMuPDF text + Tesseract OCR fallback,
++# python-docx) — deps already in requirements.txt. The VLM-OCR backends (figure/chart/table
++# understanding via docling/surya/deepseek-ocr-2) are OPERATOR-GATED heavy open-weight deps and
++# fail LOUD here until installed + signed off (never loaded in the autonomous loop, §8.4).
++_VLM_BACKENDS = frozenset({"vlm", "docling", "surya", "deepseek-ocr", "deepseek-ocr-2", "marker"})
++_LOCAL_PARSE_EXTENSIONS = frozenset({".pdf", ".docx"})
++# All recognised backend values. An unrecognised value (operator typo) FAILS LOUD rather than
++# silently falling back to legacy (Codex diff-gate P2 — no silent config degradation, LAW II).
++_KNOWN_BACKENDS = frozenset({"legacy", "local"}) | _VLM_BACKENDS
++
++
++def _doc_ingest_backend() -> str:
++    return os.environ.get("PG_DOC_INGEST_BACKEND", "legacy").strip().lower()
++
++
++async def _extract_text_local(content: bytes, ext: str) -> str:
++    """Extract text from PDF/DOCX bytes via the EXISTING DocumentIngester (PyMuPDF/python-docx +
++    Tesseract OCR fallback). I-ready-011 (#1077).
++
++    DocumentIngester.ingest takes a file PATH, so the bytes are written to a temp file with the
++    real extension (the ingester dispatches on suffix). The import is LAZY so a `legacy` upload
++    never pulls fitz/document_ingester. A born-digital text PDF uses PyMuPDF text extraction with
++    NO OCR model (Tesseract fires only when extracted text < threshold).
++    """
++    import tempfile
++    from pathlib import Path
++
++    from polaris_graph.document_ingester import DocumentIngester
++
++    tmp_path: "Path | None" = None
++    try:
++        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
++            tmp.write(content)
++            tmp_path = Path(tmp.name)
++        result = await DocumentIngester().ingest(tmp_path)
++        return str(result.get("content") or "")
++    finally:
++        if tmp_path is not None:
++            try:
++                tmp_path.unlink()
++            except OSError:
++                pass
++
+ 
+ class UploadResponse(BaseModel):
+     document_id: str
+@@ -118,18 +164,70 @@ async def upload_document(
+     sha = hashlib.sha256(content).hexdigest()
+     document_id = uuid.uuid4().hex
+ 
++    backend = _doc_ingest_backend()
++    if backend not in _KNOWN_BACKENDS:
++        # Codex diff-gate P2: a typo'd backend must FAIL LOUD, not silently behave as legacy
++        # (which would unparse a PDF the operator believes they enabled). LAW II — no silent
++        # config degradation.
++        raise HTTPException(
++            status_code=400,
++            detail=(
++                f"unknown PG_DOC_INGEST_BACKEND={backend!r}; valid values: "
++                f"{sorted(_KNOWN_BACKENDS)}."
++            ),
++        )
+     if ext in {".md", ".txt"}:
++        # Text formats: decode directly on EVERY backend (no parser/model needed) — unchanged.
+         try:
+             text = content.decode("utf-8", errors="replace")
+         except Exception:
+             text = ""
+-        chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+-        preview_text = text
+-        preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
++    elif backend in _VLM_BACKENDS:
++        # I-ready-011 (#1077): VLM-OCR (figure/chart/table understanding) is operator-gated — heavy
++        # open-weight deps (docling/surya/deepseek-ocr-2) not installed + never loaded in the
++        # autonomous loop (§8.4). Fail LOUD so the operator sees exactly what to enable, never a
++        # silent empty parse.
++        raise HTTPException(
++            status_code=501,
++            detail=(
++                f"PG_DOC_INGEST_BACKEND={backend!r} (VLM-OCR) is not enabled: it requires "
++                "operator-installed open-weight OCR deps (docling / surya / deepseek-ocr-2) plus "
++                "sovereignty sign-off. Use PG_DOC_INGEST_BACKEND=local (PyMuPDF/Tesseract) or the "
++                "default 'legacy'."
++            ),
++        )
++    elif backend == "local" and ext in _LOCAL_PARSE_EXTENSIONS:
++        # I-ready-011 (#1077): parse PDF/DOCX via the EXISTING DocumentIngester (PyMuPDF text +
++        # Tesseract OCR fallback for scanned pages; python-docx). The extracted text flows through
++        # the SAME chunk_text + evidence path as a .md/.txt upload — no new verification bypass
++        # (Codex brief-gate confirmed faithfulness-safe). Fail LOUD on a parse error.
++        try:
++            text = await _extract_text_local(content, ext)
++        except Exception as exc:  # noqa: BLE001 — surface the parse failure, never silent-empty
++            raise HTTPException(
++                status_code=422,
++                detail=f"failed to parse {ext} document with the 'local' backend: {exc}",
++            ) from exc
++        if not text.strip():
++            # Codex diff-gate P2: DocumentIngester can return BLANK without raising (e.g. a
++            # scanned/figure-only PDF where text extraction yields nothing). Fail LOUD at upload
++            # time (not a deferred /runs 400) with an actionable pointer — consistent with the
++            # parse-error branch above.
++            raise HTTPException(
++                status_code=422,
++                detail=(
++                    f"the 'local' backend extracted no text from this {ext} (likely a "
++                    "scanned / figure-only document). Enable the VLM-OCR backend "
++                    "(PG_DOC_INGEST_BACKEND=vlm) once its open-weight deps are installed."
++                ),
++            )
+     else:
+-        chunks = []
+-        preview_text = ""
+-        preview_html = ""
++        # legacy (DEFAULT): non-text formats are not parsed here -> downstream fail-loud 400.
++        text = ""
++
++    chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
++    preview_text = text
++    preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
+ 
+     response = UploadResponse(
+         document_id=document_id,
+diff --git a/tests/polaris_v6/test_doc_ingest_backend_iready011.py b/tests/polaris_v6/test_doc_ingest_backend_iready011.py
+new file mode 100644
+index 00000000..ec466110
+--- /dev/null
++++ b/tests/polaris_v6/test_doc_ingest_backend_iready011.py
+@@ -0,0 +1,144 @@
++"""I-ready-011 (#1077) — PG_DOC_INGEST_BACKEND selector on the v6 upload path.
++
++The v6 HTTP upload path (`upload.py`) decoded only .md/.txt and returned chunks=[] for PDF/DOCX
++(→ runs.py HTTP 400 "pdf/docx parsing is not yet available"). This adds PG_DOC_INGEST_BACKEND:
++  * legacy (DEFAULT) — byte-identical (PDF/DOCX still unparsed → empty chunks);
++  * local — PDF/DOCX parsed via the EXISTING DocumentIngester (PyMuPDF + Tesseract fallback);
++  * vlm/docling/surya/... — operator-gated heavy-OCR stub that fails LOUD (501), no model load.
++
++Offline / §8.4-clean: the PDF fixture is born-digital (a text layer inserted via fitz), so the
++'local' path uses PyMuPDF text extraction with NO OCR model (Tesseract fires only when the
++extracted text is below threshold). DocumentIngester persistence is redirected to tmp.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from io import BytesIO
++
++import pytest
++from fastapi import HTTPException, UploadFile
++
++import polaris_graph.document_ingester as document_ingester
++from polaris_v6.api import upload as upload_mod
++from polaris_v6.api.upload import _doc_ingest_backend, upload_document
++
++_PDF_TEXT = (
++    "Synthetic trial fixture (PUBLIC_SYNTHETIC). In the ZORBLAX-7 study the experimental compound "
++    "reduced the fictional Quibble Score by 42 percent versus placebo."
++)
++
++
++def _born_digital_pdf_bytes() -> bytes:
++    """A 1-page PDF with a real text layer (no scan) → PyMuPDF text extraction, NO Tesseract."""
++    import fitz  # PyMuPDF (in requirements.txt)
++
++    doc = fitz.open()
++    page = doc.new_page()
++    page.insert_text((72, 144), _PDF_TEXT, fontsize=11)
++    data = doc.tobytes()
++    doc.close()
++    return data
++
++
++def _uf(name: str, content: bytes) -> UploadFile:
++    return UploadFile(file=BytesIO(content), filename=name)
++
++
++@pytest.fixture()
++def _hermetic_storage(tmp_path, monkeypatch):
++    monkeypatch.setattr(document_ingester, "DOCUMENT_STORAGE_DIR", tmp_path / "doc_store")
++    return tmp_path
++
++
++@pytest.fixture(autouse=True)
++def _clear_upload_table():
++    upload_mod._UPLOAD_TABLE.clear()
++    yield
++    upload_mod._UPLOAD_TABLE.clear()
++
++
++# ── default + selector ──────────────────────────────────────────────────────
++
++def test_backend_default_is_legacy(monkeypatch):
++    monkeypatch.delenv("PG_DOC_INGEST_BACKEND", raising=False)
++    assert _doc_ingest_backend() == "legacy"
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "LOCAL")
++    assert _doc_ingest_backend() == "local"  # normalized lower
++
++
++# ── legacy: byte-identical (PDF unparsed) ───────────────────────────────────
++
++def test_legacy_pdf_yields_no_chunks(monkeypatch):
++    monkeypatch.delenv("PG_DOC_INGEST_BACKEND", raising=False)  # default legacy
++    resp = asyncio.run(upload_document(file=_uf("trial.pdf", b"%PDF-1.4 fake"), classification="PUBLIC_SYNTHETIC"))
++    assert resp.content == ""
++    assert resp.chunk_preview == []
++    assert resp.parse_status == "queued"  # downstream runs.py then 400s — unchanged behavior
++
++
++def test_md_unchanged_under_every_backend(monkeypatch):
++    for backend in ("legacy", "local", "vlm"):
++        monkeypatch.setenv("PG_DOC_INGEST_BACKEND", backend)
++        resp = asyncio.run(upload_document(file=_uf("note.md", b"# Title\n\nHello world."), classification="PUBLIC_SYNTHETIC"))
++        assert "Hello world." in resp.content
++        assert resp.chunk_preview  # non-empty
++        assert resp.parse_status == "completed"
++
++
++# ── local: PDF parsed via existing DocumentIngester (no OCR model) ──────────
++
++def test_local_pdf_is_parsed_to_chunks(_hermetic_storage, monkeypatch):
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++    resp = asyncio.run(upload_document(file=_uf("trial.pdf", _born_digital_pdf_bytes()), classification="PUBLIC_SYNTHETIC"))
++    assert "ZORBLAX-7" in resp.content
++    assert resp.chunk_preview  # non-empty → downstream runs.py will chunk + ground, no 400
++    assert resp.parse_status == "completed"
++
++
++def test_local_parse_failure_fails_loud(_hermetic_storage, monkeypatch):
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++    # Not a real PDF → DocumentIngester raises → 422 fail-loud (never silent-empty).
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("broken.pdf", b"not a pdf at all"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 422
++
++
++# ── vlm: operator-gated fail-loud stub, no heavy import ─────────────────────
++
++def test_unknown_backend_fails_loud_400(monkeypatch):
++    """Codex diff-gate P2: a typo'd PG_DOC_INGEST_BACKEND must fail loud (400), not silently
++    fall back to legacy (which would unparse a PDF the operator thinks they enabled)."""
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "locl")  # typo
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("trial.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 400
++    assert "unknown" in str(exc.value.detail).lower()
++
++
++def test_local_blank_extraction_fails_loud_422(monkeypatch):
++    """Codex diff-gate P2: DocumentIngester can return blank without throwing (scanned/figure-only
++    PDF). The 'local' backend must fail loud at upload (422), not defer a confusing /runs 400."""
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++
++    async def _blank(content, ext):
++        return "   \n\t  "  # whitespace-only extraction
++
++    monkeypatch.setattr(upload_mod, "_extract_text_local", _blank)
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("scanned.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 422
++    assert "no text" in str(exc.value.detail).lower()
++
++
++@pytest.mark.parametrize("backend", ["vlm", "docling", "surya", "deepseek-ocr-2"])
++def test_vlm_backend_fails_loud_501(monkeypatch, backend):
++    import sys
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", backend)
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("trial.pdf", _born_digital_pdf_bytes() if False else b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 501
++    assert "operator" in str(exc.value.detail).lower()
++    # The stub must NOT import a heavy OCR engine.
++    assert "docling" not in sys.modules
++    assert "surya" not in sys.modules
+
+```
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/upload.py -TotalCount 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat bot/I-ready-013-analyst-synthesis-verified..HEAD' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_v6/api/upload.py tests/polaris_v6/test_doc_ingest_backend_iready011.py' in C:\POLARIS
+ succeeded in 1551ms:
+"""POST /upload — F3b drag-drop document upload endpoint.
+
+Per docs/carney_delivery_plan_v6_2.md F3b, the user can upload PDFs /
+docx / md / txt to seed a research run. Phase 0 ships the contract:
+returns a document_id + parse_status; Phase 1 wires actual parsing +
+chunking + sovereignty router (CAN_REAL data must stay on Canadian
+infra).
+
+Per CLAUDE.md security posture: file content classification
+(PUBLIC_SYNTHETIC | CAN_REAL | PRIVATE | CLIENT | UNKNOWN) is set by
+the caller; default is UNKNOWN and triggers conservative routing.
+
+I-rdy-010 (#506): `get_upload_record` + `chunk_text` let POST /runs
+resolve uploaded document_ids to content at run-creation time. The
+upload table is an in-process dict — the Dramatiq worker is a separate
+process and cannot read it — so /runs (which runs in the API process)
+resolves the content and embeds it in the actor message.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import html as _html
+import os
+import uuid
+from typing import Literal
+
+from fastapi import APIRouter, Form, HTTPException, UploadFile
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/upload", tags=["upload"])
+
+DataClassification = Literal[
+    "PUBLIC_SYNTHETIC",
+    "CAN_REAL",
+    "PRIVATE",
+    "CLIENT",
+    "UNKNOWN",
+]
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
+
+# I-rdy-010 (#506): grounding-chunk parameters. CHUNK_SIZE matches the
+# upload-endpoint preview chunking; MAX_GROUNDING_CHUNKS bounds how much
+# uploaded text is embedded into a Dramatiq actor message — a .md/.txt
+# upload can be up to MAX_BYTES, so the full document is NOT embedded.
+CHUNK_SIZE = 280
+MAX_GROUNDING_CHUNKS = 40
+
+# I-ready-011 (#1077): document-ingest backend selector (LAW VI). `legacy` (DEFAULT) keeps the
+# .md/.txt-only behavior byte-identical (PDF/DOCX still fail loud downstream). `local` routes
+# PDF/DOCX through the EXISTING DocumentIngester (PyMuPDF text + Tesseract OCR fallback,
+# python-docx) — deps already in requirements.txt. The VLM-OCR backends (figure/chart/table
+# understanding via docling/surya/deepseek-ocr-2) are OPERATOR-GATED heavy open-weight deps and
+# fail LOUD here until installed + signed off (never loaded in the autonomous loop, §8.4).
+_VLM_BACKENDS = frozenset({"vlm", "docling", "surya", "deepseek-ocr", "deepseek-ocr-2", "marker"})
+_LOCAL_PARSE_EXTENSIONS = frozenset({".pdf", ".docx"})
+# All recognised backend values. An unrecognised value (operator typo) FAILS LOUD rather than
+# silently falling back to legacy (Codex diff-gate P2 — no silent config degradation, LAW II).
+_KNOWN_BACKENDS = frozenset({"legacy", "local"}) | _VLM_BACKENDS
+
+
+def _doc_ingest_backend() -> str:
+    return os.environ.get("PG_DOC_INGEST_BACKEND", "legacy").strip().lower()
+
+
+async def _extract_text_local(content: bytes, ext: str) -> str:
+    """Extract text from PDF/DOCX bytes via the EXISTING DocumentIngester (PyMuPDF/python-docx +
+    Tesseract OCR fallback). I-ready-011 (#1077).
+
+    DocumentIngester.ingest takes a file PATH, so the bytes are written to a temp file with the
+    real extension (the ingester dispatches on suffix). The import is LAZY so a `legacy` upload
+    never pulls fitz/document_ingester. A born-digital text PDF uses PyMuPDF text extraction with
+    NO OCR model (Tesseract fires only when extracted text < threshold).
+    """
+    import tempfile
+    from pathlib import Path
+
+    from polaris_graph.document_ingester import DocumentIngester
+
+    tmp_path: "Path | None" = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        result = await DocumentIngester().ingest(tmp_path)
+        return str(result.get("content") or "")
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+class UploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    bytes: int
+    sha256: str
+    classification: DataClassification
+    parse_status: Literal["queued", "completed", "failed"]
+    chunk_preview: list[str]
+    content: str = ""
+    html: str = ""
+
+
+_UPLOAD_TABLE: dict[str, UploadResponse] = {}
+
+
+def chunk_text(
+    text: str,
+    *,
+    size: int = CHUNK_SIZE,
+    max_chunks: int = MAX_GROUNDING_CHUNKS,
+) -> list[str]:
+    """Split text into fixed-size chunks, capped at ``max_chunks``.
+
+    The cap bounds the embedded actor-message payload (I-rdy-010) — an
+    uploaded .md/.txt document can be up to ``MAX_BYTES``, so only the
+    leading ``max_chunks`` are used to ground a run.
+    """
+    text = text.strip()
+    if not text:
+        return []
+    chunks = [text[i : i + size] for i in range(0, len(text), size)]
+    return chunks[:max_chunks]
+
+
+def get_upload_record(document_id: str) -> UploadResponse | None:
+    """Look up an uploaded document by id, or None if absent.
+
+    Used by POST /runs (I-rdy-010) to resolve document_ids → content at
+    run-creation time, in the API process that owns ``_UPLOAD_TABLE``.
+    """
+    return _UPLOAD_TABLE.get(document_id)
+
+
+@router.post("", response_model=UploadResponse, status_code=201)
+async def upload_document(
+    file: UploadFile,
+    classification: DataClassification = Form("UNKNOWN"),
+) -> UploadResponse:
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail="filename required")
+
+    ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported extension {ext!r}. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_BYTES // (1024 * 1024)} MB limit",
+        )
+    if len(content) == 0:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    sha = hashlib.sha256(content).hexdigest()
+    document_id = uuid.uuid4().hex
+
+    backend = _doc_ingest_backend()
+    if backend not in _KNOWN_BACKENDS:
+        # Codex diff-gate P2: a typo'd backend must FAIL LOUD, not silently behave as legacy
+        # (which would unparse a PDF the operator believes they enabled). LAW II — no silent
+        # config degradation.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown PG_DOC_INGEST_BACKEND={backend!r}; valid values: "
+                f"{sorted(_KNOWN_BACKENDS)}."
+            ),
+        )
+    if ext in {".md", ".txt"}:
+        # Text formats: decode directly on EVERY backend (no parser/model needed) — unchanged.
+        try:
+            text = content.decode("utf-8", errors="replace")
+        except Exception:
+            text = ""
+    elif backend in _VLM_BACKENDS:
+        # I-ready-011 (#1077): VLM-OCR (figure/chart/table understanding) is operator-gated — heavy
+        # open-weight deps (docling/surya/deepseek-ocr-2) not installed + never loaded in the
+        # autonomous loop (§8.4). Fail LOUD so the operator sees exactly what to enable, never a
+        # silent empty parse.
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                f"PG_DOC_INGEST_BACKEND={backend!r} (VLM-OCR) is not enabled: it requires "
+                "operator-installed open-weight OCR deps (docling / surya / deepseek-ocr-2) plus "
+                "sovereignty sign-off. Use PG_DOC_INGEST_BACKEND=local (PyMuPDF/Tesseract) or the "
+                "default 'legacy'."
+            ),
+        )
+    elif backend == "local" and ext in _LOCAL_PARSE_EXTENSIONS:
+        # I-ready-011 (#1077): parse PDF/DOCX via the EXISTING DocumentIngester (PyMuPDF text +
+        # Tesseract OCR fallback for scanned pages; python-docx). The extracted text flows through
+        # the SAME chunk_text + evidence path as a .md/.txt upload — no new verification bypass
+        # (Codex brief-gate confirmed faithfulness-safe). Fail LOUD on a parse error.
+        try:
+            text = await _extract_text_local(content, ext)
+        except Exception as exc:  # noqa: BLE001 — surface the parse failure, never silent-empty
+            raise HTTPException(
+                status_code=422,
+                detail=f"failed to parse {ext} document with the 'local' backend: {exc}",
+            ) from exc
+        if not text.strip():
+            # Codex diff-gate P2: DocumentIngester can return BLANK without raising (e.g. a
+            # scanned/figure-only PDF where text extraction yields nothing). Fail LOUD at upload
+            # time (not a deferred /runs 400) with an actionable pointer — consistent with the
+            # parse-error branch above.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"the 'local' backend extracted no text from this {ext} (likely a "
+                    "scanned / figure-only document). Enable the VLM-OCR backend "
+                    "(PG_DOC_INGEST_BACKEND=vlm) once its open-weight deps are installed."
+                ),
+            )
+    else:
+        # legacy (DEFAULT): non-text formats are not parsed here -> downstream fail-loud 400.
+        text = ""
+
+    chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+    preview_text = text
+    preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
+
+    response = UploadResponse(
+        document_id=document_id,
+        filename=file.filename,
+        bytes=len(content),
+        sha256=sha,
+        classification=classification,
+        parse_status="completed" if chunks else "queued",
+        chunk_preview=chunks[:3],
+        content=preview_text,
+        html=preview_html,
+    )
+    _UPLOAD_TABLE[document_id] = response
+    return response
+
+
+@router.get("/{document_id}", response_model=UploadResponse)
+def get_upload(document_id: str) -> UploadResponse:
+    record = _UPLOAD_TABLE.get(document_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"document {document_id!r} not found")
+    return record
+
+ succeeded in 2270ms:
+ succeeded in 3104ms:
+ .codex/I-ready-011/brief.md                        |  79 +++++++++++
+ .codex/I-ready-011/codex_brief_verdict.txt         |   9 ++
+ src/polaris_v6/api/upload.py                       | 110 +++++++++++++++-
+ .../test_doc_ingest_backend_iready011.py           | 144 +++++++++++++++++++++
+ 4 files changed, 336 insertions(+), 6 deletions(-)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff bot/I-ready-013-analyst-synthesis-verified..HEAD -- .codex/I-ready-011/brief.md .codex/I-ready-011/codex_brief_verdict.txt' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff bot/I-ready-013-analyst-synthesis-verified..HEAD -- tests/polaris_v6/test_doc_ingest_backend_iready011.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff bot/I-ready-013-analyst-synthesis-verified..HEAD -- src/polaris_v6/api/upload.py' in C:\POLARIS
+ succeeded in 1079ms:
+diff --git a/.codex/I-ready-011/brief.md b/.codex/I-ready-011/brief.md
+new file mode 100644
+index 00000000..694931ce
+--- /dev/null
++++ b/.codex/I-ready-011/brief.md
+@@ -0,0 +1,79 @@
++# Codex BRIEF review — I-ready-011 (#1077): deep OCR / graphic-doc ingestion
++
++```
++HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
++- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
++- Same quality bar regardless of iteration count.
++- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
++- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
++- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
++- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
++```
++
++**REVIEW ONLY — do not modify any file. Decide the scope question in §3 and judge the acceptance criteria; return the YAML verdict block ONLY. Claude authors the diff after APPROVE.**
++
++---
++
++## 0. What this is
++
++Brief gate for I-ready-011 (#1077), F11 P1 (ocr_graphics), an INDEP readiness issue. Branch will be `bot/I-ready-011-doc-ingest-backend` off `bot/I-ready-013`. Full finding: `.codex/I-ready-000/findings/ocr_graphics.md`. **This brief routes a real scope decision to you (§3) — the honest fix needs heavy GPU-class deps that §8.4 forbids loading in the autonomous loop, so I need your call on what ships tonight vs what defers to operator-gated activation.**
++
++## 1. The gap (grounded)
++
++Two disconnected realities:
++- A capable ingester EXISTS (`src/polaris_graph/document_ingester.py`): PyMuPDF text + pytesseract OCR fallback for scanned/vector PDFs, image OCR, Whisper audio. `requirements.txt` HAS `PyMuPDF==1.27.2.3`, `python-docx==1.2.0`, `pytesseract==0.3.13` (verified) — so basic PDF/DOCX parsing needs NO new deps.
++- BUT the v6 HTTP upload path `src/polaris_v6/api/upload.py:121-132` only decodes `.md`/`.txt` (`else: chunks=[]`), and `runs.py:60-69` then raises HTTP 400 "pdf/docx parsing is not yet available" for PDF/DOCX. So a clinician dropping a trial PDF into the v6 UI gets zero evidence.
++
++**Important context (already shipped):** #1073 (I-ready-010, merged into this stack as a sibling PR) wired `DocumentIngester` (PyMuPDF + Tesseract OCR fallback) into the **benchmark** path (`run_gate_b --upload-file`). So the beat-both Gate-B path can ALREADY ingest + OCR a scanned PDF. The remaining F11 gap is therefore: (a) the v6 **UI** upload path still 400s on PDF/DOCX; (b) figure/chart/table semantic understanding (Tesseract reads pixels, not forest-plot/Kaplan-Meier semantics) — the 2026 SOTA is VLM-OCR (DeepSeek-OCR-2 / Docling+Surya) emitting structure-preserving Markdown, which are NEW heavy open-weight deps (sovereign-deployable but GPU-class).
++
++## 2. §8.4 constraint
++
++I cannot load Docling/Surya/DeepSeek-OCR-2 (GB-scale models) in the autonomous loop, and adding those deps + license clearance is operator-gated. So the VLM-OCR upgrade itself defers to operator activation. The question is what real, faithfulness-safe value ships tonight using EXISTING deps + inert plumbing for the heavy backend.
++
++## 3. SCOPE DECISION (route to you)
++
++**Option A — wire existing DocumentIngester into the v6 upload path + flag-gated VLM stub.** Add `PG_DOC_INGEST_BACKEND={legacy|local|vlm}`:
++- `legacy` (DEFAULT) — current `.md`/`.txt`-only behavior, byte-identical (PDF/DOCX still 400). 
++- `local` — route PDF/DOCX through the EXISTING `DocumentIngester` (PyMuPDF + Tesseract, no new deps) so they produce chunks instead of 400. Keeps the fail-loud-on-empty contract in `runs.py`.
++- `vlm`/`docling` — an INERT, fail-LOUD stub: raises a clear "VLM-OCR backend requires operator-installed deps (docling/surya/deepseek-ocr-2) + sign-off; not enabled" — NO model load.
++- **Open faithfulness question for you:** the v6 upload path is pipeline-B (UI/worker), not pipeline-A (the strict_verify + 4-role benchmark). I have NOT audited whether uploaded-doc text on the pipeline-B path is subject to per-sentence provenance verification before it can be cited. If pipeline-B lets uploaded text be cited WITHOUT verification, then enabling `local` PDF parsing there widens an un-verified-evidence surface — in which case `local` should NOT be wired tonight (or only behind the same sovereignty/verification gate). Please weigh: is Option A's `local` wiring faithfulness-safe on pipeline-B, or must it stay inert pending a pipeline-B verification audit?
++
++**Option B — inert plumbing only.** Ship ONLY the `PG_DOC_INGEST_BACKEND` flag scaffold (default `legacy` byte-identical) + the fail-loud `vlm` stub + a regression-marker test locking the current 400-on-PDF behavior; defer ALL real parsing wiring (both `local` and `vlm`) to an operator-gated follow-up. Lowest risk, lowest value.
++
++**My lean:** Option A IF you judge pipeline-B upload evidence is already verification-gated (so `local` is faithfulness-safe); else Option B. Either way the `vlm` backend is an inert operator-gated stub tonight. Your call decides which the diff implements.
++
++## 4. Acceptance criteria (GREEN)
++
++- `PG_DOC_INGEST_BACKEND` default `legacy` → byte-identical (PDF/DOCX still 400; `.md`/`.txt` unchanged). Test-pinned.
++- (Option A only) `local` → a tiny text-PDF/DOCX fixture produces non-empty chunks via DocumentIngester (offline, no OCR model — a born-digital text PDF uses PyMuPDF text extraction, no Tesseract); fail-loud-on-empty preserved.
++- `vlm`/`docling` → fail-loud stub (clear operator-deps message), NO heavy model import.
++- Faithfulness: no path lets uploaded text bypass whatever verification pipeline-B already enforces (per your §3 ruling).
++- Sovereignty: any future VLM weights are open-weight, Canada/EU-deployable (documented; not activated tonight).
++- Offline smoke green (no GPU, no VLM model, §8.4-clean); flag-OFF/`legacy` byte-identical.
++
++## 5. Files I have ALSO checked and they're clean (adjacent-file scan)
++
++- `src/polaris_v6/api/upload.py:40` (allowed ext `{.pdf,.docx,.md,.txt}`), `:121-132` (the `.md`/`.txt`-only branch — the edit site), `:66-82` `chunk_text`, `:85-91` `get_upload_record`.
++- `src/polaris_v6/api/runs.py:40-78` `_resolve_uploaded_documents` (fail-loud-on-empty 400 — keep).
++- `src/polaris_graph/document_ingester.py` — `ingest` (async, PyMuPDF text + Tesseract OCR fallback only when text<threshold), `PARSERS`, `DOCUMENT_STORAGE_DIR` (env-redirectable for hermetic test). The reusable parser.
++- `src/polaris_graph/tools/pdf_table_extractor.py` — pdfplumber tables-to-markdown, ZERO production caller (finding-confirmed) — candidate for the table path but out of tonight's scope unless you fold it in.
++- `requirements.txt` — PyMuPDF/python-docx/pytesseract present; docling/surya/deepseek-ocr NOT present (the heavy deps).
++- `scripts/dr_benchmark/run_gate_b.py` (#1073 `_resolve_benchmark_upload`) — the benchmark path already uses DocumentIngester; this issue does NOT touch it.
++
++## 6. Smoke plan (offline, no GPU, no VLM — §8.4-clean)
++
++`tests/polaris_v6/test_doc_ingest_backend_iready011.py`: (a) `legacy` default → PDF bytes → `chunks=[]` / 400 (regression marker, byte-identical); (b) [Option A] `local` → a born-digital text-PDF fixture → non-empty chunks (PyMuPDF text path, no Tesseract); (c) `vlm` → fail-loud stub, asserts no docling/surya import; (d) `.md`/`.txt` unchanged across all backends.
++
++## 7. Output schema (return EXACTLY this; loose prose rejected)
++
++```yaml
++verdict: APPROVE | REQUEST_CHANGES
++scope: option_a_wire_local | option_b_inert_only | other
++local_wiring_faithfulness_safe: yes | no | needs_pipelineB_audit
++novel_p0: [...]
++continuing_p0: [...]
++p1: [...]
++p2: [...]
++convergence_call: continue | accept_remaining
++remaining_blockers_for_execution: [...]
++```
+diff --git a/.codex/I-ready-011/codex_brief_verdict.txt b/.codex/I-ready-011/codex_brief_verdict.txt
+new file mode 100644
+index 00000000..1c2c8d53
+--- /dev/null
++++ b/.codex/I-ready-011/codex_brief_verdict.txt
+@@ -0,0 +1,9 @@
++verdict: APPROVE
++scope: option_a_wire_local
++local_wiring_faithfulness_safe: yes
++novel_p0: []
++continuing_p0: []
++p1: []
++p2: []
++convergence_call: accept_remaining
++remaining_blockers_for_execution: []
+
+ succeeded in 1605ms:
+diff --git a/src/polaris_v6/api/upload.py b/src/polaris_v6/api/upload.py
+index 4901acf3..91825a43 100644
+--- a/src/polaris_v6/api/upload.py
++++ b/src/polaris_v6/api/upload.py
+@@ -21,6 +21,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import html as _html
++import os
+ import uuid
+ from typing import Literal
+ 
+@@ -47,6 +48,51 @@ MAX_BYTES = 50 * 1024 * 1024  # 50 MB per upload (I-f3-005 frontend dropzone)
+ CHUNK_SIZE = 280
+ MAX_GROUNDING_CHUNKS = 40
+ 
++# I-ready-011 (#1077): document-ingest backend selector (LAW VI). `legacy` (DEFAULT) keeps the
++# .md/.txt-only behavior byte-identical (PDF/DOCX still fail loud downstream). `local` routes
++# PDF/DOCX through the EXISTING DocumentIngester (PyMuPDF text + Tesseract OCR fallback,
++# python-docx) — deps already in requirements.txt. The VLM-OCR backends (figure/chart/table
++# understanding via docling/surya/deepseek-ocr-2) are OPERATOR-GATED heavy open-weight deps and
++# fail LOUD here until installed + signed off (never loaded in the autonomous loop, §8.4).
++_VLM_BACKENDS = frozenset({"vlm", "docling", "surya", "deepseek-ocr", "deepseek-ocr-2", "marker"})
++_LOCAL_PARSE_EXTENSIONS = frozenset({".pdf", ".docx"})
++# All recognised backend values. An unrecognised value (operator typo) FAILS LOUD rather than
++# silently falling back to legacy (Codex diff-gate P2 — no silent config degradation, LAW II).
++_KNOWN_BACKENDS = frozenset({"legacy", "local"}) | _VLM_BACKENDS
++
++
++def _doc_ingest_backend() -> str:
++    return os.environ.get("PG_DOC_INGEST_BACKEND", "legacy").strip().lower()
++
++
++async def _extract_text_local(content: bytes, ext: str) -> str:
++    """Extract text from PDF/DOCX bytes via the EXISTING DocumentIngester (PyMuPDF/python-docx +
++    Tesseract OCR fallback). I-ready-011 (#1077).
++
++    DocumentIngester.ingest takes a file PATH, so the bytes are written to a temp file with the
++    real extension (the ingester dispatches on suffix). The import is LAZY so a `legacy` upload
++    never pulls fitz/document_ingester. A born-digital text PDF uses PyMuPDF text extraction with
++    NO OCR model (Tesseract fires only when extracted text < threshold).
++    """
++    import tempfile
++    from pathlib import Path
++
++    from polaris_graph.document_ingester import DocumentIngester
++
++    tmp_path: "Path | None" = None
++    try:
++        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
++            tmp.write(content)
++            tmp_path = Path(tmp.name)
++        result = await DocumentIngester().ingest(tmp_path)
++        return str(result.get("content") or "")
++    finally:
++        if tmp_path is not None:
++            try:
++                tmp_path.unlink()
++            except OSError:
++                pass
++
+ 
+ class UploadResponse(BaseModel):
+     document_id: str
+@@ -118,18 +164,70 @@ async def upload_document(
+     sha = hashlib.sha256(content).hexdigest()
+     document_id = uuid.uuid4().hex
+ 
++    backend = _doc_ingest_backend()
++    if backend not in _KNOWN_BACKENDS:
++        # Codex diff-gate P2: a typo'd backend must FAIL LOUD, not silently behave as legacy
++        # (which would unparse a PDF the operator believes they enabled). LAW II — no silent
++        # config degradation.
++        raise HTTPException(
++            status_code=400,
++            detail=(
++                f"unknown PG_DOC_INGEST_BACKEND={backend!r}; valid values: "
++                f"{sorted(_KNOWN_BACKENDS)}."
++            ),
++        )
+     if ext in {".md", ".txt"}:
++        # Text formats: decode directly on EVERY backend (no parser/model needed) — unchanged.
+         try:
+             text = content.decode("utf-8", errors="replace")
+         except Exception:
+             text = ""
+-        chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
+-        preview_text = text
+-        preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
++    elif backend in _VLM_BACKENDS:
++        # I-ready-011 (#1077): VLM-OCR (figure/chart/table understanding) is operator-gated — heavy
++        # open-weight deps (docling/surya/deepseek-ocr-2) not installed + never loaded in the
++        # autonomous loop (§8.4). Fail LOUD so the operator sees exactly what to enable, never a
++        # silent empty parse.
++        raise HTTPException(
++            status_code=501,
++            detail=(
++                f"PG_DOC_INGEST_BACKEND={backend!r} (VLM-OCR) is not enabled: it requires "
++                "operator-installed open-weight OCR deps (docling / surya / deepseek-ocr-2) plus "
++                "sovereignty sign-off. Use PG_DOC_INGEST_BACKEND=local (PyMuPDF/Tesseract) or the "
++                "default 'legacy'."
++            ),
++        )
++    elif backend == "local" and ext in _LOCAL_PARSE_EXTENSIONS:
++        # I-ready-011 (#1077): parse PDF/DOCX via the EXISTING DocumentIngester (PyMuPDF text +
++        # Tesseract OCR fallback for scanned pages; python-docx). The extracted text flows through
++        # the SAME chunk_text + evidence path as a .md/.txt upload — no new verification bypass
++        # (Codex brief-gate confirmed faithfulness-safe). Fail LOUD on a parse error.
++        try:
++            text = await _extract_text_local(content, ext)
++        except Exception as exc:  # noqa: BLE001 — surface the parse failure, never silent-empty
++            raise HTTPException(
++                status_code=422,
++                detail=f"failed to parse {ext} document with the 'local' backend: {exc}",
++            ) from exc
++        if not text.strip():
++            # Codex diff-gate P2: DocumentIngester can return BLANK without raising (e.g. a
++            # scanned/figure-only PDF where text extraction yields nothing). Fail LOUD at upload
++            # time (not a deferred /runs 400) with an actionable pointer — consistent with the
++            # parse-error branch above.
++            raise HTTPException(
++                status_code=422,
++                detail=(
++                    f"the 'local' backend extracted no text from this {ext} (likely a "
++                    "scanned / figure-only document). Enable the VLM-OCR backend "
++                    "(PG_DOC_INGEST_BACKEND=vlm) once its open-weight deps are installed."
++                ),
++            )
+     else:
+-        chunks = []
+-        preview_text = ""
+-        preview_html = ""
++        # legacy (DEFAULT): non-text formats are not parsed here -> downstream fail-loud 400.
++        text = ""
++
++    chunks = [text[i : i + 280] for i in range(0, min(len(text), 840), 280) if text]
++    preview_text = text
++    preview_html = f"<pre>{_html.escape(text)}</pre>" if text else ""
+ 
+     response = UploadResponse(
+         document_id=document_id,
+
+ succeeded in 2180ms:
+diff --git a/tests/polaris_v6/test_doc_ingest_backend_iready011.py b/tests/polaris_v6/test_doc_ingest_backend_iready011.py
+new file mode 100644
+index 00000000..ec466110
+--- /dev/null
++++ b/tests/polaris_v6/test_doc_ingest_backend_iready011.py
+@@ -0,0 +1,144 @@
++"""I-ready-011 (#1077) — PG_DOC_INGEST_BACKEND selector on the v6 upload path.
++
++The v6 HTTP upload path (`upload.py`) decoded only .md/.txt and returned chunks=[] for PDF/DOCX
++(→ runs.py HTTP 400 "pdf/docx parsing is not yet available"). This adds PG_DOC_INGEST_BACKEND:
++  * legacy (DEFAULT) — byte-identical (PDF/DOCX still unparsed → empty chunks);
++  * local — PDF/DOCX parsed via the EXISTING DocumentIngester (PyMuPDF + Tesseract fallback);
++  * vlm/docling/surya/... — operator-gated heavy-OCR stub that fails LOUD (501), no model load.
++
++Offline / §8.4-clean: the PDF fixture is born-digital (a text layer inserted via fitz), so the
++'local' path uses PyMuPDF text extraction with NO OCR model (Tesseract fires only when the
++extracted text is below threshold). DocumentIngester persistence is redirected to tmp.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from io import BytesIO
++
++import pytest
++from fastapi import HTTPException, UploadFile
++
++import polaris_graph.document_ingester as document_ingester
++from polaris_v6.api import upload as upload_mod
++from polaris_v6.api.upload import _doc_ingest_backend, upload_document
++
++_PDF_TEXT = (
++    "Synthetic trial fixture (PUBLIC_SYNTHETIC). In the ZORBLAX-7 study the experimental compound "
++    "reduced the fictional Quibble Score by 42 percent versus placebo."
++)
++
++
++def _born_digital_pdf_bytes() -> bytes:
++    """A 1-page PDF with a real text layer (no scan) → PyMuPDF text extraction, NO Tesseract."""
++    import fitz  # PyMuPDF (in requirements.txt)
++
++    doc = fitz.open()
++    page = doc.new_page()
++    page.insert_text((72, 144), _PDF_TEXT, fontsize=11)
++    data = doc.tobytes()
++    doc.close()
++    return data
++
++
++def _uf(name: str, content: bytes) -> UploadFile:
++    return UploadFile(file=BytesIO(content), filename=name)
++
++
++@pytest.fixture()
++def _hermetic_storage(tmp_path, monkeypatch):
++    monkeypatch.setattr(document_ingester, "DOCUMENT_STORAGE_DIR", tmp_path / "doc_store")
++    return tmp_path
++
++
++@pytest.fixture(autouse=True)
++def _clear_upload_table():
++    upload_mod._UPLOAD_TABLE.clear()
++    yield
++    upload_mod._UPLOAD_TABLE.clear()
++
++
++# ── default + selector ──────────────────────────────────────────────────────
++
++def test_backend_default_is_legacy(monkeypatch):
++    monkeypatch.delenv("PG_DOC_INGEST_BACKEND", raising=False)
++    assert _doc_ingest_backend() == "legacy"
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "LOCAL")
++    assert _doc_ingest_backend() == "local"  # normalized lower
++
++
++# ── legacy: byte-identical (PDF unparsed) ───────────────────────────────────
++
++def test_legacy_pdf_yields_no_chunks(monkeypatch):
++    monkeypatch.delenv("PG_DOC_INGEST_BACKEND", raising=False)  # default legacy
++    resp = asyncio.run(upload_document(file=_uf("trial.pdf", b"%PDF-1.4 fake"), classification="PUBLIC_SYNTHETIC"))
++    assert resp.content == ""
++    assert resp.chunk_preview == []
++    assert resp.parse_status == "queued"  # downstream runs.py then 400s — unchanged behavior
++
++
++def test_md_unchanged_under_every_backend(monkeypatch):
++    for backend in ("legacy", "local", "vlm"):
++        monkeypatch.setenv("PG_DOC_INGEST_BACKEND", backend)
++        resp = asyncio.run(upload_document(file=_uf("note.md", b"# Title\n\nHello world."), classification="PUBLIC_SYNTHETIC"))
++        assert "Hello world." in resp.content
++        assert resp.chunk_preview  # non-empty
++        assert resp.parse_status == "completed"
++
++
++# ── local: PDF parsed via existing DocumentIngester (no OCR model) ──────────
++
++def test_local_pdf_is_parsed_to_chunks(_hermetic_storage, monkeypatch):
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++    resp = asyncio.run(upload_document(file=_uf("trial.pdf", _born_digital_pdf_bytes()), classification="PUBLIC_SYNTHETIC"))
++    assert "ZORBLAX-7" in resp.content
++    assert resp.chunk_preview  # non-empty → downstream runs.py will chunk + ground, no 400
++    assert resp.parse_status == "completed"
++
++
++def test_local_parse_failure_fails_loud(_hermetic_storage, monkeypatch):
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++    # Not a real PDF → DocumentIngester raises → 422 fail-loud (never silent-empty).
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("broken.pdf", b"not a pdf at all"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 422
++
++
++# ── vlm: operator-gated fail-loud stub, no heavy import ─────────────────────
++
++def test_unknown_backend_fails_loud_400(monkeypatch):
++    """Codex diff-gate P2: a typo'd PG_DOC_INGEST_BACKEND must fail loud (400), not silently
++    fall back to legacy (which would unparse a PDF the operator thinks they enabled)."""
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "locl")  # typo
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("trial.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 400
++    assert "unknown" in str(exc.value.detail).lower()
++
++
++def test_local_blank_extraction_fails_loud_422(monkeypatch):
++    """Codex diff-gate P2: DocumentIngester can return blank without throwing (scanned/figure-only
++    PDF). The 'local' backend must fail loud at upload (422), not defer a confusing /runs 400."""
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
++
++    async def _blank(content, ext):
++        return "   \n\t  "  # whitespace-only extraction
++
++    monkeypatch.setattr(upload_mod, "_extract_text_local", _blank)
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("scanned.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 422
++    assert "no text" in str(exc.value.detail).lower()
++
++
++@pytest.mark.parametrize("backend", ["vlm", "docling", "surya", "deepseek-ocr-2"])
++def test_vlm_backend_fails_loud_501(monkeypatch, backend):
++    import sys
++    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", backend)
++    with pytest.raises(HTTPException) as exc:
++        asyncio.run(upload_document(file=_uf("trial.pdf", _born_digital_pdf_bytes() if False else b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
++    assert exc.value.status_code == 501
++    assert "operator" in str(exc.value.detail).lower()
++    # The stub must NOT import a heavy OCR engine.
++    assert "docling" not in sys.modules
++    assert "surya" not in sys.modules
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class DocumentIngester|async def ingest|def ingest|PARSERS|DOCUMENT_STORAGE_DIR|content" src/polaris_graph/document_ingester.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/document_ingester.py -TotalCount 320' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/api/runs.py -TotalCount 160' in C:\POLARIS
+ succeeded in 1196ms:
+4:Parses uploaded files LOCALLY -- never sends content to external APIs.
+51:DOCUMENT_STORAGE_DIR = Path(os.getenv("PG_DOCUMENT_STORAGE_DIR", "data/documents"))
+85:class DocumentIngester:
+86:    """Parse uploaded files locally and persist extracted content.
+89:        content  (str):  Plain-text extraction.
+97:    PARSERS: dict[str, str] = {
+127:    async def ingest(self, file_path: Path) -> dict:
+134:            dict with keys: content, html, metadata, pages, doc_id.
+160:        # --- deterministic doc_id from file content -----------------------
+169:        parser_name = self.PARSERS.get(ext)
+185:        content: str = result["content"]
+190:        if not content.strip():
+192:                "[document_ingester] Extraction produced empty content "
+204:            "content_chars": len(content),
+211:        self._persist(doc_id, file_path, content, html, metadata)
+215:            doc_id, len(content), pages, elapsed,
+219:            "content": content,
+370:            "content": combined_text,
+442:            "content": "\n\n".join(text_parts),
+463:        content = ""
+475:                content = result.stdout.strip()
+479:                    len(content), file_path.name,
+499:        if not content:
+515:                content = "\n".join(text_runs)
+521:                    len(content), len(text_runs), file_path.name,
+528:                content = f"[Binary .doc file: {file_path.name} -- text extraction unavailable]"
+531:        html = _text_to_html(content, is_markdown=False)
+534:            "content": content,
+600:            "content": "\n".join(text_parts),
+662:            "content": "\n\n".join(text_parts),
+674:            content = file_bytes.decode("utf-8")
+676:            content = file_bytes.decode("latin-1")
+683:        html = _text_to_html(content, is_markdown=(ext == ".md"))
+686:            "content": content,
+690:                "line_count": content.count("\n") + 1,
+709:                "content": "",
+749:            "content": "\n".join(text_lines),
+759:        """Extract article content from HTML using readability-lxml."""
+813:            "content": article_text,
+832:        content = ""
+862:                    content = ocr_text.strip()
+865:                        len(content), file_path.name,
+896:        if not content:
+897:            content = f"[Image: {file_path.name}]"
+901:            f'<div class="image-content">'
+904:            f"<pre>{_escape_html(content)}</pre>"
+910:            "content": content,
+932:        content = ""
+956:            content = result.get("text", "").strip()
+968:                len(content), detected_language,
+979:            content = f"[Audio: {file_path.name} -- whisper not installed for transcription]"
+985:            content = f"[Audio: {file_path.name} -- transcription failed]"
+989:            f'<div class="audio-content">'
+1001:            f"<pre>{_escape_html(content)}</pre>"
+1007:            "content": content,
+1025:        content: str,
+1030:        doc_dir = DOCUMENT_STORAGE_DIR / doc_id
+1039:        extracted_txt.write_text(content, encoding="utf-8")
+1055:            doc_dir, len(content), len(html),
+1065:        if not DOCUMENT_STORAGE_DIR.exists():
+1068:        for child in sorted(DOCUMENT_STORAGE_DIR.iterdir()):
+1087:        Returns dict with content, html, metadata, pages, doc_id
+1090:        doc_dir = DOCUMENT_STORAGE_DIR / doc_id
+1106:        content = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+1110:            "content": content,
+1134:def _text_to_html(content: str, is_markdown: bool = False) -> str:
+1140:    lines = content.split("\n")
+
+ succeeded in 1753ms:
+"""
+Local document ingestion for POLARIS sovereign/air-gap deployments.
+
+Parses uploaded files LOCALLY -- never sends content to external APIs.
+Supports: PDF, DOCX, DOC, XLSX, PPTX, TXT, MD, CSV, HTML, HTM,
+          Images (PNG, JPG, JPEG, WEBP, GIF), Audio (MP3, WAV, M4A, AAC, OGG, FLAC).
+
+All extraction is performed by local libraries:
+  - PDF:  PyMuPDF (fitz), with pytesseract OCR fallback for vector-curve PDFs
+  - DOCX: python-docx
+  - DOC:  antiword (preferred) or raw text extraction fallback
+  - XLSX: openpyxl
+  - PPTX: python-pptx
+  - HTML/HTM: readability-lxml
+  - CSV:  stdlib csv module
+  - TXT/MD: direct read
+  - Images: pytesseract OCR + PIL for metadata
+  - Audio: OpenAI Whisper for transcription
+
+Storage layout per document:
+  data/documents/{doc_id}/
+    original.*            # Original uploaded file
+    extracted.txt         # Plain-text extraction
+    extracted.html        # HTML-formatted extraction
+    metadata.json         # Extraction metadata
+"""
+
+import csv
+import hashlib
+import io
+import json
+import logging
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration (LAW VI: all from env vars)
+# ---------------------------------------------------------------------------
+
+MAX_UPLOAD_SIZE_MB = int(os.getenv("PG_MAX_UPLOAD_SIZE_MB", "100"))
+DOCUMENT_STORAGE_DIR = Path(os.getenv("PG_DOCUMENT_STORAGE_DIR", "data/documents"))
+
+# OCR fallback configuration for vector-curve PDFs (CorelDRAW, Illustrator, etc.)
+TESSERACT_CMD = os.getenv(
+    "TESSERACT_CMD",
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+)
+OCR_DPI = int(os.getenv("PG_OCR_DPI", "300"))
+OCR_MAX_PAGES = int(os.getenv("PG_OCR_MAX_PAGES", "20"))
+OCR_MIN_TEXT_CHARS = int(os.getenv("PG_OCR_MIN_TEXT_CHARS", "100"))
+
+# Audio transcription configuration
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+FFMPEG_PATH = os.getenv("FFMPEG_PATH", r"C:\Windows\ffmpeg.exe")
+
+# Legacy .doc parsing: path to antiword binary (if available)
+ANTIWORD_CMD = os.getenv("ANTIWORD_CMD", "antiword")
+
+# Image extensions (OCR via pytesseract)
+_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+
+# Audio extensions (transcription via Whisper)
+_AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"})
+
+ACCEPTED_EXTENSIONS = frozenset({
+    ".pdf", ".docx", ".doc", ".xlsx", ".pptx",
+    ".txt", ".md", ".csv", ".html", ".htm",
+}) | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS
+
+
+class DocumentIngestionError(Exception):
+    """Raised when document ingestion fails for a recoverable reason."""
+
+
+class DocumentIngester:
+    """Parse uploaded files locally and persist extracted content.
+
+    Every parse method returns a dict with keys:
+        content  (str):  Plain-text extraction.
+        html     (str):  HTML-formatted extraction.
+        metadata (dict): Format-specific metadata (author, page count, etc.).
+        pages    (int):  Number of pages/sheets/slides (1 for flat text).
+    """
+
+    # Extension -> method name mapping.  Methods are resolved via getattr
+    # so they must exist on the class as ``_parse_{ext}`` (without the dot).
+    PARSERS: dict[str, str] = {
+        ".pdf":  "_parse_pdf",
+        ".docx": "_parse_docx",
+        ".doc":  "_parse_doc",
+        ".xlsx": "_parse_xlsx",
+        ".pptx": "_parse_pptx",
+        ".txt":  "_parse_text",
+        ".md":   "_parse_text",
+        ".csv":  "_parse_csv",
+        ".html": "_parse_html",
+        ".htm":  "_parse_html",
+        # Image formats (OCR)
+        ".png":  "_parse_image",
+        ".jpg":  "_parse_image",
+        ".jpeg": "_parse_image",
+        ".webp": "_parse_image",
+        ".gif":  "_parse_image",
+        # Audio formats (Whisper transcription)
+        ".mp3":  "_parse_audio",
+        ".wav":  "_parse_audio",
+        ".m4a":  "_parse_audio",
+        ".aac":  "_parse_audio",
+        ".ogg":  "_parse_audio",
+        ".flac": "_parse_audio",
+    }
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def ingest(self, file_path: Path) -> dict:
+        """Ingest a single file and persist extracted artefacts.
+
+        Args:
+            file_path: Absolute or relative path to the uploaded file.
+
+        Returns:
+            dict with keys: content, html, metadata, pages, doc_id.
+
+        Raises:
+            DocumentIngestionError: On validation or parse failures.
+            FileNotFoundError:      If *file_path* does not exist.
+        """
+        file_path = Path(file_path).resolve()
+
+        # --- validation ---------------------------------------------------
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        ext = file_path.suffix.lower()
+        if ext not in ACCEPTED_EXTENSIONS:
+            raise DocumentIngestionError(
+                f"Unsupported file extension '{ext}'. "
+                f"Accepted: {sorted(ACCEPTED_EXTENSIONS)}"
+            )
+
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+        if size_mb > MAX_UPLOAD_SIZE_MB:
+            raise DocumentIngestionError(
+                f"File size {size_mb:.1f} MB exceeds limit of "
+                f"{MAX_UPLOAD_SIZE_MB} MB (PG_MAX_UPLOAD_SIZE_MB)."
+            )
+
+        # --- deterministic doc_id from file content -----------------------
+        file_bytes = file_path.read_bytes()
+        doc_id = hashlib.sha256(file_bytes).hexdigest()[:16]
+        logger.info(
+            "[document_ingester] Ingesting %s (%.2f MB) -> doc_id=%s",
+            file_path.name, size_mb, doc_id,
+        )
+
+        # --- dispatch to the appropriate parser ---------------------------
+        parser_name = self.PARSERS.get(ext)
+        if parser_name is None:
+            raise DocumentIngestionError(
+                f"No parser registered for extension '{ext}'."
+            )
+
+        parser_fn = getattr(self, parser_name, None)
+        if parser_fn is None:
+            raise DocumentIngestionError(
+                f"Parser method '{parser_name}' not implemented."
+            )
+
+        start_ts = time.monotonic()
+        result = parser_fn(file_path, file_bytes)
+        elapsed = time.monotonic() - start_ts
+
+        content: str = result["content"]
+        html: str = result["html"]
+        metadata: dict = result["metadata"]
+        pages: int = result["pages"]
+
+        if not content.strip():
+            logger.warning(
+                "[document_ingester] Extraction produced empty content "
+                "for %s (doc_id=%s).",
+                file_path.name, doc_id,
+            )
+
+        # --- enrich metadata ----------------------------------------------
+        metadata.update({
+            "doc_id": doc_id,
+            "original_filename": file_path.name,
+            "extension": ext,
+            "size_bytes": len(file_bytes),
+            "size_mb": round(size_mb, 3),
+            "content_chars": len(content),
+            "pages": pages,
+            "parse_seconds": round(elapsed, 3),
+            "ingested_at": time.time(),
+        })
+
+        # --- persist artefacts --------------------------------------------
+        self._persist(doc_id, file_path, content, html, metadata)
+
+        logger.info(
+            "[document_ingester] Ingested doc_id=%s | %d chars | %d pages | %.2fs",
+            doc_id, len(content), pages, elapsed,
+        )
+
+        return {
+            "content": content,
+            "html": html,
+            "metadata": metadata,
+            "pages": pages,
+            "doc_id": doc_id,
+        }
+
+    # ------------------------------------------------------------------
+    # Parsers (all local, no external API calls)
+    # ------------------------------------------------------------------
+
+    def _parse_pdf(self, file_path: Path, file_bytes: bytes) -> dict:
+        """Extract text and HTML from a PDF using PyMuPDF (fitz).
+
+        If the normal text extraction yields fewer than OCR_MIN_TEXT_CHARS
+        non-whitespace characters (common with CorelDRAW / Illustrator PDFs
+        where text is rendered as vector curves), falls back to OCR via
+        pytesseract.  OCR is limited to the first OCR_MAX_PAGES pages to
+        avoid timeouts on large documents.
+        """
+        try:
+            import fitz  # PyMuPDF
+        except ImportError as exc:
+            raise DocumentIngestionError(
+                "PyMuPDF (fitz) is required for PDF parsing. "
+                "Install with: pip install PyMuPDF"
+            ) from exc
+
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        text_parts: list[str] = []
+        html_parts: list[str] = ["<html><body>"]
+
+        # Capture page count BEFORE closing the document
+        page_count = len(doc)
+
+        for page_num in range(page_count):
+            page = doc[page_num]
+            page_text = page.get_text("text")
+            page_html = page.get_text("html")
+            text_parts.append(page_text)
+            html_parts.append(
+                f'<div class="page" data-page="{page_num + 1}">'
+                f"{page_html}</div>"
+            )
+
+        html_parts.append("</body></html>")
+
+        pdf_metadata = doc.metadata or {}
+
+        # -----------------------------------------------------------------
+        # OCR fallback: detect vector-curve PDFs with no searchable text
+        # -----------------------------------------------------------------
+        combined_text = "\n\n".join(text_parts)
+        non_ws_char_count = len(combined_text.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", ""))
+        ocr_fallback_used = False
+        ocr_pages_processed = 0
+
+        if non_ws_char_count < OCR_MIN_TEXT_CHARS:
+            logger.warning(
+                "[document_ingester] PDF text extraction yielded only %d "
+                "non-whitespace chars (threshold=%d) for %s. "
+                "Attempting OCR fallback via pytesseract.",
+                non_ws_char_count, OCR_MIN_TEXT_CHARS, file_path.name,
+            )
+
+            ocr_text_parts: list[str] = []
+            ocr_html_parts: list[str] = []
+
+            try:
+                import pytesseract
+                from PIL import Image
+
+                pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
+                pages_to_ocr = min(page_count, OCR_MAX_PAGES)
+
+                for page_num in range(pages_to_ocr):
+                    page = doc[page_num]
+                    pixmap = page.get_pixmap(dpi=OCR_DPI)
+
+                    # Convert PyMuPDF pixmap to PIL Image via PNG bytes
+                    png_bytes = pixmap.tobytes("png")
+                    pil_image = Image.open(io.BytesIO(png_bytes))
+
+                    ocr_page_text = pytesseract.image_to_string(pil_image)
+                    ocr_text_parts.append(ocr_page_text)
+                    ocr_html_parts.append(
+                        f'<div class="page ocr" data-page="{page_num + 1}">'
+                        f"<p>{_escape_html(ocr_page_text)}</p></div>"
+                    )
+                    ocr_pages_processed += 1
+
+                ocr_combined = "\n\n".join(ocr_text_parts)
+                ocr_non_ws = len(ocr_combined.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", ""))
+
+                if ocr_non_ws > non_ws_char_count:
+                    # OCR produced more text -- use it (merged with any
+                    # partial text from the normal extraction)
+                    combined_text = ocr_combined
+                    html_parts = (
+                        ["<html><body>"]
+                        + ocr_html_parts
+
+ succeeded in 2250ms:
+"""Runs router — POST /runs, GET /runs/{id}, POST /runs/{id}/cancel.
+
+I-phase0-005 (Codex APPROVE iter 4): persist runs to SQLite via
+polaris_v6.queue.run_store and enqueue the Dramatiq actor on POST.
+Replaces the previous in-memory `_run_table` dict.
+
+I-rdy-010 (#506): POST /runs resolves uploaded `document_ids` to content
+BEFORE inserting/enqueuing the run, so a missing or unparsed upload fails
+loud here rather than leaving a queued orphan run. The resolved content is
+embedded in the actor message because the Dramatiq worker is a separate
+process and cannot read the API process's in-memory upload table.
+
+I-rdy-011 (#507): POST /runs/{id}/cancel — a queued run cancels instantly;
+an in-progress run records the cancel request (the worker observes it at
+the next pipeline stage boundary). Already-terminal runs are an idempotent
+no-op.
+
+I-rdy-013 (#509): POST /runs enforces the 1-concurrent-session constraint
+via `run_store.insert_run_if_idle` — a 2nd concurrent request is cleanly
+rejected with HTTP 409 (never enqueued) and a structured detail the
+frontend renders as a link to the active run.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import uuid
+
+from fastapi import APIRouter, HTTPException
+
+from polaris_v6.api.upload import chunk_text, get_upload_record
+from polaris_v6.queue import run_store
+from polaris_v6.queue.actors import enqueue_research_run
+from polaris_v6.schemas.run_request import RunRequest
+from polaris_v6.schemas.run_status import RunStatusResponse
+
+router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+def _resolve_uploaded_documents(document_ids: list[str]) -> list[dict]:
+    """Resolve uploaded document_ids → content for actor-message embedding.
+
+    Returns one dict per id: `{document_id, classification, filename,
+    chunks}`. `chunks` is `chunk_text(record.content)` — the full document
+    re-chunked (and capped), NOT the 3-chunk `chunk_preview`.
+
+    Fails loud (HTTP 400) per LAW II on:
+      * a document_id with no upload record;
+      * an upload that yields no extractable text (e.g. an unparsed
+        pdf/docx) — a silent zero-evidence run would mislead the operator.
+    """
+    resolved: list[dict] = []
+    for document_id in document_ids:
+        record = get_upload_record(document_id)
+        if record is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"uploaded document {document_id!r} not found",
+            )
+        chunks = chunk_text(record.content)
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"uploaded document {document_id!r} ({record.filename}) "
+                    "has no extractable text — pdf/docx parsing is not yet "
+                    "available; upload a .md or .txt document to ground a run."
+                ),
+            )
+        resolved.append(
+            {
+                "document_id": document_id,
+                "classification": record.classification,
+                "filename": record.filename,
+                "chunks": chunks,
+            }
+        )
+    return resolved
+
+
+@router.post("", response_model=RunStatusResponse, status_code=202)
+def create_run(payload: RunRequest) -> RunStatusResponse:
+    # I-rdy-010: resolve uploads BEFORE insert_run/enqueue so a bad
+    # document_id fails loud here instead of orphaning a queued run.
+    uploaded_documents = _resolve_uploaded_documents(payload.document_ids)
+
+    run_id = uuid.uuid4().hex
+    try:
+        # I-rdy-013: atomic 1-concurrent-session gate. Returns the blocking
+        # active run when rejected, None when this run was inserted.
+        active = run_store.insert_run_if_idle(
+            run_id, payload.template, payload.question
+        )
+    except sqlite3.IntegrityError as exc:
+        # uuid4 collision is theoretically impossible but defensive
+        raise HTTPException(status_code=409, detail=f"run {run_id!r} already exists") from exc
+    except RuntimeError as exc:
+        # init_db permission-denied or similar
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if active is not None:
+        # I-rdy-013: 1-concurrent-session constraint — a research run is
+        # already queued or in progress. Reject cleanly; the rejected run is
+        # never enqueued (insert_run_if_idle rolled back — no row to clean
+        # up). The structured `detail` lets the frontend render a specific
+        # UX with a link to the active run.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "concurrent_run_active",
+                "active_run_id": active.run_id,
+                "active_status": active.lifecycle_status,
+                "message": (
+                    "POLARIS runs one research session at a time. "
+                    f"Run {active.run_id[:8]} is currently {active.lifecycle_status}. "
+                    "Wait for it to finish before starting a new run."
+                ),
+            },
+        )
+
+    # The actor message carries the resolved upload content (the worker is
+    # a separate process — it cannot read the API process's upload table).
+    actor_payload = payload.model_dump()
+    actor_payload["uploaded_documents"] = uploaded_documents
+    try:
+        enqueue_research_run.send(run_id, actor_payload)
+    except Exception as exc:
+        # I-rdy-013 (Codex diff P1-001): the queued row is already committed.
+        # If enqueue fails it would never run yet would permanently hold the
+        # single-session slot. Mark it failed (terminal → frees the slot),
+        # then surface 503.
+        run_store.mark_failed(run_id, f"enqueue failed: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"failed to enqueue run {run_id!r}: {exc}",
+        ) from exc
+
+    record = run_store.get_run(run_id)
+    if record is None:  # pragma: no cover — insert just succeeded
+        raise HTTPException(status_code=500, detail="run row vanished after insert")
+    return record
+
+
+@router.get("", response_model=list[RunStatusResponse])
+def list_runs(status: str = "completed", limit: int = 20) -> list[RunStatusResponse]:
+    """List completed runs newest-first (I-cd-705 / #705).
+
+    Feeds the compare picker (#543), follow-up picker (#542), and the home
+    recent-runs strip. Only `status=completed` is supported today; aborted
+    runs are excluded by run_store.list_completed_runs (not
+    EvidenceContract-usable). `limit` is clamped to [1, 100].
+    """
+    if status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="only status=completed is supported",
+        )
+    limit = max(1, min(limit, 100))
+    return run_store.list_completed_runs(limit=limit)
+
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/document_ingester.py | Select-Object -Skip 300 -First 170' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/document_ingester.py | Select-Object -Skip 420 -First 130' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/document_ingester.py | Select-Object -Skip 1015 -First 50' in C:\POLARIS
+ succeeded in 1062ms:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                table_text_rows.append(" | ".join(cells))
+                html_parts.append(
+                    "<tr>"
+                    + "".join(f"<td>{_escape_html(c)}</td>" for c in cells)
+                    + "</tr>"
+                )
+            html_parts.append("</table>")
+            if table_text_rows:
+                text_parts.append(
+                    f"\n[Table {table_idx + 1}]\n"
+                    + "\n".join(table_text_rows)
+                )
+
+        html_parts.append("</body></html>")
+
+        # Estimate "pages" from paragraph count (DOCX has no native pages).
+        estimated_pages = max(1, len(text_parts) // 40)
+
+        return {
+            "content": "\n\n".join(text_parts),
+            "html": "\n".join(html_parts),
+            "metadata": meta,
+            "pages": estimated_pages,
+        }
+
+    def _parse_doc(self, file_path: Path, file_bytes: bytes) -> dict:
+        """Extract text from a legacy .doc file.
+
+        Strategy:
+        1. Try antiword (best quality for binary .doc files).
+        2. Fall back to raw text extraction with error suppression.
+
+        Legacy .doc (OLE2/CFBF) is a binary format; without a dedicated
+        parser the best we can do is extract printable text sequences.
+        """
+        logger.info(
+            "[document_ingester] Parsing legacy .doc file: %s",
+            file_path.name,
+        )
+
+        content = ""
+        extraction_method = "none"
+
+        # --- Strategy 1: antiword -----------------------------------------
+        try:
+            result = subprocess.run(
+                [ANTIWORD_CMD, str(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                content = result.stdout.strip()
+                extraction_method = "antiword"
+                logger.info(
+                    "[document_ingester] antiword extracted %d chars from %s",
+                    len(content), file_path.name,
+                )
+        except FileNotFoundError:
+            logger.info(
+                "[document_ingester] antiword not available on this system. "
+                "Falling back to raw text extraction for %s.",
+                file_path.name,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "[document_ingester] antiword timed out on %s.",
+                file_path.name,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[document_ingester] antiword failed for %s: %s",
+                file_path.name, str(exc)[:200],
+            )
+
+        # --- Strategy 2: raw text extraction (fallback) -------------------
+        if not content:
+            logger.info(
+                "[document_ingester] Attempting raw text extraction for %s",
+                file_path.name,
+            )
+            try:
+                # Try UTF-8, then latin-1 for binary .doc files
+                try:
+                    raw_text = file_bytes.decode("utf-8", errors="ignore")
+                except Exception:
+                    raw_text = file_bytes.decode("latin-1", errors="ignore")
+
+                # Filter to printable text sequences (at least 4 chars long)
+                import re
+                # Extract runs of printable ASCII/Latin characters
+                text_runs = re.findall(r"[\x20-\x7E\xA0-\xFF]{4,}", raw_text)
+                content = "\n".join(text_runs)
+                extraction_method = "raw_text"
+
+                logger.info(
+                    "[document_ingester] Raw text extraction yielded %d chars "
+                    "from %d text runs for %s",
+                    len(content), len(text_runs), file_path.name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[document_ingester] Raw text extraction failed for %s: %s",
+                    file_path.name, str(exc)[:200],
+                )
+                content = f"[Binary .doc file: {file_path.name} -- text extraction unavailable]"
+                extraction_method = "failed"
+
+        html = _text_to_html(content, is_markdown=False)
+
+        return {
+            "content": content,
+            "html": html,
+            "metadata": {
+                "doc_format": "legacy_doc",
+                "extraction_method": extraction_method,
+            },
+            "pages": 1,
+        }
+
+    def _parse_xlsx(self, file_path: Path, file_bytes: bytes) -> dict:
+        """Extract cell values from an XLSX using openpyxl."""
+        try:
+            import openpyxl
+        except ImportError as exc:
+            raise DocumentIngestionError(
+                "openpyxl is required for XLSX parsing. "
+                "Install with: pip install openpyxl"
+
+ succeeded in 1579ms:
+                    pil_image = Image.open(io.BytesIO(png_bytes))
+
+                    ocr_page_text = pytesseract.image_to_string(pil_image)
+                    ocr_text_parts.append(ocr_page_text)
+                    ocr_html_parts.append(
+                        f'<div class="page ocr" data-page="{page_num + 1}">'
+                        f"<p>{_escape_html(ocr_page_text)}</p></div>"
+                    )
+                    ocr_pages_processed += 1
+
+                ocr_combined = "\n\n".join(ocr_text_parts)
+                ocr_non_ws = len(ocr_combined.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", ""))
+
+                if ocr_non_ws > non_ws_char_count:
+                    # OCR produced more text -- use it (merged with any
+                    # partial text from the normal extraction)
+                    combined_text = ocr_combined
+                    html_parts = (
+                        ["<html><body>"]
+                        + ocr_html_parts
+                        + ["</body></html>"]
+                    )
+                    ocr_fallback_used = True
+
+                    logger.info(
+                        "[document_ingester] OCR fallback succeeded for %s: "
+                        "%d chars from %d pages (was %d chars from normal extraction).",
+                        file_path.name, ocr_non_ws,
+                        ocr_pages_processed, non_ws_char_count,
+                    )
+                else:
+                    logger.info(
+                        "[document_ingester] OCR fallback did not improve "
+                        "extraction for %s (OCR=%d chars, normal=%d chars). "
+                        "Keeping original extraction.",
+                        file_path.name, ocr_non_ws, non_ws_char_count,
+                    )
+
+            except ImportError:
+                logger.warning(
+                    "[document_ingester] pytesseract or Pillow not available "
+                    "for OCR fallback on %s. Install with: "
+                    "pip install pytesseract Pillow",
+                    file_path.name,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[document_ingester] OCR fallback failed for %s: %s. "
+                    "Falling back to normal text extraction (%d chars).",
+                    file_path.name, str(exc)[:300], non_ws_char_count,
+                )
+
+        doc.close()
+
+        result_metadata = {
+            "pdf_title": pdf_metadata.get("title", ""),
+            "pdf_author": pdf_metadata.get("author", ""),
+            "pdf_subject": pdf_metadata.get("subject", ""),
+            "pdf_creator": pdf_metadata.get("creator", ""),
+            "pdf_producer": pdf_metadata.get("producer", ""),
+            "pdf_creation_date": pdf_metadata.get("creationDate", ""),
+            "ocr_fallback_used": ocr_fallback_used,
+        }
+
+        if ocr_fallback_used:
+            result_metadata["ocr_pages_processed"] = ocr_pages_processed
+            result_metadata["ocr_dpi"] = OCR_DPI
+
+        return {
+            "content": combined_text,
+            "html": "\n".join(html_parts),
+            "metadata": result_metadata,
+            "pages": page_count,
+        }
+
+    def _parse_docx(self, file_path: Path, file_bytes: bytes) -> dict:
+        """Extract text from a DOCX using python-docx."""
+        try:
+            import docx
+        except ImportError as exc:
+            raise DocumentIngestionError(
+                "python-docx is required for DOCX parsing. "
+                "Install with: pip install python-docx"
+            ) from exc
+
+        document = docx.Document(io.BytesIO(file_bytes))
+
+        text_parts: list[str] = []
+        html_parts: list[str] = ["<html><body>"]
+
+        # --- Core properties (metadata) ---
+        core = document.core_properties
+        meta = {
+            "docx_title": core.title or "",
+            "docx_author": core.author or "",
+            "docx_subject": core.subject or "",
+            "docx_created": str(core.created) if core.created else "",
+            "docx_modified": str(core.modified) if core.modified else "",
+        }
+
+        # --- Paragraphs ---
+        for para in document.paragraphs:
+            text = para.text.strip()
+            if not text:
+                continue
+            text_parts.append(text)
+
+            style_name = para.style.name if para.style else ""
+            if style_name.startswith("Heading"):
+                # Attempt to determine heading level
+                level = style_name.replace("Heading", "").strip()
+                level = level if level.isdigit() else "2"
+                html_parts.append(f"<h{level}>{_escape_html(text)}</h{level}>")
+            else:
+                html_parts.append(f"<p>{_escape_html(text)}</p>")
+
+        # --- Tables ---
+        for table_idx, table in enumerate(document.tables):
+            table_text_rows: list[str] = []
+            html_parts.append("<table border='1'>")
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                table_text_rows.append(" | ".join(cells))
+                html_parts.append(
+                    "<tr>"
+                    + "".join(f"<td>{_escape_html(c)}</td>" for c in cells)
+                    + "</tr>"
+                )
+            html_parts.append("</table>")
+            if table_text_rows:
+                text_parts.append(
+                    f"\n[Table {table_idx + 1}]\n"
+                    + "\n".join(table_text_rows)
+                )
+
+        html_parts.append("</body></html>")
+
+        # Estimate "pages" from paragraph count (DOCX has no native pages).
+        estimated_pages = max(1, len(text_parts) // 40)
+
+        return {
+            "content": "\n\n".join(text_parts),
+            "html": "\n".join(html_parts),
+            "metadata": meta,
+            "pages": estimated_pages,
+        }
+
+    def _parse_doc(self, file_path: Path, file_bytes: bytes) -> dict:
+        """Extract text from a legacy .doc file.
+
+        Strategy:
+        1. Try antiword (best quality for binary .doc files).
+        2. Fall back to raw text extraction with error suppression.
+
+        Legacy .doc (OLE2/CFBF) is a binary format; without a dedicated
+        parser the best we can do is extract printable text sequences.
+        """
+        logger.info(
+            "[document_ingester] Parsing legacy .doc file: %s",
+            file_path.name,
+        )
+
+        content = ""
+        extraction_method = "none"
+
+        # --- Strategy 1: antiword -----------------------------------------
+        try:
+            result = subprocess.run(
+                [ANTIWORD_CMD, str(file_path)],
+                capture_output=True,
+
+ succeeded in 2158ms:
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def _persist(
+        self,
+        doc_id: str,
+        original_path: Path,
+        content: str,
+        html: str,
+        metadata: dict,
+    ) -> None:
+        """Store extracted artefacts to disk under data/documents/{doc_id}/."""
+        doc_dir = DOCUMENT_STORAGE_DIR / doc_id
+        doc_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy original file
+        dest_original = doc_dir / f"original{original_path.suffix.lower()}"
+        shutil.copy2(str(original_path), str(dest_original))
+
+        # Write extracted text
+        extracted_txt = doc_dir / "extracted.txt"
+        extracted_txt.write_text(content, encoding="utf-8")
+
+        # Write extracted HTML
+        extracted_html = doc_dir / "extracted.html"
+        extracted_html.write_text(html, encoding="utf-8")
+
+        # Write metadata JSON
+        metadata_json = doc_dir / "metadata.json"
+        metadata_json.write_text(
+            json.dumps(metadata, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
+        logger.info(
+            "[document_ingester] Persisted artefacts to %s "
+            "(txt=%d bytes, html=%d bytes)",
+            doc_dir, len(content), len(html),
+        )
+
+    # ------------------------------------------------------------------
+    # Utility: list ingested documents
+    # ------------------------------------------------------------------
+
+    def list_documents(self) -> list[dict]:
+        """Return metadata for all previously ingested documents."""
+        results: list[dict] = []
+        if not DOCUMENT_STORAGE_DIR.exists():
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+28,604
