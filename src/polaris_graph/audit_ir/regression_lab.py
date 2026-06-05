@@ -610,6 +610,9 @@ _STATUS_TIERS: dict[str, int] = {
     # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) — release-blocking
     # abort, no report. Added to UNIFIED_STATUS_VALUES by #1071 but never mirrored here until #1086.
     "abort_verifier_degraded": 2,
+    # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval
+    # (no report produced, tier 2). KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES.
+    "abort_safety_refused": 2,
     # I-ready-016 (#1086): mirror the two real terminal manifest statuses that were missing from the
     # taxonomy. KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES (test_saturation_phase4 +
     # test_md9_regression_lab). 4-role-held + user-cancel are terminal aborts (tier 2, no report).

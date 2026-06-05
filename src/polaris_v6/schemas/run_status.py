@@ -43,6 +43,7 @@ PipelineStatus = Literal[
     "partial_saturation",            # I-meta-005 Phase 4 (#988)
     "abort_budget_exceeded",         # I-meta-008 (#1015)
     "abort_verifier_degraded",       # I-ready-002 (#1071)
+    "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal before retrieval
     "abort_four_role_release_held",  # 4-role D8 held release
     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",

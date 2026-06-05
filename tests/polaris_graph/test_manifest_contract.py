@@ -51,6 +51,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_evaluator_critical",    # added by BUG-M-205 (R5)
         "abort_budget_exceeded",       # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach (generator OR 4-role verifier)
         "abort_verifier_degraded",     # I-ready-002 (#1071): binding verifier judge_error_rate over cap
+        "abort_safety_refused",        # I-ready-007 (#1072): input harm-refusal before retrieval
         "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
         "error_unexpected",

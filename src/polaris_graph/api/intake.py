@@ -131,6 +131,26 @@ def process_intake(
             raw=str(raw_question)[:200] if raw_question is not None else "",
         )
 
+    # Step 1.5: I-ready-007 (#1072) input harm-refusal — BEFORE the scope classifier, flag-gated
+    # (PG_USE_SAFETY_REFUSAL default OFF -> skipped -> byte-identical). High-precision (explicit harm-
+    # intent only, never bare clinical/policy subject) so legitimate research is not over-refused;
+    # fails open. Reuses the existing refused-ScopeDecision shape the UI already renders.
+    import os as _os
+
+    if _os.getenv("PG_USE_SAFETY_REFUSAL", "0").strip() in ("1", "true", "True"):
+        from polaris_graph.nodes.safety_classifier import classify_harm_intent
+
+        _harm = classify_harm_intent(normalized.normalized)
+        if _harm.harmful:
+            latency = int((time.perf_counter() - t_start) * 1000)
+            return assemble_scope_decision(
+                scope_class=None,
+                ambiguity=None,
+                refused=True,
+                refusal_reason=f"harm_intent:{_harm.category}",
+                latency_ms=latency,
+            )
+
     # Step 2: classify (regex layer + LLM fallback if uncertain)
     classifier_result = classify(
         normalized.normalized,

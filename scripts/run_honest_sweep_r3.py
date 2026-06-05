@@ -195,6 +195,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
+    "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused BEFORE retrieval (PG_USE_SAFETY_REFUSAL); refuse-with-redirection, zero generator spend
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
@@ -229,6 +230,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_budget_exceeded": "abort_budget_exceeded",
     # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) is a release-blocking abort.
     "abort_verifier_degraded": "abort_verifier_degraded",
+    # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval.
+    "abort_safety_refused": "abort_safety_refused",
     "error": "error_unexpected",
 }
 
@@ -1669,6 +1672,69 @@ async def run_one_query(
         _log(f"Question: {q['question']}")
         _log(f"Budget cap: ${get_max_cost_per_run():.4f}")
         _log("=" * 72)
+
+        # I-ready-007 (#1072): input harm-refusal — BEFORE the scope gate / any retrieval / any
+        # generator spend. Flag-gated (default OFF -> this whole block is skipped -> byte-identical).
+        # A harmful-but-answerable, clinically-shaped query ("insulin dose to fatally harm an adult")
+        # otherwise passes run_scope_gate as `proceed` and yields a FAITHFUL, well-cited report that
+        # assists the harmful objective (the §-1.1 lethality scenario). The classifier is HIGH-
+        # PRECISION (keys on an explicit harm-INTENT clause, never on clinical/policy subject) so
+        # legitimate clinical/policy research is NEVER over-refused; it FAILS OPEN (classifier error
+        # -> harmful=False -> proceed) per the Codex brief-gate decision.
+        if os.getenv("PG_USE_SAFETY_REFUSAL", "0").strip() in ("1", "true", "True"):
+            from src.polaris_graph.nodes.safety_classifier import (
+                SAFETY_REFUSAL_REDIRECTION, classify_harm_intent,
+            )
+            _harm = classify_harm_intent(q["question"])
+            if _harm.harmful:
+                _log(f"[ABORT]       Safety refusal: category={_harm.category} "
+                     f"confidence={_harm.confidence:.2f} reasons={_harm.reasons}")
+                summary["status"] = "abort_safety_refused"
+                summary["error"] = f"safety refused: {_harm.category}"
+                (run_dir / "report.md").write_text(
+                    f"# Research report: {q['question']}\n\n"
+                    "## Pipeline verdict\n\n"
+                    + SAFETY_REFUSAL_REDIRECTION
+                    + f"\n\n### Refusal category\n\n`{_harm.category}`\n",
+                    encoding="utf-8",
+                )
+                run_cost = current_run_cost()
+                abort_manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=None, run_cost=run_cost,
+                )
+                abort_manifest.update({
+                    "status": "abort_safety_refused",
+                    "safety_refusal": {
+                        "category": _harm.category,
+                        "confidence": _harm.confidence,
+                        "reasons": _harm.reasons,
+                    },
+                })
+                abort_manifest = augment_v6_manifest(
+                    abort_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                abort_manifest = _attach_tool_utilization(abort_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(abort_manifest, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = abort_manifest
+                summary["cost_usd"] = run_cost
+                try: write_per_run_cost_ledger(run_dir, run_id)
+                except Exception: pass
+                if q.get("v6_mode") and q.get("external_run_id"):
+                    emit_terminal_event(
+                        q.get("external_run_id"),
+                        "abort_safety_refused",
+                        error_msg=summary.get("error"),
+                    )
+                set_current_run_id(None)
+                set_reasoning_sink(None)
+                log_f.close()
+                return summary
 
         # Phase 2b scope gate
         scope = run_scope_gate(
