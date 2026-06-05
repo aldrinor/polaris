@@ -1,0 +1,358 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 201bd536..654d37f0 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -15,6 +15,7 @@ Usage:
+ from __future__ import annotations
+ 
+ import asyncio
++import contextvars
+ import json
+ import logging
+ import os
+@@ -237,6 +238,27 @@ def to_unified_status(summary_status: str) -> str:
+     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+ 
+ 
++def make_feature_telemetry(feature: str, **extra: Any) -> dict[str, Any]:
++    """I-ready-005 (#1076): default per-feature FIRING telemetry surfaced to the manifest so the operator
++    can prove a forced-ON benchmark feature actually fired. status: not_enabled -> attempted_empty (block
++    ran) -> fired (produced output) / error. ``extra`` adds feature-specific count keys (e.g.
++    questions_added, urls_discovered)."""
++    base = {"feature": feature, "enabled": False, "fired": False, "status": "not_enabled"}
++    base.update(extra)
++    return base
++
++
++def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
++    """Return a LOUD warning string if a feature was force-ENABLED but did NOT fire (the silent-degrade
++    the operator's no-downgrade directive forbids), else None. Non-gating — advisory surface."""
++    if telemetry.get("enabled") and not telemetry.get("fired"):
++        return (
++            f"{telemetry.get('feature')} was force-ENABLED but did NOT fire "
++            f"(status={telemetry.get('status')}) — verify the run before trusting it"
++        )
++    return None
++
++
+ def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
+     """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
+     contains ONLY the SUFFICIENT sections, so the generator (which fixes its
+@@ -1333,6 +1355,17 @@ def _capture_run_pin(
+         return None
+ 
+ 
++# I-ready-005 (#1076) Codex iter-1 P1: per-feature firing telemetry must land on EVERY manifest write
++# (success AND all abort/budget/error paths), not just success — else a forced-ON run that aborts early
++# (e.g. abort_no_sources, AFTER the STORM block) leaves the operator unable to prove STORM/agentic fired.
++# run_one_query publishes its (live, mutated-in-place) telemetry dicts into this ContextVar at the top;
++# _attach_tool_utilization — the single hook called before every manifest.json write — stamps them.
++# ContextVar (not a module global) so concurrent async run_one_query tasks don't stomp each other.
++_FEATURE_TELEMETRY_CTX: "contextvars.ContextVar[dict[str, dict] | None]" = contextvars.ContextVar(
++    "_feature_telemetry", default=None,
++)
++
++
+ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
+     """I-meta-007b (#meta-007) P1: attach the per-run tool-utilization summary
+     to ``manifest`` (and write ``run_dir/tool_summary.json``) immediately before
+@@ -1343,7 +1376,15 @@ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
+     Pure no-op when PG_ENABLE_TOOL_TRACKER selects OFF (manifest unchanged, no
+     file written), so OFF-mode manifest.json stays byte-identical. Any telemetry
+     or import error is swallowed + logged so it can never abort the run.
++
++    I-ready-005 (#1076): ALSO stamps the per-feature firing telemetry (STORM / agentic) from
++    ``_FEATURE_TELEMETRY_CTX`` so EVERY manifest write path carries it. Additive, fail-safe.
+     """
++    # I-ready-005 (#1076): stamp the per-feature firing telemetry on EVERY manifest path. Best-effort.
++    _feat = _FEATURE_TELEMETRY_CTX.get()
++    if _feat:
++        for _k, _v in _feat.items():
++            manifest[_k] = _v
+     try:
+         from src.polaris_graph.telemetry.tool_tracer import (
+             attach_tool_utilization as _attach,
+@@ -1468,6 +1509,28 @@ async def run_one_query(
+     # OpenRouterClient tags its cost-ledger entries with this run.
+     set_current_run_id(run_id)
+ 
++    # I-ready-005 (#1076) Codex iter-1 P1: initialize per-feature FIRING telemetry HERE — at the top of
++    # run_one_query, BEFORE any early-abort/budget/error manifest write — and publish it into the
++    # ContextVar that _attach_tool_utilization stamps onto EVERY manifest.json. `enabled` reflects the
++    # FLAG (so even a run that aborts before the feature block shows it was configured); the STORM/agentic
++    # blocks mutate `fired`/counts/status in place. status: not_enabled -> enabled_not_reached (configured
++    # but the run aborted before the block) -> attempted_empty (block ran) -> fired / error.
++    _storm_enabled = os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
++    _agentic_enabled = os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
++    _storm_telemetry = make_feature_telemetry(
++        "storm_query_expansion", questions_added=0, interviews=0,
++        enabled=_storm_enabled, status="enabled_not_reached" if _storm_enabled else "not_enabled",
++    )
++    _agentic_telemetry = make_feature_telemetry(
++        "agentic_search", urls_discovered=0,
++        enabled=_agentic_enabled, status="enabled_not_reached" if _agentic_enabled else "not_enabled",
++    )
++    # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
++    # benchmark feature and lives INSIDE the outer try below (first statement). When both features
++    # are OFF the ContextVar stays None, so _attach_tool_utilization adds no feature keys and the
++    # manifest is byte-identical to the pre-#1076 OFF path. Publishing inside the outer try also means
++    # the try's `finally` (P1-1) is the single guaranteed clear on every exit.
++
+     # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
+     # mode — the jsonl is rewritten on every record/update so it is current
+     # on disk regardless of which abort / error / success path the run exits
+@@ -1545,6 +1608,16 @@ async def run_one_query(
+     }
+ 
+     try:
++        # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
++        # ONLY when a benchmark forces a feature ON. Set HERE — first statement inside the outer try —
++        # so the try's `finally` (below) is the guaranteed single clear on EVERY exit (all early
++        # abort-returns, success, and the budget/error excepts), after the last manifest write. An OFF
++        # run never sets it, keeping _attach_tool_utilization byte-identical.
++        if _storm_enabled or _agentic_enabled:
++            _FEATURE_TELEMETRY_CTX.set({
++                "storm_query_expansion": _storm_telemetry, "agentic_search": _agentic_telemetry,
++            })
++
+         _log("=" * 72)
+         _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
+         _log(f"Question: {q['question']}")
+@@ -1998,6 +2071,10 @@ async def run_one_query(
+                 trial=_trial_queries,
+             )
+ 
++        # I-ready-005 (#1076): _storm_telemetry / _agentic_telemetry are initialized at the TOP of
++        # run_one_query (before any early-abort manifest write) and published to _FEATURE_TELEMETRY_CTX;
++        # the blocks below mutate them in place, and _attach_tool_utilization stamps them on every manifest.
++
+         # I-cap-002 feature 1/4 (#1060): STORM multi-perspective query expansion (default OFF,
+         # fallback-safe). When PG_STORM_ENABLED_IN_BENCHMARK=1, call STORM to generate diverse
+         # perspective QUESTIONS and append them as additional SEARCH QUERIES. STORM only widens the
+@@ -2007,6 +2084,8 @@ async def run_one_query(
+         # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
+         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
+         if os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
++            _storm_telemetry["enabled"] = True
++            _storm_telemetry["status"] = "attempted_empty"
+             import asyncio as _storm_asyncio
+             import contextvars as _storm_cv
+             import src.polaris_graph.agents.storm_interviews as _storm_mod
+@@ -2063,6 +2142,8 @@ async def run_one_query(
+             except Exception as _storm_exc:  # noqa: BLE001 — STORM faults (incl. its own internal
+                 # BudgetExceededError from the isolated context) never abort the run: the parent budget
+                 # was already booked + enforced via the envelope above.
++                _storm_telemetry["status"] = "error"
++                _storm_telemetry["error"] = str(_storm_exc)[:200]
+                 _log(
+                     f"[storm]       STORM query expansion failed: {_storm_exc} — "
+                     f"proceeding without STORM queries"
+@@ -2081,6 +2162,12 @@ async def run_one_query(
+                 _seen_lower = {x.lower() for x in _amplified_effective}
+                 _storm_added = [x for x in _storm_questions if x.lower() not in _seen_lower]
+                 _amplified_effective = _amplified_effective + _storm_added
++                _storm_telemetry.update({
++                    "fired": len(_storm_added) > 0,
++                    "questions_added": len(_storm_added),
++                    "interviews": len(_storm_out.get("storm_conversations", [])),
++                    "status": "fired" if _storm_added else "attempted_empty",
++                })
+                 _log(
+                     f"[storm]       +{len(_storm_added)} perspective queries from "
+                     f"{len(_storm_out.get('storm_conversations', []))} interviews (slug={q['slug']})"
+@@ -2526,6 +2613,8 @@ async def run_one_query(
+         if os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
+             "1", "true", "True",
+         ):
++            _agentic_telemetry["enabled"] = True
++            _agentic_telemetry["status"] = "attempted_empty"
+             import asyncio as _ag_asyncio
+             import contextvars as _ag_cv
+             import src.polaris_graph.agents.searcher as _ag_mod
+@@ -2585,12 +2674,19 @@ async def run_one_query(
+                 # field is in scope near the merge below (faithfulness defense-in-depth).
+                 _ag_urls = harvest_agentic_urls(_ag_result, cap=_ag_url_cap)
+                 del _ag_result
++                _agentic_telemetry.update({
++                    "fired": len(_ag_urls) > 0,
++                    "urls_discovered": len(_ag_urls),
++                    "status": "fired" if _ag_urls else "attempted_empty",
++                })
+                 _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
+             except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
+                 _log(
+                     f"[agentic]     agentic discovery failed: {_ag_exc} — "
+                     f"proceeding without agentic URLs"
+                 )
++                _agentic_telemetry["status"] = "error"
++                _agentic_telemetry["error"] = str(_ag_exc)[:200]
+                 _ag_urls = []
+             finally:
+                 _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = _ag_prev_reading
+@@ -5107,6 +5203,14 @@ async def run_one_query(
+         # inside the helper): when OFF, neither the file nor the key is produced,
+         # so manifest.json is byte-identical to the pre-I-meta-007b output.
+         manifest = _attach_tool_utilization(manifest, run_dir)
++        # I-ready-005 (#1076): the per-feature firing keys (storm_query_expansion / agentic_search) are
++        # stamped on EVERY manifest path by _attach_tool_utilization (via _FEATURE_TELEMETRY_CTX). Here on
++        # the SUCCESS path we additionally fail LOUD (log, non-gating) if a feature was force-ENABLED but
++        # did NOT fire — the silent-degrade the operator's no-downgrade directive forbids.
++        for _feat in (_storm_telemetry, _agentic_telemetry):
++            _feat_warn = feature_firing_warning(_feat)
++            if _feat_warn:
++                _log(f"[feature]     WARNING {_feat_warn}")
+ 
+         manifest = augment_v6_manifest(
+             manifest,
+@@ -5342,6 +5446,17 @@ async def run_one_query(
+             # Don't mask the original exception if the best-effort
+             # manifest write itself fails.
+             _log(f"[FATAL]       manifest-write-also-failed: {manifest_exc}")
++    finally:
++        # I-ready-005 (#1076) iter-4 P1-1: the single GUARANTEED clear of the per-feature telemetry
++        # ContextVar. Every exit of the orchestration body passes through this finally — normal success
++        # (its manifest is written inside this try), all early abort-returns
++        # (scope/no-sources/corpus/no-verified/verifier-degraded/cancel), AND the BudgetExceededError /
++        # Exception excepts above (each writes its manifest first). The post-try teardown below writes
++        # NO manifest, so clearing here cannot strip telemetry off any manifest, while a stale "feature
++        # fired" entry can never leak into a later _attach_tool_utilization call sharing this async
++        # context. Replaces the iter-3 wrapper split (which broke the run_one_query source-introspection
++        # contract gates) — the body stays in run_one_query per Codex iter-4's first-listed fix.
++        _FEATURE_TELEMETRY_CTX.set(None)
+ 
+     # BUG-M-206 + BUG-N-301 teardown: per-run ledger copy + run_id reset.
+     try:
+diff --git a/tests/polaris_graph/test_feature_firing_telemetry_iready005.py b/tests/polaris_graph/test_feature_firing_telemetry_iready005.py
+new file mode 100644
+index 00000000..e894afb5
+--- /dev/null
++++ b/tests/polaris_graph/test_feature_firing_telemetry_iready005.py
+@@ -0,0 +1,128 @@
++"""I-ready-005 (#1076) P1 — per-feature firing telemetry + the no-silent-degrade warning (offline, pure).
++
++The benchmark forces STORM + agentic ON; the operator must be able to PROVE each fired (not just that its
++flag was set). These tests cover the manifest telemetry shape + the forced-ON-but-didn't-fire warning.
++"""
++
++from __future__ import annotations
++
++from scripts.run_honest_sweep_r3 import feature_firing_warning, make_feature_telemetry
++
++
++def test_default_telemetry_shape_not_enabled():
++    t = make_feature_telemetry("storm_query_expansion", questions_added=0, interviews=0)
++    assert t["feature"] == "storm_query_expansion"
++    assert t["enabled"] is False and t["fired"] is False
++    assert t["status"] == "not_enabled"
++    assert t["questions_added"] == 0 and t["interviews"] == 0
++
++
++def test_no_warning_when_feature_off():
++    # OFF (not enabled) -> no warning regardless of fired.
++    assert feature_firing_warning(make_feature_telemetry("agentic_search")) is None
++
++
++def test_no_warning_when_enabled_and_fired():
++    t = make_feature_telemetry("storm_query_expansion")
++    t.update({"enabled": True, "fired": True, "status": "fired"})
++    assert feature_firing_warning(t) is None
++
++
++def test_warns_when_force_enabled_but_did_not_fire():
++    # The silent-degrade the operator's no-downgrade directive forbids: enabled but not fired.
++    t = make_feature_telemetry("agentic_search")
++    t.update({"enabled": True, "fired": False, "status": "attempted_empty"})
++    w = feature_firing_warning(t)
++    assert w is not None
++    assert "agentic_search" in w and "did NOT fire" in w
++    # also fires when the block errored
++    t["status"] = "error"
++    assert feature_firing_warning(t) is not None
++
++
++def test_attach_tool_utilization_stamps_telemetry_on_every_manifest_path(monkeypatch, tmp_path):
++    # Codex iter-1 P1: the firing keys must land on EVERY manifest write path (abort/budget/error too),
++    # not just success. _attach_tool_utilization is the single hook before every manifest.json write; it
++    # stamps the telemetry from _FEATURE_TELEMETRY_CTX. With the tracker OFF it is otherwise a no-op, so
++    # this isolates the feature-key stamping.
++    import scripts.run_honest_sweep_r3 as m
++    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
++    storm = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, status="fired")
++    agentic = make_feature_telemetry("agentic_search", enabled=True, fired=False, status="enabled_not_reached")
++    tok = m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": storm, "agentic_search": agentic})
++    try:
++        out = m._attach_tool_utilization({"status": "abort_no_sources"}, tmp_path)
++    finally:
++        m._FEATURE_TELEMETRY_CTX.reset(tok)
++    # an ABORT manifest now carries the firing telemetry — the operator can prove STORM fired even on abort
++    assert out["storm_query_expansion"]["fired"] is True
++    assert out["agentic_search"]["status"] == "enabled_not_reached"
++
++
++def test_attach_tool_utilization_no_telemetry_when_ctx_unset(monkeypatch, tmp_path):
++    # When the ContextVar is unset (non-run_one_query caller), no feature keys are added (byte-identical).
++    import scripts.run_honest_sweep_r3 as m
++    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
++    m._FEATURE_TELEMETRY_CTX.set(None)
++    out = m._attach_tool_utilization({"status": "success"}, tmp_path)
++    assert "storm_query_expansion" not in out and "agentic_search" not in out
++
++
++def test_run_one_query_outer_try_has_ctx_clearing_finally():
++    # Codex iter-3/iter-4 P1: the per-exit-site clears kept missing direct-return paths (cancel-return,
++    # abort_verifier_degraded). The guaranteed clear is a `finally` on run_one_query's OUTER try — the
++    # same try whose excepts write error_unexpected / abort_budget_exceeded. Because every abort-return
++    # AND the success manifest write live inside that try, and the post-try teardown writes no manifest,
++    # the finally is the single clear that runs on EVERY exit without ever stripping telemetry off a
++    # manifest. Structural (AST) check — mirrors test_manifest_contract / test_four_role_budget_cap,
++    # which is why the orchestrator body must stay in `run_one_query` (no wrapper rename).
++    import ast
++    import inspect
++
++    import scripts.run_honest_sweep_r3 as m
++
++    src = inspect.getsource(m.run_one_query)
++    # getsource keeps the original indentation; dedent so ast can parse the def standalone.
++    import textwrap
++
++    tree = ast.parse(textwrap.dedent(src))
++    func = next(
++        (n for n in ast.walk(tree)
++         if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_one_query"),
++        None,
++    )
++    assert func is not None, "run_one_query not found"
++    # The outer orchestration try = the top-level Try whose body writes the error_unexpected /
++    # abort_budget_exceeded manifests (NOT the early `except Exception: pass` synthesis-reset try, which
++    # is also a top-level try but is a no-op guard). Identify it by its source segment, then assert it
++    # carries a `finally` that clears _FEATURE_TELEMETRY_CTX. dedent shifts line numbers, so segment off
++    # the dedented `src` consistently.
++    outer_try = None
++    for node in func.body:
++        if isinstance(node, ast.Try):
++            seg = ast.get_source_segment(textwrap.dedent(src), node) or ""
++            if "error_unexpected" in seg and "BudgetExceededError" in seg:
++                outer_try = node
++                break
++    assert outer_try is not None, (
++        "expected the outer orchestration try (the one writing error_unexpected / "
++        "abort_budget_exceeded) in run_one_query"
++    )
++    assert outer_try.finalbody, "outer try must have a `finally` clause"
++    finally_src = ast.dump(ast.Module(body=outer_try.finalbody, type_ignores=[]))
++    assert "_FEATURE_TELEMETRY_CTX" in finally_src and "set" in finally_src, (
++        "the outer try's finally must clear _FEATURE_TELEMETRY_CTX (set it to None) — the single "
++        "guaranteed clear on every exit"
++    )
++
++
++def test_stale_telemetry_does_not_leak_after_clear(monkeypatch, tmp_path):
++    # Behavioral: after a run "ends" (ContextVar cleared to None), a subsequent _attach call must NOT
++    # carry the prior run's telemetry.
++    import scripts.run_honest_sweep_r3 as m
++    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
++    prior = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, status="fired")
++    m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": prior, "agentic_search": prior})
++    m._FEATURE_TELEMETRY_CTX.set(None)   # the teardown clear
++    out = m._attach_tool_utilization({"status": "success"}, tmp_path)
++    assert "storm_query_expansion" not in out   # no stale leak

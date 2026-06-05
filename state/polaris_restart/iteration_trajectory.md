@@ -1375,3 +1375,10 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
   Codex independently ran the 12-case truth table (all correct), the 99-test contract suite (99 passed),
   and re-verified _compose_final_verdict fail-closed. **verdict: APPROVE**, zero P0/P1/P2,
   convergence_call accept_remaining. Full suite tests/roles+architecture+dr_benchmark = 661 passed.
+
+## I-ready-005 (#1076) diff-gate iter-5 — 2026-06-05
+- doc: codex_diff.patch (cumulative #1076, 27701048..HEAD, 243 insertions)
+- iter-5 verdict: APPROVE (0 novel_p0 / 0 continuing_p0 / 0 p1 / 0 p2; convergence_call=accept_remaining; no remaining blockers). ~71.9k tokens.
+- iter-4 had been REQUEST_CHANGES (2 P1: wrapper broke ~20 introspection gates; byte-identical OFF broken). Fixed by reverting the wrapper (body back in run_one_query) + finally on the existing outer try + gated ContextVar publish. Codex iter-5 independently AST-verified: outer try (1610-5459) has finalbody=True and IS the outer try; all early returns are inside it.
+- NOT a force-approve — genuine APPROVE at iter-5.
+- Discovery during verification: 6 pre-existing stale manifest-contract/b3 gates (red at base 8fac4dbd / #1074-tip 27701048, NOT #1076) -> filed #1086 (I-ready-016 URGENT).
