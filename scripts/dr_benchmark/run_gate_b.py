@@ -986,7 +986,10 @@ def _resolve_benchmark_upload(
     import asyncio
     from pathlib import Path
 
-    from polaris_graph.document_ingester import DocumentIngester
+    from polaris_graph.document_ingester import (
+        DocumentIngester,
+        DocumentIngestionError,
+    )
     from polaris_v6.adapters.upload_evidence import (
         partition_uploads_by_sovereignty,
     )
@@ -996,7 +999,13 @@ def _resolve_benchmark_upload(
     if not path.exists():
         raise FileNotFoundError(f"--upload-file {upload_file!r} does not exist")
 
-    result = asyncio.run(DocumentIngester().ingest(path))
+    try:
+        result = asyncio.run(DocumentIngester().ingest(path))
+    except DocumentIngestionError as exc:
+        # I-ready-010 diff-gate iter-1 P2: an unsupported extension / oversized
+        # file / missing parser dependency must FAIL LOUD as a clean pre-spend
+        # rc2 (ValueError -> main's parser.error), never a raw traceback/rc1.
+        raise ValueError(f"--upload-file {upload_file!r}: {exc}") from exc
     content = (result.get("content") or "").strip()
     if not content:
         raise ValueError(

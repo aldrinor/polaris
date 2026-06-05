@@ -121,6 +121,15 @@ def test_resolver_missing_file_fails_loud(_hermetic_storage):
         )
 
 
+def test_resolver_unsupported_extension_fails_loud_as_valueerror(_hermetic_storage):
+    """diff-gate iter-1 P2: a DocumentIngester failure (here an unsupported extension) is
+    re-raised as ValueError so the CLI converts it to a clean pre-spend rc2 — never a raw
+    traceback. The file exists (so it is NOT the FileNotFoundError path)."""
+    fixture = _write_fixture(_hermetic_storage, content="x", name="fixture.xyz")
+    with pytest.raises(ValueError, match="fixture.xyz"):
+        _resolve_benchmark_upload(str(fixture), "PUBLIC_SYNTHETIC")
+
+
 # ───────────────────────────────────── CLI: attach to a COPY ────────────────────────────────────
 
 def test_cli_attaches_upload_to_question_copy(_hermetic_storage, monkeypatch):
@@ -232,8 +241,10 @@ def test_upload_imports_are_lazy_inside_the_resolver():
     imported INSIDE _resolve_benchmark_upload, never at module top. Guards against a future hoist
     that would pull those (and a socket-opening dep chain) into `import run_gate_b`."""
     fn_src = inspect.getsource(run_gate_b._resolve_benchmark_upload)
+    # Robust to single- vs multi-line import formatting: assert the module path appears
+    # inside the function body (the symbols may wrap across lines).
     for lazy in (
-        "from polaris_graph.document_ingester import DocumentIngester",
+        "from polaris_graph.document_ingester import",
         "from polaris_v6.adapters.upload_evidence import",
         "from polaris_v6.api.upload import chunk_text",
     ):
