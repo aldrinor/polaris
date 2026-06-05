@@ -31,6 +31,17 @@ def test_simple_factual_queries_classify_simple(q):
     assert d.confidence >= 0.70
 
 
+@pytest.mark.parametrize("q", [
+    "What is the capital of France?",
+    "What is the population of Canada?",
+])
+def test_civic_queries_with_trailing_punctuation_reach_the_routing_gate(q):
+    # Codex diff-gate iter-4 P2: a trailing "?" must not strip the entity below the 0.80 gate.
+    d = classify_complexity(q)
+    assert d.complexity == "simple"
+    assert d.confidence >= 0.80
+
+
 def test_telus_bell_is_high_confidence_simple():
     d = classify_complexity("Telus and Bell stock price over the past 20 years")
     assert d.complexity == "simple"
@@ -74,6 +85,12 @@ def test_complex_or_ambiguous_queries_fail_open_to_complex(q):
     "What is the population taking statins in Canada?",
     "What is the population using Ozempic in Canada?",
     "What is the population of diabetics in the US?",
+    # Codex diff-gate iter-4 reprobes — cohort-prevalence "population of <cohort> with <disease>"
+    # (structural pattern; no disease name enumeration).
+    "What is the population of children with asthma in the United States?",
+    "What is the population of adults with COPD in the US?",
+    "What is the population of people with migraine in the United Kingdom?",
+    "What is the number of people taking statins in Canada?",
 ])
 def test_clinical_outcome_safety_queries_are_complex(q):
     # A factual-RATE clinical/outcome/safety question must route complex — it must NEVER be right-sized
@@ -88,6 +105,10 @@ def test_clinical_outcome_safety_queries_are_complex(q):
     "What is Microsoft revenue exposure to OpenAI",
     "What is Apple profit risk from China tariffs",
     "What is the outlook for Tesla revenue going forward",
+    # Codex diff-gate iter-4 reprobes — investment JUDGMENT, not a factual lookup.
+    "Is Tesla stock overvalued?",
+    "Is Tesla stock a buy?",
+    "Should I buy Apple stock?",
 ])
 def test_due_diligence_analytical_queries_are_complex(q):
     # revenue/profit are safe cues, but driver/risk/exposure/competitive/outlook/tariff intent makes

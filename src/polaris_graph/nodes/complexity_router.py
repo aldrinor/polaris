@@ -42,7 +42,23 @@ _COMPLEX_INTENT = re.compile(
     # revenue exposure to OpenAI", "Apple profit risk from China tariffs"). Any of these ⇒ full path.
     r"driver|risk|exposure|competiti|outlook|threat|headwind|tailwind|moat|"
     r"opportunit|strateg|tariff|sanction|next \d+ years|over the next|going forward|"
-    r"implication|scenario|sensitivity|downside|upside|catalyst)\b",
+    r"implication|scenario|sensitivity|downside|upside|catalyst|"
+    # iter-4 P1-2: investment-JUDGMENT markers — "Is Tesla stock overvalued/a buy?" is an analysis,
+    # not a factual lookup. Structural (no ticker enumeration).
+    r"overvalued|undervalued|fair[- ]?value|fairly valued|\bbuy\b|\bsell\b|\bhold\b|"
+    r"worth buying|good investment|invest in|bullish|bearish|price target|"
+    r"should i (?:buy|sell|invest)|is it a (?:buy|sell))\b",
+    re.IGNORECASE,
+)
+
+# I-ready-006 (#1082) Codex diff-gate iter-4 P1-1: COHORT-PREVALENCE / drug-utilization pattern —
+# "population/number/prevalence/proportion of <cohort> WITH/TAKING/USING/ON/DIAGNOSED <X>" is an
+# epidemiology query, NOT a civic "population of <place>" fact. STRUCTURAL (catches the whole class
+# without enumerating disease names, per Codex's blocker). Any hit ⇒ full path.
+_COHORT_PREVALENCE = re.compile(
+    r"\b(?:population|number|prevalence|proportion|percentage|share|count|fraction)\s+of\b"
+    r".{0,60}?\b(?:with|who\s+(?:have|has|are|use|take)|taking|using|on\s+|diagnosed|"
+    r"suffering|affected|living with|prescribed|treated)\b",
     re.IGNORECASE,
 )
 
@@ -106,12 +122,15 @@ def classify_complexity(question: str) -> ComplexityDecision:
             return ComplexityDecision("complex", 0.0, ["empty_question_fail_open"])
 
         reasons: list[str] = []
-        # Clinical/medical content forces the FULL path FIRST (highest priority) — a clinical
-        # safety/outcome question is never right-sized (Codex diff-gate iter-1 P1-1).
+        # Clinical/medical content + the cohort-prevalence pattern force the FULL path FIRST (highest
+        # priority) — a clinical safety/outcome/epidemiology question is never right-sized (Codex
+        # diff-gate iter-1/4 P1-1).
         if _CLINICAL_CONTENT.search(q):
             return ComplexityDecision("complex", 0.9, ["clinical_medical_content"])
+        if _COHORT_PREVALENCE.search(q):
+            return ComplexityDecision("complex", 0.9, ["cohort_prevalence_pattern"])
 
-        # Any explicit compare/causal/mechanism/synthesis intent ⇒ full path (high priority).
+        # Any explicit compare/causal/mechanism/synthesis/investment-judgment intent ⇒ full path.
         if _COMPLEX_INTENT.search(q):
             return ComplexityDecision("complex", 0.9, ["complex_intent_marker"])
 
@@ -119,9 +138,14 @@ def classify_complexity(question: str) -> ComplexityDecision:
         has_temporal = bool(_TEMPORAL_RANGE.search(q))
 
         # Named-entity proxy: a capitalized token NOT at sentence start (so the leading "What"/"How"
-        # is excluded), OR an all-caps ticker (2-5 letters).
+        # is excluded), OR an all-caps ticker (2-5 letters). Strip trailing punctuation so "France?" /
+        # "Canada?" still count as entities (Codex diff-gate iter-4 P2 — else they only reach 0.70 and
+        # miss the 0.80 right-sizing gate; this over-serves, but it's the safe direction).
         words = q.split()
-        caps = [w for w in words[1:] if re.match(r"^[A-Z][A-Za-z.&-]+$", w)]
+        caps = [
+            w.rstrip("?.!,;:") for w in words[1:]
+            if re.match(r"^[A-Z][A-Za-z.&-]+[?.!,;:]?$", w)
+        ]
         has_entity = len(caps) >= 1 or bool(re.search(r"\b[A-Z]{2,5}\b", q))
         word_count = len(words)
 

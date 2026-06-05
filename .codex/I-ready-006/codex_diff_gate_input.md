@@ -1,4 +1,20 @@
-# Codex DIFF review — I-ready-006 (#1082) query-complexity router — ITER 1
+# Codex DIFF review — I-ready-006 (#1082) query-complexity router — ITER 5 (last before §8.3.1 cap)
+
+## iter-4 was REQUEST_CHANGES (2 P1, 1 P2) — ALL FIXED, STRUCTURALLY (this is iter-5):
+- **P1-1 cohort-prevalence:** "population of children WITH asthma / adults WITH COPD / people WITH
+  migraine" routed simple. FIX (per your "without enumerating disease names" blocker): a STRUCTURAL
+  `_COHORT_PREVALENCE` regex — `(population|number|prevalence|proportion|...) of <…> (with|who have|
+  taking|using|on|diagnosed|suffering|affected|prescribed|treated)` ⇒ complex. Catches the whole
+  class; "population of Canada?" (no cohort qualifier) stays simple. 4 cohort reprobes now complex.
+- **P1-2 investment-judgment:** "Is Tesla stock overvalued? / a buy?" routed simple. FIX: added
+  overvalued/undervalued/fair-value/buy/sell/hold/bullish/bearish/price-target/"should I buy" to
+  `_COMPLEX_INTENT`. 3 reprobes now complex; "Apple revenue in 2023" stays simple.
+- **P2 (over-serve):** "France?"/"Canada?" trailing-`?` broke the entity regex → only 0.70. FIX:
+  strip trailing punctuation; civic queries now reach 0.85 and pass the 0.80 gate.
+
+---
+
+# Codex DIFF review — I-ready-006 (#1082) query-complexity router — ITER 1 (context)
 
 ```
 HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
