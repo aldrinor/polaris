@@ -144,7 +144,9 @@ def test_preflight_full_capability_fails_closed_on_silent_throttle(monkeypatch):
     # it) so this test does not leak the cap into later budget tests in the same process.
     monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
     g.apply_full_capability_benchmark_slate()
-    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK"):
+    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+              # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+              "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
         os.environ[f] = "1"
     g.preflight_full_capability()                              # full slate -> passes
     monkeypatch.setenv("PG_SWEEP_FETCH_CAP", "40")             # the exact prior-bug value

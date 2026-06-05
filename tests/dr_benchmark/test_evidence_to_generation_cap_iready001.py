@@ -19,7 +19,9 @@ from scripts.dr_benchmark import run_gate_b as g
 def _clear():
     for k in ("PG_LIVE_MAX_EV_TO_GEN", "PG_MAX_EV_PER_SECTION", "PG_MOST_MAX_EVIDENCE",
               "PG_STORM_ENABLED_IN_BENCHMARK", "PG_SWEEP_EVIDENCE_DEEPENER", "PG_ENABLE_TOOL_TRACKER",
-              "PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK"):
+              "PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+              # I-ready-016b (#1097): now preflight-required (force-on in run_gate_b_query) — clear them too.
+              "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
         os.environ.pop(k, None)
 
 
@@ -48,7 +50,9 @@ def test_preflight_fails_closed_on_reintroduced_generation_throttle(monkeypatch)
     # A deliberate PG_LIVE_MAX_EV_TO_GEN=20 (the prior bug value) must be CAUGHT by the preflight.
     _clear()
     g.apply_full_capability_benchmark_slate()
-    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK"):
+    for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK",
+              # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+              "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT", "PG_SWEEP_TABLE_CELL_VERIFY"):
         os.environ[f] = "1"
     g.preflight_full_capability()                                # full slate passes
     monkeypatch.setenv("PG_LIVE_MAX_EV_TO_GEN", "20")            # the exact prior-bug value

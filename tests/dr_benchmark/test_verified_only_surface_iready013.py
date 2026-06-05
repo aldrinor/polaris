@@ -28,6 +28,8 @@ def _set_min_passing_gate_b_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1",
         "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
         "PG_NLI_IN_BENCHMARK": "1",
+        # I-ready-016b (#1097): the 3 readiness faithfulness flags are now preflight-required.
+        "PG_USE_SAFETY_REFUSAL": "1", "PG_SWEEP_NLI_CONFLICT": "1", "PG_SWEEP_TABLE_CELL_VERIFY": "1",
         "PG_ENABLE_TOOL_TRACKER": "1",
         "PG_USE_FINDING_DEDUP": "1",
         "PG_CAPPED_FINDING_DEDUP": "1",
