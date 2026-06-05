@@ -1,0 +1,484 @@
+# Codex DIFF review — I-ready-010 (#1073): Gate-B uploaded-document wiring — ITER 2
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**REVIEW ONLY — do not modify any file. Return the YAML verdict block ONLY. Claude authored the diff (commits `f1b176c8` + `177f263c` on `bot/I-ready-010-doc-upload-wiring`).**
+
+---
+
+## 0. What changed since iter-1 (your iter-1 verdict: APPROVE, one P2)
+
+Your iter-1 verdict was **APPROVE** (0 P0, 0 P1) with one non-blocking P2:
+
+> `_resolve_benchmark_upload` only converts FileNotFoundError/ValueError to parser.error; DocumentIngester failures such as unsupported extension, missing parser dependency, or oversized file still abort pre-spend with a traceback/rc1 instead of argparse rc2. Non-blocking for the validated PUBLIC_SYNTHETIC md path and no sovereignty bypass.
+
+**I addressed it** (commit `177f263c`). The resolver now catches `DocumentIngestionError` (the base exception `DocumentIngester.ingest` raises for unsupported extension / oversized file / missing parser dependency, document_ingester.py:81) and re-raises it as `ValueError`, so `main`'s existing `except (FileNotFoundError, ValueError): parser.error(...)` converts ALL pre-spend ingestion failures to a clean rc2 — never a raw traceback. No new module-top import (the `DocumentIngestionError` import is added to the resolver's existing LAZY import block, preserving the NO-SPEND/NO-NETWORK-at-import invariant). Added a resolver test (`.xyz` unsupported extension → `ValueError`) and made the lazy-import source-pin formatting-robust (the import now wraps multi-line).
+
+The rest of the diff is unchanged from iter-1.
+
+## 1. What to verify this iter
+
+- The P2 is resolved: an unsupported-extension / oversized / missing-dep ingestion failure now fails loud as a clean rc2 (via `ValueError` → `parser.error`), with NO sovereignty bypass and NO change to the validated PUBLIC_SYNTHETIC `.md` happy path.
+- No regression to the iter-1-APPROVE'd behavior: faithfulness path (build_upload_evidence_rows → strict_verify → 4-role) intact; flag-OFF byte-identical; `dict(q)` registry isolation; lazy-import no-spend-at-import invariant still holds (the new `DocumentIngestionError` import is inside the resolver, not at module top).
+- No NEW P0/P1 introduced by the 12-line P2 fix.
+
+## 2. Verification already done (offline, no spend)
+
+- `tests/dr_benchmark/test_benchmark_upload_wiring_iready010.py` — 14 tests pass (added the unsupported-extension fail-loud test).
+- `tests/dr_benchmark/test_run_gate_b_cli.py` — existing 17 tests still pass.
+- Production diff 130 LOC additive (no deletions), under the 200-LOC cap.
+
+You may run `python -m pytest tests/dr_benchmark/test_benchmark_upload_wiring_iready010.py tests/dr_benchmark/test_run_gate_b_cli.py -q` (PYTHONPATH = `src` + repo root) — read-only, no spend, no model.
+
+## 3. Output schema (return EXACTLY this; loose prose rejected)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+
+## 4. The full committed diff (`git diff bot/I-ready-013-analyst-synthesis-verified..HEAD`)
+
+```diff
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index b377564a..d54d3bd0 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -958,6 +958,77 @@ def _format_list_preview(questions: list[dict]) -> str:
+     return "\n".join(lines)
+ 
+ 
++def _resolve_benchmark_upload(
++    upload_file: str, classification: str
++) -> tuple[list[dict], int]:
++    """Ingest a local file and shape it as a Gate-B ``uploaded_documents`` entry.
++
++    I-ready-010 (#1073). Returns ``(allowed, blocked_count)`` where ``allowed``
++    is the sovereignty-cleared partition (the ONLY docs that may ground the
++    external-generator benchmark) in the ``{document_id, classification,
++    filename, chunks}`` shape the sweep injection
++    (``scripts/run_honest_sweep_r3.py:3458``) + ``build_upload_evidence_rows``
++    already consume, and ``blocked_count`` is the number the sovereignty router
++    rejected.
++
++    Mirrors the production worker resolver
++    (``polaris_v6.api.runs._resolve_uploaded_documents``): same ``chunk_text``
++    chunking, same dict shape, same fail-loud-on-empty (LAW II — a silent
++    zero-evidence run would mislead the operator). Imports are LAZY so importing
++    ``run_gate_b`` opens no socket and pulls neither ``document_ingester`` nor
++    ``fastapi`` (the module's NO-SPEND/NO-NETWORK-at-import invariant); they load
++    only when ``--upload-file`` is actually used.
++
++    Raises:
++        FileNotFoundError: the path does not exist.
++        ValueError: the file yields no extractable text (empty/whitespace).
++    """
++    import asyncio
++    from pathlib import Path
++
++    from polaris_graph.document_ingester import (
++        DocumentIngester,
++        DocumentIngestionError,
++    )
++    from polaris_v6.adapters.upload_evidence import (
++        partition_uploads_by_sovereignty,
++    )
++    from polaris_v6.api.upload import chunk_text
++
++    path = Path(upload_file)
++    if not path.exists():
++        raise FileNotFoundError(f"--upload-file {upload_file!r} does not exist")
++
++    try:
++        result = asyncio.run(DocumentIngester().ingest(path))
++    except DocumentIngestionError as exc:
++        # I-ready-010 diff-gate iter-1 P2: an unsupported extension / oversized
++        # file / missing parser dependency must FAIL LOUD as a clean pre-spend
++        # rc2 (ValueError -> main's parser.error), never a raw traceback/rc1.
++        raise ValueError(f"--upload-file {upload_file!r}: {exc}") from exc
++    content = (result.get("content") or "").strip()
++    if not content:
++        raise ValueError(
++            f"--upload-file {upload_file!r} yielded no extractable text "
++            "(empty/whitespace extraction) — a zero-evidence benchmark run "
++            "would mislead the operator (LAW II fail-loud)."
++        )
++    chunks = chunk_text(content)
++    if not chunks:
++        raise ValueError(
++            f"--upload-file {upload_file!r} produced no grounding chunks."
++        )
++
++    doc = {
++        "document_id": result["doc_id"],
++        "classification": classification,
++        "filename": path.name,
++        "chunks": chunks,
++    }
++    allowed, blocked = partition_uploads_by_sovereignty([doc])
++    return allowed, len(blocked)
++
++
+ def main(argv: list[str] | None = None) -> int:
+     """Gate-B CLI launcher (I-meta-008 #1014). The ONLY entrypoint that runs the 4-role
+     benchmark pipeline. NO SPEND / NO NETWORK at import — all runtime work is here.
+@@ -999,6 +1070,30 @@ def main(argv: list[str] | None = None) -> int:
+         "--out-root", type=str, default=DEFAULT_OUT_ROOT, metavar="DIR",
+         help=f"Output root (tree <out_root>/<domain>/<slug>). Default: {DEFAULT_OUT_ROOT}.",
+     )
++    # I-ready-010 (#1073): attach an uploaded document to the benchmark questions so
++    # the upload->citable-evidence capability is live + measurable on the beat-both
++    # path. NOT in the selection group (combines with --only/--all; ignored by --list,
++    # which returns before the real-run resolve).
++    parser.add_argument(
++        "--upload-file", type=str, default=None, metavar="PATH",
++        help=(
++            "Attach a local document as grounding evidence to EVERY benchmark question "
++            "in this run. Ingested in-process via DocumentIngester; chunked + injected "
++            "through the SAME build_upload_evidence_rows -> strict_verify -> 4-role path "
++            "as the UI. Only PUBLIC_SYNTHETIC content clears the sovereignty router for "
++            "the external generator."
++        ),
++    )
++    parser.add_argument(
++        "--upload-classification", type=str, default="UNKNOWN",
++        choices=["PUBLIC_SYNTHETIC", "CAN_REAL", "PRIVATE", "CLIENT", "UNKNOWN"],
++        metavar="CLASS",
++        help=(
++            "Sovereignty classification of --upload-file (default UNKNOWN, conservative). "
++            "Only PUBLIC_SYNTHETIC clears the sovereignty router for the external generator; "
++            "any other value fails loud (the doc could never become benchmark evidence)."
++        ),
++    )
+     args = parser.parse_args(argv)
+ 
+     # --only validates against the locked slug set BEFORE any env-touching import (fail loud).
+@@ -1046,6 +1141,32 @@ def main(argv: list[str] | None = None) -> int:
+     # a FRESH SUBPROCESS (test_run_gate_b_import_order) rather than here — an in-process runtime gate would
+     # false-fire under pytest where those modules are pre-imported with defaults. The slate-before-import
+     # ORDER above is the fix; preflight_import_time_constants() is the assertion the subprocess test runs.
++    # I-ready-010 (#1073): resolve the optional --upload-file ONCE (before the loop)
++    # into the sovereignty-cleared `uploaded_documents` shape. FAIL LOUD here (before
++    # any token is spent) on a missing/empty file or a non-PUBLIC_SYNTHETIC doc that the
++    # external-generator benchmark could never use — never a silent zero-upload run.
++    _attach_uploads: list[dict] = []
++    _upload_blocked = 0
++    if args.upload_file:
++        try:
++            _attach_uploads, _upload_blocked = _resolve_benchmark_upload(
++                args.upload_file, args.upload_classification
++            )
++        except (FileNotFoundError, ValueError) as exc:
++            parser.error(str(exc))
++        if not _attach_uploads:
++            parser.error(
++                f"--upload-file {args.upload_file!r} classified "
++                f"{args.upload_classification!r} is EXTERNAL_LEAK_FORBIDDEN — only "
++                "PUBLIC_SYNTHETIC may ground the external-generator benchmark. "
++                "Reclassify (--upload-classification PUBLIC_SYNTHETIC) or remove it."
++            )
++        print(
++            f"attached upload: {args.upload_file} "
++            f"({len(_attach_uploads[0]['chunks'])} chunk(s), "
++            f"classification={args.upload_classification}, blocked={_upload_blocked})"
++        )
++
+     print("=" * 72)
+     print(f"GATE-B 4-ROLE BENCHMARK RUN -- {len(questions)} question(s)")
+     print(f"transport mode: {four_role_transport_mode()}")
+@@ -1056,6 +1177,15 @@ def main(argv: list[str] | None = None) -> int:
+     for q in questions:
+         slug = q["slug"]
+         domain = q["domain"]
++        if _attach_uploads:
++            # COPY — load_locked_questions returns the live SWEEP_QUERIES dict
++            # (run_gate_b.py:886,893); mutating it would leak `uploaded_documents`
++            # into the global registry, poisoning the routing tests + later runs in
++            # the same process. `uploaded_documents` is a fresh key, read-only-consumed
++            # by run_one_query -> build_upload_evidence_rows.
++            q = dict(q)
++            q["uploaded_documents"] = _attach_uploads
++            q["uploaded_documents_blocked_count"] = _upload_blocked
+         print(f"\n>>> {domain} / {slug}")
+         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
+         # runs). Each delegates entirely to the existing 4-role entrypoint.
+diff --git a/tests/dr_benchmark/test_benchmark_upload_wiring_iready010.py b/tests/dr_benchmark/test_benchmark_upload_wiring_iready010.py
+new file mode 100644
+index 00000000..a95af732
+--- /dev/null
++++ b/tests/dr_benchmark/test_benchmark_upload_wiring_iready010.py
+@@ -0,0 +1,257 @@
++"""I-ready-010 (#1073) — Claude-authored BEHAVIORAL coverage for Gate-B uploaded-document wiring.
++
++The finding: the upload->citable-evidence capability is live on the pipeline-B UI/worker path
++but DEAD on the Gate-B beat-both benchmark path — no benchmark question carried `uploaded_documents`
++and the CLI had no flag to attach one, so the sweep injection at run_honest_sweep_r3.py:3458 never
++fired. This change adds `--upload-file` (+ `--upload-classification`) to run_gate_b's `main` and a
++`_resolve_benchmark_upload` helper that ingests the file in-process and shapes it as the
++`{document_id, classification, filename, chunks}` entry the sweep + build_upload_evidence_rows consume.
++
++These tests assert: (1) the resolver produces a citable ev_upload_* row; (2) sovereignty fail-loud on
++non-PUBLIC_SYNTHETIC; (3) empty/missing fail-loud (LAW II); (4) the CLI attaches the upload to a COPY
++of the question (the shared SWEEP_QUERIES registry stays clean); (5) flag-OFF is byte-identical; (6)
++the upload imports stay lazy (the module's NO-SPEND/NO-NETWORK-at-import invariant).
++
++Offline, no network, no spend, no heavy model: the fixture is a tiny PUBLIC_SYNTHETIC `.md` that
++dispatches to DocumentIngester._parse_text (no fitz/OCR/whisper). Persistence is redirected to tmp.
++"""
++
++from __future__ import annotations
++
++import inspect
++import os
++from pathlib import Path
++
++import pytest
++
++import polaris_graph.document_ingester as document_ingester
++from polaris_v6.adapters.upload_evidence import build_upload_evidence_rows
++from scripts.dr_benchmark import run_gate_b
++from scripts.dr_benchmark.run_gate_b import (
++    _resolve_benchmark_upload,
++    load_locked_questions,
++    main,
++)
++
++_SLUG = "drb_72_ai_labor"
++
++# A synthetic, unmistakably-fictional citable fact — proves the uploaded text reaches the
++# evidence row's direct_quote (the string the generator + strict_verify see).
++_FIXTURE_MD = (
++    "# Synthetic Trial Fixture (PUBLIC_SYNTHETIC)\n\n"
++    "In the synthetic ZORBLAX-7 trial, the experimental compound reduced the fictional "
++    "Quibble Score by 42 percent versus placebo (p < 0.001).\n"
++)
++
++
++@pytest.fixture(autouse=True)
++def _isolate_env():
++    """Snapshot/restore os.environ so a CLI run that flips the 4-role / slate flags does not
++    leak into sibling tests (mirrors test_run_gate_b_cli)."""
++    snap = dict(os.environ)
++    try:
++        yield
++    finally:
++        os.environ.clear()
++        os.environ.update(snap)
++
++
++@pytest.fixture()
++def _hermetic_storage(tmp_path, monkeypatch):
++    """Redirect DocumentIngester persistence to tmp so the test never writes to repo data/."""
++    monkeypatch.setattr(
++        document_ingester, "DOCUMENT_STORAGE_DIR", tmp_path / "doc_store"
++    )
++    return tmp_path
++
++
++def _write_fixture(tmp_path: Path, content: str = _FIXTURE_MD, name: str = "fixture.md") -> Path:
++    p = tmp_path / name
++    p.write_text(content, encoding="utf-8")
++    return p
++
++
++# ───────────────────────────────────── resolver: happy path ─────────────────────────────────────
++
++def test_resolver_produces_citable_ev_upload_row(_hermetic_storage):
++    fixture = _write_fixture(_hermetic_storage)
++    allowed, blocked = _resolve_benchmark_upload(str(fixture), "PUBLIC_SYNTHETIC")
++
++    assert blocked == 0
++    assert len(allowed) == 1
++    doc = allowed[0]
++    assert doc["classification"] == "PUBLIC_SYNTHETIC"
++    assert doc["filename"] == "fixture.md"
++    assert doc["chunks"] and all(isinstance(c, str) for c in doc["chunks"])
++
++    # The doc flows through the SAME builder the UI/worker path uses -> an ev_upload_* evidence row
++    # whose direct_quote carries the uploaded text (so strict_verify + the generator can cite it).
++    rows = build_upload_evidence_rows(allowed)
++    assert rows, "expected at least one evidence row"
++    assert rows[0]["evidence_id"].startswith("ev_upload_")
++    assert rows[0]["source_url"].startswith("upload://")
++    assert "ZORBLAX-7" in rows[0]["direct_quote"]
++    assert rows[0]["uploaded_document"] is True
++
++
++# ───────────────────────────────────── resolver: fail-loud paths ────────────────────────────────
++
++@pytest.mark.parametrize("classification", ["CAN_REAL", "PRIVATE", "CLIENT", "UNKNOWN"])
++def test_resolver_blocks_non_public_synthetic(_hermetic_storage, classification):
++    """Sovereignty: anything but PUBLIC_SYNTHETIC is EXTERNAL_LEAK_FORBIDDEN — partitioned to
++    `blocked`, never returned as `allowed` (it could never become external-generator evidence)."""
++    fixture = _write_fixture(_hermetic_storage)
++    allowed, blocked = _resolve_benchmark_upload(str(fixture), classification)
++    assert allowed == []
++    assert blocked == 1
++
++
++def test_resolver_empty_file_fails_loud(_hermetic_storage):
++    """LAW II: an empty/whitespace file yields no extractable text -> ValueError (never a silent
++    zero-evidence run)."""
++    fixture = _write_fixture(_hermetic_storage, content="   \n\t  \n", name="empty.md")
++    with pytest.raises(ValueError, match="no extractable text"):
++        _resolve_benchmark_upload(str(fixture), "PUBLIC_SYNTHETIC")
++
++
++def test_resolver_missing_file_fails_loud(_hermetic_storage):
++    with pytest.raises(FileNotFoundError, match="does not exist"):
++        _resolve_benchmark_upload(
++            str(_hermetic_storage / "nope_does_not_exist.md"), "PUBLIC_SYNTHETIC"
++        )
++
++
++def test_resolver_unsupported_extension_fails_loud_as_valueerror(_hermetic_storage):
++    """diff-gate iter-1 P2: a DocumentIngester failure (here an unsupported extension) is
++    re-raised as ValueError so the CLI converts it to a clean pre-spend rc2 — never a raw
++    traceback. The file exists (so it is NOT the FileNotFoundError path)."""
++    fixture = _write_fixture(_hermetic_storage, content="x", name="fixture.xyz")
++    with pytest.raises(ValueError, match="fixture.xyz"):
++        _resolve_benchmark_upload(str(fixture), "PUBLIC_SYNTHETIC")
++
++
++# ───────────────────────────────────── CLI: attach to a COPY ────────────────────────────────────
++
++def test_cli_attaches_upload_to_question_copy(_hermetic_storage, monkeypatch):
++    """main(--only --upload-file) attaches the resolved upload to the question handed to
++    run_gate_b_query — and to a COPY, leaving the shared SWEEP_QUERIES registry entry clean."""
++    fixture = _write_fixture(_hermetic_storage)
++    captured = {}
++
++    async def _recording_run_gate_b_query(q, out_root, **kwargs):
++        captured["q"] = q
++        return {"status": "success", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _recording_run_gate_b_query)
++
++    rc = main([
++        "--only", _SLUG,
++        "--upload-file", str(fixture),
++        "--upload-classification", "PUBLIC_SYNTHETIC",
++        "--out-root", "outputs/__test_unused__",
++    ])
++    assert rc == 0
++
++    # The question that reached run_gate_b_query carries the upload + a citable chunk.
++    q = captured["q"]
++    assert q["uploaded_documents"], "upload not attached to the run question"
++    assert q["uploaded_documents_blocked_count"] == 0
++    rows = build_upload_evidence_rows(q["uploaded_documents"])
++    assert "ZORBLAX-7" in rows[0]["direct_quote"]
++
++    # Registry isolation: the live SWEEP_QUERIES entry for this slug is UNMUTATED (no leak).
++    registry_entry = load_locked_questions((_SLUG,))[0]
++    assert "uploaded_documents" not in registry_entry
++    assert "uploaded_documents_blocked_count" not in registry_entry
++
++
++def test_cli_flag_off_is_byte_identical(_hermetic_storage, monkeypatch):
++    """Without --upload-file, the question handed to run_gate_b_query carries NO upload keys and is
++    the SAME object as the registry entry (no copy made) — flag-OFF byte-identical."""
++    captured = {}
++
++    async def _recording_run_gate_b_query(q, out_root, **kwargs):
++        captured["q"] = q
++        return {"status": "success", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _recording_run_gate_b_query)
++
++    rc = main(["--only", _SLUG, "--out-root", "outputs/__test_unused__"])
++    assert rc == 0
++    q = captured["q"]
++    assert "uploaded_documents" not in q
++    assert "uploaded_documents_blocked_count" not in q
++    # No copy when no upload: the run question IS the registry entry.
++    assert q is load_locked_questions((_SLUG,))[0]
++
++
++# ───────────────────────────────────── CLI: fail-loud rc 2 ──────────────────────────────────────
++
++def test_cli_non_public_synthetic_fails_loud_rc2(_hermetic_storage, monkeypatch, capsys):
++    """A non-PUBLIC_SYNTHETIC --upload-file fails loud (rc 2) BEFORE any question runs."""
++    fixture = _write_fixture(_hermetic_storage)
++    called = {"n": 0}
++
++    async def _should_not_run(q, out_root, **kwargs):
++        called["n"] += 1
++        return {"status": "success", "slug": q["slug"]}
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _should_not_run)
++
++    with pytest.raises(SystemExit) as exc:
++        main([
++            "--only", _SLUG,
++            "--upload-file", str(fixture),
++            "--upload-classification", "CAN_REAL",
++            "--out-root", "outputs/__test_unused__",
++        ])
++    assert exc.value.code == 2
++    err = capsys.readouterr().err
++    assert "EXTERNAL_LEAK_FORBIDDEN" in err
++    assert called["n"] == 0  # never spent a question
++
++
++def test_cli_missing_upload_file_fails_loud_rc2(_hermetic_storage, monkeypatch, capsys):
++    async def _should_not_run(q, out_root, **kwargs):
++        raise AssertionError("must not run a question on a missing upload file")
++
++    monkeypatch.setattr(run_gate_b, "run_gate_b_query", _should_not_run)
++
++    with pytest.raises(SystemExit) as exc:
++        main([
++            "--only", _SLUG,
++            "--upload-file", str(_hermetic_storage / "absent.md"),
++            "--upload-classification", "PUBLIC_SYNTHETIC",
++            "--out-root", "outputs/__test_unused__",
++        ])
++    assert exc.value.code == 2
++    assert "does not exist" in capsys.readouterr().err
++
++
++def test_cli_unsupported_classification_rejected_by_argparse_rc2():
++    with pytest.raises(SystemExit) as exc:
++        main(["--only", _SLUG, "--upload-file", "x.md", "--upload-classification", "BOGUS"])
++    assert exc.value.code == 2  # argparse choices= rejects it
++
++
++# ───────────────────────────────────── import-cleanliness guard ─────────────────────────────────
++
++def test_upload_imports_are_lazy_inside_the_resolver():
++    """The NO-SPEND/NO-NETWORK-at-import invariant: document_ingester / fastapi-backed upload are
++    imported INSIDE _resolve_benchmark_upload, never at module top. Guards against a future hoist
++    that would pull those (and a socket-opening dep chain) into `import run_gate_b`."""
++    fn_src = inspect.getsource(run_gate_b._resolve_benchmark_upload)
++    # Robust to single- vs multi-line import formatting: assert the module path appears
++    # inside the function body (the symbols may wrap across lines).
++    for lazy in (
++        "from polaris_graph.document_ingester import",
++        "from polaris_v6.adapters.upload_evidence import",
++        "from polaris_v6.api.upload import chunk_text",
++    ):
++        assert lazy in fn_src, f"expected lazy import in resolver body: {lazy!r}"
++
++    # And NOT at module top (everything before the first `def `).
++    mod_src = inspect.getsource(run_gate_b)
++    head = mod_src.split("\ndef ", 1)[0]
++    assert "document_ingester" not in head
++    assert "from polaris_v6.api.upload import" not in head
+
+```
