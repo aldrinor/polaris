@@ -68,20 +68,29 @@ def test_attach_tool_utilization_no_telemetry_when_ctx_unset(monkeypatch, tmp_pa
     assert "storm_query_expansion" not in out and "agentic_search" not in out
 
 
-def test_contextvar_is_cleared_on_exit_paths_no_stale_leak():
-    # Codex iter-2 P1: the ContextVar must be CLEARED on run_one_query exit paths so a later
-    # _attach_tool_utilization in the same async context cannot stamp STALE "feature fired" evidence.
-    # Structural guard: every teardown that clears set_reasoning_sink(None) also clears the ContextVar.
-    import inspect
+def test_run_one_query_wrapper_clears_ctx_on_every_exit(monkeypatch):
+    # Codex iter-3 P1: the per-exit-site clears kept missing direct-return paths (cancel-return,
+    # abort_verifier_degraded). The run_one_query WRAPPER's finally is the single guaranteed clear on
+    # EVERY exit — normal return AND a propagating exception — so no stale telemetry can leak.
+    import asyncio
     import scripts.run_honest_sweep_r3 as m
-    src = inspect.getsource(m)
-    n_sink_clears = src.count("set_reasoning_sink(None)")
-    n_ctx_clears = src.count("_FEATURE_TELEMETRY_CTX.set(None)")
-    # one ContextVar clear paired with every reasoning-sink clear (the existing teardown discipline)
-    assert n_ctx_clears >= n_sink_clears - 1, (
-        f"leak guard incomplete: {n_ctx_clears} ContextVar clears vs {n_sink_clears} sink clears"
-    )
-    assert n_ctx_clears >= 6
+
+    async def _impl_returns(q, out_root, **kw):
+        m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": {"fired": True}, "agentic_search": {}})
+        return {"status": "ok"}
+
+    async def _impl_raises(q, out_root, **kw):
+        m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": {"fired": True}, "agentic_search": {}})
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(m, "_run_one_query_impl", _impl_returns)
+    asyncio.run(m.run_one_query({"domain": "d", "slug": "s", "question": "q"}, "."))
+    assert m._FEATURE_TELEMETRY_CTX.get() is None, "ctx must be cleared on normal return"
+
+    monkeypatch.setattr(m, "_run_one_query_impl", _impl_raises)
+    with __import__("pytest").raises(RuntimeError):
+        asyncio.run(m.run_one_query({"domain": "d", "slug": "s", "question": "q"}, "."))
+    assert m._FEATURE_TELEMETRY_CTX.get() is None, "ctx must be cleared even on a propagating exception"
 
 
 def test_stale_telemetry_does_not_leak_after_clear(monkeypatch, tmp_path):
