@@ -3117,10 +3117,33 @@ async def run_one_query(
         except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
             _log(f"[qual-conflict] detector error (skipped, fail-open): {exc}")
             qualitative_records = []
+        # Semantic/NLI cross-document contradiction detection (I-ready-012 #1079). The THIRD
+        # detector: an LLM-NLI pass catching prose-only directional contradictions with NO shared
+        # number and NO NegEx cue that the numeric+qualitative rule layers miss (the lethal-miss
+        # class). Default OFF (PG_SWEEP_NLI_CONFLICT) -> byte-identical when off (no judge built, no
+        # network). Fail-open: a detector/judge/import error logs + skips, never aborts the sweep; a
+        # BudgetExceededError is absorbed inside the detector as keep-partial (the run's hard cap is
+        # still enforced by the downstream generation/evaluation budget guards). Merged into the SAME
+        # contradictions.json list with a `type:"semantic"` discriminator; routed to a dedicated
+        # report disclosure block + the PT08 evaluator gate below (the numeric renderer is untouched).
+        semantic_records = []
+        try:
+            from src.polaris_graph.retrieval.semantic_conflict_detector import (
+                detect_semantic_conflicts_for_rows,
+                semantic_conflict_enabled,
+            )
+            if semantic_conflict_enabled():
+                semantic_records = detect_semantic_conflicts_for_rows(
+                    retrieval.evidence_rows,
+                )
+        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
+            _log(f"[semantic-conflict] detector error (skipped, fail-open): {exc}")
+            semantic_records = []
         (run_dir / "contradictions.json").write_text(
             json.dumps(
                 [asdict(c) for c in contradictions]
-                + [asdict(qr) for qr in qualitative_records],
+                + [asdict(qr) for qr in qualitative_records]
+                + [asdict(sr) for sr in semantic_records],
                 indent=2, sort_keys=True, default=str,
             ) + "\n",
             encoding="utf-8",
@@ -4559,6 +4582,31 @@ async def run_one_query(
                 )
                 methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
 
+        # Semantic/NLI cross-document contradiction disclosure (I-ready-012 #1079). Renders each
+        # NLI-detected prose-only conflict (subject + predicate + the two conflicting claims with
+        # evidence ids/tiers) into the report so the user sees it AND the PT08 gate (substring of
+        # subject+predicate in report text) finds it. Distinct from the numeric renderer (no value
+        # range) and the qualitative renderer (no assertion status); only present when the semantic
+        # detector ran (default OFF) and found a conflict.
+        if semantic_records:
+            methods += (
+                f"\n## Semantic contradiction disclosures (cross-document NLI)\n"
+                f"An NLI pass over same-subject evidence pairs flagged {len(semantic_records)} "
+                f"prose-only directional contradiction(s) that carry no shared number and no "
+                f"rule-cue (and so are not caught by the numeric or qualitative detectors). Each "
+                f"is shown with both conflicting source claims for human adjudication.\n\n"
+            )
+            for r in semantic_records:
+                _claims = " VS ".join(
+                    f"\"{(cl.get('text') or '').strip()}\" "
+                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
+                    for cl in r.claims
+                )
+                methods += (
+                    f"- [SEMANTIC] {r.subject} / {r.predicate} "
+                    f"(NLI confidence {r.nli_confidence:.2f}): {_claims}\n"
+                )
+
         biblio_section = "\n\n## Bibliography\n"
         for b in multi.bibliography:
             biblio_section += (
@@ -4822,7 +4870,13 @@ async def run_one_query(
                 report_text=final_report,
                 protocol=protocol,
                 tier_distribution_report=asdict(dist),
-                contradictions=[asdict(c) for c in contradictions],
+                # I-ready-012 (#1079): PT08 also gates the NLI semantic contradictions — a detected
+                # semantic conflict whose subject+predicate is absent from the report aborts the run
+                # (abort_evaluator_critical), exactly like a numeric one. asdict carries subject +
+                # predicate; PT08 reads only those (substring presence), so the extra semantic fields
+                # are ignored. Numeric records are unchanged.
+                contradictions=[asdict(c) for c in contradictions]
+                + [asdict(sr) for sr in semantic_records],
                 evidence_pool=ev_pool,
                 enable_llm_judge=False,
             )

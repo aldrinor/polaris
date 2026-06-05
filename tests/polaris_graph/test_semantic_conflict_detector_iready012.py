@@ -1,0 +1,215 @@
+"""I-ready-012 (#1079) — semantic/NLI cross-document contradiction detector.
+
+Closes the F12 recall hole: a prose-only directional contradiction with NO shared number and NO
+NegEx cue ("adjuvant chemotherapy improved overall survival" vs "...provided no overall survival
+benefit") passes both the numeric and qualitative rule detectors silently. This detector adds an
+LLM-NLI pass (default OFF, fail-open, additive) that catches it and routes the conflict into the
+existing report disclosure + PT08 release gate.
+
+All offline: the judge is INJECTED (a fake), so no network / no model. Verifies recall, precision,
+flag-OFF inertness, every fail-open path (per-pair error + BudgetExceededError keep-partial), the
+pair cap, the audit_ir.loader compatibility (Codex iter-1 P2), and the real PT08 routing (Codex
+iter-1 P1: semantic records must actually reach the PT08 evaluator gate).
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+from src.polaris_graph.retrieval import semantic_conflict_detector as scd
+
+# The reproduced recall-hole pair: prose-only, no shared number, no NegEx cue.
+_ROW_A = {
+    "evidence_id": "ev_a", "tier": "T1", "source_url": "u1",
+    "direct_quote": "Adjuvant chemotherapy improved overall survival in stage II colon cancer.",
+}
+_ROW_B = {
+    "evidence_id": "ev_b", "tier": "T1", "source_url": "u2",
+    "direct_quote": "Adjuvant chemotherapy provided no overall survival benefit in stage II colon cancer.",
+}
+
+
+def _contradict_judge(a, b):
+    return "contradict", 0.95
+
+
+def _neutral_judge(a, b):
+    return "neutral", 0.9
+
+
+# ───────────────────────────── recall: the hole closes ──────────────────────────────
+
+def test_cluster_groups_the_reproduced_rows_before_any_judge():
+    """The recall-oriented clustering (independent of the rule extractors) must put the two
+    prose-only rows in ONE candidate cluster — BEFORE the judge is ever invoked."""
+    clusters = scd.cluster_candidate_rows([_ROW_A, _ROW_B])
+    assert len(clusters) == 1
+    assert {r["evidence_id"] for r in clusters[0]} == {"ev_a", "ev_b"}
+
+
+def test_detect_emits_one_semantic_record_on_contradict():
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    records = scd.detect_semantic_conflicts(pairs, _contradict_judge)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.type == "semantic"
+    assert rec.severity == "review"
+    assert rec.subject  # non-empty (PT08 substring source)
+    assert rec.predicate
+    assert {c["evidence_id"] for c in rec.claims} == {"ev_a", "ev_b"}
+    assert rec.nli_confidence == pytest.approx(0.95)
+
+
+def test_end_to_end_for_rows_with_injected_judge():
+    records = scd.detect_semantic_conflicts_for_rows([_ROW_A, _ROW_B], judge=_contradict_judge)
+    assert len(records) == 1
+    assert "survival" in records[0].subject
+
+
+# ───────────────────────────── precision ──────────────────────────────
+
+def test_neutral_or_entail_pair_yields_no_record():
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    assert scd.detect_semantic_conflicts(pairs, _neutral_judge) == []
+    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("entail", 0.99)) == []
+
+
+def test_low_confidence_contradict_is_filtered():
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    # below the 0.7 default threshold → dropped
+    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("contradict", 0.4)) == []
+
+
+# ───────────────────────────── flag-OFF inertness ──────────────────────────────
+
+def test_enabled_default_off(monkeypatch):
+    monkeypatch.delenv("PG_SWEEP_NLI_CONFLICT", raising=False)
+    assert scd.semantic_conflict_enabled() is False
+    for off in ("0", "false", "off", "no", ""):
+        monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", off)
+        assert scd.semantic_conflict_enabled() is False
+    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", "1")
+    assert scd.semantic_conflict_enabled() is True
+
+
+def test_for_rows_never_constructs_a_judge_when_no_pairs(monkeypatch):
+    """Unrelated rows (no shared salient words) → no cluster → no pairs → the default judge
+    factory is NEVER called (no network even if somehow ON)."""
+    def _boom():
+        raise AssertionError("default judge must not be constructed when there are no pairs")
+    monkeypatch.setattr(scd, "get_default_judge", _boom)
+    rows = [
+        {"evidence_id": "x", "tier": "T1", "direct_quote": "Quantum entanglement decoheres rapidly."},
+        {"evidence_id": "y", "tier": "T1", "direct_quote": "Maple syrup grades reflect color."},
+    ]
+    assert scd.detect_semantic_conflicts_for_rows(rows) == []
+
+
+# ───────────────────────────── fail-open ──────────────────────────────
+
+def test_per_pair_judge_error_is_skipped_not_fatal():
+    rows = [_ROW_A, _ROW_B,
+            {"evidence_id": "ev_c", "tier": "T2",
+             "direct_quote": "Adjuvant chemotherapy overall survival benefit was confirmed in colon cancer."}]
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows(rows))
+    calls = {"n": 0}
+
+    def _flaky(a, b):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient judge error")
+        return "contradict", 0.9
+
+    records = scd.detect_semantic_conflicts(pairs, _flaky)
+    # first pair errored (skipped), remaining pairs still judged → at least one record
+    assert len(records) >= 1
+
+
+def test_budget_exceeded_keeps_partial_and_stops():
+    rows = [_ROW_A, _ROW_B,
+            {"evidence_id": "ev_c", "tier": "T2",
+             "direct_quote": "Adjuvant chemotherapy overall survival in stage II colon cancer was worse."}]
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows(rows))
+    assert len(pairs) >= 2
+    calls = {"n": 0}
+
+    def _budget_then_more(a, b):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "contradict", 0.9
+        raise BudgetExceededError("run budget cap reached")
+
+    records = scd.detect_semantic_conflicts(pairs, _budget_then_more)
+    assert len(records) == 1            # pair-1 kept
+    assert calls["n"] == 2              # stopped at the breach (did not judge pair 3+)
+
+
+# ───────────────────────────── cost bound ──────────────────────────────
+
+def test_pair_cap_is_honored(monkeypatch):
+    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT_MAX_PAIRS", "3")
+    # 6 same-cluster rows → 15 raw pairs, capped to 3.
+    rows = [
+        {"evidence_id": f"e{i}", "tier": "T1",
+         "direct_quote": f"Adjuvant chemotherapy overall survival colon cancer finding number {i}."}
+        for i in range(6)
+    ]
+    clusters = scd.cluster_candidate_rows(rows)
+    pairs = scd.extract_pairs(clusters, max_pairs=3)
+    assert len(pairs) == 3
+
+
+# ───────────────────────────── routing (Codex iter-1 P1-2) ──────────────────────────────
+
+def test_pt08_gate_counts_a_semantic_record_real_evaluator():
+    """The REAL PT08 check must treat a semantic record like a numeric one: disclosed
+    (subject+predicate in report text) → pass; not disclosed → fail. Proves the record reaches
+    and is gated by the evaluator, not just written to contradictions.json."""
+    from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation
+    from dataclasses import asdict
+
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    rec = scd.detect_semantic_conflicts(pairs, _contradict_judge)[0]
+    contra = [asdict(rec)]
+    protocol = {"research_question": "q", "date_range": {}}
+
+    disclosed = (
+        f"## Semantic contradiction disclosures\n- [SEMANTIC] {rec.subject} / {rec.predicate}: "
+        f"claim A VS claim B\n"
+    )
+    out_ok = run_external_evaluation(
+        report_text=disclosed, protocol=protocol, tier_distribution_report={},
+        contradictions=contra, evidence_pool={}, enable_llm_judge=False,
+    )
+    out_missing = run_external_evaluation(
+        report_text="A report with no contradiction disclosure at all.",
+        protocol=protocol, tier_distribution_report={},
+        contradictions=contra, evidence_pool={}, enable_llm_judge=False,
+    )
+    pt08_ok = next(r for r in out_ok.rule_checks if r.item_id == "PT08")
+    pt08_missing = next(r for r in out_missing.rule_checks if r.item_id == "PT08")
+    assert pt08_ok.passed is True
+    assert pt08_missing.passed is False
+
+
+# ───────────────────────────── audit_ir.loader compat (Codex iter-1 P2) ──────────────────────────────
+
+def test_semantic_record_is_audit_ir_loader_compatible():
+    """A contradictions.json holding a semantic record must parse — _parse_contradiction_claim
+    REQUIRES evidence_id + predicate + finite value on every claim."""
+    from dataclasses import asdict
+    from src.polaris_graph.audit_ir import loader
+
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    rec = scd.detect_semantic_conflicts(pairs, _contradict_judge)[0]
+    raw = json.loads(json.dumps([asdict(rec)]))  # round-trip exactly like the on-disk file
+    clusters = loader._parse_contradictions(raw)
+    assert len(clusters) == 1
+    assert len(clusters[0].claims) == 2
+    for c in clusters[0].claims:
+        assert c.evidence_id
+        assert c.predicate
+        assert c.value == pytest.approx(0.0)  # finite sentinel (prose has no numeric value)
