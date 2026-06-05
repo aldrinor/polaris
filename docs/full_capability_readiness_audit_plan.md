@@ -133,8 +133,10 @@ Most retrieval/cap findings split into: **(a) immediate throttle fix** (env-only
 
 **Sequencing:** C1 (P0) runs first (it gates the meaningfulness of every downstream §-1.1 audit — a report written from 2% of the corpus can't be fairly audited). Then C2-C8 fan out ≤3 at a time. Each issue runs the §4 lifecycle, Codex go/fix at 5-iter cap, with a live tracker-on micro-run + §-1.1 line-by-line audit as the go/fix evidence.
 
-### 6.4 Operator decision points (need your call)
-1. **Empirical bake-offs cost spend** (F1 evidence-cap, F4 rerank): run them on the locked DRB-EN slice — approve the (bounded) spend?
-2. **New deps** (F11 OCR: Docling/Surya; F14 figure rendering): approve adding them?
-3. **Scope:** do all 14, or P0+P1 only (defer the 2 P2s)?
-4. **The live beat-both run waits** until C1 (P0) + F2 land — agree the 1000-URL run should NOT fire before the 98%-drop + fail-open-faithfulness fixes?
+### 6.4 Operator decisions (LOCKED 2026-06-05)
+1. **Scope: ALL 14** (P0 + 11 P1 + 2 P2). No deferral.
+2. **Empirical bake-offs: YES** — run the F1 evidence-cap (20 vs ~50-reranked vs ~150, lost-in-the-middle aware) + F4 rerank bake-offs on the locked DRB-EN slice; bounded spend approved (operator `feedback_research_then_empirically_test_candidates`).
+3. **New deps: YES** — add the input/OCR stack (Docling + Surya/DeepSeek-OCR-2 for F11) + a charting lib for F14 figures.
+4. **Hold the live run: YES** — the 1000-URL beat-both run does NOT fire until C1 (P0, the 98%-drop) + F2 (binding fail-open faithfulness) land. A run today writes from <2% of the corpus and can ship unverified claims; auditing it would be unfair.
+
+**Agreement status:** Claude ✅ (plan authored, grounded) · Operator ✅ (2026-06-05, all 4 decisions above) · Codex ⏳ (plan-gate running, w1s8fzsh8). Execution begins only on Codex APPROVE (or after addressing REQUEST_CHANGES).
