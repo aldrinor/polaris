@@ -106,6 +106,31 @@ def test_local_parse_failure_fails_loud(_hermetic_storage, monkeypatch):
 
 # ── vlm: operator-gated fail-loud stub, no heavy import ─────────────────────
 
+def test_unknown_backend_fails_loud_400(monkeypatch):
+    """Codex diff-gate P2: a typo'd PG_DOC_INGEST_BACKEND must fail loud (400), not silently
+    fall back to legacy (which would unparse a PDF the operator thinks they enabled)."""
+    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "locl")  # typo
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(upload_document(file=_uf("trial.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
+    assert exc.value.status_code == 400
+    assert "unknown" in str(exc.value.detail).lower()
+
+
+def test_local_blank_extraction_fails_loud_422(monkeypatch):
+    """Codex diff-gate P2: DocumentIngester can return blank without throwing (scanned/figure-only
+    PDF). The 'local' backend must fail loud at upload (422), not defer a confusing /runs 400."""
+    monkeypatch.setenv("PG_DOC_INGEST_BACKEND", "local")
+
+    async def _blank(content, ext):
+        return "   \n\t  "  # whitespace-only extraction
+
+    monkeypatch.setattr(upload_mod, "_extract_text_local", _blank)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(upload_document(file=_uf("scanned.pdf", b"%PDF fake"), classification="PUBLIC_SYNTHETIC"))
+    assert exc.value.status_code == 422
+    assert "no text" in str(exc.value.detail).lower()
+
+
 @pytest.mark.parametrize("backend", ["vlm", "docling", "surya", "deepseek-ocr-2"])
 def test_vlm_backend_fails_loud_501(monkeypatch, backend):
     import sys

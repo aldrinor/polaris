@@ -56,6 +56,9 @@ MAX_GROUNDING_CHUNKS = 40
 # fail LOUD here until installed + signed off (never loaded in the autonomous loop, §8.4).
 _VLM_BACKENDS = frozenset({"vlm", "docling", "surya", "deepseek-ocr", "deepseek-ocr-2", "marker"})
 _LOCAL_PARSE_EXTENSIONS = frozenset({".pdf", ".docx"})
+# All recognised backend values. An unrecognised value (operator typo) FAILS LOUD rather than
+# silently falling back to legacy (Codex diff-gate P2 — no silent config degradation, LAW II).
+_KNOWN_BACKENDS = frozenset({"legacy", "local"}) | _VLM_BACKENDS
 
 
 def _doc_ingest_backend() -> str:
@@ -162,6 +165,17 @@ async def upload_document(
     document_id = uuid.uuid4().hex
 
     backend = _doc_ingest_backend()
+    if backend not in _KNOWN_BACKENDS:
+        # Codex diff-gate P2: a typo'd backend must FAIL LOUD, not silently behave as legacy
+        # (which would unparse a PDF the operator believes they enabled). LAW II — no silent
+        # config degradation.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown PG_DOC_INGEST_BACKEND={backend!r}; valid values: "
+                f"{sorted(_KNOWN_BACKENDS)}."
+            ),
+        )
     if ext in {".md", ".txt"}:
         # Text formats: decode directly on EVERY backend (no parser/model needed) — unchanged.
         try:
@@ -194,6 +208,19 @@ async def upload_document(
                 status_code=422,
                 detail=f"failed to parse {ext} document with the 'local' backend: {exc}",
             ) from exc
+        if not text.strip():
+            # Codex diff-gate P2: DocumentIngester can return BLANK without raising (e.g. a
+            # scanned/figure-only PDF where text extraction yields nothing). Fail LOUD at upload
+            # time (not a deferred /runs 400) with an actionable pointer — consistent with the
+            # parse-error branch above.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"the 'local' backend extracted no text from this {ext} (likely a "
+                    "scanned / figure-only document). Enable the VLM-OCR backend "
+                    "(PG_DOC_INGEST_BACKEND=vlm) once its open-weight deps are installed."
+                ),
+            )
     else:
         # legacy (DEFAULT): non-text formats are not parsed here -> downstream fail-loud 400.
         text = ""
