@@ -81,6 +81,19 @@ def test_flag_on_citation_marker_not_treated_as_data(monkeypatch):
     assert "ZORBLAX-7" in out
 
 
+def test_flag_on_fabricated_value_equal_to_a_citation_number_is_dropped(monkeypatch):
+    """Codex diff-gate P2: [N] markers are stripped from the SOURCE prose too, so a fabricated
+    cell value that happens to equal a citation number (e.g. '5' when the prose cites [5]) does
+    NOT falsely pass."""
+    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
+    # Prose has the N (200) and the real result (42), and cites [5]. The cell's '5' appears in the
+    # prose ONLY as the citation marker [5]. Without source-side [N] stripping the row would falsely
+    # pass ({200,5} ⊆ {200,42,5}); with the fix it drops ({200,5} ⊄ {200,42}).
+    prose = "The ZORBLAX-7 trial enrolled 200 patients and showed a 42 percent reduction [5]."
+    out = _extract_trial_summary_table(_table("5% reduction"), {1}, verified_prose=prose)
+    assert out == ""  # dropped — 5 is not a real prose data decimal
+
+
 # ── reuses strict_verify._decimals (one numeric definition) ─────────────────
 
 def test_gate_uses_strict_verify_decimals():

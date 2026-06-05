@@ -2107,7 +2107,10 @@ def _extract_trial_summary_table(
     _prose_decimals: set[str] = set()
     if _cell_verify:
         from src.polaris_graph.clinical_generator.strict_verify import _decimals as _sv_decimals
-        _prose_decimals = _sv_decimals(verified_prose)
+        # Codex diff-gate P2: strip [N] markers from the SOURCE prose too (symmetric with the
+        # per-row strip below) — otherwise a citation number like [5] becomes a prose "decimal"
+        # and a fabricated cell value "5" would falsely pass.
+        _prose_decimals = _sv_decimals(_CITATION_MARKER_RE.sub("", verified_prose))
 
     kept_rows: list[str] = []
     for line in lines_after[2:]:
