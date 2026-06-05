@@ -1,10 +1,13 @@
 """I-ready-006 (#1082) — query-complexity router (offline, no model, no spend).
 
 A deterministic, FAIL-OPEN classifier right-sizes confidently-simple factual queries (lower fetch cap
-+ a relaxed full adequacy profile) while a clinical / comparison / mechanism query is NEVER
-under-served. Default OFF (PG_COMPLEXITY_ROUTING) → byte-identical. These tests lock the classifier
-labels (incl. the multi-entity "Telus and Bell" case + compare/causal fail-open per Codex brief P2-4),
-the full simple-adequacy profile (P2-1), the right-sizing behaviour, and the OFF-mode gating (P2-2).
+ONLY — CAP-ONLY per the iter-5 §-1.2-rule-6 narrowing; the corpus-adequacy gate is UNCHANGED, so a
+mis-classified clinical query still aborts on the full clinical bar) while a clinical / comparison /
+mechanism query is NEVER under-served. Default OFF (PG_COMPLEXITY_ROUTING) → byte-identical. These
+tests lock the classifier labels (incl. the multi-entity "Telus and Bell" case + compare/causal
+fail-open per Codex brief P2-4), the right-sizing behaviour, the OFF-mode gating, and the cap-only
+guard `test_router_does_not_relax_the_corpus_adequacy_gate` (adequacy-relaxation deferred to #1089,
+which needs a non-keyword classifier).
 """
 from __future__ import annotations
 
