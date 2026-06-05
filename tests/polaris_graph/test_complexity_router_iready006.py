@@ -123,41 +123,19 @@ def test_empty_question_fails_open():
     assert classify_complexity(None).complexity == "complex"  # type: ignore[arg-type]
 
 
-# ── simple adequacy profile: FULL profile (Codex brief P2-1) ───────────────────
-def test_simple_adequacy_is_a_full_profile():
-    from scripts.run_honest_sweep_r3 import _SIMPLE_ADEQUACY_THRESHOLDS as s
+# ── CAP-ONLY (Codex diff-gate iter-5 §-1.2 rule 6): the adequacy gate is NOT relaxed ───────────
+def test_router_does_not_relax_the_corpus_adequacy_gate():
+    # A keyword classifier could not reliably exclude clinical cohort queries, so #1082 ships CAP-ONLY:
+    # it never passes a relaxed adequacy override. A mis-classified clinical query therefore still hits
+    # the FULL clinical adequacy bar -> aborts SAFELY instead of shipping a thin answer. The
+    # adequacy-relaxation half is deferred to a follow-up. Lock that the override is NOT wired.
+    import inspect
 
-    # every threshold is relaxed (not just min_total_sources/min_t1_count) so a single authoritative
-    # T5/T6 factual source is enough — no clinical 8-source / 2-T1 / low-industry-fraction demand.
-    assert s.min_total_sources == 1
-    assert s.min_t1_count == 0
-    assert s.min_t1_plus_t2 == 0
-    assert s.min_t1_plus_t2_plus_t3 == 0
-    assert s.min_t3_plus_t4_plus_t6 == 0
-    assert s.min_evidence_rows == 1
-    assert s.max_t5_plus_t6_fraction == 1.0    # T5/T6 industry/financial sources are fine for a fact
-    assert s.max_t7_fraction == 0.50           # the stub guard is kept
+    import scripts.run_honest_sweep_r3 as sweep
 
-
-# ── right-sizing behaviour: a 1-source factual corpus is ADEQUATE under the simple profile ─────
-def test_simple_profile_makes_a_thin_factual_corpus_adequate():
-    from src.polaris_graph.nodes.corpus_adequacy_gate import assess_corpus_adequacy
-    from scripts.run_honest_sweep_r3 import _SIMPLE_ADEQUACY_THRESHOLDS
-
-    # AdequacyDecision is a Literal["proceed","expand","abort"] (string), not an Enum.
-    # one authoritative financial/data source (T5), one evidence row — a stock-price fact.
-    tier_counts = {"T5": 1}
-    # clinical default thresholds → NOT a proceed (8 sources / 2 T1 demanded).
-    clinical = assess_corpus_adequacy(
-        tier_counts=tier_counts, evidence_row_count=1, domain="clinical", protocol=None,
-    )
-    assert clinical.decision != "proceed"
-    # the simple override → proceed on the same thin corpus (right-sized).
-    simple = assess_corpus_adequacy(
-        tier_counts=tier_counts, evidence_row_count=1, domain="clinical", protocol=None,
-        override=_SIMPLE_ADEQUACY_THRESHOLDS,
-    )
-    assert simple.decision == "proceed"
+    src = inspect.getsource(sweep)
+    assert "_SIMPLE_ADEQUACY_THRESHOLDS" not in src   # the relaxed-profile constant is removed
+    assert "override=(_SIMPLE_ADEQUACY" not in src    # no adequacy override is passed anywhere
 
 
 # ── byte-identical OFF: the routing + manifest field are gated (Codex brief P2-2) ──────────────
@@ -173,9 +151,7 @@ def test_routing_and_manifest_field_are_gated_off_by_default():
     # the manifest field is added ONLY when routing is on (no field when OFF → byte-identical).
     assert 'if _complexity_routing_on and _routing_decision is not None:' in src
     assert '"complexity_routing"' in src
-    # the adequacy override is gated on the confident-simple decision (never the full path).
-    assert "override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None)" in src
-    # the simple fetch cap only applies when simple_routed.
+    # the simple fetch cap only applies when simple_routed (cap-only right-sizing).
     assert 'PG_SIMPLE_FETCH_CAP' in src
     # FAIL-OPEN (Codex diff-gate iter-1 P2-1): the classifier + the env parses are inside a try/except
     # so a bad PG_COMPLEXITY_MIN_CONFIDENCE / PG_SIMPLE_FETCH_CAP value never aborts the run — it falls
@@ -184,10 +160,3 @@ def test_routing_and_manifest_field_are_gated_off_by_default():
     cap_idx = src.find("# I-meta-005 Phase 1", routing_idx)   # the next block after the router
     block = src[routing_idx:cap_idx] if cap_idx > routing_idx else src[routing_idx:routing_idx + 2000]
     assert "try:" in block and "FAIL OPEN" in block.upper()
-    # Codex diff-gate iter-3 P2-1: EVERY assess_corpus_adequacy call (initial + expansion/deepener/
-    # agentic recomputes) must carry the simple override — else a simple-routed run reverts to clinical
-    # defaults after expansion and aborts. One override per adequacy call site.
-    n_adequacy_calls = src.count("assess_corpus_adequacy(")
-    n_overrides = src.count("override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None)")
-    assert n_adequacy_calls >= 4
-    assert n_overrides >= n_adequacy_calls, (n_overrides, n_adequacy_calls)

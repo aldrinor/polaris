@@ -1,4 +1,32 @@
-# Codex DIFF review — I-ready-006 (#1082) query-complexity router — ITER 5 (last before §8.3.1 cap)
+# Codex DIFF review — I-ready-006 (#1082) query-complexity router — CAP-ONLY (post-iter-5 §-1.2 narrowing)
+
+## RESOLUTION of the iter-1..5 clinical-safety findings: NARROWED to CAP-ONLY.
+Across 5 diff-gate iterations you kept (correctly) finding clinical/epidemiology queries that a
+keyword classifier mis-tags simple ("death rate from COVID", "rate of GBS after Shingrix", "population
+of asthmatics/smokers/diabetics", "population of children with asthma"). A keyword classifier
+demonstrably CANNOT reliably exclude the clinical cohort class. Per §-1.2 rule 6 (cap-5 must NOT
+force-approve a clinical-safety production blocker), this diff is NARROWED:
+
+- **REMOVED** the relaxed `_SIMPLE_ADEQUACY_THRESHOLDS` override at ALL 4 `assess_corpus_adequacy`
+  sites + the constant + the import. The corpus-adequacy gate is now UNCHANGED for every query.
+- **KEPT** the classifier + the FETCH-CAP reduction (PG_SIMPLE_FETCH_CAP) + the `complexity_routing`
+  manifest field + fail-open.
+
+Why this is §-1.1-SAFE regardless of classifier leaks: with the adequacy gate intact, a mis-classified
+clinical query (e.g. "population of asthmatics") still hits the FULL clinical bar (8 sources / 2 T1) →
+aborts `corpus_inadequate` SAFELY rather than shipping a thin 1-source clinical answer. The fetch-cap
+reduction is a cost optimization that CANNOT breach that bar. The adequacy-relaxation half (a
+right-sized ANSWER for genuinely-simple queries) is deferred to a follow-up (#1089) that needs a
+robust/non-keyword classifier or a domain gate.
+
+Evidence: 45/45 (classifier still routes clinical/cohort/investment → complex [conservative, cost-
+gating]; OFF byte-identical; `test_router_does_not_relax_the_corpus_adequacy_gate` asserts NO override
+is wired). Please review this cap-only diff for: (1) OFF byte-identical, (2) the fetch-cap reduction
+cannot breach any safety gate, (3) no residual `_SIMPLE_ADEQUACY` reference, (4) fail-open intact.
+
+---
+
+# (HISTORICAL) Codex DIFF review — I-ready-006 (#1082) query-complexity router — ITER 5
 
 ## iter-4 was REQUEST_CHANGES (2 P1, 1 P2) — ALL FIXED, STRUCTURALLY (this is iter-5):
 - **P1-1 cohort-prevalence:** "population of children WITH asthma / adults WITH COPD / people WITH

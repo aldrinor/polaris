@@ -107,7 +107,6 @@ from src.polaris_graph.nodes.completeness_checker import (  # noqa: E402
     check_completeness,
 )
 from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
-    AdequacyThresholds,
     assess_corpus_adequacy,
 )
 from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
@@ -239,27 +238,6 @@ def to_unified_status(summary_status: str) -> str:
     manifest.status taxonomy. Unknown labels become error_unexpected
     (fail loudly for the reader; still a valid taxonomy value)."""
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
-
-
-# I-ready-006 (#1082): the SIMPLE-query corpus-adequacy profile (FULL profile per Codex brief P2-1 —
-# overrides EVERY threshold, not just min_total_sources/min_t1_count). A right-sized factual answer
-# needs a single authoritative source (financial/data T5/T6 sites are FINE for a stock price), so do
-# NOT demand 8 sources / 2 T1 peer-reviewed RCTs / a low T5+T6 fraction. Applied ONLY when the
-# complexity router confidently classifies the query simple AND PG_COMPLEXITY_ROUTING is on; passed as
-# an explicit `override=` to assess_corpus_adequacy (NEVER mutates the hashed scope protocol — P2-3).
-# Faithfulness intact: strict_verify + the 4-role D8 gate still drop any ungrounded sentence, so a
-# relaxed-adequacy simple query ships ONLY grounded prose or lands at abort_no_verified_sections.
-_SIMPLE_ADEQUACY_THRESHOLDS = AdequacyThresholds(
-    min_total_sources=1,
-    min_t1_count=0,
-    min_t1_plus_t2=0,
-    min_t1_plus_t2_plus_t3=0,
-    min_t3_plus_t4_plus_t6=0,
-    min_evidence_rows=1,
-    max_t5_plus_t6_fraction=1.0,
-    max_t7_fraction=0.50,
-    abort_if_below_fraction=0.5,
-)
 
 
 def make_feature_telemetry(feature: str, **extra: Any) -> dict[str, Any]:
@@ -1919,16 +1897,18 @@ async def run_one_query(
         _max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
         _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
 
-        # I-ready-006 (#1082): query-complexity router. Default OFF (PG_COMPLEXITY_ROUTING) -> the full
-        # heavyweight path, BYTE-IDENTICAL (no behavior change, no manifest field). When ON, a
-        # confidently-SIMPLE factual query is right-sized: a lower fetch cap (PG_SIMPLE_FETCH_CAP) + the
-        # relaxed _SIMPLE_ADEQUACY_THRESHOLDS override (passed explicitly to assess_corpus_adequacy
-        # below), so a one-line fact doesn't burn ~1000 URLs + the clinical adequacy gate. FAIL-OPEN:
-        # any router error / confidence below PG_COMPLEXITY_MIN_CONFIDENCE / non-simple -> the FULL path
-        # (a clinical / comparison / mechanism query is NEVER under-served). Faithfulness UNCHANGED:
-        # strict_verify + the 4-role D8 gate + provenance tokens still verify every emitted sentence;
-        # the router only picks WHICH path/thresholds a classified-simple query takes and does NOT
-        # mutate the hashed scope protocol (Codex brief P2-3).
+        # I-ready-006 (#1082): query-complexity router (CAP-ONLY — Codex diff-gate iter-5 §-1.2 rule 6).
+        # Default OFF (PG_COMPLEXITY_ROUTING) -> the full heavyweight path, BYTE-IDENTICAL. When ON, a
+        # confidently-SIMPLE factual query gets a lower FETCH CAP (PG_SIMPLE_FETCH_CAP) only — a cost/
+        # latency saving. The corpus-ADEQUACY gate is DELIBERATELY UNCHANGED: a keyword classifier could
+        # not reliably exclude clinical cohort queries ("population of asthmatics/smokers/diabetics"), so
+        # relaxing adequacy for "simple" risked under-serving a mis-classified clinical query (the §-1.1
+        # lethal class). With the adequacy gate intact, a mis-classified clinical query still hits the
+        # FULL clinical bar -> aborts corpus_inadequate SAFELY rather than shipping a thin answer; the
+        # fetch-cap reduction cannot breach that bar. The adequacy-relaxation half (a right-sized ANSWER
+        # for genuinely-simple queries) is deferred to a follow-up needing a robust/non-keyword
+        # classifier or a domain gate. FAIL-OPEN: any router error / confidence below
+        # PG_COMPLEXITY_MIN_CONFIDENCE / non-simple -> the FULL path. Faithfulness UNCHANGED throughout.
         _complexity_routing_on = (
             os.getenv("PG_COMPLEXITY_ROUTING", "0").strip() in ("1", "true", "True")
         )
@@ -2448,10 +2428,6 @@ async def run_one_query(
             evidence_row_count=len(retrieval.evidence_rows),
             domain=q["domain"],
             protocol=protocol,
-            # I-ready-006 (#1082): a confidently-simple query uses the relaxed full adequacy profile
-            # (explicit override > protocol > default — never mutates the hashed protocol). None on the
-            # full path keeps the per-domain clinical thresholds byte-identical.
-            override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
         )
         (run_dir / "corpus_adequacy.json").write_text(
             json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
@@ -2607,10 +2583,6 @@ async def run_one_query(
                     evidence_row_count=len(retrieval.evidence_rows),
                     domain=q["domain"],
                     protocol=protocol,
-                    # I-ready-006 (#1082) Codex diff-gate iter-3 P2-1: keep the simple override on the
-                    # post-expansion recompute too — else a simple-routed run reverts to clinical
-                    # defaults here and aborts corpus_inadequate after right-sizing the retrieval.
-                    override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                 )
                 (run_dir / "corpus_adequacy.json").write_text(
                     json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
@@ -2708,8 +2680,6 @@ async def run_one_query(
                         evidence_row_count=len(_staged_rows),
                         domain=q["domain"],
                         protocol=protocol,
-                        # I-ready-006 (#1082) P2-1: simple override on the staged/deepener recompute too.
-                        override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                     )
                     # Commit atomically (all recomputes succeeded).
                     retrieval.classified_sources = _staged_sources
@@ -2854,8 +2824,6 @@ async def run_one_query(
                         evidence_row_count=len(_ag_rows),
                         domain=q["domain"],
                         protocol=protocol,
-                        # I-ready-006 (#1082) P2-1: simple override on the agentic-merge recompute too.
-                        override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                     )
                     retrieval.classified_sources = _ag_sources
                     retrieval.evidence_rows = _ag_rows
