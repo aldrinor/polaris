@@ -4069,6 +4069,10 @@ async def run_one_query(
             research_plan=_gen_plan,
             partial_mode=_partial_mode,
             suppress_analyst_synthesis=_clinical_verified_only_surface,
+            # I-ready-009 (#1081): domain selects the OFF-mode outline section set (clinical byte-
+            # identical; non-clinical = domain-neutral generic) so non-clinical reports don't get
+            # clinical "Efficacy/Safety" headers.
+            domain=str(q.get("domain", "")),
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)
