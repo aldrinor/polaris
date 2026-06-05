@@ -13,7 +13,7 @@ def test_default_telemetry_shape_not_enabled():
     t = make_feature_telemetry("storm_query_expansion", questions_added=0, interviews=0)
     assert t["feature"] == "storm_query_expansion"
     assert t["enabled"] is False and t["fired"] is False
-    assert t["status"] == "not_enabled"
+    assert t["firing_status"] == "not_enabled"
     assert t["questions_added"] == 0 and t["interviews"] == 0
 
 
@@ -24,19 +24,19 @@ def test_no_warning_when_feature_off():
 
 def test_no_warning_when_enabled_and_fired():
     t = make_feature_telemetry("storm_query_expansion")
-    t.update({"enabled": True, "fired": True, "status": "fired"})
+    t.update({"enabled": True, "fired": True, "firing_status": "fired"})
     assert feature_firing_warning(t) is None
 
 
 def test_warns_when_force_enabled_but_did_not_fire():
     # The silent-degrade the operator's no-downgrade directive forbids: enabled but not fired.
     t = make_feature_telemetry("agentic_search")
-    t.update({"enabled": True, "fired": False, "status": "attempted_empty"})
+    t.update({"enabled": True, "fired": False, "firing_status": "attempted_empty"})
     w = feature_firing_warning(t)
     assert w is not None
     assert "agentic_search" in w and "did NOT fire" in w
     # also fires when the block errored
-    t["status"] = "error"
+    t["firing_status"] = "error"
     assert feature_firing_warning(t) is not None
 
 
@@ -47,16 +47,18 @@ def test_attach_tool_utilization_stamps_telemetry_on_every_manifest_path(monkeyp
     # this isolates the feature-key stamping.
     import scripts.run_honest_sweep_r3 as m
     monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
-    storm = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, status="fired")
-    agentic = make_feature_telemetry("agentic_search", enabled=True, fired=False, status="enabled_not_reached")
+    storm = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, firing_status="fired")
+    agentic = make_feature_telemetry("agentic_search", enabled=True, fired=False, firing_status="enabled_not_reached")
     tok = m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": storm, "agentic_search": agentic})
     try:
+        # NB: the dict passed to _attach_tool_utilization is a MANIFEST (its "status" is the manifest's
+        # pipeline status) — distinct from the per-feature telemetry's "firing_status".
         out = m._attach_tool_utilization({"status": "abort_no_sources"}, tmp_path)
     finally:
         m._FEATURE_TELEMETRY_CTX.reset(tok)
     # an ABORT manifest now carries the firing telemetry — the operator can prove STORM fired even on abort
     assert out["storm_query_expansion"]["fired"] is True
-    assert out["agentic_search"]["status"] == "enabled_not_reached"
+    assert out["agentic_search"]["firing_status"] == "enabled_not_reached"
 
 
 def test_attach_tool_utilization_no_telemetry_when_ctx_unset(monkeypatch, tmp_path):
@@ -121,7 +123,7 @@ def test_stale_telemetry_does_not_leak_after_clear(monkeypatch, tmp_path):
     # carry the prior run's telemetry.
     import scripts.run_honest_sweep_r3 as m
     monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
-    prior = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, status="fired")
+    prior = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, firing_status="fired")
     m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": prior, "agentic_search": prior})
     m._FEATURE_TELEMETRY_CTX.set(None)   # the teardown clear
     out = m._attach_tool_utilization({"status": "success"}, tmp_path)

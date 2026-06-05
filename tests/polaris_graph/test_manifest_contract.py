@@ -50,6 +50,9 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_no_verified_sections",
         "abort_evaluator_critical",    # added by BUG-M-205 (R5)
         "abort_budget_exceeded",       # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach (generator OR 4-role verifier)
+        "abort_verifier_degraded",     # I-ready-002 (#1071): binding verifier judge_error_rate over cap
+        "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
+        "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
         "error_unexpected",
     })
     assert UNIFIED_STATUS_VALUES == expected, (
@@ -167,7 +170,15 @@ def test_manifest_contract_abort_statuses_are_authoritative() -> None:
     # "started" is the in-memory summary-dict sentinel (summary["status"]
     # starts as "started" and gets overwritten before every return).
     # It is NEVER written to a manifest. Exclude it from the contract check.
-    allowed_non_manifest = {"started"}
+    #
+    # I-ready-016 (#1086): tightly-scoped non-manifest allowlist (per Codex P2 — NOT a broad
+    # allowlist). Each entry is a `"status": "<x>"` literal that is provably NOT a run manifest
+    # status:
+    #   - "abort_quota_exceeded": written to sweep_quota_refusal.json in main_async
+    #     (run_honest_sweep_r3.py:~5682), a SWEEP-level refusal artifact — never a run manifest.
+    # The feature-firing telemetry that previously tripped this regex (fired / not_enabled / ...)
+    # was renamed to the `firing_status` key (#1086), so it no longer matches `"status":`.
+    allowed_non_manifest = {"started", "abort_quota_exceeded"}
     status_values -= allowed_non_manifest
     unknown = status_values - UNIFIED_STATUS_VALUES
     assert not unknown, (
@@ -220,12 +231,19 @@ def test_manifest_contract_exception_writes_error_manifest() -> None:
         None,
     )
     assert func is not None, "expected async def run_one_query"
-    # Find the first Try node directly in the body (outermost try).
+    # I-ready-016 (#1086): select the OUTER orchestration try — the one whose handlers write
+    # error_unexpected — NOT merely the first top-level try. The first top-level try is the I-bug-111
+    # synthesis-reset guard (`try: ...reset...; except Exception: pass`), a no-op; selecting it made
+    # this gate stale-red. Identify the orchestration try by its source segment.
     outer_try = next(
-        (n for n in func.body if isinstance(n, _ast.Try)),
+        (n for n in func.body
+         if isinstance(n, _ast.Try)
+         and "error_unexpected" in (_ast.get_source_segment(source, n) or "")),
         None,
     )
-    assert outer_try is not None, "expected outer try in run_one_query"
+    assert outer_try is not None, (
+        "expected the outer orchestration try (handlers write error_unexpected) in run_one_query"
+    )
     # Each Try has ExceptHandler(s). Dump the handlers' source ranges.
     handler_sources = []
     for handler in outer_try.handlers:
@@ -252,12 +270,16 @@ def test_manifest_contract_status_prefixes() -> None:
     This is what downstream readers rely on to classify a run."""
     from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES
     for status in UNIFIED_STATUS_VALUES:
-        assert any(
+        assert (
             status == "success"
             or status.startswith("partial_")
             or status.startswith("abort_")
             or status.startswith("error_")
-            for _ in [1]  # dummy loop for any()
+            # I-ready-016 (#1086): documented single terminal exception. `cancelled` is a real
+            # manifest status (_abort_if_cancelled) whose value is preserved (consumed by v6 UI +
+            # SSE `run.completed`); renaming it to abort_cancelled would break those consumers. It is
+            # a terminal/cancel class of its own, deliberately outside the 4-prefix scheme.
+            or status == "cancelled"
         ), f"Status {status!r} doesn't match any known prefix class"
 
 

@@ -37,6 +37,14 @@ PipelineStatus = Literal[
     "abort_no_verified_sections",
     "abort_no_sources",
     "abort_evaluator_critical",
+    # I-ready-016 (#1086): sync the stale PipelineStatus mirror with UNIFIED_STATUS_VALUES — these
+    # are real terminal manifest statuses the actor can load into pipeline_status, so omitting them
+    # would 500 RunStatusResponse Pydantic validation on a real run.
+    "partial_saturation",            # I-meta-005 Phase 4 (#988)
+    "abort_budget_exceeded",         # I-meta-008 (#1015)
+    "abort_verifier_degraded",       # I-ready-002 (#1071)
+    "abort_four_role_release_held",  # 4-role D8 held release
+    "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",
 ]
 

@@ -195,6 +195,8 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
+    "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+    "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
     "error_unexpected",
 })
@@ -240,10 +242,15 @@ def to_unified_status(summary_status: str) -> str:
 
 def make_feature_telemetry(feature: str, **extra: Any) -> dict[str, Any]:
     """I-ready-005 (#1076): default per-feature FIRING telemetry surfaced to the manifest so the operator
-    can prove a forced-ON benchmark feature actually fired. status: not_enabled -> attempted_empty (block
-    ran) -> fired (produced output) / error. ``extra`` adds feature-specific count keys (e.g.
-    questions_added, urls_discovered)."""
-    base = {"feature": feature, "enabled": False, "fired": False, "status": "not_enabled"}
+    can prove a forced-ON benchmark feature actually fired. firing_status: not_enabled ->
+    attempted_empty (block ran) -> fired (produced output) / error. ``extra`` adds feature-specific
+    count keys (e.g. questions_added, urls_discovered).
+
+    I-ready-016 (#1086): the key is ``firing_status`` (NOT ``status``) — it is a per-feature firing
+    state stamped under manifest['<feature>'], NOT the manifest's own pipeline ``status``. The rename
+    keeps the manifest-status authoritativeness contract (test_manifest_contract) from mistaking a
+    feature firing-state for a manifest status."""
+    base = {"feature": feature, "enabled": False, "fired": False, "firing_status": "not_enabled"}
     base.update(extra)
     return base
 
@@ -254,7 +261,7 @@ def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
     if telemetry.get("enabled") and not telemetry.get("fired"):
         return (
             f"{telemetry.get('feature')} was force-ENABLED but did NOT fire "
-            f"(status={telemetry.get('status')}) — verify the run before trusting it"
+            f"(firing_status={telemetry.get('firing_status')}) — verify the run before trusting it"
         )
     return None
 
@@ -1519,11 +1526,11 @@ async def run_one_query(
     _agentic_enabled = os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
     _storm_telemetry = make_feature_telemetry(
         "storm_query_expansion", questions_added=0, interviews=0,
-        enabled=_storm_enabled, status="enabled_not_reached" if _storm_enabled else "not_enabled",
+        enabled=_storm_enabled, firing_status="enabled_not_reached" if _storm_enabled else "not_enabled",
     )
     _agentic_telemetry = make_feature_telemetry(
         "agentic_search", urls_discovered=0,
-        enabled=_agentic_enabled, status="enabled_not_reached" if _agentic_enabled else "not_enabled",
+        enabled=_agentic_enabled, firing_status="enabled_not_reached" if _agentic_enabled else "not_enabled",
     )
     # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
     # benchmark feature and lives INSIDE the outer try below (first statement). When both features
@@ -2085,7 +2092,7 @@ async def run_one_query(
         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
         if os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
             _storm_telemetry["enabled"] = True
-            _storm_telemetry["status"] = "attempted_empty"
+            _storm_telemetry["firing_status"] = "attempted_empty"
             import asyncio as _storm_asyncio
             import contextvars as _storm_cv
             import src.polaris_graph.agents.storm_interviews as _storm_mod
@@ -2142,7 +2149,7 @@ async def run_one_query(
             except Exception as _storm_exc:  # noqa: BLE001 — STORM faults (incl. its own internal
                 # BudgetExceededError from the isolated context) never abort the run: the parent budget
                 # was already booked + enforced via the envelope above.
-                _storm_telemetry["status"] = "error"
+                _storm_telemetry["firing_status"] = "error"
                 _storm_telemetry["error"] = str(_storm_exc)[:200]
                 _log(
                     f"[storm]       STORM query expansion failed: {_storm_exc} — "
@@ -2166,7 +2173,7 @@ async def run_one_query(
                     "fired": len(_storm_added) > 0,
                     "questions_added": len(_storm_added),
                     "interviews": len(_storm_out.get("storm_conversations", [])),
-                    "status": "fired" if _storm_added else "attempted_empty",
+                    "firing_status": "fired" if _storm_added else "attempted_empty",
                 })
                 _log(
                     f"[storm]       +{len(_storm_added)} perspective queries from "
@@ -2614,7 +2621,7 @@ async def run_one_query(
             "1", "true", "True",
         ):
             _agentic_telemetry["enabled"] = True
-            _agentic_telemetry["status"] = "attempted_empty"
+            _agentic_telemetry["firing_status"] = "attempted_empty"
             import asyncio as _ag_asyncio
             import contextvars as _ag_cv
             import src.polaris_graph.agents.searcher as _ag_mod
@@ -2677,7 +2684,7 @@ async def run_one_query(
                 _agentic_telemetry.update({
                     "fired": len(_ag_urls) > 0,
                     "urls_discovered": len(_ag_urls),
-                    "status": "fired" if _ag_urls else "attempted_empty",
+                    "firing_status": "fired" if _ag_urls else "attempted_empty",
                 })
                 _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
             except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
@@ -2685,7 +2692,7 @@ async def run_one_query(
                     f"[agentic]     agentic discovery failed: {_ag_exc} — "
                     f"proceeding without agentic URLs"
                 )
-                _agentic_telemetry["status"] = "error"
+                _agentic_telemetry["firing_status"] = "error"
                 _agentic_telemetry["error"] = str(_ag_exc)[:200]
                 _ag_urls = []
             finally:
@@ -5351,6 +5358,14 @@ async def run_one_query(
                         "eligible_sentences": len(_nli_kept), "advisory": True,
                     }
 
+        # I-ready-016 (#1086): re-stamp the unified status at the SUCCESS write site (idempotent —
+        # `manifest['status']` was already set to `unified_status` when the success manifest was built
+        # ~600 lines up at L4744/4939/5071). The additive V30/depth/NLI blocks between construction and
+        # this write pushed the original assignment past the manifest-contract gate's 200-line lookback
+        # window, false-flagging this write as status-less. Re-stamping documents the invariant AT the
+        # write site and keeps the contract honest WITHOUT widening the gate's window (LAW II — not a
+        # relaxation; `unified_status` is unchanged here).
+        manifest["status"] = unified_status
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

@@ -120,7 +120,11 @@ def test_b3_orchestrator_uses_extracted_helpers() -> None:
     assert "build_no_verified_sections_abort_body(" in src
     # The abort branch must still return BEFORE Methods assembly
     abort_idx = src.find("if not verified_sections:")
-    methods_idx = src.find("PG_GENERATOR_MODEL")
+    # I-ready-016 (#1086): re-anchor the "abort returns BEFORE generation/Methods assembly" marker.
+    # PG_GENERATOR_MODEL is now referenced EARLY (STORM/agentic/quantified blocks) — before the abort —
+    # so it no longer marks the post-abort generation step. PG_EVALUATOR_MODEL first appears only in the
+    # success-path generation/manifest block (after the abort), so it is the stable post-abort anchor.
+    methods_idx = src.find("PG_EVALUATOR_MODEL")
     assert 0 < abort_idx < methods_idx
 
 
@@ -131,7 +135,11 @@ def test_b3_manifest_records_zero_verified() -> None:
     import scripts.run_honest_sweep_r3 as sweep
     src = inspect.getsource(sweep.run_one_query)
     abort_idx = src.find("if not verified_sections:")
-    methods_idx = src.find("PG_GENERATOR_MODEL")
+    # I-ready-016 (#1086): re-anchor the "abort returns BEFORE generation/Methods assembly" marker.
+    # PG_GENERATOR_MODEL is now referenced EARLY (STORM/agentic/quantified blocks) — before the abort —
+    # so it no longer marks the post-abort generation step. PG_EVALUATOR_MODEL first appears only in the
+    # success-path generation/manifest block (after the abort), so it is the stable post-abort anchor.
+    methods_idx = src.find("PG_EVALUATOR_MODEL")
     branch = src[abort_idx:methods_idx]
     assert '"sentences_verified": 0' in branch
     assert "sections_dropped" in branch

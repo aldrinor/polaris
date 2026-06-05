@@ -607,6 +607,14 @@ _STATUS_TIERS: dict[str, int] = {
     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) —
     # a clean budget abort, no report produced (tier 2), NOT an unhandled error.
     "abort_budget_exceeded": 2,
+    # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) — release-blocking
+    # abort, no report. Added to UNIFIED_STATUS_VALUES by #1071 but never mirrored here until #1086.
+    "abort_verifier_degraded": 2,
+    # I-ready-016 (#1086): mirror the two real terminal manifest statuses that were missing from the
+    # taxonomy. KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES (test_saturation_phase4 +
+    # test_md9_regression_lab). 4-role-held + user-cancel are terminal aborts (tier 2, no report).
+    "abort_four_role_release_held": 2,
+    "cancelled": 2,
     # error — unhandled exception
     "error_unexpected": 3,
 }
