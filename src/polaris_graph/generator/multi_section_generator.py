@@ -581,7 +581,12 @@ def _build_deterministic_fallback_outline(
     # (V10 FATAL 2026-04-19). Cap at 30 keeps per-section prompts within
     # DeepSeek V3.2-Exp's effective request limit while still giving the
     # section writer a rich citation pool.
-    _MAX_EV_PER_FALLBACK_SECTION = 30
+    # I-ready-001 (#1070) P0: 30 was tuned for the OLD V3.2-Exp model; the generator is now
+    # deepseek-v4-pro (1M context), so this stale per-section ceiling — combined with the global
+    # PG_LIVE_MAX_EV_TO_GEN cap — held total generation evidence below corpus size. Env-tunable now
+    # (PG_MAX_EV_PER_SECTION, default 30 = byte-identical when unset); the full-cap slate raises it in
+    # lockstep. Still bounded to keep per-section bodies under the >100K-token OpenRouter 400 limit.
+    _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
     plans: list[SectionPlan] = []
     for i, title in enumerate(allowed_titles):
         section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
@@ -622,7 +627,7 @@ def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
     *,
-    max_ev_per_section: int = 30,
+    max_ev_per_section: int = int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),  # I-ready-001 (#1070): env-tunable, default 30
     sub_queries: list[str] | None = None,
     authority_floor: float | None = None,
 ) -> list[SectionPlan]:

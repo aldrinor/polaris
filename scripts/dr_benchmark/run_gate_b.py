@@ -428,6 +428,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
     "PG_DEEPENER_EVIDENCE_CAP": "500",
     "PG_MOST_MAX_EVIDENCE": "800",
+    # I-ready-001 (#1070) P0: the GENERATOR-FACING cap. The I-cap-005 slate raised RETRIEVAL breadth to
+    # ~1000 URLs but left PG_LIVE_MAX_EV_TO_GEN at its code default 20 (run_honest_sweep_r3.py:2880) —
+    # so generation saw 20 of 1000+ rows (98% silently dropped), the same silent-throttle class as
+    # I-cap-005 one stage downstream. Raise to a researched default (finding range 120-200; 150 is
+    # coherent with the 5-section x 30/section ceiling). The OPTIMAL value (fixed-count vs relevance-floor
+    # no-cap, lost-in-the-middle aware) is the operator-approved bake-off in I-ready-001b. FLOOR semantics
+    # (max(existing, 150)) so a higher operator value is kept. Per-section ceiling raised in lockstep.
+    "PG_LIVE_MAX_EV_TO_GEN": "150",
+    "PG_MAX_EV_PER_SECTION": "40",
     # R-6 completeness-expansion breadth (the secondary throttle that was hardcoded 5/5/15/cap-4).
     "PG_R6_EXPAND_QUERY_CAP": "12",
     "PG_R6_EXPAND_MAX_SERPER": "20",
@@ -484,6 +493,9 @@ _BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS = (
 # Codex diff-gate iter-2 P1-1: additional CALL-TIME env floors that .env was silently winning over.
 _BENCHMARK_EXTRA_ENV_FLOORS = {
     "PG_MOST_MAX_EVIDENCE": 800,
+    # I-ready-001 (#1070) P0: fail closed if the generator-facing cap is below the full-capability floor
+    # — catches a regression that would re-introduce the 98%-evidence-drop silent throttle.
+    "PG_LIVE_MAX_EV_TO_GEN": 100,
 }
 
 
