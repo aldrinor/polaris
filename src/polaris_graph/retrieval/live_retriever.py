@@ -1001,6 +1001,21 @@ def _env_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _post_fetch_loop_budget(fetch_cap: int) -> float:
+    """I-ready-003 (#1074) P1: the post-fetch loop wall-clock budget, SCALED with ``fetch_cap``.
+
+    The loop classifies all ~``fetch_cap`` candidates serially (each paying an OpenAlex enrich
+    round-trip). A FIXED budget that does not scale with ``fetch_cap`` silently truncates the corpus at
+    full cap (the I-cap-005 ~40-URL silent-throttle class, one layer deeper). Returns
+    ``max(PG_POST_FETCH_LOOP_BUDGET floor, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET)`` — byte-identical
+    for small caps (the 900s floor wins), and a conservative operator env can no longer silently win
+    because the ``fetch_cap`` term floors it. Pure (env-only); unit-testable."""
+    return max(
+        _env_float("PG_POST_FETCH_LOOP_BUDGET", 900.0),
+        max(0, int(fetch_cap)) * _env_float("PG_POST_FETCH_PER_URL_BUDGET", 4.0),
+    )
+
+
 def _bounded_openalex_enrich(
     url: str, title: str, stats: Optional[dict[str, int]] = None,
 ) -> dict[str, Any]:
@@ -2548,9 +2563,15 @@ def run_live_retrieval(
     # verdict. Layer 1 = per-candidate enrich bound (_bounded_openalex_enrich);
     # Layer 2 = this overall wall-clock budget; Layer 3 = per-candidate
     # progress logging below so any future loop stall is diagnosable.
-    _loop_deadline = time.monotonic() + _env_float(
-        "PG_POST_FETCH_LOOP_BUDGET", 900.0,
-    )
+    # I-ready-003 (#1074) P1: the post-fetch loop processes ALL ~fetch_cap candidates serially (each
+    # paying an OpenAlex enrich round-trip + tier-classify). A FIXED budget that does NOT scale with
+    # fetch_cap silently TRUNCATES the corpus at full cap (the I-cap-005 ~40-URL silent-throttle class,
+    # one layer deeper): the slate raised fetch_cap 25x without scaling this wall-clock budget, so the
+    # loop hit the deadline mid-corpus, set corpus_truncated, and broke — a "1000-URL" run classified
+    # only the first few hundred. Scale the budget with fetch_cap: max(explicit env floor, fetch_cap *
+    # per-URL budget). BYTE-IDENTICAL for small caps (the 900s env floor wins when fetch_cap is small);
+    # a conservative operator env can no longer silently win because the fetch_cap term floors it.
+    _loop_deadline = time.monotonic() + _post_fetch_loop_budget(fetch_cap)
     _enrich_failfast = _env_int("PG_OPENALEX_ENRICH_FAILFAST", 3)
     _enrich_stats: dict[str, int] = {}
     _enrich_disabled = False

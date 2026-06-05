@@ -422,7 +422,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_LIVE_CONTENT_MAX": "50000",
     "PG_LIVE_HTTP_TIMEOUT": "30",
     "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
-    "PG_POST_FETCH_LOOP_BUDGET": "2400",
+    # I-ready-003 (#1074) P1: scale the post-fetch loop budget to the ~1000-URL cap. The live_retriever
+    # now takes max(this, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET) so the loop never silently truncates
+    # the corpus mid-classification. 1000 URLs * 4s = 4000s.
+    "PG_POST_FETCH_LOOP_BUDGET": "4000",
+    "PG_POST_FETCH_PER_URL_BUDGET": "4",
     "PG_LLM_TIMEOUT_SECONDS": "180",
     # Evidence-extraction depth.
     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
