@@ -38,9 +38,9 @@ I-meta-001 (#933) Step 11: every PR touching runtime/model/docs MUST include thi
 
 ## 5. Tests
 
-- New tests added: `tests/polaris_graph/test_table_cell_verify_iready015.py` (7 tests: flag-OFF byte-identical, 2-arg caller inert, flag-ON drops fabricated number, keeps all-in-prose, no-decimal row unaffected, citation-marker stripped, strict_verify._decimals source-pin).
+- New tests added: `tests/polaris_graph/test_table_cell_verify_iready015.py` (8 tests: flag-OFF byte-identical, 2-arg caller inert, flag-ON drops fabricated number, keeps all-in-prose, no-decimal row unaffected, citation-marker stripped, fabricated-value-equal-to-citation dropped, strict_verify._decimals source-pin).
 - Existing tests verified green: `python -m pytest tests/polaris_graph/test_m36_trial_summary_table.py tests/polaris_graph/test_m41_v24_regression_fixes.py -q` (59) + `verify_lock --consistency` = OK.
-- Test result count: 7 (feature) + 59 (regression) = 67 passed.
+- Test result count: 8 (feature) + 59 (regression) = 67 passed.
 
 ## 6. Operator sign-off
 

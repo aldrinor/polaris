@@ -1,0 +1,245 @@
+# Codex DIFF review — I-ready-015 (#1084): table-cell faithfulness gate — ITER 2
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**REVIEW ONLY — do not modify any file. Return the YAML verdict block ONLY.**
+
+---
+
+## 0. Your iter-1 verdict: APPROVE (0 P0/P1, 2 P2). One folded in.
+
+- **P2 (folded in):** [N] markers are now stripped from the SOURCE `verified_prose` too (symmetric with the per-row strip) before `_decimals`, so a fabricated cell value equal to a citation number (e.g. '5' when the prose cites [5]) no longer falsely passes. +1 test (`test_flag_on_fabricated_value_equal_to_a_citation_number_is_dropped`). This is the only code change since iter-1.
+- **P2 deferred -> #1095:** `strict_verify._decimals` comma-format ('1,879' vs '1879') over-drops in the SAFE direction (drops a maybe-valid row, never keeps a fabricated one); it's a SHARED primitive (improving it tightens the §9.1 prose gate too) — out of scope, follow-up. Also #1095: Option A per-[N]-span attribution + Timeline/Per-Trial + chart rendering.
+
+## 1. Verify this iter
+
+- The symmetric source-prose [N] strip is correct + closes the citation-number-as-data gap; no regression to the iter-1-APPROVE'd behavior (flag-OFF byte-identical, no over-drop of legitimately-verified rows).
+- Agreement that the `_decimals` comma-format limit is correctly deferred (safe-direction, shared primitive).
+
+## 2. Verification done (offline, cash-free)
+
+8 behavioral tests pass (added the citation-number-fabrication case) + 59 m36/m41 table regression green.
+
+## 3. Output schema (return EXACTLY this; loose prose rejected)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+
+## 4. The full committed diff (`git diff bot/I-ready-013-analyst-synthesis-verified..HEAD`)
+
+```diff
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 0ef49767..bc3d7d94 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -2032,9 +2032,18 @@ _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
+ _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
+ 
+ 
++def _table_cell_verify_enabled() -> bool:
++    """I-ready-015 (#1084): cell-decimal faithfulness gate. Default OFF -> byte-identical;
++    turned ON + preflighted in the full-capability benchmark slate after audit."""
++    return os.environ.get("PG_SWEEP_TABLE_CELL_VERIFY", "").strip().lower() not in {
++        "", "0", "false", "off", "no",
++    }
++
++
+ def _extract_trial_summary_table(
+     raw: str,
+     valid_citation_nums: set[int],
++    verified_prose: str = "",
+ ) -> str:
+     """Extract and validate a `| Trial | ... |`-shaped markdown table
+     from an LLM response.
+@@ -2086,6 +2095,23 @@ def _extract_trial_summary_table(
+     if not _MARKDOWN_TABLE_SEPARATOR_RE.match(separator_line):
+         return ""
+ 
++    # I-ready-015 (#1084): cell-decimal faithfulness gate (flag-gated, default OFF). The body
++    # prose goes through §9.1 strict_verify (every decimal must appear in its cited span), but the
++    # LLM-emitted table cells did not — so a mis-transcribed N / HR / endpoint value could survive
++    # with only its [N] marker validated. When enabled, every numeric token in a row's DATA cells
++    # must appear in the strict_verified `verified_prose` (the table's SOLE fact source); else the
++    # number was fabricated/mis-transcribed and the row is dropped. Reuses strict_verify._decimals
++    # so the table + prose share one numeric definition. Option B (prose-subset) per Codex brief;
++    # Option A (per-[N] span) + Timeline/Per-Trial extractors are documented follow-ups.
++    _cell_verify = _table_cell_verify_enabled() and bool(verified_prose.strip())
++    _prose_decimals: set[str] = set()
++    if _cell_verify:
++        from src.polaris_graph.clinical_generator.strict_verify import _decimals as _sv_decimals
++        # Codex diff-gate P2: strip [N] markers from the SOURCE prose too (symmetric with the
++        # per-row strip below) — otherwise a citation number like [5] becomes a prose "decimal"
++        # and a fabricated cell value "5" would falsely pass.
++        _prose_decimals = _sv_decimals(_CITATION_MARKER_RE.sub("", verified_prose))
++
+     kept_rows: list[str] = []
+     for line in lines_after[2:]:
+         stripped = line.strip()
+@@ -2101,6 +2127,12 @@ def _extract_trial_summary_table(
+         if any(n not in valid_citation_nums for n in nums):
+             # One or more out-of-range citation numbers → drop.
+             continue
++        if _cell_verify:
++            # Strip [N] citation markers FIRST so citation numbers are not treated as data
++            # (Codex brief P2), then require every cell decimal to be present in the prose.
++            _row_data = _CITATION_MARKER_RE.sub("", stripped)
++            if not _sv_decimals(_row_data).issubset(_prose_decimals):
++                continue
+         # M-41b (2026-04-21, post-V24 Codex pass-12 regression): drop
+         # rows where >2 cells contain only "—" / "-" / "–" / empty.
+         # Pass-12 audit on V24 observed "table is only 3 rows, 2
+@@ -2613,7 +2645,7 @@ async def _call_trial_summary_table(
+             except Exception:
+                 pass
+ 
+-    table = _extract_trial_summary_table(raw, valid_nums)
++    table = _extract_trial_summary_table(raw, valid_nums, verified_prose=verified_prose)
+     if not table:
+         logger.info(
+             "[multi_section] trial-summary table suppressed "
+diff --git a/src/tools/visual_generator.py b/src/tools/visual_generator.py
+index 06118f81..693f33e7 100644
+--- a/src/tools/visual_generator.py
++++ b/src/tools/visual_generator.py
+@@ -3,6 +3,13 @@ POLARIS Visual Output Generator
+ ===============================
+ Generates visual outputs from research data.
+ 
++STATUS (I-ready-015 / #1084): UNWIRED — this raw-SVG engine has ZERO production caller
++(its only in-repo references are its own ``self_test()`` and tests). It is NOT on the
++honest-sweep / Gate-B benchmark report path (which embeds citation-validated markdown
++tables only). Do NOT report "POLARIS renders charts" on the basis of this module. The
++benchmark figure-rendering path (matplotlib via ``polaris_graph.tools.data_analyzer``,
++``PG_CHART_GENERATION_ENABLED``, graph_v3/UI-only) is a separate, operator-gated follow-up.
++
+ Features:
+ - Chart generation (bar, line, pie)
+ - Summary infographics
+diff --git a/tests/polaris_graph/test_table_cell_verify_iready015.py b/tests/polaris_graph/test_table_cell_verify_iready015.py
+new file mode 100644
+index 00000000..d6761a7c
+--- /dev/null
++++ b/tests/polaris_graph/test_table_cell_verify_iready015.py
+@@ -0,0 +1,103 @@
++"""I-ready-015 (#1084) — table-cell faithfulness gate on the Trial Summary table.
++
++Body prose goes through §9.1 strict_verify (every decimal must appear in its cited span), but the
++LLM-emitted Trial Summary table cells did NOT — only the [N] citation marker was validated, not
++the cell's NUMBER. So a mis-transcribed N / HR / endpoint value could survive. This gate (flag
++`PG_SWEEP_TABLE_CELL_VERIFY`, default OFF) drops any row whose cell decimals are absent from the
++strict_verified verified_prose (the table's sole fact source), reusing strict_verify._decimals.
++
++Offline / cash-free: the raw table + verified_prose are inline (no LLM, no spend).
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.generator.multi_section_generator import _extract_trial_summary_table
++
++_HEADER = "| Trial | N | Baseline | Comparator | Endpoint | Result | Ref |"
++_SEP = "|---|---|---|---|---|---|---|"
++
++# Prose contains the decimals 200 and 42 (NOT 52).
++_PROSE = "The ZORBLAX-7 trial enrolled 200 patients and showed a 42 percent reduction in the endpoint."
++
++
++def _table(result_cell: str, ref: str = "[1]", n: str = "200") -> str:
++    return (
++        f"{_HEADER}\n{_SEP}\n"
++        f"| ZORBLAX-7 | {n} | placebo | active drug | overall survival | {result_cell} | {ref} |"
++    )
++
++
++# ── flag-OFF: byte-identical (no gate) ──────────────────────────────────────
++
++def test_flag_off_keeps_a_row_with_unverified_cell_number(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_TABLE_CELL_VERIFY", raising=False)
++    # 52% is NOT in the prose, but with the gate OFF the row survives (today's behavior).
++    out = _extract_trial_summary_table(_table("52% reduction"), {1}, verified_prose=_PROSE)
++    assert "ZORBLAX-7" in out
++
++
++def test_existing_two_arg_callers_unaffected(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # No verified_prose → gate inert even when flag ON (backward-compat for existing callers/tests).
++    out = _extract_trial_summary_table(_table("52% reduction"), {1})
++    assert "ZORBLAX-7" in out
++
++
++# ── flag-ON: the hole closes ────────────────────────────────────────────────
++
++def test_flag_on_drops_row_with_fabricated_cell_number(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # 52 is absent from the prose (which has 42) → the row is dropped → table suppressed.
++    out = _extract_trial_summary_table(_table("52% reduction"), {1}, verified_prose=_PROSE)
++    assert out == ""
++
++
++def test_flag_on_keeps_row_whose_numbers_are_all_in_prose(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # 200 (N) + 42 (Result) are both in the prose → kept.
++    out = _extract_trial_summary_table(_table("42% reduction"), {1}, verified_prose=_PROSE)
++    assert "ZORBLAX-7" in out
++    assert "42% reduction" in out
++
++
++def test_flag_on_no_decimal_row_is_unaffected(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # A row with no numeric cells (text only) passes the numeric gate (nothing to verify).
++    raw = (
++        f"{_HEADER}\n{_SEP}\n"
++        "| ZORBLAX-7 | many | placebo | active drug | overall survival | improved | [1] |"
++    )
++    out = _extract_trial_summary_table(raw, {1}, verified_prose="The ZORBLAX-7 trial improved survival.")
++    assert "ZORBLAX-7" in out
++
++
++def test_flag_on_citation_marker_not_treated_as_data(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # The row cites [3]; 3 is NOT a prose decimal, but [N] markers are stripped before the numeric
++    # check, so the row is kept (its DATA decimals 200 + 42 are in the prose).
++    out = _extract_trial_summary_table(_table("42% reduction", ref="[3]"), {1, 3}, verified_prose=_PROSE)
++    assert "ZORBLAX-7" in out
++
++
++def test_flag_on_fabricated_value_equal_to_a_citation_number_is_dropped(monkeypatch):
++    """Codex diff-gate P2: [N] markers are stripped from the SOURCE prose too, so a fabricated
++    cell value that happens to equal a citation number (e.g. '5' when the prose cites [5]) does
++    NOT falsely pass."""
++    monkeypatch.setenv("PG_SWEEP_TABLE_CELL_VERIFY", "1")
++    # Prose has the N (200) and the real result (42), and cites [5]. The cell's '5' appears in the
++    # prose ONLY as the citation marker [5]. Without source-side [N] stripping the row would falsely
++    # pass ({200,5} ⊆ {200,42,5}); with the fix it drops ({200,5} ⊄ {200,42}).
++    prose = "The ZORBLAX-7 trial enrolled 200 patients and showed a 42 percent reduction [5]."
++    out = _extract_trial_summary_table(_table("5% reduction"), {1}, verified_prose=prose)
++    assert out == ""  # dropped — 5 is not a real prose data decimal
++
++
++# ── reuses strict_verify._decimals (one numeric definition) ─────────────────
++
++def test_gate_uses_strict_verify_decimals():
++    import inspect
++    from src.polaris_graph.generator import multi_section_generator as msg
++    src = inspect.getsource(msg._extract_trial_summary_table)
++    assert "from src.polaris_graph.clinical_generator.strict_verify import _decimals" in src
+
+```

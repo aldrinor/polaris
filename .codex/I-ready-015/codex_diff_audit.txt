@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "_decimals comma-format normalization remains a safe-direction over-drop risk and is appropriately deferred to #1095."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
