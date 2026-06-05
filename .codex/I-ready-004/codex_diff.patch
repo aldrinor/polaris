@@ -1,0 +1,319 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 1513a4ec..a4ce1409 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -462,6 +462,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
+     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
+     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
++    # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
++    # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
++    # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
++    # PG_USE_FINDING_DEDUP mode alone is NO-CAP and would re-flood the generator). PG_RELEVANCE_FLOOR is
++    # a FLOAT in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces
++    # 0.30 -> 0; Codex P1-2). 0.30 = the researched default (I-meta-005 Phase 5 #989).
++    "PG_USE_FINDING_DEDUP": "1",
++    "PG_CAPPED_FINDING_DEDUP": "1",
++    "PG_RELEVANCE_FLOOR": "0.30",
+ }
+ 
+ # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+@@ -482,6 +491,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+     "PG_NLI_IN_BENCHMARK",
+     "PG_ENABLE_TOOL_TRACKER",
++    # I-ready-004 (#1078): both must be ON for Gate-B — finding-dedup OFF wastes the cap on near-dups;
++    # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
++    "PG_USE_FINDING_DEDUP",
++    "PG_CAPPED_FINDING_DEDUP",
+ )
+ 
+ # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+@@ -502,6 +515,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
+     "PG_STRICT_VERIFY_ENTAILMENT",
+     "PG_MAX_JUDGE_ERROR_RATE",
++    # I-ready-004 (#1078): finding-dedup flags + the FLOAT relevance floor. Force-SET directly (string)
++    # — the numeric FLOOR path int()-coerces, which would turn PG_RELEVANCE_FLOOR=0.30 into 0 and then
++    # fail parse_relevance_floor (Codex brief P1-2). PG_RELEVANCE_FLOOR is validated as a float in (0,1]
++    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
++    "PG_USE_FINDING_DEDUP",
++    "PG_CAPPED_FINDING_DEDUP",
++    "PG_RELEVANCE_FLOOR",
+ })
+ 
+ # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
+@@ -615,6 +635,20 @@ def preflight_full_capability() -> None:
+                 f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — .env was "
+                 f"silently throttling it. The floor-slate must raise it before the run."
+             )
++    # I-ready-004 (#1078) Codex brief P1-2: PG_RELEVANCE_FLOOR is a FLOAT in (0,1] (NOT an int floor — the
++    # numeric-FLOOR slate path would coerce 0.30 -> 0). When capped finding-dedup is on (required above),
++    # validate it via the canonical parser so a malformed/out-of-range value ("0", "1.5", "abc") fails
++    # CLOSED before any spend rather than crashing mid-run or sending an unbounded pool. (None/empty ->
++    # the parser's 0.30 default, which is valid.)
++    if os.getenv("PG_CAPPED_FINDING_DEDUP", "0").strip() in ("1", "true", "True"):
++        from src.polaris_graph.retrieval.evidence_selector import parse_relevance_floor
++        try:
++            parse_relevance_floor(os.getenv("PG_RELEVANCE_FLOOR"))
++        except ValueError as _floor_exc:
++            raise RuntimeError(
++                f"benchmark preflight FAILED: {_floor_exc} — capped finding-dedup needs a parseable "
++                f"PG_RELEVANCE_FLOOR in (0.0, 1.0] before the run."
++            )
+ 
+ 
+ def preflight_import_time_constants() -> None:
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index cbb89eb5..a0755d41 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -266,6 +266,45 @@ def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
+     return None
+ 
+ 
++def _capped_finding_dedup_selection(
++    *,
++    base_rows: list[dict[str, Any]],
++    classified_sources: list[Any],
++    research_question: str,
++    protocol: dict[str, Any] | None,
++    primary_trial_anchors: list[str] | None,
++    max_ev: int,
++):
++    """I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings in an ALREADY
++    floor-selected base (one corroboration-counted representative per finding), THEN re-run the
++    tier-balanced top-``max_ev`` selection — so the no-cap relevance-floor pool is bounded to
++    PG_LIVE_MAX_EV_TO_GEN (#1070's cap holds). Returns the capped ``EvidenceSelection`` so callers can
++    BOTH read ``.selected_rows`` AND surface the capped object in ``manifest['evidence_selection']``
++    (Codex diff-gate iter-1 P2-1 — stale telemetry otherwise). Pure-logic (no model); §8.4-safe.
++
++    Factored into a module helper (Codex diff-gate iter-1 P1-1) so EVERY selection path uses it —
++    the initial selection AND the saturation gap-round reselect — closing the gap where a planner /
++    saturation-expansion run could still send an uncapped base to the generator.
++    """
++    from src.polaris_graph.authority.data_loader import load_authority_data
++    from src.polaris_graph.retrieval.evidence_selector import (
++        select_evidence_for_generation,
++    )
++    from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
++
++    _gov = load_authority_data()["psl_gov_suffixes"]
++    _deduped = dedup_by_finding(base_rows, gov_suffixes=_gov).deduped_rows
++    return select_evidence_for_generation(
++        research_question=research_question,
++        protocol=protocol,
++        classified_sources=classified_sources,
++        evidence_rows=_deduped,
++        max_rows=max_ev,
++        primary_trial_anchors=primary_trial_anchors,
++        relevance_floor=None,   # tier-balanced top-max_ev cap on the deduped base
++    )
++
++
+ def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
+     """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
+     contains ONLY the SUFFICIENT sections, so the generator (which fixes its
+@@ -2993,6 +3032,13 @@ async def run_one_query(
+             os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
+             in ("1", "true", "True")
+         )
++        # I-ready-004 (#1078): CAPPED finding-dedup. When set, the no-cap relevance-floor pool is
++        # dedup-then-capped to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds at 1000 URLs (Codex brief
++        # P1-1). Default OFF (legacy no-cap floor mode unchanged); Gate-B turns it ON via the slate.
++        _capped_dedup = (
++            os.getenv("PG_CAPPED_FINDING_DEDUP", "0").strip()
++            in ("1", "true", "True")
++        )
+         _relevance_floor: float | None = None
+         if _use_finding_dedup:
+             from src.polaris_graph.retrieval.evidence_selector import (
+@@ -3079,6 +3125,31 @@ async def run_one_query(
+             relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+         )
+         evidence_for_gen = evidence_selection.selected_rows
++        # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
++        # NO-CAP (keeps every row >= floor) — at 1000 URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN
++        # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set, dedup the
++        # floored base by finding (so the cap's slots go to DISTINCT findings, not near-duplicates) THEN
++        # enforce the tier-balanced top-max_ev cap — so #1070's cap AND the relevance floor BOTH hold.
++        # REASSIGN evidence_selection to the capped object so manifest['evidence_selection'] reflects the
++        # actual generator base (Codex diff-gate iter-1 P2-1). The contract/upload prepends below stay
++        # ADDITIVE (identical to OFF-mode: 150-cap base + additive prepends); the post-prepend dedup at
++        # ~L3790 still collapses any base<->prepend duplicate + emits the canonical finding_dedup
++        # telemetry. Default OFF outside Gate-B (legacy no-cap floor mode unchanged).
++        if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
++            _precap = len(evidence_for_gen)
++            evidence_selection = _capped_finding_dedup_selection(
++                base_rows=evidence_for_gen,
++                classified_sources=retrieval.classified_sources,
++                research_question=q["question"],
++                protocol=protocol,
++                primary_trial_anchors=_primary_anchors,
++                max_ev=max_ev,
++            )
++            evidence_for_gen = evidence_selection.selected_rows
++            _log(
++                f"[capped-dedup] floored {_precap} -> dedup+capped {len(evidence_for_gen)} "
++                f"(max_ev={max_ev}); #1070 cap + floor both hold"
++            )
+         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
+         # Every non-selection injection below (V30 contract rows :2811, upload rows
+         # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of
+@@ -3458,6 +3529,19 @@ async def run_one_query(
+                         primary_trial_anchors=_primary_anchors,
+                         relevance_floor=_relevance_floor,   # Phase 5 (#989)
+                     )
++                    # I-ready-004 (#1078) Codex diff-gate iter-1 P1-1: the gap-round reselect uses the
++                    # NO-CAP relevance-floor selector too — without this, a saturation-expansion run
++                    # bypasses the cap and sends an uncapped base to the generator (regress #1070). Apply
++                    # the SAME dedup-then-cap composition (the shared helper) as the initial selection.
++                    if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
++                        _resel = _capped_finding_dedup_selection(
++                            base_rows=_resel.selected_rows,
++                            classified_sources=retrieval.classified_sources,
++                            research_question=q["question"],
++                            protocol=protocol,
++                            primary_trial_anchors=_primary_anchors,
++                            max_ev=max_ev,
++                        )
+                     _billed = (
+                         list(_gate_injected_prepend_rows)
+                         + list(_resel.selected_rows)
+diff --git a/tests/dr_benchmark/test_capped_finding_dedup_iready004.py b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+new file mode 100644
+index 00000000..7f094d41
+--- /dev/null
++++ b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+@@ -0,0 +1,131 @@
++"""I-ready-004 (#1078) — CAPPED finding-dedup for Gate-B (offline, no model, no spend).
++
++The legacy PG_USE_FINDING_DEDUP relevance-floor mode is NO-CAP (keeps every row >= floor); at ~1000
++URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN cap and re-floods the generator (Codex brief P1-1).
++The Gate-B slate now turns on CAPPED finding-dedup: dedup near-duplicate findings, THEN enforce the
++tier-balanced top-max_ev cap, with a FLOAT-safe PG_RELEVANCE_FLOOR (Codex brief P1-2). These tests
++lock the config, the float-safe slate/preflight, and the dedup-then-cap invariant — all offline.
++"""
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from scripts.dr_benchmark.run_gate_b import (
++    _BENCHMARK_FORCE_ON_FLAGS,
++    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
++    _FULL_CAPABILITY_BENCHMARK_SLATE,
++    apply_full_capability_benchmark_slate,
++    preflight_full_capability,
++)
++
++
++def test_capped_dedup_in_slate_and_required():
++    s = _FULL_CAPABILITY_BENCHMARK_SLATE
++    assert s.get("PG_USE_FINDING_DEDUP") == "1"
++    assert s.get("PG_CAPPED_FINDING_DEDUP") == "1"
++    assert s.get("PG_RELEVANCE_FLOOR") == "0.30"
++    # Both flags are REQUIRED by preflight — capped mode cannot be silently off (would regress #1070).
++    assert "PG_USE_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
++    assert "PG_CAPPED_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
++    # The FLOAT floor must be force-SET (string), NOT int-floored (which would coerce 0.30 -> 0).
++    assert "PG_RELEVANCE_FLOOR" in _BENCHMARK_FORCE_ON_FLAGS
++
++
++@pytest.fixture
++def _env_snapshot():
++    """Save/restore os.environ around the slate/preflight (which mutate os.environ directly)."""
++    snap = dict(os.environ)
++    try:
++        yield
++    finally:
++        os.environ.clear()
++        os.environ.update(snap)
++
++
++def test_slate_does_not_int_coerce_relevance_floor(_env_snapshot):
++    # Codex brief P1-2: the numeric FLOOR path int()-coerces, which would turn 0.30 -> 0 and break
++    # parse_relevance_floor. PG_RELEVANCE_FLOOR is force-SET as a string instead.
++    os.environ.pop("PG_RELEVANCE_FLOOR", None)
++    apply_full_capability_benchmark_slate()
++    assert os.environ["PG_RELEVANCE_FLOOR"] == "0.30"   # NOT "0"
++    assert os.environ["PG_USE_FINDING_DEDUP"] == "1"
++    assert os.environ["PG_CAPPED_FINDING_DEDUP"] == "1"
++
++
++def _set_min_passing_env() -> None:
++    """The minimum env for preflight_full_capability to reach the PG_RELEVANCE_FLOOR check."""
++    for k, v in {
++        "PG_SWEEP_FETCH_CAP": "1000", "PG_SWEEP_MAX_SERPER": "100", "PG_SWEEP_MAX_S2": "100",
++        "PG_STORM_ENABLED_IN_BENCHMARK": "1", "PG_SWEEP_EVIDENCE_DEEPENER": "1",
++        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1", "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
++        "PG_NLI_IN_BENCHMARK": "1", "PG_ENABLE_TOOL_TRACKER": "1",
++        "PG_USE_FINDING_DEDUP": "1", "PG_CAPPED_FINDING_DEDUP": "1",
++        "PG_STRICT_VERIFY_ENTAILMENT": "enforce", "PG_MOST_MAX_EVIDENCE": "800",
++        "PG_LIVE_MAX_EV_TO_GEN": "150",
++    }.items():
++        os.environ[k] = v
++    from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
++    set_max_cost_per_run(25.0)
++
++
++@pytest.mark.parametrize("bad", ["1.5", "0", "-0.2", "abc"])
++def test_preflight_rejects_bad_relevance_floor(_env_snapshot, bad):
++    # Codex brief P1-2: a malformed/out-of-range floor fails CLOSED before any spend.
++    _set_min_passing_env()
++    os.environ["PG_RELEVANCE_FLOOR"] = bad
++    with pytest.raises(RuntimeError, match="PG_RELEVANCE_FLOOR"):
++        preflight_full_capability()
++
++
++def test_preflight_accepts_valid_relevance_floor(_env_snapshot):
++    _set_min_passing_env()
++    os.environ["PG_RELEVANCE_FLOOR"] = "0.30"
++    preflight_full_capability()   # must not raise
++
++
++def test_capped_finding_dedup_selection_respects_cap():
++    # The shared helper = dedup_by_finding(floored base) -> tier-balanced top-max_ev. It is used by BOTH
++    # the initial selection AND the saturation gap-round reselect (Codex diff-gate iter-1 P1-1). Build a
++    # base larger than the cap and assert the helper returns <= max_ev (so #1070's cap is preserved
++    # under finding-dedup) and is a real EvidenceSelection (so manifest['evidence_selection'] reflects it).
++    from scripts.run_honest_sweep_r3 import _capped_finding_dedup_selection
++
++    rows = [
++        {
++            "evidence_id": f"s{i}",
++            "source_url": f"https://a{i}.example.com/x",
++            "statement": f"HbA1c reduction was {1.0 + i * 0.01:.2f} percent in trial {i}.",
++            "direct_quote": f"HbA1c fell {1.0 + i * 0.01:.2f}% (trial {i}).",
++            "selection_relevance": 0.5,
++            "authority_score": 1.0,
++        }
++        for i in range(40)
++    ]
++    max_ev = 5
++    sel = _capped_finding_dedup_selection(
++        base_rows=rows,
++        classified_sources=[],
++        research_question="HbA1c reduction diabetes trial",
++        protocol=None,
++        primary_trial_anchors=None,
++        max_ev=max_ev,
++    )
++    assert 0 < len(sel.selected_rows) <= max_ev   # CAP holds — #1070's PG_LIVE_MAX_EV_TO_GEN preserved
++    assert hasattr(sel, "to_dict")   # a real EvidenceSelection -> manifest telemetry reflects the cap
++
++
++def test_both_selection_paths_use_capped_helper():
++    # Codex diff-gate iter-1 P1-1: the cap must apply on EVERY selection path. Source check — both the
++    # initial selection and the saturation gap-round reselect call _capped_finding_dedup_selection, so a
++    # future refactor cannot silently re-introduce the uncapped gap-round path.
++    import inspect
++
++    import scripts.run_honest_sweep_r3 as sweep
++
++    src = inspect.getsource(sweep.run_one_query)
++    # exactly two guarded call sites (initial + gap-round); guard them on the capped flag.
++    assert src.count("_capped_finding_dedup_selection(") >= 2
++    # the gap-round reselect (_resel) must be re-capped before billing.
++    assert "_resel = _capped_finding_dedup_selection(" in src

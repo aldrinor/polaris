@@ -1393,3 +1393,7 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - iter-1 REQUEST_CHANGES (2 P1: existing PG_USE_FINDING_DEDUP routes to NO-CAP relevance-floor mode → regresses #1070 cap; PG_RELEVANCE_FLOOR float can't ride the int _BENCHMARK_PREFLIGHT_FLOORS path). Decided dedup_mode=capped_dedup, defer_model_rerank=yes.
 - iter-2 APPROVE (0 P0/P1/P2). Scope: throttle already closed by #1070; ship CAPPED finding-dedup (dedup near-dup findings → THEN tier-balanced top-PG_LIVE_MAX_EV_TO_GEN, so #1070 cap+floor both hold) + float-safe PG_RELEVANCE_FLOOR + tests; defer model-based cross-encoder/semantic-embedder rerank to an operator-gated follow-up (§8.4).
 - BUILD pending (branch bot/I-ready-004-dedup-relevance off bot/I-ready-016).
+
+## I-ready-004 (#1078) diff — 2026-06-05
+- iter-1 REQUEST_CHANGES (1 P1: capped block only covered the INITIAL selection — the saturation gap-round reselect _run_gap_round bypassed the cap, regressing #1070 on the expansion path; 1 P2: manifest['evidence_selection'] serialized the uncapped object). Both real, both caught by the diff-gate (the value of the gate).
+- iter-2 APPROVE (0 P0/P1/P2, accept_remaining). Fix: factored floor->dedup->cap into a shared module helper _capped_finding_dedup_selection applied at BOTH selection paths + reassigned evidence_selection so the manifest reflects the capped base. 56/56 smoke + a source-check test locking both-path coverage. commit 36ca3164.
