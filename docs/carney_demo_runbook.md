@@ -24,6 +24,25 @@ See `state/restart_instructions.md` + the I-A-01 (#606) + I-B-01 (#622) PRs for 
 
 ---
 
+## §0. BEAT-BOTH RUN — run-ready status (2026-06-05, I-ready-000 readiness audit + #1097 activation)
+
+**Run branch:** `bot/I-ready-consolidated`. Contains all 15 readiness fixes (#1070–#1084, both P0s #1070/#1071) + the slate activation (#1097). 290 dr_benchmark tests green; `verify_lock --consistency` OK.
+
+**Faithfulness flags are now ACTIVE in the Gate-B full-capability slate** (force-on in `run_gate_b_query` + fail-closed `preflight_full_capability` — a misconfigured-off flag aborts before spend): `PG_USE_SAFETY_REFUSAL`, `PG_SWEEP_NLI_CONFLICT`, `PG_SWEEP_TABLE_CELL_VERIFY` (plus the CORE slate: `PG_LIVE_MAX_EV_TO_GEN=150`, `PG_STRICT_VERIFY_ENTAILMENT=enforce`, `PG_SWEEP_ANALYST_SYNTHESIS=0`).
+
+**UI/demo upload path** (NOT the benchmark slate — putting it there crashes `apply_full_capability_benchmark_slate` via `float('local')`): `export PG_DOC_INGEST_BACKEND=local` in the deployment env so PDF/DOCX uploads parse.
+
+**Launch:** `python -m scripts.dr_benchmark.run_gate_b --only <slug>` (one locked DRB-EN question) / `--all` (the 5) / `--list` (no-spend preview).
+
+### Pre-run checklist — do these BEFORE the full 5×1000 run (all operator-gated, cost real money)
+1. **Single-question heavy smoke run** — `--only drb_72_ai_labor`, all flags on, tracker on, end-to-end on the VM. Cheapest catch for integration breakage before the 5×1000 spend.
+2. **§-1.1 line-by-line audit** of that smoke `report.md` — Claude + Codex, claim-by-claim vs cited spans. The one verification not yet done on a real *paid* report.
+3. **Budget** — confirm `PG_MAX_COST_PER_RUN` (slate default $25) is set for full depth, not a silent throttle.
+4. **Provider health** — the 4-role providers (GLM-5.1 mirror / MiniMax-M2 sentinel / Qwen judge via OpenRouter) healthy + the provider-failover fix (#1052) on the run branch; the intermittent "mirror blank" can otherwise waste a run.
+5. **Both P0s active** — #1070 (evidence→gen cap 150, was 20) + #1071 (binding verifier fail-closed) — confirmed on the run branch via the slate + consolidated CORE code.
+
+---
+
 ## §0 — Prereqs (original Vexxhost path) — **PRESERVED FOR REFERENCE — NOT THE ACTIVE PATH**
 
 > **Current production deploy is on OVH BHS5 Québec** (`polaris-orchestrator` 51.79.90.35), NOT Vexxhost. The §0 prereqs below describe the *original* Vexxhost-targeted procurement; preserved for archaeology. **For the live deploy state**, see `state/restart_instructions.md` + I-A-01 (#606). The fresh OVH prereqs list lands at I-D-05 / #651 (final accuracy refresh).
