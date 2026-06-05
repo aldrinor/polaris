@@ -143,3 +143,74 @@ def test_section_prose_prompt_selection_is_unchanged():
     src = inspect.getsource(m._select_section_system_prompt)
     assert "use_field_agnostic" in src
     assert "domain" not in src
+
+
+# ── Codex diff-gate iter-1 P1: the RETRY prompt must be domain-aware end-to-end ───────────────────
+class _FakeResp:
+    def __init__(self, content):
+        self.content = content
+        self.input_tokens = 1
+        self.output_tokens = 1
+
+
+def _make_fake_client(captured: list[str]):
+    _VALID_GENERIC = (
+        '{"sections":['
+        '{"title":"Key Findings","focus":"f","ev_ids":["ev_0","ev_1"]},'
+        '{"title":"Evidence and Analysis","focus":"f","ev_ids":["ev_2","ev_3"]},'
+        '{"title":"Implications","focus":"f","ev_ids":["ev_4","ev_5"]}]}'
+    )
+
+    class _FakeClient:
+        def __init__(self, model=None):
+            pass
+
+        async def generate(self, prompt, system, max_tokens, temperature):
+            captured.append(system)
+            # first call -> invalid (forces the retry path); second -> a valid generic outline.
+            return _FakeResp('{"sections": []}' if len(captured) == 1 else _VALID_GENERIC)
+
+    return _FakeClient
+
+
+def test_non_clinical_retry_prompt_has_no_clinical_leak(monkeypatch):
+    import asyncio
+
+    from src.polaris_graph.llm import openrouter_client as orc
+
+    captured: list[str] = []
+    monkeypatch.setattr(orc, "OpenRouterClient", _make_fake_client(captured))
+    monkeypatch.setattr(orc, "set_reasoning_call_context", lambda **k: None)
+
+    evidence = [{"evidence_id": f"ev_{i}", "statement": "s", "tier": "T1"} for i in range(8)]
+    asyncio.run(m._call_outline(
+        "AI labor market displacement", evidence, "fake-model", 0.2, 2500,
+        domain="economic",
+    ))
+    assert len(captured) == 2, "expected a retry (first outline invalid)"
+    retry_system = captured[1]
+    # the retry must NOT re-inject clinical section names / clinical rules.
+    for clinical in ("Efficacy", "Safety", "Regulatory", "SURPASS", "Mechanism must be ADDITIVE"):
+        assert clinical not in retry_system, clinical
+    # and it must carry the generic outline guidance.
+    assert "Key Findings" in retry_system or "Implications" in retry_system
+
+
+def test_clinical_retry_prompt_is_unchanged(monkeypatch):
+    import asyncio
+
+    from src.polaris_graph.llm import openrouter_client as orc
+
+    captured: list[str] = []
+    monkeypatch.setattr(orc, "OpenRouterClient", _make_fake_client(captured))
+    monkeypatch.setattr(orc, "set_reasoning_call_context", lambda **k: None)
+
+    evidence = [{"evidence_id": f"ev_{i}", "statement": "s", "tier": "T1"} for i in range(8)]
+    asyncio.run(m._call_outline(
+        "tirzepatide efficacy and safety", evidence, "fake-model", 0.2, 2500,
+        domain="clinical",
+    ))
+    assert len(captured) == 2
+    # clinical retry is byte-identical: it still carries the clinical hard requirements.
+    assert "Mechanism must be ADDITIVE" in captured[1]
+    assert "Efficacy" in captured[1]

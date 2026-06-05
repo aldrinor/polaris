@@ -974,32 +974,58 @@ async def _call_outline(
                 f"section_count_under_target:{len(parse_result.plans)}/5"
                 if wants_more_sections else "invalid"
             )
-            tighter_system = (
-                OUTLINE_SYSTEM_PROMPT
-                + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
-                + reason_summary
-                + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
-                + "1. Return 5 OR 6 sections per the M-25b + M-41a rule: "
-                + "5 by default; 6 when BOTH the M-40 Mechanism trigger "
-                + "fires AND regulatory evidence is present. DO NOT emit "
-                + "fewer than 5 sections — that produces a directional "
-                + "brief, not a Deep Research report. When in doubt "
-                + f"between 5 and 6, prefer 6. The corpus has "
-                + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
-                + "enough to populate 5-6 distinct sections with ≥8 ev_ids "
-                + "each. Mechanism must be ADDITIVE: it MUST NOT displace "
-                + "Regulatory, Safety, Efficacy, Comparative, or Dose "
-                + "Response if those topics have evidence support. Pick "
-                + "the section titles best supported by the evidence from "
-                + "the allowed title list.\n"
-                + "2. Every section must have at least 8 distinct ev_ids "
-                + "(target 12-20). Evidence IDs MAY be shared across "
-                + "sections when the same study supports both topics.\n"
-                + "3. Only use evidence IDs from this allowed set: "
-                + ", ".join(sorted(allowed_ev_ids)[:100])
-                + "\n4. Return ONLY the JSON object — no preamble, no "
-                + "markdown, no explanation.\n"
-            )
+            if str(domain or "").strip().lower() in ("", "clinical"):
+                # Clinical / unknown — BYTE-IDENTICAL to the prior retry behavior.
+                tighter_system = (
+                    OUTLINE_SYSTEM_PROMPT
+                    + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
+                    + reason_summary
+                    + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
+                    + "1. Return 5 OR 6 sections per the M-25b + M-41a rule: "
+                    + "5 by default; 6 when BOTH the M-40 Mechanism trigger "
+                    + "fires AND regulatory evidence is present. DO NOT emit "
+                    + "fewer than 5 sections — that produces a directional "
+                    + "brief, not a Deep Research report. When in doubt "
+                    + f"between 5 and 6, prefer 6. The corpus has "
+                    + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
+                    + "enough to populate 5-6 distinct sections with ≥8 ev_ids "
+                    + "each. Mechanism must be ADDITIVE: it MUST NOT displace "
+                    + "Regulatory, Safety, Efficacy, Comparative, or Dose "
+                    + "Response if those topics have evidence support. Pick "
+                    + "the section titles best supported by the evidence from "
+                    + "the allowed title list.\n"
+                    + "2. Every section must have at least 8 distinct ev_ids "
+                    + "(target 12-20). Evidence IDs MAY be shared across "
+                    + "sections when the same study supports both topics.\n"
+                    + "3. Only use evidence IDs from this allowed set: "
+                    + ", ".join(sorted(allowed_ev_ids)[:100])
+                    + "\n4. Return ONLY the JSON object — no preamble, no "
+                    + "markdown, no explanation.\n"
+                )
+            else:
+                # I-ready-009 (#1081): domain-NEUTRAL retry — base on the selected (generic) outline
+                # prompt + generic hard requirements, so a non-clinical retry does NOT re-inject
+                # clinical section names (Efficacy/Safety/Regulatory) only to have them parsed out
+                # against the generic allow-list (which would force the deterministic fallback). The
+                # retry now applies the generic outline switch end-to-end.
+                tighter_system = (
+                    _outline_system_prompt
+                    + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
+                    + reason_summary
+                    + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
+                    + "1. Return 4-6 sections best supported by the evidence. DO NOT emit fewer "
+                    + "than 4 sections — that produces a directional brief, not a Deep Research "
+                    + f"report. The corpus has {len(allowed_ev_ids)} candidate evidence rows; that "
+                    + "is enough to populate 4-6 distinct sections with >=8 ev_ids each. Pick the "
+                    + "section titles best supported by the evidence from the allowed title list.\n"
+                    + "2. Every section must have at least 8 distinct ev_ids "
+                    + "(target 12-20). Evidence IDs MAY be shared across "
+                    + "sections when the same source supports both topics.\n"
+                    + "3. Only use evidence IDs from this allowed set: "
+                    + ", ".join(sorted(allowed_ev_ids)[:100])
+                    + "\n4. Return ONLY the JSON object — no preamble, no "
+                    + "markdown, no explanation.\n"
+                )
             set_reasoning_call_context(
                 section="_outline", call_type="outline", attempt_n=2,
             )
