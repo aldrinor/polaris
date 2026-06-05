@@ -958,6 +958,77 @@ def _format_list_preview(questions: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _resolve_benchmark_upload(
+    upload_file: str, classification: str
+) -> tuple[list[dict], int]:
+    """Ingest a local file and shape it as a Gate-B ``uploaded_documents`` entry.
+
+    I-ready-010 (#1073). Returns ``(allowed, blocked_count)`` where ``allowed``
+    is the sovereignty-cleared partition (the ONLY docs that may ground the
+    external-generator benchmark) in the ``{document_id, classification,
+    filename, chunks}`` shape the sweep injection
+    (``scripts/run_honest_sweep_r3.py:3458``) + ``build_upload_evidence_rows``
+    already consume, and ``blocked_count`` is the number the sovereignty router
+    rejected.
+
+    Mirrors the production worker resolver
+    (``polaris_v6.api.runs._resolve_uploaded_documents``): same ``chunk_text``
+    chunking, same dict shape, same fail-loud-on-empty (LAW II — a silent
+    zero-evidence run would mislead the operator). Imports are LAZY so importing
+    ``run_gate_b`` opens no socket and pulls neither ``document_ingester`` nor
+    ``fastapi`` (the module's NO-SPEND/NO-NETWORK-at-import invariant); they load
+    only when ``--upload-file`` is actually used.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+        ValueError: the file yields no extractable text (empty/whitespace).
+    """
+    import asyncio
+    from pathlib import Path
+
+    from polaris_graph.document_ingester import (
+        DocumentIngester,
+        DocumentIngestionError,
+    )
+    from polaris_v6.adapters.upload_evidence import (
+        partition_uploads_by_sovereignty,
+    )
+    from polaris_v6.api.upload import chunk_text
+
+    path = Path(upload_file)
+    if not path.exists():
+        raise FileNotFoundError(f"--upload-file {upload_file!r} does not exist")
+
+    try:
+        result = asyncio.run(DocumentIngester().ingest(path))
+    except DocumentIngestionError as exc:
+        # I-ready-010 diff-gate iter-1 P2: an unsupported extension / oversized
+        # file / missing parser dependency must FAIL LOUD as a clean pre-spend
+        # rc2 (ValueError -> main's parser.error), never a raw traceback/rc1.
+        raise ValueError(f"--upload-file {upload_file!r}: {exc}") from exc
+    content = (result.get("content") or "").strip()
+    if not content:
+        raise ValueError(
+            f"--upload-file {upload_file!r} yielded no extractable text "
+            "(empty/whitespace extraction) — a zero-evidence benchmark run "
+            "would mislead the operator (LAW II fail-loud)."
+        )
+    chunks = chunk_text(content)
+    if not chunks:
+        raise ValueError(
+            f"--upload-file {upload_file!r} produced no grounding chunks."
+        )
+
+    doc = {
+        "document_id": result["doc_id"],
+        "classification": classification,
+        "filename": path.name,
+        "chunks": chunks,
+    }
+    allowed, blocked = partition_uploads_by_sovereignty([doc])
+    return allowed, len(blocked)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Gate-B CLI launcher (I-meta-008 #1014). The ONLY entrypoint that runs the 4-role
     benchmark pipeline. NO SPEND / NO NETWORK at import — all runtime work is here.
@@ -998,6 +1069,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out-root", type=str, default=DEFAULT_OUT_ROOT, metavar="DIR",
         help=f"Output root (tree <out_root>/<domain>/<slug>). Default: {DEFAULT_OUT_ROOT}.",
+    )
+    # I-ready-010 (#1073): attach an uploaded document to the benchmark questions so
+    # the upload->citable-evidence capability is live + measurable on the beat-both
+    # path. NOT in the selection group (combines with --only/--all; ignored by --list,
+    # which returns before the real-run resolve).
+    parser.add_argument(
+        "--upload-file", type=str, default=None, metavar="PATH",
+        help=(
+            "Attach a local document as grounding evidence to EVERY benchmark question "
+            "in this run. Ingested in-process via DocumentIngester; chunked + injected "
+            "through the SAME build_upload_evidence_rows -> strict_verify -> 4-role path "
+            "as the UI. Only PUBLIC_SYNTHETIC content clears the sovereignty router for "
+            "the external generator."
+        ),
+    )
+    parser.add_argument(
+        "--upload-classification", type=str, default="UNKNOWN",
+        choices=["PUBLIC_SYNTHETIC", "CAN_REAL", "PRIVATE", "CLIENT", "UNKNOWN"],
+        metavar="CLASS",
+        help=(
+            "Sovereignty classification of --upload-file (default UNKNOWN, conservative). "
+            "Only PUBLIC_SYNTHETIC clears the sovereignty router for the external generator; "
+            "any other value fails loud (the doc could never become benchmark evidence)."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -1046,6 +1141,32 @@ def main(argv: list[str] | None = None) -> int:
     # a FRESH SUBPROCESS (test_run_gate_b_import_order) rather than here — an in-process runtime gate would
     # false-fire under pytest where those modules are pre-imported with defaults. The slate-before-import
     # ORDER above is the fix; preflight_import_time_constants() is the assertion the subprocess test runs.
+    # I-ready-010 (#1073): resolve the optional --upload-file ONCE (before the loop)
+    # into the sovereignty-cleared `uploaded_documents` shape. FAIL LOUD here (before
+    # any token is spent) on a missing/empty file or a non-PUBLIC_SYNTHETIC doc that the
+    # external-generator benchmark could never use — never a silent zero-upload run.
+    _attach_uploads: list[dict] = []
+    _upload_blocked = 0
+    if args.upload_file:
+        try:
+            _attach_uploads, _upload_blocked = _resolve_benchmark_upload(
+                args.upload_file, args.upload_classification
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            parser.error(str(exc))
+        if not _attach_uploads:
+            parser.error(
+                f"--upload-file {args.upload_file!r} classified "
+                f"{args.upload_classification!r} is EXTERNAL_LEAK_FORBIDDEN — only "
+                "PUBLIC_SYNTHETIC may ground the external-generator benchmark. "
+                "Reclassify (--upload-classification PUBLIC_SYNTHETIC) or remove it."
+            )
+        print(
+            f"attached upload: {args.upload_file} "
+            f"({len(_attach_uploads[0]['chunks'])} chunk(s), "
+            f"classification={args.upload_classification}, blocked={_upload_blocked})"
+        )
+
     print("=" * 72)
     print(f"GATE-B 4-ROLE BENCHMARK RUN -- {len(questions)} question(s)")
     print(f"transport mode: {four_role_transport_mode()}")
@@ -1056,6 +1177,15 @@ def main(argv: list[str] | None = None) -> int:
     for q in questions:
         slug = q["slug"]
         domain = q["domain"]
+        if _attach_uploads:
+            # COPY — load_locked_questions returns the live SWEEP_QUERIES dict
+            # (run_gate_b.py:886,893); mutating it would leak `uploaded_documents`
+            # into the global registry, poisoning the routing tests + later runs in
+            # the same process. `uploaded_documents` is a fresh key, read-only-consumed
+            # by run_one_query -> build_upload_evidence_rows.
+            q = dict(q)
+            q["uploaded_documents"] = _attach_uploads
+            q["uploaded_documents_blocked_count"] = _upload_blocked
         print(f"\n>>> {domain} / {slug}")
         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
         # runs). Each delegates entirely to the existing 4-role entrypoint.
