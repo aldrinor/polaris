@@ -83,6 +83,14 @@ def test_low_confidence_contradict_is_filtered():
     assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("contradict", 0.4)) == []
 
 
+@pytest.mark.parametrize("bad_conf", [float("nan"), float("inf"), -0.1, 1.5])
+def test_non_finite_or_out_of_range_confidence_never_fabricates(bad_conf):
+    """Codex diff-gate P2: a NaN/inf/out-of-range confidence from a malformed judge must NOT pass
+    the threshold and create a phantom contradiction (which would falsely abort a run via PT08)."""
+    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
+    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("contradict", bad_conf)) == []
+
+
 # ───────────────────────────── flag-OFF inertness ──────────────────────────────
 
 def test_enabled_default_off(monkeypatch):

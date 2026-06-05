@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -237,6 +238,14 @@ def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = No
             conf = float(confidence)
         except (TypeError, ValueError):
             conf = 0.0
+        # Codex diff-gate P2: reject non-finite / out-of-range confidence. A NaN/inf from a
+        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
+        # — a phantom contradiction would falsely abort a legitimate run via PT08. (NaN < x is
+        # False, so a bare `conf < min_confidence` would let NaN slip through; guard explicitly.)
+        if not math.isfinite(conf) or not (0.0 <= conf <= 1.0):
+            logger.warning("[semantic-conflict] dropping pair with non-finite/out-of-range "
+                           "confidence %r (fail-safe, never fabricate a conflict)", confidence)
+            continue
         if conf < min_confidence:
             continue
         subject = _shared_subject(row_a, row_b)
