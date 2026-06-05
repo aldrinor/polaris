@@ -266,6 +266,45 @@ def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
     return None
 
 
+def _capped_finding_dedup_selection(
+    *,
+    base_rows: list[dict[str, Any]],
+    classified_sources: list[Any],
+    research_question: str,
+    protocol: dict[str, Any] | None,
+    primary_trial_anchors: list[str] | None,
+    max_ev: int,
+):
+    """I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings in an ALREADY
+    floor-selected base (one corroboration-counted representative per finding), THEN re-run the
+    tier-balanced top-``max_ev`` selection — so the no-cap relevance-floor pool is bounded to
+    PG_LIVE_MAX_EV_TO_GEN (#1070's cap holds). Returns the capped ``EvidenceSelection`` so callers can
+    BOTH read ``.selected_rows`` AND surface the capped object in ``manifest['evidence_selection']``
+    (Codex diff-gate iter-1 P2-1 — stale telemetry otherwise). Pure-logic (no model); §8.4-safe.
+
+    Factored into a module helper (Codex diff-gate iter-1 P1-1) so EVERY selection path uses it —
+    the initial selection AND the saturation gap-round reselect — closing the gap where a planner /
+    saturation-expansion run could still send an uncapped base to the generator.
+    """
+    from src.polaris_graph.authority.data_loader import load_authority_data
+    from src.polaris_graph.retrieval.evidence_selector import (
+        select_evidence_for_generation,
+    )
+    from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
+
+    _gov = load_authority_data()["psl_gov_suffixes"]
+    _deduped = dedup_by_finding(base_rows, gov_suffixes=_gov).deduped_rows
+    return select_evidence_for_generation(
+        research_question=research_question,
+        protocol=protocol,
+        classified_sources=classified_sources,
+        evidence_rows=_deduped,
+        max_rows=max_ev,
+        primary_trial_anchors=primary_trial_anchors,
+        relevance_floor=None,   # tier-balanced top-max_ev cap on the deduped base
+    )
+
+
 def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
     """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
     contains ONLY the SUFFICIENT sections, so the generator (which fixes its
@@ -3088,31 +3127,28 @@ async def run_one_query(
         evidence_for_gen = evidence_selection.selected_rows
         # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
         # NO-CAP (keeps every row >= floor) — at 1000 URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN
-        # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set: dedup the
-        # floored base by finding (so the cap's slots go to DISTINCT findings, not near-duplicates), THEN
+        # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set, dedup the
+        # floored base by finding (so the cap's slots go to DISTINCT findings, not near-duplicates) THEN
         # enforce the tier-balanced top-max_ev cap — so #1070's cap AND the relevance floor BOTH hold.
-        # The contract/upload prepends below stay ADDITIVE on top (identical to OFF-mode: 150-cap base +
-        # additive prepends), and the post-prepend dedup at ~L3760 still collapses any base<->prepend
-        # duplicate + emits the canonical finding_dedup telemetry. Default OFF outside Gate-B.
+        # REASSIGN evidence_selection to the capped object so manifest['evidence_selection'] reflects the
+        # actual generator base (Codex diff-gate iter-1 P2-1). The contract/upload prepends below stay
+        # ADDITIVE (identical to OFF-mode: 150-cap base + additive prepends); the post-prepend dedup at
+        # ~L3790 still collapses any base<->prepend duplicate + emits the canonical finding_dedup
+        # telemetry. Default OFF outside Gate-B (legacy no-cap floor mode unchanged).
         if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
-            from src.polaris_graph.authority.data_loader import load_authority_data
-            from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
-            _capped_gov = load_authority_data()["psl_gov_suffixes"]
-            _capped_base = dedup_by_finding(
-                evidence_for_gen, gov_suffixes=_capped_gov
-            ).deduped_rows
-            evidence_for_gen = select_evidence_for_generation(
+            _precap = len(evidence_for_gen)
+            evidence_selection = _capped_finding_dedup_selection(
+                base_rows=evidence_for_gen,
+                classified_sources=retrieval.classified_sources,
                 research_question=q["question"],
                 protocol=protocol,
-                classified_sources=retrieval.classified_sources,
-                evidence_rows=_capped_base,
-                max_rows=max_ev,
                 primary_trial_anchors=_primary_anchors,
-                relevance_floor=None,   # tier-balanced top-max_ev on the deduped base
-            ).selected_rows
+                max_ev=max_ev,
+            )
+            evidence_for_gen = evidence_selection.selected_rows
             _log(
-                f"[capped-dedup] floored+deduped {len(_capped_base)} -> capped "
-                f"{len(evidence_for_gen)} (max_ev={max_ev}); #1070 cap + floor both hold"
+                f"[capped-dedup] floored {_precap} -> dedup+capped {len(evidence_for_gen)} "
+                f"(max_ev={max_ev}); #1070 cap + floor both hold"
             )
         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
         # Every non-selection injection below (V30 contract rows :2811, upload rows
@@ -3493,6 +3529,19 @@ async def run_one_query(
                         primary_trial_anchors=_primary_anchors,
                         relevance_floor=_relevance_floor,   # Phase 5 (#989)
                     )
+                    # I-ready-004 (#1078) Codex diff-gate iter-1 P1-1: the gap-round reselect uses the
+                    # NO-CAP relevance-floor selector too — without this, a saturation-expansion run
+                    # bypasses the cap and sends an uncapped base to the generator (regress #1070). Apply
+                    # the SAME dedup-then-cap composition (the shared helper) as the initial selection.
+                    if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
+                        _resel = _capped_finding_dedup_selection(
+                            base_rows=_resel.selected_rows,
+                            classified_sources=retrieval.classified_sources,
+                            research_question=q["question"],
+                            protocol=protocol,
+                            primary_trial_anchors=_primary_anchors,
+                            max_ev=max_ev,
+                        )
                     _billed = (
                         list(_gate_injected_prepend_rows)
                         + list(_resel.selected_rows)

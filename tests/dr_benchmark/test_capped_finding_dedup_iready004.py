@@ -85,17 +85,13 @@ def test_preflight_accepts_valid_relevance_floor(_env_snapshot):
     preflight_full_capability()   # must not raise
 
 
-def test_capped_dedup_composition_respects_cap():
-    # The run_one_query capped block = dedup_by_finding(floored base) -> select_evidence(top max_rows).
-    # Build a deduped pool larger than the cap and assert the tier-balanced top-max_rows truncation
-    # keeps the generator pool <= PG_LIVE_MAX_EV_TO_GEN (so #1070's cap is preserved under finding-dedup).
-    from src.polaris_graph.authority.data_loader import load_authority_data
-    from src.polaris_graph.retrieval.evidence_selector import (
-        select_evidence_for_generation,
-    )
-    from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
+def test_capped_finding_dedup_selection_respects_cap():
+    # The shared helper = dedup_by_finding(floored base) -> tier-balanced top-max_ev. It is used by BOTH
+    # the initial selection AND the saturation gap-round reselect (Codex diff-gate iter-1 P1-1). Build a
+    # base larger than the cap and assert the helper returns <= max_ev (so #1070's cap is preserved
+    # under finding-dedup) and is a real EvidenceSelection (so manifest['evidence_selection'] reflects it).
+    from scripts.run_honest_sweep_r3 import _capped_finding_dedup_selection
 
-    gov = load_authority_data()["psl_gov_suffixes"]
     rows = [
         {
             "evidence_id": f"s{i}",
@@ -107,16 +103,29 @@ def test_capped_dedup_composition_respects_cap():
         }
         for i in range(40)
     ]
-    deduped = dedup_by_finding(rows, gov_suffixes=gov).deduped_rows
-    assert len(deduped) <= len(rows)   # dedup is collapsing-or-equal (never adds rows)
-
-    max_rows = 5
-    sel = select_evidence_for_generation(
+    max_ev = 5
+    sel = _capped_finding_dedup_selection(
+        base_rows=rows,
+        classified_sources=[],
         research_question="HbA1c reduction diabetes trial",
         protocol=None,
-        classified_sources=[],
-        evidence_rows=deduped,
-        max_rows=max_rows,
-        relevance_floor=None,   # the tier-balanced top-max_rows cap path (NOT the no-cap floor mode)
+        primary_trial_anchors=None,
+        max_ev=max_ev,
     )
-    assert 0 < len(sel.selected_rows) <= max_rows   # CAP holds — #1070's PG_LIVE_MAX_EV_TO_GEN preserved
+    assert 0 < len(sel.selected_rows) <= max_ev   # CAP holds — #1070's PG_LIVE_MAX_EV_TO_GEN preserved
+    assert hasattr(sel, "to_dict")   # a real EvidenceSelection -> manifest telemetry reflects the cap
+
+
+def test_both_selection_paths_use_capped_helper():
+    # Codex diff-gate iter-1 P1-1: the cap must apply on EVERY selection path. Source check — both the
+    # initial selection and the saturation gap-round reselect call _capped_finding_dedup_selection, so a
+    # future refactor cannot silently re-introduce the uncapped gap-round path.
+    import inspect
+
+    import scripts.run_honest_sweep_r3 as sweep
+
+    src = inspect.getsource(sweep.run_one_query)
+    # exactly two guarded call sites (initial + gap-round); guard them on the capped flag.
+    assert src.count("_capped_finding_dedup_selection(") >= 2
+    # the gap-round reselect (_resel) must be re-capped before billing.
+    assert "_resel = _capped_finding_dedup_selection(" in src
