@@ -4404,6 +4404,32 @@ async def run_one_query(
                     key = r.split(":", 1)[0]  # collapse parameterized detail
                     reason_counts[key] = reason_counts.get(key, 0) + 1
         verif_details["drop_reason_counts"] = reason_counts
+        # I-ready-002 (#1071) P0: surface the BINDING-verifier judge_error RATE + flag a degraded run.
+        # Each judge_error already FAILED CLOSED (its sentence was dropped, reason
+        # entailment_judge_error_fail_closed) so no unverified claim shipped; this is the run-level
+        # guard + observability Codex's plan-gate required. denominator = all sentences the verifier
+        # actually checked (kept + dropped) across sections.
+        _judge_err = reason_counts.get("entailment_judge_error_fail_closed", 0)
+        _total_checked = sum(
+            len(s.get("kept", [])) + len(s.get("dropped", []))
+            for s in verif_details["sections"]
+        )
+        _judge_err_rate = (_judge_err / _total_checked) if _total_checked else 0.0
+        _max_jerr = float(os.getenv("PG_MAX_JUDGE_ERROR_RATE", "1.0"))
+        verif_details["judge_error_count"] = _judge_err
+        verif_details["judge_error_sentences_checked"] = _total_checked
+        verif_details["judge_error_rate"] = round(_judge_err_rate, 4)
+        verif_details["judge_error_rate_cap"] = _max_jerr
+        verif_details["judge_error_degraded"] = _judge_err_rate > _max_jerr
+        if _judge_err_rate > _max_jerr:
+            _log(
+                f"[verifier]    DEGRADED: judge_error_rate={_judge_err_rate:.3f} "
+                f"({_judge_err}/{_total_checked}) > cap {_max_jerr:.3f} — the binding entailment "
+                f"verifier errored on too many sentences; the run is NOT trustworthy (each errored "
+                f"sentence was dropped, but the rate indicates a degraded judge)."
+            )
+        elif _judge_err > 0:
+            _log(f"[verifier]    judge_error_rate={_judge_err_rate:.3f} ({_judge_err}/{_total_checked}, under cap {_max_jerr:.3f})")
         # I-gen-005 Step 1.5: tally each post-strict-verify category
         # separately so the operator can distinguish the three drop
         # paths (strict_verify failures, dedup consolidations, M-41c

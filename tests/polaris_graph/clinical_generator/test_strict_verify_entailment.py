@@ -439,3 +439,54 @@ def test_overlap_too_low_short_circuits_before_judge(monkeypatch):
     assert passed is False
     assert reason == "overlap_too_low"
     assert fake.calls == []
+
+
+# ---------- I-ready-002 (#1071): judge_error fail-closed ----------
+
+class _JudgeErrorFake:
+    """Mimics the judge FAILING OPEN: returns ("ENTAILED", "judge_error: ...") on every call."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def judge(self, sentence: str, span: str) -> tuple[str, str]:
+        self.calls.append((sentence, span))
+        return "ENTAILED", "judge_error: simulated_timeout"
+
+
+def _install_judge_error(monkeypatch):
+    fake = _JudgeErrorFake()
+    monkeypatch.setattr(strict_verify, "_JUDGE_SINGLETON", fake, raising=False)
+    monkeypatch.setattr(strict_verify, "_get_judge", lambda: fake)
+    return fake
+
+
+def test_enforce_mode_fails_closed_on_judge_error(monkeypatch):
+    # I-ready-002 (#1071) P0: the judge fails OPEN to ("ENTAILED","judge_error:..."). In enforce mode
+    # that MUST be treated as a DROP (entailment_judge_error_fail_closed), NOT a pass — a fail-open
+    # ENTAILED would ship an unverified clinical claim as "verified".
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    fake = _install_judge_error(monkeypatch)
+    full_text = "Adults with chronic pain showed clinical benefit from treatment."
+    pool = _pool(_src(source_id="src-1", full_text=full_text))
+    passed, reason = verify_sentence(
+        f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
+        pool,
+    )
+    assert passed is False, "enforce mode MUST fail closed on judge_error (was silently passing)"
+    assert reason == "entailment_judge_error_fail_closed"
+    assert len(fake.calls) == 1
+
+
+def test_warn_mode_does_not_drop_on_judge_error(monkeypatch):
+    # warn mode logs but does NOT drop (preserves the warn-mode contract); only enforce drops.
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "warn")
+    fake = _install_judge_error(monkeypatch)
+    full_text = "Adults with chronic pain showed clinical benefit from treatment."
+    pool = _pool(_src(source_id="src-1", full_text=full_text))
+    passed, reason = verify_sentence(
+        f"Adults with chronic pain showed clinical benefit from treatment [#ev:src-1:0-{len(full_text)}].",
+        pool,
+    )
+    assert passed is True, "warn mode logs but does not drop"
+    assert len(fake.calls) == 1
