@@ -446,6 +446,19 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_AGENTIC_WEB_PER_ROUND": "10",
     # Budget cap (spend ceiling enforced per run).
     "PG_MAX_COST_PER_RUN": "25",
+    # I-ready-002 (#1071) P0: BINDING faithfulness verifier modes. The shipping verifier
+    # (generator/provenance_generator.strict_verify) only runs the entailment judge as a binding DROP
+    # gate when PG_STRICT_VERIFY_ENTAILMENT=enforce, and only FAILS CLOSED on a judge_error (the judge's
+    # fail-open "ENTAILED","judge_error:..." sentinel) when PG_VERIFICATION_MODE=enforce. Both default
+    # OFF, and the slate never set them — so at 1000-sentence scale transient judge errors silently
+    # shipped UNVERIFIED clinical claims as "verified". Force BOTH to enforce for the benchmark so the
+    # binding gate actually enforces entailment AND fails closed on error (STRENGTHENS faithfulness —
+    # never weakens it). FORCE-ON (a benchmark must not run with the binding verifier degraded).
+    "PG_VERIFICATION_MODE": "enforce",
+    "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+    # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
+    # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
+    "PG_MAX_JUDGE_ERROR_RATE": "0.10",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -480,7 +493,17 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_STORM_ENABLED_IN_BENCHMARK",
     "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_ENABLE_TOOL_TRACKER",
+    # I-ready-002 (#1071) P0: binding verifier modes are non-numeric ("enforce") — force-set them
+    # directly (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark
+    # from running with the binding faithfulness verifier degraded.
+    "PG_VERIFICATION_MODE",
+    "PG_STRICT_VERIFY_ENTAILMENT",
+    "PG_MAX_JUDGE_ERROR_RATE",
 })
+
+# I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
+# is degraded (fail-open on judge_error / entailment not binding) at any other value.
+_BENCHMARK_PREFLIGHT_ENFORCE_MODES = ("PG_VERIFICATION_MODE", "PG_STRICT_VERIFY_ENTAILMENT")
 
 # Codex diff-gate iter-2 P1: import-time module CONSTANTS that the slate must have raised before the
 # owning module was imported (env-only validation would miss a too-late slate). The preflight reads the
@@ -553,6 +576,16 @@ def preflight_full_capability() -> None:
             raise RuntimeError(
                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
                 f"or its firing is unobservable (tracker off). Enable it before the run."
+            )
+    # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
+    # entailment judge does not bind as a drop gate and/or a judge_error fails OPEN (unverified clinical
+    # claims ship as "verified"). Fail closed before any spend.
+    for mode_env in _BENCHMARK_PREFLIGHT_ENFORCE_MODES:
+        if os.getenv(mode_env, "off").strip().lower() != "enforce":
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {mode_env}={os.getenv(mode_env)!r} != 'enforce' — the "
+                f"BINDING faithfulness verifier is degraded (entailment not binding or judge_error fails "
+                f"OPEN). Set {mode_env}=enforce before the run."
             )
     # Codex diff-gate I-cap-005 P1-2: validate the EFFECTIVE (live) per-run budget cap — reads the
     # module global the guard actually enforces (synced by the slate via set_max_cost_per_run), NOT just

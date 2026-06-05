@@ -280,6 +280,17 @@ def verify_sentence(
     if mode in ("warn", "enforce"):
         verdict, reason = _get_judge().judge(sentence_clean, combined_span)
         _record_judge_outcome(verdict, reason)
+        # I-ready-002 (#1071) P0: the judge FAILS OPEN to ("ENTAILED","judge_error:...") on an API/parse
+        # error. Counting that as a genuine ENTAILED ships an UNVERIFIED clinical claim as "verified" — a
+        # silent downgrade of the binding faithfulness gate (LAW II / lethal-in-clinical). Detect it and
+        # FAIL CLOSED in enforce mode (drop the sentence, like an unsupported one); warn-mode logs only.
+        if isinstance(reason, str) and reason.startswith("judge_error:"):
+            logger.warning(
+                "entailment judge_error (mode=%s): sentence=%r reason=%r — failing closed",
+                mode, sentence_clean, reason,
+            )
+            if mode == "enforce":
+                return False, "entailment_judge_error_fail_closed"
         if verdict in ("NEUTRAL", "CONTRADICTED"):
             logger.warning(
                 "entailment %s (mode=%s): sentence=%r reason=%r",
