@@ -1822,6 +1822,7 @@ async def run_one_query(
                 )
             set_current_run_id(None)
             set_reasoning_sink(None)
+            _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
             log_f.close()
             return summary
 
@@ -2295,6 +2296,7 @@ async def run_one_query(
                 )
             set_current_run_id(None)
             set_reasoning_sink(None)
+            _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
             log_f.close()
             return summary
 
@@ -2814,6 +2816,7 @@ async def run_one_query(
                 )
             set_current_run_id(None)
             set_reasoning_sink(None)
+            _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
             log_f.close()
             return summary
 
@@ -2907,6 +2910,7 @@ async def run_one_query(
                 )
             set_current_run_id(None)
             set_reasoning_sink(None)
+            _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
             log_f.close()
             return summary
 
@@ -3666,6 +3670,7 @@ async def run_one_query(
                     )
                 set_current_run_id(None)
                 set_reasoning_sink(None)
+                _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
                 log_f.close()
                 return summary
 
@@ -4188,6 +4193,7 @@ async def run_one_query(
                 )
             set_current_run_id(None)
             set_reasoning_sink(None)
+            _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
             log_f.close()
             return summary
 
@@ -5466,6 +5472,7 @@ async def run_one_query(
 
     set_current_run_id(None)
     set_reasoning_sink(None)  # I-gen-004 (#496): release the run-scoped sink
+    _FEATURE_TELEMETRY_CTX.set(None)  # I-ready-005 (#1076): clear the firing-telemetry leak guard on this exit path
 
     log_f.close()
     return summary
