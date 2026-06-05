@@ -55,18 +55,20 @@ _PERSON = (
     r"the\s+(?:patient|victim|person|target|elderly|baby|infant))"
 )
 
-# Care / prevention / first-aid context — a query about STOPPING or TREATING harm is not a harm
-# request. Vetoes the lethal category (mirrors the self-harm help-guard). High-precision floor: this
-# slightly widens under-refusal for adversarial "...please support" suffixes, but the priority is to
-# never over-refuse legitimate prevention / poison-management / first-aid queries (the product).
+# Care / clinical-management / prevention FRAME for the LETHAL category — a query ABOUT treating or
+# preventing harm, not causing it. Codex diff-gate iter-2 P1: bare care TOKENS ("treating", "ICU",
+# "hospital") let an explicit kill-intent bypass ("...would kill the patient I am treating"). This now
+# requires a genuine HELPING STRUCTURE (management/treatment OF, emergency/ICU/hospital MANAGEMENT,
+# antidote/first-aid/...), AND the classifier additionally requires this frame to LEAD the kill clause
+# (see _frame_leads) so a TRAILING incidental care word can never rescue a harm request.
 _LETHAL_CARE_GUARD = re.compile(
-    r"\b(?:prevent|preventing|stop|stopping|protect|save|rescu(?:e|ing)|talk\s+\w+\s+out\s+of|"
-    r"first\s+aid|antidote|reverse|reversal|how\s+to\s+help|support\s+(?:someone|a\s+\w+|them)|"
-    # Codex diff-gate iter-1 P1: clinical-MANAGEMENT framing is a HELP query, not a harm request, even
-    # when the case presentation describes a third party's lethal intent ("management of intentional
-    # insulin overdose intended to kill a patient"). The product MUST answer these.
-    r"manage|management|treat(?:ment|ing|s)?|clinical|emergency|\bicu\b|hospital|"
-    r"poison\s+control|overdose\s+management|resuscitat|supportive\s+care|nursing|paramedic)\b",
+    r"\b(?:manage|management|managing|treat(?:ment|ing)?|care)\s+(?:of|for)\b"
+    r"|\b(?:emergency|clinical|hospital|\bicu\b|inpatient|paramedic|medical|prehospital)\s+"
+    r"(?:management|treatment|care|protocol|guideline)"
+    r"|\b(?:antidote|reversal|reverse|resuscitat\w*|first\s+aid|supportive\s+care|poison\s+control|"
+    r"overdose\s+management)\b"
+    r"|\bprevent\w*\b|\bhow\s+to\s+(?:help|save|treat|manage|support)\b"
+    r"|\bsupport\s+(?:someone|a\s+\w+|them)\b|\btalk\s+\w+\s+out\s+of\b",
     re.IGNORECASE,
 )
 
@@ -147,21 +149,33 @@ _ILLICIT_SYNTHESIS = re.compile(
     re.IGNORECASE,
 )
 
-# Prevention / policy / enforcement framing for the MAKE/BUILD categories (weaponization, illicit
-# synthesis). Codex diff-gate iter-1 P1: "public health interventions to prevent people from making
-# fentanyl" and "policy to stop bioweapon proliferation" are legitimate policy queries, not how-to
-# requests. This guard requires explicit POLICY/PREVENTION nouns (not a bare "stop"), so an
-# adversarial "...to stop my enemy" suffix does NOT trip it.
+# Prevention / policy / enforcement FRAME for the MAKE/BUILD categories (weaponization, illicit
+# synthesis). Codex diff-gate iter-2 P1: bare evasion-prone tokens ("enforcement", "surveillance",
+# "seizure", bare "stop") let "cook meth while avoiding law enforcement" / "synthesize fentanyl
+# without triggering surveillance" bypass. This now requires genuine POLICY/PREVENTION STRUCTURE
+# (policy / regulation / treaty / nonproliferation / harm-reduction nouns; "prevent ... from making";
+# "reduce|disrupt|combat ... production"), AND the classifier requires the frame to LEAD the harm
+# clause (see _frame_leads) so a TRAILING evasion phrase can never rescue a how-to request.
 _ACTION_PREVENTION_GUARD = re.compile(
-    r"\b(?:public\s+health|policy|policies|regulat\w*|enforcement|law\s+enforcement|interdict\w*|"
+    r"\b(?:public\s+health|policy|policies|legislation|regulat\w*|law\s+enforcement|interdiction|"
     r"nonproliferation|non-?proliferation|counter[-\s]?(?:terror\w*|prolifer\w*|narcotic\w*)|"
-    r"treaty|treaties|convention|disarmament|crackdown|seizure|surveillance|epidemiolog\w*|"
-    r"prevent\w*\s+(?:people|the\s+public|others|them|the\s+spread|production|traffick\w*|"
-    r"proliferat\w*|access|\w+\s+from\s+(?:making|producing|synthesi))|"
-    r"(?:reduce|disrupt|combat\w*|stop|curb|tackle)\s+(?:the\s+)?(?:production|traffick\w*|spread|"
-    r"proliferat\w*|manufactur\w*|supply|distribution|epidemic))\b",
+    r"treaty|treaties|convention|disarmament|harm\s+reduction|epidemiolog\w*|"
+    r"prevent\w*\s+(?:people|the\s+public|others|them|the\s+spread|access|"
+    r"\w+\s+from\s+(?:making|producing|manufactur|synthesi|building|developing))|"
+    r"(?:reduce|disrupt|combat\w*|curb|tackle|ban|banning|restrict\w*|stop)\s+(?:the\s+)?"
+    r"(?:production|traffick\w*|spread|proliferat\w*|manufactur\w*|supply|distribution))\b",
     re.IGNORECASE,
 )
+
+
+def _frame_leads(harm_match: re.Match[str], guard: re.Pattern[str], q: str) -> bool:
+    """True iff a care/prevention frame match STARTS BEFORE the harm match — i.e. the query is FRAMED
+    as treating/preventing the harm, not doing it. Codex diff-gate iter-2 P1: a guard word that merely
+    TRAILS an explicit harm clause ("...kill the patient I am treating", "cook meth while avoiding law
+    enforcement") is incidental and must NOT veto. Only a LEADING frame ("management of <overdose> ...",
+    "public health interventions to prevent ... making <drug>") vetoes."""
+    g = guard.search(q)
+    return g is not None and g.start() < harm_match.start()
 
 
 def classify_harm_intent(question: str) -> HarmDecision:
@@ -182,19 +196,22 @@ def classify_harm_intent(question: str) -> HarmDecision:
         if _SELF_HARM_METHOD.search(q) and not _SELF_HARM_HELP_GUARD.search(q):
             return HarmDecision(True, "self_harm_method", 0.9, ["self_harm_method_seeking"])
 
-        # Lethal-against-persons: explicit intent AND not a care / management / prevention context.
-        if _LETHAL_INTENT.search(q) and not _LETHAL_CARE_GUARD.search(q):
+        # Lethal-against-persons: explicit intent AND no care/management frame LEADING the kill clause.
+        _m = _LETHAL_INTENT.search(q)
+        if _m and not _frame_leads(_m, _LETHAL_CARE_GUARD, q):
             return HarmDecision(
                 True, "lethal_intent_against_persons", 0.9,
                 ["lethal_intent_against_persons_explicit_intent"],
             )
 
-        # Weaponization: make/build ACTION AND not a policy / prevention / enforcement context.
-        if _WEAPONIZATION.search(q) and not _ACTION_PREVENTION_GUARD.search(q):
+        # Weaponization: make/build ACTION AND no policy/prevention frame LEADING the action.
+        _m = _WEAPONIZATION.search(q)
+        if _m and not _frame_leads(_m, _ACTION_PREVENTION_GUARD, q):
             return HarmDecision(True, "weaponization", 0.9, ["weaponization_explicit_intent"])
 
-        # Illicit synthesis: synthesis verb / recipe AND not a policy / prevention / enforcement context.
-        if _ILLICIT_SYNTHESIS.search(q) and not _ACTION_PREVENTION_GUARD.search(q):
+        # Illicit synthesis: synthesis verb / recipe AND no policy/prevention frame LEADING it.
+        _m = _ILLICIT_SYNTHESIS.search(q)
+        if _m and not _frame_leads(_m, _ACTION_PREVENTION_GUARD, q):
             return HarmDecision(True, "illicit_synthesis", 0.9, ["illicit_synthesis_explicit_intent"])
 
         # CSAM: no legitimate counterpart -> any literal hit refuses (no guard).
