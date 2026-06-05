@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Existing standalone preflight tests/helpers were not updated for the three newly required flags; running affected tests in isolation now fails early on PG_USE_SAFETY_REFUSAL before their intended assertions, e.g. tests/dr_benchmark/test_evidence_to_generation_cap_iready001.py:51 and tests/dr_benchmark/test_capped_finding_dedup_iready004.py:63. This is test-order/fixture hygiene, not a Gate-B execution downgrade."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
