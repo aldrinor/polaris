@@ -2993,6 +2993,13 @@ async def run_one_query(
             os.getenv("PG_USE_FINDING_DEDUP", "0").strip()
             in ("1", "true", "True")
         )
+        # I-ready-004 (#1078): CAPPED finding-dedup. When set, the no-cap relevance-floor pool is
+        # dedup-then-capped to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds at 1000 URLs (Codex brief
+        # P1-1). Default OFF (legacy no-cap floor mode unchanged); Gate-B turns it ON via the slate.
+        _capped_dedup = (
+            os.getenv("PG_CAPPED_FINDING_DEDUP", "0").strip()
+            in ("1", "true", "True")
+        )
         _relevance_floor: float | None = None
         if _use_finding_dedup:
             from src.polaris_graph.retrieval.evidence_selector import (
@@ -3079,6 +3086,34 @@ async def run_one_query(
             relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
         )
         evidence_for_gen = evidence_selection.selected_rows
+        # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
+        # NO-CAP (keeps every row >= floor) — at 1000 URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN
+        # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set: dedup the
+        # floored base by finding (so the cap's slots go to DISTINCT findings, not near-duplicates), THEN
+        # enforce the tier-balanced top-max_ev cap — so #1070's cap AND the relevance floor BOTH hold.
+        # The contract/upload prepends below stay ADDITIVE on top (identical to OFF-mode: 150-cap base +
+        # additive prepends), and the post-prepend dedup at ~L3760 still collapses any base<->prepend
+        # duplicate + emits the canonical finding_dedup telemetry. Default OFF outside Gate-B.
+        if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
+            from src.polaris_graph.authority.data_loader import load_authority_data
+            from src.polaris_graph.synthesis.finding_dedup import dedup_by_finding
+            _capped_gov = load_authority_data()["psl_gov_suffixes"]
+            _capped_base = dedup_by_finding(
+                evidence_for_gen, gov_suffixes=_capped_gov
+            ).deduped_rows
+            evidence_for_gen = select_evidence_for_generation(
+                research_question=q["question"],
+                protocol=protocol,
+                classified_sources=retrieval.classified_sources,
+                evidence_rows=_capped_base,
+                max_rows=max_ev,
+                primary_trial_anchors=_primary_anchors,
+                relevance_floor=None,   # tier-balanced top-max_ev on the deduped base
+            ).selected_rows
+            _log(
+                f"[capped-dedup] floored+deduped {len(_capped_base)} -> capped "
+                f"{len(evidence_for_gen)} (max_ev={max_ev}); #1070 cap + floor both hold"
+            )
         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
         # Every non-selection injection below (V30 contract rows :2811, upload rows
         # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of

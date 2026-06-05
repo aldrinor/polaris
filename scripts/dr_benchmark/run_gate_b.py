@@ -462,6 +462,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
+    # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
+    # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
+    # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
+    # PG_USE_FINDING_DEDUP mode alone is NO-CAP and would re-flood the generator). PG_RELEVANCE_FLOOR is
+    # a FLOAT in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces
+    # 0.30 -> 0; Codex P1-2). 0.30 = the researched default (I-meta-005 Phase 5 #989).
+    "PG_USE_FINDING_DEDUP": "1",
+    "PG_CAPPED_FINDING_DEDUP": "1",
+    "PG_RELEVANCE_FLOOR": "0.30",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -482,6 +491,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
     "PG_NLI_IN_BENCHMARK",
     "PG_ENABLE_TOOL_TRACKER",
+    # I-ready-004 (#1078): both must be ON for Gate-B — finding-dedup OFF wastes the cap on near-dups;
+    # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
+    "PG_USE_FINDING_DEDUP",
+    "PG_CAPPED_FINDING_DEDUP",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -502,6 +515,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
     "PG_STRICT_VERIFY_ENTAILMENT",
     "PG_MAX_JUDGE_ERROR_RATE",
+    # I-ready-004 (#1078): finding-dedup flags + the FLOAT relevance floor. Force-SET directly (string)
+    # — the numeric FLOOR path int()-coerces, which would turn PG_RELEVANCE_FLOOR=0.30 into 0 and then
+    # fail parse_relevance_floor (Codex brief P1-2). PG_RELEVANCE_FLOOR is validated as a float in (0,1]
+    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+    "PG_USE_FINDING_DEDUP",
+    "PG_CAPPED_FINDING_DEDUP",
+    "PG_RELEVANCE_FLOOR",
 })
 
 # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
@@ -614,6 +634,20 @@ def preflight_full_capability() -> None:
             raise RuntimeError(
                 f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — .env was "
                 f"silently throttling it. The floor-slate must raise it before the run."
+            )
+    # I-ready-004 (#1078) Codex brief P1-2: PG_RELEVANCE_FLOOR is a FLOAT in (0,1] (NOT an int floor — the
+    # numeric-FLOOR slate path would coerce 0.30 -> 0). When capped finding-dedup is on (required above),
+    # validate it via the canonical parser so a malformed/out-of-range value ("0", "1.5", "abc") fails
+    # CLOSED before any spend rather than crashing mid-run or sending an unbounded pool. (None/empty ->
+    # the parser's 0.30 default, which is valid.)
+    if os.getenv("PG_CAPPED_FINDING_DEDUP", "0").strip() in ("1", "true", "True"):
+        from src.polaris_graph.retrieval.evidence_selector import parse_relevance_floor
+        try:
+            parse_relevance_floor(os.getenv("PG_RELEVANCE_FLOOR"))
+        except ValueError as _floor_exc:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {_floor_exc} — capped finding-dedup needs a parseable "
+                f"PG_RELEVANCE_FLOOR in (0.0, 1.0] before the run."
             )
 
 
