@@ -1,0 +1,1612 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e9987-43de-7422-9d04-9b8b66a57f05
+--------
+user
+# Codex DIFF review — I-ready-012 (#1079): semantic/NLI contradiction layer — ITER 2
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+**REVIEW ONLY — do not modify any file. Return the YAML verdict block ONLY. Claude authored the diff (commits c70d4f2a + a1bb9d49 on bot/I-ready-012-semantic-conflict-nli).**
+
+---
+
+## 0. Your iter-1 verdict: APPROVE (0 P0/P1, size_acceptable=yes, 3 non-blocking P2)
+
+Iter-1 was APPROVE. The change since iter-1 is ONE folded-in P2 fix + 2 deferred P2s:
+
+- **P2 (folded in, commit a1bb9d49):** `detect_semantic_conflicts` now rejects non-finite / out-of-range confidence (`math.isfinite(conf) and 0.0<=conf<=1.0`) BEFORE the threshold — a NaN/inf from a malformed judge can no longer pass (NaN < x is False) and fabricate a phantom conflict that would falsely abort a run via PT08. +4 parametrized tests (nan/inf/-0.1/1.5 → no record). This is the only code change since iter-1.
+- **P2-1 (judge ledger / Path-B capture) + P2-3 (typed contradiction IR vs the value=0.0 sentinel)** — deferred to follow-up issue #1092 (observability + data-model, non-correctness, non-safety; the hard budget cap already works and the loader is compatible). Per §8.3.1 "don't pick bone from egg" these are not fold-ins.
+
+## 1. What to verify this iter
+
+- The finite-confidence guard is correct + a NaN/inf/out-of-range confidence can never create a semantic record (fail-safe: never fabricate a conflict).
+- No regression to the iter-1-APPROVE'd behavior (recall, precision, flag-OFF byte-identical, fail-open, PT08 routing, audit_ir.loader compat).
+- Agreement that P2-1 + P2-3 are correctly deferred to #1092 (not P0/P1).
+
+## 2. Verification done (offline, no spend, FAKE judge)
+
+16 behavioral tests pass (the 4 new finite-confidence cases + the original 12). 39 contradiction/qualitative regression green; sweep imports clean.
+
+## 3. Output schema (return EXACTLY this; loose prose rejected)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+
+## 4. The full committed diff (`git diff bot/I-ready-013-analyst-synthesis-verified..HEAD`)
+
+```diff
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 35218b9d..b4ada837 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -3117,10 +3117,33 @@ async def run_one_query(
+         except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
+             _log(f"[qual-conflict] detector error (skipped, fail-open): {exc}")
+             qualitative_records = []
++        # Semantic/NLI cross-document contradiction detection (I-ready-012 #1079). The THIRD
++        # detector: an LLM-NLI pass catching prose-only directional contradictions with NO shared
++        # number and NO NegEx cue that the numeric+qualitative rule layers miss (the lethal-miss
++        # class). Default OFF (PG_SWEEP_NLI_CONFLICT) -> byte-identical when off (no judge built, no
++        # network). Fail-open: a detector/judge/import error logs + skips, never aborts the sweep; a
++        # BudgetExceededError is absorbed inside the detector as keep-partial (the run's hard cap is
++        # still enforced by the downstream generation/evaluation budget guards). Merged into the SAME
++        # contradictions.json list with a `type:"semantic"` discriminator; routed to a dedicated
++        # report disclosure block + the PT08 evaluator gate below (the numeric renderer is untouched).
++        semantic_records = []
++        try:
++            from src.polaris_graph.retrieval.semantic_conflict_detector import (
++                detect_semantic_conflicts_for_rows,
++                semantic_conflict_enabled,
++            )
++            if semantic_conflict_enabled():
++                semantic_records = detect_semantic_conflicts_for_rows(
++                    retrieval.evidence_rows,
++                )
++        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
++            _log(f"[semantic-conflict] detector error (skipped, fail-open): {exc}")
++            semantic_records = []
+         (run_dir / "contradictions.json").write_text(
+             json.dumps(
+                 [asdict(c) for c in contradictions]
+-                + [asdict(qr) for qr in qualitative_records],
++                + [asdict(qr) for qr in qualitative_records]
++                + [asdict(sr) for sr in semantic_records],
+                 indent=2, sort_keys=True, default=str,
+             ) + "\n",
+             encoding="utf-8",
+@@ -4559,6 +4582,31 @@ async def run_one_query(
+                 )
+                 methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
+ 
++        # Semantic/NLI cross-document contradiction disclosure (I-ready-012 #1079). Renders each
++        # NLI-detected prose-only conflict (subject + predicate + the two conflicting claims with
++        # evidence ids/tiers) into the report so the user sees it AND the PT08 gate (substring of
++        # subject+predicate in report text) finds it. Distinct from the numeric renderer (no value
++        # range) and the qualitative renderer (no assertion status); only present when the semantic
++        # detector ran (default OFF) and found a conflict.
++        if semantic_records:
++            methods += (
++                f"\n## Semantic contradiction disclosures (cross-document NLI)\n"
++                f"An NLI pass over same-subject evidence pairs flagged {len(semantic_records)} "
++                f"prose-only directional contradiction(s) that carry no shared number and no "
++                f"rule-cue (and so are not caught by the numeric or qualitative detectors). Each "
++                f"is shown with both conflicting source claims for human adjudication.\n\n"
++            )
++            for r in semantic_records:
++                _claims = " VS ".join(
++                    f"\"{(cl.get('text') or '').strip()}\" "
++                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
++                    for cl in r.claims
++                )
++                methods += (
++                    f"- [SEMANTIC] {r.subject} / {r.predicate} "
++                    f"(NLI confidence {r.nli_confidence:.2f}): {_claims}\n"
++                )
++
+         biblio_section = "\n\n## Bibliography\n"
+         for b in multi.bibliography:
+             biblio_section += (
+@@ -4822,7 +4870,13 @@ async def run_one_query(
+                 report_text=final_report,
+                 protocol=protocol,
+                 tier_distribution_report=asdict(dist),
+-                contradictions=[asdict(c) for c in contradictions],
++                # I-ready-012 (#1079): PT08 also gates the NLI semantic contradictions — a detected
++                # semantic conflict whose subject+predicate is absent from the report aborts the run
++                # (abort_evaluator_critical), exactly like a numeric one. asdict carries subject +
++                # predicate; PT08 reads only those (substring presence), so the extra semantic fields
++                # are ignored. Numeric records are unchanged.
++                contradictions=[asdict(c) for c in contradictions]
++                + [asdict(sr) for sr in semantic_records],
+                 evidence_pool=ev_pool,
+                 enable_llm_judge=False,
+             )
+diff --git a/src/polaris_graph/retrieval/semantic_conflict_detector.py b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+new file mode 100644
+index 00000000..28daae2a
+--- /dev/null
++++ b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+@@ -0,0 +1,429 @@
++"""Semantic/NLI cross-document contradiction detector (I-ready-012 / #1079).
++
++The THIRD contradiction detector, complementing the numeric-regex detector
++(``contradiction_detector``) and the NegEx/ConText rule-cue qualitative detector
++(``qualitative_conflict_detector``). Those two cap detection recall at the rule
++layer: a genuine prose-only directional contradiction with NO shared number and
++NO lexicon cue — e.g. "adjuvant chemotherapy improved overall survival" vs
++"...provided no overall survival benefit" — passes both silently. In a clinical
++report that is the lethal-miss class (F12).
++
++This module adds an LLM-NLI pass that:
++  1. clusters evidence rows by shared SALIENT content words computed from the raw
++     row text (``cluster_candidate_rows``) — RECALL-oriented, independent of the
++     rule extractors (which are blind to the no-number/no-cue rows). The cheap
++     pre-filter bounds the O(n^2) judge cost; the judge provides precision.
++  2. emits same-cluster row pairs (``extract_pairs``), hard-capped, highest-tier
++     first.
++  3. judges each pair (claim A vs claim B -> contradict/entail/neutral) and keeps
++     ``contradict`` pairs above a confidence threshold (``detect_semantic_conflicts``).
++
++Design invariants:
++  * ADDITIVE + fail-open: a detector / judge / import / budget error logs and
++    skips; it NEVER aborts the sweep and NEVER weakens an existing gate. It can
++    only ADD disclosures and (via PT08) make the release gate stricter.
++  * Default OFF (``PG_SWEEP_NLI_CONFLICT``): flag-off is byte-identical — no judge
++    is constructed and no network call is made.
++  * The judge is INJECTED (a ``(claim_a, claim_b) -> (label, confidence)``
++    callable), so the detector is fully offline-testable with a fake. The
++    production judge (``get_default_judge``) reuses the family-segregated,
++    cost-ledgered OpenRouter substrate (``PG_ENTAILMENT_MODEL``, Gemma-4-31B by
++    default) — the same two-family evaluator the strict_verify entailment judge
++    uses — with a CONTRADICTION prompt. The strict_verify entailment path is NOT
++    modified.
++
++Records are shaped (``SemanticConflictRecord``) so the existing ``contradictions.json``
++merge consumes them, and they are routed by the caller into a dedicated report
++disclosure block + the PT08 evaluator input (the numeric renderer is untouched).
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import math
++import os
++import re
++import time
++from dataclasses import asdict, dataclass, field
++
++logger = logging.getLogger(__name__)
++
++# --- configuration (LAW VI: all knobs are env-overridable) -------------------
++_FLAG = "PG_SWEEP_NLI_CONFLICT"
++_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
++
++_ENV_MIN_OVERLAP = "PG_SWEEP_NLI_CONFLICT_MIN_OVERLAP"      # default 2 shared salient words
++_ENV_MAX_PAIRS = "PG_SWEEP_NLI_CONFLICT_MAX_PAIRS"          # default 60 judged pairs
++_ENV_MAX_ROWS = "PG_SWEEP_NLI_CONFLICT_MAX_ROWS"            # default 200 rows clustered
++_ENV_MIN_CONFIDENCE = "PG_SWEEP_NLI_CONFLICT_MIN_CONFIDENCE"  # default 0.7
++
++_DEFAULT_MIN_OVERLAP = 2
++_DEFAULT_MAX_PAIRS = 60
++_DEFAULT_MAX_ROWS = 200
++_DEFAULT_MIN_CONFIDENCE = 0.7
++
++_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
++_JUDGE_TIMEOUT_S = 30.0
++
++# Small, domain-aware stopword set. Salient-word overlap (NOT all words) keys the
++# clustering, so generic connectives never group unrelated rows.
++_STOPWORDS = frozenset({
++    "the", "and", "for", "with", "was", "were", "has", "have", "had", "are", "but",
++    "not", "from", "that", "this", "these", "those", "their", "its", "than", "then",
++    "into", "onto", "over", "under", "between", "within", "without", "during", "after",
++    "before", "while", "which", "when", "where", "what", "who", "whom", "how", "why",
++    "study", "trial", "patients", "patient", "group", "groups", "results", "result",
++    "showed", "shown", "found", "reported", "compared", "versus", "vs", "among",
++    "using", "based", "data", "analysis", "associated", "may", "can", "also", "both",
++    "more", "most", "less", "high", "low", "higher", "lower", "year", "years",
++})
++
++# Tier ordering: highest-evidence pairs judged first (so the pair cap keeps the
++# most decision-relevant conflicts). Unknown tiers sort last.
++_TIER_RANK = {"T1": 0, "gold": 0, "T2": 1, "T3": 2, "T4": 3, "T5": 4, "T6": 5, "T7": 6}
++
++
++@dataclass
++class SemanticConflictRecord:
++    """A cross-document semantic contradiction (type discriminator: ``semantic``).
++
++    Shaped for: (a) the merged ``contradictions.json`` dump; (b) the dedicated
++    report disclosure block (subject + predicate + the two conflicting claims);
++    (c) the PT08 evaluator gate (substring(subject) + substring(predicate) in
++    report text). ``claims`` always has length 2 — the two conflicting sources.
++    """
++
++    subject: str
++    predicate: str
++    claims: list = field(default_factory=list)  # [{evidence_id, text, tier, nli_label}, ...] (len 2)
++    type: str = "semantic"
++    severity: str = "review"
++    nli_confidence: float = 0.0
++
++
++def semantic_conflict_enabled() -> bool:
++    """True unless ``PG_SWEEP_NLI_CONFLICT`` is unset/falsey. Default OFF — flag-off
++    is byte-identical (no judge constructed, no network)."""
++    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
++
++
++def _int_env(name: str, default: int) -> int:
++    try:
++        return int(os.environ.get(name, "") or default)
++    except (TypeError, ValueError):
++        return default
++
++
++def _float_env(name: str, default: float) -> float:
++    try:
++        return float(os.environ.get(name, "") or default)
++    except (TypeError, ValueError):
++        return default
++
++
++def _row_text(row: dict) -> str:
++    return str(row.get("direct_quote") or row.get("statement") or row.get("text") or "")
++
++
++def _content_words(text: str) -> set:
++    """Salient (>=3 char, non-stopword) lowercase tokens for overlap keying."""
++    return {
++        t for t in re.findall(r"[a-z0-9]+", (text or "").lower())
++        if len(t) >= 3 and t not in _STOPWORDS
++    }
++
++
++def _tier_rank(row: dict) -> int:
++    return _TIER_RANK.get(str(row.get("tier") or ""), 99)
++
++
++def cluster_candidate_rows(evidence_rows, *, min_overlap: int | None = None,
++                           max_rows: int | None = None) -> list:
++    """Group rows that share >= ``min_overlap`` salient content words (connected
++    components). RECALL-oriented pre-filter, independent of the rule extractors.
++
++    Bounded: only the top ``max_rows`` rows (highest tier first) are clustered, so
++    the O(n^2) comparison is capped at full scale. Returns a list of clusters
++    (each a list of the original row dicts); singletons are dropped.
++    """
++    min_overlap = _DEFAULT_MIN_OVERLAP if min_overlap is None else min_overlap
++    max_rows = _DEFAULT_MAX_ROWS if max_rows is None else max_rows
++
++    rows = [r for r in (evidence_rows or []) if _row_text(r).strip()]
++    rows = sorted(rows, key=_tier_rank)[:max_rows]
++    words = [_content_words(_row_text(r)) for r in rows]
++
++    n = len(rows)
++    parent = list(range(n))
++
++    def find(x: int) -> int:
++        while parent[x] != x:
++            parent[x] = parent[parent[x]]
++            x = parent[x]
++        return x
++
++    def union(a: int, b: int) -> None:
++        ra, rb = find(a), find(b)
++        if ra != rb:
++            parent[rb] = ra
++
++    for i in range(n):
++        if not words[i]:
++            continue
++        for j in range(i + 1, n):
++            if len(words[i] & words[j]) >= min_overlap:
++                union(i, j)
++
++    groups: dict = {}
++    for idx in range(n):
++        groups.setdefault(find(idx), []).append(rows[idx])
++    return [g for g in groups.values() if len(g) >= 2]
++
++
++def extract_pairs(clusters, *, max_pairs: int | None = None) -> list:
++    """Same-cluster row pairs, highest-tier first, hard-capped at ``max_pairs``."""
++    max_pairs = _DEFAULT_MAX_PAIRS if max_pairs is None else max_pairs
++    pairs: list = []
++    for cluster in clusters:
++        ordered = sorted(cluster, key=_tier_rank)
++        for i in range(len(ordered)):
++            for j in range(i + 1, len(ordered)):
++                pairs.append((ordered[i], ordered[j]))
++    # Rank pairs by best tier in the pair so the cap keeps the strongest evidence.
++    pairs.sort(key=lambda p: (_tier_rank(p[0]) + _tier_rank(p[1])))
++    return pairs[:max_pairs]
++
++
++def _shared_subject(row_a: dict, row_b: dict) -> str:
++    """Top shared salient words → a stable subject phrase (for PT08 + disclosure)."""
++    shared = _content_words(_row_text(row_a)) & _content_words(_row_text(row_b))
++    # Preserve appearance order in row A for readability.
++    ordered = [w for w in re.findall(r"[a-z0-9]+", _row_text(row_a).lower()) if w in shared]
++    seen: set = set()
++    uniq = [w for w in ordered if not (w in seen or seen.add(w))]
++    return " ".join(uniq[:4]) if uniq else "cross-document claim"
++
++
++def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = None) -> list:
++    """Judge each pair; keep ``contradict`` pairs above ``min_confidence``.
++
++    ``judge`` is a ``(claim_a, claim_b) -> (label, confidence)`` callable, label in
++    {"contradict","entail","neutral"}. Fail-open:
++      * a per-pair judge error skips THAT pair (never fabricates a conflict);
++      * a ``BudgetExceededError`` stops judging, KEEPS records found so far, and
++        propagates as a clean stop signal (caught by the caller's fail-open block)
++        — it never aborts mid-record.
++    """
++    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
++
++    min_confidence = _DEFAULT_MIN_CONFIDENCE if min_confidence is None else min_confidence
++    records: list = []
++    for row_a, row_b in pairs:
++        text_a, text_b = _row_text(row_a), _row_text(row_b)
++        try:
++            label, confidence = judge(text_a, text_b)
++        except BudgetExceededError:
++            logger.warning(
++                "[semantic-conflict] budget exceeded after %d record(s); "
++                "stopping judge calls (fail-open, keep-partial).", len(records),
++            )
++            break
++        except Exception as exc:  # noqa: BLE001 — per-pair fail-open; never fabricate a conflict
++            logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
++            continue
++        if str(label).strip().lower() != "contradict":
++            continue
++        try:
++            conf = float(confidence)
++        except (TypeError, ValueError):
++            conf = 0.0
++        # Codex diff-gate P2: reject non-finite / out-of-range confidence. A NaN/inf from a
++        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
++        # — a phantom contradiction would falsely abort a legitimate run via PT08. (NaN < x is
++        # False, so a bare `conf < min_confidence` would let NaN slip through; guard explicitly.)
++        if not math.isfinite(conf) or not (0.0 <= conf <= 1.0):
++            logger.warning("[semantic-conflict] dropping pair with non-finite/out-of-range "
++                           "confidence %r (fail-safe, never fabricate a conflict)", confidence)
++            continue
++        if conf < min_confidence:
++            continue
++        subject = _shared_subject(row_a, row_b)
++        predicate = "cross-document directional disagreement"
++        # Each claim carries evidence_id + predicate + a finite value (0.0) so a
++        # contradictions.json holding a semantic record stays loadable by
++        # audit_ir.loader._parse_contradiction_claim (which REQUIRES those three keys
++        # and does float(value)). Semantic conflicts are prose-only — there is no
++        # numeric value — so value is the finite sentinel 0.0; the `type:"semantic"`
++        # discriminator + `nli_label` distinguish them from numeric records downstream.
++        records.append(SemanticConflictRecord(
++            subject=subject,
++            predicate=predicate,
++            claims=[
++                {"evidence_id": str(row_a.get("evidence_id") or ""), "predicate": predicate,
++                 "value": 0.0, "text": text_a, "tier": str(row_a.get("tier") or ""),
++                 "nli_label": "contradict"},
++                {"evidence_id": str(row_b.get("evidence_id") or ""), "predicate": predicate,
++                 "value": 0.0, "text": text_b, "tier": str(row_b.get("tier") or ""),
++                 "nli_label": "contradict"},
++            ],
++            nli_confidence=conf,
++        ))
++    return records
++
++
++def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
++    """End-to-end convenience: cluster -> pairs -> judge. Used by the sweep block.
++
++    If ``judge`` is None the production default judge is lazily constructed
++    (``get_default_judge``). Returns ``list[SemanticConflictRecord]``.
++    """
++    clusters = cluster_candidate_rows(
++        evidence_rows,
++        min_overlap=_int_env(_ENV_MIN_OVERLAP, _DEFAULT_MIN_OVERLAP),
++        max_rows=_int_env(_ENV_MAX_ROWS, _DEFAULT_MAX_ROWS),
++    )
++    if not clusters:
++        return []
++    pairs = extract_pairs(clusters, max_pairs=_int_env(_ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS))
++    if not pairs:
++        return []
++    if judge is None:
++        judge = get_default_judge()
++    return detect_semantic_conflicts(
++        pairs, judge,
++        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
++    )
++
++
++# --- production judge (isolated; reuses the openrouter cost/family substrate) ---
++
++_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
++
++Rules:
++- CONTRADICT: the two claims cannot both be true for the same population/endpoint — one asserts something the other explicitly denies or reverses (e.g. "improved overall survival" vs "no overall survival benefit"; "first-line therapy" vs "reserved for refractory cases").
++- ENTAIL: the claims agree, or one restates / refines the other.
++- NEUTRAL: the claims are about different things, or could both be true (different populations, endpoints, doses, or time points), or there is not enough overlap to judge a conflict.
++
++Be conservative: only answer CONTRADICT when the disagreement is direct and on the same subject. Return STRICT JSON only, no prose:
++{{"verdict": "CONTRADICT" | "ENTAIL" | "NEUTRAL", "confidence": <number 0.0-1.0>}}
++
++CLAIM A:
++{claim_a}
++
++CLAIM B:
++{claim_b}
++
++JSON:"""
++
++
++class _SemanticContradictionJudge:
++    """Synchronous httpx wrapper around a cross-document contradiction call.
++
++    Mirrors ``llm.entailment_judge._EntailmentJudge`` (same two-family evaluator
++    model, the same ``openrouter_client`` cost/budget helpers, family segregation
++    enforced at construction) but with a CONTRADICTION prompt and a (label,
++    confidence) return. Kept SEPARATE from ``_EntailmentJudge`` so the
++    faithfulness-critical strict_verify entailment path is never touched.
++    """
++
++    def __init__(self) -> None:
++        import httpx
++
++        from src.polaris_graph.llm.openrouter_client import check_family_segregation
++
++        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
++        if not api_key:
++            raise RuntimeError("PG_SWEEP_NLI_CONFLICT requires OPENROUTER_API_KEY")
++        self._api_key = api_key
++        base_url = os.environ.get(
++            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
++        ).rstrip("/")
++        self._endpoint = f"{base_url}/chat/completions"
++        self._model = os.environ.get("PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL)
++        # Two-family invariant (§9.1.1): the conflict judge is an evaluator-family
++        # call and MUST differ from the generator family — raises at construction.
++        check_family_segregation(evaluator_model=self._model)
++        self._client = httpx.Client(timeout=_JUDGE_TIMEOUT_S)
++
++    def judge(self, claim_a: str, claim_b: str) -> tuple:
++        """Return ``(label, confidence)`` with label in {contradict,entail,neutral}.
++
++        Fail-open on API/parse error → ("neutral", 0.0) so a transient outage never
++        FABRICATES a conflict. ``BudgetExceededError`` is re-raised (the caller
++        stops + keeps partial) — never masked as a neutral result.
++        """
++        from src.polaris_graph.llm import openrouter_client as _orc
++
++        prompt = _CONTRADICTION_PROMPT.format(claim_a=claim_a, claim_b=claim_b)
++        json_body: dict = {
++            "model": self._model,
++            "messages": [{"role": "user", "content": prompt}],
++            "temperature": 0.0,
++            "max_tokens": 60,
++            "response_format": {"type": "json_object"},
++        }
++        try:
++            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
++            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
++        except Exception:
++            _gate_provider = None
++        if _gate_provider:
++            json_body["provider"] = {
++                "order": [_gate_provider],
++                "allow_fallbacks": False,
++                "require_parameters": True,
++            }
++        try:
++            response = self._client.post(
++                self._endpoint,
++                headers={
++                    "Authorization": f"Bearer {self._api_key}",
++                    "Content-Type": "application/json",
++                },
++                json=json_body,
++            )
++            response.raise_for_status()
++            data = response.json()
++            usage = data.get("usage", {}) or {}
++            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
++            output_tokens = int(usage.get("completion_tokens", 0) or 0)
++            api_cost = float(usage.get("cost", 0) or 0)
++            actual_cost = api_cost or _orc._impute_cost_from_tokens(
++                self._model, input_tokens, output_tokens, 0,
++            )
++            if actual_cost == 0 and not usage:
++                actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
++            _orc._add_run_cost(actual_cost)
++            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
++            content = data["choices"][0]["message"]["content"]
++            parsed = json.loads(content)
++            verdict = str(parsed.get("verdict", "")).strip().upper()
++            confidence = float(parsed.get("confidence", 0.0) or 0.0)
++            label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
++                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
++            return label, confidence
++        except Exception:
++            # BudgetExceededError is a subclass-free RuntimeError in openrouter_client;
++            # re-raise it explicitly so the caller's keep-partial path fires.
++            from src.polaris_graph.llm.openrouter_client import BudgetExceededError
++            import sys
++            exc = sys.exc_info()[1]
++            if isinstance(exc, BudgetExceededError):
++                raise
++            logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
++            return "neutral", 0.0
++
++
++_JUDGE_SINGLETON = None
++
++
++def get_default_judge():
++    """Lazy singleton production judge callable ``(a, b) -> (label, confidence)``.
++
++    Constructed only when ``PG_SWEEP_NLI_CONFLICT`` is ON and first used — off-mode
++    never instantiates it (no network, no httpx client)."""
++    global _JUDGE_SINGLETON
++    if _JUDGE_SINGLETON is None:
++        _JUDGE_SINGLETON = _SemanticContradictionJudge()
++    return _JUDGE_SINGLETON.judge
+diff --git a/tests/polaris_graph/test_semantic_conflict_detector_iready012.py b/tests/polaris_graph/test_semantic_conflict_detector_iready012.py
+new file mode 100644
+index 00000000..fe36a0b3
+--- /dev/null
++++ b/tests/polaris_graph/test_semantic_conflict_detector_iready012.py
+@@ -0,0 +1,223 @@
++"""I-ready-012 (#1079) — semantic/NLI cross-document contradiction detector.
++
++Closes the F12 recall hole: a prose-only directional contradiction with NO shared number and NO
++NegEx cue ("adjuvant chemotherapy improved overall survival" vs "...provided no overall survival
++benefit") passes both the numeric and qualitative rule detectors silently. This detector adds an
++LLM-NLI pass (default OFF, fail-open, additive) that catches it and routes the conflict into the
++existing report disclosure + PT08 release gate.
++
++All offline: the judge is INJECTED (a fake), so no network / no model. Verifies recall, precision,
++flag-OFF inertness, every fail-open path (per-pair error + BudgetExceededError keep-partial), the
++pair cap, the audit_ir.loader compatibility (Codex iter-1 P2), and the real PT08 routing (Codex
++iter-1 P1: semantic records must actually reach the PT08 evaluator gate).
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.llm.openrouter_client import BudgetExceededError
++from src.polaris_graph.retrieval import semantic_conflict_detector as scd
++
++# The reproduced recall-hole pair: prose-only, no shared number, no NegEx cue.
++_ROW_A = {
++    "evidence_id": "ev_a", "tier": "T1", "source_url": "u1",
++    "direct_quote": "Adjuvant chemotherapy improved overall survival in stage II colon cancer.",
++}
++_ROW_B = {
++    "evidence_id": "ev_b", "tier": "T1", "source_url": "u2",
++    "direct_quote": "Adjuvant chemotherapy provided no overall survival benefit in stage II colon cancer.",
++}
++
++
++def _contradict_judge(a, b):
++    return "contradict", 0.95
++
++
++def _neutral_judge(a, b):
++    return "neutral", 0.9
++
++
++# ───────────────────────────── recall: the hole closes ──────────────────────────────
++
++def test_cluster_groups_the_reproduced_rows_before_any_judge():
++    """The recall-oriented clustering (independent of the rule extractors) must put the two
++    prose-only rows in ONE candidate cluster — BEFORE the judge is ever invoked."""
++    clusters = scd.cluster_candidate_rows([_ROW_A, _ROW_B])
++    assert len(clusters) == 1
++    assert {r["evidence_id"] for r in clusters[0]} == {"ev_a", "ev_b"}
++
++
++def test_detect_emits_one_semantic_record_on_contradict():
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    records = scd.detect_semantic_conflicts(pairs, _contradict_judge)
++    assert len(records) == 1
++    rec = records[0]
++    assert rec.type == "semantic"
++    assert rec.severity == "review"
++    assert rec.subject  # non-empty (PT08 substring source)
++    assert rec.predicate
++    assert {c["evidence_id"] for c in rec.claims} == {"ev_a", "ev_b"}
++    assert rec.nli_confidence == pytest.approx(0.95)
++
++
++def test_end_to_end_for_rows_with_injected_judge():
++    records = scd.detect_semantic_conflicts_for_rows([_ROW_A, _ROW_B], judge=_contradict_judge)
++    assert len(records) == 1
++    assert "survival" in records[0].subject
++
++
++# ───────────────────────────── precision ──────────────────────────────
++
++def test_neutral_or_entail_pair_yields_no_record():
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    assert scd.detect_semantic_conflicts(pairs, _neutral_judge) == []
++    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("entail", 0.99)) == []
++
++
++def test_low_confidence_contradict_is_filtered():
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    # below the 0.7 default threshold → dropped
++    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("contradict", 0.4)) == []
++
++
++@pytest.mark.parametrize("bad_conf", [float("nan"), float("inf"), -0.1, 1.5])
++def test_non_finite_or_out_of_range_confidence_never_fabricates(bad_conf):
++    """Codex diff-gate P2: a NaN/inf/out-of-range confidence from a malformed judge must NOT pass
++    the threshold and create a phantom contradiction (which would falsely abort a run via PT08)."""
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    assert scd.detect_semantic_conflicts(pairs, lambda a, b: ("contradict", bad_conf)) == []
++
++
++# ───────────────────────────── flag-OFF inertness ──────────────────────────────
++
++def test_enabled_default_off(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_NLI_CONFLICT", raising=False)
++    assert scd.semantic_conflict_enabled() is False
++    for off in ("0", "false", "off", "no", ""):
++        monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", off)
++        assert scd.semantic_conflict_enabled() is False
++    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT", "1")
++    assert scd.semantic_conflict_enabled() is True
++
++
++def test_for_rows_never_constructs_a_judge_when_no_pairs(monkeypatch):
++    """Unrelated rows (no shared salient words) → no cluster → no pairs → the default judge
++    factory is NEVER called (no network even if somehow ON)."""
++    def _boom():
++        raise AssertionError("default judge must not be constructed when there are no pairs")
++    monkeypatch.setattr(scd, "get_default_judge", _boom)
++    rows = [
++        {"evidence_id": "x", "tier": "T1", "direct_quote": "Quantum entanglement decoheres rapidly."},
++        {"evidence_id": "y", "tier": "T1", "direct_quote": "Maple syrup grades reflect color."},
++    ]
++    assert scd.detect_semantic_conflicts_for_rows(rows) == []
++
++
++# ───────────────────────────── fail-open ──────────────────────────────
++
++def test_per_pair_judge_error_is_skipped_not_fatal():
++    rows = [_ROW_A, _ROW_B,
++            {"evidence_id": "ev_c", "tier": "T2",
++             "direct_quote": "Adjuvant chemotherapy overall survival benefit was confirmed in colon cancer."}]
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows(rows))
++    calls = {"n": 0}
++
++    def _flaky(a, b):
++        calls["n"] += 1
++        if calls["n"] == 1:
++            raise RuntimeError("transient judge error")
++        return "contradict", 0.9
++
++    records = scd.detect_semantic_conflicts(pairs, _flaky)
++    # first pair errored (skipped), remaining pairs still judged → at least one record
++    assert len(records) >= 1
++
++
++def test_budget_exceeded_keeps_partial_and_stops():
++    rows = [_ROW_A, _ROW_B,
++            {"evidence_id": "ev_c", "tier": "T2",
++             "direct_quote": "Adjuvant chemotherapy overall survival in stage II colon cancer was worse."}]
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows(rows))
++    assert len(pairs) >= 2
++    calls = {"n": 0}
++
++    def _budget_then_more(a, b):
++        calls["n"] += 1
++        if calls["n"] == 1:
++            return "contradict", 0.9
++        raise BudgetExceededError("run budget cap reached")
++
++    records = scd.detect_semantic_conflicts(pairs, _budget_then_more)
++    assert len(records) == 1            # pair-1 kept
++    assert calls["n"] == 2              # stopped at the breach (did not judge pair 3+)
++
++
++# ───────────────────────────── cost bound ──────────────────────────────
++
++def test_pair_cap_is_honored(monkeypatch):
++    monkeypatch.setenv("PG_SWEEP_NLI_CONFLICT_MAX_PAIRS", "3")
++    # 6 same-cluster rows → 15 raw pairs, capped to 3.
++    rows = [
++        {"evidence_id": f"e{i}", "tier": "T1",
++         "direct_quote": f"Adjuvant chemotherapy overall survival colon cancer finding number {i}."}
++        for i in range(6)
++    ]
++    clusters = scd.cluster_candidate_rows(rows)
++    pairs = scd.extract_pairs(clusters, max_pairs=3)
++    assert len(pairs) == 3
++
++
++# ───────────────────────────── routing (Codex iter-1 P1-2) ──────────────────────────────
++
++def test_pt08_gate_counts_a_semantic_record_real_evaluator():
++    """The REAL PT08 check must treat a semantic record like a numeric one: disclosed
++    (subject+predicate in report text) → pass; not disclosed → fail. Proves the record reaches
++    and is gated by the evaluator, not just written to contradictions.json."""
++    from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation
++    from dataclasses import asdict
++
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    rec = scd.detect_semantic_conflicts(pairs, _contradict_judge)[0]
++    contra = [asdict(rec)]
++    protocol = {"research_question": "q", "date_range": {}}
++
++    disclosed = (
++        f"## Semantic contradiction disclosures\n- [SEMANTIC] {rec.subject} / {rec.predicate}: "
++        f"claim A VS claim B\n"
++    )
++    out_ok = run_external_evaluation(
++        report_text=disclosed, protocol=protocol, tier_distribution_report={},
++        contradictions=contra, evidence_pool={}, enable_llm_judge=False,
++    )
++    out_missing = run_external_evaluation(
++        report_text="A report with no contradiction disclosure at all.",
++        protocol=protocol, tier_distribution_report={},
++        contradictions=contra, evidence_pool={}, enable_llm_judge=False,
++    )
++    pt08_ok = next(r for r in out_ok.rule_checks if r.item_id == "PT08")
++    pt08_missing = next(r for r in out_missing.rule_checks if r.item_id == "PT08")
++    assert pt08_ok.passed is True
++    assert pt08_missing.passed is False
++
++
++# ───────────────────────────── audit_ir.loader compat (Codex iter-1 P2) ──────────────────────────────
++
++def test_semantic_record_is_audit_ir_loader_compatible():
++    """A contradictions.json holding a semantic record must parse — _parse_contradiction_claim
++    REQUIRES evidence_id + predicate + finite value on every claim."""
++    from dataclasses import asdict
++    from src.polaris_graph.audit_ir import loader
++
++    pairs = scd.extract_pairs(scd.cluster_candidate_rows([_ROW_A, _ROW_B]))
++    rec = scd.detect_semantic_conflicts(pairs, _contradict_judge)[0]
++    raw = json.loads(json.dumps([asdict(rec)]))  # round-trip exactly like the on-disk file
++    clusters = loader._parse_contradictions(raw)
++    assert len(clusters) == 1
++    assert len(clusters[0].claims) == 2
++    for c in clusters[0].claims:
++        assert c.evidence_id
++        assert c.predicate
++        assert c.value == pytest.approx(0.0)  # finite sentinel (prose has no numeric value)
+
+```
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short; git rev-parse --abbrev-ref HEAD; git log --oneline -5' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def check_family_segregation|class BudgetExceededError|def check_run_budget|def run_external_evaluation|PT08|_parse_contradiction_claim" -S src' in C:\POLARIS
+ succeeded in 1145ms:
+ M state/polaris_restart/iteration_trajectory.md
+?? .claude/hooks/ultimate_goal_stop_reminder.py
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/
+?? .codex/I-ready-012/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-012/codex_diff.patch
+?? .codex/I-ready-012/codex_diff_audit.stderr.txt
+?? .codex/I-ready-012/codex_diff_audit.txt
+?? .codex/I-ready-012/codex_diff_gate_input.md
+?? .codex/I-ready-014/
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/capability_downgrade_audit_2026_06_04.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? tool_summary.json
+bot/I-ready-012-semantic-conflict-nli
+a1bb9d49 I-ready-012 (#1079) diff-gate P2: reject non-finite/out-of-range NLI confidence
+c70d4f2a I-ready-012 (#1079): semantic/NLI cross-document contradiction layer (3rd detector)
+07617c08 I-ready-013 (#1080) diff-gate APPROVE: clinical/benchmark verified-only surface (independent review)
+73a785ca I-ready-013 (#1080): relocate artifacts to correct .codex/I-ready-013/ (was mis-filed under I-ready-008 = #1075's id)
+d08b09eb I-ready-013 (#1080): clinical/benchmark report ships ONLY span-verified prose
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+ succeeded in 1553ms:
+src\utils\cost_tracker.py:124:class BudgetExceededError(Exception):
+src\polaris_graph\clinical_generator\verified_report.py:235:    + sample size + hedge language + PT08 flag inform reviewer judgment
+src\polaris_graph\audit_ir\loader.py:530:def _parse_contradiction_claim(
+src\polaris_graph\audit_ir\loader.py:564:            _parse_contradiction_claim(c, f"{where}.claims[{j}]")
+src\polaris_graph\evaluator\external_evaluator.py:398:    ("PT08", "Contradiction detector invoked — disclosure if any found", "results"),
+src\polaris_graph\evaluator\external_evaluator.py:578:    # PT08 — contradiction disclosure
+src\polaris_graph\evaluator\external_evaluator.py:592:        "PT08", "All detected contradictions disclosed in report", pt08,
+src\polaris_graph\evaluator\external_evaluator.py:818:def run_external_evaluation(
+src\polaris_graph\evaluator\evaluator_gate.py:7:release. Some deterministic rule failures (PT08 contradiction
+src\polaris_graph\evaluator\evaluator_gate.py:22:  abort_evaluator_critical - deterministic integrity failure (PT08/11/12)
+src\polaris_graph\evaluator\evaluator_gate.py:33:    "PT08": "rule_pt08_contradiction_missing",
+src\polaris_graph\evaluator\evaluator_gate.py:100:            `contradictions_missing` list is consulted for PT08.
+src\polaris_graph\evaluator\evaluator_gate.py:119:    # Any PT08/PT11/PT12 failure aborts the release regardless of total.
+src\polaris_graph\evaluator\evaluator_gate.py:143:    # Also catch the PT08 special case: contradictions_missing list non-empty.
+src\polaris_graph\evaluator\evaluator_gate.py:145:        if "PT08" not in rule_blockers:
+src\polaris_graph\evaluator\evaluator_gate.py:147:            rule_blockers.append("PT08")
+src\polaris_graph\evaluator\evaluator_gate.py:148:            code = RELEASE_BLOCKING_RULES["PT08"]
+src\polaris_graph\llm\openrouter_client.py:213:class BudgetExceededError(RuntimeError):
+src\polaris_graph\llm\openrouter_client.py:320:def check_run_budget(anticipated_additional: float = 0.0) -> None:
+src\polaris_graph\llm\openrouter_client.py:517:def check_family_segregation(
+src\polaris_graph\retrieval\semantic_conflict_detector.py:24:    only ADD disclosures and (via PT08) make the release gate stricter.
+src\polaris_graph\retrieval\semantic_conflict_detector.py:37:disclosure block + the PT08 evaluator input (the numeric renderer is untouched).
+src\polaris_graph\retrieval\semantic_conflict_detector.py:93:    (c) the PT08 evaluator gate (substring(subject) + substring(predicate) in
+src\polaris_graph\retrieval\semantic_conflict_detector.py:199:    """Top shared salient words → a stable subject phrase (for PT08 + disclosure)."""
+src\polaris_graph\retrieval\semantic_conflict_detector.py:243:        # — a phantom contradiction would falsely abort a legitimate run via PT08. (NaN < x is
+src\polaris_graph\retrieval\semantic_conflict_detector.py:255:        # audit_ir.loader._parse_contradiction_claim (which REQUIRES those three keys
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py | Select-Object -Skip 500 -First 45" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\evaluator\\external_evaluator.py | Select-Object -Skip 560 -First 45" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 4535 -First 120" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\audit_ir\\loader.py | Select-Object -Skip 520 -First 55" in C:\POLARIS
+ succeeded in 1103ms:
+
+    A non-empty `override` bypasses prefix matching. Use it when a model
+    has been renamed or when a fine-tune needs its base-family tag.
+    """
+    if override:
+        return override.strip().lower()
+    if not model_name:
+        return "unknown"
+    m = model_name.strip().lower()
+    for family, prefixes in _FAMILY_PREFIXES.items():
+        for prefix in prefixes:
+            if m.startswith(prefix.lower()):
+                return family
+    return "unknown"
+
+
+def check_family_segregation(
+    generator_model: str | None = None,
+    evaluator_model: str | None = None,
+    generator_override: str | None = None,
+    evaluator_override: str | None = None,
+) -> tuple[str, str]:
+    """Fail fast if generator and evaluator are in the same family.
+
+    Returns (generator_family, evaluator_family) on success.
+    Raises RuntimeError if same family or if either is "unknown" without
+    an explicit override (so misconfiguration is visible at init time).
+
+    Defaults pull from the module-level env-var settings.
+    """
+    gen_model = generator_model or PG_GENERATOR_MODEL
+    eval_model = evaluator_model or PG_EVALUATOR_MODEL
+    gen_override = generator_override if generator_override is not None else PG_GENERATOR_FAMILY_OVERRIDE
+    eval_override = evaluator_override if evaluator_override is not None else PG_EVALUATOR_FAMILY_OVERRIDE
+
+    gen_family = family_from_model(gen_model, gen_override)
+    eval_family = family_from_model(eval_model, eval_override)
+
+    if gen_family == "unknown" and not gen_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator model '{gen_model}' does not "
+            f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+            f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+            f"family segregation can be checked. Family-distance from the "
+            f"evaluator is the primary mitigation for evaluator-generator "
+
+ succeeded in 1580ms:
+        "Expected at least one T1..T7 reference in the report."
+        if not pt06 else "",
+    ))
+
+    # PT07 — expected-vs-actual tier distribution
+    pt07 = bool(
+        tier_distribution_report
+        and "tier_fractions" in tier_distribution_report
+        and "expected" in report_text.lower()
+        and "actual" in report_text.lower()
+    )
+    results.append(RuleCheckResult(
+        "PT07", "Expected-vs-actual tier distribution reported", pt07,
+        "Report must show both expected and actual tier percentages."
+        if not pt07 else "",
+    ))
+
+    # PT08 — contradiction disclosure
+    missing_contradictions: list[str] = []
+    for c in contradictions:
+        # Look for subject + predicate mention + disclosure keyword
+        subj = (c.get("subject") or "").lower()
+        pred = (c.get("predicate") or "").lower()
+        if not subj or not pred:
+            continue
+        if subj in report_text.lower() and pred in report_text.lower():
+            continue
+        missing_contradictions.append(f"{subj}/{pred}")
+    num_disclosed = max(0, len(contradictions) - len(missing_contradictions))
+    pt08 = len(missing_contradictions) == 0
+    results.append(RuleCheckResult(
+        "PT08", "All detected contradictions disclosed in report", pt08,
+        f"Missing disclosures for: {missing_contradictions}"
+        if not pt08 else "",
+    ))
+
+    # PT09 — sponsor filter applied
+    pt09 = _check_methods_mentions(
+        report_text, ["sponsor", "conflict of interest", "coi", "funding"],
+    )
+    results.append(RuleCheckResult(
+        "PT09", "Sponsor / COI filter applied", pt09,
+        "Report methods must mention sponsor or COI handling."
+        if not pt09 else "",
+    ))
+
+ succeeded in 1986ms:
+                evidence_id=str(entry["evidence_id"]),
+                statement=str(entry.get("statement", "")),
+                tier=str(entry.get("tier", "UNKNOWN")),
+                url=str(entry.get("url", "")),
+            )
+        )
+    return tuple(out)
+
+
+def _parse_contradiction_claim(
+    raw: Mapping[str, Any], where: str
+) -> ContradictionClaim:
+    _require_keys(raw, ("evidence_id", "predicate", "value"), where)
+    return ContradictionClaim(
+        evidence_id=str(raw["evidence_id"]),
+        subject=str(raw.get("subject", "")),
+        predicate=str(raw["predicate"]),
+        arm=str(raw.get("arm", "")),
+        dose=str(raw.get("dose", "")),
+        value=float(raw["value"]),
+        unit=str(raw.get("unit", "")),
+        source_tier=str(raw.get("source_tier", "UNKNOWN")),
+        source_url=str(raw.get("source_url", "")),
+        context_snippet=str(raw.get("context_snippet", "")),
+        endpoint_phrase=str(raw.get("endpoint_phrase", "")),
+    )
+
+
+def _parse_contradictions(
+    raw: list[dict[str, Any]],
+) -> tuple[ContradictionCluster, ...]:
+    if not isinstance(raw, list):
+        raise AuditIRSchemaError("contradictions.json: expected a list")
+    clusters = []
+    for idx, raw_cluster in enumerate(raw):
+        where = f"contradictions[{idx}]"
+        _require_keys(raw_cluster, ("predicate", "claims"), where)
+        claims_raw = raw_cluster["claims"]
+        if not isinstance(claims_raw, list) or len(claims_raw) < 2:
+            raise AuditIRSchemaError(
+                f"{where}: 'claims' must be a list of >=2 entries"
+            )
+        claims = tuple(
+            _parse_contradiction_claim(c, f"{where}.claims[{j}]")
+            for j, c in enumerate(claims_raw)
+        )
+        clusters.append(
+            ContradictionCluster(
+                cluster_id=idx,
+                subject=str(raw_cluster.get("subject", "")),
+                predicate=str(raw_cluster["predicate"]),
+                severity=str(raw_cluster.get("severity", "unknown")),
+                absolute_difference=float(raw_cluster.get("absolute_difference", 0.0)),
+                relative_difference=float(raw_cluster.get("relative_difference", 0.0)),
+                recommended_action=str(raw_cluster.get("recommended_action", "")),
+
+ succeeded in 2462ms:
+                    unit = getattr(first, "unit", None) or (
+                        first.get("unit", "") if isinstance(first, dict) else ""
+                    )
+                    tiers = []
+                    for cc in claims:
+                        t = getattr(cc, "source_tier", None) or (
+                            cc.get("source_tier", "") if isinstance(cc, dict) else ""
+                        )
+                        if t and t not in tiers:
+                            tiers.append(t)
+                    tier_str = ", ".join(tiers) if tiers else "unknown"
+                    methods += (
+                        f"- {subj} / {pred}: cited values range "
+                        f"{v_first} to {v_last} {unit} "
+                        f"(source tiers: {tier_str}).\n"
+                    )
+                else:
+                    methods += f"- {subj} / {pred}: (no claim values).\n"
+            methods += (
+                f"\nClaims made in the body of this report are individually "
+                f"bound to their cited evidence IDs via the strict-verify "
+                f"gate, so the reader can trace any specific numeric "
+                f"discrepancy to its source regardless of detector "
+                f"granularity.\n"
+            )
+
+        # Qualitative present-vs-absent safety-conflict disclosure (#944). Renders by ASSERTION
+        # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric
+        # value — and separates hard conflicts from review flags (Codex brief-gate iter-1 P1.5).
+        if qualitative_records:
+            _hard = [r for r in qualitative_records if r.severity in ("high", "medium")]
+            _review = [r for r in qualitative_records if r.severity == "review"]
+            methods += (
+                f"\n## Qualitative safety-conflict disclosures\n"
+                f"The qualitative detector flagged {len(_hard)} present-vs-absent clinical-safety "
+                f"conflict(s) (contraindication / drug-interaction / eligibility / warning / "
+                f"adverse-event causation) and {len(_review)} review-flagged item(s) requiring human "
+                f"adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a "
+                f"numeric value; review flags are NOT adjudicated conflicts.\n\n"
+            )
+            for r in _hard + _review:
+                _label = "CONFLICT" if r.severity in ("high", "medium") else "REVIEW"
+                _statuses = " vs ".join(
+                    f"{cl.get('assertion_status', '?')} "
+                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
+                    for cl in r.claims
+                )
+                methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
+
+        # Semantic/NLI cross-document contradiction disclosure (I-ready-012 #1079). Renders each
+        # NLI-detected prose-only conflict (subject + predicate + the two conflicting claims with
+        # evidence ids/tiers) into the report so the user sees it AND the PT08 gate (substring of
+        # subject+predicate in report text) finds it. Distinct from the numeric renderer (no value
+        # range) and the qualitative renderer (no assertion status); only present when the semantic
+        # detector ran (default OFF) and found a conflict.
+        if semantic_records:
+            methods += (
+                f"\n## Semantic contradiction disclosures (cross-document NLI)\n"
+                f"An NLI pass over same-subject evidence pairs flagged {len(semantic_records)} "
+                f"prose-only directional contradiction(s) that carry no shared number and no "
+                f"rule-cue (and so are not caught by the numeric or qualitative detectors). Each "
+                f"is shown with both conflicting source claims for human adjudication.\n\n"
+            )
+            for r in semantic_records:
+                _claims = " VS ".join(
+                    f"\"{(cl.get('text') or '').strip()}\" "
+                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
+                    for cl in r.claims
+                )
+                methods += (
+                    f"- [SEMANTIC] {r.subject} / {r.predicate} "
+                    f"(NLI confidence {r.nli_confidence:.2f}): {_claims}\n"
+                )
+
+        biblio_section = "\n\n## Bibliography\n"
+        for b in multi.bibliography:
+            biblio_section += (
+                f"[{b['num']}] {b['statement'][:200]} — {b['url']} "
+                f"(tier {b['tier']})\n"
+            )
+
+        # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
+        # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
+        # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
+        _key_findings = ""
+        try:
+            from src.polaris_graph.generator.key_findings import build_key_findings
+            _key_findings = build_key_findings(getattr(multi, "sections", []))
+        except Exception as _exc:  # noqa: BLE001 — additive summary; never abort the report
+            _log(f"[key-findings] skipped (fail-open): {_exc}")
+        final_report = (
+            f"# Research report: {q['question']}\n\n"
+            + _key_findings + sections_concat + methods + biblio_section
+        )
+        (run_dir / "report.md").write_text(final_report, encoding="utf-8")
+        (run_dir / "bibliography.json").write_text(
+            json.dumps(multi.bibliography, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        # I-gen-005 Step 3c (PR #906 Codex iter-5 P2 follow-up):
+        # gaps.json sidecar writer. When PG_ATOM_REFUSAL_MODE was
+        # log_only or strict, each non-dropped SectionResult carries an
+        # atom_validation_result populated by the orchestrator hook
+        # (multi_section_generator line ~4358). Persist these as
+        # gaps.json next to report.md per the Codex APPROVE_DESIGN
+        # gaps.json schema (per-section claims + per-section summary +
+        # document totals).
+        try:
+            from src.polaris_graph.generator.atom_refusal_validator import (
+                write_gaps_sidecar,
+                SectionValidationResult,
+            )
+            _section_val_results = []
+            for sr in multi.sections:
+                val = getattr(sr, "atom_validation_result", None)
+                if val is not None and isinstance(val, SectionValidationResult):
+                    _section_val_results.append(val)
+            if _section_val_results:
+                _gaps_path = write_gaps_sidecar(
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\llm\\openrouter_client.py | Select-Object -Skip 540 -First 50" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path src\\polaris_graph\\retrieval\\semantic_conflict_detector.py | Select-Object -Skip 220 -First 85" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 3095 -First 70" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content -Path scripts\\run_honest_sweep_r3.py | Select-Object -Skip 4805 -First 85" in C:\POLARIS
+ succeeded in 1161ms:
+    records: list = []
+    for row_a, row_b in pairs:
+        text_a, text_b = _row_text(row_a), _row_text(row_b)
+        try:
+            label, confidence = judge(text_a, text_b)
+        except BudgetExceededError:
+            logger.warning(
+                "[semantic-conflict] budget exceeded after %d record(s); "
+                "stopping judge calls (fail-open, keep-partial).", len(records),
+            )
+            break
+        except Exception as exc:  # noqa: BLE001 — per-pair fail-open; never fabricate a conflict
+            logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
+            continue
+        if str(label).strip().lower() != "contradict":
+            continue
+        try:
+            conf = float(confidence)
+        except (TypeError, ValueError):
+            conf = 0.0
+        # Codex diff-gate P2: reject non-finite / out-of-range confidence. A NaN/inf from a
+        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
+        # — a phantom contradiction would falsely abort a legitimate run via PT08. (NaN < x is
+        # False, so a bare `conf < min_confidence` would let NaN slip through; guard explicitly.)
+        if not math.isfinite(conf) or not (0.0 <= conf <= 1.0):
+            logger.warning("[semantic-conflict] dropping pair with non-finite/out-of-range "
+                           "confidence %r (fail-safe, never fabricate a conflict)", confidence)
+            continue
+        if conf < min_confidence:
+            continue
+        subject = _shared_subject(row_a, row_b)
+        predicate = "cross-document directional disagreement"
+        # Each claim carries evidence_id + predicate + a finite value (0.0) so a
+        # contradictions.json holding a semantic record stays loadable by
+        # audit_ir.loader._parse_contradiction_claim (which REQUIRES those three keys
+        # and does float(value)). Semantic conflicts are prose-only — there is no
+        # numeric value — so value is the finite sentinel 0.0; the `type:"semantic"`
+        # discriminator + `nli_label` distinguish them from numeric records downstream.
+        records.append(SemanticConflictRecord(
+            subject=subject,
+            predicate=predicate,
+            claims=[
+                {"evidence_id": str(row_a.get("evidence_id") or ""), "predicate": predicate,
+                 "value": 0.0, "text": text_a, "tier": str(row_a.get("tier") or ""),
+                 "nli_label": "contradict"},
+                {"evidence_id": str(row_b.get("evidence_id") or ""), "predicate": predicate,
+                 "value": 0.0, "text": text_b, "tier": str(row_b.get("tier") or ""),
+                 "nli_label": "contradict"},
+            ],
+            nli_confidence=conf,
+        ))
+    return records
+
+
+def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
+    """End-to-end convenience: cluster -> pairs -> judge. Used by the sweep block.
+
+    If ``judge`` is None the production default judge is lazily constructed
+    (``get_default_judge``). Returns ``list[SemanticConflictRecord]``.
+    """
+    clusters = cluster_candidate_rows(
+        evidence_rows,
+        min_overlap=_int_env(_ENV_MIN_OVERLAP, _DEFAULT_MIN_OVERLAP),
+        max_rows=_int_env(_ENV_MAX_ROWS, _DEFAULT_MAX_ROWS),
+    )
+    if not clusters:
+        return []
+    pairs = extract_pairs(clusters, max_pairs=_int_env(_ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS))
+    if not pairs:
+        return []
+    if judge is None:
+        judge = get_default_judge()
+    return detect_semantic_conflicts(
+        pairs, judge,
+        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+    )
+
+
+# --- production judge (isolated; reuses the openrouter cost/family substrate) ---
+
+_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
+
+Rules:
+- CONTRADICT: the two claims cannot both be true for the same population/endpoint — one asserts something the other explicitly denies or reverses (e.g. "improved overall survival" vs "no overall survival benefit"; "first-line therapy" vs "reserved for refractory cases").
+- ENTAIL: the claims agree, or one restates / refines the other.
+
+ succeeded in 1615ms:
+            f"HONEST-REBUILD Phase 1c: generator model '{gen_model}' does not "
+            f"match any known family prefix. Set PG_GENERATOR_FAMILY_OVERRIDE "
+            f"to the training-lineage family (e.g. 'deepseek', 'qwen') so "
+            f"family segregation can be checked. Family-distance from the "
+            f"evaluator is the primary mitigation for evaluator-generator "
+            f"self-bias (Play Favorites arXiv:2508.06709, DeepHalluBench "
+            f"arXiv:2601.22984)."
+        )
+    if eval_family == "unknown" and not eval_override:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: evaluator model '{eval_model}' does "
+            f"not match any known family prefix. Set PG_EVALUATOR_FAMILY_OVERRIDE."
+        )
+    if gen_family == eval_family:
+        raise RuntimeError(
+            f"HONEST-REBUILD Phase 1c: generator and evaluator are in the "
+            f"same training-lineage family ('{gen_family}'). This defeats "
+            f"the purpose of two-family architecture — same-family judges "
+            f"share blind spots and RLHF biases. Pick models from different "
+            f"families, or document the choice with explicit PG_*_FAMILY_OVERRIDE "
+            f"values to demonstrate you know the trade-off. Recommended pair: "
+            f"deepseek/deepseek-v4-pro (generator) + google/gemma-4-31b-it "
+            f"(evaluator) per loopback/audit/_open_source_models_2026.md."
+        )
+    return (gen_family, eval_family)
+
+
+def validate_role_families(role_map: dict[str, str], policy: str = "all_distinct",
+                           allowed_collisions: list[tuple[str, str]] | None = None) -> dict[str, str]:
+    """I-meta-001 (#933): N-way family segregation for the 4-role architecture.
+
+    Extends the pairwise check_family_segregation to N roles per the locked
+    architecture (Generator + Mirror + Sentinel + Judge). All four roles must
+    be from distinct training lineages by default; allowed_collisions overrides
+    specific pairs if the architecture lock's family_policy permits them.
+
+    Args:
+        role_map: {role_name: model_slug}, e.g. {"generator": "deepseek/...",
+                  "mirror": "cohere/...", "sentinel": "ibm-granite/...",
+                  "judge": "qwen/..."}
+        policy: "all_distinct" (default) or "permit_collisions".
+        allowed_collisions: list of [role_a, role_b] pairs whose families
+                  may collide. Ignored under all_distinct.
+
+    Returns:
+        {role_name: family_label} on success.
+
+    Raises:
+        RuntimeError if any role's family is "unknown" or if two roles share
+        a family outside allowed_collisions.
+
+ succeeded in 2063ms:
+        # I-beat-001: persist evidence_pool.json so the line-by-line
+        # audit harness (scripts/run_line_by_line_audit.py
+        # --resolved-report) can run on delivered output. Without
+        # this, the audit harness has no source spans to check claims
+        # against, and BEAT-BOTH proof cannot run on production reports.
+        (run_dir / "evidence_pool.json").write_text(
+            json.dumps(
+                [{**v, "evidence_id": k} for k, v in ev_pool.items()],
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        # I-ready-002 (#1071) Codex iter-1 P1: HARD release-blocking abort if the binding verifier was so
+        # degraded (judge_error_rate > PG_MAX_JUDGE_ERROR_RATE) the run is not trustworthy. Fires HERE —
+        # after verification_details.json is written, BEFORE the evaluator/4-role D8 spend — so a degraded
+        # run cannot later be overwritten back to success by the D8 status path. Each errored sentence
+        # already failed closed (its claim was dropped); this gates the whole RUN's release.
+        if verif_details.get("judge_error_degraded"):
+            _jerr_status = to_unified_status("abort_verifier_degraded")
+            summary["status"] = "abort_verifier_degraded"
+            summary["error"] = (
+                f"judge_error_rate={verif_details.get('judge_error_rate')} > cap "
+                f"{verif_details.get('judge_error_rate_cap')} "
+                f"({verif_details.get('judge_error_count')}/"
+                f"{verif_details.get('judge_error_sentences_checked')} sentences)"
+            )
+            _jerr_manifest = {
+                "run_id": run_id,
+                "slug": q.get("slug", ""),
+                "domain": q.get("domain", ""),
+                "question": q.get("question", ""),
+                "status": _jerr_status,
+                "release_allowed": False,
+                "verifier_judge_error_rate": verif_details.get("judge_error_rate"),
+                "verifier_judge_error_count": verif_details.get("judge_error_count"),
+                "verifier_judge_error_cap": verif_details.get("judge_error_rate_cap"),
+                "budget_cap_usd": get_max_cost_per_run(),
+            }
+            _jerr_manifest = _attach_tool_utilization(_jerr_manifest, run_dir)
+            (run_dir / "manifest.json").write_text(
+                json.dumps(_jerr_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            summary["manifest"] = _jerr_manifest
+            _log(
+                f"[verifier]    ABORT abort_verifier_degraded — release BLOCKED before D8 "
+                f"(judge_error_rate {verif_details.get('judge_error_rate')} > cap "
+                f"{verif_details.get('judge_error_rate_cap')})"
+            )
+            return summary
+
+        # Evaluator rule checks
+        # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
+        # before the evaluator. A cancel requested during the (long) generator
+        # stage is observed here rather than silently completing the run.
+        if _abort_if_cancelled(q, run_dir, run_id, summary, _log):
+            return summary
+
+        # I-safety-002b (#925) PR-2: tag external_evaluator under role="evaluator". Per
+        # Codex iter-1 P3: this is no-op in honest_sweep today (enable_llm_judge=False
+        # routes only rule checks; future-proofs if an LLM judge is enabled).
+        _pathb_ev_tok = _pathb.set_role("evaluator")
+        try:
+            ev_out = run_external_evaluation(
+                report_text=final_report,
+                protocol=protocol,
+                tier_distribution_report=asdict(dist),
+                # I-ready-012 (#1079): PT08 also gates the NLI semantic contradictions — a detected
+                # semantic conflict whose subject+predicate is absent from the report aborts the run
+                # (abort_evaluator_critical), exactly like a numeric one. asdict carries subject +
+                # predicate; PT08 reads only those (substring presence), so the extra semantic fields
+                # are ignored. Numeric records are unchanged.
+                contradictions=[asdict(c) for c in contradictions]
+                + [asdict(sr) for sr in semantic_records],
+                evidence_pool=ev_pool,
+                enable_llm_judge=False,
+            )
+        finally:
+            _pathb.reset_role(_pathb_ev_tok)
+        (run_dir / "evaluator_rule_checks.json").write_text(
+            json.dumps(ev_out.to_json_dict(), indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        _log(f"[evaluator]   rule_checks={ev_out.rule_check_pass_count}/"
+             f"{ev_out.rule_check_pass_count + ev_out.rule_check_fail_count} pass")
+
+ succeeded in 2480ms:
+        contradictions = detect_contradictions(numeric_claims)
+        # Qualitative present-vs-absent clinical-safety conflict detection (I-meta-002-q1d #944).
+        # Default ON (no-spend, additive, rule-cue only); kill-switch PG_SWEEP_QUALITATIVE_CONFLICT.
+        # Merged into the SAME contradictions.json list (a `type:"qualitative"` discriminator +
+        # `severity:"review"` distinguish them; downstream renderers branch on those). Fail-open: a
+        # detector error never aborts the sweep.
+        qualitative_records = []
+        try:
+            # ALL detector imports inside the fail-open try (Codex diff-gate iter-1 P2.1): a module
+            # import failure must log + skip, never abort the sweep.
+            from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+                detect_qualitative_conflicts,
+                extract_qualitative_assertions,
+                qualitative_conflict_enabled,
+            )
+            if qualitative_conflict_enabled():
+                qualitative_records = detect_qualitative_conflicts(
+                    extract_qualitative_assertions(
+                        retrieval.evidence_rows, domain=q["domain"],
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
+            _log(f"[qual-conflict] detector error (skipped, fail-open): {exc}")
+            qualitative_records = []
+        # Semantic/NLI cross-document contradiction detection (I-ready-012 #1079). The THIRD
+        # detector: an LLM-NLI pass catching prose-only directional contradictions with NO shared
+        # number and NO NegEx cue that the numeric+qualitative rule layers miss (the lethal-miss
+        # class). Default OFF (PG_SWEEP_NLI_CONFLICT) -> byte-identical when off (no judge built, no
+        # network). Fail-open: a detector/judge/import error logs + skips, never aborts the sweep; a
+        # BudgetExceededError is absorbed inside the detector as keep-partial (the run's hard cap is
+        # still enforced by the downstream generation/evaluation budget guards). Merged into the SAME
+        # contradictions.json list with a `type:"semantic"` discriminator; routed to a dedicated
+        # report disclosure block + the PT08 evaluator gate below (the numeric renderer is untouched).
+        semantic_records = []
+        try:
+            from src.polaris_graph.retrieval.semantic_conflict_detector import (
+                detect_semantic_conflicts_for_rows,
+                semantic_conflict_enabled,
+            )
+            if semantic_conflict_enabled():
+                semantic_records = detect_semantic_conflicts_for_rows(
+                    retrieval.evidence_rows,
+                )
+        except Exception as exc:  # noqa: BLE001 — fail-open, log loudly, never abort the sweep
+            _log(f"[semantic-conflict] detector error (skipped, fail-open): {exc}")
+            semantic_records = []
+        (run_dir / "contradictions.json").write_text(
+            json.dumps(
+                [asdict(c) for c in contradictions]
+                + [asdict(qr) for qr in qualitative_records]
+                + [asdict(sr) for sr in semantic_records],
+                indent=2, sort_keys=True, default=str,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        _qual_hard = sum(1 for qr in qualitative_records if qr.severity in ("high", "medium"))
+        _qual_review = sum(1 for qr in qualitative_records if qr.severity == "review")
+        _log(f"[contradict]  numeric_claims={len(numeric_claims)}  "
+             f"numeric_contradictions={len(contradictions)}  "
+             f"qualitative_conflicts={_qual_hard}  qualitative_review_flags={_qual_review}")
+
+        # Multi-section generation with Limitations (R-1)
+        # BUG-M-201 fix (deep-dive R6): tier-balanced + relevance-ranked
+        # selection instead of raw-order truncation. Previously the
+        # generator saw evidence_rows[:20] in retrieval order, diverging
+        # from what the gates certified.
+        from src.polaris_graph.retrieval.evidence_selector import (
+            select_evidence_for_generation,
+        )
+        max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_semantic_conflict_detector_iready012.py -q' in C:\POLARIS
+ succeeded in 5761ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 16 items
+
+tests\polaris_graph\test_semantic_conflict_detector_iready012.py ....... [ 43%]
+.........                                                                [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 16 passed, 1 warning in 2.23s ========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "P2-1 deferred to #1092: judge ledger / Path-B capture observability; non-blocking."
+  - "P2-3 deferred to #1092: typed semantic contradiction IR vs value=0.0 loader sentinel; non-blocking."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+32,679
