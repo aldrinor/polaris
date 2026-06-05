@@ -40,11 +40,29 @@ def test_warns_when_force_enabled_but_did_not_fire():
     assert feature_firing_warning(t) is not None
 
 
-def test_manifest_keys_are_wired_in_source():
-    # The sweep must write both per-feature firing keys to the manifest (structural guard against a
-    # future edit silently dropping them — the whole point is proving utilization).
-    import inspect
+def test_attach_tool_utilization_stamps_telemetry_on_every_manifest_path(monkeypatch, tmp_path):
+    # Codex iter-1 P1: the firing keys must land on EVERY manifest write path (abort/budget/error too),
+    # not just success. _attach_tool_utilization is the single hook before every manifest.json write; it
+    # stamps the telemetry from _FEATURE_TELEMETRY_CTX. With the tracker OFF it is otherwise a no-op, so
+    # this isolates the feature-key stamping.
     import scripts.run_honest_sweep_r3 as m
-    src = inspect.getsource(m)
-    assert 'manifest["storm_query_expansion"] = _storm_telemetry' in src
-    assert 'manifest["agentic_search"] = _agentic_telemetry' in src
+    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
+    storm = make_feature_telemetry("storm_query_expansion", enabled=True, fired=True, status="fired")
+    agentic = make_feature_telemetry("agentic_search", enabled=True, fired=False, status="enabled_not_reached")
+    tok = m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": storm, "agentic_search": agentic})
+    try:
+        out = m._attach_tool_utilization({"status": "abort_no_sources"}, tmp_path)
+    finally:
+        m._FEATURE_TELEMETRY_CTX.reset(tok)
+    # an ABORT manifest now carries the firing telemetry — the operator can prove STORM fired even on abort
+    assert out["storm_query_expansion"]["fired"] is True
+    assert out["agentic_search"]["status"] == "enabled_not_reached"
+
+
+def test_attach_tool_utilization_no_telemetry_when_ctx_unset(monkeypatch, tmp_path):
+    # When the ContextVar is unset (non-run_one_query caller), no feature keys are added (byte-identical).
+    import scripts.run_honest_sweep_r3 as m
+    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
+    m._FEATURE_TELEMETRY_CTX.set(None)
+    out = m._attach_tool_utilization({"status": "success"}, tmp_path)
+    assert "storm_query_expansion" not in out and "agentic_search" not in out

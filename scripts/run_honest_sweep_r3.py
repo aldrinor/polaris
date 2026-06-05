@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -1354,6 +1355,17 @@ def _capture_run_pin(
         return None
 
 
+# I-ready-005 (#1076) Codex iter-1 P1: per-feature firing telemetry must land on EVERY manifest write
+# (success AND all abort/budget/error paths), not just success — else a forced-ON run that aborts early
+# (e.g. abort_no_sources, AFTER the STORM block) leaves the operator unable to prove STORM/agentic fired.
+# run_one_query publishes its (live, mutated-in-place) telemetry dicts into this ContextVar at the top;
+# _attach_tool_utilization — the single hook called before every manifest.json write — stamps them.
+# ContextVar (not a module global) so concurrent async run_one_query tasks don't stomp each other.
+_FEATURE_TELEMETRY_CTX: "contextvars.ContextVar[dict[str, dict] | None]" = contextvars.ContextVar(
+    "_feature_telemetry", default=None,
+)
+
+
 def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
     """I-meta-007b (#meta-007) P1: attach the per-run tool-utilization summary
     to ``manifest`` (and write ``run_dir/tool_summary.json``) immediately before
@@ -1364,7 +1376,15 @@ def _attach_tool_utilization(manifest: dict, run_dir: Path) -> dict:
     Pure no-op when PG_ENABLE_TOOL_TRACKER selects OFF (manifest unchanged, no
     file written), so OFF-mode manifest.json stays byte-identical. Any telemetry
     or import error is swallowed + logged so it can never abort the run.
+
+    I-ready-005 (#1076): ALSO stamps the per-feature firing telemetry (STORM / agentic) from
+    ``_FEATURE_TELEMETRY_CTX`` so EVERY manifest write path carries it. Additive, fail-safe.
     """
+    # I-ready-005 (#1076): stamp the per-feature firing telemetry on EVERY manifest path. Best-effort.
+    _feat = _FEATURE_TELEMETRY_CTX.get()
+    if _feat:
+        for _k, _v in _feat.items():
+            manifest[_k] = _v
     try:
         from src.polaris_graph.telemetry.tool_tracer import (
             attach_tool_utilization as _attach,
@@ -1488,6 +1508,26 @@ async def run_one_query(
     # BUG-N-301 fix: set ambient run_id so every downstream
     # OpenRouterClient tags its cost-ledger entries with this run.
     set_current_run_id(run_id)
+
+    # I-ready-005 (#1076) Codex iter-1 P1: initialize per-feature FIRING telemetry HERE — at the top of
+    # run_one_query, BEFORE any early-abort/budget/error manifest write — and publish it into the
+    # ContextVar that _attach_tool_utilization stamps onto EVERY manifest.json. `enabled` reflects the
+    # FLAG (so even a run that aborts before the feature block shows it was configured); the STORM/agentic
+    # blocks mutate `fired`/counts/status in place. status: not_enabled -> enabled_not_reached (configured
+    # but the run aborted before the block) -> attempted_empty (block ran) -> fired / error.
+    _storm_enabled = os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
+    _agentic_enabled = os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in ("1", "true", "True")
+    _storm_telemetry = make_feature_telemetry(
+        "storm_query_expansion", questions_added=0, interviews=0,
+        enabled=_storm_enabled, status="enabled_not_reached" if _storm_enabled else "not_enabled",
+    )
+    _agentic_telemetry = make_feature_telemetry(
+        "agentic_search", urls_discovered=0,
+        enabled=_agentic_enabled, status="enabled_not_reached" if _agentic_enabled else "not_enabled",
+    )
+    _FEATURE_TELEMETRY_CTX.set({
+        "storm_query_expansion": _storm_telemetry, "agentic_search": _agentic_telemetry,
+    })
 
     # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
     # mode — the jsonl is rewritten on every record/update so it is current
@@ -2019,12 +2059,9 @@ async def run_one_query(
                 trial=_trial_queries,
             )
 
-        # I-ready-005 (#1076) P1: per-feature firing telemetry, surfaced to the manifest so the operator
-        # can PROVE each forced-ON benchmark feature actually fired (not just that its flag was set).
-        # Initialized here (function-body level) so the keys are always defined at manifest-build time,
-        # even when a feature is OFF or its block faults. status: not_enabled / fired / attempted_empty / error.
-        _storm_telemetry = make_feature_telemetry("storm_query_expansion", questions_added=0, interviews=0)
-        _agentic_telemetry = make_feature_telemetry("agentic_search", urls_discovered=0)
+        # I-ready-005 (#1076): _storm_telemetry / _agentic_telemetry are initialized at the TOP of
+        # run_one_query (before any early-abort manifest write) and published to _FEATURE_TELEMETRY_CTX;
+        # the blocks below mutate them in place, and _attach_tool_utilization stamps them on every manifest.
 
         # I-cap-002 feature 1/4 (#1060): STORM multi-perspective query expansion (default OFF,
         # fallback-safe). When PG_STORM_ENABLED_IN_BENCHMARK=1, call STORM to generate diverse
@@ -5154,14 +5191,10 @@ async def run_one_query(
         # inside the helper): when OFF, neither the file nor the key is produced,
         # so manifest.json is byte-identical to the pre-I-meta-007b output.
         manifest = _attach_tool_utilization(manifest, run_dir)
-
-        # I-ready-005 (#1076) P1: surface per-feature FIRING telemetry so the operator can PROVE each
-        # forced-ON benchmark feature actually fired (not merely that its flag was set). Additive keys;
-        # when a feature is OFF the key reads {enabled:false, fired:false, status:"not_enabled"}.
-        manifest["storm_query_expansion"] = _storm_telemetry
-        manifest["agentic_search"] = _agentic_telemetry
-        # Fail LOUD (log, non-gating) if a feature was force-ENABLED but did NOT fire — a forced-ON-but-
-        # feature-less paid run is exactly the silent-degrade the operator's no-downgrade directive forbids.
+        # I-ready-005 (#1076): the per-feature firing keys (storm_query_expansion / agentic_search) are
+        # stamped on EVERY manifest path by _attach_tool_utilization (via _FEATURE_TELEMETRY_CTX). Here on
+        # the SUCCESS path we additionally fail LOUD (log, non-gating) if a feature was force-ENABLED but
+        # did NOT fire — the silent-degrade the operator's no-downgrade directive forbids.
         for _feat in (_storm_telemetry, _agentic_telemetry):
             _feat_warn = feature_firing_warning(_feat)
             if _feat_warn:
