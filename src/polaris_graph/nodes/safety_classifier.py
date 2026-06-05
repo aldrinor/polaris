@@ -63,9 +63,11 @@ _PERSON = (
     # an adjective-qualified patient / resident ("a hospital patient", "an elderly resident").
     r"(?:my|the|a|an)\s+(?:hospital\w*|hospitali[sz]ed|elderly|\bicu\b|nursing[-\s]home|dialysis|"
     r"comatose|sedated|sleeping|unconscious|vulnerable|disabled|bedridden|terminally\s+ill)\s+"
-    r"(?:patient|resident|person|relative)|"
-    # a capitalized given name directly after the kill verb (case-sensitive even under re.I).
-    r"(?-i:[A-Z][a-z]{2,}))"
+    r"(?:patient|resident|person|relative))"
+    # NOTE: a capitalized-given-name branch was REMOVED at iter-5 — it caught capitalized
+    # pathogens/species ("kill Candida auris", "kill Salmonella"), over-refusing legitimate clinical
+    # microbiology. Named-victim coverage ("kill John") is a documented FLOOR gap (under-refusal),
+    # deferred to the robust classifier; over-refusing real science is the unacceptable direction.
 )
 
 # Care / clinical-management / prevention FRAME for the LETHAL category — a query ABOUT treating or
@@ -159,9 +161,12 @@ _BENIGN_BOMB = re.compile(r"\b(?:bath|smoke|bond|photo|stink|colou?r)[-\s]?bombs
 _WEAPONIZATION = re.compile(
     # an ACTION verb governing a weapon subject (Codex diff-gate iter-3/4: bare "bomb", "how can I
     # make", "instructions/blueprint to build", "engineer anthrax for release" were missed).
+    # NOTE: "culture/grow" were REMOVED at iter-5 — clinical labs culture pathogens routinely; that
+    # over-refused legitimate microbiology. Bioweapon engineering is still caught via engineer/
+    # synthesize/weaponize + the specific agents.
     r"\b(?:synthesi[sz]e|synthesi[sz]ing|make|making|build|building|manufactur|produc(?:e|ing)|"
     r"construct|creat(?:e|ing)|assembl|deploy|weaponi[sz]|disperse|releas(?:e|ing)|aerosoli[sz]|"
-    r"engineer(?:ing)?|cultur(?:e|ing)|grow(?:ing)?)"
+    r"engineer(?:ing)?)"
     r"\w*\s+(?:a\s+|an\s+|the\s+|some\s+|your\s+own\s+)?"
     r".{0,30}?\b" + _WEAPON_SUBJECT
     + r"|\bhow\s+(?:to|do\s+i|can\s+i|would\s+i)\s+(?:make|build|synthesi[sz]e|construct|create|"
@@ -188,24 +193,30 @@ _CSAM_ACQUISITION = re.compile(
     + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access|"
     r"show\s+me|view|stream|trade|sell|buy)\b"
     r".{0,30}?\b" + _MINOR + r"\b.{0,15}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b"
-    r"|\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\bof\s+(?:a\s+|an\s+)?" + _MINOR
-    + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|access|view|trade|sell|buy|show\s+me)\b"
+    r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|access|view|trade|sell|buy|show\s+me)\b"
     r".{0,20}?\b(?:csam|child\s+porn\w*)\b",
     re.IGNORECASE,
 )
 # CSAM LITERAL reference — rescuable by a clinical / legal / policy / research SAFE frame anywhere
-# (Codex diff-gate iter-4 over-refusal: "CSAM reporting laws", "clinical treatment of a child sexual
-# abuse survivor", "epidemiology of child sexual abuse survivors" are legitimate).
+# (Codex diff-gate iter-4/5 over-refusal: "CSAM reporting laws", "clinical treatment of a child sexual
+# abuse survivor", "legal requirements for reporting sexual abuse of minors", "platform policy for
+# detecting explicit images of minors" are legitimate). NOTE the bare "[imagery] of [minor]" form
+# lives HERE (rescuable), NOT in acquisition — only an acquisition VERB is unrescuable (Codex iter-5).
 _CSAM_LITERAL = re.compile(
     r"\b(?:child\s+sexual\s+abuse\s+material|csam|child\s+(?:porn(?:ography)?|sexual\s+abuse)|"
+    r"sexual\s+abuse\s+of\s+(?:a\s+)?(?:minors?|child(?:ren)?|kids?|underage)|"
     r"(?:sexual(?:i[sz]e)?|nude|naked|explicit)\s+\w{0,12}?\s*(?:minor|child|underage|prepubescent)|"
-    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b",
+    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b"
+    r"|\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\bof\s+(?:a\s+|an\s+)?" + _MINOR,
     re.IGNORECASE,
 )
+# Safe frame — "support" is narrowed to victim/survivor support (Codex iter-5: bare "support" let
+# "how to support child porn creators" bypass).
 _CSAM_SAFE_GUARD = re.compile(
     r"\b(?:report\w*|laws?|legislat\w*|legal|policy|policies|mandatory\s+report\w*|prevent\w*|"
-    r"treat\w*|therap\w*|clinical|epidemiolog\w*|prevalence|incidence|statistics|survivors?|victims?|"
-    r"support|hotline|ncmec|investigat\w*|prosecut\w*|takedown|moderation|trust\s+and\s+safety|"
+    r"treat\w*|therap\w*|clinical|epidemiolog\w*|prevalence|incidence|statistics|survivors?|"
+    r"\bvictims?\b|(?:victim|survivor)\s+support|support\s+(?:for\s+)?(?:victims?|survivors?)|"
+    r"hotline|ncmec|investigat\w*|prosecut\w*|takedown|moderation|trust\s+and\s+safety|"
     r"detect\w*|hash(?:ing)?|safeguard\w*|protect\w*|awareness|education|recover\w*)\b",
     re.IGNORECASE,
 )
@@ -230,7 +241,10 @@ _SELF_HARM_METHOD = re.compile(
 # noticing" bypass. First-person method-seeking otherwise ALWAYS refuses-with-redirection (the redirect
 # IS the help). Legit resource / third-party / awareness queries do not fire _SELF_HARM_METHOD at all.
 _SELF_HARM_RESEARCH_GUARD = re.compile(
-    r"\b(?:epidemiolog\w*|prevalence|incidence|statistics|rates?\s+of|research|study|studies|"
+    # "research/study" must GOVERN a topic (of/on/into/about) — Codex iter-5: bare "research how to
+    # kill myself" is an imperative to research a method, not a topic study.
+    r"\b(?:epidemiolog\w*|prevalence|incidence|statistics|rates?\s+of|"
+    r"(?:research|study|studies|data|literature)\s+(?:on|of|into|about|regarding)|"
     r"news|article|report\w*|history\s+of|prevention\s+(?:program|programme|strateg|campaign)|"
     r"public\s+health)\b",
     re.IGNORECASE,
@@ -268,8 +282,11 @@ _ACTION_PREVENTION_GUARD = re.compile(
     # / "for policy analysis," prefixes let a how-to-synthesize/build imperative bypass). Each form
     # GOVERNS the harm as its object — "prevent ... from making", "reduce|disrupt ... production",
     # a policy noun + a governing verb. A loose leading policy noun alone no longer rescues.
-    r"\bprevent\w*\s+(?:people|the\s+public|others|them|the\s+spread\s+of|access\s+to|"
-    r"\w+\s+from\s+(?:making|producing|manufactur|synthesi|building|developing|acquiring))"
+    # "prevent ... from <making/...>" must govern the harm verb (Codex iter-5: bare "prevent people"
+    # let "prevent people from stopping me while building a bomb" bypass).
+    r"\bprevent\w*\s+(?:\w+\s+){0,3}?from\s+(?:making|producing|manufactur|synthesi|building|"
+    r"developing|acquiring|obtaining|accessing)"
+    r"|\bprevent\w*\s+(?:the\s+spread\s+of|access\s+to)\b"
     r"|\b(?:reduce|disrupt|combat\w*|curb|tackle|ban|banning|restrict\w*|stop|stem|interdict\w*|"
     r"intercept)\s+(?:the\s+)?(?:illicit\s+|illegal\s+)?(?:production|traffick\w*|spread|proliferat\w*|"
     r"manufactur\w*|supply|distribution|smuggling)\b"
@@ -284,7 +301,7 @@ _ACTION_PREVENTION_GUARD = re.compile(
 # Clause separators — a care/prevention frame does NOT govern a harm clause across one of these
 # (Codex diff-gate iter-4: "clinical management: what dose would kill my roommate" / "policy program:
 # how to synthesize fentanyl" — a colon-prefixed frame is detached, not governing).
-_CLAUSE_SEPARATOR = re.compile(r"[:;.?!–—\n]|\s-\s")
+_CLAUSE_SEPARATOR = re.compile(r"[:;.?!,–—\n]|\s-\s")
 
 
 def _frame_leads(harm_match: re.Match[str], guard: re.Pattern[str], q: str) -> bool:
