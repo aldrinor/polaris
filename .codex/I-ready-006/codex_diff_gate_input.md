@@ -38,6 +38,23 @@ Diff: `.codex/I-ready-006/codex_diff.patch` (vs base bot/I-ready-004).
   `_CLINICAL_CONTENT` guard remains as defense-in-depth. 11 clinical/outcome probes (incl. all of
   yours) now assert complex; the financial/GDP/capital cases still assert simple.
 
+## iter-3 diff was REQUEST_CHANGES (2 P1, 1 P2) — ALL FIXED (this is the iter-4 diff):
+- **P1-1 (clinical, continuing):** "population with obesity / taking statins / using Ozempic / with
+  long COVID" routed simple. Root causes: (a) the safe allowlist's bare `population` allowed
+  "population WITH a disease"; (b) the `_CLINICAL_CONTENT` stems (`obes`/`diabet`/`statin`) were
+  `\b`-bounded so they did NOT match "obesity"/"diabetes"/"statins". FIX: tightened the allowlist to
+  `population of` (civic only); rewrote the clinical guard to PREFIX-match (`\b(?:stem)\w*`) so
+  obesity/diabetes/statins match, + added covid/long-covid/ebola/measles/sepsis/stroke/guillain/gbs +
+  common drug brand names. 5 epidemiology reprobes now assert complex.
+- **P1-2 (due-diligence):** "Apple revenue drivers and competitive risks", "Microsoft revenue
+  exposure to OpenAI", "Apple profit risk from China tariffs" routed simple. FIX: added
+  driver/risk/exposure/competiti/outlook/threat/tariff/"next N years"/scenario/... to
+  `_COMPLEX_INTENT`. 4 due-diligence reprobes now assert complex; "Apple revenue in 2023" stays simple.
+- **P2-1 (override drop):** the simple adequacy override was only on the FIRST adequacy check;
+  the expansion/deepener/agentic recomputes (now lines ~2611/2711/2858) dropped it → a simple-routed
+  run reverted to clinical defaults + aborted. FIX: all 4 assess_corpus_adequacy calls now pass the
+  override; a source-check test asserts overrides >= adequacy-call-sites.
+
 ## What the diff does
 **New module** `src/polaris_graph/nodes/complexity_router.py` — deterministic, fail-open
 `classify_complexity(question) -> ComplexityDecision(complexity, confidence, reasons)`. Pure stdlib +

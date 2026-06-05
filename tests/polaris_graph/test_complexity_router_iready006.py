@@ -68,12 +68,31 @@ def test_complex_or_ambiguous_queries_fail_open_to_complex(q):
     "What is the rate of GBS after Shingrix?",
     "What is the rate of Guillain-Barre after Shingrix?",
     "What is the fatality rate of Ebola?",
+    # Codex diff-gate iter-3 reprobes — epidemiology / drug-utilization disguised as "population".
+    "What is the population with long COVID in Canada?",
+    "What is the population with obesity in Canada?",
+    "What is the population taking statins in Canada?",
+    "What is the population using Ozempic in Canada?",
+    "What is the population of diabetics in the US?",
 ])
 def test_clinical_outcome_safety_queries_are_complex(q):
     # A factual-RATE clinical/outcome/safety question must route complex — it must NEVER be right-sized
     # to the 1-source simple adequacy profile (lethal-class under-serving per §-1.1).
     d = classify_complexity(q)
     assert d.complexity == "complex", (q, d.reasons)
+
+
+# ── due-diligence / analytical queries are NOT simple (Codex diff-gate iter-3 P1-2) ──────────────
+@pytest.mark.parametrize("q", [
+    "What are Apple revenue drivers and competitive risks for next 5 years",
+    "What is Microsoft revenue exposure to OpenAI",
+    "What is Apple profit risk from China tariffs",
+    "What is the outlook for Tesla revenue going forward",
+])
+def test_due_diligence_analytical_queries_are_complex(q):
+    # revenue/profit are safe cues, but driver/risk/exposure/competitive/outlook/tariff intent makes
+    # these multi-hop analysis, not a one-line factual lookup.
+    assert classify_complexity(q).complexity == "complex", (q, classify_complexity(q).reasons)
 
 
 def test_empty_question_fails_open():
@@ -144,3 +163,10 @@ def test_routing_and_manifest_field_are_gated_off_by_default():
     cap_idx = src.find("# I-meta-005 Phase 1", routing_idx)   # the next block after the router
     block = src[routing_idx:cap_idx] if cap_idx > routing_idx else src[routing_idx:routing_idx + 2000]
     assert "try:" in block and "FAIL OPEN" in block.upper()
+    # Codex diff-gate iter-3 P2-1: EVERY assess_corpus_adequacy call (initial + expansion/deepener/
+    # agentic recomputes) must carry the simple override — else a simple-routed run reverts to clinical
+    # defaults after expansion and aborts. One override per adequacy call site.
+    n_adequacy_calls = src.count("assess_corpus_adequacy(")
+    n_overrides = src.count("override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None)")
+    assert n_adequacy_calls >= 4
+    assert n_overrides >= n_adequacy_calls, (n_overrides, n_adequacy_calls)

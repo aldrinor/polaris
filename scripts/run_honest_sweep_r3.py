@@ -2607,6 +2607,10 @@ async def run_one_query(
                     evidence_row_count=len(retrieval.evidence_rows),
                     domain=q["domain"],
                     protocol=protocol,
+                    # I-ready-006 (#1082) Codex diff-gate iter-3 P2-1: keep the simple override on the
+                    # post-expansion recompute too — else a simple-routed run reverts to clinical
+                    # defaults here and aborts corpus_inadequate after right-sizing the retrieval.
+                    override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                 )
                 (run_dir / "corpus_adequacy.json").write_text(
                     json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str)
@@ -2704,6 +2708,8 @@ async def run_one_query(
                         evidence_row_count=len(_staged_rows),
                         domain=q["domain"],
                         protocol=protocol,
+                        # I-ready-006 (#1082) P2-1: simple override on the staged/deepener recompute too.
+                        override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                     )
                     # Commit atomically (all recomputes succeeded).
                     retrieval.classified_sources = _staged_sources
@@ -2848,6 +2854,8 @@ async def run_one_query(
                         evidence_row_count=len(_ag_rows),
                         domain=q["domain"],
                         protocol=protocol,
+                        # I-ready-006 (#1082) P2-1: simple override on the agentic-merge recompute too.
+                        override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None),
                     )
                     retrieval.classified_sources = _ag_sources
                     retrieval.evidence_rows = _ag_rows

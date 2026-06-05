@@ -36,7 +36,13 @@ _COMPLEX_INTENT = re.compile(
     r"meta[- ]?analysis|systematic review|guideline|recommend|"
     r"relationship between|associat|correlat|predict|forecast|project|"
     r"should|optimal|best (?:approach|strategy|treatment|option)|evaluate|assess(?:ment)?|"
-    r"pros and cons|advantages|risk[- ]?benefit)\b",
+    r"pros and cons|advantages|risk[- ]?benefit|"
+    # I-ready-006 (#1082) Codex diff-gate iter-3 P1-2: analytical / due-diligence intent — these are
+    # NOT one-line factual lookups (e.g. "Apple revenue drivers and competitive risks", "Microsoft
+    # revenue exposure to OpenAI", "Apple profit risk from China tariffs"). Any of these ⇒ full path.
+    r"driver|risk|exposure|competiti|outlook|threat|headwind|tailwind|moat|"
+    r"opportunit|strateg|tariff|sanction|next \d+ years|over the next|going forward|"
+    r"implication|scenario|sensitivity|downside|upside|catalyst)\b",
     re.IGNORECASE,
 )
 
@@ -46,15 +52,22 @@ _COMPLEX_INTENT = re.compile(
 # diff-gate iter-1 P1-1; lethal-class under-serving per CLAUDE.md §-1.1). Erring toward complex here
 # is the SAFE direction (over-serving a stock query that trips a drug-suffix is harmless; under-
 # serving a clinical query is not).
+# Word/STEM group — matched as PREFIXES via the trailing \w* (Codex diff-gate iter-3 P1-1: the prior
+# \b-bounded stems did NOT match "obesity"/"diabetes"/"statins"). \b(?:stem)\w* matches the stem plus
+# any continuation. Includes common disease/condition names + abbreviations the allowlist flip alone
+# might not veto.
 _CLINICAL_CONTENT = re.compile(
-    r"\b(patient|disease|syndrome|disorder|infection|cancer|tumou?r|diabet|obes|hypertens|"
-    r"cardiovascular|cardiac|renal|hepatic|pulmonary|neuro|psychiatr|oncolog|"
-    r"mortality|morbidity|incidence|prevalence|survival|prognosis|remission|relapse|recurrence|"
-    r"complication|hospitali[sz]|readmission|response rate|cure rate|case fatality|"
-    r"drug|medication|therap|treatment|vaccin|immuni[sz]|dose|dosage|clinical|diagnos|symptom|"
+    r"\b(?:patient|disease|syndrome|disorder|infect|cancer|tumou?r|diabet|obes|hypertens|"
+    r"cardiovascular|cardiac|renal|hepatic|pulmonary|respiratory|neuro|psychiatr|oncolog|"
+    r"mortality|morbidity|incidence|prevalence|survival|prognos|remission|relaps|recurren|"
+    r"complication|hospitali|readmission|cure rate|case fatality|fatality|fatal|death|deaths|"
+    r"epidemi|pandemic|outbreak|covid|coronavirus|influenza|ebola|measles|sepsis|stroke|"
+    r"guillain|gbs|long covid|"
+    r"drug|medication|therap|treatment|vaccin|immuni|dose|dosing|dosage|clinical|diagnos|symptom|"
     r"adverse|side[- ]?effect|toxicit|contraindicat|comorbid|"
-    r"\w+(?:mab|nib|tinib|gliptin|glutide|afil|statin|sartan|pril|cycline|cillin|mycin|"
-    r"parin|setron|grel|vir|pam|zepine|olol))\b",
+    r"semaglutide|tirzepatide|ozempic|wegovy|mounjaro|metformin|warfarin|statin)\w*"
+    r"|\b\w+(?:mab|nib|tinib|gliptin|glutide|afil|statin|sartan|cycline|cillin|mycin|"
+    r"parin|setron|grel|zepine)\b",
     re.IGNORECASE,
 )
 
@@ -68,8 +81,12 @@ _CLINICAL_CONTENT = re.compile(
 _SAFE_FACTUAL_CUE = re.compile(
     r"\b(stock price|share price|stock|shares|market cap|market capitali[sz]ation|"
     r"revenue|profit|earnings|dividend|valuation|net worth|ipo|"
-    r"gdp|inflation rate|unemployment rate|exchange rate|interest rate|currency|"
-    r"population|capital of|area of|time ?zone|headquarter|founded|founder|"
+    r"gdp|inflation rate|unemployment rate|exchange rate|interest rate|"
+    # I-ready-006 (#1082) Codex diff-gate iter-3 P1-1: "population OF <place>" is a civic fact, but bare
+    # "population" allowed epidemiology ("population WITH obesity", "population TAKING statins") to route
+    # simple. Require "population of"; drug-utilization / disease-prevalence phrasings lose the safe cue
+    # (and the clinical guard above is the second line of defense).
+    r"population of|capital of|area of|time ?zone|headquarter|founded|founder|"
     r"\bceo\b|number of employees|ticker|stock exchange)\b",
     re.IGNORECASE,
 )
