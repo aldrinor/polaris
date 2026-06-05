@@ -1655,6 +1655,9 @@ async def run_one_query(
         "run_dir": str(run_dir),
         "error": "",
     }
+    _clinical_verified_only_surface = (
+        str(q.get("domain", "")).strip().lower() == "clinical"
+    )
 
     try:
         # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
@@ -1671,6 +1674,8 @@ async def run_one_query(
         _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
         _log(f"Question: {q['question']}")
         _log(f"Budget cap: ${get_max_cost_per_run():.4f}")
+        if _clinical_verified_only_surface:
+            _log("[synthesis]  clinical domain: Analyst Synthesis disabled (verified-only surface)")
         _log("=" * 72)
 
         # I-ready-007 (#1072): input harm-refusal — BEFORE the scope gate / any retrieval / any
@@ -4063,6 +4068,7 @@ async def run_one_query(
             # the rendered headings == exactly the pruned sufficient sections.
             research_plan=_gen_plan,
             partial_mode=_partial_mode,
+            suppress_analyst_synthesis=_clinical_verified_only_surface,
             )
         finally:
             _pathb.reset_role(_pathb_gen_tok)

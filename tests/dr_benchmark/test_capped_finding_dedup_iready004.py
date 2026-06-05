@@ -63,7 +63,7 @@ def _set_min_passing_env() -> None:
         "PG_NLI_IN_BENCHMARK": "1", "PG_ENABLE_TOOL_TRACKER": "1",
         "PG_USE_FINDING_DEDUP": "1", "PG_CAPPED_FINDING_DEDUP": "1",
         "PG_STRICT_VERIFY_ENTAILMENT": "enforce", "PG_MOST_MAX_EVIDENCE": "800",
-        "PG_LIVE_MAX_EV_TO_GEN": "150",
+        "PG_LIVE_MAX_EV_TO_GEN": "150", "PG_SWEEP_ANALYST_SYNTHESIS": "0",
     }.items():
         os.environ[k] = v
     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run

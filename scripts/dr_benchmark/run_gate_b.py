@@ -462,6 +462,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
+    # I-ready-013 (#1080): benchmark report.md must be a verified-only surface.
+    # The legacy Analyst Synthesis layer is interpretive and not span-verified /
+    # 4-role gated, so Gate-B force-disables it instead of turning on the planner
+    # or changing the verifier machinery.
+    "PG_SWEEP_ANALYST_SYNTHESIS": "0",
     # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
     # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
     # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
@@ -524,6 +529,17 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_RELEVANCE_FLOOR",
 })
 
+# Flags/modes that the benchmark slate force-sets to a specific value that is
+# not "on". Kept separate from _BENCHMARK_FORCE_ON_FLAGS so tests and comments
+# around capability-enabling flags keep their original meaning.
+_BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
+    "PG_SWEEP_ANALYST_SYNTHESIS",
+})
+
+_BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
+    "PG_SWEEP_ANALYST_SYNTHESIS",
+)
+
 # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
 # is degraded (entailment not binding / judge_error fails open) at any other value. PG_VERIFICATION_MODE
 # is NOT required here (rescue widening is out of scope; judge_error fail-closed keys on the entailment mode).
@@ -557,6 +573,7 @@ def apply_full_capability_benchmark_slate() -> None:
     ``PG_LLM_TIMEOUT_SECONDS=600`` in .env) is KEPT, but a LOWER default is RAISED to full capability.
     No silent downgrade in either direction (operator no-downgrade directive). Feature flags in
     ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+    Exact-value flags in ``_BENCHMARK_FORCE_EXACT_FLAGS`` are forced to their slate value.
 
     Codex diff-gate iter-2 P1-2: MUST run BEFORE the sweep / live_retriever / state imports, which cache
     ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` as import-time module
@@ -565,8 +582,8 @@ def apply_full_capability_benchmark_slate() -> None:
     too-late application is caught fail-closed.
     """
     for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
-        if name in _BENCHMARK_FORCE_ON_FLAGS:
-            os.environ[name] = value                       # force "1" — a benchmark feature can't be off
+        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+            os.environ[name] = value                       # force exact value — no silent benchmark drift
             continue
         try:
             current = float(os.environ.get(name, value))
@@ -600,6 +617,12 @@ def preflight_full_capability() -> None:
             raise RuntimeError(
                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
                 f"or its firing is unobservable (tracker off). Enable it before the run."
+            )
+    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
+        if os.getenv(flag, "1").strip() in ("1", "true", "True"):
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {flag} is enabled — Gate-B report.md would include the "
+                f"un-span-verified Analyst Synthesis layer. Set {flag}=0 for the verified-only benchmark."
             )
     # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
     # entailment judge does not bind as a drop gate and/or a judge_error fails OPEN (unverified clinical

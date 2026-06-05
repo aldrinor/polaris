@@ -4128,6 +4128,12 @@ async def generate_multi_section_report(
     # empty inputs) so a fixture that would otherwise trigger each produces NONE.
     # Default False = PROCEED/full mode UNCHANGED (all five still render).
     partial_mode: bool = False,
+    # I-ready-013 (#1080): force a verified-only delivered surface for
+    # clinical/benchmark paths without turning on the planner or changing
+    # strict_verify/4-role/provenance machinery. Default False keeps legacy
+    # non-clinical/off-mode behavior unchanged; caller-owned True omits the
+    # un-span-verified analyst layer before any synthesis LLM call.
+    suppress_analyst_synthesis: bool = False,
 ) -> MultiSectionResult:
     """Three-stage multi-section generation.
 
@@ -5083,15 +5089,21 @@ async def generate_multi_section_report(
     analyst_synth_text = ""
     analyst_synth_in_tok = 0
     analyst_synth_out_tok = 0
+    analyst_synth_enabled = (
+        os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "1").strip() in ("1", "true", "True")
+    )
     # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1): DEMOTE the unverified
     # analyst-synthesis block ON-MODE (research_plan is not None). On-mode the
     # VERIFIED "Integrative" outline section (strict_verify'd, counts toward
     # verified_words) is the synthesis; the legacy unverified analyst block must
     # NOT also run (it would add a second, ungrounded interpretive layer to
     # total_words). OFF-mode (research_plan is None) keeps the legacy analyst
-    # block byte-identical. partial_mode already disables it.
+    # block byte-identical unless the caller explicitly requires a verified-only
+    # surface (clinical/benchmark). partial_mode already disables it.
     if (
         not partial_mode
+        and not suppress_analyst_synthesis
+        and analyst_synth_enabled
         and research_plan is None
         and section_results
         and global_biblio
