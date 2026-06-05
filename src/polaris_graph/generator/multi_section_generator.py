@@ -1261,12 +1261,15 @@ def _build_concise_variant(template: str) -> str:
             _CONCISE_RULE_10_TAIL,
             False,
         ),
-        # Mechanism depth rule (clinical only): drop all three sentence-count
-        # floors (20-35 / 15-20 / 10-15), keep the priority topics + thin-pool
-        # disclosure. Matched as one block so no list header is orphaned.
+        # Mechanism depth rule (clinical only): drop ALL sentence-count bias — Codex iter-1 P1
+        # (F13-P1-001) found the prior narrower match left the "target that matches pool size:"
+        # preamble AND the trailing "...does not support 20-35 sentences." conditional in the ON prompt.
+        # Span the WHOLE block from the preamble verb through that trailing sentence; the replacement
+        # ("cover as many of the priority topics ... not sentence count") reads grammatically after
+        # "...metabolism), ". Keeps the priority topics + thin-pool disclosure; drops every count.
         (
-            r"TARGET 20-35 sentences of mechanism narrative.*?"
-            r"would require additional primary sources\.\"",
+            r"use the depth\s+target that matches pool size:.*?"
+            r"does not support 20-35 sentences\.",
             _CONCISE_MECHANISM_DEPTH,
             False,
         ),

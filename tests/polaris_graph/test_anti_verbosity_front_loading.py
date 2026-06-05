@@ -249,3 +249,23 @@ def test_transform_fails_loud_on_missing_required_anchor() -> None:
     # transform (I-cap-005 import-time-cache / silent-no-op lesson).
     with pytest.raises(RuntimeError, match="anti-verbosity transform anchor"):
         _build_concise_variant("CRITICAL RULES:\n1. Use ONLY facts.\n")
+
+
+# ---------- I-ready-014 (#1083) Codex iter-1 P1 (F13-P1-001): no surviving sentence-count bias ----------
+
+def test_concise_on_prompt_drops_all_mechanism_sentence_count_bias():
+    # Codex iter-1 P1: the prior narrower regex left the "target that matches pool size:" preamble AND
+    # the trailing "...does not support 20-35 sentences." conditional in the ON prompt. The ON concise
+    # prompt MUST contain NONE of the mechanism sentence-count bias (the whole point of F13).
+    import src.polaris_graph.generator.multi_section_generator as m
+    for variant in (
+        m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE,
+        m.SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE,
+    ):
+        assert "20-35 sentences" not in variant
+        assert "target that matches pool size" not in variant
+        assert "15-20 sentences" not in variant
+        assert "10-15 sentences" not in variant
+    # but the substance (priority topics + thin-pool honest disclosure) is PRESERVED
+    assert "cover as many of the priority topics" in m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
+    assert "honest disclosure sentence" in m.SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
