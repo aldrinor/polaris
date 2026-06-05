@@ -2032,9 +2032,18 @@ _MARKDOWN_TABLE_SEPARATOR_RE = re.compile(
 _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
 
 
+def _table_cell_verify_enabled() -> bool:
+    """I-ready-015 (#1084): cell-decimal faithfulness gate. Default OFF -> byte-identical;
+    turned ON + preflighted in the full-capability benchmark slate after audit."""
+    return os.environ.get("PG_SWEEP_TABLE_CELL_VERIFY", "").strip().lower() not in {
+        "", "0", "false", "off", "no",
+    }
+
+
 def _extract_trial_summary_table(
     raw: str,
     valid_citation_nums: set[int],
+    verified_prose: str = "",
 ) -> str:
     """Extract and validate a `| Trial | ... |`-shaped markdown table
     from an LLM response.
@@ -2086,6 +2095,20 @@ def _extract_trial_summary_table(
     if not _MARKDOWN_TABLE_SEPARATOR_RE.match(separator_line):
         return ""
 
+    # I-ready-015 (#1084): cell-decimal faithfulness gate (flag-gated, default OFF). The body
+    # prose goes through §9.1 strict_verify (every decimal must appear in its cited span), but the
+    # LLM-emitted table cells did not — so a mis-transcribed N / HR / endpoint value could survive
+    # with only its [N] marker validated. When enabled, every numeric token in a row's DATA cells
+    # must appear in the strict_verified `verified_prose` (the table's SOLE fact source); else the
+    # number was fabricated/mis-transcribed and the row is dropped. Reuses strict_verify._decimals
+    # so the table + prose share one numeric definition. Option B (prose-subset) per Codex brief;
+    # Option A (per-[N] span) + Timeline/Per-Trial extractors are documented follow-ups.
+    _cell_verify = _table_cell_verify_enabled() and bool(verified_prose.strip())
+    _prose_decimals: set[str] = set()
+    if _cell_verify:
+        from src.polaris_graph.clinical_generator.strict_verify import _decimals as _sv_decimals
+        _prose_decimals = _sv_decimals(verified_prose)
+
     kept_rows: list[str] = []
     for line in lines_after[2:]:
         stripped = line.strip()
@@ -2101,6 +2124,12 @@ def _extract_trial_summary_table(
         if any(n not in valid_citation_nums for n in nums):
             # One or more out-of-range citation numbers → drop.
             continue
+        if _cell_verify:
+            # Strip [N] citation markers FIRST so citation numbers are not treated as data
+            # (Codex brief P2), then require every cell decimal to be present in the prose.
+            _row_data = _CITATION_MARKER_RE.sub("", stripped)
+            if not _sv_decimals(_row_data).issubset(_prose_decimals):
+                continue
         # M-41b (2026-04-21, post-V24 Codex pass-12 regression): drop
         # rows where >2 cells contain only "—" / "-" / "–" / empty.
         # Pass-12 audit on V24 observed "table is only 3 rows, 2
@@ -2613,7 +2642,7 @@ async def _call_trial_summary_table(
             except Exception:
                 pass
 
-    table = _extract_trial_summary_table(raw, valid_nums)
+    table = _extract_trial_summary_table(raw, valid_nums, verified_prose=verified_prose)
     if not table:
         logger.info(
             "[multi_section] trial-summary table suppressed "

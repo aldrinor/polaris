@@ -1,0 +1,13 @@
+verdict: APPROVE
+reference_source: option_b_verified_prose
+apply_to_timeline_pertrial: trial_summary_only_followup
+flag_default_off_correct: yes
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Follow-up: option_a_per_citation_span can catch wrong-reference attribution; Option B is sufficient for the absent-number fabrication hole."
+  - "Follow-up: Timeline/Per-Trial are separate current code paths, not the same verified-prose table extractor."
+  - "Implementation detail: strip citation markers or ignore the Ref cell before _decimals so [N] is not treated as a data decimal."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

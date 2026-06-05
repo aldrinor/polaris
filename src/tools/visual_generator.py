@@ -3,6 +3,13 @@ POLARIS Visual Output Generator
 ===============================
 Generates visual outputs from research data.
 
+STATUS (I-ready-015 / #1084): UNWIRED — this raw-SVG engine has ZERO production caller
+(its only in-repo references are its own ``self_test()`` and tests). It is NOT on the
+honest-sweep / Gate-B benchmark report path (which embeds citation-validated markdown
+tables only). Do NOT report "POLARIS renders charts" on the basis of this module. The
+benchmark figure-rendering path (matplotlib via ``polaris_graph.tools.data_analyzer``,
+``PG_CHART_GENERATION_ENABLED``, graph_v3/UI-only) is a separate, operator-gated follow-up.
+
 Features:
 - Chart generation (bar, line, pie)
 - Summary infographics
