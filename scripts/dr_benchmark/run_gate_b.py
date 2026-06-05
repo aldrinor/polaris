@@ -500,6 +500,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
     "PG_USE_FINDING_DEDUP",
     "PG_CAPPED_FINDING_DEDUP",
+    # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
+    # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
+    # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
+    "PG_USE_SAFETY_REFUSAL",
+    "PG_SWEEP_NLI_CONFLICT",
+    "PG_SWEEP_TABLE_CELL_VERIFY",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -780,6 +786,13 @@ async def run_gate_b_query(
     # pathB preflight requires PG_ENTAILMENT_MODEL == PG_EVALUATOR_MODEL and the default already
     # satisfies it. setdefault keeps the operator override (LAW VI).
     os.environ["PG_NLI_IN_BENCHMARK"] = "1"                # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    # I-ready-016b (#1097): activate the 3 readiness faithfulness layers for the benchmark. Each only ADDS
+    # a layer (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify) — a
+    # gate is only ever STRENGTHENED, never weakened. Force-on so a conservative .env=0 cannot silently
+    # downgrade the run (operator no-downgrade directive); validated fail-closed by preflight below.
+    os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-cap-005 (#1068) KEYSTONE: FAIL CLOSED here — AFTER every cap+flag is applied, BEFORE a single
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
     # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
