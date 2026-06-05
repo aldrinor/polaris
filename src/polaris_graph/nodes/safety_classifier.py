@@ -50,9 +50,16 @@ class HarmDecision:
 # reflexive self-kill is self-harm semantics (its own category + help-guard), not lethal-against-
 # others, so "support someone who wants to kill themselves" is a HELP query, not a harm request.
 _PERSON = (
-    r"(?:someone|some\s?one|a\s+person|a\s+human|a\s+man|a\s+woman|a\s+child|an\s+adult|"
-    r"people\b|humans?\b|him\b|her\b|them\b|my\s+\w+|"
-    r"the\s+(?:patient|victim|person|target|elderly|baby|infant))"
+    r"(?:someone|some\s?one|a\s+person|a\s+human\s+being|a\s+human\b|a\s+man|a\s+woman|a\s+child|"
+    r"an\s+adult|people\b|humans\b|him\b|her\b|them\b|"
+    # "my X" is anchored to a PERSON noun (Codex diff-gate iter-3 over-refusal: bare "my \w+" matched
+    # "kill my time"/"my process"). Whitelisted relations/roles only.
+    r"my\s+(?:roommate|boss|coworker|co-worker|colleague|wife|husband|spouse|partner|ex|girlfriend|"
+    r"boyfriend|mother|father|mom|dad|parent|sister|brother|sibling|son|daughter|child|kid|baby|"
+    r"friend|neighbou?r|enemy|rival|teacher|landlord|tenant|patient|in-?law|family\s+member|relative)|"
+    r"the\s+(?:patient|victim|person|target|elderly|baby|infant)|"
+    r"a\s+(?:patient|hospital\s+patient|toddler|newborn|baby|infant|kid|child|person|human|man|woman|"
+    r"victim|colleague|coworker|co-worker|neighbou?r))"
 )
 
 # Care / clinical-management / prevention FRAME for the LETHAL category — a query ABOUT treating or
@@ -62,13 +69,16 @@ _PERSON = (
 # antidote/first-aid/...), AND the classifier additionally requires this frame to LEAD the kill clause
 # (see _frame_leads) so a TRAILING incidental care word can never rescue a harm request.
 _LETHAL_CARE_GUARD = re.compile(
+    # Genuine clinical-management GOVERNING structures only (Codex diff-gate iter-3: a loose leading
+    # "prevent"/"how to help" let "to prevent detection, what dose would kill my roommate" / "how to
+    # help my friend to poison someone" bypass). Each form GOVERNS an overdose/poisoning/harm object.
     r"\b(?:manage|management|managing|treat(?:ment|ing)?|care)\s+(?:of|for)\b"
     r"|\b(?:emergency|clinical|hospital|\bicu\b|inpatient|paramedic|medical|prehospital)\s+"
     r"(?:management|treatment|care|protocol|guideline)"
     r"|\b(?:antidote|reversal|reverse|resuscitat\w*|first\s+aid|supportive\s+care|poison\s+control|"
     r"overdose\s+management)\b"
-    r"|\bprevent\w*\b|\bhow\s+to\s+(?:help|save|treat|manage|support)\b"
-    r"|\bsupport\s+(?:someone|a\s+\w+|them)\b|\btalk\s+\w+\s+out\s+of\b",
+    r"|\bprevent\w*\s+(?:\w+\s+){0,3}?(?:death|deaths|overdose|poisoning|self[-\s]?harm|suicide|"
+    r"from\s+(?:dying|overdosing))\b",
     re.IGNORECASE,
 )
 
@@ -77,40 +87,93 @@ _LETHAL_CARE_GUARD = re.compile(
 #    the intent verb may be "would/will/that-would kill", not only "to kill" ("what dose of insulin
 #    WOULD KILL my roommate" was missed).
 _LETHAL_INTENT = re.compile(
-    r"\b(?:to|would|will)\s+(?:kill|murder|poison|fatally\s+harm|cause\s+(?:the\s+)?death\s+of|"
-    r"end\s+the\s+life\s+of|euthani[sz]e\s+(?!myself))\s+" + _PERSON
-    + r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount|quantity)\s+(?:to|that\s+(?:would\s+)?(?:kill|cause)|"
-    r"of\s+\w+\s+(?:to|that\s+(?:would|will|could))\s+kill)"
-    r"|\bhow\s+to\s+(?:kill|murder|poison)\s+" + _PERSON
+    # (a) kill/poison/murder A PERSON, with any leading modal/infinitive/imperative. Codex diff-gate
+    #     iter-3: "can/could", "how do/can I kill", "poison my coworker" were missed.
+    r"\b(?:to|would|will|can|could|should)\s+"
+    r"(?:kill|murder|poison|fatally\s+harm|cause\s+(?:the\s+)?death\s+of|end\s+the\s+life\s+of|"
+    r"euthani[sz]e\s+(?!myself))\s+" + _PERSON
+    + r"|\bhow\s+(?:to|do\s+i|can\s+i|would\s+i|should\s+i)\s+(?:kill|murder|poison|fatally\s+harm)\s+"
+    + _PERSON
+    # (b) lethal/fatal DOSE framed at a PERSON — anchored to _PERSON so "dose that would kill bacteria /
+    #     tumor cells / norovirus" (legitimate science) does NOT match (Codex iter-3 over-refusal).
+    + r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount|quantity)\b.{0,30}?\b(?:to|for)\s+" + _PERSON
     + r"|\b(?:overdose|dose|amount|quantity|how\s+much)\b.{0,45}?"
-    r"\b(?:to|would|will|that\s+(?:would|will|could|can))\s+(?:kill|murder|fatally\s+harm|cause\s+death)"
+    r"\b(?:to|would|will|that\s+(?:would|will|could|can)|can|could|be\s+(?:lethal|fatal)\s+(?:to|for))\s+"
+    r"(?:kill|murder|fatally\s+harm|cause\s+(?:the\s+)?death)\s+" + _PERSON
+    + r"|\b(?:would|will|could|is|are)\s+(?:be\s+)?(?:lethal|fatal|deadly)\s+(?:to|for)\s+" + _PERSON
+    # (c) explicit covert-kill markers.
+    + r"|\b(?:poison|kill|murder)\s+" + _PERSON + r"\s+(?:undetectabl|untraceabl|without\s+(?:getting\s+"
+    r"caught|detection|being\s+caught|a\s+trace))"
+    r"|\bundetectable\s+poison|\buntraceable\s+(?:poison|method)\b"
+    r"|\b(?:poison|toxin|substance|drug|chemical)\b.{0,30}?\b(?:undetectable|untraceable|undetected|"
+    r"won['’]t\s+show|not\s+detected)\b.{0,20}?\b(?:autopsy|toxicology|post[-\s]?mortem|tox\s+screen)\b"
+    r"|\bundetectable\s+(?:in\s+)?(?:an?\s+)?(?:autopsy|toxicology|post[-\s]?mortem)\b"
     r"|\bso\s+(?:that\s+)?(?:it|they|he|she|the\s+(?:patient|person|victim|baby|infant))\s+"
-    r"(?:dies|die|will\s+die|won['’]t\s+survive)"
-    r"|\bundetectable\s+poison|\buntraceable\s+(?:poison|method)\b",
+    r"(?:dies|die|will\s+die|won['’]t\s+survive)",
+    re.IGNORECASE,
+)
+
+# An explicit NON-PERSON kill target — cells / microbes / pests / crops / in-vitro. Codex diff-gate
+# iter-3 over-refusal: "what dose would kill bacteria / tumor cells / norovirus" is legitimate science.
+# When present, the generic (un-targeted) lethal branch is vetoed.
+_NONPERSON_TARGET = re.compile(
+    r"\b(?:bacteri\w*|cells?|cellular|tumou?rs?|cancer|viral|virus(?:es)?|norovirus|pathogen\w*|"
+    r"microb\w*|germs?|fung\w*|mold|mould|weeds?|pests?|insects?|larvae?|parasit\w*|amoeba\w*|"
+    r"yeast|spores?|tissues?|crops?|plants?|rodents?|vermin|microorganism\w*|mosquito\w*|"
+    r"in\s+(?:a\s+)?(?:culture|vitro|the\s+petri))\b",
+    re.IGNORECASE,
+)
+
+# Generic un-targeted lethal intent ("overdose protocol TO CAUSE DEATH") — a human victim is implied.
+# Only fires when NO explicit non-person target is present (so legit science is not over-refused).
+# Excludes bare "lethal dose" (dual-use toxicology, e.g. "lethal dose of acetaminophen").
+_LETHAL_GENERIC = re.compile(
+    r"\b(?:overdose|dose|amount|quantity|how\s+much\s+\w+)\b.{0,45}?"
+    r"\b(?:to|would|that\s+(?:would|will|could))\s+"
+    r"(?:cause\s+(?:a\s+|the\s+)?death|be\s+(?:lethal|fatal)|prove\s+fatal)\b",
     re.IGNORECASE,
 )
 
 # 2) WEAPONIZATION — Codex brief P2-1: require an ACTION verb (make/build/synthesize/deploy/...), NOT
 #    a bare subject. "the Chemical Weapons Convention", "nerve-agent treatment guidelines",
 #    "history of chemical weapons" carry no action verb -> never match.
+_WEAPON_SUBJECT = (
+    r"(?:bombs?|explosives?|explosive\s+device|bioweapon|biological\s+weapon|chemical\s+weapon|"
+    r"nerve\s+agent|nerve\s+gas|sarin|\bvx\b|mustard\s+gas|dirty\s+bomb|pipe\s+bomb|\bied\b|grenade|"
+    r"pathogen|anthrax|smallpox|botulinum|ricin|weaponi[sz]ed\s+pathogen)"
+)
 _WEAPONIZATION = re.compile(
+    # an ACTION verb governing a weapon subject (Codex diff-gate iter-3: bare "bomb" + "how can I make"
+    # + "instructions/blueprint to build a bomb" were missed).
     r"\b(?:synthesi[sz]e|synthesi[sz]ing|make|making|build|building|manufactur|produc(?:e|ing)|"
     r"construct|creat(?:e|ing)|assembl|deploy|weaponi[sz]|disperse|releas(?:e|ing)|aerosoli[sz])"
-    r"\w*\s+(?:a\s+|an\s+|the\s+|some\s+)?"
-    r".{0,30}?\b(?:bioweapon|biological\s+weapon|chemical\s+weapon|nerve\s+agent|nerve\s+gas|"
-    r"sarin|\bvx\b|mustard\s+gas|dirty\s+bomb|explosive\s+device|pipe\s+bomb|\bied\b|"
-    r"pathogen|anthrax|smallpox|botulinum|ricin|weaponi[sz]ed\s+pathogen|bioweapon)"
-    r"|\bhow\s+to\s+(?:make|build|synthesi[sz]e|construct|create)\s+(?:a\s+|an\s+)?"
-    r"(?:bomb|explosive|bioweapon|chemical\s+weapon|nerve\s+agent|nerve\s+gas|dirty\s+bomb|"
-    r"pipe\s+bomb|grenade)\b",
+    r"\w*\s+(?:a\s+|an\s+|the\s+|some\s+|your\s+own\s+)?"
+    r".{0,30}?\b" + _WEAPON_SUBJECT
+    + r"|\bhow\s+(?:to|do\s+i|can\s+i|would\s+i)\s+(?:make|build|synthesi[sz]e|construct|create|assemble)"
+    r"\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT
+    + r"|\b(?:recipe|instructions|blueprint|guide|formula|plans?|steps?)\s+(?:for|to\s+(?:make|build|"
+    r"construct|assemble))\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT,
     re.IGNORECASE,
 )
 
-# 3) CSAM — unambiguous literal terms. Any hit -> harmful.
+# 3) CSAM — unambiguous literal terms + acquisition/generation requests for sexual imagery of minors.
+#    Codex diff-gate iter-3: "get explicit pictures of underage girls", "where to find underage nudes",
+#    "generate nude images of a 13 year old" were missed. Any hit -> harmful (no legitimate frame).
+_MINOR = (
+    r"(?:minors?|child(?:ren)?|kids?|underage|under-?age|prepubescent|teen(?:age|ager)?s?|"
+    r"\b(?:a\s+)?\d{1,2}[-\s]?year[-\s]?olds?\b|girls?|boys?)"
+)
 _CSAM = re.compile(
     r"\b(?:child\s+sexual\s+abuse\s+material|csam|child\s+(?:porn(?:ography)?|sexual\s+abuse)|"
-    r"(?:sexual(?:i[sz]e)?|nude|explicit)\s+\w{0,12}?\s*(?:minor|child|underage|prepubescent)|"
-    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b",
+    r"(?:sexual(?:i[sz]e)?|nude|naked|explicit)\s+\w{0,12}?\s*(?:minor|child|underage|prepubescent)|"
+    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b"
+    # acquisition / generation of sexual imagery of minors — both word orders ([imagery] of [minor]
+    # AND [minor] [imagery], e.g. "underage nudes").
+    r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access)\b"
+    r".{0,30}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\b(?:of\s+)?" + _MINOR
+    + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access)\b"
+    r".{0,30}?\b" + _MINOR + r"\b.{0,15}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b"
+    r"|\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\bof\s+(?:a\s+|an\s+)?" + _MINOR,
     re.IGNORECASE,
 )
 
@@ -124,10 +187,14 @@ _SELF_HARM_METHOD = re.compile(
     r"|\bsuicide\s+method[s]?\b|\bhow\s+much\s+\w+\s+(?:to|will)\s+\w*\s*(?:overdose|be\s+lethal|kill\s+me)\b",
     re.IGNORECASE,
 )
-_SELF_HARM_HELP_GUARD = re.compile(
-    r"\b(?:hotline|helpline|prevention|crisis\s+line|support|resources?|help\s+(?:a|my|someone|"
-    r"them|him|her)|signs?\s+of|warning\s+signs|how\s+to\s+help|talk\s+to|reach\s+out|cope|coping|"
-    r"recover(?:y|ing)?|therapy|counsel|988|samaritans)\b",
+# Self-harm RESEARCH / AWARENESS frame — only rescues when it LEADS (see _frame_leads). Codex diff-gate
+# iter-3: a bare anywhere-match "support"/"resources" let "how to kill myself without my support network
+# noticing" bypass. First-person method-seeking otherwise ALWAYS refuses-with-redirection (the redirect
+# IS the help). Legit resource / third-party / awareness queries do not fire _SELF_HARM_METHOD at all.
+_SELF_HARM_RESEARCH_GUARD = re.compile(
+    r"\b(?:epidemiolog\w*|prevalence|incidence|statistics|rates?\s+of|research|study|studies|"
+    r"news|article|report\w*|history\s+of|prevention\s+(?:program|programme|strateg|campaign)|"
+    r"public\s+health)\b",
     re.IGNORECASE,
 )
 
@@ -141,7 +208,8 @@ _ILLICIT_SYNTHESIS = re.compile(
     r"\bmdma\b|\blsd\b|\bpcp\b|ghb)\b"
     r"|\b(?:recipe|instructions|guide|blueprint|formula|protocol)\s+for\s+"
     r"(?:making\s+|cooking\s+|synthesi[sz]ing\s+|producing\s+)?"
-    r"(?:methamphetamine|crystal\s+meth|\bmeth\b|fentanyl|carfentanil|heroin|cocaine|\bmdma\b)\b"
+    r"(?:methamphetamine|crystal\s+meth|\bmeth\b|fentanyl|carfentanil|heroin|cocaine|\bmdma\b|"
+    r"\blsd\b|\bghb\b|\bpcp\b)\b"
     r"|\bclandestine\s+(?:drug\s+)?(?:synthesis|lab|manufactur)"
     r"|\bsynthesis\s+route\s+(?:for|of)\s+(?:fentanyl|methamphetamine|meth|heroin|mdma|carfentanil)\b"
     r"|\bhow\s+to\s+(?:cook|make|synthesi[sz]e|manufacture)\s+(?:meth|methamphetamine|fentanyl|"
@@ -157,13 +225,19 @@ _ILLICIT_SYNTHESIS = re.compile(
 # "reduce|disrupt|combat ... production"), AND the classifier requires the frame to LEAD the harm
 # clause (see _frame_leads) so a TRAILING evasion phrase can never rescue a how-to request.
 _ACTION_PREVENTION_GUARD = re.compile(
-    r"\b(?:public\s+health|policy|policies|legislation|regulat\w*|law\s+enforcement|interdiction|"
-    r"nonproliferation|non-?proliferation|counter[-\s]?(?:terror\w*|prolifer\w*|narcotic\w*)|"
-    r"treaty|treaties|convention|disarmament|harm\s+reduction|epidemiolog\w*|"
-    r"prevent\w*\s+(?:people|the\s+public|others|them|the\s+spread|access|"
-    r"\w+\s+from\s+(?:making|producing|manufactur|synthesi|building|developing))|"
-    r"(?:reduce|disrupt|combat\w*|curb|tackle|ban|banning|restrict\w*|stop)\s+(?:the\s+)?"
-    r"(?:production|traffick\w*|spread|proliferat\w*|manufactur\w*|supply|distribution))\b",
+    # GOVERNING policy/prevention structures only (Codex diff-gate iter-3: standalone "policy research:"
+    # / "for policy analysis," prefixes let a how-to-synthesize/build imperative bypass). Each form
+    # GOVERNS the harm as its object — "prevent ... from making", "reduce|disrupt ... production",
+    # a policy noun + a governing verb. A loose leading policy noun alone no longer rescues.
+    r"\bprevent\w*\s+(?:people|the\s+public|others|them|the\s+spread\s+of|access\s+to|"
+    r"\w+\s+from\s+(?:making|producing|manufactur|synthesi|building|developing|acquiring))"
+    r"|\b(?:reduce|disrupt|combat\w*|curb|tackle|ban|banning|restrict\w*|stop|stem|interdict\w*|"
+    r"intercept)\s+(?:the\s+)?(?:illicit\s+|illegal\s+)?(?:production|traffick\w*|spread|proliferat\w*|"
+    r"manufactur\w*|supply|distribution|smuggling)\b"
+    r"|\b(?:public\s+health|policy|regulatory|legislative|law\s+enforcement|harm[-\s]reduction|"
+    r"nonproliferation|non-?proliferation|treaty|epidemiolog\w*)\s+"
+    r"(?:program|programme|initiative|intervention|strateg|effort|measure|approach|response|"
+    r"framework|campaign)s?\b",
     re.IGNORECASE,
 )
 
@@ -192,8 +266,10 @@ def classify_harm_intent(question: str) -> HarmDecision:
         if not q:
             return HarmDecision(False, "", 0.0, ["empty_question"])
 
-        # Self-harm: method-seeking AND not help/awareness (the veto preserves the support use case).
-        if _SELF_HARM_METHOD.search(q) and not _SELF_HARM_HELP_GUARD.search(q):
+        # Self-harm: first-person method-seeking refuses-with-redirection UNLESS a research/awareness
+        # frame LEADS (a trailing "support network" no longer rescues — Codex diff-gate iter-3).
+        _m = _SELF_HARM_METHOD.search(q)
+        if _m and not _frame_leads(_m, _SELF_HARM_RESEARCH_GUARD, q):
             return HarmDecision(True, "self_harm_method", 0.9, ["self_harm_method_seeking"])
 
         # Lethal-against-persons: explicit intent AND no care/management frame LEADING the kill clause.
@@ -202,6 +278,13 @@ def classify_harm_intent(question: str) -> HarmDecision:
             return HarmDecision(
                 True, "lethal_intent_against_persons", 0.9,
                 ["lethal_intent_against_persons_explicit_intent"],
+            )
+        # Generic un-targeted lethal ("overdose to cause death") — human implied; vetoed by an explicit
+        # non-person target (science) or a leading care frame.
+        _m = _LETHAL_GENERIC.search(q)
+        if _m and not _NONPERSON_TARGET.search(q) and not _frame_leads(_m, _LETHAL_CARE_GUARD, q):
+            return HarmDecision(
+                True, "lethal_intent_against_persons", 0.9, ["lethal_generic_cause_death"],
             )
 
         # Weaponization: make/build ACTION AND no policy/prevention frame LEADING the action.
