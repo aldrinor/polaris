@@ -58,9 +58,12 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     strict_verify,
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
-    PG_MAX_COST_PER_RUN,
     BudgetExceededError,
     current_run_cost,
+    # I-cap-005 (#1068): read the per-run budget cap via the live getter (NOT the import-time constant)
+    # so the manifest/log never report a stale $10 cap while Gate-B's slate set the guard to $25 — the
+    # slate's set_max_cost_per_run() runs AFTER this module is imported by the CLI's SWEEP_QUERIES load.
+    get_max_cost_per_run,
     reset_run_cost,
     set_current_run_id,
 )
@@ -361,7 +364,7 @@ def _base_manifest_envelope(
         "domain": q.get("domain", ""),
         "question": q.get("question", ""),
         "cost_usd": run_cost,
-        "budget_cap_usd": PG_MAX_COST_PER_RUN,
+        "budget_cap_usd": get_max_cost_per_run(),
     }
     if retrieval is not None:
         env["retrieval"] = _retrieval_manifest_section(retrieval)
@@ -1542,7 +1545,7 @@ async def run_one_query(
         _log("=" * 72)
         _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
         _log(f"Question: {q['question']}")
-        _log(f"Budget cap: ${PG_MAX_COST_PER_RUN:.4f}")
+        _log(f"Budget cap: ${get_max_cost_per_run():.4f}")
         _log("=" * 72)
 
         # Phase 2b scope gate
@@ -4669,7 +4672,7 @@ async def run_one_query(
                       else {"error": "failed"})
             ),
             "cost_usd": run_cost,
-            "budget_cap_usd": PG_MAX_COST_PER_RUN,
+            "budget_cap_usd": get_max_cost_per_run(),
             # GH#423 I-gen-002: cross-section fact-dedup telemetry.
             # Persists fact_dedup pass results (groups, redundants,
             # rewrites_applied, drops) so observability + auditability
@@ -5182,7 +5185,7 @@ async def run_one_query(
             encoding="utf-8",
         )
 
-        _log(f"[cost]        ${run_cost:.4f} (cap ${PG_MAX_COST_PER_RUN:.4f})")
+        _log(f"[cost]        ${run_cost:.4f} (cap ${get_max_cost_per_run():.4f})")
 
         # Status was computed above (line ~851) and written into the
         # manifest. Mirror to summary for backward compatibility with
@@ -5202,7 +5205,7 @@ async def run_one_query(
         run_cost = current_run_cost()
         _log(
             f"[BUDGET]      PG_MAX_COST_PER_RUN breached: {budget_exc} "
-            f"(run_cost=${run_cost:.4f}, cap=${PG_MAX_COST_PER_RUN:.4f})"
+            f"(run_cost=${run_cost:.4f}, cap=${get_max_cost_per_run():.4f})"
         )
         summary["status"] = "abort_budget_exceeded"
         summary["error"] = str(budget_exc)[:300]
@@ -5216,7 +5219,7 @@ async def run_one_query(
                     "status": "abort_budget_exceeded",
                     "error": str(budget_exc)[:500],
                     "cost_usd": run_cost,
-                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+                    "budget_cap_usd": get_max_cost_per_run(),
                 }
                 budget_manifest = augment_v6_manifest(
                     budget_manifest,
@@ -5253,7 +5256,7 @@ async def run_one_query(
                     "status": "error_unexpected",
                     "error": str(exc)[:500],
                     "cost_usd": run_cost,
-                    "budget_cap_usd": PG_MAX_COST_PER_RUN,
+                    "budget_cap_usd": get_max_cost_per_run(),
                 }
                 error_manifest = augment_v6_manifest(
                     error_manifest,
@@ -5591,7 +5594,7 @@ async def main_async() -> int:
     total_cost = sum(s.get("cost_usd", 0) or 0 for s in all_summaries)
     md_lines.append(f"**Total sweep cost: ${total_cost:.4f}**")
     md_lines.append(
-        f"**Per-query budget cap: ${PG_MAX_COST_PER_RUN:.4f}**"
+        f"**Per-query budget cap: ${get_max_cost_per_run():.4f}**"
     )
     md_lines.append("")
     md_lines.append("## Per-query notes")

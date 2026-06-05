@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+import src.polaris_graph.llm.openrouter_client as orc
 from scripts.dr_benchmark import run_gate_b as g
 
 
@@ -28,7 +29,7 @@ def _clear_flags():
     # them (rather than a leaked value from another test passing the assertion).
     for _k in (
         "PG_STORM_ENABLED_IN_BENCHMARK", "PG_ENABLE_TOOL_TRACKER", "PG_SWEEP_EVIDENCE_DEEPENER",
-        "PG_SWEEP_FETCH_CAP", "PG_SWEEP_MAX_SERPER", "PG_SWEEP_MAX_S2",
+        "PG_SWEEP_FETCH_CAP", "PG_SWEEP_MAX_SERPER", "PG_SWEEP_MAX_S2", "PG_MAX_COST_PER_RUN",
     ):
         os.environ.pop(_k, None)
 
@@ -50,6 +51,9 @@ def test_preflight_fails_loud_when_endpoint_unset(monkeypatch):
 def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(monkeypatch):
     # With an injected (fake) transport, run_gate_b_query must set BOTH flags and
     # SKIP the live preflight (offline-safe). Capture the env at run_one_query time.
+    # I-cap-005: the slate calls set_max_cost_per_run() which mutates the openrouter_client global;
+    # register it with monkeypatch so it is RESTORED after this test (no leak into budget-cap tests).
+    monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
     _clear_flags()
     captured = {}
 
@@ -106,6 +110,9 @@ def test_preflight_full_capability_fails_closed_on_silent_throttle(monkeypatch):
     # I-cap-005 (#1068): a deliberate throttle below the full-capability floor MUST be caught (the
     # operator no-downgrade directive) — preflight_full_capability raises rather than letting a
     # ~40-URL run reach a paid endpoint silently.
+    # I-cap-005: register the cost-cap global for restoration (the slate's set_max_cost_per_run mutates
+    # it) so this test does not leak the cap into later budget tests in the same process.
+    monkeypatch.setattr(orc, "PG_MAX_COST_PER_RUN", orc.PG_MAX_COST_PER_RUN)
     g.apply_full_capability_benchmark_slate()
     for f in ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK", "PG_NLI_IN_BENCHMARK"):
         os.environ[f] = "1"

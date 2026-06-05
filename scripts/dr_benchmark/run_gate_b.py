@@ -447,13 +447,23 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     "PG_SWEEP_MAX_S2": 50,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
+# Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
+# explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
+# preflight still passes, letting the paid run go with the evidence deepener silently off.
 _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_STORM_ENABLED_IN_BENCHMARK",
+    "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
     "PG_NLI_IN_BENCHMARK",
     "PG_ENABLE_TOOL_TRACKER",
 )
+
+# Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+# import-time constant in openrouter_client (cached at $10 default before Gate-B's slate runs), so the
+# slate ALSO programmatically syncs it via set_max_cost_per_run(); the preflight then validates the live
+# value via get_max_cost_per_run() so a stale-$10 cap cannot silently abort a full-depth paid run.
+_BENCHMARK_MIN_COST_CAP_USD = 20.0
 
 
 def apply_full_capability_benchmark_slate() -> None:
@@ -461,6 +471,14 @@ def apply_full_capability_benchmark_slate() -> None:
     shell env. Called BEFORE the sweep import (so import-time caps see it). Operator overrides win."""
     for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
         os.environ.setdefault(name, value)
+    # Codex diff-gate I-cap-005 P1-2: PG_MAX_COST_PER_RUN is cached as an import-time constant in
+    # openrouter_client (imported via the role chain at THIS module's load, before this slate runs), so
+    # setting the env alone leaves the guard enforcing the stale $10 default. Programmatically sync the
+    # live module global to the effective env value (operator override honored via the setdefault above)
+    # so check_run_budget enforces the intended cap REGARDLESS of import order, and so run_one_query —
+    # imported AFTER this call — binds the corrected value for its manifest/log display.
+    from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
+    set_max_cost_per_run(float(os.environ["PG_MAX_COST_PER_RUN"]))
 
 
 def preflight_full_capability() -> None:
@@ -484,6 +502,17 @@ def preflight_full_capability() -> None:
                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
                 f"or its firing is unobservable (tracker off). Enable it before the run."
             )
+    # Codex diff-gate I-cap-005 P1-2: validate the EFFECTIVE (live) per-run budget cap — reads the
+    # module global the guard actually enforces (synced by the slate via set_max_cost_per_run), NOT just
+    # the env. Catches a stale-$10 cap that would silently abort a full-depth paid run mid-way.
+    from src.polaris_graph.llm.openrouter_client import get_max_cost_per_run
+    _eff_cap = get_max_cost_per_run()
+    if _eff_cap < _BENCHMARK_MIN_COST_CAP_USD:
+        raise RuntimeError(
+            f"benchmark preflight FAILED: effective PG_MAX_COST_PER_RUN=${_eff_cap:.2f} < "
+            f"${_BENCHMARK_MIN_COST_CAP_USD:.2f} floor — a full-depth run would abort early on the "
+            f"stale default. The slate must call set_max_cost_per_run() before the guard enforces it."
+        )
 
 
 async def run_gate_b_query(

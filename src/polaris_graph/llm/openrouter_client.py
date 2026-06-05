@@ -334,6 +334,32 @@ def check_run_budget(anticipated_additional: float = 0.0) -> None:
             f"reset_run_cost() between runs."
         )
 
+
+def get_max_cost_per_run() -> float:
+    """Return the CURRENT effective per-run budget cap (the live module global).
+
+    I-cap-005 (#1068): ``PG_MAX_COST_PER_RUN`` is an import-time constant. A caller that wants a
+    different cap AFTER this module was imported (e.g. Gate-B's full-capability slate, which runs long
+    after ``openrouter_client`` is first imported) cannot change the cap by setting the env alone — this
+    module already cached it. Callers update the cap via :func:`set_max_cost_per_run`, and
+    display/preflight sites read it back via THIS getter so the manifest never reports a stale cap while
+    the guard enforces a different one (LAW II honesty). Returns the live global, so it stays compatible
+    with the existing tests that ``setattr``/``reload`` the constant directly."""
+    return float(PG_MAX_COST_PER_RUN)
+
+
+def set_max_cost_per_run(value: float) -> float:
+    """Programmatically set the per-run budget cap (updates the module global the guard reads).
+
+    I-cap-005 (#1068): equivalent to ``setattr(openrouter_client, "PG_MAX_COST_PER_RUN", value)`` — the
+    same mutation the role budget tests already do — so :func:`check_run_budget` (which reads the global)
+    enforces the new value REGARDLESS of import order. Gate-B's slate calls this so the paid benchmark
+    cannot silently run under the stale $10 default. Returns the value set."""
+    global PG_MAX_COST_PER_RUN
+    PG_MAX_COST_PER_RUN = float(value)
+    return PG_MAX_COST_PER_RUN
+
+
 # HONEST-REBUILD Phase 1c (plan: C:/Users/msn/.claude/plans/lovely-finding-firefly.md)
 # ─────────────────────────────────────────────────────────────────────────────
 # Two-family architecture: generator and evaluator MUST be from different
