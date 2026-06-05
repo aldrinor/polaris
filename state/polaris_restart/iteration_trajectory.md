@@ -1388,3 +1388,8 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - diff-gate: iter-1 APPROVE (0 P0/0 P1/0 P2, accept_remaining, no blockers; ~139.5k tokens). Codex ran its own pytest (clean; trailing PermissionError is a Windows tmpdir-symlink teardown quirk, not a failure).
 - Scope: 3-mirror taxonomy reconciliation (UNIFIED_STATUS_VALUES + regression_lab._STATUS_TIERS + v6 PipelineStatus) adding the real terminal statuses cancelled + abort_four_role_release_held (+ abort_verifier_degraded mirror sync) + 6 stale gate repairs. commit c482cb26.
 - Rigorous regression proof: stash-and-diff confirmed ZERO new failures; the 46 broad-sweep failures are pre-existing (offline entailment judge + env/network + test-pollution).
+
+## I-ready-004 (#1078) brief — 2026-06-05
+- iter-1 REQUEST_CHANGES (2 P1: existing PG_USE_FINDING_DEDUP routes to NO-CAP relevance-floor mode → regresses #1070 cap; PG_RELEVANCE_FLOOR float can't ride the int _BENCHMARK_PREFLIGHT_FLOORS path). Decided dedup_mode=capped_dedup, defer_model_rerank=yes.
+- iter-2 APPROVE (0 P0/P1/P2). Scope: throttle already closed by #1070; ship CAPPED finding-dedup (dedup near-dup findings → THEN tier-balanced top-PG_LIVE_MAX_EV_TO_GEN, so #1070 cap+floor both hold) + float-safe PG_RELEVANCE_FLOOR + tests; defer model-based cross-encoder/semantic-embedder rerank to an operator-gated follow-up (§8.4).
+- BUILD pending (branch bot/I-ready-004-dedup-relevance off bot/I-ready-016).
