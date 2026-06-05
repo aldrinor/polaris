@@ -237,6 +237,27 @@ def to_unified_status(summary_status: str) -> str:
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
 
 
+def make_feature_telemetry(feature: str, **extra: Any) -> dict[str, Any]:
+    """I-ready-005 (#1076): default per-feature FIRING telemetry surfaced to the manifest so the operator
+    can prove a forced-ON benchmark feature actually fired. status: not_enabled -> attempted_empty (block
+    ran) -> fired (produced output) / error. ``extra`` adds feature-specific count keys (e.g.
+    questions_added, urls_discovered)."""
+    base = {"feature": feature, "enabled": False, "fired": False, "status": "not_enabled"}
+    base.update(extra)
+    return base
+
+
+def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
+    """Return a LOUD warning string if a feature was force-ENABLED but did NOT fire (the silent-degrade
+    the operator's no-downgrade directive forbids), else None. Non-gating — advisory surface."""
+    if telemetry.get("enabled") and not telemetry.get("fired"):
+        return (
+            f"{telemetry.get('feature')} was force-ENABLED but did NOT fire "
+            f"(status={telemetry.get('status')}) — verify the run before trusting it"
+        )
+    return None
+
+
 def _prune_plan_to_sufficient_sections(research_plan, sufficiency_report):
     """I-meta-005 Phase 4 (#988): build a PRUNED `ResearchPlan` whose outline
     contains ONLY the SUFFICIENT sections, so the generator (which fixes its
@@ -1998,6 +2019,13 @@ async def run_one_query(
                 trial=_trial_queries,
             )
 
+        # I-ready-005 (#1076) P1: per-feature firing telemetry, surfaced to the manifest so the operator
+        # can PROVE each forced-ON benchmark feature actually fired (not just that its flag was set).
+        # Initialized here (function-body level) so the keys are always defined at manifest-build time,
+        # even when a feature is OFF or its block faults. status: not_enabled / fired / attempted_empty / error.
+        _storm_telemetry = make_feature_telemetry("storm_query_expansion", questions_added=0, interviews=0)
+        _agentic_telemetry = make_feature_telemetry("agentic_search", urls_discovered=0)
+
         # I-cap-002 feature 1/4 (#1060): STORM multi-perspective query expansion (default OFF,
         # fallback-safe). When PG_STORM_ENABLED_IN_BENCHMARK=1, call STORM to generate diverse
         # perspective QUESTIONS and append them as additional SEARCH QUERIES. STORM only widens the
@@ -2007,6 +2035,8 @@ async def run_one_query(
         # through to the non-STORM query list). The module-level PG_STORM_ENABLED is import-cached,
         # so we toggle the MODULE attribute (not the env var) for THIS call only, restored in finally.
         if os.getenv("PG_STORM_ENABLED_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+            _storm_telemetry["enabled"] = True
+            _storm_telemetry["status"] = "attempted_empty"
             import asyncio as _storm_asyncio
             import contextvars as _storm_cv
             import src.polaris_graph.agents.storm_interviews as _storm_mod
@@ -2063,6 +2093,8 @@ async def run_one_query(
             except Exception as _storm_exc:  # noqa: BLE001 — STORM faults (incl. its own internal
                 # BudgetExceededError from the isolated context) never abort the run: the parent budget
                 # was already booked + enforced via the envelope above.
+                _storm_telemetry["status"] = "error"
+                _storm_telemetry["error"] = str(_storm_exc)[:200]
                 _log(
                     f"[storm]       STORM query expansion failed: {_storm_exc} — "
                     f"proceeding without STORM queries"
@@ -2081,6 +2113,12 @@ async def run_one_query(
                 _seen_lower = {x.lower() for x in _amplified_effective}
                 _storm_added = [x for x in _storm_questions if x.lower() not in _seen_lower]
                 _amplified_effective = _amplified_effective + _storm_added
+                _storm_telemetry.update({
+                    "fired": len(_storm_added) > 0,
+                    "questions_added": len(_storm_added),
+                    "interviews": len(_storm_out.get("storm_conversations", [])),
+                    "status": "fired" if _storm_added else "attempted_empty",
+                })
                 _log(
                     f"[storm]       +{len(_storm_added)} perspective queries from "
                     f"{len(_storm_out.get('storm_conversations', []))} interviews (slug={q['slug']})"
@@ -2526,6 +2564,8 @@ async def run_one_query(
         if os.environ.get("PG_AGENTIC_SEARCH_IN_BENCHMARK", "0").strip() in (
             "1", "true", "True",
         ):
+            _agentic_telemetry["enabled"] = True
+            _agentic_telemetry["status"] = "attempted_empty"
             import asyncio as _ag_asyncio
             import contextvars as _ag_cv
             import src.polaris_graph.agents.searcher as _ag_mod
@@ -2585,12 +2625,19 @@ async def run_one_query(
                 # field is in scope near the merge below (faithfulness defense-in-depth).
                 _ag_urls = harvest_agentic_urls(_ag_result, cap=_ag_url_cap)
                 del _ag_result
+                _agentic_telemetry.update({
+                    "fired": len(_ag_urls) > 0,
+                    "urls_discovered": len(_ag_urls),
+                    "status": "fired" if _ag_urls else "attempted_empty",
+                })
                 _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
             except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
                 _log(
                     f"[agentic]     agentic discovery failed: {_ag_exc} — "
                     f"proceeding without agentic URLs"
                 )
+                _agentic_telemetry["status"] = "error"
+                _agentic_telemetry["error"] = str(_ag_exc)[:200]
                 _ag_urls = []
             finally:
                 _ag_mod.PG_AGENTIC_CONTENT_READING_ENABLED = _ag_prev_reading
@@ -5107,6 +5154,18 @@ async def run_one_query(
         # inside the helper): when OFF, neither the file nor the key is produced,
         # so manifest.json is byte-identical to the pre-I-meta-007b output.
         manifest = _attach_tool_utilization(manifest, run_dir)
+
+        # I-ready-005 (#1076) P1: surface per-feature FIRING telemetry so the operator can PROVE each
+        # forced-ON benchmark feature actually fired (not merely that its flag was set). Additive keys;
+        # when a feature is OFF the key reads {enabled:false, fired:false, status:"not_enabled"}.
+        manifest["storm_query_expansion"] = _storm_telemetry
+        manifest["agentic_search"] = _agentic_telemetry
+        # Fail LOUD (log, non-gating) if a feature was force-ENABLED but did NOT fire — a forced-ON-but-
+        # feature-less paid run is exactly the silent-degrade the operator's no-downgrade directive forbids.
+        for _feat in (_storm_telemetry, _agentic_telemetry):
+            _feat_warn = feature_firing_warning(_feat)
+            if _feat_warn:
+                _log(f"[feature]     WARNING {_feat_warn}")
 
         manifest = augment_v6_manifest(
             manifest,
