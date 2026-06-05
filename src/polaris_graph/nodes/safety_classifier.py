@@ -52,14 +52,20 @@ class HarmDecision:
 _PERSON = (
     r"(?:someone|some\s?one|a\s+person|a\s+human\s+being|a\s+human\b|a\s+man|a\s+woman|a\s+child|"
     r"an\s+adult|people\b|humans\b|him\b|her\b|them\b|"
-    # "my X" is anchored to a PERSON noun (Codex diff-gate iter-3 over-refusal: bare "my \w+" matched
-    # "kill my time"/"my process"). Whitelisted relations/roles only.
-    r"my\s+(?:roommate|boss|coworker|co-worker|colleague|wife|husband|spouse|partner|ex|girlfriend|"
-    r"boyfriend|mother|father|mom|dad|parent|sister|brother|sibling|son|daughter|child|kid|baby|"
-    r"friend|neighbou?r|enemy|rival|teacher|landlord|tenant|patient|in-?law|family\s+member|relative)|"
+    # "my/the/a X" is anchored to a PERSON noun (Codex diff-gate iter-3 over-refusal: bare "my \w+"
+    # matched "kill my time"/"my process"). Whitelisted relations / roles (Codex iter-4: broadened).
+    r"(?:my|the|a|an|his|her|their|your)\s+(?:roommate|boss|coworker|co-worker|colleague|wife|husband|"
+    r"spouse|partner|ex|girlfriend|boyfriend|mother|father|mom|dad|parent|sister|brother|sibling|son|"
+    r"daughter|child|kid|baby|infant|toddler|newborn|friend|neighbou?r|enemy|rival|teacher|landlord|"
+    r"tenant|patient|in-?law|family\s+member|relative|grand(?:mother|father|ma|pa|parent|son|daughter)|"
+    r"aunt|uncle|cousin|niece|nephew|nurse|doctor|physician|boss|coworker|victim|elderly\s+\w+)|"
     r"the\s+(?:patient|victim|person|target|elderly|baby|infant)|"
-    r"a\s+(?:patient|hospital\s+patient|toddler|newborn|baby|infant|kid|child|person|human|man|woman|"
-    r"victim|colleague|coworker|co-worker|neighbou?r))"
+    # an adjective-qualified patient / resident ("a hospital patient", "an elderly resident").
+    r"(?:my|the|a|an)\s+(?:hospital\w*|hospitali[sz]ed|elderly|\bicu\b|nursing[-\s]home|dialysis|"
+    r"comatose|sedated|sleeping|unconscious|vulnerable|disabled|bedridden|terminally\s+ill)\s+"
+    r"(?:patient|resident|person|relative)|"
+    # a capitalized given name directly after the kill verb (case-sensitive even under re.I).
+    r"(?-i:[A-Z][a-z]{2,}))"
 )
 
 # Care / clinical-management / prevention FRAME for the LETHAL category — a query ABOUT treating or
@@ -77,6 +83,10 @@ _LETHAL_CARE_GUARD = re.compile(
     r"(?:management|treatment|care|protocol|guideline)"
     r"|\b(?:antidote|reversal|reverse|resuscitat\w*|first\s+aid|supportive\s+care|poison\s+control|"
     r"overdose\s+management)\b"
+    # Codex diff-gate iter-4: clinicians/hospitals managing an overdose is a HELP query.
+    r"|\b(?:hospitals?|clinicians?|doctors?|physicians?|nurses?|paramedics?|providers?|clinics?|"
+    r"\bed\b|\ber\b|emergency\s+depart\w*|icus?|staff)\s+(?:\w+\s+){0,2}?"
+    r"(?:manage|managing|treat|treating|handle|handling|respond|responding|care\s+for|stabili[sz])"
     r"|\bprevent\w*\s+(?:\w+\s+){0,3}?(?:death|deaths|overdose|poisoning|self[-\s]?harm|suicide|"
     r"from\s+(?:dying|overdosing))\b",
     re.IGNORECASE,
@@ -137,22 +147,28 @@ _LETHAL_GENERIC = re.compile(
 # 2) WEAPONIZATION — Codex brief P2-1: require an ACTION verb (make/build/synthesize/deploy/...), NOT
 #    a bare subject. "the Chemical Weapons Convention", "nerve-agent treatment guidelines",
 #    "history of chemical weapons" carry no action verb -> never match.
+# "bombs?" carries a negative lookahead for benign compounds (Codex diff-gate iter-4: "bomb
+# calorimeter" / "bath bomb" / "smoke bomb" / "bomb cyclone" are not weapons).
 _WEAPON_SUBJECT = (
-    r"(?:bombs?|explosives?|explosive\s+device|bioweapon|biological\s+weapon|chemical\s+weapon|"
-    r"nerve\s+agent|nerve\s+gas|sarin|\bvx\b|mustard\s+gas|dirty\s+bomb|pipe\s+bomb|\bied\b|grenade|"
-    r"pathogen|anthrax|smallpox|botulinum|ricin|weaponi[sz]ed\s+pathogen)"
+    r"(?:bombs?(?!\s+(?:calorimeter|cyclone))|explosives?|explosive\s+device|bioweapon|"
+    r"biological\s+weapon|chemical\s+weapon|nerve\s+agent|nerve\s+gas|sarin|\bvx\b|mustard\s+gas|"
+    r"dirty\s+bomb|pipe\s+bomb|\bied\b|grenade|pathogen|anthrax|smallpox|botulinum|ricin|"
+    r"weaponi[sz]ed\s+pathogen)"
 )
+_BENIGN_BOMB = re.compile(r"\b(?:bath|smoke|bond|photo|stink|colou?r)[-\s]?bombs?\b|\bbomb\s+(?:calorimeter|cyclone)\b", re.IGNORECASE)
 _WEAPONIZATION = re.compile(
-    # an ACTION verb governing a weapon subject (Codex diff-gate iter-3: bare "bomb" + "how can I make"
-    # + "instructions/blueprint to build a bomb" were missed).
+    # an ACTION verb governing a weapon subject (Codex diff-gate iter-3/4: bare "bomb", "how can I
+    # make", "instructions/blueprint to build", "engineer anthrax for release" were missed).
     r"\b(?:synthesi[sz]e|synthesi[sz]ing|make|making|build|building|manufactur|produc(?:e|ing)|"
-    r"construct|creat(?:e|ing)|assembl|deploy|weaponi[sz]|disperse|releas(?:e|ing)|aerosoli[sz])"
+    r"construct|creat(?:e|ing)|assembl|deploy|weaponi[sz]|disperse|releas(?:e|ing)|aerosoli[sz]|"
+    r"engineer(?:ing)?|cultur(?:e|ing)|grow(?:ing)?)"
     r"\w*\s+(?:a\s+|an\s+|the\s+|some\s+|your\s+own\s+)?"
     r".{0,30}?\b" + _WEAPON_SUBJECT
-    + r"|\bhow\s+(?:to|do\s+i|can\s+i|would\s+i)\s+(?:make|build|synthesi[sz]e|construct|create|assemble)"
-    r"\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT
+    + r"|\bhow\s+(?:to|do\s+i|can\s+i|would\s+i)\s+(?:make|build|synthesi[sz]e|construct|create|"
+    r"assemble|engineer)\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT
     + r"|\b(?:recipe|instructions|blueprint|guide|formula|plans?|steps?)\s+(?:for|to\s+(?:make|build|"
-    r"construct|assemble))\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT,
+    r"construct|assemble|engineer))\s+(?:a\s+|an\s+)?" + _WEAPON_SUBJECT
+    + r"|\b" + _WEAPON_SUBJECT + r"\s+for\s+release\b",
     re.IGNORECASE,
 )
 
@@ -163,17 +179,34 @@ _MINOR = (
     r"(?:minors?|child(?:ren)?|kids?|underage|under-?age|prepubescent|teen(?:age|ager)?s?|"
     r"\b(?:a\s+)?\d{1,2}[-\s]?year[-\s]?olds?\b|girls?|boys?)"
 )
-_CSAM = re.compile(
+# CSAM ACQUISITION / GENERATION (imperative) — NEVER rescued by any frame (Codex diff-gate iter-4:
+# "show me underage nudes"). Both word orders.
+_CSAM_ACQUISITION = re.compile(
+    r"\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access|"
+    r"show\s+me|view|stream|trade|sell|buy)\b"
+    r".{0,30}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\b(?:of\s+)?" + _MINOR
+    + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access|"
+    r"show\s+me|view|stream|trade|sell|buy)\b"
+    r".{0,30}?\b" + _MINOR + r"\b.{0,15}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b"
+    r"|\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\bof\s+(?:a\s+|an\s+)?" + _MINOR
+    + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|access|view|trade|sell|buy|show\s+me)\b"
+    r".{0,20}?\b(?:csam|child\s+porn\w*)\b",
+    re.IGNORECASE,
+)
+# CSAM LITERAL reference — rescuable by a clinical / legal / policy / research SAFE frame anywhere
+# (Codex diff-gate iter-4 over-refusal: "CSAM reporting laws", "clinical treatment of a child sexual
+# abuse survivor", "epidemiology of child sexual abuse survivors" are legitimate).
+_CSAM_LITERAL = re.compile(
     r"\b(?:child\s+sexual\s+abuse\s+material|csam|child\s+(?:porn(?:ography)?|sexual\s+abuse)|"
     r"(?:sexual(?:i[sz]e)?|nude|naked|explicit)\s+\w{0,12}?\s*(?:minor|child|underage|prepubescent)|"
-    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b"
-    # acquisition / generation of sexual imagery of minors — both word orders ([imagery] of [minor]
-    # AND [minor] [imagery], e.g. "underage nudes").
-    r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access)\b"
-    r".{0,30}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\b(?:of\s+)?" + _MINOR
-    + r"|\b(?:get|find|where\s+to\s+(?:find|get|buy)|download|generate|create|make|produce|share|access)\b"
-    r".{0,30}?\b" + _MINOR + r"\b.{0,15}?\b(?:nudes?|naked|explicit|sexual|porn\w*)\b"
-    r"|\b(?:nudes?|naked|explicit|sexual|porn\w*)\b.{0,20}?\bof\s+(?:a\s+|an\s+)?" + _MINOR,
+    r"(?:minor|child|underage|prepubescent)\s+\w{0,12}?\s*(?:porn|sexual|nude|explicit))\b",
+    re.IGNORECASE,
+)
+_CSAM_SAFE_GUARD = re.compile(
+    r"\b(?:report\w*|laws?|legislat\w*|legal|policy|policies|mandatory\s+report\w*|prevent\w*|"
+    r"treat\w*|therap\w*|clinical|epidemiolog\w*|prevalence|incidence|statistics|survivors?|victims?|"
+    r"support|hotline|ncmec|investigat\w*|prosecut\w*|takedown|moderation|trust\s+and\s+safety|"
+    r"detect\w*|hash(?:ing)?|safeguard\w*|protect\w*|awareness|education|recover\w*)\b",
     re.IGNORECASE,
 )
 
@@ -184,7 +217,12 @@ _SELF_HARM_METHOD = re.compile(
     r"method[s]?\s+(?:to|of|for)|ways?\s+to|painless\s+way\s+to)\s+"
     r"(?:commit\s+suicide|kill\s+myself|end\s+my\s+life|end\s+it\s+all|take\s+my\s+(?:own\s+)?life|"
     r"hang\s+myself|overdose\s+(?:on\s+\w+\s+)?(?:to\s+die|and\s+die)|self[-\s]?harm|cut\s+myself)\b"
-    r"|\bsuicide\s+method[s]?\b|\bhow\s+much\s+\w+\s+(?:to|will)\s+\w*\s*(?:overdose|be\s+lethal|kill\s+me)\b",
+    r"|\bsuicide\s+method[s]?\b|\bhow\s+much\s+\w+\s+(?:to|will)\s+\w*\s*(?:overdose|be\s+lethal|kill\s+me)\b"
+    # Codex diff-gate iter-4: direct first-person lethal-dose/overdose phrasing.
+    r"|\b(?:dose|amount|quantity|how\s+much)\b.{0,40}?\b(?:would|to|that\s+would|will)\s+kill\s+me\b"
+    r"|\bhow\s+much\s+\w+\s+(?:do\s+i\s+need\s+|to\s+|would\s+i\s+need\s+)(?:to\s+)?die\b"
+    r"|\b(?:lethal|fatal|deadly)\s+(?:dose|amount)\s+(?:of\s+\w+\s+)?(?:for|to\s+kill)\s+(?:myself|me)\b"
+    r"|\bwhat\s+would\s+kill\s+me\b",
     re.IGNORECASE,
 )
 # Self-harm RESEARCH / AWARENESS frame — only rescues when it LEADS (see _frame_leads). Codex diff-gate
@@ -211,7 +249,8 @@ _ILLICIT_SYNTHESIS = re.compile(
     r"(?:methamphetamine|crystal\s+meth|\bmeth\b|fentanyl|carfentanil|heroin|cocaine|\bmdma\b|"
     r"\blsd\b|\bghb\b|\bpcp\b)\b"
     r"|\bclandestine\s+(?:drug\s+)?(?:synthesis|lab|manufactur)"
-    r"|\bsynthesis\s+route\s+(?:for|of)\s+(?:fentanyl|methamphetamine|meth|heroin|mdma|carfentanil)\b"
+    r"|\bsynthesis\s+route\s+(?:for|of)\s+(?:fentanyl|methamphetamine|meth|heroin|mdma|carfentanil|"
+    r"cocaine|\blsd\b|\bghb\b|\bpcp\b)\b"
     r"|\bhow\s+to\s+(?:cook|make|synthesi[sz]e|manufacture)\s+(?:meth|methamphetamine|fentanyl|"
     r"crystal\s+meth|heroin|mdma|cocaine)\b",
     re.IGNORECASE,
@@ -242,14 +281,23 @@ _ACTION_PREVENTION_GUARD = re.compile(
 )
 
 
+# Clause separators — a care/prevention frame does NOT govern a harm clause across one of these
+# (Codex diff-gate iter-4: "clinical management: what dose would kill my roommate" / "policy program:
+# how to synthesize fentanyl" — a colon-prefixed frame is detached, not governing).
+_CLAUSE_SEPARATOR = re.compile(r"[:;.?!–—\n]|\s-\s")
+
+
 def _frame_leads(harm_match: re.Match[str], guard: re.Pattern[str], q: str) -> bool:
-    """True iff a care/prevention frame match STARTS BEFORE the harm match — i.e. the query is FRAMED
-    as treating/preventing the harm, not doing it. Codex diff-gate iter-2 P1: a guard word that merely
-    TRAILS an explicit harm clause ("...kill the patient I am treating", "cook meth while avoiding law
-    enforcement") is incidental and must NOT veto. Only a LEADING frame ("management of <overdose> ...",
-    "public health interventions to prevent ... making <drug>") vetoes."""
-    g = guard.search(q)
-    return g is not None and g.start() < harm_match.start()
+    """True iff a care/prevention frame GOVERNS the harm clause — it must START BEFORE the harm match
+    (Codex iter-2: a TRAILING incidental word must not veto) AND there must be NO clause separator
+    between the frame and the harm (Codex iter-4: a detached "clinical management:" / "research:"
+    prefix does not govern an imperative harm clause). Only a genuinely governing frame vetoes."""
+    for g in guard.finditer(q):
+        if g.start() < harm_match.start():
+            gap = q[g.end():harm_match.start()]
+            if not _CLAUSE_SEPARATOR.search(gap):
+                return True
+    return False
 
 
 def classify_harm_intent(question: str) -> HarmDecision:
@@ -287,19 +335,24 @@ def classify_harm_intent(question: str) -> HarmDecision:
                 True, "lethal_intent_against_persons", 0.9, ["lethal_generic_cause_death"],
             )
 
-        # Weaponization: make/build ACTION AND no policy/prevention frame LEADING the action.
-        _m = _WEAPONIZATION.search(q)
-        if _m and not _frame_leads(_m, _ACTION_PREVENTION_GUARD, q):
+        # Weaponization: make/build ACTION AND no policy/prevention frame governing it. Benign
+        # compounds ("bath bomb", "bomb calorimeter") are stripped before matching (Codex iter-4).
+        _q_w = _BENIGN_BOMB.sub("  ", q)
+        _m = _WEAPONIZATION.search(_q_w)
+        if _m and not _frame_leads(_m, _ACTION_PREVENTION_GUARD, _q_w):
             return HarmDecision(True, "weaponization", 0.9, ["weaponization_explicit_intent"])
 
-        # Illicit synthesis: synthesis verb / recipe AND no policy/prevention frame LEADING it.
+        # Illicit synthesis: synthesis verb / recipe AND no policy/prevention frame governing it.
         _m = _ILLICIT_SYNTHESIS.search(q)
         if _m and not _frame_leads(_m, _ACTION_PREVENTION_GUARD, q):
             return HarmDecision(True, "illicit_synthesis", 0.9, ["illicit_synthesis_explicit_intent"])
 
-        # CSAM: no legitimate counterpart -> any literal hit refuses (no guard).
-        if _CSAM.search(q):
-            return HarmDecision(True, "csam", 0.9, ["csam_explicit"])
+        # CSAM: an ACQUISITION/generation imperative is never rescued; a LITERAL reference is rescued
+        # only by a clinical/legal/policy/research safe frame (Codex iter-4).
+        if _CSAM_ACQUISITION.search(q):
+            return HarmDecision(True, "csam", 0.9, ["csam_acquisition"])
+        if _CSAM_LITERAL.search(q) and not _CSAM_SAFE_GUARD.search(q):
+            return HarmDecision(True, "csam", 0.9, ["csam_literal_no_safe_frame"])
 
         return HarmDecision(False, "", 0.0, ["no_explicit_harm_intent"])
     except Exception as exc:  # noqa: BLE001 — fail open: a classifier bug must never abort a run.
