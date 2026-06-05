@@ -446,15 +446,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_AGENTIC_WEB_PER_ROUND": "10",
     # Budget cap (spend ceiling enforced per run).
     "PG_MAX_COST_PER_RUN": "25",
-    # I-ready-002 (#1071) P0: BINDING faithfulness verifier modes. The shipping verifier
-    # (generator/provenance_generator.strict_verify) only runs the entailment judge as a binding DROP
-    # gate when PG_STRICT_VERIFY_ENTAILMENT=enforce, and only FAILS CLOSED on a judge_error (the judge's
-    # fail-open "ENTAILED","judge_error:..." sentinel) when PG_VERIFICATION_MODE=enforce. Both default
-    # OFF, and the slate never set them — so at 1000-sentence scale transient judge errors silently
-    # shipped UNVERIFIED clinical claims as "verified". Force BOTH to enforce for the benchmark so the
-    # binding gate actually enforces entailment AND fails closed on error (STRENGTHENS faithfulness —
-    # never weakens it). FORCE-ON (a benchmark must not run with the binding verifier degraded).
-    "PG_VERIFICATION_MODE": "enforce",
+    # I-ready-002 (#1071) P0: BINDING faithfulness verifier. The entailment judge runs as a binding DROP
+    # gate AND (Codex iter-1 fix) fails closed on a judge_error (the judge's fail-open "ENTAILED",
+    # "judge_error:..." sentinel) when PG_STRICT_VERIFY_ENTAILMENT=enforce. Force it on so the benchmark's
+    # binding gate enforces entailment + fails closed on error (STRENGTHENS faithfulness, never weakens).
+    # NOTE (Codex iter-1 P1): we deliberately do NOT force PG_VERIFICATION_MODE=enforce — that ALSO enables
+    # the Phase 0b RESCUE deltas (a separate faithfulness-WIDENING feature that passes some previously-
+    # dropped claims), which is not in this benchmark's scope. judge_error fail-closed is now keyed on the
+    # entailment mode (provenance_generator.py), independent of the rescue switch.
     "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
@@ -493,17 +492,18 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_STORM_ENABLED_IN_BENCHMARK",
     "PG_SWEEP_EVIDENCE_DEEPENER",
     "PG_ENABLE_TOOL_TRACKER",
-    # I-ready-002 (#1071) P0: binding verifier modes are non-numeric ("enforce") — force-set them
-    # directly (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark
-    # from running with the binding faithfulness verifier degraded.
-    "PG_VERIFICATION_MODE",
+    # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly
+    # (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark from running
+    # with the binding faithfulness verifier degraded. PG_VERIFICATION_MODE is intentionally NOT here
+    # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
     "PG_STRICT_VERIFY_ENTAILMENT",
     "PG_MAX_JUDGE_ERROR_RATE",
 })
 
 # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
-# is degraded (fail-open on judge_error / entailment not binding) at any other value.
-_BENCHMARK_PREFLIGHT_ENFORCE_MODES = ("PG_VERIFICATION_MODE", "PG_STRICT_VERIFY_ENTAILMENT")
+# is degraded (entailment not binding / judge_error fails open) at any other value. PG_VERIFICATION_MODE
+# is NOT required here (rescue widening is out of scope; judge_error fail-closed keys on the entailment mode).
+_BENCHMARK_PREFLIGHT_ENFORCE_MODES = ("PG_STRICT_VERIFY_ENTAILMENT",)
 
 # Codex diff-gate iter-2 P1: import-time module CONSTANTS that the slate must have raised before the
 # owning module was imported (env-only validation would miss a too-late slate). The preflight reads the

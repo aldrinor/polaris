@@ -404,17 +404,29 @@ _S0B4_SENTENCE = (
 )
 
 
-def test_s0b4_delta3_off_passes_flag_inert(monkeypatch):
+def test_s0b4_delta3_judge_error_fails_closed_on_entailment_enforce(monkeypatch):
+    # I-ready-002 (#1071) Codex iter-1 P1: judge_error fail-closed is now keyed on the ENTAILMENT mode
+    # (PG_STRICT_VERIFY_ENTAILMENT), DECOUPLED from PG_VERIFICATION_MODE (which ALSO enables the Phase 0b
+    # rescue WIDENING). With entailment=enforce a judge_error MUST fail closed REGARDLESS of
+    # PG_VERIFICATION_MODE — previously off-verification-mode left the fail-open ENTAILED in place (the
+    # exact bug: an unverified clinical claim shipped as "verified"). This asserts the fix.
+    monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)  # verification mode OFF (no rescue)
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install_judge(monkeypatch, JudgeErrorSentinel())
     res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
-    assert res.is_verified is True  # pre-0b fail-open preserved
-    assert res.judge_error is True  # flag set but inert in off mode
+    assert res.is_verified is False  # fail-closed now travels with entailment-enforce (the fix)
+    assert res.judge_error is True
+    assert any(
+        r.startswith("entailment_judge_error_fail_closed:")
+        for r in res.failure_reasons
+    )
 
 
-def test_s0b4_delta3_shadow_passes_logs(monkeypatch, caplog):
-    monkeypatch.setenv("PG_VERIFICATION_MODE", "shadow")
-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+def test_s0b4_delta3_warn_entailment_logs_does_not_drop(monkeypatch, caplog):
+    # I-ready-002 (#1071): the log-only judge_error path is now PG_STRICT_VERIFY_ENTAILMENT=warn
+    # (was PG_VERIFICATION_MODE=shadow). warn logs "would_fail_closed" but does NOT drop the sentence.
+    monkeypatch.delenv("PG_VERIFICATION_MODE", raising=False)
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "warn")
     _install_judge(monkeypatch, JudgeErrorSentinel())
     import logging
 

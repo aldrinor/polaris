@@ -1659,17 +1659,24 @@ def verify_sentence_provenance(
     if unhedged:
         soft_warnings.append(f"unhedged_superlative:{unhedged!r}")
 
-    # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the
-    # judge-error sentinel. off = flag set but is_verified UNCHANGED (pre-0b
-    # fail-open preserved, byte-identical). shadow = log only. enforce = DROP.
+    # Phase 0b Delta 3 (I-meta-005, gap-#18): ON-mode fail-closed on the judge-error sentinel.
+    # I-ready-002 (#1071) Codex iter-1 P1: key this on the ENTAILMENT mode (PG_STRICT_VERIFY_ENTAILMENT,
+    # where judge_error_flag is SET), NOT PG_VERIFICATION_MODE. PG_VERIFICATION_MODE=enforce ALSO turns on
+    # the Phase 0b RESCUE deltas (1437/1586) — a separate faithfulness-widening feature that passes some
+    # previously-dropped claims; the benchmark wants judge_error-fail-closed WITHOUT that widening. judge_
+    # error_flag is only ever set inside the entailment block (warn/enforce), so re-reading the entailment
+    # mode here is safe. enforce = DROP; warn = log only; off = unchanged (judge never ran).
     if judge_error_flag:
-        _vmode_j = _verification_mode()
-        if _vmode_j == "enforce":
+        from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+            _entailment_mode as _emode_jerr,
+        )
+        _emode_j = _emode_jerr()
+        if _emode_j == "enforce":
             ev_ids = ",".join(sorted({t.evidence_id for t in tokens})) if tokens else ""
             failures.append(f"entailment_judge_error_fail_closed:{ev_ids}")
-        elif _vmode_j == "shadow":
+        elif _emode_j == "warn":
             logger.warning(
-                "[provenance] SHADOW would_fail_closed_on_judge_error "
+                "[provenance] WARN would_fail_closed_on_judge_error "
                 "(enforce-mode would drop this sentence)",
             )
 

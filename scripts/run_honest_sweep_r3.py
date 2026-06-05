@@ -193,6 +193,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_no_verified_sections",
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
+    "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
     # error — unhandled exception
     "error_unexpected",
 })
@@ -223,6 +224,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
     # clean budget abort, NOT error_unexpected.
     "abort_budget_exceeded": "abort_budget_exceeded",
+    # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) is a release-blocking abort.
+    "abort_verifier_degraded": "abort_verifier_degraded",
     "error": "error_unexpected",
 }
 
@@ -4459,6 +4462,44 @@ async def run_one_query(
             ) + "\n",
             encoding="utf-8",
         )
+
+        # I-ready-002 (#1071) Codex iter-1 P1: HARD release-blocking abort if the binding verifier was so
+        # degraded (judge_error_rate > PG_MAX_JUDGE_ERROR_RATE) the run is not trustworthy. Fires HERE —
+        # after verification_details.json is written, BEFORE the evaluator/4-role D8 spend — so a degraded
+        # run cannot later be overwritten back to success by the D8 status path. Each errored sentence
+        # already failed closed (its claim was dropped); this gates the whole RUN's release.
+        if verif_details.get("judge_error_degraded"):
+            _jerr_status = to_unified_status("abort_verifier_degraded")
+            summary["status"] = "abort_verifier_degraded"
+            summary["error"] = (
+                f"judge_error_rate={verif_details.get('judge_error_rate')} > cap "
+                f"{verif_details.get('judge_error_rate_cap')} "
+                f"({verif_details.get('judge_error_count')}/"
+                f"{verif_details.get('judge_error_sentences_checked')} sentences)"
+            )
+            _jerr_manifest = {
+                "run_id": run_id,
+                "slug": q.get("slug", ""),
+                "domain": q.get("domain", ""),
+                "question": q.get("question", ""),
+                "status": _jerr_status,
+                "release_allowed": False,
+                "verifier_judge_error_rate": verif_details.get("judge_error_rate"),
+                "verifier_judge_error_count": verif_details.get("judge_error_count"),
+                "verifier_judge_error_cap": verif_details.get("judge_error_rate_cap"),
+                "budget_cap_usd": get_max_cost_per_run(),
+            }
+            _jerr_manifest = _attach_tool_utilization(_jerr_manifest, run_dir)
+            (run_dir / "manifest.json").write_text(
+                json.dumps(_jerr_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            summary["manifest"] = _jerr_manifest
+            _log(
+                f"[verifier]    ABORT abort_verifier_degraded — release BLOCKED before D8 "
+                f"(judge_error_rate {verif_details.get('judge_error_rate')} > cap "
+                f"{verif_details.get('judge_error_rate_cap')})"
+            )
+            return summary
 
         # Evaluator rule checks
         # I-rdy-011 (#507): cooperative cancel checkpoint — after generation,
