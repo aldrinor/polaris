@@ -1460,34 +1460,6 @@ async def run_one_query(
     four_role_inputs=None,
     four_role_input_builder=None,
 ) -> dict:
-    """Run one query, GUARANTEEING the per-feature telemetry ContextVar is cleared on EVERY exit.
-
-    I-ready-005 (#1076) Codex iter-3 P1: ``_FEATURE_TELEMETRY_CTX`` (set at the top of
-    ``_run_one_query_impl``) MUST be cleared on every exit path — including the direct cancel-returns
-    and the ``abort_verifier_degraded`` return that bypass the bottom teardown, AND any propagating
-    exception — else stale "feature fired" telemetry leaks into a later ``_attach_tool_utilization``
-    call in the same async context (false evidence). A single ``finally`` here is the guaranteed clear
-    (Codex's recommended fix), replacing the per-exit-site clears that kept missing direct-return paths.
-    """
-    try:
-        return await _run_one_query_impl(
-            q, out_root,
-            four_role_transport=four_role_transport,
-            four_role_inputs=four_role_inputs,
-            four_role_input_builder=four_role_input_builder,
-        )
-    finally:
-        _FEATURE_TELEMETRY_CTX.set(None)
-
-
-async def _run_one_query_impl(
-    q: dict,
-    out_root: Path,
-    *,
-    four_role_transport=None,
-    four_role_inputs=None,
-    four_role_input_builder=None,
-) -> dict:
     """Run the full honest pipeline on one query. Returns a summary dict.
 
     I-meta-002 sub-PR-6 (4-role wiring, GUARDED + default OFF): the 4-role evaluation path
@@ -1553,9 +1525,11 @@ async def _run_one_query_impl(
         "agentic_search", urls_discovered=0,
         enabled=_agentic_enabled, status="enabled_not_reached" if _agentic_enabled else "not_enabled",
     )
-    _FEATURE_TELEMETRY_CTX.set({
-        "storm_query_expansion": _storm_telemetry, "agentic_search": _agentic_telemetry,
-    })
+    # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
+    # benchmark feature and lives INSIDE the outer try below (first statement). When both features
+    # are OFF the ContextVar stays None, so _attach_tool_utilization adds no feature keys and the
+    # manifest is byte-identical to the pre-#1076 OFF path. Publishing inside the outer try also means
+    # the try's `finally` (P1-1) is the single guaranteed clear on every exit.
 
     # I-gen-004 (#496): run-scoped reasoning-trace collector. Write-through
     # mode — the jsonl is rewritten on every record/update so it is current
@@ -1634,6 +1608,16 @@ async def _run_one_query_impl(
     }
 
     try:
+        # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
+        # ONLY when a benchmark forces a feature ON. Set HERE — first statement inside the outer try —
+        # so the try's `finally` (below) is the guaranteed single clear on EVERY exit (all early
+        # abort-returns, success, and the budget/error excepts), after the last manifest write. An OFF
+        # run never sets it, keeping _attach_tool_utilization byte-identical.
+        if _storm_enabled or _agentic_enabled:
+            _FEATURE_TELEMETRY_CTX.set({
+                "storm_query_expansion": _storm_telemetry, "agentic_search": _agentic_telemetry,
+            })
+
         _log("=" * 72)
         _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
         _log(f"Question: {q['question']}")
@@ -5462,6 +5446,17 @@ async def _run_one_query_impl(
             # Don't mask the original exception if the best-effort
             # manifest write itself fails.
             _log(f"[FATAL]       manifest-write-also-failed: {manifest_exc}")
+    finally:
+        # I-ready-005 (#1076) iter-4 P1-1: the single GUARANTEED clear of the per-feature telemetry
+        # ContextVar. Every exit of the orchestration body passes through this finally — normal success
+        # (its manifest is written inside this try), all early abort-returns
+        # (scope/no-sources/corpus/no-verified/verifier-degraded/cancel), AND the BudgetExceededError /
+        # Exception excepts above (each writes its manifest first). The post-try teardown below writes
+        # NO manifest, so clearing here cannot strip telemetry off any manifest, while a stale "feature
+        # fired" entry can never leak into a later _attach_tool_utilization call sharing this async
+        # context. Replaces the iter-3 wrapper split (which broke the run_one_query source-introspection
+        # contract gates) — the body stays in run_one_query per Codex iter-4's first-listed fix.
+        _FEATURE_TELEMETRY_CTX.set(None)
 
     # BUG-M-206 + BUG-N-301 teardown: per-run ledger copy + run_id reset.
     try:

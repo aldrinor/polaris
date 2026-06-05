@@ -68,29 +68,52 @@ def test_attach_tool_utilization_no_telemetry_when_ctx_unset(monkeypatch, tmp_pa
     assert "storm_query_expansion" not in out and "agentic_search" not in out
 
 
-def test_run_one_query_wrapper_clears_ctx_on_every_exit(monkeypatch):
-    # Codex iter-3 P1: the per-exit-site clears kept missing direct-return paths (cancel-return,
-    # abort_verifier_degraded). The run_one_query WRAPPER's finally is the single guaranteed clear on
-    # EVERY exit — normal return AND a propagating exception — so no stale telemetry can leak.
-    import asyncio
+def test_run_one_query_outer_try_has_ctx_clearing_finally():
+    # Codex iter-3/iter-4 P1: the per-exit-site clears kept missing direct-return paths (cancel-return,
+    # abort_verifier_degraded). The guaranteed clear is a `finally` on run_one_query's OUTER try — the
+    # same try whose excepts write error_unexpected / abort_budget_exceeded. Because every abort-return
+    # AND the success manifest write live inside that try, and the post-try teardown writes no manifest,
+    # the finally is the single clear that runs on EVERY exit without ever stripping telemetry off a
+    # manifest. Structural (AST) check — mirrors test_manifest_contract / test_four_role_budget_cap,
+    # which is why the orchestrator body must stay in `run_one_query` (no wrapper rename).
+    import ast
+    import inspect
+
     import scripts.run_honest_sweep_r3 as m
 
-    async def _impl_returns(q, out_root, **kw):
-        m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": {"fired": True}, "agentic_search": {}})
-        return {"status": "ok"}
+    src = inspect.getsource(m.run_one_query)
+    # getsource keeps the original indentation; dedent so ast can parse the def standalone.
+    import textwrap
 
-    async def _impl_raises(q, out_root, **kw):
-        m._FEATURE_TELEMETRY_CTX.set({"storm_query_expansion": {"fired": True}, "agentic_search": {}})
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(m, "_run_one_query_impl", _impl_returns)
-    asyncio.run(m.run_one_query({"domain": "d", "slug": "s", "question": "q"}, "."))
-    assert m._FEATURE_TELEMETRY_CTX.get() is None, "ctx must be cleared on normal return"
-
-    monkeypatch.setattr(m, "_run_one_query_impl", _impl_raises)
-    with __import__("pytest").raises(RuntimeError):
-        asyncio.run(m.run_one_query({"domain": "d", "slug": "s", "question": "q"}, "."))
-    assert m._FEATURE_TELEMETRY_CTX.get() is None, "ctx must be cleared even on a propagating exception"
+    tree = ast.parse(textwrap.dedent(src))
+    func = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.AsyncFunctionDef) and n.name == "run_one_query"),
+        None,
+    )
+    assert func is not None, "run_one_query not found"
+    # The outer orchestration try = the top-level Try whose body writes the error_unexpected /
+    # abort_budget_exceeded manifests (NOT the early `except Exception: pass` synthesis-reset try, which
+    # is also a top-level try but is a no-op guard). Identify it by its source segment, then assert it
+    # carries a `finally` that clears _FEATURE_TELEMETRY_CTX. dedent shifts line numbers, so segment off
+    # the dedented `src` consistently.
+    outer_try = None
+    for node in func.body:
+        if isinstance(node, ast.Try):
+            seg = ast.get_source_segment(textwrap.dedent(src), node) or ""
+            if "error_unexpected" in seg and "BudgetExceededError" in seg:
+                outer_try = node
+                break
+    assert outer_try is not None, (
+        "expected the outer orchestration try (the one writing error_unexpected / "
+        "abort_budget_exceeded) in run_one_query"
+    )
+    assert outer_try.finalbody, "outer try must have a `finally` clause"
+    finally_src = ast.dump(ast.Module(body=outer_try.finalbody, type_ignores=[]))
+    assert "_FEATURE_TELEMETRY_CTX" in finally_src and "set" in finally_src, (
+        "the outer try's finally must clear _FEATURE_TELEMETRY_CTX (set it to None) — the single "
+        "guaranteed clear on every exit"
+    )
 
 
 def test_stale_telemetry_does_not_leak_after_clear(monkeypatch, tmp_path):
