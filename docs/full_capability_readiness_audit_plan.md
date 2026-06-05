@@ -12,7 +12,8 @@
 
 **Binding standards (override convenience):**
 1. **Proof, not "trust me"** — nothing is "done" until proven FUNCTIONAL in a live run whose `tool_utilization` + manifest + line-by-line audit are the evidence. (operator `feedback_no_downgrade_without_operator_approval_2026_06_04`, `feedback_audit_capability_in_shipping_path_before_spend_2026_05_29`.)
-2. **§-1.1 line-by-line audit** — every end-result is audited claim-by-claim vs the actually-cited source span (VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE), both Claude and Codex in parallel. NO metadata/pattern/string-presence audits (lethal in clinical).
+2. **§-1.1 line-by-line audit** — every end-result is audited claim-by-claim vs the actually-cited source span (VERIFIED / PARTIAL / UNSUPPORTED / FABRICATED / UNREACHABLE), both Claude and Codex in parallel. NO metadata/pattern/string-presence audits (lethal in clinical). **Codex plan-gate scope correction:** the audit covers **ALL user-visible report prose** — verified sentences AND the Analyst Synthesis, tables, limitations, and generated artifacts — not only the verified-sentence records. Any user-facing text outside the verified set is itself a finding (see F15).
+7. **Faithfulness guardrails (Codex plan-gate, non-negotiable):** (a) the F6 "simple" router must **fail open to the full path on low classifier confidence** and keep strict_verify/4-role unchanged — never relax adequacy/fetch caps for a misrouted complex query; (b) never mix brevity/usefulness into the **binding** Judge verdict (keep those advisory); (c) never use relevance-floor "no cap" without a context/cost preflight + the empirical bake-off.
 3. **Codex is the only gate** — Codex decides go-or-fix per issue; 5-iteration cap (§8.3.1); force-APPROVE at iter-5 with residuals → follow-up issues.
 4. **No silent downgrade** — any cap/feature reduction needs explicit operator approval; default is FULL capability (floor semantics, fail-closed preflight — see I-cap-005).
 5. **Faithfulness invariants intact** — provenance tokens + strict_verify + 4-role D8 gate are NEVER weakened by any fix; advisory features stay advisory.
@@ -95,14 +96,15 @@ Only after all three → execution workflows launch (§3).
 
 ## §6. Dimension findings + sequencing (POPULATED FROM SCOUTS)
 
-Full per-dimension findings (current_state w/ file:line · is_wired · 2026 best practice · gap+full-cap failure · severity · fix · smoke · §-1.1 audit) are saved in `.codex/I-ready-000/findings/<dim>.md`. Severity tally: **1 P0, 11 P1, 2 P2.**
+Full per-dimension findings (current_state w/ file:line · is_wired · 2026 best practice · gap+full-cap failure · severity · fix · smoke · §-1.1 audit) are saved in `.codex/I-ready-000/findings/<dim>.md`. Severity tally (revised per Codex plan-gate iter-1): **2 P0, 11 P1, 2 P2 (15 findings).** Codex promoted F2 to P0, added F15, and corrected the F2 module target.
 
 ### 6.1 Findings (severity-sorted)
 
 | # | Dimension | Sev | Wired? | Gap (one line) | Fix direction |
 |---|---|---|---|---|---|
 | F1 | **context_window_sectioning** | **P0** | yes | Generation sees **20 of 1000+** evidence rows (98% silently dropped): the slate raised retrieval but NOT `PG_LIVE_MAX_EV_TO_GEN` (def 20); 2nd ceiling `max_ev_per_section=30`. Same silent-throttle class as I-cap-005, one stage downstream. | Add `PG_LIVE_MAX_EV_TO_GEN`(120-200)+`PG_USE_FINDING_DEDUP`+`PG_RELEVANCE_FLOOR` to slate + preflight floor; raise per-section cap; **empirical bake-off** 20 vs ~50-reranked vs ~150 (lost-in-the-middle aware) on the locked slice. |
-| F2 | citation_faithfulness_at_scale | P1→P0 | yes | The **binding** `strict_verify` entailment gate **fails open** on judge error → at 1000 sentences, transient errors ship unverified clinical claims as "verified," silent in manifest. (I-cap-005 fixed only the advisory path.) | `strict_verify.py:281-289` detect `judge_error:` → drop (fail-closed); surface judge_error_rate to manifest + run-level abort floor; bounded retry + route-up/majority-vote for high-stakes. |
+| F2 | citation_faithfulness_at_scale | **P0** | yes | The **binding** entailment gate **fails open** on judge error → at 1000 sentences, transient errors ship unverified clinical claims as "verified," silent in manifest. **Codex correction:** the shipping sweep uses `generator.provenance_generator.strict_verify` (NOT the clinical module); it HAS a `PG_VERIFICATION_MODE=enforce` fail-closed branch but default OFF + the slate doesn't floor it. | Fail-closed on `judge_error:` in **BOTH** `clinical_generator/strict_verify.py:281` **and** `generator/provenance_generator.strict_verify`; set `PG_VERIFICATION_MODE=enforce` in the slate + preflight floor it; surface judge_error_rate to manifest + run-level abort floor; bounded retry + route-up/majority-vote (advisory only). |
+| F15 | analyst_synthesis_unverified_surface | **P1** | yes | **Codex-found (scouts missed).** The "Analyst Synthesis" appended to `report.md` (`run_honest_sweep_r3.py:3935`) uses bibliography markers not `[#ev:...]` tokens and is EXCLUDED from the kept-sentence 4-role claim set → **unverified prose reaches the user**. | Either (a) run it through the same strict_verify + 4-role + §-1.1 audit, (b) remove it from user-facing output, or (c) explicitly separate "verified answer" from clearly-labeled "unverified commentary" in the final answer AND the audit. |
 | F3 | caps_timeouts_tokens | P1 | yes | `PG_POST_FETCH_LOOP_BUDGET` is a FIXED 2400s — doesn't scale with `fetch_cap`, so 1000 URLs truncate mid-fetch. | Make loop budget ∝ fetch_cap (`max(900, fetch_cap*per_url)`); thread fetch_cap into the deadline; add to preflight. |
 | F4 | dedup_relevance_ranking | P1 | partial | Lexical rerank only; shortlists 1000 / extracts 1500 but feeds ~20 to gen (overlaps F1). | Slate `PG_USE_FINDING_DEDUP=1`+`PG_RELEVANCE_FLOOR` (no-cap relevance mode keeps every row ≥ floor); consider cross-encoder rerank (bake-off). |
 | F5 | tool_connectivity_logging | P1 | partial | `manifest['tool_utilization']` covers only **3 of ~9** tools (OpenAlex enrich + agentic backends + crawl4ai untraced) → can't prove utilization at full cap. | Add `_trace_tool` to the untraced network tools w/ distinct tool_name; promote to manifest; assert ≥N tools present. |
@@ -120,18 +122,22 @@ Full per-dimension findings (current_state w/ file:line · is_wired · 2026 best
 
 Most retrieval/cap findings split into: **(a) immediate throttle fix** (env-only, add to the slate + preflight floor — cheap, low-risk, kills the silent downgrade now) and **(b) architectural fix** (the empirical bake-off / new component — the operator-mandated "research + test candidates, don't guess"). The plan ships (a) fast and gates (b) on the bake-off evidence.
 
-### 6.3 Execution clusters (code-disjoint → parallelizable; ≤3 workflows concurrent, Codex serialized, worktree-isolated)
+### 6.3 Execution clusters (≤3 workflows concurrent, Codex serialized, worktree-isolated)
 
-- **C1 evidence→generation scaling (P0 first):** F1 + F4 + F3 — shared files (slate/preflight/`run_honest_sweep_r3`/evidence_selector). Sequential within; the env-only throttle fix lands first, bake-off second.
-- **C2 faithfulness:** F2 (strict_verify fail-closed) + F12 (semantic contradiction).
-- **C3 answer-shape:** F6 (complexity router) + F9 + F13 (generator prompt/shape/style).
-- **C4 verifier prompts:** F8 (judge rubric).
-- **C5 inputs:** F10 (doc wiring) + F11 (OCR).
-- **C6 safety:** F7 (refusal hook).
-- **C7 observability:** F5 (tool tracing).
-- **C8 artifacts:** F14 (table verify + figures).
+**Codex plan-gate correction — NOT fully code-disjoint.** F1/F3/F4, F2-preflight, F5, F6, F7, F10 ALL touch `run_honest_sweep_r3.py` and/or `run_gate_b.py`. Worktree isolation prevents dirty-worktree collisions but NOT *integration* conflicts on those two shared files. **Therefore: one SERIALIZED integration owner (the "sweep/Gate-B core" lane) lands every change that edits those two files, one at a time, rebasing between merges.** Truly independent code (OCR/upload modules, judge_adapter, contradiction module, tool_tracer, generator prompt templates) parallelizes freely.
 
-**Sequencing:** C1 (P0) runs first (it gates the meaningfulness of every downstream §-1.1 audit — a report written from 2% of the corpus can't be fairly audited). Then C2-C8 fan out ≤3 at a time. Each issue runs the §4 lifecycle, Codex go/fix at 5-iter cap, with a live tracker-on micro-run + §-1.1 line-by-line audit as the go/fix evidence.
+- **C1 evidence→generation scaling (P0, FIRST):** F1 + F4 + F3 — shared sweep/Gate-B files → the serialized core lane. Env-only throttle fix lands first; bake-off second.
+- **C2 faithfulness (P0):** F2 (fail-closed in BOTH strict_verify modules + slate `PG_VERIFICATION_MODE=enforce`) + F15 (analyst-synthesis unverified surface) + F12 (semantic contradiction).
+- **C3 answer-shape:** F6 (complexity router — sweep core) + F9 + F13 (generator prompt templates — independent).
+- **C4 verifier prompts:** F8 (judge rubric — `judge_adapter.py`, independent).
+- **C5 inputs:** F10 (doc wiring — sweep core) + F11 (OCR — upload module, independent).
+- **C6 safety:** F7 (refusal hook — shared pre-scope, sweep core).
+- **C7 observability:** F5 (tool tracing — sweep core + tracer).
+- **C8 artifacts:** F14 (table verify + figures — mostly independent).
+
+**Full-cap activation profile (Codex plan-gate requirement).** Every fix is flag-gated AND byte-identical-when-off, BUT each validated readiness feature must then be turned ON + preflighted in an explicit **full-cap real-user slate** (extends `_FULL_CAPABILITY_BENCHMARK_SLATE`) — otherwise safety/routing/OCR/dedup/fail-closed-verify fixes would hide behind flags that stay off (the original dead-by-flag bug). After each fix's §-1.1 audit passes, its flag is added to the full-cap slate + a preflight floor, so the live run runs every fix ON.
+
+**Sequencing:** **First wave = C1 (immediate env throttle fix) + F2 (production-path fail-closed verify) — BEFORE any paid/audited full-cap evidence** (a report from 2% of the corpus with a fail-open verifier can't be fairly audited). Bake-offs follow the throttle fix. Then C2-C8 fan out ≤3 at a time through the core lane (serialized) + the independent lanes (parallel). Each issue runs the §4 lifecycle, Codex go/fix at 5-iter cap, with a live tracker-on micro-run + §-1.1 audit as the go/fix evidence.
 
 ### 6.4 Operator decisions (LOCKED 2026-06-05)
 1. **Scope: ALL 14** (P0 + 11 P1 + 2 P2). No deferral.
