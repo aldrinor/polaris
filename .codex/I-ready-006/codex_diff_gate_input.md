@@ -27,6 +27,17 @@ Diff: `.codex/I-ready-006/codex_diff.patch` (vs base bot/I-ready-004).
   INSIDE the routing try/except — a malformed value falls back to the FULL path (never aborts
   error_unexpected). A source-check test locks the fail-open except.
 
+## iter-2 diff was REQUEST_CHANGES (continuing P1) — FIXED (this is the iter-3 diff):
+- The clinical DENYLIST still missed "death" / "fatality" / "GBS" / "COVID" / "Shingrix" (a denylist
+  can never be complete). FIX: FLIP THE POLARITY — "simple" now REQUIRES a positive `_SAFE_FACTUAL_CUE`
+  ALLOWLIST (financial / economic / corporate / geographic / civic: stock price / market cap / revenue
+  / GDP / inflation rate / population / capital of / founded / CEO / ...). A query with NO safe cue —
+  incl. "What is the death rate from COVID-19?", "rate of GBS after Shingrix?", "fatality rate of
+  Ebola?" — FAILS OPEN to complex REGARDLESS of whether the denylist names the disease. Generic
+  "rate of" / "how many" are NO LONGER simple cues (they can be a clinical outcome rate). The
+  `_CLINICAL_CONTENT` guard remains as defense-in-depth. 11 clinical/outcome probes (incl. all of
+  yours) now assert complex; the financial/GDP/capital cases still assert simple.
+
 ## What the diff does
 **New module** `src/polaris_graph/nodes/complexity_router.py` — deterministic, fail-open
 `classify_complexity(question) -> ComplexityDecision(complexity, confidence, reasons)`. Pure stdlib +

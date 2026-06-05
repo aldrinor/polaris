@@ -58,12 +58,19 @@ _CLINICAL_CONTENT = re.compile(
     re.IGNORECASE,
 )
 
-# Factual / quantity cues that SUGGEST a right-sizeable lookup.
-_FACTUAL_CUE = re.compile(
-    r"\b(price|stock|share price|cost|value|worth|revenue|profit|market cap|"
-    r"how much|how many|what (?:is|was|are|were) the |when (?:did|was|were)|"
-    r"population|gdp|rate of|percentage|number of|capital of|headquarter|founded|"
-    r"ceo|exchange rate|temperature|distance|height|weight|age)\b",
+# ALLOWLIST of clearly NON-medical factual domains that qualify a query as right-sizeable "simple".
+# This is OPT-IN (a query is simple ONLY if it matches a known-safe factual cue) rather than OPT-OUT of
+# a clinical DENYLIST — a denylist can never be complete (Codex diff-gate iter-2: the clinical guard
+# missed "death" / "fatality" / "GBS" / "COVID" / "Shingrix"). With the allowlist, "death rate from
+# COVID-19" / "rate of GBS after Shingrix" have NO safe factual cue ⇒ fail open to complex regardless
+# of whether the denylist names that disease. Financial / economic / corporate / geographic / civic
+# facts only — NOT generic "rate of" / "how many", which can be a clinical outcome rate.
+_SAFE_FACTUAL_CUE = re.compile(
+    r"\b(stock price|share price|stock|shares|market cap|market capitali[sz]ation|"
+    r"revenue|profit|earnings|dividend|valuation|net worth|ipo|"
+    r"gdp|inflation rate|unemployment rate|exchange rate|interest rate|currency|"
+    r"population|capital of|area of|time ?zone|headquarter|founded|founder|"
+    r"\bceo\b|number of employees|ticker|stock exchange)\b",
     re.IGNORECASE,
 )
 
@@ -87,8 +94,11 @@ def classify_complexity(question: str) -> ComplexityDecision:
         if _CLINICAL_CONTENT.search(q):
             return ComplexityDecision("complex", 0.9, ["clinical_medical_content"])
 
-        has_complex_intent = bool(_COMPLEX_INTENT.search(q))
-        has_factual_cue = bool(_FACTUAL_CUE.search(q))
+        # Any explicit compare/causal/mechanism/synthesis intent ⇒ full path (high priority).
+        if _COMPLEX_INTENT.search(q):
+            return ComplexityDecision("complex", 0.9, ["complex_intent_marker"])
+
+        has_safe_factual = bool(_SAFE_FACTUAL_CUE.search(q))
         has_temporal = bool(_TEMPORAL_RANGE.search(q))
 
         # Named-entity proxy: a capitalized token NOT at sentence start (so the leading "What"/"How"
@@ -98,27 +108,22 @@ def classify_complexity(question: str) -> ComplexityDecision:
         has_entity = len(caps) >= 1 or bool(re.search(r"\b[A-Z]{2,5}\b", q))
         word_count = len(words)
 
-        # Any explicit compare/causal/mechanism/synthesis intent ⇒ full path (highest priority).
-        if has_complex_intent:
-            reasons.append("complex_intent_marker")
-            return ComplexityDecision("complex", 0.9, reasons)
-
-        # Multi-entity OR single-entity factual lookup with a named entity and a bounded length is the
-        # right-sizeable class (e.g. "Telus and Bell stock price over the past 20 years"). The temporal
-        # range is corroborating, not required.
-        if has_factual_cue and has_entity and word_count <= 25:
-            reasons.append("factual_cue+named_entity")
+        # SIMPLE is OPT-IN: it REQUIRES a SAFE non-medical factual cue (financial/economic/civic). A
+        # query with no safe cue — incl. any clinical outcome/safety rate the denylist might miss —
+        # FAILS OPEN to complex. Multi-entity is fine (e.g. "Telus and Bell stock price over 20 years").
+        if has_safe_factual and has_entity and word_count <= 25:
+            reasons.append("safe_factual_cue+named_entity")
             if has_temporal:
                 reasons.append("temporal_range")
             return ComplexityDecision("simple", 0.85, reasons)
 
-        # A short factual question without a clear named entity is a weaker simple signal.
-        if has_factual_cue and word_count <= 15:
-            reasons.append("factual_cue_short")
+        # A short safe-factual question without a clear named entity is a weaker simple signal.
+        if has_safe_factual and word_count <= 15:
+            reasons.append("safe_factual_cue_short")
             return ComplexityDecision("simple", 0.70, reasons)
 
-        # Not confidently simple ⇒ FAIL OPEN to the full heavyweight path.
-        reasons.append("no_simple_signal_fail_open")
+        # No SAFE factual cue ⇒ FAIL OPEN to the full heavyweight path.
+        reasons.append("no_safe_factual_signal_fail_open")
         return ComplexityDecision("complex", 0.50, reasons)
     except Exception as exc:  # noqa: BLE001 — never let the router abort a run; fail open to complex.
         return ComplexityDecision("complex", 0.0, [f"router_error_fail_open:{type(exc).__name__}"])

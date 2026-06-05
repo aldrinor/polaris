@@ -35,7 +35,7 @@ def test_telus_bell_is_high_confidence_simple():
     d = classify_complexity("Telus and Bell stock price over the past 20 years")
     assert d.complexity == "simple"
     assert d.confidence >= 0.80   # passes the default PG_COMPLEXITY_MIN_CONFIDENCE=0.80 gate
-    assert "factual_cue+named_entity" in d.reasons
+    assert "safe_factual_cue+named_entity" in d.reasons
 
 
 # ── classifier: COMPLEX / fail-open (NEVER under-serve) ────────────────────────
@@ -62,6 +62,12 @@ def test_complex_or_ambiguous_queries_fail_open_to_complex(q):
     "What is the prevalence of hypertension in adults?",
     "What is the case fatality rate of measles?",
     "What is the readmission rate after CABG?",
+    # Codex diff-gate iter-2 reprobes — the denylist missed these; the safe-factual ALLOWLIST catches
+    # them (no financial/civic cue ⇒ never simple), regardless of the disease name.
+    "What is the death rate from COVID-19?",
+    "What is the rate of GBS after Shingrix?",
+    "What is the rate of Guillain-Barre after Shingrix?",
+    "What is the fatality rate of Ebola?",
 ])
 def test_clinical_outcome_safety_queries_are_complex(q):
     # A factual-RATE clinical/outcome/safety question must route complex — it must NEVER be right-sized
