@@ -1163,12 +1163,169 @@ CRITICAL RULES:
 """
 
 
-def _select_section_system_prompt(use_field_agnostic: bool) -> str:
+# I-ready-014 (#1083): anti-overcomplication / sharp-reporter concision.
+# The two section templates above push HARD toward MATCHING GPT-5.4 / Gemini DR
+# length + citation density (rule #8 "match that depth", rule #10 "50-200
+# citations", the Mechanism "TARGET 20-35 sentences"). The 2026 literature
+# (verbosity-compensation / length-controlled eval) says the opposite: front-
+# load the single decision-relevant finding and EARN length with distinct facts,
+# not sentence count. This block builds CONCISE variants of each template that
+# (1) prepend a front-loading directive and (2) REPLACE the length-maximizing
+# language with information-density language. The variants are selected ONLY when
+# the env flag `PG_ANTI_VERBOSITY` is truthy. Flag OFF -> the selector returns the
+# ORIGINAL template OBJECT unchanged (byte-identical, identity-equal). This is a
+# PROMPT-TEXT change ONLY: it never touches strict_verify / provenance tokens /
+# the 4-role seam / evidence selection. The multi-source-citation behavior (cite
+# ALL ev_ids that support a claim) is a CITATION rule, not a length rule, and is
+# preserved verbatim — only the "match GPT/Gemini density / 50-200" length-bias
+# clause is dropped.
+
+# Front-loading lead, prepended to the section body rules in the concise variant.
+_FRONT_LOADING_DIRECTIVE = (
+    "FRONT-LOADING (inverted pyramid): the FIRST sentence of this section must "
+    "state the single most decision-relevant finding — the direct answer to the "
+    "section's focus — and carry its [ev_XXX] marker. Do NOT open with "
+    "background, method, definitions, or a source's mandate; lead with the "
+    "answer, then layer specificity in the sentences that follow.\n\n"
+)
+
+# Information-density rewrite that REPLACES the length-maximizing language. Length
+# is earned by distinct decision-relevant facts, not sentence count: a 6-sentence
+# section with 6 distinct quantified findings beats an 18-sentence section that
+# restates them. No filler, no padding, no restating a fact a second time in
+# fancier words.
+_CONCISE_RULE_8 = (
+    "Write as many source-anchored sentences as the evidence supports with "
+    "DISTINCT decision-relevant facts, and no more. Length is earned by distinct "
+    "facts, not sentence count: a 6-sentence section with 6 distinct quantified "
+    "findings beats an 18-sentence section that restates them. Do NOT pad, do NOT "
+    "add filler, and do NOT restate a fact a second time in different words."
+)
+# Rule #10 tail rewrite: KEEP the multi-source-citation behavior, drop ONLY the
+# "50-200 / match GPT-Gemini density" length-bias clause AND the em-dash connector
+# that introduced it, so the sentence closes cleanly on a period.
+_CONCISE_RULE_10_TAIL = "where evidence supports it."
+# Mechanism (M-42c) pool-size targets rewrite: replace the THREE sentence-count
+# floors (20-35 / 15-20 / 10-15) with evidence-supported topic coverage and no
+# sentence floor, KEEPING the priority-topic outline and the honest-disclosure-
+# when-thin guidance. One coherent block, no orphaned list header.
+_CONCISE_MECHANISM_DEPTH = (
+    "cover as many of the priority topics below as the evidence supports, in\n"
+    "approximate priority order, and no more — depth is earned by distinct\n"
+    "mechanistic findings, not sentence count:\n"
+    "      1. Receptor binding kinetics / selectivity / affinity\n"
+    "      2. Pharmacokinetics (half-life, bioavailability, Tmax)\n"
+    "      3. Downstream signaling / cellular effects\n"
+    "      4. Cross-species translation / mechanistic biomarkers\n"
+    "      5. Clamp data or metabolic-phenotype data\n"
+    "      6. Contrast with single-mechanism or alternative comparators\n"
+    "  When the mechanism pool is thin (only a few mechanism-flagged ev_ids),\n"
+    "  cover the topics the evidence supports and close the section with an\n"
+    "  honest disclosure sentence like \"The mechanistic evidence available\n"
+    "  for this synthesis is limited to [N] rows covering [TOPICS]; deeper\n"
+    "  pharmacology detail would require additional primary sources.\""
+)
+# Stale back-reference cleanup: rule #8 no longer carries a "10-18 sentences"
+# target in the concise variant, so the M-42c pointer to it is updated.
+_CONCISE_MECHANISM_BACKREF = (
+    "For other sections, the information-density guidance in rule #8 applies."
+)
+
+
+def _build_concise_variant(template: str) -> str:
+    """I-ready-014 (#1083): derive the anti-verbosity / sharp-reporter variant of
+    a section system-prompt template. Front-loads the decision (prepended to the
+    CRITICAL RULES block) and REPLACES the length-maximizing language with
+    information-density language. ASCII-only replacements; FAILS LOUD (raises) if
+    any required length-bias anchor is absent, so a future template edit cannot
+    silently no-op this transform (I-cap-005 lesson). Pure text transform — no env
+    read, no faithfulness-gate touch."""
+    out = template
+    # (find_pattern, replacement, is_required) — re.subn so we can assert the
+    # replacement actually fired exactly once on every REQUIRED anchor.
+    operations: list[tuple[str, str, bool]] = [
+        # Rule #8 length-bias sentence(s): "Target 10-18 ... match that depth ...
+        # specific (quantitative )claims." -> information-density rule. Spans a
+        # non-ASCII em-dash, so it is matched by regex rather than typed.
+        (
+            r"Target 10-18 sentences of source-anchored prose\..*?"
+            r"(?:specific quantitative claims|specific claims)\.",
+            _CONCISE_RULE_8,
+            True,
+        ),
+        # Rule #10 (clinical only) length-bias tail: drop the em-dash + "top-tier
+        # DR ... 50-200 citations ... not by writing more sentences." clause,
+        # KEEP the multi-source-citation behavior before it; close on a period.
+        (
+            r"where evidence supports it.*?not by writing more sentences\.",
+            _CONCISE_RULE_10_TAIL,
+            False,
+        ),
+        # Mechanism depth rule (clinical only): drop all three sentence-count
+        # floors (20-35 / 15-20 / 10-15), keep the priority topics + thin-pool
+        # disclosure. Matched as one block so no list header is orphaned.
+        (
+            r"TARGET 20-35 sentences of mechanism narrative.*?"
+            r"would require additional primary sources\.\"",
+            _CONCISE_MECHANISM_DEPTH,
+            False,
+        ),
+        # Stale back-ref to rule #8's "10-18 sentences" target (Mechanism only).
+        (
+            r"For other sections, rule #8 target of 10-18 sentences applies "
+            r"as usual\.",
+            _CONCISE_MECHANISM_BACKREF,
+            False,
+        ),
+    ]
+    for pattern, replacement, required in operations:
+        out, n = re.subn(pattern, replacement, out, flags=re.DOTALL)
+        if required and n != 1:
+            raise RuntimeError(
+                "anti-verbosity transform anchor drifted: pattern "
+                f"{pattern!r} replaced {n} times (expected exactly 1). The "
+                "section template changed; update _build_concise_variant."
+            )
+    return _FRONT_LOADING_DIRECTIVE + out
+
+
+# Concise variants built ONCE at module load (static, no env read at import).
+SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE = _build_concise_variant(
+    SECTION_SYSTEM_PROMPT_TEMPLATE
+)
+SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE = _build_concise_variant(
+    SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
+)
+
+
+def _anti_verbosity_enabled() -> bool:
+    """I-ready-014 (#1083): read the `PG_ANTI_VERBOSITY` flag at CALL TIME (never
+    at import — that is the import-time-cache bug from I-cap-005). Default OFF:
+    any unset / empty / "0" / "false" / "off" / "no" value keeps the locked
+    benchmark byte-identical to today."""
+    return os.getenv("PG_ANTI_VERBOSITY", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _select_section_system_prompt(
+    use_field_agnostic: bool, anti_verbosity: bool = False
+) -> str:
     """I-meta-005 Phase 1 FIX 4 (Codex diff-gate iter-1 P1 #4): pure selector
     for the section system-prompt template. ON-mode (`use_field_agnostic`
     True, i.e. `research_plan is not None`) returns the field-agnostic
     template; OFF-mode returns the unchanged clinical template (byte-
-    identical to today)."""
+    identical to today).
+
+    I-ready-014 (#1083): when `anti_verbosity` is True (env flag `PG_ANTI_VERBOSITY`),
+    return the front-loading / information-density CONCISE variant instead. When
+    False (default), the ORIGINAL template object is returned unchanged — the
+    same object identity as before this change, so the locked benchmark is
+    byte-identical until the flag is set."""
+    if anti_verbosity:
+        if use_field_agnostic:
+            return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC_CONCISE
+        return SECTION_SYSTEM_PROMPT_TEMPLATE_CONCISE
     if use_field_agnostic:
         return SECTION_SYSTEM_PROMPT_TEMPLATE_FIELD_AGNOSTIC
     return SECTION_SYSTEM_PROMPT_TEMPLATE
@@ -1233,7 +1390,12 @@ async def _call_section(
     # I-meta-005 Phase 1 FIX 4 (Codex diff-gate iter-1 P1 #4): select the
     # FIELD-AGNOSTIC base prompt on-mode (`use_field_agnostic_prompt`, i.e.
     # `research_plan is not None`); OFF uses the unchanged clinical template.
-    system = _select_section_system_prompt(use_field_agnostic_prompt).format(
+    # I-ready-014 (#1083): the `PG_ANTI_VERBOSITY` flag (read at CALL TIME) swaps
+    # in the front-loading / information-density CONCISE variant. Default OFF ->
+    # the original template object, byte-identical to today.
+    system = _select_section_system_prompt(
+        use_field_agnostic_prompt, anti_verbosity=_anti_verbosity_enabled(),
+    ).format(
         title=section.title, focus=section.focus,
     )
     # I-meta-005 Phase 6 (#990, Codex ruling A1): append the domain advisory
