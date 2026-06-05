@@ -14,6 +14,19 @@ You APPROVED the brief (`.codex/I-ready-006/brief.md`): classifier_choice=determ
 rightsizing_scope=cap_plus_adequacy, defer_split_adjustment=yes, + 4 P2s (all incorporated below).
 Diff: `.codex/I-ready-006/codex_diff.patch` (vs base bot/I-ready-004).
 
+## iter-1 diff was REQUEST_CHANGES (1 P1, 1 P2) — BOTH FIXED (this is the iter-2 diff):
+- **P1-1 (clinical-safety, the important one):** clinical outcome/safety factual-RATE queries
+  ("mortality rate of Semaglutide", "incidence of Guillain-Barré after Shingrix") were classifying
+  high-confidence simple → reduced cap + 1-source adequacy → under-served. FIX: a `_CLINICAL_CONTENT`
+  guard in complexity_router.py is checked FIRST — ANY clinical/medical/epidemiology/safety term
+  (mortality/incidence/prevalence/survival/adverse/drug/disease/vaccine/dose/clinical + drug-INN
+  suffixes -mab/-nib/-gliptin/-glutide/-statin/-sartan/-pril/... ) ⇒ `complex` 0.9 BEFORE the simple
+  branch. Erring toward complex is the SAFE direction. 7 clinical probes (incl. both of yours) now
+  assert complex; the simple stock/GDP/capital cases still assert simple.
+- **P2-1 (fail-open):** the env parses (PG_COMPLEXITY_MIN_CONFIDENCE / PG_SIMPLE_FETCH_CAP) are now
+  INSIDE the routing try/except — a malformed value falls back to the FULL path (never aborts
+  error_unexpected). A source-check test locks the fail-open except.
+
 ## What the diff does
 **New module** `src/polaris_graph/nodes/complexity_router.py` — deterministic, fail-open
 `classify_complexity(question) -> ComplexityDecision(complexity, confidence, reasons)`. Pure stdlib +

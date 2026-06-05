@@ -1935,20 +1935,33 @@ async def run_one_query(
         _routing_decision = None
         _simple_routed = False
         if _complexity_routing_on:
-            from src.polaris_graph.nodes.complexity_router import classify_complexity
-            _routing_decision = classify_complexity(q["question"])
-            _min_conf = float(os.getenv("PG_COMPLEXITY_MIN_CONFIDENCE", "0.80"))
-            _simple_routed = (
-                _routing_decision.complexity == "simple"
-                and _routing_decision.confidence >= _min_conf
-            )
-            if _simple_routed:
-                _fetch_cap = int(os.getenv("PG_SIMPLE_FETCH_CAP", "40"))
-            _log(
-                f"[complexity]  {_routing_decision.complexity} "
-                f"conf={_routing_decision.confidence:.2f} simple_routed={_simple_routed} "
-                f"fetch_cap={_fetch_cap} reasons={_routing_decision.reasons}"
-            )
+            # FAIL-OPEN (Codex diff-gate iter-1 P2-1): the classifier AND the env parses
+            # (PG_COMPLEXITY_MIN_CONFIDENCE / PG_SIMPLE_FETCH_CAP) are inside this guard — a malformed
+            # env value or a router fault leaves the FULL heavyweight path intact (the run is never
+            # aborted as error_unexpected, and a complex/clinical query is never under-served).
+            try:
+                from src.polaris_graph.nodes.complexity_router import classify_complexity
+                _routing_decision = classify_complexity(q["question"])
+                _min_conf = float(os.getenv("PG_COMPLEXITY_MIN_CONFIDENCE", "0.80"))
+                _simple_routed = (
+                    _routing_decision.complexity == "simple"
+                    and _routing_decision.confidence >= _min_conf
+                )
+                if _simple_routed:
+                    _fetch_cap = int(os.getenv("PG_SIMPLE_FETCH_CAP", "40"))
+                _log(
+                    f"[complexity]  {_routing_decision.complexity} "
+                    f"conf={_routing_decision.confidence:.2f} simple_routed={_simple_routed} "
+                    f"fetch_cap={_fetch_cap} reasons={_routing_decision.reasons}"
+                )
+            except Exception as _cr_exc:  # noqa: BLE001 — FAIL OPEN: router/env error -> full path.
+                _routing_decision = None
+                _simple_routed = False
+                _fetch_cap = int(os.getenv("PG_SWEEP_FETCH_CAP", "40"))
+                _log(
+                    f"[complexity]  router/env error -> FULL path (fail-open): "
+                    f"{type(_cr_exc).__name__}: {_cr_exc}"
+                )
 
         # I-meta-005 Phase 1 (#985): field-agnostic research planner (shadow
         # build, default OFF). When PG_USE_RESEARCH_PLANNER is on, the planner

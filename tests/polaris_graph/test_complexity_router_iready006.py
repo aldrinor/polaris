@@ -53,6 +53,23 @@ def test_complex_or_ambiguous_queries_fail_open_to_complex(q):
     assert d.complexity == "complex", (q, d.reasons)
 
 
+# ── clinical-safety guard: clinical/outcome/safety queries are NEVER simple (Codex diff-gate P1-1) ──
+@pytest.mark.parametrize("q", [
+    "What is the mortality rate of Semaglutide in diabetes?",          # Codex P1-1 probe
+    "What is the incidence rate of Guillain-Barre after Shingrix?",    # Codex P1-1 probe
+    "What is the 5-year survival rate of pancreatic cancer?",
+    "How common are adverse events with tirzepatide?",
+    "What is the prevalence of hypertension in adults?",
+    "What is the case fatality rate of measles?",
+    "What is the readmission rate after CABG?",
+])
+def test_clinical_outcome_safety_queries_are_complex(q):
+    # A factual-RATE clinical/outcome/safety question must route complex — it must NEVER be right-sized
+    # to the 1-source simple adequacy profile (lethal-class under-serving per §-1.1).
+    d = classify_complexity(q)
+    assert d.complexity == "complex", (q, d.reasons)
+
+
 def test_empty_question_fails_open():
     assert classify_complexity("").complexity == "complex"
     assert classify_complexity("   ").complexity == "complex"
@@ -114,3 +131,10 @@ def test_routing_and_manifest_field_are_gated_off_by_default():
     assert "override=(_SIMPLE_ADEQUACY_THRESHOLDS if _simple_routed else None)" in src
     # the simple fetch cap only applies when simple_routed.
     assert 'PG_SIMPLE_FETCH_CAP' in src
+    # FAIL-OPEN (Codex diff-gate iter-1 P2-1): the classifier + the env parses are inside a try/except
+    # so a bad PG_COMPLEXITY_MIN_CONFIDENCE / PG_SIMPLE_FETCH_CAP value never aborts the run — it falls
+    # back to the full path. Structural check that the guarded block has a fail-open except.
+    routing_idx = src.find("if _complexity_routing_on:")
+    cap_idx = src.find("# I-meta-005 Phase 1", routing_idx)   # the next block after the router
+    block = src[routing_idx:cap_idx] if cap_idx > routing_idx else src[routing_idx:routing_idx + 2000]
+    assert "try:" in block and "FAIL OPEN" in block.upper()

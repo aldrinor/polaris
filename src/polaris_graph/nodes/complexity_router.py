@@ -40,6 +40,24 @@ _COMPLEX_INTENT = re.compile(
     re.IGNORECASE,
 )
 
+# Clinical / medical / health / epidemiology content. ANY hit ⇒ NOT simple (fail-open to complex),
+# regardless of a factual cue — a clinical safety/outcome question ("mortality rate of Semaglutide",
+# "incidence of Guillain-Barré after Shingrix") must NEVER be right-sized to a 1-source answer (Codex
+# diff-gate iter-1 P1-1; lethal-class under-serving per CLAUDE.md §-1.1). Erring toward complex here
+# is the SAFE direction (over-serving a stock query that trips a drug-suffix is harmless; under-
+# serving a clinical query is not).
+_CLINICAL_CONTENT = re.compile(
+    r"\b(patient|disease|syndrome|disorder|infection|cancer|tumou?r|diabet|obes|hypertens|"
+    r"cardiovascular|cardiac|renal|hepatic|pulmonary|neuro|psychiatr|oncolog|"
+    r"mortality|morbidity|incidence|prevalence|survival|prognosis|remission|relapse|recurrence|"
+    r"complication|hospitali[sz]|readmission|response rate|cure rate|case fatality|"
+    r"drug|medication|therap|treatment|vaccin|immuni[sz]|dose|dosage|clinical|diagnos|symptom|"
+    r"adverse|side[- ]?effect|toxicit|contraindicat|comorbid|"
+    r"\w+(?:mab|nib|tinib|gliptin|glutide|afil|statin|sartan|pril|cycline|cillin|mycin|"
+    r"parin|setron|grel|vir|pam|zepine|olol))\b",
+    re.IGNORECASE,
+)
+
 # Factual / quantity cues that SUGGEST a right-sizeable lookup.
 _FACTUAL_CUE = re.compile(
     r"\b(price|stock|share price|cost|value|worth|revenue|profit|market cap|"
@@ -64,6 +82,11 @@ def classify_complexity(question: str) -> ComplexityDecision:
             return ComplexityDecision("complex", 0.0, ["empty_question_fail_open"])
 
         reasons: list[str] = []
+        # Clinical/medical content forces the FULL path FIRST (highest priority) — a clinical
+        # safety/outcome question is never right-sized (Codex diff-gate iter-1 P1-1).
+        if _CLINICAL_CONTENT.search(q):
+            return ComplexityDecision("complex", 0.9, ["clinical_medical_content"])
+
         has_complex_intent = bool(_COMPLEX_INTENT.search(q))
         has_factual_cue = bool(_FACTUAL_CUE.search(q))
         has_temporal = bool(_TEMPORAL_RANGE.search(q))
