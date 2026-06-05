@@ -145,4 +145,4 @@ Most retrieval/cap findings split into: **(a) immediate throttle fix** (env-only
 3. **New deps: YES** — add the input/OCR stack (Docling + Surya/DeepSeek-OCR-2 for F11) + a charting lib for F14 figures.
 4. **Hold the live run: YES** — the 1000-URL beat-both run does NOT fire until C1 (P0, the 98%-drop) + F2 (binding fail-open faithfulness) land. A run today writes from <2% of the corpus and can ship unverified claims; auditing it would be unfair.
 
-**Agreement status:** Claude ✅ (plan authored, grounded) · Operator ✅ (2026-06-05, all 4 decisions above) · Codex ⏳ (plan-gate running, w1s8fzsh8). Execution begins only on Codex APPROVE (or after addressing REQUEST_CHANGES).
+**Agreement status:** Claude ✅ (plan authored, grounded) · Operator ✅ (2026-06-05, all 4 decisions above) · Codex ✅ (APPROVE iter-2, wdkev3bb5). THREE-WAY AGREEMENT COMPLETE 2026-06-05 — execution authorized.
