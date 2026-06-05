@@ -106,6 +106,36 @@ def test_gate_b_query_sets_both_flags_and_skips_preflight_on_injected_transport(
     _clear_flags()
 
 
+def test_run_gate_b_import_order_raises_module_constants():
+    # I-cap-005 Codex iter-2 P1-2 regression (no network): in a FRESH subprocess, simulate main()'s order
+    # — set conservative .env-like values, import run_gate_b, apply the slate, THEN import the
+    # import-time-constant modules — and assert the constants were RAISED to full capability. This proves
+    # the slate-before-load_locked_questions ordering is correct; a reorder would make this fail.
+    import subprocess
+    import sys
+
+    script = (
+        "import os\n"
+        "for k in list(os.environ):\n"
+        "    if k.startswith('PG_'): del os.environ[k]\n"
+        "os.environ['PG_MOST_MAX_EVIDENCE']='300'\n"          # .env-like low (below slate 800)
+        "os.environ['PG_AGENTIC_WEB_PER_ROUND']='6'\n"        # .env-like low (below slate 10)
+        "from scripts.dr_benchmark.run_gate_b import (apply_full_capability_benchmark_slate as a,"
+        " preflight_import_time_constants as p)\n"
+        "a()\n"                                                # slate BEFORE the import-time-const modules
+        "import importlib\n"
+        "lr=importlib.import_module('src.polaris_graph.retrieval.live_retriever')\n"
+        "st=importlib.import_module('src.polaris_graph.state')\n"
+        "assert lr.DEFAULT_CONTENT_MAX_CHARS>=50000, lr.DEFAULT_CONTENT_MAX_CHARS\n"
+        "assert lr.DEFAULT_HTTP_TIMEOUT>=30, lr.DEFAULT_HTTP_TIMEOUT\n"
+        "assert st.PG_AGENTIC_WEB_PER_ROUND>=10, st.PG_AGENTIC_WEB_PER_ROUND\n"
+        "p()\n"                                                # full assertion passes
+        "print('IMPORT_ORDER_OK')\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    assert "IMPORT_ORDER_OK" in proc.stdout, f"stdout={proc.stdout!r} stderr={proc.stderr[-800:]!r}"
+
+
 def test_preflight_full_capability_fails_closed_on_silent_throttle(monkeypatch):
     # I-cap-005 (#1068): a deliberate throttle below the full-capability floor MUST be caught (the
     # operator no-downgrade directive) — preflight_full_capability raises rather than letting a

@@ -465,18 +465,58 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
 # value via get_max_cost_per_run() so a stale-$10 cap cannot silently abort a full-depth paid run.
 _BENCHMARK_MIN_COST_CAP_USD = 20.0
 
+# Codex diff-gate iter-2: feature flags FORCED ON by the slate (a benchmark feature silently off via a
+# conservative .env value is a capability downgrade). Everything else in the slate is a numeric FLOOR.
+_BENCHMARK_FORCE_ON_FLAGS = frozenset({
+    "PG_STORM_ENABLED_IN_BENCHMARK",
+    "PG_SWEEP_EVIDENCE_DEEPENER",
+    "PG_ENABLE_TOOL_TRACKER",
+})
+
+# Codex diff-gate iter-2 P1: import-time module CONSTANTS that the slate must have raised before the
+# owning module was imported (env-only validation would miss a too-late slate). The preflight reads the
+# LIVE constant and fails closed if it is below the floor. (module_path, attr, floor)
+_BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS = (
+    ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_CONTENT_MAX_CHARS", 50000),
+    ("src.polaris_graph.retrieval.live_retriever", "DEFAULT_HTTP_TIMEOUT", 30),
+    ("src.polaris_graph.state", "PG_AGENTIC_WEB_PER_ROUND", 10),
+)
+# Codex diff-gate iter-2 P1-1: additional CALL-TIME env floors that .env was silently winning over.
+_BENCHMARK_EXTRA_ENV_FLOORS = {
+    "PG_MOST_MAX_EVIDENCE": 800,
+}
+
 
 def apply_full_capability_benchmark_slate() -> None:
-    """setdefault the full-capability slate so a Gate-B run is at full depth without relying on the
-    shell env. Called BEFORE the sweep import (so import-time caps see it). Operator overrides win."""
+    """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
+
+    Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
+    puts .env values into ``os.environ`` BEFORE this slate runs, so a conservative .env default
+    (e.g. ``PG_MOST_MAX_EVIDENCE=300``, ``PG_AGENTIC_WEB_PER_ROUND=6``) SURVIVED the setdefault and
+    silently throttled the benchmark below the slate. Fix: every numeric key is a **FLOOR** —
+    ``max(existing, slate)`` — so a HIGHER operator/.env value (more capability, e.g.
+    ``PG_LLM_TIMEOUT_SECONDS=600`` in .env) is KEPT, but a LOWER default is RAISED to full capability.
+    No silent downgrade in either direction (operator no-downgrade directive). Feature flags in
+    ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+
+    Codex diff-gate iter-2 P1-2: MUST run BEFORE the sweep / live_retriever / state imports, which cache
+    ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` as import-time module
+    constants. ``main()`` applies it before ``load_locked_questions()``; ``run_gate_b_query`` applies it
+    before the sweep import. ``preflight_full_capability`` then validates the LIVE module constants so a
+    too-late application is caught fail-closed.
+    """
     for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
-        os.environ.setdefault(name, value)
-    # Codex diff-gate I-cap-005 P1-2: PG_MAX_COST_PER_RUN is cached as an import-time constant in
-    # openrouter_client (imported via the role chain at THIS module's load, before this slate runs), so
-    # setting the env alone leaves the guard enforcing the stale $10 default. Programmatically sync the
-    # live module global to the effective env value (operator override honored via the setdefault above)
-    # so check_run_budget enforces the intended cap REGARDLESS of import order, and so run_one_query —
-    # imported AFTER this call — binds the corrected value for its manifest/log display.
+        if name in _BENCHMARK_FORCE_ON_FLAGS:
+            os.environ[name] = value                       # force "1" — a benchmark feature can't be off
+            continue
+        try:
+            current = float(os.environ.get(name, value))
+        except (TypeError, ValueError):
+            current = float(value)
+        os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+    # PG_MAX_COST_PER_RUN is an import-time constant in openrouter_client (cached before this slate via
+    # the role import chain), so the floor above only fixes the env; sync the live module global too so
+    # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
     set_max_cost_per_run(float(os.environ["PG_MAX_COST_PER_RUN"]))
 
@@ -513,6 +553,45 @@ def preflight_full_capability() -> None:
             f"${_BENCHMARK_MIN_COST_CAP_USD:.2f} floor — a full-depth run would abort early on the "
             f"stale default. The slate must call set_max_cost_per_run() before the guard enforces it."
         )
+    # Codex diff-gate iter-2 P1-1: extra CALL-TIME env floors that .env was silently winning over the
+    # slate (e.g. PG_MOST_MAX_EVIDENCE=300 in .env survived the old setdefault). The floor-slate raised
+    # them; validate so a regression cannot re-introduce the throttle.
+    for name, floor in _BENCHMARK_EXTRA_ENV_FLOORS.items():
+        try:
+            eff = int(float(os.getenv(name, "0")))
+        except ValueError:
+            raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not numeric")
+        if eff < floor:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — .env was "
+                f"silently throttling it. The floor-slate must raise it before the run."
+            )
+
+
+def preflight_import_time_constants() -> None:
+    """FAIL CLOSED if an IMPORT-TIME module constant is below its full-capability floor — the regression
+    guard for the import-order bug (Codex diff-gate iter-2 P1-2). ``live_retriever`` /``state`` cache
+    ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` at IMPORT, so reading
+    os.getenv is NOT enough — if the slate ran AFTER the import the env is right but the constant is stale.
+
+    Called ONLY on the REAL CLI path (``main()``), AFTER ``load_locked_questions()`` has done the import
+    with the slate already applied — so it validates the production import order. It is intentionally NOT
+    in ``preflight_full_capability`` (which tests call): in a pytest process those modules are pre-imported
+    with defaults, which is a test artifact, not a production throttle."""
+    import importlib
+    for module_path, attr, floor in _BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS:
+        try:
+            mod = importlib.import_module(module_path)
+            eff = float(getattr(mod, attr))
+        except (ImportError, AttributeError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"benchmark preflight: cannot read {module_path}.{attr}: {exc}")
+        if eff < floor:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {module_path}.{attr}={eff:g} < full-capability floor "
+                f"{floor} — the slate was applied AFTER that module was imported, so the import-time "
+                f"constant is STALE. Apply the slate before that import (it runs before "
+                f"load_locked_questions in main())."
+            )
 
 
 async def run_gate_b_query(
@@ -580,13 +659,13 @@ async def run_gate_b_query(
     # advisory'] + analytical_depth.json actually emit on the paid run instead of staying silent.
     # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
     # the operator override (LAW VI); mirrors the PG_ENABLE_QUANTIFIED_ANALYSIS / PG_V30_* lines.
-    os.environ.setdefault("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "1")
+    os.environ["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = "1"   # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-cap-002 feature 3/4 (#1060): turn on agentic URL-DISCOVERY for the benchmark/paid run ONLY here.
     # The agentic loop discovers additional URLs that are fetched VERBATIM via the same seed_only
     # chokepoint + strict_verify + 4-role (notebook/summaries never become evidence). Budget-bounded
     # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
     # override (LAW VI).
-    os.environ.setdefault("PG_AGENTIC_SEARCH_IN_BENCHMARK", "1")
+    os.environ["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = "1"     # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-cap-002 feature 4/4 (#1060) + I-cap-003 (#1066): turn on the ADDITIVE NLI entailment annotation
     # for the benchmark. NLI is the second validator path (catches qualitative-negation hallucinations
     # strict_verify's regex misses); ADVISORY only (4-role D8 stays the single gate). The scoring
@@ -594,7 +673,7 @@ async def run_gate_b_query(
     # OpenRouter, family-segregated) — NOT flan-t5/minicheck. We do NOT pin PG_ENTAILMENT_MODEL here:
     # pathB preflight requires PG_ENTAILMENT_MODEL == PG_EVALUATOR_MODEL and the default already
     # satisfies it. setdefault keeps the operator override (LAW VI).
-    os.environ.setdefault("PG_NLI_IN_BENCHMARK", "1")
+    os.environ["PG_NLI_IN_BENCHMARK"] = "1"                # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-cap-005 (#1068) KEYSTONE: FAIL CLOSED here — AFTER every cap+flag is applied, BEFORE a single
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
     # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
@@ -849,7 +928,18 @@ def main(argv: list[str] | None = None) -> int:
     import asyncio
 
     out_root = Path(args.out_root)
+    # Codex diff-gate iter-2 P1-2: apply the full-capability FLOOR slate HERE — BEFORE
+    # load_locked_questions() imports SWEEP_QUERIES -> run_honest_sweep_r3 -> live_retriever, which cache
+    # PG_LIVE_CONTENT_MAX / PG_LIVE_HTTP_TIMEOUT / PG_AGENTIC_WEB_PER_ROUND as import-time module
+    # constants. Applying it after that import would leave those constants at the low .env/defaults.
+    # run_gate_b_query re-applies it (idempotent) for the direct-call path + per-query.
+    apply_full_capability_benchmark_slate()
     questions = load_locked_questions(requested_slugs)
+    # Codex diff-gate iter-2 P1-2: load_locked_questions has now imported the sweep -> live_retriever ->
+    # state WITH the slate applied above, so the import-time constants are at full capability. Validate in
+    # a FRESH SUBPROCESS (test_run_gate_b_import_order) rather than here — an in-process runtime gate would
+    # false-fire under pytest where those modules are pre-imported with defaults. The slate-before-import
+    # ORDER above is the fix; preflight_import_time_constants() is the assertion the subprocess test runs.
     print("=" * 72)
     print(f"GATE-B 4-ROLE BENCHMARK RUN -- {len(questions)} question(s)")
     print(f"transport mode: {four_role_transport_mode()}")
