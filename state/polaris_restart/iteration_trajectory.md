@@ -1382,3 +1382,9 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
 - iter-4 had been REQUEST_CHANGES (2 P1: wrapper broke ~20 introspection gates; byte-identical OFF broken). Fixed by reverting the wrapper (body back in run_one_query) + finally on the existing outer try + gated ContextVar publish. Codex iter-5 independently AST-verified: outer try (1610-5459) has finalbody=True and IS the outer try; all early returns are inside it.
 - NOT a force-approve — genuine APPROVE at iter-5.
 - Discovery during verification: 6 pre-existing stale manifest-contract/b3 gates (red at base 8fac4dbd / #1074-tip 27701048, NOT #1076) -> filed #1086 (I-ready-016 URGENT).
+
+## I-ready-016 (#1086) — 2026-06-05
+- brief-gate: iter-1 REQUEST_CHANGES (2 P1: missed abort_four_role_release_held taxonomy gap + regression_lab/PipelineStatus mirror drift; 1 P2: scope allowlist) -> iter-2 APPROVE (0 P0/P1).
+- diff-gate: iter-1 APPROVE (0 P0/0 P1/0 P2, accept_remaining, no blockers; ~139.5k tokens). Codex ran its own pytest (clean; trailing PermissionError is a Windows tmpdir-symlink teardown quirk, not a failure).
+- Scope: 3-mirror taxonomy reconciliation (UNIFIED_STATUS_VALUES + regression_lab._STATUS_TIERS + v6 PipelineStatus) adding the real terminal statuses cancelled + abort_four_role_release_held (+ abort_verifier_degraded mirror sync) + 6 stale gate repairs. commit c482cb26.
+- Rigorous regression proof: stash-and-diff confirmed ZERO new failures; the 46 broad-sweep failures are pre-existing (offline entailment judge + env/network + test-pollution).
