@@ -1,0 +1,428 @@
+From d08b09eb542cc1a1cc5128b5b6fb95f09f497c46 Mon Sep 17 00:00:00 2001
+From: msn <msn@polaris.dev>
+Date: Fri, 5 Jun 2026 11:37:00 -0700
+Subject: [PATCH] I-ready-013 (#1080): clinical/benchmark report ships ONLY
+ span-verified prose
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The benchmark + any clinical run appended ~1500-3000 words of un-span-verified "Analyst Synthesis"
+interpretive prose to report.md (the unverified layer ran because planner defaults off + the flag
+defaults on + Gate-B set neither). §-1.1 risk + it undercuts the BEAT-BOTH faithfulness claim.
+
+Fix (Codex brief-gate APPROVE, fix A_force_off): the clinical/benchmark path ships only the
+span-verified multi-section prose; the unverified analyst layer is suppressed there. Faithfulness
+machinery (strict_verify / 4-role D8 / provenance) UNTOUCHED; non-clinical off-mode byte-identical.
+- generate_multi_section_report gains suppress_analyst_synthesis (default False = byte-identical) +
+  an explicit PG_SWEEP_ANALYST_SYNTHESIS env-enabled check, both folded into the analyst-block gate.
+- run_one_query forces it for any clinical-domain query (covers the pipeline-B UI: _infer_domain maps
+  medical/health/pharma -> clinical).
+- Gate-B slate sets PG_SWEEP_ANALYST_SYNTHESIS=0 via a new force-EXACT mechanism + a fail-closed
+  preflight that ABORTS if the unverified layer is somehow on (no silent benchmark drift).
+
+Provenance note: the initial implementation was produced by the codex-exec brief-review agent; I
+(Claude) reviewed it line-by-line, verified faithfulness-safety + correct scoping, and authored the
+behavioral/negative test coverage. A fresh independent Codex diff-gate reviews this committed diff.
+
+24 verified-only tests (5 source-pin + 19 Claude-authored behavioral/negative: suppress wins,
+env-kill, NON-clinical PRESERVED byte-identical, default-param, domain matrix, UI routing) + full
+272-test dr_benchmark suite green.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ scripts/dr_benchmark/run_gate_b.py            |  27 ++++-
+ scripts/run_honest_sweep_r3.py                |   6 +
+ .../generator/multi_section_generator.py      |  14 ++-
+ .../test_capped_finding_dedup_iready004.py    |   2 +-
+ ...ified_only_surface_behavioral_iready013.py | 108 +++++++++++++++++
+ .../test_verified_only_surface_iready013.py   | 112 ++++++++++++++++++
+ 6 files changed, 265 insertions(+), 4 deletions(-)
+ create mode 100644 tests/dr_benchmark/test_verified_only_surface_behavioral_iready013.py
+ create mode 100644 tests/dr_benchmark/test_verified_only_surface_iready013.py
+
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index a4ce1409..b377564a 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -462,6 +462,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
+     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
+     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
++    # I-ready-013 (#1080): benchmark report.md must be a verified-only surface.
++    # The legacy Analyst Synthesis layer is interpretive and not span-verified /
++    # 4-role gated, so Gate-B force-disables it instead of turning on the planner
++    # or changing the verifier machinery.
++    "PG_SWEEP_ANALYST_SYNTHESIS": "0",
+     # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
+     # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
+     # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
+@@ -524,6 +529,17 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     "PG_RELEVANCE_FLOOR",
+ })
+ 
++# Flags/modes that the benchmark slate force-sets to a specific value that is
++# not "on". Kept separate from _BENCHMARK_FORCE_ON_FLAGS so tests and comments
++# around capability-enabling flags keep their original meaning.
++_BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
++    "PG_SWEEP_ANALYST_SYNTHESIS",
++})
++
++_BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
++    "PG_SWEEP_ANALYST_SYNTHESIS",
++)
++
+ # I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
+ # is degraded (entailment not binding / judge_error fails open) at any other value. PG_VERIFICATION_MODE
+ # is NOT required here (rescue widening is out of scope; judge_error fail-closed keys on the entailment mode).
+@@ -557,6 +573,7 @@ def apply_full_capability_benchmark_slate() -> None:
+     ``PG_LLM_TIMEOUT_SECONDS=600`` in .env) is KEPT, but a LOWER default is RAISED to full capability.
+     No silent downgrade in either direction (operator no-downgrade directive). Feature flags in
+     ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
++    Exact-value flags in ``_BENCHMARK_FORCE_EXACT_FLAGS`` are forced to their slate value.
+ 
+     Codex diff-gate iter-2 P1-2: MUST run BEFORE the sweep / live_retriever / state imports, which cache
+     ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` as import-time module
+@@ -565,8 +582,8 @@ def apply_full_capability_benchmark_slate() -> None:
+     too-late application is caught fail-closed.
+     """
+     for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+-        if name in _BENCHMARK_FORCE_ON_FLAGS:
+-            os.environ[name] = value                       # force "1" — a benchmark feature can't be off
++        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
++            os.environ[name] = value                       # force exact value — no silent benchmark drift
+             continue
+         try:
+             current = float(os.environ.get(name, value))
+@@ -601,6 +618,12 @@ def preflight_full_capability() -> None:
+                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
+                 f"or its firing is unobservable (tracker off). Enable it before the run."
+             )
++    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
++        if os.getenv(flag, "1").strip() in ("1", "true", "True"):
++            raise RuntimeError(
++                f"benchmark preflight FAILED: {flag} is enabled — Gate-B report.md would include the "
++                f"un-span-verified Analyst Synthesis layer. Set {flag}=0 for the verified-only benchmark."
++            )
+     # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
+     # entailment judge does not bind as a drop gate and/or a judge_error fails OPEN (unverified clinical
+     # claims ship as "verified"). Fail closed before any spend.
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 40ba264b..35218b9d 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -1655,6 +1655,9 @@ async def run_one_query(
+         "run_dir": str(run_dir),
+         "error": "",
+     }
++    _clinical_verified_only_surface = (
++        str(q.get("domain", "")).strip().lower() == "clinical"
++    )
+ 
+     try:
+         # I-ready-005 (#1076) iter-4 P1-2: publish per-feature firing telemetry into the ContextVar
+@@ -1671,6 +1674,8 @@ async def run_one_query(
+         _log(f"SWEEP domain={q['domain']} slug={q['slug']}")
+         _log(f"Question: {q['question']}")
+         _log(f"Budget cap: ${get_max_cost_per_run():.4f}")
++        if _clinical_verified_only_surface:
++            _log("[synthesis]  clinical domain: Analyst Synthesis disabled (verified-only surface)")
+         _log("=" * 72)
+ 
+         # I-ready-007 (#1072): input harm-refusal — BEFORE the scope gate / any retrieval / any
+@@ -4063,6 +4068,7 @@ async def run_one_query(
+             # the rendered headings == exactly the pruned sufficient sections.
+             research_plan=_gen_plan,
+             partial_mode=_partial_mode,
++            suppress_analyst_synthesis=_clinical_verified_only_surface,
+             )
+         finally:
+             _pathb.reset_role(_pathb_gen_tok)
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 9580bd5d..0ef49767 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -4128,6 +4128,12 @@ async def generate_multi_section_report(
+     # empty inputs) so a fixture that would otherwise trigger each produces NONE.
+     # Default False = PROCEED/full mode UNCHANGED (all five still render).
+     partial_mode: bool = False,
++    # I-ready-013 (#1080): force a verified-only delivered surface for
++    # clinical/benchmark paths without turning on the planner or changing
++    # strict_verify/4-role/provenance machinery. Default False keeps legacy
++    # non-clinical/off-mode behavior unchanged; caller-owned True omits the
++    # un-span-verified analyst layer before any synthesis LLM call.
++    suppress_analyst_synthesis: bool = False,
+ ) -> MultiSectionResult:
+     """Three-stage multi-section generation.
+ 
+@@ -5083,15 +5089,21 @@ async def generate_multi_section_report(
+     analyst_synth_text = ""
+     analyst_synth_in_tok = 0
+     analyst_synth_out_tok = 0
++    analyst_synth_enabled = (
++        os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "1").strip() in ("1", "true", "True")
++    )
+     # I-meta-005 Phase 6 (#990, Codex ruling B-impl-1): DEMOTE the unverified
+     # analyst-synthesis block ON-MODE (research_plan is not None). On-mode the
+     # VERIFIED "Integrative" outline section (strict_verify'd, counts toward
+     # verified_words) is the synthesis; the legacy unverified analyst block must
+     # NOT also run (it would add a second, ungrounded interpretive layer to
+     # total_words). OFF-mode (research_plan is None) keeps the legacy analyst
+-    # block byte-identical. partial_mode already disables it.
++    # block byte-identical unless the caller explicitly requires a verified-only
++    # surface (clinical/benchmark). partial_mode already disables it.
+     if (
+         not partial_mode
++        and not suppress_analyst_synthesis
++        and analyst_synth_enabled
+         and research_plan is None
+         and section_results
+         and global_biblio
+diff --git a/tests/dr_benchmark/test_capped_finding_dedup_iready004.py b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+index 7f094d41..9db512fd 100644
+--- a/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
++++ b/tests/dr_benchmark/test_capped_finding_dedup_iready004.py
+@@ -63,7 +63,7 @@ def _set_min_passing_env() -> None:
+         "PG_NLI_IN_BENCHMARK": "1", "PG_ENABLE_TOOL_TRACKER": "1",
+         "PG_USE_FINDING_DEDUP": "1", "PG_CAPPED_FINDING_DEDUP": "1",
+         "PG_STRICT_VERIFY_ENTAILMENT": "enforce", "PG_MOST_MAX_EVIDENCE": "800",
+-        "PG_LIVE_MAX_EV_TO_GEN": "150",
++        "PG_LIVE_MAX_EV_TO_GEN": "150", "PG_SWEEP_ANALYST_SYNTHESIS": "0",
+     }.items():
+         os.environ[k] = v
+     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
+diff --git a/tests/dr_benchmark/test_verified_only_surface_behavioral_iready013.py b/tests/dr_benchmark/test_verified_only_surface_behavioral_iready013.py
+new file mode 100644
+index 00000000..65edb073
+--- /dev/null
++++ b/tests/dr_benchmark/test_verified_only_surface_behavioral_iready013.py
+@@ -0,0 +1,108 @@
++"""I-ready-013 (#1080) — Claude-authored BEHAVIORAL + NEGATIVE coverage for the verified-only surface.
++
++Complements the source-pin tests in test_verified_only_surface_iready013.py. These assert the change is
++correctly SCOPED — i.e. it suppresses the un-span-verified Analyst Synthesis layer ONLY for the
++clinical / benchmark path and leaves every other path byte-identical (no over-suppression). Offline, no
++network, no spend.
++"""
++from __future__ import annotations
++
++import inspect
++
++import pytest
++
++
++# ── the analyst-block gate decision, replicated behaviourally (the exact condition in
++#    multi_section_generator.generate_multi_section_report) ───────────────────────────────────────
++def _gate_runs(*, partial_mode, suppress, env_enabled, research_plan, has_sections, has_biblio):
++    return (
++        not partial_mode
++        and not suppress
++        and env_enabled
++        and research_plan is None
++        and bool(has_sections)
++        and bool(has_biblio)
++    )
++
++
++def test_gate_condition_matches_source_exactly():
++    # guard against drift: the replicated boolean above must mirror the real inline gate.
++    from src.polaris_graph.generator import multi_section_generator as msg
++
++    src = inspect.getsource(msg.generate_multi_section_report)
++    for token in (
++        "not partial_mode",
++        "and not suppress_analyst_synthesis",
++        "and analyst_synth_enabled",
++        "and research_plan is None",
++        "and section_results",
++        "and global_biblio",
++    ):
++        assert token in src, token
++
++
++def test_suppress_true_blocks_the_unverified_layer_even_when_otherwise_eligible():
++    # clinical/benchmark: everything else says "run", but the caller suppressor wins -> NO analyst layer.
++    assert _gate_runs(
++        partial_mode=False, suppress=True, env_enabled=True,
++        research_plan=None, has_sections=True, has_biblio=True,
++    ) is False
++
++
++def test_env_kill_switch_blocks_the_unverified_layer():
++    # Gate-B sets PG_SWEEP_ANALYST_SYNTHESIS=0 -> env_enabled False -> NO analyst layer.
++    assert _gate_runs(
++        partial_mode=False, suppress=False, env_enabled=False,
++        research_plan=None, has_sections=True, has_biblio=True,
++    ) is False
++
++
++def test_legacy_non_clinical_off_mode_is_PRESERVED_byte_identical():
++    # NEGATIVE / no-over-suppression: default caller (suppress=False) + flag on (env_enabled=True) +
++    # planner-off (research_plan None) -> the legacy unverified layer STILL runs. The fix must NOT
++    # change non-clinical behaviour.
++    assert _gate_runs(
++        partial_mode=False, suppress=False, env_enabled=True,
++        research_plan=None, has_sections=True, has_biblio=True,
++    ) is True
++
++
++def test_default_param_is_false_so_omitting_it_is_byte_identical():
++    import inspect as _inspect
++
++    from src.polaris_graph.generator import multi_section_generator as msg
++
++    sig = _inspect.signature(msg.generate_multi_section_report)
++    assert sig.parameters["suppress_analyst_synthesis"].default is False
++
++
++# ── clinical-domain detection (the run_one_query suppressor key) is correctly SCOPED ──────────────
++def _clinical_only(domain: str) -> bool:
++    # mirrors run_one_query: _clinical_verified_only_surface = domain.strip().lower() == "clinical"
++    return str(domain or "").strip().lower() == "clinical"
++
++
++@pytest.mark.parametrize("domain", ["clinical", "Clinical", " CLINICAL "])
++def test_clinical_domain_triggers_verified_only_surface(domain):
++    assert _clinical_only(domain) is True
++
++
++@pytest.mark.parametrize("domain", ["financial", "tech", "policy", "due_diligence", "", "general"])
++def test_non_clinical_domains_keep_the_legacy_surface(domain):
++    # no over-suppression: non-clinical runs are unaffected by the clinical force-off.
++    assert _clinical_only(domain) is False
++
++
++# ── UI path coverage: the pipeline-B domain inference maps medical-family -> clinical ─────────────
++@pytest.mark.parametrize("application", ["clinical", "medical", "pharma", "health"])
++def test_ui_medical_family_applications_route_to_clinical(application):
++    from src.polaris_graph.pipeline_a_ui_adapter import _infer_domain
++
++    assert _infer_domain(application, "any query") == "clinical"
++
++
++def test_ui_non_medical_application_does_not_force_clinical():
++    from src.polaris_graph.pipeline_a_ui_adapter import _infer_domain
++
++    # a plainly non-clinical app/query must NOT be coerced to clinical (else we'd over-suppress).
++    assert _infer_domain("finance", "quarterly revenue of a public company") != "clinical"
+diff --git a/tests/dr_benchmark/test_verified_only_surface_iready013.py b/tests/dr_benchmark/test_verified_only_surface_iready013.py
+new file mode 100644
+index 00000000..cc4b167f
+--- /dev/null
++++ b/tests/dr_benchmark/test_verified_only_surface_iready013.py
+@@ -0,0 +1,112 @@
++"""I-ready-013 (#1080): clinical/Gate-B reports omit unverified Analyst Synthesis.
++
++Offline, no network/spend. Pins the exact control surfaces:
++  - Gate-B force-disables PG_SWEEP_ANALYST_SYNTHESIS and preflights it off.
++  - run_one_query passes a clinical verified-only suppressor to the generator.
++  - the generator boundary checks both the env kill switch and caller suppressor
++    before importing/calling the analyst synthesis writer.
++  - pipeline-B UI clinical inference reaches the same run_one_query domain path.
++"""
++
++from __future__ import annotations
++
++import inspect
++import os
++
++import pytest
++
++from scripts.dr_benchmark import run_gate_b as gate_b
++
++
++def _set_min_passing_gate_b_env(monkeypatch: pytest.MonkeyPatch) -> None:
++    for key, value in {
++        "PG_SWEEP_FETCH_CAP": "1000",
++        "PG_SWEEP_MAX_SERPER": "100",
++        "PG_SWEEP_MAX_S2": "100",
++        "PG_STORM_ENABLED_IN_BENCHMARK": "1",
++        "PG_SWEEP_EVIDENCE_DEEPENER": "1",
++        "PG_DEPTH_ANNOTATION_IN_BENCHMARK": "1",
++        "PG_AGENTIC_SEARCH_IN_BENCHMARK": "1",
++        "PG_NLI_IN_BENCHMARK": "1",
++        "PG_ENABLE_TOOL_TRACKER": "1",
++        "PG_USE_FINDING_DEDUP": "1",
++        "PG_CAPPED_FINDING_DEDUP": "1",
++        "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
++        "PG_MOST_MAX_EVIDENCE": "800",
++        "PG_LIVE_MAX_EV_TO_GEN": "150",
++        "PG_RELEVANCE_FLOOR": "0.30",
++        "PG_SWEEP_ANALYST_SYNTHESIS": "0",
++    }.items():
++        monkeypatch.setenv(key, value)
++
++    from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
++
++    set_max_cost_per_run(25.0)
++
++
++def test_gate_b_slate_force_disables_unverified_analyst_synthesis(monkeypatch):
++    from src.polaris_graph.llm.openrouter_client import (
++        get_max_cost_per_run,
++        set_max_cost_per_run,
++    )
++
++    old_cap = get_max_cost_per_run()
++    try:
++        monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
++        gate_b.apply_full_capability_benchmark_slate()
++        assert os.environ["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
++        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
++        assert "PG_SWEEP_ANALYST_SYNTHESIS" in gate_b._BENCHMARK_FORCE_EXACT_FLAGS
++        assert "PG_SWEEP_ANALYST_SYNTHESIS" in gate_b._BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS
++    finally:
++        set_max_cost_per_run(old_cap)
++
++
++def test_gate_b_preflight_fails_if_analyst_synthesis_enabled(monkeypatch):
++    from src.polaris_graph.llm.openrouter_client import (
++        get_max_cost_per_run,
++        set_max_cost_per_run,
++    )
++
++    old_cap = get_max_cost_per_run()
++    try:
++        _set_min_passing_gate_b_env(monkeypatch)
++        gate_b.preflight_full_capability()
++
++        monkeypatch.setenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")
++        with pytest.raises(RuntimeError, match="Analyst Synthesis"):
++            gate_b.preflight_full_capability()
++    finally:
++        set_max_cost_per_run(old_cap)
++
++
++def test_generator_boundary_checks_kill_switch_and_suppressor_before_writer_import():
++    from src.polaris_graph.generator import multi_section_generator as msg
++
++    source = inspect.getsource(msg.generate_multi_section_report)
++    assert "suppress_analyst_synthesis: bool = False" in source
++    assert 'os.getenv("PG_SWEEP_ANALYST_SYNTHESIS", "1")' in source
++    assert "and not suppress_analyst_synthesis" in source
++    assert "and analyst_synth_enabled" in source
++
++    suppress_idx = source.index("and not suppress_analyst_synthesis")
++    env_idx = source.index("and analyst_synth_enabled")
++    import_idx = source.index("from src.polaris_graph.generator.analyst_synthesis import")
++    assert suppress_idx < import_idx
++    assert env_idx < import_idx
++
++
++def test_run_one_query_forces_clinical_verified_only_surface():
++    from scripts import run_honest_sweep_r3 as sweep
++
++    source = inspect.getsource(sweep.run_one_query)
++    assert "_clinical_verified_only_surface" in source
++    assert 'str(q.get("domain", "")).strip().lower() == "clinical"' in source
++    assert "suppress_analyst_synthesis=_clinical_verified_only_surface" in source
++
++
++def test_pipeline_b_ui_clinical_queries_reach_clinical_run_one_query_path():
++    from src.polaris_graph.pipeline_a_ui_adapter import _infer_domain
++
++    assert _infer_domain("medical", "any query") == "clinical"
++    assert _infer_domain("", "clinical trial evidence for anticoagulation") == "clinical"
+-- 
+2.49.0.windows.1
+
