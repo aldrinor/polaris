@@ -136,6 +136,10 @@ def test_post_fetch_loop_budget_breaks_the_loop(monkeypatch):
     deterministic with a real 0.3s per-candidate enrich delay so the budget
     is reliably crossed regardless of host speed (Codex brief P2-1)."""
     monkeypatch.setenv("PG_POST_FETCH_LOOP_BUDGET", "0.5")
+    # I-ready-003 (#1074): the loop budget now SCALES with fetch_cap —
+    # max(env floor, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET). Pin the per-URL term tiny so the explicit
+    # 0.5s floor wins (fetch_cap * 0.001 stays well under 0.5) and this loop-breaker regression still fires.
+    monkeypatch.setenv("PG_POST_FETCH_PER_URL_BUDGET", "0.001")
     _stub_pipeline(
         monkeypatch, n=8,
         openalex_impl=lambda url, title: (time.sleep(0.3) or {}),
