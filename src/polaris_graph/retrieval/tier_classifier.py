@@ -380,6 +380,44 @@ GOV_AGENCY_DOMAINS = frozenset({
     "hrsa.gov",       # Health Resources & Services Admin
 })
 
+# I-ready-017 (#1133): national + international statistical / data agencies.
+# These produce PRIMARY quantitative evidence (labour-force surveys, national
+# accounts, economic data series) and are the expected T3 backbone for
+# non-clinical domains such as `workforce` (config/scope_templates/workforce.yaml
+# expected_tier_distribution requires T3 at 35-65%, naming StatCan / BLS / OECD
+# / ILO / Eurostat explicitly).
+#
+# RERUN-BUG: bls.gov was demoted to T4 (OpenAlex returned preprint/repository on
+# one congressional-report URL -> R11; article+journal on an MLR URL whose title
+# tripped a narrative-flavor marker -> R9). oecd.org / ilo.org (.org, not on any
+# domain set) fell through to UNKNOWN. Result: T3 = 0% -> abort_corpus_approval_
+# denied on drb_72. These are genuine statistical agencies; T3 is the correct,
+# faithfulness-safe classification (NOT T1 primary-research-paper credit — the
+# clinical T3 = government/regulatory/authoritative-data tier is the right home).
+#
+# Eurostat note: ec.europa.eu already parent-matches `europa.eu` in
+# REGULATORY_DOMAINS, so Eurostat URLs are already T3 via R2d. ec.europa.eu is
+# listed here for explicitness; it is tier-harmless (both paths -> T3).
+STATISTICAL_AGENCY_DOMAINS = frozenset({
+    # US
+    "bls.gov",                 # Bureau of Labor Statistics
+    "census.gov",              # US Census Bureau
+    "federalreserve.gov",      # Federal Reserve Board
+    "stlouisfed.org",          # St. Louis Fed (FRED economic data series)
+    "fred.stlouisfed.org",     # FRED (parent-match also covers this)
+    # Canada
+    "statcan.gc.ca",           # Statistics Canada
+    "www150.statcan.gc.ca",    # StatCan data tables host (parent-match also)
+    # International statistical / data agencies (.org / .int / .europa.eu)
+    "oecd.org",                # OECD (Employment/Skills/Future of Work outlooks)
+    "ilo.org",                 # International Labour Organization (+ ILOSTAT)
+    "ilostat.ilo.org",         # ILOSTAT data host (parent-match also covers this)
+    "ec.europa.eu",            # Eurostat lives under ec.europa.eu/eurostat
+    "worldbank.org",           # World Bank Open Data
+    "data.worldbank.org",      # World Bank data host (parent-match also covers)
+    "imf.org",                 # International Monetary Fund
+})
+
 # Pass-10 addition (BUG-M-10): business / general news that OpenAlex
 # sometimes flags as 'article' in 'journal'. These are T6 news, not
 # primary research.
@@ -1276,6 +1314,32 @@ def _classify_source_tier_rules(
             f"Domain {domain!r} is a US government agency (non-regulatory). "
             f"Administrative / policy / fact-sheet content, not primary "
             f"research. T3."
+        )
+        return result
+
+    # ── Rule 2b-stat-agency (T3, I-ready-017 #1133): national +
+    # international statistical / data agencies (BLS, OECD, ILO, Eurostat,
+    # StatCan, World Bank, IMF, Federal Reserve, FRED, Census). These
+    # produce PRIMARY quantitative evidence and are the expected T3
+    # backbone for non-clinical domains (workforce protocol requires
+    # T3 at 35-65%). Placed adjacent to R2b_gov_agency / R2c / R2d so
+    # statistical agencies earn T3 the same way regulatory domains do,
+    # and crucially BEFORE R9/R10/R11 (the OpenAlex paths that demoted
+    # bls.gov to T4) and AFTER the R2a/R2b denylist demotions (so a
+    # denylisted domain can never be laundered up to T3). It is T3
+    # (government/regulatory/authoritative-data tier), NOT T1 primary-
+    # research-paper credit.
+    if _domain_matches(domain, STATISTICAL_AGENCY_DOMAINS):
+        result.tier = TierLevel.T3
+        result.confidence = 0.95
+        result.matched_rules.append("R2b_statistical_agency")
+        result.reasons.append(
+            f"Domain {domain!r} is a national or international statistical / "
+            f"data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World "
+            f"Bank, IMF, Federal Reserve, Census). Authoritative primary "
+            f"quantitative evidence — T3 regardless of OpenAlex metadata "
+            f"(which mis-labelled BLS reports as preprint/repository or "
+            f"narrative review). Not T1 primary-research-paper credit."
         )
         return result
 
