@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Hard RuntimeError is acceptable/non-blocking here: run_one_query's outer Exception handler converts it to an error_unexpected manifest and returns a summary, so it should not crash a multi-query CLI sweep. A named error_corpus_population_mismatch abort would improve triage but is not required for execution."
+  - "The invariant only compares total_sources, so it would not catch a same-size tier_counts mismatch. Non-blocking for this diff because current merge paths recompute adequacy from the same dist, and the held bug is count-divergent."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

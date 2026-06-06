@@ -4578,3 +4578,12 @@
 - EVIDENCE/FINDINGS: §-1.1 held divergence 145 vs 45 confirmed; 2 FX-06 component smoke (invariant holds / divergence detected) + 425 regression green.
 - STATUS: FX-06 iter-1 Codex diff gate IN FLIGHT (bg b1vw0sxkv); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-06 verified, advance FX-18; RC => address within 5-cap. Codex asked re: hard-raise vs graceful-abort for the invariant.
+
+[2026-06-06 19:05:00]
+- ACTION: FX-06 (#1120) Codex diff-gate iter-1 APPROVE -> VERIFIED + closed. FX-06b (#1121) follow-up for 2 P2s.
+- RATIONALE: iter-1 = 0 P0/P1, 2 P2 accept_remaining. Codex confirmed the hard raise is safe (outer handler -> error manifest, no sweep crash). corpus-approval + adequacy + report now describe the SAME population on every exit path; abort short-circuit (invariant #5) untouched.
+- SYNC: ledger FX-06 -> verified (13 verified); followups += FX-06b #1121; current_pointer -> NEXT FX-18.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1120 (closed), #1121 (created), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx06_codex_diff_audit_iter1.txt = APPROVE. 2 FX-06 component + 425 regression + §-1.1 held 145-vs-45.
+- STATUS: FX-06 DONE. Codex gate lock free; no codex procs. 13 ledger issues verified. Advancing to FX-18 (S2 short-keyword lane + wire OpenAlex; CORE live_retriever.py).
+- NEXT_STEP: FX-18 — gh issue create, grep live_retriever S2/OpenAlex lanes, smoke, fix (flag-gated, faithfulness-safe — discovery breadth only), §-1.1, codex gate.
