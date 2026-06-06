@@ -4607,3 +4607,12 @@
 - EVIDENCE/FINDINGS: §-1.1 held S2 [0,0,0,0,4] + openalex absent; 3 FX-18 smoke (distill + integration merge/dedup) + 68 regression green.
 - STATUS: FX-18 iter-1 Codex diff gate IN FLIGHT (bg bnokn49k0); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-18 verified, advance FL-05; RC => address within 5-cap. Codex asked re: Q8 ADD-vs-REPLACE + distillation approach.
+
+[2026-06-06 20:20:00]
+- ACTION: FX-18 (#1122) Codex diff-gate iter-1 APPROVE -> VERIFIED + closed. FX-18b (#1123) follow-up for 2 P2s.
+- RATIONALE: iter-1 = 0 P0/P1, 2 P2 accept_remaining. Codex confirmed Q8 ADD + the distillation approach. S2 short-keyword + OpenAlex wiring landed; live lift confirmed at RERUN. P2 #1 (emit openalex retrieval_trace row) flagged to land BEFORE the RERUN §-1.1 trace audit.
+- SYNC: ledger FX-18 -> verified (14); followups += FX-18b #1123; current_pointer -> NEXT FL-05.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1122 (closed), #1123 (created), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx18_codex_diff_audit_iter1.txt = APPROVE. 3 FX-18 + 68 regression + §-1.1 held S2 [0,0,0,0,4].
+- STATUS: FX-18 DONE. Codex gate lock free; no codex procs. 14 verified. Advancing to FL-05 (run-health gate: force-enabled-but-not-fired -> abort_discovery_degraded; CORE run_honest_sweep_r3.py). Aligns with no-silent-downgrade + fail-loud theme.
+- NEXT_STEP: FL-05 — gh issue create, grep feature-telemetry force-on/fired flags + abort statuses, smoke, fix (fail-loud abort if a force-enabled feature did not fire), §-1.1, codex gate.

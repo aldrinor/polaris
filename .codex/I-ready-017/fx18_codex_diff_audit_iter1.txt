@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "OpenAlex candidates are merged correctly, but the new OpenAlex search lane is not recorded in retrieval_trace query rows; trace-only rerun audits may still show openalex_search absent even though the backend ran."
+  - "First-8-token S2 distillation can retain prompt boilerplate on instruction-shaped questions and drop later topic terms; not a blocker, but live rerun should confirm S2 return-count lift."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
