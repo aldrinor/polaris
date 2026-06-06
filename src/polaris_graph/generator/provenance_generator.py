@@ -1704,28 +1704,6 @@ def verify_sentence_provenance(
                 "(enforce-mode would drop this sentence)",
             )
 
-    # BUG-01 Layer-2 (FX-02, #1106): discourse-narration floor — shared policy with
-    # clinical_generator.strict_verify (single source of patterns + mode). Runs only on an
-    # otherwise-passing sentence; drops one that narrates the act of writing while wrapping a
-    # verbatim source quote (the drb_72 scratchpad leak that cleared mechanical + entailment).
-    # Config-driven (LAW VI), flag-gated (PG_STRICT_VERIFY_DISCOURSE_FLOOR, default off), fail-safe.
-    if not failures:
-        from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
-            _discourse_floor_mode as _dfloor_mode,
-            is_discourse_narration as _is_discourse,
-        )
-
-        _dmode = _dfloor_mode()
-        if _dmode in ("warn", "enforce"):
-            _matched = _is_discourse(_verifier_cleaned_text(sentence))
-            if _matched:
-                logger.warning(
-                    "[provenance] discourse_narration (mode=%s): sentence=%r matched=%r",
-                    _dmode, sentence[:160], _matched,
-                )
-                if _dmode == "enforce":
-                    failures.append(f"discourse_narration:{_matched}")
-
     is_verified = len(failures) == 0
     return SentenceVerification(
         sentence=sentence,

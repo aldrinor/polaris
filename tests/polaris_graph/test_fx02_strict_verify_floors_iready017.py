@@ -1,21 +1,19 @@
-"""I-ready-017 FX-02 (#1106) — verifier-side floors complementing FX-01 (generation-side).
+"""I-ready-017 FX-02 (#1106) — verifier-side empty/contentless-sentence floor (BUG-03).
 
-BUG-03 (empty/contentless sentence): a sentence with no content words AND no decimals/numbers
-passed strict_verify vacuously (the provenance_generator content-overlap floor is GATED behind
-`if sentence_content:`, so it was SKIPPED). A token-only / punctuation-only "sentence" must never
-be a verified clinical claim.
+BUG-03: a sentence with no content words AND no decimals/numbers passed strict_verify vacuously —
+`provenance_generator`'s content-overlap floor is GATED behind `if sentence_content:`, so a
+token-only / punctuation-only / all-stopword "sentence" (residue reduces to ".") was SKIPPED and
+counted VERIFIED. A token-only sentence is never a valid clinical claim. The floor runs
+UNCONDITIONALLY (it must not be bypassable via `require_number_match=False`).
 
-BUG-01 Layer-2 (discourse narration): the drb_72 scratchpad WRAPPED a verbatim source quote in
-writing-act narration ("We can split it: ... too choppy", "I'll use the exact phrase",
-"Final attempt:", "I need to add about 124 more words"). The embedded quote passes strict_verify
-(>=2 content-word overlap) AND the entailment judge (it is entailed), so the narration rode along
-and shipped as VERIFIED clinical prose. FX-02 adds a config-driven (LAW VI), flag-gated
-(PG_STRICT_VERIFY_DISCOURSE_FLOOR, default off), high-precision discourse-narration floor, applied
-LAST. It must drop the scratchpad sentences WITHOUT false-dropping real clinical prose.
-
-Entailment is set to `off` in the discourse tests so the sentence reaches the discourse floor via
-the mechanical checks alone (the floor runs regardless of entailment mode); this isolates the floor
-without a live LLM judge call.
+BUG-01 Layer-2 (discourse-narration floor) was IMPLEMENTED then REMOVED on Codex's explicit
+recommendation across three diff-gate rounds: every surface pattern that matched the drb_72
+scratchpad vocabulary also false-dropped real clinical prose (split/combine = dosing, repetitive =
+rTMS, "X attempt:" = procedure labels, rephrase/"use the exact phrase" = patient communication &
+aphasia rehab, and even "N more words" = speech-language vocabulary targets). §-1.1: a false-drop of
+a real clinical claim is LETHAL, so a pattern-based discourse floor is unsafe. FX-01 (#1105,
+generation-side, verified) is the defense — a length-truncated scratchpad is never promoted to
+content, so the quote-wrapping narration never reaches strict_verify in the first place.
 """
 from __future__ import annotations
 
@@ -23,10 +21,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.polaris_graph.clinical_generator.strict_verify import (
-    is_discourse_narration,
-    verify_sentence,
-)
+from src.polaris_graph.clinical_generator.strict_verify import verify_sentence
 from src.polaris_graph.clinical_retrieval.evidence_pool import (
     AdequacyVerdict,
     EvidencePool,
@@ -66,7 +61,7 @@ def _pool(*sources: Source) -> EvidencePool:
 
 
 # ---------------------------------------------------------------------------
-# BUG-03 — empty / contentless sentence floor
+# BUG-03 — clinical strict_verify.verify_sentence
 # ---------------------------------------------------------------------------
 def test_bug03_contentless_token_only_sentence_dropped() -> None:
     """A token-only sentence ('[#ev:src-1:0-5].') has no content words AND no decimals -> drop."""
@@ -89,109 +84,7 @@ def test_bug03_real_clinical_sentence_with_content_still_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# BUG-01 Layer-2 — discourse-narration floor (pure pattern unit first)
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "sentence",
-    [
-        # Only DRAFTING-PROCESS self-talk with NO clinical homograph is matched after the Codex
-        # iter-1/iter-2 narrowing. The drb_72 word-count scratchpad line is the canonical case.
-        "Still 176. I need to add about 124 more words.",
-        "I need to add about 30 more words to the section.",
-        "Roughly 50 more words to go before this is done.",
-        "That's a bit clunky, let me reconsider.",
-        "This is wordy and could be trimmed.",
-        "This reads long-winded in the current draft.",
-    ],
-)
-def test_bug01l2_discourse_sentences_match(sentence: str) -> None:
-    """Drafting-process self-talk (word counts, clunky/wordy prose) is detected as narration."""
-    assert is_discourse_narration(sentence) is not None, f"missed narration: {sentence!r}"
-
-
-@pytest.mark.parametrize(
-    "sentence",
-    [
-        # Real clinical/scientific prose that MUST NOT be flagged (no false-drop).
-        "We can administer tirzepatide at 5 mg weekly with dose titration.",
-        "We can keep the maintenance dose at 5 mg in renally impaired adults.",
-        "Clinicians can use this agent when metformin is contraindicated.",
-        "The trial was short, lasting only twelve weeks, but the effect was durable.",
-        "Tirzepatide did not increase cardiovascular risk versus placebo.",
-        "For example, SURPASS-2 enrolled adults with type 2 diabetes.",
-        "Strong complementarities between automation and labor increase productivity.",
-        # Codex iter-1 P1 adversarial cases — clinical DOSING/THERAPY verbs + clinical terms.
-        "We can combine metformin with basal insulin and titrate the dose weekly.",
-        "We can split the daily dose into two administrations to reduce nausea.",
-        "We can shorten the infusion to thirty minutes in stable patients.",
-        "We can lengthen the dosing interval to every other week if tolerated.",
-        "This is repetitive transcranial magnetic stimulation for treatment-resistant depression.",
-        "The final attempt at intubation failed after three tries.",
-        "On the second attempt the catheter was placed without complication.",
-        # Codex iter-2 P1 adversarial cases — procedure-attempt COLON labels + patient-communication
-        # and aphasia-rehab uses of rephrase / "use the exact phrase".
-        "Second attempt: the catheter was placed without complication.",
-        "First attempt: endotracheal intubation failed because of airway edema.",
-        "For low-health-literacy patients, we can use the exact phrase 'take one tablet by mouth daily' to reduce dosing errors.",
-        "In aphasia rehabilitation, we can rephrase questions to improve comprehension.",
-        "The infusion was clunky to administer but the regimen reduced events.",  # 'clunky' here describes admin, not prose — but no first-person draft frame; must not match
-    ],
-)
-def test_bug01l2_clinical_prose_not_flagged(sentence: str) -> None:
-    """High-precision patterns must not match genuine clinical/scientific sentences."""
-    assert is_discourse_narration(sentence) is None, f"false-positive on: {sentence!r}"
-
-
-# ---------------------------------------------------------------------------
-# BUG-01 Layer-2 — end-to-end through verify_sentence (flag-gated)
-# ---------------------------------------------------------------------------
-def _discourse_pool() -> tuple[EvidencePool, str]:
-    full = "Strong complementarities between automation and labor increase productivity."
-    pool = _pool(_src(full_text=full))
-    # Drafting-process self-talk WRAPPING the verbatim span quote — clears overlap (>=2 content
-    # words from the quote) with entailment off, and carries NO extraneous number (so it is not
-    # pre-empted by numeric_mismatch); the "this is wordy" prose-critique marks it narration.
-    sentence = (
-        "Strong complementarities between automation and labor increase productivity, "
-        f"but this is wordy [#ev:src-1:0-{len(full)}]."
-    )
-    return pool, sentence
-
-
-def test_bug01l2_enforce_drops_discourse_wrapping_quote(monkeypatch) -> None:
-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
-    monkeypatch.setenv("PG_STRICT_VERIFY_DISCOURSE_FLOOR", "enforce")
-    pool, sentence = _discourse_pool()
-    passed, reason = verify_sentence(sentence, pool, min_content_overlap=2)
-    assert passed is False
-    assert reason == "discourse_narration"
-
-
-def test_bug01l2_off_is_noop_discourse_passes(monkeypatch) -> None:
-    """Flag OFF (default) -> the discourse sentence passes (byte-unchanged behavior)."""
-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
-    monkeypatch.setenv("PG_STRICT_VERIFY_DISCOURSE_FLOOR", "off")
-    pool, sentence = _discourse_pool()
-    passed, reason = verify_sentence(sentence, pool, min_content_overlap=2)
-    assert passed is True, f"off-mode must be a no-op; got drop {reason}"
-
-
-def test_bug01l2_enforce_keeps_real_clinical_claim(monkeypatch) -> None:
-    """A real clinical claim wrapping the SAME span quote (no narration) survives enforce mode."""
-    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
-    monkeypatch.setenv("PG_STRICT_VERIFY_DISCOURSE_FLOOR", "enforce")
-    full = "Strong complementarities between automation and labor increase productivity."
-    pool = _pool(_src(full_text=full))
-    sentence = (
-        f"Strong complementarities between automation and labor increase productivity "
-        f"[#ev:src-1:0-{len(full)}]."
-    )
-    passed, reason = verify_sentence(sentence, pool, min_content_overlap=2)
-    assert passed is True, f"real clinical claim false-dropped: {reason}"
-
-
-# ---------------------------------------------------------------------------
-# BUG-03 — provenance_generator: the empty floor runs UNCONDITIONALLY (Codex iter-1 P2)
+# BUG-03 — provenance_generator: the empty floor runs UNCONDITIONALLY
 # ---------------------------------------------------------------------------
 def _prov_pool() -> dict:
     # provenance token regex requires [A-Za-z0-9_]+ for the evidence id (no hyphens).

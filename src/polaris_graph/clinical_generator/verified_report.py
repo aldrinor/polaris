@@ -62,7 +62,6 @@ DropReason = Literal[
     "no_provenance_token", # sentence has no [#ev:...:start-end] tokens
     "entailment_failed",   # I-bug-092: span does not entail sentence (semantic check)
     "empty_or_contentless_sentence",  # BUG-03/FX-02 (#1106): no content words AND no decimals
-    "discourse_narration",            # BUG-01-L2/FX-02 (#1106): writing-act narration wrapping a quote
 ]
 
 
