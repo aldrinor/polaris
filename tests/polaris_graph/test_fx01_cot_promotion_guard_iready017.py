@@ -182,6 +182,68 @@ async def test_fx01_legit_reasoning_first_stop_still_promotes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fx01_length_truncation_primary_think_extraction_refused() -> None:
+    """Codex iter-2 P1: the PRIMARY </think>-extraction leg also copies reasoning-derived text into
+    content. A length-truncated trace that contains </think> + >20 chars of (cut-off) answer must be
+    REFUSED, not shipped."""
+    reset_run_cost()
+    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
+    reasoning = (
+        "Let me plan the section. ev_001 covers SURPASS-2. </think> Tirzepatide reduced HbA1c by "
+        "about 2 percent in SURPASS-2 and the weight loss across doses was"  # cut off mid-sentence
+    )
+    _install_fake_stream(client, _sse_lines(
+        reasoning=reasoning, finish_reason="length",
+        completion_tokens=16384, reasoning_tokens=16384,
+    ))
+    with pytest.raises(ReasoningFirstTruncationError):
+        await client.generate(prompt="x", max_tokens=16384)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_fx01_length_truncation_retry_think_extraction_refused() -> None:
+    """Codex iter-2 P1: the RETRY </think>-extraction leg. First attempt sparse (<100 chars, no
+    </think>) -> COT-2 retry; the retry returns </think> + cut-off answer with finish_reason=='length'
+    -> MUST refuse."""
+    reset_run_cost()
+    client = OpenRouterClient(model="deepseek/deepseek-v4-pro")
+    retry_reasoning = (
+        "Reconsidering the evidence now. </think> In SURPASS-2 the HbA1c reduction was approximately "
+        "two percent versus semaglutide and the body weight change was"  # cut off mid-sentence
+    )
+    _install_fake_stream(
+        client,
+        _sse_lines(reasoning="brief.", finish_reason="length",
+                   completion_tokens=16384, reasoning_tokens=16384),
+        _sse_lines(reasoning=retry_reasoning, finish_reason="length",
+                   completion_tokens=16384, reasoning_tokens=16384),
+    )
+    with pytest.raises(ReasoningFirstTruncationError):
+        await client.generate(prompt="x", max_tokens=16384)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_fx01_length_truncation_always_reason_promotion_refused() -> None:
+    """Codex iter-2 P1: the GLM _ALWAYS_REASON_MODELS promotion leg. A length-truncated GLM trace
+    (no </think>) routed to the always-reason branch must be REFUSED, not promoted."""
+    reset_run_cost()
+    client = OpenRouterClient(model="z-ai/glm-5.1")  # in _ALWAYS_REASON_MODELS
+    glm_reasoning = (
+        "Let me analyze this question about tirzepatide and draft the Efficacy section now, "
+        "inventorying the evidence blocks before I write the answer, but I have only gotten as far as"
+    )  # no </think>, ends mid-sentence
+    _install_fake_stream(client, _sse_lines(
+        reasoning=glm_reasoning, finish_reason="length",
+        completion_tokens=16384, reasoning_tokens=16384,
+    ))
+    with pytest.raises(ReasoningFirstTruncationError):
+        await client.generate(prompt="x", max_tokens=16384)
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_fx01_heuristic_fallback_when_no_finish_reason() -> None:
     """When the provider reports NO finish_reason (None), fall back to the I-bug-089 heuristic:
     [#ev:]-absent AND ends mid-sentence -> refuse to promote."""

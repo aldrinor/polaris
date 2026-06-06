@@ -2313,6 +2313,47 @@ class OpenRouterClient:
 
         return result
 
+    def _refuse_if_truncated_reasoning_promotion(
+        self,
+        *,
+        candidate_text: str,
+        finish_reason: Optional[str],
+        trace_id: Optional[str],
+        leg: str,
+    ) -> None:
+        """FX-01 / I-ready-017 (#1105, faithfulness P0): the SINGLE truncation guard, called before
+        EVERY generate() branch that copies reasoning-derived text into content — raw-reasoning
+        promotion, </think> extraction, AND the GLM always-reason promotion.
+
+        The provider's ``finish_reason == "length"`` is the canonical, floor-independent
+        token-ceiling truncation signal. The drb_72 held run shipped a token-starved planning
+        scratchpad into report.md as VERIFIED prose; the param-ceiling heuristic that previously
+        guarded only the raw-promotion site was confounded by the reasoning-first ``max_tokens``
+        floor (and missed the </think>-extraction + always-reason legs entirely — Codex iter-2 P1).
+        When the provider reports no finish_reason (None), fall back to the I-bug-089 heuristic on
+        the candidate text: ``[#ev:]``-absent AND ends mid-sentence. Raises
+        ``ReasoningFirstTruncationError`` so the caller retries with a bigger budget instead of
+        shipping a truncated/partial answer as verified prose (LAW II / §-1.1 clinical).
+        """
+        finish_length = finish_reason == "length"
+        clean = candidate_text.rstrip()
+        heuristic_fallback = (
+            finish_reason is None
+            and "[#ev:" not in candidate_text
+            and not clean.endswith((".", "!", "?", '"'))
+        )
+        if finish_length or heuristic_fallback:
+            self.usage.total_errors += 1
+            _finalize_reasoning_trace(trace_id, status="truncated")
+            raise ReasoningFirstTruncationError(
+                f"I-bug-089/FX-01: reasoning-first model {self.model} truncated at promotion "
+                f"leg={leg!r}. candidate {len(candidate_text)} chars; "
+                f"finish_reason={finish_reason!r} (finish_length={finish_length}, "
+                f"heuristic_fallback={heuristic_fallback}). Promoting truncated reasoning-derived "
+                f"text as content would ship the model's scratchpad/partial answer as verified "
+                f"prose — increase max_tokens budget. SF-15 fail-loud."
+            )
+
     async def generate(
         self,
         prompt: str,
@@ -2410,6 +2451,15 @@ class OpenRouterClient:
         if result.reasoning:
             extracted = _extract_answer_from_reasoning(result.reasoning)
             if extracted:
+                # FX-01 (#1105, Codex iter-2 P1): the </think>-extraction leg ALSO copies
+                # reasoning-derived text into content — refuse if the trace was length-truncated
+                # (the extracted answer is then a partial/cut-off answer) before promoting.
+                self._refuse_if_truncated_reasoning_promotion(
+                    candidate_text=extracted,
+                    finish_reason=result.finish_reason,
+                    trace_id=_primary_trace_id,
+                    leg="primary_think_extraction",
+                )
                 logger.warning(
                     "[polaris graph] POOL-FALLBACK: generate() content empty — "
                     "recovered %d chars from reasoning via </think> split",
@@ -2476,6 +2526,15 @@ class OpenRouterClient:
                         "from generate() reasoning",
                         _thinking_block.start(),
                     )
+                # FX-01 (#1105, Codex iter-2 P1): the GLM always-reason promotion ALSO copies
+                # reasoning-derived text into content — refuse a length-truncated trace before
+                # promoting (heuristic checks the CLEANED reasoning actually being promoted).
+                self._refuse_if_truncated_reasoning_promotion(
+                    candidate_text=_cleaned_reasoning,
+                    finish_reason=result.finish_reason,
+                    trace_id=_primary_trace_id,
+                    leg="always_reason_promotion",
+                )
                 logger.info(
                     "[polaris graph] FIX-GLM5: generate() using reasoning as "
                     "content for always-reason model %s (%d chars)",
@@ -2513,39 +2572,18 @@ class OpenRouterClient:
                 # provenance markers AND ends mid-sentence, the model
                 # never wrote the answer — fail loud so caller can retry
                 # with bigger budget instead of promoting planning prelude.
-                _reasoning_clean = result.reasoning.rstrip()
-                # FX-01 / I-ready-017 (#1105, faithfulness P0): refuse to promote a TRUNCATED
-                # reasoning trace. The provider's finish_reason=="length" is the canonical,
-                # floor-independent truncation signal. The prior param-ceiling heuristic was
-                # CONFOUNDED: _call_impl floors max_tokens to PG_REASONING_FIRST_MIN_MAX_TOKENS
-                # (16384) for reasoning-first models and V4 Pro reasons until the OVERALL ceiling,
-                # so output_tokens >= the caller's max_tokens param false-positived on perfectly
-                # complete answers (proven by a live generate(max_tokens=80) returning 10302 chars).
-                # The drb_72 scratchpad ENDED with a period ("...124 more words.") so the
-                # terminal-punctuation heuristic MISSED it and the token-starved planning monologue
-                # shipped into report.md as VERIFIED prose (strict_verify + NLI + 4-role all passed
-                # it). When finish_reason is None (provider/stream never reported one), fall back to
-                # the I-bug-089 heuristic: [#ev:]-absent AND ends mid-sentence. Promoting a truncated
-                # planning monologue as content is the scratchpad-as-verified-prose failure
-                # (LAW II / §-1.1 clinical).
-                _finish_length = result.finish_reason == "length"
-                _heuristic_truncated = (
-                    result.finish_reason is None
-                    and "[#ev:" not in result.reasoning
-                    and not _reasoning_clean.endswith((".", "!", "?", '"'))
+                # FX-01 / I-ready-017 (#1105, faithfulness P0): refuse a length-truncated
+                # raw-reasoning promotion — the exact drb_72 scratchpad-as-verified-prose failure.
+                # Centralized guard (see _refuse_if_truncated_reasoning_promotion):
+                # finish_reason=="length" is the canonical floor-independent signal; the I-bug-089
+                # [#ev:]-absent + ends-mid-sentence heuristic is the None fallback. The prior inline
+                # param-ceiling was confounded by the 16384 reasoning-first max_tokens floor.
+                self._refuse_if_truncated_reasoning_promotion(
+                    candidate_text=result.reasoning,
+                    finish_reason=result.finish_reason,
+                    trace_id=_primary_trace_id,
+                    leg="primary_raw_promotion",
                 )
-                if _finish_length or _heuristic_truncated:
-                    self.usage.total_errors += 1
-                    _finalize_reasoning_trace(_primary_trace_id, status="truncated")
-                    raise ReasoningFirstTruncationError(
-                        f"I-bug-089/FX-01: reasoning-first model {self.model} truncated. content "
-                        f"empty, reasoning has {len(result.reasoning)} chars; "
-                        f"finish_reason={result.finish_reason!r} (finish_length={_finish_length}, "
-                        f"heuristic_fallback={_heuristic_truncated}; out={result.output_tokens}, "
-                        f"reasoning={result.reasoning_tokens}). Promoting a truncated planning "
-                        f"monologue as content would ship the model's scratchpad as verified prose "
-                        f"— increase max_tokens budget. SF-15 fail-loud."
-                    )
                 logger.warning(
                     "[polaris graph] I-bug-088: generate() content empty, "
                     "reasoning has %d chars and no </think> tag. Model %s is "
@@ -2602,6 +2640,14 @@ class OpenRouterClient:
                 if not result.content.strip() and result.reasoning:
                     extracted = _extract_answer_from_reasoning(result.reasoning)
                     if extracted:
+                        # FX-01 (#1105, Codex iter-2 P1): the RETRY </think>-extraction leg also
+                        # copies reasoning-derived text into content — refuse if length-truncated.
+                        self._refuse_if_truncated_reasoning_promotion(
+                            candidate_text=extracted,
+                            finish_reason=result.finish_reason,
+                            trace_id=_retry_trace_id,
+                            leg="retry_think_extraction",
+                        )
                         result = LLMResponse(
                             content=extracted,
                             reasoning=result.reasoning,
@@ -2622,31 +2668,16 @@ class OpenRouterClient:
                         # I-bug-088: same response-shape-centric recovery on
                         # retry. If retry still produces reasoning-only output
                         # with substance, treat reasoning as the answer.
-                        # FX-01 / I-ready-017 (#1105, faithfulness P0, NEW Codex finding): the RETRY
-                        # leg ALSO promotes reasoning->content, so it MUST apply the SAME truncation
-                        # refusal as the primary branch — otherwise a token-starved retry scratchpad
-                        # ships as verified prose (the exact drb_72 failure, one level deeper).
-                        # finish_reason=="length" is the canonical signal; fall back to the
-                        # [#ev:]-absent + ends-mid-sentence heuristic when the provider reported none.
-                        _retry_clean = result.reasoning.rstrip()
-                        _retry_finish_length = result.finish_reason == "length"
-                        _retry_heuristic_truncated = (
-                            result.finish_reason is None
-                            and "[#ev:" not in result.reasoning
-                            and not _retry_clean.endswith((".", "!", "?", '"'))
+                        # FX-01 / I-ready-017 (#1105, faithfulness P0): the RETRY raw-promotion leg
+                        # MUST apply the SAME truncation refusal as the primary branch — otherwise a
+                        # token-starved retry scratchpad ships as verified prose (drb_72, one level
+                        # deeper). Centralized guard (see _refuse_if_truncated_reasoning_promotion).
+                        self._refuse_if_truncated_reasoning_promotion(
+                            candidate_text=result.reasoning,
+                            finish_reason=result.finish_reason,
+                            trace_id=_retry_trace_id,
+                            leg="retry_raw_promotion",
                         )
-                        if _retry_finish_length or _retry_heuristic_truncated:
-                            self.usage.total_errors += 1
-                            _finalize_reasoning_trace(_retry_trace_id, status="truncated")
-                            raise ReasoningFirstTruncationError(
-                                f"FX-01: reasoning-first model {self.model} retry truncated. content "
-                                f"empty, reasoning has {len(result.reasoning)} chars; "
-                                f"finish_reason={result.finish_reason!r} "
-                                f"(finish_length={_retry_finish_length}, "
-                                f"heuristic_fallback={_retry_heuristic_truncated}). Promoting a "
-                                f"truncated retry monologue as content would ship the scratchpad as "
-                                f"verified prose — increase max_tokens budget. SF-15 fail-loud."
-                            )
                         logger.warning(
                             "[polaris graph] I-bug-088: retry still reasoning-"
                             "only (%d chars) — promoting to content.",
