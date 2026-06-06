@@ -4559,3 +4559,12 @@
 - EVIDENCE/FINDINGS: §-1.1 evidence_pool re-audit: 41 agentic -> DROP 7 (all 0-evidence) / KEEP 34, 0 false drops, S7SHZQ4n+S25ktKkD KEPT. 5 FX-15b smoke (+P1 regression) + 47 regression green.
 - STATUS: FX-15b iter-2 Codex diff gate IN FLIGHT (bg brywr366j); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-15b verified, advance FX-06 (now unblocked); RC => address within 5-cap (iter 2 of 5).
+
+[2026-06-06 18:25:00]
+- ACTION: FX-15b (#1119) Codex diff-gate iter-2 APPROVE -> VERIFIED + closed. Killed gate orphan PID 46708.
+- RATIONALE: iter-2 = 0 P0/P1/P2 accept_remaining. Precision-corrected (pure-nav only) + seed-safe Step-3. §-1.1 evidence_pool re-audit: 0 false drops, both real conference papers kept.
+- SYNC: ledger FX-15b -> verified (12 verified total); current_pointer -> NEXT FX-06.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1119 (closed), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx15b_codex_diff_audit_iter2.txt = APPROVE. 5 FX-15b + 47 regression + §-1.1 evidence_pool (0 false drops).
+- STATUS: FX-15b DONE. Codex gate lock free. 12 ledger issues verified. Advancing to FX-06 (corpus-approval scores SAME population the report consumes; now unblocked by FX-15b). FX-06 is FAITHFULNESS-RELEVANT (approval gate = pre-generation abort, invariant #5) — ground carefully.
+- NEXT_STEP: FX-06 — gh issue create, grep approval/adequacy artifact-write ordering (corpus_approval_gate.py + run_honest_sweep_r3.py :2503/:2658/:2884-2903/:3012), smoke, fix (move approval+adequacy JSON write to post-agentic + invariant assert), §-1.1, codex gate.
