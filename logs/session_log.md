@@ -4520,3 +4520,12 @@
 - EVIDENCE/FINDINGS: 6 FX-15a smoke (incl deepener injection-label) + 39 regression (rerank/bug776/plan_sufficiency) green.
 - STATUS: FX-15a iter-2 Codex diff gate IN FLIGHT (bg basxx5d34); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-15a verified, advance FX-15b; RC => address within 5-cap (iter 2 of 5).
+
+[2026-06-06 16:50:00]
+- ACTION: FX-15a (#1118) Codex diff-gate iter-2 APPROVE -> VERIFIED + closed.
+- RATIONALE: iter-2 = 0 P0/P1/P2 accept_remaining. All seed lanes truthfully labeled (primary_trial_doi/agentic_seed/deepener_seed), each reserved + sentinel-eligible (no selection change).
+- SYNC: ledger FX-15a -> verified (11 verified total); current_pointer -> NEXT FX-15b.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1118 (closed), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx15a_codex_diff_audit_iter2.txt = APPROVE. 6 FX-15a + 39 regression + §-1.1 (41/41 mislabeled on held trace).
+- STATUS: FX-15a DONE. Codex gate lock free. Advancing to FX-15b (host-class junk filter + re-enable semantic prefetch filter on agentic lane; depends on 15a, now satisfied).
+- NEXT_STEP: FX-15b — gh issue create, grep agentic-merge path + prefetch_offtopic_filter + tier_classifier._detect_conference_abstract, smoke, fix (precision: no real article dropped), §-1.1, codex gate.
