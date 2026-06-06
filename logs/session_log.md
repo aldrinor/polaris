@@ -4568,3 +4568,13 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx15b_codex_diff_audit_iter2.txt = APPROVE. 5 FX-15b + 47 regression + §-1.1 evidence_pool (0 false drops).
 - STATUS: FX-15b DONE. Codex gate lock free. 12 ledger issues verified. Advancing to FX-06 (corpus-approval scores SAME population the report consumes; now unblocked by FX-15b). FX-06 is FAITHFULNESS-RELEVANT (approval gate = pre-generation abort, invariant #5) — ground carefully.
 - NEXT_STEP: FX-06 — gh issue create, grep approval/adequacy artifact-write ordering (corpus_approval_gate.py + run_honest_sweep_r3.py :2503/:2658/:2884-2903/:3012), smoke, fix (move approval+adequacy JSON write to post-agentic + invariant assert), §-1.1, codex gate.
+
+[2026-06-06 18:55:00]
+- ACTION: FX-06 (#1120) authored + committed (3d41b1bc) + Codex diff-gate iter-1 launched (bg b1vw0sxkv).
+- RATIONALE: Faithfulness-relevant gate-on-wrong-population bug. §-1.1 on REAL held artifacts: corpus_approval total_sources=145 (post-agentic junk-padded) vs corpus_adequacy=45 (pre-agentic). FX-15b removed the junk; FX-06 re-writes corpus_adequacy.json ONCE from the FINAL post-merge adequacy + fail-loud invariant adequacy.total_sources==dist.total_sources. Artifact-only: abort short-circuit (invariant #5, no generator tokens on unapproved corpus) untouched. Grounded the full approval/adequacy/agentic/abort flow before editing.
+- DOCS/RESEARCH: data-contract/quality-gate SOTA (Soda/Monte Carlo) per plan — a gate must run on the SAME dataset downstream consumes.
+- SYNC: ledger FX-06 -> codex_diff_iter1_inflight (commit 3d41b1bc).
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, tests/polaris_graph/test_fx06_approval_population_iready017.py, outputs/audits/I-ready-017/fx06_s11_audit.md + .codex/I-ready-017/fx06_*.
+- EVIDENCE/FINDINGS: §-1.1 held divergence 145 vs 45 confirmed; 2 FX-06 component smoke (invariant holds / divergence detected) + 425 regression green.
+- STATUS: FX-06 iter-1 Codex diff gate IN FLIGHT (bg b1vw0sxkv); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-06 verified, advance FX-18; RC => address within 5-cap. Codex asked re: hard-raise vs graceful-abort for the invariant.

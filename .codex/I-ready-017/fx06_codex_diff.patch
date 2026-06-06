@@ -1,0 +1,113 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index d749286e..c7a65123 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2983,6 +2983,31 @@ async def run_one_query(
+         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
+         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
+         _flush_retrieval_trace()
++
++        # FX-06 (#1120): the corpus-approval gate below scores the FINAL `dist` (post base + R-6
++        # expansion + deepener + agentic merges), but corpus_adequacy.json was last written PRE-merge
++        # (~2535 base / ~2698 expansion; the deepener + agentic merges reassign `dist`/`adequacy` in
++        # memory but never re-wrote the JSON). On the held drb_72 run that left approval=145 sources
++        # vs adequacy=45 — the gate scored a DIFFERENT population than adequacy + the report consume.
++        # Re-write corpus_adequacy.json ONCE here from the FINAL `adequacy` so adequacy + approval +
++        # the report all describe the SAME delivered corpus on EVERY exit path below (inadequate-abort,
++        # approval-denied, and success). Artifact-only: the abort decision still uses the in-memory
++        # `adequacy.decision`, so control flow / the pre-spend gate timing is unchanged.
++        (run_dir / "corpus_adequacy.json").write_text(
++            json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str) + "\n",
++            encoding="utf-8",
++        )
++        # FX-06 invariant (fail-loud): the approval gate (`report=dist`) and the adequacy artifact
++        # MUST score the SAME population. Both are `sum(tier_counts)`; they can only diverge if a
++        # future merge reassigns `dist` without recomputing `adequacy` from it — refuse to proceed
++        # rather than gate/approve on a population the report does not consume.
++        if adequacy.total_sources != dist.total_sources:
++            raise RuntimeError(
++                f"FX-06 invariant violated: corpus_adequacy.total_sources={adequacy.total_sources} "
++                f"!= corpus_approval dist.total_sources={dist.total_sources} — the approval gate "
++                f"would score a different population than the adequacy artifact + report consume."
++            )
++
+         # R-6 Gap-1: if adequacy still says ABORT after optional
+         # expansion, refuse to synthesize — emit a short "corpus
+         # inadequate" manifest and return status=abort_corpus_inadequate.
+diff --git a/tests/polaris_graph/test_fx06_approval_population_iready017.py b/tests/polaris_graph/test_fx06_approval_population_iready017.py
+new file mode 100644
+index 00000000..a685f31c
+--- /dev/null
++++ b/tests/polaris_graph/test_fx06_approval_population_iready017.py
+@@ -0,0 +1,71 @@
++"""FX-06 (I-ready-017 #1120): corpus-approval scores the SAME population as adequacy + the report.
++
++Bug (held drb_72): corpus_approval.json scored the FINAL post-merge dist (total_sources=145, padded
++with agentic junk) while corpus_adequacy.json was written PRE-merge (total_sources=45) — the gate
++scored a different population than adequacy + the report consumed. FX-06 re-writes corpus_adequacy.json
++from the FINAL dist and adds a fail-loud invariant `adequacy.total_sources == dist.total_sources`.
++
++These component tests prove the invariant the orchestrator relies on: an adequacy computed from a
++dist's tier_counts has total_sources == that dist's total_sources (so writing adequacy from the
++final dist makes the two artifacts agree); and that a pre-merge adequacy diverges from a post-merge
++dist (the bug the invariant catches). Offline, no network.
++"""
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++from src.polaris_graph.nodes.corpus_adequacy_gate import assess_corpus_adequacy
++from src.polaris_graph.nodes.corpus_approval_gate import compute_tier_distribution
++
++_PROTOCOL = {
++    "expected_tier_distribution": [
++        {"tier": "T1", "min_fraction": 0.10, "max_fraction": 0.90},
++        {"tier": "T4", "min_fraction": 0.0, "max_fraction": 0.60},
++    ]
++}
++# Held drb_72 corpus_adequacy tier_counts (sum = 45 = the report-consumed set).
++_HELD_45 = {"T1": 6, "T2": 3, "T4": 23, "T5": 2, "T6": 7, "UNKNOWN": 4}
++
++
++def _sources(tier_counts: dict[str, int]) -> list:
++    out: list = []
++    i = 0
++    for tier, n in tier_counts.items():
++        for _ in range(n):
++            out.append(SimpleNamespace(tier=tier, url=f"https://example.org/s{i}"))
++            i += 1
++    return out
++
++
++def test_fx06_invariant_holds_when_adequacy_from_same_dist():
++    """FX-06's guarantee: adequacy written from `dist.tier_counts` has total_sources == dist's."""
++    srcs = _sources(_HELD_45)
++    dist = compute_tier_distribution(srcs, _PROTOCOL)
++    adequacy = assess_corpus_adequacy(
++        tier_counts=dist.tier_counts,
++        evidence_row_count=len(srcs),
++        domain="workforce",
++        protocol=_PROTOCOL,
++    )
++    assert dist.total_sources == 45
++    assert adequacy.total_sources == dist.total_sources  # the invariant the orchestrator asserts
++
++
++def test_fx06_divergence_detected_pre_vs_post_merge():
++    """The bug: a PRE-merge adequacy (45) vs the POST-merge dist the approval scores (~145).
++    The FX-06 fail-loud invariant catches exactly this inequality."""
++    pre_dist = compute_tier_distribution(_sources(_HELD_45), _PROTOCOL)
++    pre_adequacy = assess_corpus_adequacy(
++        tier_counts=pre_dist.tier_counts,
++        evidence_row_count=45,
++        domain="workforce",
++        protocol=_PROTOCOL,
++    )
++    # Post-merge dist padded to ~145 (the held approval total_sources).
++    post_dist = compute_tier_distribution(
++        _sources({"T1": 54, "T4": 46, "UNKNOWN": 45}), _PROTOCOL
++    )
++    assert post_dist.total_sources == 145
++    # Pre-merge adequacy vs post-merge approval population diverge — the FX-06 invariant fails loud.
++    assert pre_adequacy.total_sources != post_dist.total_sources
++    assert (pre_adequacy.total_sources, post_dist.total_sources) == (45, 145)
