@@ -200,6 +200,37 @@ def _resp_content_len(resp: Any) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# FX-17 (#1126): Serper `num` is a PAGE size (provider max ~20); large result sets need the `page`
+# param (pagination). The old code silently floored `num` to 20 with no warning and never paginated.
+_SERPER_PAGE_MAX = 20
+
+
+def _serper_fetch_page(
+    query: str, per_page: int, page: int, headers: dict[str, str]
+) -> tuple[list[dict[str, Any]], bool, float, int, str]:
+    """FX-17 (#1126): fetch ONE Serper page. Returns (items, ok, latency_ms, resp_bytes, error).
+    Byte-identical to the legacy single call when page==1 (no `page` key in the payload)."""
+    payload: dict[str, Any] = {"q": query, "num": per_page}
+    if page > 1:
+        payload["page"] = page
+    _t0 = time.time()
+    try:
+        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
+            r = c.post(SERPER_ENDPOINT, json=payload, headers=headers)
+        _latency_ms = (time.time() - _t0) * 1000.0
+        if r.status_code != 200:
+            return [], False, _latency_ms, _resp_content_len(r), f"HTTP {r.status_code}"
+        organic = (r.json().get("organic", []) or [])
+        items = [
+            {"url": it.get("link", ""), "title": it.get("title", ""),
+             "snippet": it.get("snippet", ""), "source": "serper"}
+            for it in organic
+        ]
+        return items, True, _latency_ms, _resp_content_len(r), ""
+    except Exception as exc:
+        return [], False, (time.time() - _t0) * 1000.0, 0, str(exc)
+
+
 def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
@@ -214,51 +245,63 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
     except Exception:
         pass
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {"q": query, "num": max(1, min(num, 20))}
-    # I-meta-007b: wall-clock for the tool tracer (record-only).
-    _t0 = time.time()
-    _bytes_sent = len(str(payload))
-    try:
-        with httpx.Client(timeout=DEFAULT_HTTP_TIMEOUT) as c:
-            r = c.post(SERPER_ENDPOINT, json=payload, headers=headers)
-        _latency_ms = (time.time() - _t0) * 1000.0
-        if r.status_code != 200:
-            _trace_tool(
-                "serper", target=query, status="fail", latency_ms=_latency_ms,
-                bytes_sent=_bytes_sent,
-                bytes_received=_resp_content_len(r),
-                backend_used="serper_api_v1", error=f"HTTP {r.status_code}",
-            )
-            logger.warning(
-                "[live_retriever] Serper returned %s for %r",
-                r.status_code, query[:60],
-            )
-            _trace_query("serper", query, [])
-            return []
-        data = r.json()
-    except Exception as exc:
-        _trace_tool(
-            "serper", target=query, status="fail",
-            latency_ms=(time.time() - _t0) * 1000.0, bytes_sent=_bytes_sent,
-            backend_used="serper_api_v1", error=str(exc),
+    per_page = max(1, min(num, _SERPER_PAGE_MAX))
+    # FX-17 (#1126): make the silent clamp VISIBLE — the inert PG_SWEEP_MAX_SERPER=100 used to floor
+    # to 20 with no signal. Surface it loudly so the requested-vs-served gap stops lying.
+    _clamped = num > _SERPER_PAGE_MAX
+    if _clamped:
+        logger.warning(
+            "[live_retriever] Serper num=%d exceeds the page max %d — clamping per-page to %d and "
+            "paginating to the PG_SERPER_TOTAL_PER_QUERY budget.", num, _SERPER_PAGE_MAX, per_page,
         )
-        logger.warning("[live_retriever] Serper exception: %s", exc)
-        _trace_query("serper", query, [])
-        return []
-    organic = data.get("organic", []) or []
+    # FX-17 (#1126): total-URL budget across pages. DEFAULT = one page (per_page) -> byte-identical to
+    # the legacy single call; the benchmark slate raises PG_SERPER_TOTAL_PER_QUERY. Page count is
+    # bounded by PG_SERPER_MAX_PAGES (small) and early-stops when a page returns < per_page.
+    try:
+        _total = max(per_page, int(os.getenv("PG_SERPER_TOTAL_PER_QUERY", str(per_page))))
+    except ValueError:
+        _total = per_page
+    try:
+        _max_pages = max(1, int(os.getenv("PG_SERPER_MAX_PAGES", "3")))
+    except ValueError:
+        _max_pages = 3
+    _n_pages = min(_max_pages, -(-_total // per_page))  # ceil(total/per_page)
+
     out: list[dict[str, Any]] = []
-    for item in organic:
-        out.append({
-            "url": item.get("link", ""),
-            "title": item.get("title", ""),
-            "snippet": item.get("snippet", ""),
-            "source": "serper",
-        })
+    seen: set[str] = set()
+    _pages_fetched = 0
+    _last_latency = 0.0
+    _last_bytes = 0
+    _last_err = ""
+    for _page in range(1, _n_pages + 1):
+        items, ok, _last_latency, _last_bytes, _last_err = _serper_fetch_page(
+            query, per_page, _page, headers
+        )
+        if not ok:
+            _trace_tool(
+                "serper", target=query, status="fail", latency_ms=_last_latency,
+                bytes_sent=len(query), bytes_received=_last_bytes,
+                backend_used="serper_api_v1", error=_last_err, page=_page,
+            )
+            logger.warning("[live_retriever] Serper page %d failed for %r: %s",
+                           _page, query[:60], _last_err)
+            break  # fail-open: keep pages already accumulated; do not discard.
+        _pages_fetched += 1
+        _new = 0
+        for it in items:
+            u = it.get("url", "")
+            if u and u not in seen:
+                seen.add(u)
+                out.append(it)
+                _new += 1
+        if len(out) >= _total or len(items) < per_page:
+            break  # budget met, or the provider has no more results for this query.
     _trace_tool(
-        "serper", target=query, status="ok", latency_ms=_latency_ms,
-        bytes_sent=_bytes_sent,
-        bytes_received=_resp_content_len(r),
+        "serper", target=query, status="ok" if out or not _last_err else "fail",
+        latency_ms=_last_latency, bytes_sent=len(query), bytes_received=_last_bytes,
         backend_used="serper_api_v1", result_count=len(out),
+        pages_fetched=_pages_fetched, num_requested=num, per_page=per_page,
+        page_max=_SERPER_PAGE_MAX, clamped=_clamped, total_budget=_total,
     )
     _trace_query("serper", query, [o["url"] for o in out])
     return out
