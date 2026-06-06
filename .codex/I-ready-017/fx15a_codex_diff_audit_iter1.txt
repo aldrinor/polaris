@@ -1,0 +1,9 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Deepener seed URLs remain on the default source/query_origin (`primary_trial_doi` / `primary_trial_doi_seed`). Citation-snowball URLs are primary-trial-derived, but they are not direct primary-trial DOI seeds, so future deep_retrieval traces can still pollute `backend=='primary_trial_doi'` telemetry. Relabel them, e.g. `deepener_seed`, and add that label to both the reserved seed source set and sentinel origins to preserve behavior."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Relabel the citation-snowball deepener caller and preserve its reserved/undroppable + plan-sufficiency fallback behavior under the new seed label."

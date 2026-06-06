@@ -4511,3 +4511,12 @@
 - EVIDENCE/FINDINGS: 5 FX-15a smoke (incl stubbed-fetch injection-label proof) + 46 regression (rerank/bug776/trace/plan_sufficiency) green. §-1.1: 41/41 mislabeled rows on held trace.
 - STATUS: FX-15a Codex diff gate IN FLIGHT (bg bydn0slmq); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-15a verified, advance FX-15b; RC => address within 5-cap. Codex was asked whether the deepener lane should also be relabeled.
+
+[2026-06-06 16:35:00]
+- ACTION: FX-15a (#1118) iter-2 authored + committed (43bd46f4) + Codex diff-gate iter-2 launched (bg basxx5d34).
+- RATIONALE: Codex iter-1 RC, 1 P1 = the deepener question I raised — Codex ruled relabel it. Implemented deepener_seed across _SEED_SOURCE_LABELS + SENTINEL_ORIGINS + the deep_retrieval caller (same behavior-preserving pattern as agentic_seed). Telemetry-correctness only.
+- SYNC: ledger FX-15a -> codex_diff_iter2_inflight (commit 43bd46f4).
+- AFFECTED_FILES: live_retriever.py, plan_sufficiency_gate.py, run_honest_sweep_r3.py, test_fx15a_agentic_seed_label_iready017.py, outputs/audits/I-ready-017/fx15a_s11_audit.md + .codex/I-ready-017/fx15a_*iter2*.
+- EVIDENCE/FINDINGS: 6 FX-15a smoke (incl deepener injection-label) + 39 regression (rerank/bug776/plan_sufficiency) green.
+- STATUS: FX-15a iter-2 Codex diff gate IN FLIGHT (bg basxx5d34); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-15a verified, advance FX-15b; RC => address within 5-cap (iter 2 of 5).
