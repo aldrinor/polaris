@@ -2459,12 +2459,22 @@ def run_live_retrieval(
         # via the shared `seen_urls`. Candidates carry source="openalex_search"; default query_origin
         # to `q`. Flag-gated PG_OPENALEX_SEARCH (default on). Fail-open: a backend fault adds 0 hits.
         if os.getenv("PG_OPENALEX_SEARCH", "1") != "0":
+            _oa_t0 = time.time()
             try:
                 from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
                     openalex_search,
                 )
                 _oa_hits = openalex_search(q, limit=max_s2)
                 api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
+                # FX-20 (#1128): trace openalex as a first-class backend so the discovery_funnel reads
+                # its requested-vs-returned from the SAME tool_trace rows as serper/s2 (FX-18 wired the
+                # call but never traced it — a tracer-only funnel would silently OMIT openalex).
+                _trace_tool(
+                    "openalex_search", target=q, status="ok",
+                    latency_ms=(time.time() - _oa_t0) * 1000.0,
+                    backend_used="openalex_works_api",
+                    result_count=len(_oa_hits), num_requested=max_s2,
+                )
                 for cand in _oa_hits:
                     url = getattr(cand, "url", "")
                     if not url or url in seen_urls:
@@ -2474,6 +2484,12 @@ def run_live_retrieval(
                         cand.query_origin = q
                     candidates.append(cand)
             except Exception as exc:
+                _trace_tool(
+                    "openalex_search", target=q, status="fail",
+                    latency_ms=(time.time() - _oa_t0) * 1000.0,
+                    backend_used="openalex_works_api",
+                    error=str(exc), result_count=0, num_requested=max_s2,
+                )
                 logger.warning(
                     "[live_retriever] openalex_search failed for %r (fail-open): %s",
                     q[:60], exc,

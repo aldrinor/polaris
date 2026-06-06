@@ -245,6 +245,56 @@ class ToolTracer:
             },
         }
 
+    def discovery_funnel(self) -> dict[str, Any]:
+        """FX-20 (#1128): per-stage requested-vs-actual discovery counts.
+
+        Derived ONLY from the recorded :class:`ToolCall` rows (the SAME source as
+        :meth:`manifest`) so the funnel can never fabricate — §-1.1 requires these to EQUAL
+        the raw ``tool_trace.jsonl`` tallies. A count a backend does not record is reported
+        as ``None`` with a ``*_source`` marker, NOT defaulted to 0 (which would misrepresent
+        an unrecorded value as a real zero / a silent under-report).
+
+        Stages:
+        * ``serper`` / ``s2`` / ``openalex_search`` — each ``{calls, returned, returned_source,
+          requested, requested_source}`` (``requested`` is ``None`` for backends that do not
+          record ``num_requested``, e.g. s2).
+        * ``fetch_content`` — ``{attempted, succeeded, source}`` where attempted = row count and
+          succeeded = rows with ``status == ok`` (stub/fail are NOT successes).
+        """
+        with self._lock:
+            calls = list(self._calls)
+
+        def _sum_meta(rows: list[ToolCall], key: str) -> tuple[int, int]:
+            present = [
+                int(r.metadata[key])
+                for r in rows
+                if isinstance(r.metadata, dict)
+                and isinstance(r.metadata.get(key), (int, float))
+                and not isinstance(r.metadata.get(key), bool)
+            ]
+            return sum(present), len(present)
+
+        funnel: dict[str, Any] = {}
+        for tool in ("serper", "s2", "openalex_search"):
+            rows = [c for c in calls if c.tool_name == tool]
+            ret_sum, ret_n = _sum_meta(rows, "result_count")
+            req_sum, req_n = _sum_meta(rows, "num_requested")
+            funnel[tool] = {
+                "calls": len(rows),
+                "returned": ret_sum if ret_n else None,
+                "returned_source": "tool_trace.result_count" if ret_n else "unrecorded",
+                "requested": req_sum if req_n else None,
+                "requested_source": "tool_trace.num_requested" if req_n else "unrecorded",
+            }
+
+        fetch_rows = [c for c in calls if c.tool_name == "fetch_content"]
+        funnel["fetch_content"] = {
+            "attempted": len(fetch_rows),
+            "succeeded": sum(1 for c in fetch_rows if c.status == STATUS_OK),
+            "source": "tool_trace.status",
+        }
+        return funnel
+
 
 # ── process-global singleton ─────────────────────────────────────────────
 _global_tracer: Optional[ToolTracer] = None
@@ -305,7 +355,8 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
     if not tool_tracker_enabled():
         return manifest
     try:
-        tool_summary = get_tool_tracer().manifest()
+        _tracer = get_tool_tracer()
+        tool_summary = _tracer.manifest()
         try:
             (Path(run_dir) / "tool_summary.json").write_text(
                 json.dumps(tool_summary, indent=2, sort_keys=True) + "\n",
@@ -324,6 +375,10 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
             "tool_success_rate": (ok / total if total else 0.0),
             "summary_by_tool": tool_summary.get("summary_by_tool", {}),
         }
+        # FX-20 (#1128): per-stage requested-vs-actual discovery funnel, derived from the SAME
+        # recorded rows (no fabrication). Additive + only when the tracker is ON (this whole
+        # function is a no-op when OFF), so OFF-mode manifest.json stays byte-identical.
+        manifest["discovery_funnel"] = _tracer.discovery_funnel()
     except Exception as exc:  # noqa: BLE001 — telemetry must never abort the run
         logger.warning("attach_tool_utilization: skipped: %s", exc)
     return manifest
