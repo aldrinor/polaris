@@ -4654,3 +4654,12 @@
 - EVIDENCE/FINDINGS: §-1.1 held 2/145 corrupted; 4 FX-13 smoke + 13 live_retriever regression green.
 - STATUS: FX-13 iter-1 Codex diff gate IN FLIGHT (bg bd4azj3cy); awaiting verdict. 15 verified.
 - NEXT_STEP: on verdict — APPROVE => FX-13 verified, advance FX-17; RC => address within 5-cap.
+
+[2026-06-06 22:25:00]
+- ACTION: FX-13 (#1125) Codex diff-gate iter-1 APPROVE -> VERIFIED + closed.
+- RATIONALE: 0 P0/P1/P2. removeprefix fix verified across all 3 instances; §-1.1 confirmed 2/145 held-trace corruption.
+- SYNC: ledger FX-13 -> verified (16 verified); current_pointer -> NEXT FX-17.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1125 (closed), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx13_codex_diff_audit_iter1.txt = APPROVE.
+- STATUS: FX-13 DONE. 16 verified. Codex gate lock free; no codex procs. NEXT FX-17 (Serper pagination + visible clamp + variant-count knob; P2 CORE live_retriever.py).
+- NEXT_STEP: FX-17 — read plan section, gh issue create, grep Serper pagination/num, smoke, fix, §-1.1, codex gate.
