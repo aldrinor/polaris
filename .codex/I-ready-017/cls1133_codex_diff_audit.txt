@@ -1,0 +1,8 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/retrieval/tier_classifier.py:415: ec.europa.eu is broad, so non-Eurostat EC pages now get R2b_statistical_agency rather than R2d_regulatory_domain. Tier remains T3 because europa.eu already matched regulatory, so this is not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
