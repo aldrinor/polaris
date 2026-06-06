@@ -31,6 +31,7 @@ a full resolved URL and thus fails closed (P2 #4). The URL pair is ASYMMETRIC: e
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -351,13 +352,63 @@ def _claim_covers_entity(
     return True
 
 
+# FX-03 / I-ready-017 (#1107): the 4-role seam (Sentinel decomposition + Judge) joins each
+# EvidenceDocument.text as the SPAN the claim is checked against. Pre-FX-03 the WHOLE record text
+# was passed, so a claim could be graded VERIFIED on support living ANYWHERE in the document, not
+# in the cited [start:end] window (BUG-02: confirmed out-of-span false-accept, claim 06-004).
+_GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
+_GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
+_GATE_B_SPAN_WINDOW_DEFAULT = 400
+
+
+def _cited_window_text(full_text: str, token: Any) -> str:
+    """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
+
+    When ``PG_GATE_B_CITED_SPAN=1`` the evidence text handed to Sentinel/Judge is sliced to a
+    bounded window around the cited ``[start:end]`` range (±``PG_GATE_B_SPAN_WINDOW_BYTES``, default
+    400) — the SAME tolerance strict_verify's local-window rescue uses, so the two faithfulness
+    layers share ONE windowing policy. BOUNDED (not exact-slice) is deliberate and three-fold safer:
+    (1) it tolerates the 06-004-shape imprecise-but-real citation that strict_verify also tolerates;
+    (2) ``token.start/end`` index the RAW ``direct_quote`` while the record text here was
+    ``_row_text``-STRIPPED, so an exact slice would be offset-shifted by any leading whitespace —
+    a bounded window absorbs that small shift; (3) fail-SAFE — a degenerate/empty window falls back
+    to the whole text so the judge is never handed a blank span. Flag off (default) returns the whole
+    text unchanged (byte-identical), so production is opt-in per the no-silent-downgrade rule; the
+    re-run slate activates it.
+    """
+    if os.getenv(_GATE_B_CITED_SPAN_ENV, "0").strip() != "1":
+        return full_text
+    try:
+        start = int(getattr(token, "start"))
+        end = int(getattr(token, "end"))
+    except (TypeError, ValueError, AttributeError):
+        return full_text
+    if end <= start:
+        return full_text
+    try:
+        window = int(os.getenv(_GATE_B_SPAN_WINDOW_ENV, str(_GATE_B_SPAN_WINDOW_DEFAULT)))
+    except ValueError:
+        window = _GATE_B_SPAN_WINDOW_DEFAULT
+    window = max(0, window)
+    lo = max(0, start - window)
+    hi = min(len(full_text), end + window)
+    sliced = full_text[lo:hi].strip()
+    return sliced or full_text
+
+
 def _resolve_evidence(
-    evidence_ids: list[str], evidence_lookup: Mapping[str, Mapping[str, Any]]
+    tokens: list[Any], evidence_lookup: Mapping[str, Mapping[str, Any]]
 ) -> tuple[list[EvidenceDocument], list[Mapping[str, Any]]]:
-    """Resolve each evidence_id -> (EvidenceDocument, source record); fail closed."""
+    """Resolve each cited token -> (EvidenceDocument sliced to its cited window, source record).
+
+    FX-03 (#1107): one EvidenceDocument per TOKEN, carrying the bounded cited-window slice (see
+    ``_cited_window_text``) instead of the whole record text, so Sentinel/Judge see the SPAN the
+    decomposition prompt promises. Fail closed on an unknown id or empty record text.
+    """
     documents: list[EvidenceDocument] = []
     records: list[Mapping[str, Any]] = []
-    for evidence_id in evidence_ids:
+    for token in tokens:
+        evidence_id = token.evidence_id
         record = evidence_lookup.get(evidence_id)
         if record is None:
             raise ValueError(
@@ -370,7 +421,9 @@ def _resolve_evidence(
                 f"build_native_gate_b_inputs: evidence_id {evidence_id!r} has empty "
                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
             )
-        documents.append(EvidenceDocument(doc_id=evidence_id, text=text))
+        documents.append(
+            EvidenceDocument(doc_id=evidence_id, text=_cited_window_text(text, token))
+        )
         records.append(record)
     return documents, records
 
@@ -418,7 +471,11 @@ def build_native_gate_b_inputs(
             claim_id = f"{section_index:02d}-{sentence_index:03d}-{digest}"
 
             evidence_ids = [token.evidence_id for token in verification.tokens]
-            documents, records = _resolve_evidence(evidence_ids, evidence_lookup)
+            # FX-03 (#1107): pass the TOKENS (carrying start/end), not just the ids — _resolve_evidence
+            # slices each EvidenceDocument.text to the cited bounded window so the seam judges the
+            # claim against the cited SPAN, not the whole source doc (BUG-02 out-of-span false-accept).
+            # evidence_ids is retained above for the audit_map trail.
+            documents, records = _resolve_evidence(verification.tokens, evidence_lookup)
 
             covered_element_ids: list[str] = []
             covered_s0_categories: list[str] = []
