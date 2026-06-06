@@ -4587,3 +4587,13 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx06_codex_diff_audit_iter1.txt = APPROVE. 2 FX-06 component + 425 regression + §-1.1 held 145-vs-45.
 - STATUS: FX-06 DONE. Codex gate lock free; no codex procs. 13 ledger issues verified. Advancing to FX-18 (S2 short-keyword lane + wire OpenAlex; CORE live_retriever.py).
 - NEXT_STEP: FX-18 — gh issue create, grep live_retriever S2/OpenAlex lanes, smoke, fix (flag-gated, faithfulness-safe — discovery breadth only), §-1.1, codex gate.
+
+[2026-06-06 19:20:00]
+- ACTION: FX-18 (#1122) created + grounded; authoring deferred to next wake (new-backend wiring + S2 reshape, MED risk).
+- RATIONALE: FX-18 wires a NEW network backend (OpenAlex) into the search lane + reshapes the S2 query to short-keyword — MED risk ("must not over-generalize"), multi-component. Per campaign cadence (large/new-backend -> ground then author next wake with fresh context; same discipline that caught the FX-15b landmine), grounded the anchors + open questions now, author next wake. Faithfulness-SAFE (adds discovery candidates; all pass the same fetch/tier/strict_verify/4-role gates).
+- DOCS/RESEARCH: OpenAlex /works?search handles NL better than S2 keyword bulk (IntuitionLabs, arXiv 2401.16359) — send short keyword to S2, NL to OpenAlex, union+dedup.
+- SYNC: ledger FX-18 -> grounded (#1122); current_pointer updated.
+- AFFECTED_FILES: .codex/I-ready-017/fx18_grounding_notes.md; state/ready017_fix_audit.json; logs/session_log.md; GH #1122 (created).
+- EVIDENCE/FINDINGS: anchors verified — per-query loop live_retriever.py:2358; S2 :2376; openalex_search domain_backends.py:466 (SearchCandidate, fail-open); seen_urls :2327. Open: keyword-distillation source + Q8 ADD-vs-REPLACE.
+- STATUS: Session progress: FX-11, FX-15a, FX-15b, FX-06 all VERIFIED+closed this session; FX-18 GROUNDED. 13 ledger issues verified. Codex gate lock free; no codex procs.
+- NEXT_STEP: next wake — author FX-18 per .codex/I-ready-017/fx18_grounding_notes.md (S2 keyword distill + wire openalex_search + flag-gate + tag query_origin), smoke (mock httpx, dedup, keyword<N words), §-1.1 on tool_trace, ONE codex gate.
