@@ -2475,6 +2475,8 @@ def run_live_retrieval(
                     backend_used="openalex_works_api",
                     result_count=len(_oa_hits), num_requested=max_s2,
                 )
+                # FX-18b (#1123): mirror serper/s2 -> emit an openalex retrieval_trace row so RERUN §-1.1 can verify it fired.
+                _trace_query("openalex_search", q, [getattr(c, "url", "") for c in _oa_hits])
                 for cand in _oa_hits:
                     url = getattr(cand, "url", "")
                     if not url or url in seen_urls:
