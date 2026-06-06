@@ -91,6 +91,7 @@ def compute_evaluator_gate(
     judge_result=None,
     adequacy=None,
     completeness=None,
+    judge_skipped: bool = False,
 ) -> EvaluatorGateResult:
     """Compute release-gating decision from evaluator outputs.
 
@@ -152,7 +153,13 @@ def compute_evaluator_gate(
     # ── 2. Judge verdicts ──
     judge_parse_ok = True
     judge_revision_axes: list[str] = []
-    if judge_result is None:
+    if judge_result is None and judge_skipped:
+        # FX-12 (#1130): the legacy judge was INTENTIONALLY SKIPPED because the 4-role seam (D8) is the
+        # binding gate — this is NOT a parse failure. Emit the distinct audit-trail code and keep
+        # judge_parse_ok=True so the #1055 fail-closed (which exists for a CRASHED judge) does not
+        # withhold release on a skip. The seam's D8 decision is the real gate downstream.
+        reasons.append("judge_skipped_d8_binding")
+    elif judge_result is None:
         judge_parse_ok = False
         reasons.append("judge_parse_failed")
     elif not getattr(judge_result, "parse_ok", False):

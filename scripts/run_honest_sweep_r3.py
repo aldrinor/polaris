@@ -5209,6 +5209,10 @@ async def run_one_query(
             judge_result=jr if (jr and jr.parse_ok) else None,
             adequacy=adequacy,
             completeness=completeness,
+            # FX-12 (#1130): when the 4-role seam is binding the legacy judge is SKIPPED (jr stays None);
+            # tell the gate it's a skip (not a crash) so it emits judge_skipped_d8_binding instead of
+            # judge_parse_failed + the #1055 fail-closed. Byte-identical when _seam_will_run is False.
+            judge_skipped=_seam_will_run,
         )
         _log(f"[eval_gate]   class={eval_gate.gate_class} "
              f"release_allowed={eval_gate.release_allowed} "
