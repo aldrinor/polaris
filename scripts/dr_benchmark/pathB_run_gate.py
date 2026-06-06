@@ -523,6 +523,97 @@ def real_retrieval_prober(backend: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# I-ready-017 CANARY-01 (#1108): behavioral pre-spend canary.
+# The drb_72 held run's preflight checked CONFIG + the 4 VERIFIER slugs but NOT the
+# searcher/generator generate_structured call shape (the FX-01-keystone 404 class that silently
+# killed agentic discovery) nor a real 1-query search. A dead route was SWALLOWED -> a "green" run on
+# dead discovery (~7 sources from "1000 URLs"). This canary tests BEHAVIOR — real call shapes, every
+# probed component ALIVE — and FAILS CLOSED before any full-run spend. chromium is intentionally NOT
+# probed: the benchmark fetch path is httpx (live_retriever), not a headless browser; chromium
+# readiness is FX-16 (VM-side).
+# ---------------------------------------------------------------------------
+_BEHAVIORAL_CANARY_ENV = "PG_BEHAVIORAL_CANARY"
+
+
+def _default_structured_output_probe() -> bool:
+    """REAL generate_structured call on the default generator/searcher slug (OPENROUTER_DEFAULT_MODEL —
+    the deepseek reasoning-first model whose structured-output 404 was the FX-01 keystone). Returns
+    True iff a schema object parses; raises GateError on the NoEndpointError/404 class. Tiny schema +
+    budget keep it cheap; the 404 failure path returns immediately (before any generation)."""
+    import asyncio
+
+    from pydantic import BaseModel
+
+    from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
+
+    class _CanaryProbe(BaseModel):
+        ok: bool
+
+    async def _run() -> bool:
+        client = OpenRouterClient()  # OPENROUTER_DEFAULT_MODEL = the searcher/generator slug
+        try:
+            result = await client.generate_structured(
+                prompt='Reply with JSON only: {"ok": true}.',
+                schema=_CanaryProbe,
+                max_tokens=128,
+            )
+            return result is not None
+        finally:
+            await client.close()
+
+    try:
+        return asyncio.run(_run())
+    except NoEndpointError as exc:
+        raise GateError(
+            "behavioral canary: structured-output probe got NoEndpointError on the searcher/generator "
+            f"slug — the FX-01-keystone 404 class that silently kills discovery. Aborting BEFORE spend. "
+            f"({exc})"
+        )
+
+
+def _default_live_search_probe() -> int:
+    """REAL primary-backend search call shape (the function the pipeline actually uses); returns the
+    live result count. >0 confirms discovery produces sources (the drb_72 collapse returned ~7)."""
+    from src.polaris_graph.retrieval.live_retriever import _serper_search
+
+    return len(_serper_search("metformin efficacy in type 2 diabetes", num=3))
+
+
+def behavioral_canary(
+    *,
+    structured_output_probe=_default_structured_output_probe,
+    live_search_probe=_default_live_search_probe,
+) -> None:
+    """Pre-spend BEHAVIORAL canary (CANARY-01, #1108). FAIL CLOSED (GateError) unless the REAL call
+    shapes the full run depends on are ALIVE — NOT a config-flag check. Prints BEHAVIORAL_CANARY_OK on
+    success. Gated by PG_BEHAVIORAL_CANARY (slate-activated for the run); a no-op when off.
+
+    Probes (the gap the drb_72 'green run on dead discovery' preflight missed):
+      1. structured-output on the searcher/generator slug — the FX-01-keystone generate_structured 404
+         class (the old preflight checked only the 4 VERIFIER slugs).
+      2. a real 1-query primary-backend search returning >0 live results — catches the silent
+         discovery-collapse.
+
+    The probes are injectable so the canary LOGIC is unit-tested offline (faked dead/alive) without
+    network; the LIVE invocation (real probes) runs pre-spend on the real Gate-B run.
+    """
+    if os.getenv(_BEHAVIORAL_CANARY_ENV, "0").strip().lower() not in ("1", "true"):
+        return  # opt-in; off = no-op (byte-unchanged behavior)
+    if not structured_output_probe():
+        raise GateError(
+            "behavioral canary: structured-output probe returned no parsed object on the "
+            "searcher/generator slug — the structured-output path is degraded. Aborting BEFORE spend."
+        )
+    n_sources = live_search_probe()
+    if n_sources <= 0:
+        raise GateError(
+            "behavioral canary: 1-query primary-backend search returned 0 live sources — discovery is "
+            "degraded (the drb_72 silent-collapse: ~7 sources from '1000 URLs'). Aborting BEFORE spend."
+        )
+    print("BEHAVIORAL_CANARY_OK", flush=True)
+
+
 @dataclass
 class LLMCall:
     call_id: str

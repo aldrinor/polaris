@@ -484,6 +484,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # strict_verify's 400-byte local-window tolerance (ONE shared policy).
     "PG_GATE_B_CITED_SPAN": "1",
     "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
+    # I-ready-017 CANARY-01 (#1107/#1108): the BEHAVIORAL pre-spend canary MUST run on the real
+    # Gate-B run — real call shapes (searcher/generator structured-output + 1-query live search) must
+    # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
+    # drb_72 failure). Force-on + required below; the canary itself runs only on the live path.
+    "PG_BEHAVIORAL_CANARY": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -517,6 +522,9 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
     # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
     "PG_GATE_B_CITED_SPAN",
+    # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
+    # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
+    "PG_BEHAVIORAL_CANARY",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -547,6 +555,9 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
     "PG_GATE_B_CITED_SPAN",
+    # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+    # survive the slate and let a dead-discovery run go green.
+    "PG_BEHAVIORAL_CANARY",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -847,6 +858,12 @@ async def run_gate_b_query(
         # cannot resolve — openrouter: a pinned slug missing from the catalog; self_host: a
         # missing PG_<ROLE>_BASE_URL; either: a 4-role family collision.
         preflight_four_role_transport()
+        # I-ready-017 CANARY-01 (#1108): BEHAVIORAL pre-spend canary — real call shapes (structured
+        # output on the searcher/generator slug = the FX-01-keystone 404 class + a 1-query live search
+        # returning >0 sources) must be ALIVE, or FAIL CLOSED before any sweep spend. Live-path only
+        # (transport injected = offline test, no real calls); gated by PG_BEHAVIORAL_CANARY (slate).
+        from scripts.dr_benchmark.pathB_run_gate import behavioral_canary
+        behavioral_canary()
         active_transport = build_gate_b_transport()
         # P2 (I-meta-007d): record the machine-readable stage marker so a future gate/manifest
         # reader can tell this benchmark OpenRouter run apart from the sovereign self-host path.
