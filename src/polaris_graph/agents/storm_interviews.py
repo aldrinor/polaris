@@ -735,6 +735,8 @@ async def _generate_question(
             )
             return result
 
+    except NoEndpointError:
+        raise  # I-ready-019 FL-03 (#1103): structural discovery 404 must fail loud, not degrade.
     except Exception as exc:
         logger.warning(
             "[STORM] Question generation failed for %s round %d: %s",
@@ -828,6 +830,8 @@ async def _synthesize_answer(
             )
             return result
 
+    except NoEndpointError:
+        raise  # I-ready-019 FL-03 (#1103): structural discovery 404 must fail loud, not degrade.
     except Exception as exc:
         logger.warning(
             "[STORM] Answer synthesis failed for question '%s': %s",
@@ -1124,6 +1128,8 @@ async def _generate_outline_from_conversations(
                 )
             return [s.model_dump() for s in result.sections]
 
+    except NoEndpointError:
+        raise  # I-ready-019 FL-03 (#1103): structural discovery 404 must fail loud, not fallback.
     except Exception as exc:
         logger.warning(
             "[STORM] Phase 3: Outline generation failed: %s — using fallback",
@@ -1360,6 +1366,12 @@ async def run_storm_interviews(
                         persona_index=persona_idx, failure="timeout",
                         timeout_seconds=interview_timeout)
                 return persona_idx, None, [], persona.perspective
+            except NoEndpointError:
+                # I-ready-019 FL-03 (#1103): a STRUCTURAL discovery 404 inside an interview must NOT
+                # be swallowed into a degraded (empty) interview — propagate so the run fails loud
+                # (LAW II). It surfaces as a gather() result element (return_exceptions=True) and is
+                # re-raised by the post-gather scan below.
+                raise
             except Exception as exc:
                 logger.warning(
                     "[STORM] Interview failed for %s (%s): %s — skipping",
@@ -1385,6 +1397,11 @@ async def run_storm_interviews(
 
     # Collect results in original order
     for result in interview_results_raw:
+        if isinstance(result, NoEndpointError):
+            # I-ready-019 FL-03 (#1103): gather(return_exceptions=True) captured a STRUCTURAL discovery
+            # 404 as a result element — re-raise so the run fails loud rather than silently shipping a
+            # dead-discovery STORM (LAW II). Non-NoEndpointError task failures still degrade below.
+            raise result
         if isinstance(result, Exception):
             logger.warning(
                 "[STORM] Interview task failed: %s",
