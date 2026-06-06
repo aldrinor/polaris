@@ -476,6 +476,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_USE_FINDING_DEDUP": "1",
     "PG_CAPPED_FINDING_DEDUP": "1",
     "PG_RELEVANCE_FLOOR": "0.30",
+    # I-ready-017 FX-03 (#1107): the 4-role seam MUST judge each claim against the cited [start:end]
+    # BOUNDED window, not the whole source doc (BUG-02 confirmed out-of-span false-accept, claim
+    # 06-004). OFF feeds whole-record evidence to Sentinel/Judge so a claim can be VERIFIED on support
+    # living ANYWHERE in the doc — a silent faithfulness downgrade on the AUTHORITATIVE release gate.
+    # Force-on + required below so the paid run cannot fall back to whole-doc. Window matches
+    # strict_verify's 400-byte local-window tolerance (ONE shared policy).
+    "PG_GATE_B_CITED_SPAN": "1",
+    "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -506,6 +514,9 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_USE_SAFETY_REFUSAL",
     "PG_SWEEP_NLI_CONFLICT",
     "PG_SWEEP_TABLE_CELL_VERIFY",
+    # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
+    # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
+    "PG_GATE_B_CITED_SPAN",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -533,6 +544,9 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_USE_FINDING_DEDUP",
     "PG_CAPPED_FINDING_DEDUP",
     "PG_RELEVANCE_FLOOR",
+    # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+    # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+    "PG_GATE_B_CITED_SPAN",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
