@@ -1,0 +1,56 @@
+commit 34329ece39390f68c03d33d6cce06e9f273e3919
+Author: msn <msn@polaris.dev>
+Date:   Sat Jun 6 00:01:43 2026 -0700
+
+    I-ready-018 (#1100 keystone): generate_structured 404 on reasoning-first deepseek
+    
+    The drb_72 forensic run (coverage held at 0.286) traced to ONE keystone defect:
+    generate_structured()'s skip-response_format gate (openrouter_client.py:2598) checked
+    _ALWAYS_REASON_MODELS (GLM-only). deepseek-v4-pro is reasoning-first (in
+    _REASONING_FIRST_MODELS, forced a reasoning block at _call() line ~1474) but absent from
+    the GLM set -> the gate attached response_format=json_schema strict:true WHILE _call()
+    forced reasoning -> with the generator provider pin (allow_fallbacks:false +
+    require_parameters:true) OpenRouter returned 404 'No endpoints found', killing STORM
+    persona-gen and every agentic-searcher round-analysis (discovery 100% dead from LLM call #1,
+    while the SAME slug served 31 successful generate() calls).
+    
+    Fix: align the gate to _REASONING_FIRST_MODELS so deepseek-v4-pro/-v4-flash skip strict
+    schema and use the model-agnostic prompt-based-JSON / reasoning-extraction recovery (~2650).
+    
+    Evidence:
+    - offline: tests/.../test_generate_structured_reasoning_first_404_iready018.py (4 passed) —
+      reasoning-first skips response_format; non-reasoning-first still gets strict schema (narrow).
+    - live: .codex/I-ready-018/live_smoke.py -> KEYSTONE_SMOKE_OK: Part A reproduces the 404 on
+      the OLD body with the generator's exact provider pin; Part B parses the REAL discovery
+      schemas (AgenticRoundAnalysis, StormPersonaBatch) on deepseek-v4-pro.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 26bed2ae..5d016c92 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -2593,9 +2593,22 @@ class OpenRouterClient:
+         # The fix makes generate_structured aware that these models always reason,
+         # so it skips response_format and uses prompt-based JSON extraction (which
+         # works because the prompt's json_hint instructs JSON-only output).
++        #
++        # I-ready-018 (#1100 keystone): the gate originally checked _ALWAYS_REASON_MODELS
++        # (GLM-only). But _call()'s REQUEST-side switch (line ~1474) forces a reasoning block
++        # for the WIDER _REASONING_FIRST_MODELS set, which also includes the reasoning-first
++        # deepseek default (deepseek-v4-pro / -v4-flash). For those models _effective_reasoning
++        # was False here, so generate_structured attached response_format=json_schema strict:true
++        # WHILE _call() forced reasoning -> with provider require_parameters:true + the generator
++        # provider pin, OpenRouter found no endpoint serving both and returned 404 "No endpoints
++        # found", killing STORM persona-gen and every agentic-searcher round-analysis (drb_72
++        # forensic: discovery 100% dead from LLM call #1, while the SAME slug served 31 successful
++        # generate() calls). Aligning this gate to _REASONING_FIRST_MODELS routes deepseek down the
++        # same prompt-based-JSON / reasoning-extraction path GLM uses (the recovery at ~2650 is
++        # model-agnostic), so the structured-output 404 cannot recur.
+         response_format = None
+         strict_schema_enabled = os.getenv("PG_STRICT_JSON_SCHEMA", "1") == "1"
+-        _effective_reasoning = reasoning_enabled or (self.model in _ALWAYS_REASON_MODELS)
++        _effective_reasoning = reasoning_enabled or (self.model in _REASONING_FIRST_MODELS)
+         if not _effective_reasoning and strict_schema_enabled:
+             try:
+                 json_schema = schema.model_json_schema()

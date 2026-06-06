@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Recovery gap: if the first DeepSeek generate_structured parse fails and the retry returns valid JSON only in reasoning while reasoning_enabled=false, the retry path does not extract reasoning JSON and raises ValidationError. This is fail-loud, not a 404 regression."
+  - "Evidence gap: live_smoke.py only checks isinstance(parsed, schema); permissive defaulted schemas such as AgenticRoundAnalysis could parse an empty object while producing zero follow-up queries. This belongs in the separate behavioral canary, not this one-line routing fix."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
