@@ -4597,3 +4597,13 @@
 - EVIDENCE/FINDINGS: anchors verified — per-query loop live_retriever.py:2358; S2 :2376; openalex_search domain_backends.py:466 (SearchCandidate, fail-open); seen_urls :2327. Open: keyword-distillation source + Q8 ADD-vs-REPLACE.
 - STATUS: Session progress: FX-11, FX-15a, FX-15b, FX-06 all VERIFIED+closed this session; FX-18 GROUNDED. 13 ledger issues verified. Codex gate lock free; no codex procs.
 - NEXT_STEP: next wake — author FX-18 per .codex/I-ready-017/fx18_grounding_notes.md (S2 keyword distill + wire openalex_search + flag-gate + tag query_origin), smoke (mock httpx, dedup, keyword<N words), §-1.1 on tool_trace, ONE codex gate.
+
+[2026-06-06 19:55:00]
+- ACTION: FX-18 (#1122) authored + committed (a36fdecf) + Codex diff-gate iter-1 launched (bg bnokn49k0).
+- RATIONALE: §-1.1 held retrieval_trace proved S2 starvation ([0,0,0,0,4] across 5 NL queries) + OpenAlex unwired. Fix = distill_keywords for S2 (short keyword phrase) + wire openalex_search (NL-friendly, fail-open) as a parallel academic backend, union+dedup. Discovery-breadth only; all new sources pass the same fetch/tier/strict_verify/4-role gates; both flag-gated + reversible.
+- DOCS/RESEARCH: OpenAlex /works?search > S2 keyword bulk for NL (IntuitionLabs, arXiv 2401.16359).
+- SYNC: ledger FX-18 -> codex_diff_iter1_inflight (commit a36fdecf).
+- AFFECTED_FILES: src/polaris_graph/retrieval/query_decomposer.py (+distill_keywords), live_retriever.py, tests/polaris_graph/test_fx18_s2_keyword_openalex_iready017.py, outputs/audits/I-ready-017/fx18_s11_audit.md + .codex/I-ready-017/fx18_*.
+- EVIDENCE/FINDINGS: §-1.1 held S2 [0,0,0,0,4] + openalex absent; 3 FX-18 smoke (distill + integration merge/dedup) + 68 regression green.
+- STATUS: FX-18 iter-1 Codex diff gate IN FLIGHT (bg bnokn49k0); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-18 verified, advance FL-05; RC => address within 5-cap. Codex asked re: Q8 ADD-vs-REPLACE + distillation approach.
