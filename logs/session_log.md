@@ -4616,3 +4616,13 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx18_codex_diff_audit_iter1.txt = APPROVE. 3 FX-18 + 68 regression + §-1.1 held S2 [0,0,0,0,4].
 - STATUS: FX-18 DONE. Codex gate lock free; no codex procs. 14 verified. Advancing to FL-05 (run-health gate: force-enabled-but-not-fired -> abort_discovery_degraded; CORE run_honest_sweep_r3.py). Aligns with no-silent-downgrade + fail-loud theme.
 - NEXT_STEP: FL-05 — gh issue create, grep feature-telemetry force-on/fired flags + abort statuses, smoke, fix (fail-loud abort if a force-enabled feature did not fire), §-1.1, codex gate.
+
+[2026-06-06 20:55:00]
+- ACTION: FL-05 (#1124) authored + committed (77de0e6e) + Codex diff-gate iter-1 launched (bg b679sdmh7).
+- RATIONALE: Fail-loud no-silent-downgrade backstop. §-1.1 held manifest: storm force-enabled + attempted_empty + fired=False + no degraded field/gate. Pure compute_run_health_gate + flag-gated abort (default off=byte-identical) + abort_discovery_degraded registered across 4 sites (UNIFIED_STATUS_VALUES, _SUMMARY_TO_UNIFIED, regression_lab, manifest-contract taxonomy guard). Pairs with CANARY-01 (pre-spend); FL-05 = post-run backstop.
+- DOCS/RESEARCH: observability-as-gate (laikatest, ilovedevops) — degradation must be VISIBLE + GATING.
+- SYNC: ledger FL-05 -> codex_diff_iter1_inflight (commit 77de0e6e).
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, src/polaris_graph/audit_ir/regression_lab.py, tests/polaris_graph/test_manifest_contract.py (taxonomy guard), tests/polaris_graph/test_fl05_run_health_gate_iready017.py, outputs/audits/I-ready-017/fl05_s11_audit.md + .codex/I-ready-017/fl05_*.
+- EVIDENCE/FINDINGS: §-1.1 held storm attempted_empty; 7 FL-05 smoke + 31 status-registry/manifest-contract/m207 green.
+- STATUS: FL-05 iter-1 Codex diff gate IN FLIGHT (bg b679sdmh7); awaiting verdict. 14 verified; FL-05 in flight.
+- NEXT_STEP: on verdict — APPROVE => FL-05 verified, advance PHASE-3/4 (FX-17/19/20/14/12/13); RC => address within 5-cap.
