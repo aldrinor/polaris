@@ -4385,3 +4385,52 @@
 - EVIDENCE/FINDINGS: mirror_adapter.py:337-378 confirms grounding-before-pass2 ordering + content-hash binding
 - STATUS: FX-08 grounded; PART A (tolerant parse mirror_adapter:210-294) + PART B (temp/seed openrouter_role_transport:485-528 + dedup sweep_integration) + NEGATIVE-PROOF test pending. Context saturated -> author next wake with headroom.
 - NEXT_STEP: author FX-08 PART A + tests + NEGATIVE-PROOF, then PART B, then ONE Codex gate
+
+[2026-06-06 09:30:00]
+- ACTION: FX-08 (#1112) PART A authored + iter-1 Codex gate launched (bg b230cp58r); PART B -> FX-08b #1113
+- RATIONALE: Tolerant pass-2 recovery for grounded claims false-DROPped on format. Safety: grounding-before-pass2 verified; faithfulness-hardened beyond plan (echo/binding-only still fail closed). 437 roles tests + §-1.1 documented-body replay.
+- SYNC: ledger FX-08 -> PART A iter-1 inflight @ 04182190; FX-08b #1113 created+followup; #1112 commented; commit b6248956 pushed
+- AFFECTED_FILES: mirror_adapter.py, test_mirror_adapter.py, fx08_s11_audit.md, fx08_grounding_notes.md, ready017_fix_audit.json
+- EVIDENCE/FINDINGS: 437 roles tests pass; §-1.1 replay 00-028->'0' 00-078->serialized {}/echo->fail-closed; diff 125 lines
+- STATUS: PART A gate in flight
+- NEXT_STEP: process FX-08 PART A verdict; then FX-08b or next ready issue
+
+[2026-06-06 09:50:00]
+- ACTION: FX-08 (#1112) PART A Codex iter-1 APPROVE -> VERIFIED + closed; PART B -> FX-08b #1113
+- RATIONALE: 0 P0/P1/P2 clean. Tolerant pass-2 recovery faithfulness-safe (grounding-before-pass2; echo-only fails closed).
+- SYNC: ledger FX-08 -> verified; #1112 closed; #1100 + #1113 updated; commit c0d71881 pushed
+- EVIDENCE/FINDINGS: APPROVE; 437 roles tests; §-1.1 real-body replay PASS
+- STATUS: Verified this session: FX-01/02/03/CANARY-01 (rerun unblocked) + FX-05 + FX-07 leg1 + FX-08 PART A. Follow-ups: FX-07b #1111, FX-08b #1113, FX-05-docdrift.
+- NEXT_STEP: FX-09 (judge_error_rate denominator = actual judge calls, CORE run_honest_sweep_r3) — read plan, scope, GitHub issue
+
+[2026-06-06 10:25:00]
+- ACTION: FX-09 (#1114) authored + iter-1 Codex gate launched (bg bgkuzvw6f)
+- RATIONALE: judge_error_rate denominator un-diluted (actual judge calls via telemetry delta). Strengthens #1071 abort_verifier_degraded. Pure helper for testability; fail-functional fallback; back-compat alias.
+- SYNC: ledger FX-09 -> iter-1 inflight @ 1df45895; #1114 commented; pushed
+- EVIDENCE/FINDINGS: 6 FX-09 + 21 regression tests pass; §-1.1 real-manifest worst-case 30/702 ships vs 30/245 aborts; diff 52+/6-
+- STATUS: FX-09 gate in flight
+- NEXT_STEP: process FX-09 verdict; then next ready issue (FX-15a/FX-10/FL-05 etc.)
+
+[2026-06-06 11:05:00]
+- ACTION: FX-09 (#1114) iter-1 RC processed -> iter-2 fix + gate launched (bg b05ibur4t)
+- RATIONALE: Codex iter-1 P1 (valid): v6 --threads 2 shared global _JUDGE_TELEMETRY -> snapshot/delta cross-contaminates. Fixed: contextvar per-run isolation (begin_run_judge_telemetry). P2 abort msg uses judge_calls.
+- SYNC: ledger FX-09 -> iter-2 inflight @ a7f6cc05; #1114 commented; pushed
+- EVIDENCE/FINDINGS: 7 FX-09 (incl thread-isolation killer test) + 28 regression pass; diff 301 lines
+- STATUS: iter-2 gate in flight
+- NEXT_STEP: process FX-09 iter-2 verdict
+
+[2026-06-06 11:25:00]
+- ACTION: FX-09 (#1114) iter-2 Codex APPROVE -> VERIFIED + closed
+- RATIONALE: 0 P0/P1/P2. Per-run contextvar-isolated judge telemetry (concurrency-safe). Un-dilutes #1071 abort_verifier_degraded.
+- SYNC: ledger FX-09 -> verified; #1114 closed; #1100 updated; commit 61856dfd pushed
+- EVIDENCE/FINDINGS: APPROVE; 7 FX-09 (incl thread-isolation) + 28 regression
+- STATUS: Verified this session: FX-01/02/03/CANARY-01 (rerun unblocked) + FX-05 + FX-07leg1 + FX-08partA + FX-09. Follow-ups FX-07b#1111 FX-08b#1113 FX-05-docdrift.
+- NEXT_STEP: FX-10 (completeness NOT_APPLICABLE 3VL state, P2 INDEP) — read plan, scope, GitHub issue
+
+[2026-06-06 11:35:00]
+- ACTION: FX-10 (#1115) created + grounded (completeness NOT_APPLICABLE 3VL state)
+- RATIONALE: covered_fraction returns 1.0 when total_applicable==0 (vacuous-true). Add completeness_state property; keep numeric (evaluator_gate:186 None<0.5 TypeError); thread to completeness.json+manifest; evaluator_gate advisory-skip; ON-mode notes. completeness_checker.py at src/polaris_graph/nodes/. Multi-site -> author next (compacted) wake.
+- SYNC: ledger FX-10 -> grounded @ #1115; grounding notes persisted
+- AFFECTED_FILES: .codex/I-ready-017/fx10_grounding_notes.md, state/ready017_fix_audit.json
+- STATUS: FX-10 grounded; author next wake. Session verified: FX-01/02/03/CANARY-01 + FX-05 + FX-07leg1 + FX-08partA + FX-09 (8 issues). Rerun unblocked pending operator Q4.
+- NEXT_STEP: author FX-10 (completeness_state property + serialization + evaluator_gate guard + tests + §-1.1 + gate)
