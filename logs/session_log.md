@@ -4663,3 +4663,12 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx13_codex_diff_audit_iter1.txt = APPROVE.
 - STATUS: FX-13 DONE. 16 verified. Codex gate lock free; no codex procs. NEXT FX-17 (Serper pagination + visible clamp + variant-count knob; P2 CORE live_retriever.py).
 - NEXT_STEP: FX-17 — read plan section, gh issue create, grep Serper pagination/num, smoke, fix, §-1.1, codex gate.
+
+[2026-06-06 22:45:00]
+- ACTION: FX-17 (#1126) authored + committed (21f387f3) + Codex diff-gate iter-1 launched (bg bckh9d16d).
+- RATIONALE: §-1.1 held trace serper [10,10,10,10,10] (silent floor + no pagination). Fix = visible clamp WARNING + telemetry + _serper_fetch_page helper + page-loop to PG_SERPER_TOTAL_PER_QUERY (default=1 page byte-identical), bounded by PG_SERPER_MAX_PAGES(3) + early-stop + dedup. Discovery-breadth; all new URLs pass the same gates.
+- SYNC: ledger FX-17 -> codex_diff_iter1_inflight (commit 21f387f3).
+- AFFECTED_FILES: live_retriever.py, tests/polaris_graph/test_fx17_serper_pagination_iready017.py, outputs/audits/I-ready-017/fx17_s11_audit.md + .codex/I-ready-017/fx17_*.
+- EVIDENCE/FINDINGS: §-1.1 held serper [10,10,10,10,10]; 5 FX-17 smoke (default 1 page / clamp warning / paginate+dedup / early-stop / max-pages cap) + 15 live_retriever regression green.
+- STATUS: FX-17 iter-1 Codex diff gate IN FLIGHT (bg bckh9d16d); awaiting verdict. 16 verified.
+- NEXT_STEP: on verdict — APPROVE => FX-17 verified, advance FX-19; RC => address within 5-cap.
