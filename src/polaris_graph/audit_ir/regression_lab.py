@@ -610,6 +610,9 @@ _STATUS_TIERS: dict[str, int] = {
     # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) — release-blocking
     # abort, no report. Added to UNIFIED_STATUS_VALUES by #1071 but never mirrored here until #1086.
     "abort_verifier_degraded": 2,
+    # FL-05 (#1124): force-enabled discovery feature (STORM/agentic) did not fire — run-health
+    # backstop abort, no trustworthy report (tier 2). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
+    "abort_discovery_degraded": 2,
     # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval
     # (no report produced, tier 2). KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES.
     "abort_safety_refused": 2,

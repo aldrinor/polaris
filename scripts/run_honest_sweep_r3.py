@@ -197,6 +197,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
+    "abort_discovery_degraded",      # FL-05 (#1124): a FORCE-ENABLED discovery feature (STORM/agentic) was on but did NOT fire (firing_status attempted_empty/error) — silently degraded to baseline; refuse to ship as success (gated by PG_RUN_HEALTH_GATE)
     "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused BEFORE retrieval (PG_USE_SAFETY_REFUSAL); refuse-with-redirection, zero generator spend
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
@@ -232,6 +233,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_budget_exceeded": "abort_budget_exceeded",
     # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) is a release-blocking abort.
     "abort_verifier_degraded": "abort_verifier_degraded",
+    # FL-05 (#1124): force-enabled discovery feature did not fire — run-health backstop abort.
+    "abort_discovery_degraded": "abort_discovery_degraded",
     # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval.
     "abort_safety_refused": "abort_safety_refused",
     "error": "error_unexpected",
@@ -269,6 +272,45 @@ def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
             f"(firing_status={telemetry.get('firing_status')}) — verify the run before trusting it"
         )
     return None
+
+
+# FL-05 (#1124): a force-enabled discovery feature with one of these firing states silently
+# degraded the run to the Serper/S2 baseline (block ran but produced nothing / errored).
+_FL05_DEGRADED_FIRING: frozenset[str] = frozenset({"attempted_empty", "error"})
+
+
+def compute_run_health_gate(
+    discovery_telemetries: list[dict[str, Any]],
+    *,
+    unified_status: str,
+    gate_on: bool,
+) -> dict[str, Any]:
+    """FL-05 (#1124): run-health backstop DECISION (pure, no I/O — testable). A FORCE-ENABLED
+    discovery feature (``enabled`` True) whose ``firing_status`` is in ``_FL05_DEGRADED_FIRING``
+    means the run silently fell back to the baseline. Returns the observability fields ALWAYS, plus
+    an ``override_status`` of ``abort_discovery_degraded`` IFF ``gate_on`` AND at least one degraded
+    force-enabled feature AND the run is otherwise success-bound. NEVER overrides a partial_/abort_/
+    error_ status (those are more specific) — only a would-be ``success``. This promotes
+    ``feature_firing_warning`` from advisory to gating (CANARY-01 is the pre-spend gate; FL-05 is the
+    mid/post-run regression backstop)."""
+    degraded = [
+        t for t in discovery_telemetries
+        if t.get("enabled") and t.get("firing_status") in _FL05_DEGRADED_FIRING
+    ]
+    override = (
+        "abort_discovery_degraded"
+        if (gate_on and degraded and unified_status == "success")
+        else None
+    )
+    return {
+        "discovery_llm_degraded": bool(degraded),
+        "discovery_rounds_on_fallback": len(degraded),
+        "degraded_features": [
+            {"feature": t.get("feature"), "firing_status": t.get("firing_status")}
+            for t in degraded
+        ],
+        "override_status": override,
+    }
 
 
 def _capped_finding_dedup_selection(
@@ -5758,6 +5800,33 @@ async def run_one_query(
         # write site and keeps the contract honest WITHOUT widening the gate's window (LAW II — not a
         # relaxation; `unified_status` is unchanged here).
         manifest["status"] = unified_status
+        # FL-05 (#1124): run-health backstop. A FORCE-ENABLED discovery feature (STORM / agentic)
+        # that was turned ON but did NOT fire (firing_status in {attempted_empty, error}) means the
+        # run silently degraded to the Serper/S2 baseline — it must NOT ship as success. ALWAYS emit
+        # the degradation fields (observability); GATE the abort behind PG_RUN_HEALTH_GATE (default
+        # off => byte-identical; the benchmark slate forces it on) so non-benchmark opt-in runs are
+        # unaffected. Promotes run_log's advisory warning to a gating signal. Pairs with CANARY-01
+        # (pre-spend) — FL-05 is the mid/post-run regression backstop. Only overrides a would-be
+        # SUCCESS (partial_* already signals degradation; aborts/errors are more specific).
+        _fl05 = compute_run_health_gate(
+            [_storm_telemetry, _agentic_telemetry],
+            unified_status=unified_status,
+            gate_on=os.getenv("PG_RUN_HEALTH_GATE", "0") != "0",
+        )
+        manifest["discovery_llm_degraded"] = _fl05["discovery_llm_degraded"]
+        manifest["discovery_rounds_on_fallback"] = _fl05["discovery_rounds_on_fallback"]
+        if _fl05["override_status"]:
+            _fl05_names = ", ".join(
+                f"{d['feature']}={d['firing_status']}" for d in _fl05["degraded_features"]
+            )
+            _log(
+                f"[run-health]  ABORT: force-enabled discovery feature(s) did not fire "
+                f"({_fl05_names}) — refusing to ship a silently-degraded run as success."
+            )
+            summary_status = _fl05["override_status"]
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            manifest["discovery_degraded_features"] = _fl05["degraded_features"]
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when
         # PG_COMPLEXITY_ROUTING is unset). Auditable: complexity, confidence, reasons, whether it was
