@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 
+from src.polaris_graph.llm.openrouter_client import NoEndpointError  # I-ready-019 FL-04: fail-loud on structural 404
 from src.polaris_graph.tracing import get_tracer
 from src.polaris_graph.memory.search_cache import (
     get_cached_results,
@@ -1261,6 +1262,8 @@ async def _generate_refinement_queries(
                 )
             return queries
 
+    except NoEndpointError:
+        raise  # I-ready-019 FL-04 (#1104): structural discovery 404 must fail loud, not degrade.
     except Exception as exc:
         logger.warning(
             "[polaris graph] Adaptive round %d: refinement LLM failed: %s "
@@ -1560,6 +1563,8 @@ async def _summarize_pages(
             )
             return notes
 
+    except NoEndpointError:
+        raise  # I-ready-019 FL-04 (#1104): structural discovery 404 must fail loud, not degrade.
     except Exception as exc:
         logger.warning(
             "[polaris graph] Agentic page summarization failed: %s — "
