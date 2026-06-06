@@ -17,6 +17,23 @@ jof = importlib.import_module("src.polaris_graph.nodes.journal_only_filter")
 # ── gating ──────────────────────────────────────────────────────────────────
 
 
+def test_keystone_activation_from_real_workforce_template(monkeypatch):
+    # Codex diff-gate P1 (keystone): journal_only config lives in the RAW scope
+    # template (the serialized ProtocolDocument drops it). With the flag ON and
+    # the real workforce.yaml, journal_only MUST activate; with the flag OFF it
+    # must not. Guards against the feature being silently inert on the paid path.
+    from src.polaris_graph.nodes.scope_gate import load_scope_template, ProtocolDocument
+    import dataclasses
+    cfg = load_scope_template("workforce")
+    assert cfg.get("source_restriction") == "journal_only"
+    # The serialized protocol the sweep would otherwise read drops the field:
+    assert "source_restriction" not in {f.name for f in dataclasses.fields(ProtocolDocument)}
+    monkeypatch.setenv(jof.JOURNAL_ONLY_FLAG, "1")
+    assert jof.journal_only_active(cfg) is True
+    monkeypatch.delenv(jof.JOURNAL_ONLY_FLAG, raising=False)
+    assert jof.journal_only_active(cfg) is False
+
+
 def test_flag_off_is_default(monkeypatch):
     monkeypatch.delenv(jof.JOURNAL_ONLY_FLAG, raising=False)
     assert jof.journal_only_flag_enabled() is False

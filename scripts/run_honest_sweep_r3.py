@@ -2535,7 +2535,25 @@ async def run_one_query(
         # (after all retrieval stages, ~L3072) can merge every stage's metadata
         # sidecar in one place without editing each merge point.
         from src.polaris_graph.nodes import journal_only_filter as _jof
-        _jo_active = _jof.journal_only_active(protocol)
+        # Codex diff-gate P1 (keystone): the serialized `protocol`
+        # (ProtocolDocument.to_json_dict) DROPS source_restriction /
+        # journal_only_tier_distribution / corpus_adequacy / per_query_report_contract
+        # (fixed-field dataclass), so journal_only config MUST be read from the RAW
+        # scope template (which carries them), exactly as the V30 path reads its
+        # contract from `_template`. Loaded defensively: a domain without a
+        # journal_only template leaves _jo_cfg empty -> journal_only inactive.
+        _jo_cfg: dict = {}
+        try:
+            from src.polaris_graph.nodes.scope_gate import (
+                load_scope_template as _jo_load_template,
+            )
+            _jo_loaded = _jo_load_template(q["domain"])
+            if isinstance(_jo_loaded, dict):
+                _jo_cfg = _jo_loaded
+        except Exception as _jo_cfg_exc:  # noqa: BLE001 — absent/invalid template -> inactive
+            _log(f"[journal_only] scope template load skipped ({q.get('domain')!r}): {_jo_cfg_exc}")
+            _jo_cfg = {}
+        _jo_active = _jof.journal_only_active(_jo_cfg)
         _jo_force_inadequate = False
         _jo_contract_conflict = ""
         _jo_sidecar: dict = {}
@@ -3135,9 +3153,9 @@ async def run_one_query(
             # adequacy artifact + report all describe the SAME journal-only
             # corpus (keeps the FX-06 invariant below intact).
             _jo_protocol = dict(protocol)
-            if protocol.get("journal_only_tier_distribution"):
+            if _jo_cfg.get("journal_only_tier_distribution"):
                 _jo_protocol["expected_tier_distribution"] = (
-                    protocol["journal_only_tier_distribution"]
+                    _jo_cfg["journal_only_tier_distribution"]
                 )
             dist = compute_tier_distribution(retrieval.classified_sources, _jo_protocol)
             adequacy = assess_corpus_adequacy(
@@ -3150,7 +3168,7 @@ async def run_one_query(
             # canonical anchor present) — the binding guard against a thin-corpus
             # false pass. Fires in BOTH planner and legacy modes (see the abort
             # condition below). Fail-closed.
-            _jo_floor_cfg = (protocol.get("corpus_adequacy") or {}).get("journal_only") or {}
+            _jo_floor_cfg = (_jo_cfg.get("corpus_adequacy") or {}).get("journal_only") or {}
             # §-1.1 finding (real held billed set): some S1 anchors exist ONLY as
             # V30 contract frame rows (injected AFTER this gate), so the anchor
             # check must also credit the kept journal contract entities. Compute
@@ -3167,7 +3185,7 @@ async def run_one_query(
             _jo_req_entities = {
                 _e.get("id"): _e
                 for _e in (
-                    (protocol.get("per_query_report_contract") or {})
+                    (_jo_cfg.get("per_query_report_contract") or {})
                     .get(q["slug"], {})
                     .get("required_entities", [])
                 )
@@ -3799,7 +3817,7 @@ async def run_one_query(
                     # cleanly; the journal-DOI entities pass.
                     if _jo_active:
                         _jo_contract_cfg = (
-                            (protocol.get("per_query_report_contract") or {})
+                            (_jo_cfg.get("per_query_report_contract") or {})
                             .get(q["slug"], {})
                         )
                         _jo_slots_cfg = _jo_contract_cfg.get("rendering_slots") or {}
@@ -4466,7 +4484,7 @@ async def run_one_query(
             # rows were credited at the adequacy floor but never injected. DOIs
             # come from each row OR the sidecar (retrieved journal rows carry the
             # DOI in the sidecar; contract frame rows carry it inline).
-            _jo_floor_cfg2 = (protocol.get("corpus_adequacy") or {}).get("journal_only") or {}
+            _jo_floor_cfg2 = (_jo_cfg.get("corpus_adequacy") or {}).get("journal_only") or {}
             _jo_want_anchors = {
                 _jof._normalize_doi(str(_d))
                 for _d in (_jo_floor_cfg2.get("required_anchor_dois") or [])
