@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "tests/polaris_graph/planning/test_research_planner_phase1.py:708 now fails because the source-sentinel still expects `completeness = CompletenessReport(domain=q[\"domain\"])`, while the FX-10 change rewrote the ON-mode neutral report construction across multiple lines with `notes=[\"no_checklist_loaded\"]`. Confirmed with `python -m pytest tests\\polaris_graph\\planning\\test_research_planner_phase1.py::test_p1_18_on_mode_bypasses_domain_template -q`: 1 failed. This is a CI/execution blocker even though the production behavior looks aligned."
+p2:
+  - "src/polaris_graph/audit_ir/loader.py:747 still parses any manifest `covered_fraction: 1.0` as `completeness_percent: 100.0` and ignores the new `completeness_state`. That means AuditIR/API consumers can still present a not_applicable manifest as 100% complete unless they read the raw manifest. Not blocking the gate semantics, but it leaves a consumer-facing form of the original P2 honesty bug."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix/update the brittle planning sentinel test so the existing suite passes with the new neutral CompletenessReport construction."

@@ -43,6 +43,57 @@ index fed1ddb9..d7b73237 100644
                  "uncovered_topic_ids": completeness.uncovered_topic_ids(),
              },
              "contradictions_found": len(contradictions),
+diff --git a/src/polaris_graph/audit_ir/loader.py b/src/polaris_graph/audit_ir/loader.py
+index 583f1f81..86dbc9ed 100644
+--- a/src/polaris_graph/audit_ir/loader.py
++++ b/src/polaris_graph/audit_ir/loader.py
+@@ -393,6 +393,11 @@ class RunManifest:
+     v30_enabled: bool
+     v30_warnings: tuple[str, ...]
+     retrieval_stats: RetrievalStats | None
++    # FX-10 (I-ready-017): completeness 3VL state so an AuditIR/API consumer never presents
++    # a vacuous covered_fraction=1.0 (total_applicable==0, no checklist applied) as a
++    # measured 100%. Defaulted (last field) so existing RunManifest constructors are
++    # unaffected; the loader sets it from the manifest / inferred from total_applicable.
++    completeness_state: str = "measured"
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -778,6 +783,26 @@ def _parse_completeness_percent(raw: Any) -> float:
+     return 0.0
+ 
+ 
++def _parse_completeness_state(raw: Any) -> str:
++    """FX-10 (I-ready-017): the completeness 3VL state for AuditIR consumers.
++
++    Prefer the explicit manifest ``completeness_state`` field; fall back to inferring
++    from ``total_applicable`` for pre-FX-10 manifests so a consumer never reads a vacuous
++    ``covered_fraction=1.0`` (no checklist applied) as a measured 100%.
++    """
++    if isinstance(raw, Mapping):
++        state = raw.get("completeness_state")
++        if isinstance(state, str) and state:
++            return state
++        if "total_applicable" in raw:
++            try:
++                if int(raw["total_applicable"]) == 0:
++                    return "not_applicable"
++            except (TypeError, ValueError):
++                pass
++    return "measured"
++
++
+ def _parse_manifest(raw: Mapping[str, Any]) -> RunManifest:
+     _require_keys(
+         raw,
+@@ -808,6 +833,7 @@ def _parse_manifest(raw: Mapping[str, Any]) -> RunManifest:
+         sentences_dropped=int(generator.get("sentences_dropped", 0)),
+         contradictions_found=int(raw.get("contradictions_found", 0)),
+         completeness_percent=_parse_completeness_percent(raw["completeness"]),
++        completeness_state=_parse_completeness_state(raw["completeness"]),
+         evaluator_gate=_parse_evaluator_gate(raw["evaluator_gate"]),
+         release_allowed=bool(raw.get("release_allowed", False)),
+         v30_enabled=bool(raw.get("v30_enabled", False)),
 diff --git a/src/polaris_graph/evaluator/evaluator_gate.py b/src/polaris_graph/evaluator/evaluator_gate.py
 index 5960ae35..944195e4 100644
 --- a/src/polaris_graph/evaluator/evaluator_gate.py
@@ -85,12 +136,31 @@ index e8f26e44..c822b08d 100644
      def uncovered_topic_ids(self) -> list[str]:
          return [
              tc.topic.id
+diff --git a/tests/polaris_graph/planning/test_research_planner_phase1.py b/tests/polaris_graph/planning/test_research_planner_phase1.py
+index 2ddd4618..58557e8a 100644
+--- a/tests/polaris_graph/planning/test_research_planner_phase1.py
++++ b/tests/polaris_graph/planning/test_research_planner_phase1.py
+@@ -704,8 +704,12 @@ def test_p1_18_on_mode_bypasses_domain_template() -> None:
+     assert "_template = None" in src
+     assert "_reg_queries = []" in src
+     assert "_trial_queries = []" in src
+-    # check_completeness is gated; on-mode substitutes a neutral report.
+-    assert "completeness = CompletenessReport(domain=q[\"domain\"])" in src
++    # check_completeness is gated; on-mode substitutes a NEUTRAL report tagged
++    # not_applicable (FX-10 / I-ready-017: the neutral report now carries
++    # notes=['no_checklist_loaded'] so its vacuous covered_fraction=1.0 is never read
++    # as a measured 100%).
++    assert "CompletenessReport(" in src
++    assert "no_checklist_loaded" in src
+ 
+     # The neutral CompletenessReport yields ZERO uncovered topic ids, so the
+     # uncovered-label -> generation hand-off produces NO checklist label.
 diff --git a/tests/polaris_graph/test_fx10_completeness_state_iready017.py b/tests/polaris_graph/test_fx10_completeness_state_iready017.py
 new file mode 100644
-index 00000000..3ed5a310
+index 00000000..abe35a35
 --- /dev/null
 +++ b/tests/polaris_graph/test_fx10_completeness_state_iready017.py
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,114 @@
 +"""FX-10 (I-ready-017): completeness NOT_APPLICABLE three-valued-logic state.
 +
 +`covered_fraction` returns a vacuous 1.0 when `total_applicable == 0` (no checklist
@@ -180,3 +250,28 @@ index 00000000..3ed5a310
 +        ev_out, judge_result=_judge_flagging_completeness(), completeness=measured_thin,
 +    )
 +    assert "judge_completeness_needs_revision" in gate.reasons
++
++
++# ----------------------------------------------------------------- AuditIR loader (P2)
++def test_loader_completeness_state_from_manifest() -> None:
++    """FX-10 P2 (Codex iter-1): the AuditIR loader surfaces completeness_state so an
++    API/AuditIR consumer never presents a vacuous covered_fraction=1.0 as 100%."""
++    from src.polaris_graph.audit_ir.loader import _parse_completeness_state
++    assert _parse_completeness_state(
++        {"completeness_state": "not_applicable", "covered_fraction": 1.0}
++    ) == "not_applicable"
++    assert _parse_completeness_state(
++        {"completeness_state": "measured", "covered_fraction": 0.5}
++    ) == "measured"
++
++
++def test_loader_completeness_state_inferred_for_pre_fx10_manifest() -> None:
++    """Pre-FX-10 manifests lack completeness_state: infer not_applicable from
++    total_applicable==0 so old runs are still honest in the AuditIR."""
++    from src.polaris_graph.audit_ir.loader import _parse_completeness_state
++    assert _parse_completeness_state(
++        {"covered_fraction": 1.0, "total_applicable": 0}
++    ) == "not_applicable"
++    assert _parse_completeness_state(
++        {"covered_fraction": 0.5, "total_applicable": 4}
++    ) == "measured"
