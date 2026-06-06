@@ -554,7 +554,17 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
 # around capability-enabling flags keep their original meaning.
 _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_SWEEP_ANALYST_SYNTHESIS",
+    # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span WINDOW SIZE must be FORCE-SET to the
+    # 400-byte policy, not a setdefault floor. Otherwise an operator/.env PG_GATE_B_SPAN_WINDOW_BYTES=
+    # 999999 survives the slate, the PG_GATE_B_CITED_SPAN preflight still passes, and _cited_window_text
+    # expands to effectively the whole record — re-opening BUG-02 whole-doc evidence with the flag ON.
+    "PG_GATE_B_SPAN_WINDOW_BYTES",
 })
+
+# I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on
+# top of the force-exact above). The preflight fails closed if the EFFECTIVE window exceeds this, so a
+# whole-record-sized window can never reach a paid Gate-B run even if the slate value is ever changed.
+_BENCHMARK_SPAN_WINDOW_MAX_BYTES = 2000
 
 _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
     "PG_SWEEP_ANALYST_SYNTHESIS",
@@ -637,6 +647,24 @@ def preflight_full_capability() -> None:
             raise RuntimeError(
                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
                 f"or its firing is unobservable (tracker off). Enable it before the run."
+            )
+    # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span window must stay BOUNDED. An oversized
+    # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+    # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;
+    # this fails closed if it is ever outside (0, ceiling] (force-exact removed / slate value changed).
+    if os.getenv("PG_GATE_B_CITED_SPAN", "0").strip() in ("1", "true", "True"):
+        try:
+            _win = int(os.getenv("PG_GATE_B_SPAN_WINDOW_BYTES", "400"))
+        except ValueError:
+            raise RuntimeError(
+                "benchmark preflight FAILED: PG_GATE_B_SPAN_WINDOW_BYTES="
+                f"{os.getenv('PG_GATE_B_SPAN_WINDOW_BYTES')!r} is not an int."
+            )
+        if _win <= 0 or _win > _BENCHMARK_SPAN_WINDOW_MAX_BYTES:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: PG_GATE_B_SPAN_WINDOW_BYTES={_win} is outside "
+                f"(0, {_BENCHMARK_SPAN_WINDOW_MAX_BYTES}] — an oversized cited-span window expands to the "
+                f"whole record (BUG-02 whole-doc evidence with the cited-span flag on)."
             )
     for flag in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
         if os.getenv(flag, "1").strip() in ("1", "true", "True"):
