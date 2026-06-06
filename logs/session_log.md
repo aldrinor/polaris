@@ -4175,3 +4175,213 @@
 - EVIDENCE/FINDINGS: 37/37 reasoning-first tests + 64-test sweep pass (real SSE path, no _call mock). Codex APPROVE. Live-truncation §-1.1 demo carried by CANARY-01 (pre-spend gate, also a rerun blocker). No orphan codex procs; lock released cleanly.
 - STATUS: FX-01 VERIFIED (1 of 4 rerun-gating P0s). Phase 0 (FL-01..04) complete. NEXT: FX-02 (BUG-03 empty-sentence floor + BUG-01 L2 discourse floor, INDEP files).
 - NEXT_STEP: Create FX-02 GitHub issue + branch bot/I-ready-017-fx02-strictverify; author BUG-03 (empty-sentence floor) + BUG-01 L2 (config-driven discourse floor, §-1.1-safe) with tests; smoke; Codex diff-gate.
+
+[2026-06-06 04:45:00]
+- ACTION: FX-02 (#1106, faithfulness P0) implemented — BUG-03 empty-sentence floor (both verifiers) + BUG-01 L2 config-driven discourse-narration floor; smoke 38/38; Codex diff-gate iter-1 launched.
+- RATIONALE: forensic missed_bugs_audit BUG-01 showed scratchpad sentences WRAP a verbatim source quote (entailed) so the narration rides along past strict_verify + entailment. Built a high-precision, writing-act-ANCHORED, config-driven (LAW VI), flag-gated (default off) discourse floor that excludes clinical verbs (keep/use/write/administer) to avoid false-drop; verified the existing entailment judge does NOT catch quote-wrapping narration (it's entailed). BUG-03: provenance_generator gated its overlap floor behind `if sentence_content:` -> contentless sentence passed vacuously; now fail-closed unconditionally (zero false-drop risk).
+- DOCS/RESEARCH: outputs/audits/I-ready-017/missed_bugs_audit.md (BUG-01/BUG-03); config/strict_verify/discourse_narration_markers.yaml.
+- SYNC: state/ready017_fix_audit.json FX-02 -> smoke_pass_codex_diff_iter1_inflight, gh #1106, commit 21eedd18.
+- AFFECTED_FILES: provenance_generator.py, clinical_generator/strict_verify.py, clinical_generator/verified_report.py (DropReason +2), config/strict_verify/discourse_narration_markers.yaml (new), tests/polaris_graph/test_fx02_strict_verify_floors_iready017.py (17 tests).
+- EVIDENCE/FINDINGS: 17 FX-02 tests (incl. 7 no-false-positive clinical sentences) + 38/38 combined offline pass. Pre-existing dual-import test failure (test_to_record_passes_returns_kept) PROVEN on base with FX-02 stashed — not a regression.
+- STATUS: FX-02 awaiting Codex iter-1 verdict. FX-01 verified. Rerun-gating P0s: FX-01 ✅ + FX-02 (in gate) + FX-03 + CANARY-01.
+- NEXT_STEP: Read FX-02 Codex verdict; if APPROVE -> verified, advance to FX-03; if RC -> address (esp. any §-1.1 false-drop pattern), iter-2.
+
+[2026-06-06 05:00:00]
+- ACTION: FX-02 (#1106) Codex iter-1 = REQUEST_CHANGES (0 P0, 2 P1 + 1 P2); fixed + re-gated iter-2.
+- RATIONALE: Codex's adversarial probe (as I requested) found real §-1.1 clinical false-drops: split/combine/shorten/lengthen/condense/rewrite are clinical dosing verbs; 'repetitive' = rTMS. Removed them from the discourse patterns (kept pure text verbs only); required colon for 'final attempt'. P2: BUG-03 was nested inside `if require_number_match and valid_token_found` -> moved unconditional so a token-only sentence drops regardless of require_number_match.
+- DOCS/RESEARCH: .codex/I-ready-017/fx02_codex_diff_audit.txt (iter-1), fx02_diff_brief_iter2.md.
+- SYNC: state/ready017_fix_audit.json FX-02 -> codex_diff_iter2_inflight, commit d54b1440.
+- AFFECTED_FILES: config/strict_verify/discourse_narration_markers.yaml, provenance_generator.py, tests/polaris_graph/test_fx02_strict_verify_floors_iready017.py (27 tests).
+- EVIDENCE/FINDINGS: 27/27 FX-02 tests pass (incl. 7 clinical false-positive adversarial cases + 3 provenance unconditional-floor cases). The §-1.1 false-drop probe is now part of the regression suite.
+- STATUS: FX-02 awaiting Codex iter-2. FX-01 verified.
+- NEXT_STEP: Read FX-02 iter-2 verdict; APPROVE -> verified + advance to FX-03; RC -> address + iter-3.
+
+[2026-06-06 05:15:00]
+- ACTION: FX-02 (#1106) Codex iter-2 = REQUEST_CHANGES (0 P0, 2 P1 + 1 P2); narrowed discourse floor + fixed P2; re-gated iter-3.
+- RATIONALE: Codex's 2-round adversarial probe proved EVERY clinical-homograph editing verb/adjective false-drops real clinical prose (attempt-colon labels = procedures; rephrase/use-the-exact-phrase = patient comm/aphasia rehab). §-1.1: false-drop is lethal -> removed ALL homograph patterns; discourse floor reduced to drafting-process-only homograph-free core (word-counts + clunky/wordy/long-winded). FX-01 is the primary defense (scratchpad never promoted). P2: numeric-only fragment bypassed BUG-03 under require_number_match=False -> floor now drops content-wordless fragments in that mode too.
+- DOCS/RESEARCH: .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt, fx02_diff_brief_iter3.md.
+- SYNC: state/ready017_fix_audit.json FX-02 -> codex_diff_iter3_inflight, commit 16bf810d.
+- AFFECTED_FILES: config/strict_verify/discourse_narration_markers.yaml, provenance_generator.py, tests/polaris_graph/test_fx02_strict_verify_floors_iready017.py (34 tests).
+- EVIDENCE/FINDINGS: 34/34 FX-02 tests pass (12 clinical no-false-positive cases covering all Codex iter-1+iter-2 examples). Discovered word-count tells are pre-empted by numeric_mismatch; floor's residual value is no-number drafting tells riding an entailed quote.
+- STATUS: FX-02 awaiting Codex iter-3 (of 5). FX-01 verified.
+- NEXT_STEP: Read iter-3 verdict; APPROVE -> verified + advance FX-03; RC -> if still a clinical false-drop, REMOVE the floor entirely (FX-01 is the fix) + re-gate iter-4.
+
+[2026-06-06 05:30:00]
+- ACTION: FX-02 (#1106) Codex iter-3 = REQUEST_CHANGES (0 P0, 1 P1: 'N more words' false-drops speech-language claims; recommended REMOVE floor). REMOVED the discourse floor entirely; FX-02 = BUG-03 only; re-gated iter-4.
+- RATIONALE: 3 Codex rounds proved surface-pattern discourse detection cannot match the drb_72 vocabulary without lethal clinical false-drops (§-1.1). Per §8.3.6 (respect Codex's stop/decision) + Codex's explicit recommendation, removed the pattern floor entirely (config + helpers + both call sites + DropReason entry). FX-01 (generation-side) is the real defense — truncated scratchpad never promoted, so quote-wrappers never reach strict_verify. Future semantic LLM-judge detector = separate issue.
+- DOCS/RESEARCH: .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt, fx02_diff_brief_iter4.md.
+- SYNC: state/ready017_fix_audit.json FX-02 -> codex_diff_iter4_inflight, commit d7443edd.
+- AFFECTED_FILES: deleted config/strict_verify/discourse_narration_markers.yaml; clinical_generator/strict_verify.py (-106 lines), verified_report.py (DropReason -1), provenance_generator.py (-22 lines), tests/polaris_graph/test_fx02_strict_verify_floors_iready017.py (BUG-03 only, 6 tests).
+- EVIDENCE/FINDINGS: HEAD d7443edd discourse-free (0 refs in all code files). 14/14 FX-02+FX-01 tests pass; clinical strict_verify 53/54 (1 pre-existing dual-import infra failure). Net FX-02 diff 202 lines.
+- STATUS: FX-02 awaiting Codex iter-4 (of 5). FX-01 verified.
+- NEXT_STEP: Read iter-4 verdict; APPROVE -> FX-02 verified + advance FX-03; RC -> iter-5 (cap).
+
+[2026-06-06 05:40:00]
+- ACTION: FX-02 (#1106) Codex diff-gate iter-4 = APPROVE (0 P0/P1/P2). FX-02 VERIFIED. Branch pushed.
+- RATIONALE: After 3 RC rounds proving surface-pattern discourse detection is clinically unsafe, removed the floor entirely (Codex recommendation); FX-02 ships BUG-03 (empty/contentless floor) only. FX-01 is the discourse defense (scratchpad never promoted).
+- DOCS/RESEARCH: .codex/I-ready-017/fx02_codex_diff_audit.txt (iter-4 APPROVE canonical), fx02_diff_brief_iter4.md.
+- SYNC: state/ready017_fix_audit.json FX-02 phase_step=verified; current_pointer -> FX-03.
+- AFFECTED_FILES: commit d7443edd (provenance_generator.py, clinical_generator/strict_verify.py, verified_report.py, deleted config, test). Branch bot/I-ready-017-faithfulness pushed.
+- EVIDENCE/FINDINGS: 14/14 FX-01+FX-02 tests; Codex APPROVE. 2 of 4 rerun-gating P0s done (FX-01 + FX-02).
+- STATUS: FX-02 VERIFIED. NEXT: FX-03 (4-role cited-span) + CANARY-01.
+- NEXT_STEP: Create FX-03 GitHub issue; grep roles/native_gate_b_inputs.py + sentinel/judge adapters; implement cited-[start:end]-span slice (Codex Q2 windowing); smoke; §-1.1 audit; Codex gate.
+
+[2026-06-06 05:50:00]
+- ACTION: FX-03 (#1107) GitHub issue created + comprehensive seam grounding done (4-role cited-span fix); design recorded in ledger; authoring next cycle.
+- RATIONALE: §-1.2 step-2 comprehensive scan. Mapped the whole-doc-vs-span bug: _resolve_evidence builds EvidenceDocument with whole record text + call site discards token.start/end; sentinel(280)+judge(314) join doc.text. Single-point fix = slice EvidenceDocument.text to cited bounded window in _resolve_evidence. Q2 policy = bounded-window (mirror strict_verify 400-byte) per plan; flag-gated PG_GATE_B_CITED_SPAN default off; raise Q2 to Codex at gate. The 4-role seam is the authoritative release gate (MEDIUM-HIGH risk) so authoring gets a focused cycle rather than a rushed end-of-turn edit.
+- DOCS/RESEARCH: roles/native_gate_b_inputs.py, sentinel_adapter.py, role_pipeline.py, role_transport.py; provenance_generator windowing helpers (677/800).
+- SYNC: state/ready017_fix_audit.json FX-03 gh #1107, phase grounded_authoring_next, design recorded; pointer advanced.
+- AFFECTED_FILES: (read-only grounding this cycle) — authoring touches roles/native_gate_b_inputs.py next.
+- EVIDENCE/FINDINGS: FX-01 + FX-02 verified + pushed (commit d7443edd). 2 of 4 rerun-gating P0s done. FX-03 fully grounded.
+- STATUS: FX-03 grounded; cron armed for next-cycle authoring. No pending codex (FX-02 gate finished clean).
+- NEXT_STEP: Author FX-03 windowing slice + flag + imprecise_citation advisory + tests; smoke; Codex diff gate (Q2 explicit).
+
+[2026-06-06 06:05:00]
+- ACTION: FX-03 (#1107, faithfulness P0) implemented — 4-role seam cited-span bounded-window slice; smoke 22 FX + 45 regression pass; Codex diff-gate iter-1 launched.
+- RATIONALE: BUG-02 out-of-span false-accept (06-004) — seam judged whole doc. Single-point fix: thread tokens(start/end) into _resolve_evidence, slice EvidenceDocument.text to bounded window (_cited_window_text); both Sentinel+Judge join doc.text. Bounded-window (not exact-slice) chosen for: 06-004 imprecise-citation tolerance + offset-robustness (token offsets index RAW direct_quote vs _row_text-stripped record text) + fail-safe. Flag PG_GATE_B_CITED_SPAN default off, slate-activated. Q2 (bounded-vs-exact / default-off-vs-on / advisory) raised to Codex.
+- DOCS/RESEARCH: roles/native_gate_b_inputs.py, sentinel_adapter.py:280, role_pipeline.py:314, _row_text:129 strip finding.
+- SYNC: state/ready017_fix_audit.json FX-03 -> codex_diff_iter1_inflight, commit 2d8b1bbd.
+- AFFECTED_FILES: src/polaris_graph/roles/native_gate_b_inputs.py (+import os, _cited_window_text, _resolve_evidence(tokens)); tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py (8 tests).
+- EVIDENCE/FINDINGS: 8 FX-03 tests (window excludes far-away content = anti-false-accept; offset-strip robustness; fail-safe) + 22 combined FX + 45 native_gate_b/gate_b_seam regression all pass.
+- STATUS: FX-03 awaiting Codex iter-1. FX-01 + FX-02 verified. 3rd of 4 rerun-gating P0s in gate.
+- NEXT_STEP: Read FX-03 verdict; APPROVE -> verified + advance CANARY-01; RC -> address (esp. Q2 rulings) + iter-2.
+
+[2026-06-06 06:25:00]
+- ACTION: FX-03 (#1107) Codex iter-1 = REQUEST_CHANGES (continuing-P0: flag not activated on launcher). Wired PG_GATE_B_CITED_SPAN into the Gate-B slate + force-on + fail-closed preflight; re-gated iter-2.
+- RATIONALE: Codex caught the I-cap-005 silent-downgrade pattern — a faithfulness flag defined but not activated in run_gate_b.py is DEAD (whole-doc false-accept persists). Fixed by the established slate mechanism (slate="1" + _BENCHMARK_FORCE_ON_FLAGS + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS). Q2a (bounded-window) + Q2c (advisory follow-up) confirmed OK by Codex.
+- DOCS/RESEARCH: .codex/I-ready-017/fx03_codex_diff_audit.txt (iter-1), fx03_diff_brief_iter2.md.
+- SYNC: state/ready017_fix_audit.json FX-03 -> codex_diff_iter2_inflight, commit 8f0c1cd9.
+- AFFECTED_FILES: scripts/dr_benchmark/run_gate_b.py (slate + force-on + required), tests/dr_benchmark/test_slate_cited_span_fx03_iready017.py (3 tests).
+- EVIDENCE/FINDINGS: 7 slate tests (3 FX-03 + 4 readiness precedent) + 8 windowing tests + 45 seam regression all pass. The flag is now force-on + fail-closed on the authoritative launcher.
+- STATUS: FX-03 awaiting Codex iter-2. FX-01 + FX-02 verified.
+- NEXT_STEP: Read FX-03 iter-2 verdict; APPROVE -> verified + advance CANARY-01; RC -> iter-3.
+
+[2026-06-06 06:45:00]
+- ACTION: FX-03 (#1107) Codex iter-2 = REQUEST_CHANGES (P1: window-size setdefault-floor lets operator widen to whole-doc). Force-exacted window to 400 + preflight ceiling; re-gated iter-3.
+- RATIONALE: Codex caught that PG_GATE_B_SPAN_WINDOW_BYTES via setdefault lets an operator/.env 999999 survive -> _cited_window_text = whole direct_quote -> BUG-02 whole-doc with the flag on. Fixed: _BENCHMARK_FORCE_EXACT_FLAGS (force 400) + _BENCHMARK_SPAN_WINDOW_MAX_BYTES=2000 preflight ceiling (defense-in-depth).
+- DOCS/RESEARCH: .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt, fx03_diff_brief_iter3.md.
+- SYNC: state/ready017_fix_audit.json FX-03 -> codex_diff_iter3_inflight, commit 8dc823f5.
+- AFFECTED_FILES: scripts/dr_benchmark/run_gate_b.py (force-exact + ceiling + preflight check), tests/dr_benchmark/test_slate_cited_span_fx03_iready017.py (+2 tests = 5).
+- EVIDENCE/FINDINGS: 17 tests pass (5 slate incl window-bound + 4 readiness + 8 windowing) + 45 seam regression.
+- STATUS: FX-03 awaiting Codex iter-3. FX-01 + FX-02 verified.
+- NEXT_STEP: Read FX-03 iter-3 verdict; APPROVE -> verified + advance CANARY-01; RC -> iter-4.
+
+[2026-06-06 06:55:00]
+- ACTION: FX-03 (#1107) Codex diff-gate iter-3 = APPROVE (0 P0/P1/P2). FX-03 VERIFIED + pushed.
+- RATIONALE: iter-1 RC (flag not activated) -> slate+force-on+preflight; iter-2 RC (window setdefault -> operator can widen to whole-doc) -> force-exact 400 + ceiling preflight; iter-3 APPROVE. The 4-role seam now judges the cited bounded span, activated + force-exact-bounded on the authoritative launcher. BUG-02 closed.
+- DOCS/RESEARCH: .codex/I-ready-017/fx03_codex_diff_audit.txt (iter-3 APPROVE canonical).
+- SYNC: state/ready017_fix_audit.json FX-03 phase_step=verified; pointer -> CANARY-01.
+- AFFECTED_FILES: commit 8dc823f5 (native_gate_b_inputs.py + run_gate_b.py + 2 test files). Branch pushed.
+- EVIDENCE/FINDINGS: 8 windowing + 5 slate-activation + 45 seam regression tests pass; Codex APPROVE. 3 of 4 rerun-gating P0s done (FX-01 + FX-02 + FX-03).
+- STATUS: FX-03 VERIFIED. NEXT: CANARY-01 (behavioral pre-spend canary) — the LAST rerun blocker.
+- NEXT_STEP: Create CANARY-01 GitHub issue; grep pathB_run_gate.py + the existing preflight/canary surface; design the behavioral canary (real call shapes + 1-query retrieval + chromium probe); implement; smoke; Codex gate.
+
+[2026-06-06 07:05:00]
+- ACTION: CANARY-01 (#1108) GitHub issue created + pathB_run_gate.py grounding done; design recorded; focused authoring next cycle.
+- RATIONALE: §-1.2 comprehensive scan. Found existing real_retrieval_prober (serper+SS ping only) + preflight; mapped the operator's exact gap (searcher generate_structured 404 class + 1-query live-source retrieval + chromium NOT covered). Designed behavioral_canary() with 3 fail-closed sub-probes, flag-gated + slate-activated, offline-testable. CANARY-01 is the operator's most-emphasized fix ("preflight must test BEHAVIOR not config"); authoring gets a focused cycle to avoid the rushed-garbage-preflight failure mode.
+- DOCS/RESEARCH: scripts/dr_benchmark/pathB_run_gate.py (preflight, real_retrieval_prober, M2 canary).
+- SYNC: state/ready017_fix_audit.json CANARY-01 gh #1108, phase grounded_authoring_next, design recorded; pointer advanced.
+- AFFECTED_FILES: (read-only grounding) — authoring touches scripts/dr_benchmark/pathB_run_gate.py next.
+- EVIDENCE/FINDINGS: FX-01+FX-02+FX-03 verified + pushed (8dc823f5). 3 of 4 rerun-gating P0s done. CANARY-01 grounded.
+- STATUS: CANARY-01 grounded; cron armed for next-cycle authoring. No pending codex (FX-03 gate finished clean).
+- NEXT_STEP: complete grounding (searcher generate_structured shape + 1-query retrieval entry + chromium launch path); author behavioral_canary() + 3 sub-probes + offline tests; smoke; Codex diff gate.
+
+[2026-06-06 07:25:00]
+- ACTION: CANARY-01 (#1108, P0-gate) implemented — behavioral pre-spend canary (2 real injectable probes) wired into run_gate_b_query live branch + slate-activated; smoke 17 pass; Codex diff-gate iter-1 launched.
+- RATIONALE: operator keystone — preflight must test BEHAVIOR not config. Probes: structured-output on the searcher/generator slug (FX-01-keystone 404 class the old preflight skipped) + 1-query live search >0 sources (discovery-collapse). Fail-closed GateError before spend. chromium dropped: benchmark fetch = httpx (live_retriever), not browser -> FX-16; surfaced to Codex. Wired into slate force-on + required (the FX-03 activation lesson).
+- DOCS/RESEARCH: pathB_run_gate.py, live_retriever httpx finding, OPENROUTER_DEFAULT_MODEL.
+- SYNC: state/ready017_fix_audit.json CANARY-01 -> codex_diff_iter1_inflight, commit 60ba6ce3.
+- AFFECTED_FILES: scripts/dr_benchmark/pathB_run_gate.py (behavioral_canary + 2 probes), run_gate_b.py (call + slate + force-on + required), tests/dr_benchmark/test_behavioral_canary_canary01_iready017.py (8 tests).
+- EVIDENCE/FINDINGS: 8 canary tests (all-alive OK, off no-op, fail-closed on structured-dead/404/0-sources, slate force-on + fail-closed preflight) + 5 FX-03 slate + 4 readiness pass. 3 of 4 rerun-gating P0s verified; CANARY-01 (the 4th) in gate.
+- STATUS: CANARY-01 awaiting Codex iter-1. FX-01+FX-02+FX-03 verified.
+- NEXT_STEP: Read CANARY-01 verdict; APPROVE -> verified, ALL 4 rerun-gating P0s done -> rerun unblocked (operator Q4 budget); RC -> iterate.
+
+[2026-06-06 07:45:00]
+- ACTION: CANARY-01 (#1108) Codex iter-1 = REQUEST_CHANGES (P1: asyncio.run in event loop blocks live run; P2 GateError normalization; P2 chromium accepted). Fixed async + normalized; re-gated iter-2.
+- RATIONALE: Codex caught a real blocker my offline tests missed (sync fakes never hit asyncio.run -> "tests green not evidence"). Made behavioral_canary + structured probe async, await at call site; all probe failures -> GateError. chromium omission accepted by Codex (FX-16).
+- DOCS/RESEARCH: .codex/I-ready-017/canary01_codex_diff_audit.txt (iter-1), canary01_diff_brief_iter2.md.
+- SYNC: state/ready017_fix_audit.json CANARY-01 -> codex_diff_iter2_inflight, commit e862d55b.
+- AFFECTED_FILES: scripts/dr_benchmark/pathB_run_gate.py (async canary+probe+GateError-normalize), run_gate_b.py (await), tests (async contract + 9th test).
+- EVIDENCE/FINDINGS: 18 tests pass (9 canary async + 5 FX-03 slate + 4 readiness). behavioral_canary verified coroutine fn; no asyncio.run on the live path.
+- STATUS: CANARY-01 awaiting Codex iter-2. FX-01+FX-02+FX-03 verified.
+- NEXT_STEP: Read CANARY-01 iter-2 verdict; APPROVE -> ALL 4 rerun-gating P0s done -> rerun unblocked (operator Q4 budget); RC -> iter-3.
+
+[2026-06-06 06:10:00]
+- ACTION: CANARY-01 (#1108) iter-3 Codex diff-gate launched (background b2yfw8rd2)
+- RATIONALE: iter-2 RC P1 = structured-output probe used OpenRouterClient() (OPENROUTER_DEFAULT_MODEL) not the effective PG_GENERATOR_MODEL slug the live STORM/agentic structured calls use → canary could pass while the real generator slug's structured path is dead (green-on-dead-discovery). Fixed: _default_structured_output_probe constructs OpenRouterClient(model=PG_GENERATOR_MODEL) (imported from openrouter_client.py:429) + regression test test_default_structured_probe_uses_pg_generator_model (distinct sentinel slug + RecordingClient). 19 tests pass.
+- SYNC: ledger CANARY-01 -> codex_diff_iter3_inflight @ 7fb95472
+- AFFECTED_FILES: scripts/dr_benchmark/pathB_run_gate.py, tests/dr_benchmark/test_behavioral_canary_canary01_iready017.py, .codex/I-ready-017/canary01_diff_brief_iter3.md, state/ready017_fix_audit.json
+- EVIDENCE/FINDINGS: commit 7fb95472; diff 367 lines (.codex/I-ready-017/canary01_codex_diff.patch); 19 offline tests pass (10 canary + 5 FX-03 slate + 4 readiness)
+- STATUS: iter-3 gate in flight; FX-01/FX-02/FX-03 VERIFIED (3 of 4 rerun-gating P0s)
+- NEXT_STEP: process iter-3 verdict; if APPROVE -> all 4 rerun-gating P0s done -> RERUN unblocked pending operator Q4 budget
+
+[2026-06-06 06:20:00]
+- ACTION: CANARY-01 (#1108) iter-3 Codex diff-gate APPROVE -> VERIFIED; PHASE 1 of fix campaign COMPLETE
+- RATIONALE: iter-3 closed the iter-2 P1 (probe used OPENROUTER_DEFAULT_MODEL not PG_GENERATOR_MODEL). Codex APPROVE: 0 P0, 0 P1, accept_remaining. All 4 rerun-gating P0s verified.
+- SYNC: ledger CANARY-01 -> verified; current_pointer -> Phase 1 complete; #1108 closed; umbrella #1100 updated
+- AFFECTED_FILES: .codex/I-ready-017/canary01_codex_diff_audit_iter3.txt, .codex/I-ready-017/canary01_diff_brief_iter3.md, state/ready017_fix_audit.json, logs/session_log.md
+- EVIDENCE/FINDINGS: verdict APPROVE (commit b5ea6db4, pushed 8dc823f5..b5ea6db4); FX-01 6e3887d2 + FX-02 d7443edd + FX-03 8dc823f5 + CANARY-01 7fb95472 all verified; 19 offline tests pass
+- STATUS: RERUN unblocked pending operator budget Q4. Advancing Phase 2.
+- NEXT_STEP: FX-05 (#1109) corpus-approval structured authorization flag — author fix in corpus_approval_gate.py + run_honest_sweep_r3.py:2995 call site, update tests, offline smoke, §-1.1 audit, Codex gate
+
+[2026-06-06 06:40:00]
+- ACTION: FX-05 (#1109) authored + offline smoke + §-1.1 audit + iter-1 Codex diff-gate launched (bg breyjnvbp)
+- RATIONALE: BUG-06 corpus-approval rubber-stamp defeated by the sweep's own 50-char canned note. Replaced free-text heuristic with typed AuthorizedSweep + structured-auth gate (default-deny on material deviation; fail-closed on non-AuthorizedSweep). All 4 callers routed through authorization_from_env(). Strengthens §9.1 #5.
+- SYNC: ledger FX-05 -> codex_diff_iter1_inflight @ ea210eb6; brief+diff committed d3df9054; #1109 commented
+- AFFECTED_FILES: corpus_approval_gate.py, honest_pipeline.py, run_honest_sweep_r3.py, run_honest_on_prerebuild_corpus.py, run_live_honest_cycle.py, test_corpus_approval_gate.py, test_b2_corpus_approval_enforcement.py, test_cj_005_corpus_approval.py, fx05_s11_audit.md
+- EVIDENCE/FINDINGS: 33 offline tests pass; §-1.1 audit replays REAL held corpus_approval.json -> canned note DENIES, no-flag DENIES, flag APPROVES; diff 126+/25- code (under 200-LOC cap)
+- STATUS: iter-1 gate in flight
+- NEXT_STEP: process FX-05 iter-1 verdict; if APPROVE -> verified, advance FX-06
+
+[2026-06-06 07:05:00]
+- ACTION: FX-05 (#1109) iter-1 RC processed -> iter-2 fix + gate launched (bg bsjhg87bv)
+- RATIONALE: Codex iter-1 P1 (valid): gate denied but 3 callers still generated. Added abort_corpus_approval_denied short-circuit before generation to run_live_honest_cycle/run_honest_on_prerebuild_corpus/honest_pipeline. honest_pipeline returns PipelineResult(status=..., evaluator=None Optional); run_honest_full_cycle guards. P2 stale text fixed in 3 places.
+- SYNC: ledger FX-05 -> codex_diff_iter2_inflight @ ce1dd907; brief+diff committed 59406e4f; #1109 commented
+- AFFECTED_FILES: corpus_approval_gate.py, honest_pipeline.py, run_honest_sweep_r3.py, run_honest_on_prerebuild_corpus.py, run_live_honest_cycle.py, run_honest_full_cycle.py, test_b2_corpus_approval_enforcement.py, fx05_s11_audit.md
+- EVIDENCE/FINDINGS: 36 offline tests pass; behavioral proof real offline run_honest_pipeline aborts (status=abort_corpus_approval_denied, evaluator None, empty report, no Methods); diff 259+/47- code
+- STATUS: iter-2 gate in flight
+- NEXT_STEP: process FX-05 iter-2 verdict
+
+[2026-06-06 07:25:00]
+- ACTION: FX-05 (#1109) iter-2 Codex APPROVE -> VERIFIED + closed
+- RATIONALE: 0 P0, 0 P1, 1 cosmetic P2 (doc-drift, accepted non-blocking, captured as FX-05-docdrift followup). Structured authorization gate + abort-before-generation in all 4 callers.
+- SYNC: ledger FX-05 -> verified; #1109 closed; commit 894ecb7c pushed
+- AFFECTED_FILES: state/ready017_fix_audit.json, .codex/I-ready-017/fx05_codex_diff_audit_iter2.txt
+- EVIDENCE/FINDINGS: APPROVE; §-1.1 audit + behavioral offline abort proof + 36 tests
+- STATUS: Phase 1 (4 rerun-gating) done; FX-05 done. Advancing FX-07 (frame_coverage footer/status/disclosure/bibliography).
+- NEXT_STEP: FX-07 — GitHub issue + comprehensive grep + fix + smoke + §-1.1 audit + gate
+
+[2026-06-06 07:45:00]
+- ACTION: FX-07 (#1110) leg 1/4 (footer) authored + committed WIP fe980cc7
+- RATIONALE: compose_methods_disclosure no longer claims "all N bound" when PASS entries are abstract_only/metadata_only (full text not retrieved). Highest-impact honesty leg, self-contained. NOT gated (3 more legs + behavior test + §-1.1 + single gate to follow).
+- SYNC: ledger FX-07 -> authoring_leg1of4_done @ fe980cc7; grounding notes persisted
+- AFFECTED_FILES: src/polaris_graph/generator/frame_manifest.py, tests/polaris_graph/test_m60_frame_manifest.py, .codex/I-ready-017/fx07_grounding_notes.md
+- EVIDENCE/FINDINGS: 25 test_m60 tests pass (label assertions updated to new wording, no regression)
+- STATUS: FX-07 leg 1 done; legs 2-4 + leg-1 behavior test + §-1.1 audit + Codex gate pending. Rerun unblocked (4 P0s + FX-05 verified) pending operator Q4.
+- NEXT_STEP: FX-07 leg 2 (status after strict_verify) — read contract_section_runner.py:854-944 result map + thread into compose_frame_coverage + honest_sweep_integration
+
+[2026-06-06 08:25:00]
+- ACTION: FX-07 (#1110) scoped to leg 1 (footer); legs 2-4 split to FX-07b (#1111); leg-1 iter-1 Codex gate launched (bg b5nb0svu4)
+- RATIONALE: Plan leg-2/3/4 line-numbers stale vs running system (Phase-1 retrieval-coverage path; citation_mapper in synthesis/). Leg 1 (footer false 'all bound' on shallow-provenance PASS) validated against REAL manifest (3 full-text + 4 abstract/metadata). Split per plan's explicit allowance.
+- SYNC: ledger FX-07 -> leg1 iter-1 inflight @ ddd73b28; FX-07b #1111 created+followup; #1110 commented; commit c1fa189c pushed
+- AFFECTED_FILES: frame_manifest.py, test_m60_frame_manifest.py, fx07_s11_audit.md, fx07_grounding_notes.md, ready017_fix_audit.json
+- EVIDENCE/FINDINGS: 27 test_m60 pass; §-1.1 audit real manifest -> footer 'full-text bound: 3' + names 4 shallow, no 'all 7 bound'; diff 28+/1- code
+- STATUS: leg-1 gate in flight
+- NEXT_STEP: process FX-07 leg-1 verdict; if APPROVE -> FX-07 leg-1 verified, then FX-07b (legs 2-4) or next ready ledger issue
+
+[2026-06-06 08:40:00]
+- ACTION: FX-07 (#1110) leg-1 Codex iter-1 APPROVE -> VERIFIED + closed; FX-07b (#1111) holds legs 2-4
+- RATIONALE: 0 P0/P1/P2 clean first-pass. Footer honesty fix validated on real manifest. Legs 2-4 split (stale plan line-numbers vs running system).
+- SYNC: ledger FX-07 -> verified; #1110 closed; #1100 + #1111 updated; commit 50f0d5d4 pushed
+- EVIDENCE/FINDINGS: APPROVE; 27 test_m60 pass; §-1.1 audit real manifest PASS
+- STATUS: This session verified: FX-01/02/03/CANARY-01 (rerun-gating, rerun UNBLOCKED) + FX-05 + FX-07 leg1. Follow-ups: FX-05-docdrift, FX-07b #1111.
+- NEXT_STEP: FX-08 (Mirror pass-2 tolerant parse + temp/seed + claim dedup) — read plan, scope, GitHub issue
+
+[2026-06-06 08:55:00]
+- ACTION: FX-08 (#1112) created + load-bearing safety invariant VERIFIED against real code
+- RATIONALE: FX-08 broadens Mirror pass-2 parsing (4-role verifier) — verified it cannot false-accept: mirror_adapter.py:341 MirrorCitationError grounding gate fires BEFORE _parse_pass2 (:368), + verify_pass2_binding(:378) content-hash gate. So tolerant pass-2 only stops false-DROPs of GROUNDED claims. Faithfulness-safe to author.
+- SYNC: ledger FX-08 -> grounded_safety_verified @ #1112; grounding notes persisted
+- AFFECTED_FILES: .codex/I-ready-017/fx08_grounding_notes.md, state/ready017_fix_audit.json
+- EVIDENCE/FINDINGS: mirror_adapter.py:337-378 confirms grounding-before-pass2 ordering + content-hash binding
+- STATUS: FX-08 grounded; PART A (tolerant parse mirror_adapter:210-294) + PART B (temp/seed openrouter_role_transport:485-528 + dedup sweep_integration) + NEGATIVE-PROOF test pending. Context saturated -> author next wake with headroom.
+- NEXT_STEP: author FX-08 PART A + tests + NEGATIVE-PROOF, then PART B, then ONE Codex gate
