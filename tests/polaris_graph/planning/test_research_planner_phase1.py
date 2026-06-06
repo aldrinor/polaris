@@ -142,7 +142,7 @@ class CaptureSearch:
     def __init__(self):
         self.queries: list[str] = []
 
-    def serper(self, q, num=10):
+    def serper(self, q, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
         self.queries.append(q)
         return []
 

@@ -613,7 +613,7 @@ def _install_capture_baseline(monkeypatch):
     serper_calls: list[str] = []
     s2_calls: list[str] = []
 
-    def _fake_serper(query, num=10):
+    def _fake_serper(query, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
         serper_calls.append(query)
         return [{"url": f"https://serp/{len(serper_calls)}", "title": "", "snippet": ""}]
 

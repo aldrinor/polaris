@@ -80,13 +80,17 @@ def _stub_pipeline(monkeypatch, n, openalex_impl):
     """Stub serper / s2 / filter / fetch so run_live_retrieval's post-fetch
     loop runs over `n` synthetic candidates with zero network."""
     monkeypatch.setenv("PG_USE_PARALLEL_FETCH", "0")  # serial path
+    # FX-18 (#1122) wired openalex_search (default-ON) into run_live_retrieval. This stub is
+    # explicitly "zero network", so disable that academic backend here — otherwise it hits the real
+    # OpenAlex API and adds non-deterministic candidates (breaks the n-candidate count assertions).
+    monkeypatch.setenv("PG_OPENALEX_SEARCH", "0")
     hits = [
         {"url": f"https://example.test/doc-{i}",
          "title": f"Carbon pricing household energy costs study {i}",
          "snippet": "carbon pricing household energy costs"}
         for i in range(n)
     ]
-    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10: list(hits))
+    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: list(hits))
     monkeypatch.setattr(lr, "_s2_bulk_search", lambda q, limit=20: [])
     monkeypatch.setattr(
         lr, "filter_search_results",

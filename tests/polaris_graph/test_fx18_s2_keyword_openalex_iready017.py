@@ -42,7 +42,7 @@ def _stub_fetch(url, max_chars, **kwargs):
 
 def test_s2_gets_distilled_query_and_openalex_merged_deduped(monkeypatch):
     captured_s2: dict = {}
-    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10: [
+    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: [
         {"url": "https://dup.org/a", "title": "Serper A", "snippet": "labor"}
     ])
 
