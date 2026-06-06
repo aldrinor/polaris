@@ -1,0 +1,639 @@
+diff --git a/scripts/run_honest_on_prerebuild_corpus.py b/scripts/run_honest_on_prerebuild_corpus.py
+index 2a914202..0eb608f2 100644
+--- a/scripts/run_honest_on_prerebuild_corpus.py
++++ b/scripts/run_honest_on_prerebuild_corpus.py
+@@ -60,6 +60,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+ )
+ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
+     CorpusApprovalDecision, CorpusSource,
++    authorization_from_env,
+     check_auto_approve_allowed, compute_tier_distribution,
+     save_approval_decision,
+ )
+@@ -229,8 +230,10 @@ async def main_async() -> int:
+         "from the clinical template are expected because the pre-rebuild "
+         "retrieval pulled a broader mix."
+     )
++    # FX-05 (I-ready-017): structured authorization, never a free-text note.
++    authorization = authorization_from_env()
+     if dist.has_material_deviation:
+-        ok, _ = check_auto_approve_allowed(dist, approval_note)
++        ok, _ = check_auto_approve_allowed(dist, authorization)
+         approved = ok
+     else:
+         approved = True
+@@ -240,6 +243,7 @@ async def main_async() -> int:
+         decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+         approved=approved,
+         user_note=approval_note,
++        authorization=authorization,
+         approved_source_urls=[s.url for s in classified] if approved else [],
+         rejected_source_urls=[] if approved else [s.url for s in classified],
+         report=dist,
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 6168e509..36c7da6f 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -111,6 +111,7 @@ from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
+ )
+ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
+     CorpusApprovalDecision,
++    authorization_from_env,
+     check_auto_approve_allowed,
+     compute_tier_distribution,
+     save_approval_decision,
+@@ -2992,19 +2993,29 @@ async def run_one_query(
+             log_f.close()
+             return summary
+ 
+-        note = f"R-3 sweep. Domain={q['domain']}. Auto-approve on sweep."
++        # FX-05 (I-ready-017): the auto-approve credential is a STRUCTURED
++        # authorization (PG_AUTHORIZED_SWEEP_APPROVAL), never a free-text note.
++        # The old canned note defeated the rubber-stamp guard and billed a
++        # material-deviation corpus. `note` below is descriptive/audit only.
++        authorization = authorization_from_env()
+         if dist.has_material_deviation:
+-            ok, err = check_auto_approve_allowed(dist, note)
++            ok, err = check_auto_approve_allowed(dist, authorization)
+             approved = ok
+             approval_error = err
+         else:
+             approved = True
+             approval_error = ""
++        note = (
++            f"R-3 sweep. Domain={q['domain']}. "
++            + ("structured authorization present"
++               if authorization is not None else "no structured authorization")
++        )
+         decision = CorpusApprovalDecision(
+             run_id=run_id,
+             decision_at_unix=time.time(),
+             decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             approved=approved, user_note=note,
++            authorization=authorization,
+             approved_source_urls=[s.url for s in retrieval.classified_sources] if approved else [],
+             rejected_source_urls=[] if approved else [s.url for s in retrieval.classified_sources],
+             report=dist, protocol_sha256=scope.protocol_sha256,
+diff --git a/scripts/run_live_honest_cycle.py b/scripts/run_live_honest_cycle.py
+index 43215c91..7eb61def 100644
+--- a/scripts/run_live_honest_cycle.py
++++ b/scripts/run_live_honest_cycle.py
+@@ -60,6 +60,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+ )
+ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
+     CorpusApprovalDecision,
++    authorization_from_env,
+     check_auto_approve_allowed,
+     compute_tier_distribution,
+     save_approval_decision,
+@@ -174,8 +175,10 @@ async def main_async() -> int:
+     _log(f"       material_deviation={dist_report.has_material_deviation}")
+ 
+     approval_note = "Live first-run; deviations expected."
++    # FX-05 (I-ready-017): structured authorization, never a free-text note.
++    authorization = authorization_from_env()
+     if dist_report.has_material_deviation:
+-        ok, err = check_auto_approve_allowed(dist_report, approval_note)
++        ok, err = check_auto_approve_allowed(dist_report, authorization)
+         approved = ok
+         _log(f"       deviation-approval: {'ACCEPTED' if ok else 'REJECTED'}  {err}")
+     else:
+@@ -187,6 +190,7 @@ async def main_async() -> int:
+         decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+         approved=approved,
+         user_note=approval_note,
++        authorization=authorization,
+         approved_source_urls=[s.url for s in classified_sources] if approved else [],
+         rejected_source_urls=[] if approved else [s.url for s in classified_sources],
+         report=dist_report,
+diff --git a/src/polaris_graph/honest_pipeline.py b/src/polaris_graph/honest_pipeline.py
+index 21da2316..6e18c96d 100644
+--- a/src/polaris_graph/honest_pipeline.py
++++ b/src/polaris_graph/honest_pipeline.py
+@@ -44,6 +44,7 @@ from src.polaris_graph.generator.provenance_generator import (
+ from src.polaris_graph.nodes.corpus_approval_gate import (
+     CorpusApprovalDecision,
+     CorpusSource,
++    authorization_from_env,
+     check_auto_approve_allowed,
+     compute_tier_distribution,
+     save_approval_decision,
+@@ -185,10 +186,14 @@ def run_honest_pipeline(
+     # ── Phase 2g: corpus approval gate ──────────────────────────────────
+     report = compute_tier_distribution(classified_sources, protocol_dict)
+     approved = False
++    # FX-05 (I-ready-017): a material-deviation corpus auto-approves ONLY with a
++    # structured authorization (PG_AUTHORIZED_SWEEP_APPROVAL), never a free-text
++    # note. `approval_note` is descriptive/audit only.
++    authorization = authorization_from_env()
+     if auto_approve_if_within_bounds and not report.has_material_deviation:
+         approved = True
+     else:
+-        ok, _ = check_auto_approve_allowed(report, approval_note)
++        ok, _ = check_auto_approve_allowed(report, authorization)
+         approved = ok
+ 
+     decision = CorpusApprovalDecision(
+@@ -199,6 +204,7 @@ def run_honest_pipeline(
+         ),
+         approved=approved,
+         user_note=approval_note,
++        authorization=authorization,
+         approved_source_urls=[s.url for s in classified_sources] if approved else [],
+         rejected_source_urls=[] if approved else [s.url for s in classified_sources],
+         report=report,
+diff --git a/src/polaris_graph/nodes/corpus_approval_gate.py b/src/polaris_graph/nodes/corpus_approval_gate.py
+index 9ebb20da..d61ea3d8 100644
+--- a/src/polaris_graph/nodes/corpus_approval_gate.py
++++ b/src/polaris_graph/nodes/corpus_approval_gate.py
+@@ -80,6 +80,26 @@ class CorpusDistributionReport:
+     auto_approve_allowed: bool
+ 
+ 
++@dataclass
++class AuthorizedSweep:
++    """Structured operator authorization to auto-approve a material-deviation
++    corpus (FX-05 / I-ready-017).
++
++    This REPLACES the old free-text "why is this corpus acceptable" note as the
++    auto-approve credential. A free-text field is defeatable (the R-3 sweep's own
++    48-char canned note passed the len>=30 + denylist guard → a material-deviation
++    corpus auto-approved and was billed). A credential must be a *positive,
++    audit-logged acknowledgement keyed to an explicit flag*, not prose.
++
++    Built only by `authorization_from_env()` when `PG_AUTHORIZED_SWEEP_APPROVAL`
++    is set truthy. Persisted as a structured block in `corpus_approval.json`.
++    """
++
++    authorized_by: str   # identity/source, e.g. "env:PG_AUTHORIZED_SWEEP_APPROVAL"
++    authorized_at: str   # ISO-8601 UTC timestamp the authorization was minted
++    flag_source: str     # provenance of the flag: "env" | "cli"
++
++
+ @dataclass
+ class CorpusApprovalDecision:
+     """Persisted once the user approves / rejects the corpus."""
+@@ -93,6 +113,10 @@ class CorpusApprovalDecision:
+     rejected_source_urls: list[str] = field(default_factory=list)
+     report: Optional[CorpusDistributionReport] = None
+     protocol_sha256: str = ""
++    # FX-05: the STRUCTURED credential that authorized an auto-approve on a
++    # material-deviation corpus (None = no structured authorization; for a
++    # material-deviation corpus that means the run was/should be denied).
++    authorization: Optional[AuthorizedSweep] = None
+ 
+ 
+ def compute_tier_distribution(
+@@ -307,36 +331,88 @@ def save_approval_decision(
+     return path
+ 
+ 
++# FX-05 (I-ready-017): the ONE sanctioned auto-approve credential for a
++# material-deviation corpus. A free-text note is NOT a credential.
++PG_AUTHORIZED_SWEEP_APPROVAL_ENV = "PG_AUTHORIZED_SWEEP_APPROVAL"
++# Optional: who/what to record as the authorizing identity (audit only).
++PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV = "PG_AUTHORIZED_SWEEP_APPROVED_BY"
++
++_TRUTHY = {"1", "true", "yes", "on"}
++
++
++def _is_truthy(value: Optional[str]) -> bool:
++    return (value or "").strip().lower() in _TRUTHY
++
++
++def authorization_from_env() -> Optional[AuthorizedSweep]:
++    """Build a structured :class:`AuthorizedSweep` iff
++    ``PG_AUTHORIZED_SWEEP_APPROVAL`` is set truthy.
++
++    This is the ONLY sanctioned path to auto-approve a material-deviation
++    corpus (FX-05). When the flag is absent/falsey this returns ``None`` and
++    the gate denies (``abort_corpus_approval_denied``) — default-deny honors
++    §9.1 invariant #5 and gates generator spend. LAW VI: the credential comes
++    exclusively from configuration, never hard-coded.
++    """
++    if not _is_truthy(os.getenv(PG_AUTHORIZED_SWEEP_APPROVAL_ENV)):
++        return None
++    return AuthorizedSweep(
++        authorized_by=(
++            os.getenv(PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV)
++            or f"env:{PG_AUTHORIZED_SWEEP_APPROVAL_ENV}"
++        ),
++        authorized_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++        flag_source="env",
++    )
++
++
+ def check_auto_approve_allowed(
+     report: CorpusDistributionReport,
+-    user_note: str,
++    authorization: Optional[AuthorizedSweep] = None,
+ ) -> tuple[bool, str]:
+-    """Rubber-stamp resistance.
+-
+-    Returns (ok, error_message).
+-    - If no material deviation: auto-approve is fine, any note accepted.
+-    - If material deviation exists: note must be >=30 chars and must
+-      not be one of the trivial rubber-stamp strings.
++    """Structured-authorization gate (FX-05 / I-ready-017).
++
++    Replaces the defeatable free-text-note heuristic (any prose >=30 chars not
++    in a small denylist auto-approved — the R-3 sweep's own canned note slipped
++    through and billed a material-deviation corpus).
++
++    Returns ``(ok, error_message)``.
++    - No material deviation → auto-approve is fine; no authorization needed.
++    - Material deviation → auto-approve ONLY with a complete structured
++      :class:`AuthorizedSweep`. A ``None`` authorization, or ANY non-
++      ``AuthorizedSweep`` value (e.g. a legacy free-text note), is rejected
++      fail-closed. Default-deny gates generator spend (§9.1 #5).
+     """
+     if not report.has_material_deviation:
+         return True, ""
+ 
+-    note = (user_note or "").strip()
+-    if len(note) < 30:
++    if authorization is None:
+         return False, (
+             "Material deviation from the pre-registered protocol detected. "
+-            "Approval requires a note (>=30 chars) explaining why the "
+-            "deviation is acceptable."
++            "Auto-approve requires a structured operator authorization "
++            f"(set {PG_AUTHORIZED_SWEEP_APPROVAL_ENV}=1); a free-text note is "
++            "not a sanctioned credential. Denying "
++            "(abort_corpus_approval_denied)."
+         )
+-    trivial = {
+-        "ok", "ok ok", "looks fine", "lgtm", "approve",
+-        "approved", "fine", "good", "yes", "proceed", "go ahead",
+-    }
+-    if note.lower() in trivial:
++
++    if not isinstance(authorization, AuthorizedSweep):
+         return False, (
+-            f"Approval note {note!r} is a rubber-stamp. Provide a "
+-            f"substantive explanation for the protocol deviation — what "
+-            f"changed, why the deviation is acceptable, and whether the "
+-            f"final report should flag the deviation in its methods section."
++            "Material deviation detected and the supplied approval credential "
++            f"is not a structured authorization ({type(authorization).__name__}). "
++            f"A free-text note alone never auto-approves; set "
++            f"{PG_AUTHORIZED_SWEEP_APPROVAL_ENV}=1. Denying "
++            "(abort_corpus_approval_denied)."
+         )
++
++    if not (
++        authorization.authorized_by.strip()
++        and authorization.authorized_at.strip()
++        and authorization.flag_source.strip()
++    ):
++        return False, (
++            "Material deviation detected and the structured authorization is "
++            "incomplete (authorized_by / authorized_at / flag_source all "
++            "required). Denying (abort_corpus_approval_denied)."
++        )
++
+     return True, ""
+diff --git a/tests/crown_jewels/test_cj_005_corpus_approval.py b/tests/crown_jewels/test_cj_005_corpus_approval.py
+index a92ad8d5..7fec6da2 100644
+--- a/tests/crown_jewels/test_cj_005_corpus_approval.py
++++ b/tests/crown_jewels/test_cj_005_corpus_approval.py
+@@ -1,21 +1,25 @@
+ """Crown Jewel I-cj-005 — Corpus approval rubber-stamp resistance.
+ 
+-Per CLAUDE.md §9.1.5: a corpus with material tier deviation + a
+-rubber-stamp note aborts before any generator token is billed
+-(status = abort_corpus_approval_denied). The check_auto_approve_allowed
+-gate enforces:
+-  - no material deviation → any note OK
+-  - material deviation + short / trivial note → rejected
+-  - material deviation + substantive note → OK
+-
+-The Crown Jewel pins the user-observable rejection invariant; whether
+-the rejection fires under the length-check branch or the trivial-note
+-branch is an implementation detail.
++Per CLAUDE.md §9.1.5: a corpus with material tier deviation aborts before
++any generator token is billed (status = abort_corpus_approval_denied).
++
++FX-05 (I-ready-017) STRENGTHENS this invariant. The old gate accepted any
++free-text note >=30 chars not in a small denylist — defeated by the R-3
++sweep's own 48-char canned note, which auto-approved a material-deviation
++corpus and billed it. The gate now enforces:
++  - no material deviation → auto-approve OK (no authorization needed)
++  - material deviation + NO structured authorization → rejected
++  - material deviation + free-text note (any length) → rejected
++  - material deviation + COMPLETE structured AuthorizedSweep → OK
++
++The Crown Jewel pins the user-observable rejection invariant: a free-text
++note alone never auto-approves a material-deviation corpus.
+ """
+ 
+ from __future__ import annotations
+ 
+ from src.polaris_graph.nodes.corpus_approval_gate import (
++    AuthorizedSweep,
+     CorpusDistributionReport,
+     check_auto_approve_allowed,
+ )
+@@ -32,33 +36,50 @@ def _report(material: bool) -> CorpusDistributionReport:
+     )
+ 
+ 
+-def test_cj_005_no_material_deviation_any_note_ok() -> None:
+-    ok, msg = check_auto_approve_allowed(_report(False), user_note="")
+-    assert ok and msg == ""
+-
+-
+-def test_cj_005_material_deviation_empty_note_rejected() -> None:
+-    ok, msg = check_auto_approve_allowed(_report(True), user_note="")
+-    assert not ok and "note" in msg.lower()
++def _valid_authorization() -> AuthorizedSweep:
++    return AuthorizedSweep(
++        authorized_by="env:PG_AUTHORIZED_SWEEP_APPROVAL",
++        authorized_at="2026-06-06T00:00:00Z",
++        flag_source="env",
++    )
+ 
+ 
+-def test_cj_005_material_deviation_short_note_rejected() -> None:
+-    ok, msg = check_auto_approve_allowed(_report(True), user_note="too short")
+-    assert not ok and "note" in msg.lower()
++def test_cj_005_no_material_deviation_auto_approves() -> None:
++    ok, msg = check_auto_approve_allowed(_report(False), None)
++    assert ok and msg == ""
+ 
+ 
+-def test_cj_005_material_deviation_short_or_trivial_rejected() -> None:
+-    for note in ["lgtm", "approved", "ok", "fine", "go ahead", "x"]:
+-        ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+-        assert not ok, f"short / trivial note {note!r} should be rejected"
+-        assert msg, "rejection must include explanation"
++def test_cj_005_material_deviation_no_authorization_rejected() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), None)
++    assert not ok and "authoriz" in msg.lower()
++
++
++def test_cj_005_material_deviation_free_text_note_rejected() -> None:
++    """A free-text note — short, trivial, OR substantive — never auto-approves."""
++    notes = [
++        "",
++        "too short",
++        "lgtm",
++        "approved",
++        "R-3 sweep. Domain=clinical. Auto-approve on sweep.",  # the real defeater
++        (
++            "T1 sources fell below 30% because Cochrane Review CD012345 was "
++            "retracted post-protocol-registration and we replaced it with two "
++            "T2 systematic reviews. The methods section flags this deviation."
++        ),
++    ]
++    for note in notes:
++        ok, msg = check_auto_approve_allowed(_report(True), note)
++        assert not ok, f"free-text note {note!r} must NOT auto-approve (FX-05)"
++        assert msg, "rejection must include an explanation"
++
++
++def test_cj_005_material_deviation_structured_authorization_accepted() -> None:
++    ok, msg = check_auto_approve_allowed(_report(True), _valid_authorization())
++    assert ok and msg == ""
+ 
+ 
+-def test_cj_005_material_deviation_substantive_note_accepted() -> None:
+-    note = (
+-        "T1 sources fell below 30% because Cochrane Review CD012345 was "
+-        "retracted post-protocol-registration and we replaced it with two "
+-        "T2 systematic reviews. The methods section flags this deviation."
+-    )
+-    ok, msg = check_auto_approve_allowed(_report(True), user_note=note)
+-    assert ok and msg == ""
++def test_cj_005_material_deviation_incomplete_authorization_rejected() -> None:
++    incomplete = AuthorizedSweep(authorized_by="", authorized_at="", flag_source="")
++    ok, msg = check_auto_approve_allowed(_report(True), incomplete)
++    assert not ok and msg
+diff --git a/tests/polaris_graph/test_b2_corpus_approval_enforcement.py b/tests/polaris_graph/test_b2_corpus_approval_enforcement.py
+index 97b9fe67..74d28a76 100644
+--- a/tests/polaris_graph/test_b2_corpus_approval_enforcement.py
++++ b/tests/polaris_graph/test_b2_corpus_approval_enforcement.py
+@@ -12,20 +12,15 @@ run requires network + API keys.
+ from __future__ import annotations
+ 
+ from src.polaris_graph.nodes.corpus_approval_gate import (
++    AuthorizedSweep,
+     CorpusSource,
+     check_auto_approve_allowed,
+     compute_tier_distribution,
+ )
+ 
+ 
+-def _rubber_stamp_note() -> str:
+-    return "ok"  # trivial, should trigger auto-approve denial
+-
+-
+-def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
+-    """If the corpus has material deviation, a trivial note must be
+-    rejected by check_auto_approve_allowed."""
+-    # 9 T5 + 1 T1 = way over T5 cap for clinical template
++def _material_deviation_report():
++    """9 T5 + 1 T1 = way over the clinical T5 cap → material deviation."""
+     classified = [
+         CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
+                      tier="T5", tier_confidence=0.9, tier_rule="",
+@@ -44,38 +39,42 @@ def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
+     }
+     report = compute_tier_distribution(classified, protocol)
+     assert report.has_material_deviation is True
+-    ok, err = check_auto_approve_allowed(report, _rubber_stamp_note())
++    return report
++
++
++def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
++    """FX-05: on material deviation, NO free-text credential (and no missing
++    authorization) auto-approves — default-deny gates spend."""
++    report = _material_deviation_report()
++    ok, err = check_auto_approve_allowed(report, None)
+     assert ok is False
+-    assert "note" in err.lower() or "deviation" in err.lower()
++    assert "authoriz" in err.lower() or "deviation" in err.lower()
+ 
+ 
+-def test_b2_substantive_note_accepted_for_material_deviation() -> None:
+-    """A real, substantive note (>=30 chars, not in trivial set) is OK."""
+-    classified = [
+-        CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
+-                     tier="T5", tier_confidence=0.9, tier_rule="",
+-                     tier_reasons=[])
+-        for i in range(9)
+-    ] + [
+-        CorpusSource(url="https://pmc/1", title="", domain="pmc",
+-                     tier="T1", tier_confidence=0.9, tier_rule="",
+-                     tier_reasons=[]),
+-    ]
+-    protocol = {
+-        "expected_tier_distribution": [
+-            {"tier": "T1", "min_fraction": 0.3, "max_fraction": 0.6},
+-            {"tier": "T5", "min_fraction": 0.0, "max_fraction": 0.15},
+-        ],
+-    }
+-    report = compute_tier_distribution(classified, protocol)
++def test_b2_free_text_note_alone_never_auto_approves() -> None:
++    """FX-05 (was test_b2_substantive_note_accepted, which encoded the loophole):
++    a free-text note — however substantive — NEVER auto-approves a material-
++    deviation corpus. Only a structured AuthorizedSweep does."""
++    report = _material_deviation_report()
+     substantive = (
+         "This market-research corpus is heavily weighted toward "
+         "industry analyst reports because the research question "
+         "specifically asks about competitor positioning; peer-reviewed "
+         "T1 sources are rare in this domain."
+     )
+-    ok, _err = check_auto_approve_allowed(report, substantive)
+-    assert ok is True
++    ok_note, err_note = check_auto_approve_allowed(report, substantive)
++    assert ok_note is False, "a free-text note must NOT auto-approve (FX-05)"
++    assert err_note  # a non-empty denial reason
++
++    # The ONE sanctioned path: a complete structured authorization.
++    auth = AuthorizedSweep(
++        authorized_by="env:PG_AUTHORIZED_SWEEP_APPROVAL",
++        authorized_at="2026-06-06T00:00:00Z",
++        flag_source="env",
++    )
++    ok_auth, err_auth = check_auto_approve_allowed(report, auth)
++    assert ok_auth is True
++    assert err_auth == ""
+ 
+ 
+ def test_b2_sweep_orchestrator_has_enforcement_branch() -> None:
+diff --git a/tests/polaris_graph/test_corpus_approval_gate.py b/tests/polaris_graph/test_corpus_approval_gate.py
+index fcf94a9a..50806dcf 100644
+--- a/tests/polaris_graph/test_corpus_approval_gate.py
++++ b/tests/polaris_graph/test_corpus_approval_gate.py
+@@ -9,8 +9,10 @@ from pathlib import Path
+ import pytest
+ 
+ from src.polaris_graph.nodes.corpus_approval_gate import (
++    AuthorizedSweep,
+     CorpusApprovalDecision,
+     CorpusSource,
++    authorization_from_env,
+     check_auto_approve_allowed,
+     compute_tier_distribution,
+     render_approval_html,
+@@ -125,60 +127,83 @@ def test_html_shows_material_banner_when_deviation() -> None:
+     assert "Material deviation" in html_doc
+ 
+ 
++def _material_deviation_report():
++    """A corpus that is 100% T5 → way over the clinical T5 cap → material."""
++    sources = [
++        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
++        for i in range(10)
++    ]
++    report = compute_tier_distribution(sources, _clinical_protocol())
++    assert report.has_material_deviation is True
++    return report
++
++
+ def test_check_auto_approve_allowed_without_deviation() -> None:
+     report = compute_tier_distribution(
+         _on_protocol_corpus(), _clinical_protocol(),
+     )
+-    ok, err = check_auto_approve_allowed(report, "ok")
++    # FX-05: no material deviation → auto-approve regardless of authorization.
++    ok, err = check_auto_approve_allowed(report, None)
+     assert ok is True
+     assert err == ""
+ 
+ 
+-def test_check_auto_approve_rejects_short_note_on_material() -> None:
+-    sources = [
+-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+-        for i in range(10)
+-    ]
+-    report = compute_tier_distribution(sources, _clinical_protocol())
+-    ok, err = check_auto_approve_allowed(report, "ok")
++def test_material_deviation_denies_without_authorization() -> None:
++    """FX-05: material deviation + no structured authorization → DENY."""
++    report = _material_deviation_report()
++    ok, err = check_auto_approve_allowed(report, None)
+     assert ok is False
+-    assert "note" in err.lower()
++    assert "authoriz" in err.lower()
+ 
+ 
+-def test_check_auto_approve_rejects_trivial_notes() -> None:
+-    sources = [
+-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+-        for i in range(10)
+-    ]
+-    report = compute_tier_distribution(sources, _clinical_protocol())
+-    ok, err = check_auto_approve_allowed(report, "looks fine lgtm approve now!!")
+-    # Too trivial even though length > 30
+-    # (The trivial filter checks the whole note as one of the dismissible set;
+-    # this note might pass the trivial set but is >= 30 chars. Adjust assertion.)
+-    # The current logic: only matches exact trivial phrases. So this passes.
+-    # Add a genuinely trivial test instead.
+-    ok2, err2 = check_auto_approve_allowed(report, "approved" + " " * 30)
+-    # "approved" alone is trivial; with trailing spaces it's still trivial
+-    # after strip
+-    assert ok2 is False
+-
+-
+-def test_check_auto_approve_accepts_substantive_note() -> None:
+-    sources = [
+-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+-        for i in range(10)
+-    ]
+-    report = compute_tier_distribution(sources, _clinical_protocol())
+-    note = (
++def test_material_deviation_denies_free_text_note() -> None:
++    """FX-05: a free-text note alone NEVER auto-approves (closes the loophole
++    where the R-3 sweep's own 48-char canned note slipped through)."""
++    report = _material_deviation_report()
++    substantive = (
+         "Corpus is dominated by manufacturer HCP content because the "
+         "research question is specifically about the labelled dosing "
+         "regimen. Will flag in methods."
+     )
+-    ok, err = check_auto_approve_allowed(report, note)
++    ok, err = check_auto_approve_allowed(report, substantive)  # legacy free text
++    assert ok is False
++    assert "note" in err.lower() or "authoriz" in err.lower()
++
++
++def test_material_deviation_approves_with_structured_authorization() -> None:
++    """FX-05: a COMPLETE AuthorizedSweep is the one sanctioned auto-approve."""
++    report = _material_deviation_report()
++    auth = AuthorizedSweep(
++        authorized_by="env:PG_AUTHORIZED_SWEEP_APPROVAL",
++        authorized_at="2026-06-06T00:00:00Z",
++        flag_source="env",
++    )
++    ok, err = check_auto_approve_allowed(report, auth)
+     assert ok is True
+     assert err == ""
+ 
+ 
++def test_material_deviation_denies_incomplete_authorization() -> None:
++    """FX-05: an AuthorizedSweep missing required fields → DENY (fail-closed)."""
++    report = _material_deviation_report()
++    auth = AuthorizedSweep(authorized_by="", authorized_at="", flag_source="")
++    ok, err = check_auto_approve_allowed(report, auth)
++    assert ok is False
++
++
++def test_authorization_from_env_requires_flag(monkeypatch) -> None:
++    """FX-05: authorization_from_env() returns None unless the flag is truthy,
++    and a complete AuthorizedSweep when it is (LAW VI: from config only)."""
++    monkeypatch.delenv("PG_AUTHORIZED_SWEEP_APPROVAL", raising=False)
++    assert authorization_from_env() is None
++    monkeypatch.setenv("PG_AUTHORIZED_SWEEP_APPROVAL", "0")
++    assert authorization_from_env() is None
++    monkeypatch.setenv("PG_AUTHORIZED_SWEEP_APPROVAL", "1")
++    auth = authorization_from_env()
++    assert auth is not None
++    assert auth.authorized_by and auth.authorized_at and auth.flag_source == "env"
++
++
+ def test_save_approval_decision_writes_json(tmp_path: Path) -> None:
+     sources = _on_protocol_corpus()
+     report = compute_tier_distribution(sources, _clinical_protocol())
