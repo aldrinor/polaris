@@ -14,21 +14,21 @@ import src.polaris_graph.retrieval.live_retriever as lr
 from src.polaris_graph.retrieval.live_retriever import _is_low_content_host_or_page
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import FilterResult
 
-# (url, expected_reject) — held drb_72 trace shapes + real-article controls.
+# Pure NAV / SERP / TOC / discussion listing pages (held drb_72 trace shapes + synthetic) — REJECT.
 _REJECT = [
-    "https://www.aeaweb.org/conference/2009/retrieve.php?pdfid=139",
-    "https://www.aeaweb.org/conference/2019/preliminary/paper/Ri8niS2D",
-    "https://www.aeaweb.org/conference/2023/program/paper/8A8RRTQY",
     "https://www.aeaweb.org/journals/search-results?from=a&page=156&per-page=21",
     "https://www.aeaweb.org/journals/search-results?from=a&page=216&per-page=21",
+    "https://www.aeaweb.org/search/index?jelcode=b1&type=&page=504",
     "https://www.aeaweb.org/forum/232/ba-wanting-to-gain-exposure",
     "https://www.aeaweb.org/issues/381",
     "https://www.google.com/search?q=labor+economics",
     "https://example.org/browse/all",
-    "https://soc.org/annual-meeting/2024/schedule",
     "https://www.journals.uchicago.edu/toc/jpe/2020/128/6",
     "https://www.journals.uchicago.edu/toc/jpe/current",
 ]
+# Real articles AND pages that CAN bear evidence (conference papers, supplement abstracts,
+# annual-meeting papers, working-paper PDFs) — KEEP (post-fetch tier classifier decides). Codex
+# iter-1 P1: the structural filter MUST NOT pre-fetch-drop these.
 _KEEP = [
     "https://www.aeaweb.org/articles?id=10.1257/jep.29.3.3",
     "https://www.aeaweb.org/articles?id=10.1257/aer.104.8.2509",
@@ -36,7 +36,29 @@ _KEEP = [
     "https://arxiv.org/abs/2401.00001",
     "https://www.nber.org/papers/w12345",
     "https://doi.org/10.1056/NEJMoa1107039",
+    # Held drb_72 conference program-paper URLs that fetched REAL papers (evidence_pool.json):
+    "https://www.aeaweb.org/conference/2025/program/paper/S7SHZQ4n",  # 50k chars
+    "https://www.aeaweb.org/conference/2025/program/paper/S25ktKkD",  # 30k chars
+    # Same shape, junk in this run — but URL cannot distinguish, so KEEP (post-fetch drops it):
+    "https://www.aeaweb.org/conference/2023/program/paper/8A8RRTQY",
+    # Conference supplement abstract — bears abstract-level evidence; tier classifier down-tiers it:
+    "https://academic.oup.com/ooec/article/3/Supplement_1/i906/7708121",
+    "https://soc.org/annual-meeting/2024/program/paper/abc",
 ]
+
+
+# Codex iter-1 P1 regression: the EXACT held URLs that fetched real evidence must NEVER be dropped.
+_HELD_FALSE_DROP_REGRESSION = [
+    "https://www.aeaweb.org/conference/2025/program/paper/S7SHZQ4n",
+    "https://www.aeaweb.org/conference/2025/program/paper/S25ktKkD",
+]
+
+
+def test_held_conference_papers_not_dropped_regression():
+    """Codex iter-1 P1: these held agentic URLs each fetched a real paper (50k / 30k chars in
+    evidence_pool.json). A blanket /conference reject false-dropped them — must stay KEPT."""
+    for u in _HELD_FALSE_DROP_REGRESSION:
+        assert _is_low_content_host_or_page(u, "") is False, f"P1 regression — must KEEP real paper: {u}"
 
 
 def test_low_content_filter_rejects_nav_serp_conference():

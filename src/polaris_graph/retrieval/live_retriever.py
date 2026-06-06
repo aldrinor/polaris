@@ -50,7 +50,6 @@ from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
-    _detect_conference_abstract,
     classify_source_tier,
 )
 
@@ -2103,24 +2102,34 @@ _SEED_SOURCE_LABELS: frozenset[str] = frozenset(
 )
 
 
-# FX-15b (#1119): path/route markers that unambiguously denote a NAV / SERP / conference-program
-# page carrying ~0 extractable evidence. Matched as lowercase substrings of the URL. Chosen
-# PRECISION-FIRST from the held drb_72 trace: every one of these appears only on listing/program
-# pages, NEVER on a real article URL (`/articles?id=...`, `pubs.*/doi/...`, arxiv `/abs/...`).
-# Note: `/issues/` (plural journal-TOC listing, e.g. `/issues/381`) is rejected, but `/issue/`
-# (singular) is NOT — it can prefix a real article path; conference programs are caught by the
-# reused `_detect_conference_abstract` heuristic instead.
+# FX-15b (#1119): path/route markers for pages that CANNOT carry a single paper's content — pure
+# navigation / search-result / table-of-contents / discussion listings. Matched as lowercase
+# substrings of the URL. Chosen PRECISION-FIRST and EMPIRICALLY (Codex iter-1 P1 + evidence_pool.json
+# cross-reference on the held drb_72 trace): every one appears ONLY on listing/nav pages, never on a
+# page that fetched real evidence.
+#
+# DELIBERATELY EXCLUDED (Codex iter-1 P1 — these CAN bear evidence, so pre-fetch dropping is a
+# precision failure; the POST-fetch tier classifier + content-starvation check handle the empty ones):
+#   - `/conference/.../program/paper/<id>` — held S7SHZQ4n (50k chars) + S25ktKkD (30k chars) fetched
+#     as REAL papers; the junk 8A8RRTQY has the IDENTICAL shape, so URL cannot distinguish them.
+#   - `/annual-meeting/.../paper/...` — same ambiguity as conference papers.
+#   - conference SUPPLEMENT abstracts (`/Supplement_`) — bear abstract-level evidence; let the tier
+#     classifier DOWN-TIER them (it already does) rather than pre-fetch DROP them.
+# `/issue/` (singular) is NOT a marker (it prefixes real article paths); `/issues/` (plural TOC
+# listing) IS.
 _LOW_CONTENT_PATH_MARKERS: tuple[str, ...] = (
-    "/search", "/browse", "/conference", "/annual-meeting", "/issues/", "/forum/",
+    "/search", "/browse", "/issues/", "/forum/",
     "/toc/",  # journal table-of-contents listing (e.g. /toc/jpe/current) — never a real article
 )
 
 
 def _is_low_content_host_or_page(url: str, title: str = "") -> bool:
-    """FX-15b (#1119): structural reject of nav / SERP / conference-program URLs, applied to
-    agentic-discovered seed URLs BEFORE fetch (a cheap deterministic floor layered before the
-    semantic / tier filters). PRECISION-FIRST — must NEVER reject a real article/abstract page.
-    Pure + no network. Returns True iff the URL should be dropped as low-content.
+    """FX-15b (#1119): structural reject of pure NAV / SERP / table-of-contents / discussion URLs,
+    applied to agentic-discovered seed URLs BEFORE fetch (a cheap deterministic floor that skips a
+    wasted fetch on pages that cannot contain a paper). PRECISION-FIRST — must NEVER reject a page
+    that could fetch real evidence (conference papers, supplement abstracts, working-paper PDFs are
+    all KEPT and decided by the post-fetch tier classifier + content-starvation check). Pure + no
+    network. Returns True iff the URL is a pure listing/nav page that should be dropped.
     """
     if not url:
         return False
@@ -2129,11 +2138,6 @@ def _is_low_content_host_or_page(url: str, title: str = "") -> bool:
         return True
     # Paginated SERP / search-result listing pages (not an article).
     if "search-results" in u or "per-page=" in u:
-        return True
-    # Conference-abstract / supplement program pages (reuse the tier-classifier heuristic so the
-    # two layers stay consistent). title is usually empty for URL-only agentic seeds; URL-only
-    # signals (/Supplement_, /abstract/, abstract-id prefixes) still fire.
-    if _detect_conference_abstract(title or "", url):
         return True
     return False
 
