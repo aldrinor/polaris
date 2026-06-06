@@ -494,12 +494,19 @@ def assess_journal_only_adequacy(
     *,
     required_anchor_dois: Iterable[str] = (),
     min_distinct: int = DEFAULT_MIN_DISTINCT_JOURNALS,
+    contract_guaranteed_dois: Iterable[str] = (),
 ) -> JournalAdequacyResult:
     """Floor that guards against a thin-corpus false pass (Codex design P1-4).
 
     Requires (a) >= ``min_distinct`` distinct citeable journal articles and
-    (b) every required S1 canonical-anchor DOI present in the citeable corpus.
-    Fail → caller aborts ``abort_corpus_inadequate``.
+    (b) every required S1 canonical-anchor DOI present in the citeable corpus
+    OR guaranteed by the report contract. ``contract_guaranteed_dois`` are the
+    journal DOIs of the kept V30 contract required-entities, which are injected
+    into the billed set AFTER this gate runs (a §-1.1 finding on the real held
+    drb_72 billed set: 3 S1 anchors existed only as contract frame rows, so a
+    retrieved-only anchor check would falsely abort). Distinct-count still
+    measures the RETRIEVED breadth only. Fail → caller aborts
+    ``abort_corpus_inadequate``.
     """
     distinct_urls: set[str] = set()
     present_dois: set[str] = set()
@@ -512,6 +519,7 @@ def assess_journal_only_adequacy(
             if doi:
                 present_dois.add(doi)
 
+    present_dois |= {_normalize_doi(d) for d in contract_guaranteed_dois if d}
     want = {_normalize_doi(d) for d in required_anchor_dois if d}
     missing = sorted(want - present_dois)
 

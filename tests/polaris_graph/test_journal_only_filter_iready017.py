@@ -244,6 +244,21 @@ def test_adequacy_fails_missing_anchor():
     assert any("missing_s1_anchor_dois" in x for x in r.reasons)
 
 
+def test_adequacy_anchor_satisfied_by_contract_guarantee():
+    # 12 distinct retrieved journals but the anchor DOI is NOT among them — it is
+    # a V30 contract frame row injected later. contract_guaranteed_dois credits
+    # it (the real held-billed-set §-1.1 finding).
+    rows, sc = _journal_rows(12)
+    r = jof.assess_journal_only_adequacy(
+        rows, sc,
+        required_anchor_dois=["10.1093/qje/qjae044"],
+        min_distinct=12,
+        contract_guaranteed_dois=["10.1093/qje/qjae044"],
+    )
+    assert r.ok is True, r.reasons
+    assert r.missing_anchor_dois == []
+
+
 def test_adequacy_passes_with_count_and_anchors():
     rows, sc = _journal_rows(11, start=1)
     anchor_url = "https://aeaweb.org/articles?id=10.1257/jep.33.2.3"

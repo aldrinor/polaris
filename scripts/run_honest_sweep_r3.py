@@ -3145,6 +3145,28 @@ async def run_one_query(
             # false pass. Fires in BOTH planner and legacy modes (see the abort
             # condition below). Fail-closed.
             _jo_floor_cfg = (protocol.get("corpus_adequacy") or {}).get("journal_only") or {}
+            # §-1.1 finding (real held billed set): some S1 anchors exist ONLY as
+            # V30 contract frame rows (injected AFTER this gate), so the anchor
+            # check must also credit the kept journal contract entities. Compute
+            # them deterministically from the protocol contract (same entity
+            # citeability the V30 prune applies).
+            _jo_contract_dois: list[str] = []
+            _jo_req_entities = {
+                _e.get("id"): _e
+                for _e in (
+                    (protocol.get("per_query_report_contract") or {})
+                    .get(q["slug"], {})
+                    .get("required_entities", [])
+                )
+                if _e.get("id")
+            }
+            if _jo_req_entities:
+                _jo_ent_keep = _jof.prune_contract_plans(_jo_req_entities, {}).kept_entity_ids
+                _jo_contract_dois = [
+                    str(_jo_req_entities[_eid].get("doi") or "")
+                    for _eid in _jo_ent_keep
+                    if _jo_req_entities[_eid].get("doi")
+                ]
             _jo_adq = _jof.assess_journal_only_adequacy(
                 retrieval.evidence_rows,
                 _jo_sidecar,
@@ -3154,6 +3176,7 @@ async def run_one_query(
                         "min_distinct_journals", _jof.DEFAULT_MIN_DISTINCT_JOURNALS
                     )
                 ),
+                contract_guaranteed_dois=_jo_contract_dois,
             )
             if not _jo_adq.ok:
                 _jo_force_inadequate = True
