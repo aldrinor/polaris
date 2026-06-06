@@ -33,6 +33,7 @@ from src.polaris_graph.clinical_retrieval.evidence_pool import (
     Source,
     SourceTier,
 )
+from src.polaris_graph.generator.provenance_generator import verify_sentence_provenance
 
 
 def _src(full_text: str, source_id: str = "src-1") -> Source:
@@ -116,6 +117,14 @@ def test_bug01l2_discourse_sentences_match(sentence: str) -> None:
         "Tirzepatide did not increase cardiovascular risk versus placebo.",
         "For example, SURPASS-2 enrolled adults with type 2 diabetes.",
         "Strong complementarities between automation and labor increase productivity.",
+        # Codex iter-1 P1 adversarial cases — clinical DOSING/THERAPY verbs + clinical terms.
+        "We can combine metformin with basal insulin and titrate the dose weekly.",
+        "We can split the daily dose into two administrations to reduce nausea.",
+        "We can shorten the infusion to thirty minutes in stable patients.",
+        "We can lengthen the dosing interval to every other week if tolerated.",
+        "This is repetitive transcranial magnetic stimulation for treatment-resistant depression.",
+        "The final attempt at intubation failed after three tries.",
+        "On the second attempt the catheter was placed without complication.",
     ],
 )
 def test_bug01l2_clinical_prose_not_flagged(sentence: str) -> None:
@@ -167,3 +176,38 @@ def test_bug01l2_enforce_keeps_real_clinical_claim(monkeypatch) -> None:
     )
     passed, reason = verify_sentence(sentence, pool, min_content_overlap=2)
     assert passed is True, f"real clinical claim false-dropped: {reason}"
+
+
+# ---------------------------------------------------------------------------
+# BUG-03 — provenance_generator: the empty floor runs UNCONDITIONALLY (Codex iter-1 P2)
+# ---------------------------------------------------------------------------
+def _prov_pool() -> dict:
+    # provenance token regex requires [A-Za-z0-9_]+ for the evidence id (no hyphens).
+    return {"src_1": {"direct_quote": "Aspirin reduced cardiovascular events in adults by 23.5%."}}
+
+
+@pytest.mark.parametrize("require_number_match", [True, False])
+def test_bug03_provenance_token_only_dropped_regardless_of_number_match(
+    require_number_match: bool,
+) -> None:
+    """A token-only sentence must drop in BOTH require_number_match modes — the floor must NOT be
+    bypassable via require_number_match=False (Codex iter-1 P2)."""
+    result = verify_sentence_provenance(
+        "[#ev:src_1:0-5].", _prov_pool(), require_number_match=require_number_match
+    )
+    assert result.is_verified is False
+    assert "empty_or_contentless_sentence" in result.failure_reasons
+
+
+def test_bug03_provenance_real_sentence_passes_with_number_match_off() -> None:
+    """A real grounded sentence is NOT false-dropped by the unconditional empty floor when
+    require_number_match=False (the floor only fires on truly contentless sentences)."""
+    full = "Aspirin reduced cardiovascular events in adults by 23.5%."
+    pool = {"src_1": {"direct_quote": full}}
+    result = verify_sentence_provenance(
+        f"Aspirin reduced cardiovascular events in adults [#ev:src_1:0-{len(full)}].",
+        pool,
+        require_number_match=False,
+    )
+    assert result.is_verified is True, f"unexpected drop: {result.failure_reasons}"
+    assert "empty_or_contentless_sentence" not in result.failure_reasons

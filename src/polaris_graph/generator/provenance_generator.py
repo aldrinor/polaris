@@ -1275,6 +1275,25 @@ def verify_sentence_provenance(
         aggregated_full_numbers |= _numbers_in(full_stripped)
         aggregated_full_text.append(direct_quote)
 
+    # BUG-03 (FX-02, #1106): the empty/contentless floor runs UNCONDITIONALLY whenever a valid
+    # token exists — NOT nested inside `if require_number_match and valid_token_found:` (Codex
+    # iter-1 P2: nesting it left a token-only sentence verifiable when a caller passes
+    # require_number_match=False). A sentence with NO content words AND no decimals AND no integers
+    # (residue reduces to ".") is a token-only / punctuation-only / all-stopword "sentence" and is
+    # never a valid clinical claim, regardless of number-matching. Computed on the same
+    # dose/placebo/threshold-stripped text the numeric floor uses. Strictly faithfulness-TIGHTENING:
+    # any content word OR number routes to the existing overlap/numeric floors (no false-drop).
+    if valid_token_found:
+        _bug03_stripped = _strip_dose_patterns(sentence_for_numbers)
+        _bug03_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", _bug03_stripped)
+        _bug03_stripped = _THRESHOLD_RE.sub(" ", _bug03_stripped)
+        if (
+            not _content_words(_bug03_stripped)
+            and not _decimals_in(_bug03_stripped)
+            and not _numbers_in(_bug03_stripped)
+        ):
+            failures.append("empty_or_contentless_sentence")
+
     if require_number_match and valid_token_found:
         sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
         # Strip placebo-comparator phrases (treat their numbers as
@@ -1408,20 +1427,6 @@ def verify_sentence_provenance(
         # unsupported claim, sentence dropped.
         sentence_content = _content_words(sentence_stripped)
         span_content = _content_words(" ".join(aggregated_span_text))
-        # BUG-03 (FX-02, #1106): a truly contentless sentence — NO content words AND no decimals
-        # AND no integers (after dose/placebo/threshold stripping) — reaches here having passed
-        # every numeric branch vacuously, and the content-overlap floor below is GATED behind
-        # `if sentence_content:`, so it is SKIPPED and the sentence is counted VERIFIED. A
-        # token-only / punctuation-only / all-stopword "sentence" (residue reduces to ".") must
-        # NEVER be a verified clinical claim. Fail closed. This is strictly faithfulness-TIGHTENING:
-        # any content word OR any number present routes to the existing overlap / numeric floors,
-        # so a real clinical sentence can never trip this (no false-drop risk).
-        if (
-            not sentence_content
-            and not sentence_decimals
-            and not _numbers_in(sentence_stripped)
-        ):
-            failures.append("empty_or_contentless_sentence")
         if sentence_content:
             overlap = sentence_content & span_content
             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:

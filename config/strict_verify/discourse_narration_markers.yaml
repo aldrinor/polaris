@@ -35,20 +35,24 @@ version: 1
 # pattern (after provenance-token stripping) is classed discourse-narration and dropped with
 # reason `discourse_narration`.
 patterns:
-  # First-person authoring intent + an UNAMBIGUOUS text-editing verb. The verb list is
-  # deliberately restricted to copy-editing actions that NEVER occur in a faithful clinical
-  # report ("split/rephrase/reword/rewrite/combine/condense/shorten/lengthen the sentence",
-  # "use the exact phrase", "phrase/word it"). Verbs that DO occur in clinical prose
-  # (keep/use/write/draft/say/start) are deliberately EXCLUDED to avoid false-dropping a real
-  # claim like "we can keep the dose at 5 mg".
-  - "\\b(?:i['’]?ll|i will|i'?m going to|let me|let['’]?s|we (?:can|could|should|will|need to|might))\\b[^.?!]{0,50}\\b(?:split|rephrase|reword|rewrite|re-?word|combine|condense|shorten|lengthen|use the (?:exact )?phrase|phrase it|word it)\\b"
-  # Explicit draft-attempt / deliberation markers (no faithful report says these).
-  - "\\bfinal attempt\\b\\s*[:]?"
-  - "\\b(?:first|second|third|another|one more|next) attempt\\b\\s*[:]"
-  # Writing-critique adjectives about the prose itself. Restricted to words that critique TEXT
-  # STYLE (choppy/clunky/awkward/wordy/repetitive) — NOT "short/long" which describe clinical
-  # quantities (short duration, long-term).
-  - "\\b(?:that['’]?s|this is|it['’]?s|might be|maybe|perhaps) (?:a bit |too |slightly )?(?:choppy|clunky|awkward|wordy|repetitive)\\b"
+  # First-person authoring intent + an UNAMBIGUOUS *text-only* editing verb. Codex iter-1 (P1)
+  # caught that split/combine/shorten/lengthen/condense/rewrite are CLINICAL DOSING/THERAPY verbs
+  # ("we can split the daily dose", "we can combine metformin with basal insulin") — REMOVED.
+  # Only verbs that operate on PROSE and never on a clinical entity remain: rephrase / reword /
+  # "use the exact phrase" / "phrase it" / "word it". Verbs that DO occur in clinical prose
+  # (keep/use/write/draft/say/start/split/combine/shorten/lengthen) are EXCLUDED to avoid
+  # false-dropping a real claim like "we can split the daily dose into two administrations".
+  - "\\b(?:i['’]?ll|i will|i'?m going to|let me|let['’]?s|we (?:can|could|should|will|need to|might))\\b[^.?!]{0,50}\\b(?:rephrase|reword|re-?word|use the (?:exact )?phrase|phrase it|word it)\\b"
+  # Explicit draft-attempt / deliberation markers. The COLON is REQUIRED (Codex iter-1 hardening):
+  # a clinical "the final attempt at intubation failed" has NO colon and must NOT match — only the
+  # draft LABEL "Final attempt:" / "Second attempt:" (colon, then the rewritten clause) matches.
+  - "\\bfinal attempt\\s*:"
+  - "\\b(?:first|second|third|another|one more|next) attempt\\s*:"
+  # Writing-critique adjectives about the PROSE itself. Restricted to pure text-style critiques
+  # (choppy/clunky/awkward/wordy). "repetitive" was REMOVED (Codex iter-1 P1: "repetitive
+  # transcranial magnetic stimulation" is a clinical treatment term); "short/long" excluded
+  # (clinical quantities: short duration, long-term).
+  - "\\b(?:that['’]?s|this is|it['’]?s|might be|maybe|perhaps) (?:a bit |too |slightly )?(?:choppy|clunky|awkward|wordy)\\b"
   - "\\bthat['’]?s fine,? even if (?:short|brief|choppy)\\b"
   # Meta word/sentence-count remarks about the draft itself.
   - "\\bi need to add about \\d+ more words\\b"
