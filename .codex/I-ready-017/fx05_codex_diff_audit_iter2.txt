@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Stale operator-note language still exists outside the three fixed spots, e.g. CLAUDE.md:706/719, docs/runbook.md:95/261, docs/polaris_pipeline_canonical.md:32, src/polaris_graph/audit_ir/loader.py:321, scripts/static/inspector/inspector.js:1205/1597, and a comment at scripts/run_honest_sweep_r3.py:3029. This is doc/UI drift only; execution callers now abort before generation/strict_verify/evaluator."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
