@@ -4626,3 +4626,13 @@
 - EVIDENCE/FINDINGS: §-1.1 held storm attempted_empty; 7 FL-05 smoke + 31 status-registry/manifest-contract/m207 green.
 - STATUS: FL-05 iter-1 Codex diff gate IN FLIGHT (bg b679sdmh7); awaiting verdict. 14 verified; FL-05 in flight.
 - NEXT_STEP: on verdict — APPROVE => FL-05 verified, advance PHASE-3/4 (FX-17/19/20/14/12/13); RC => address within 5-cap.
+
+[2026-06-06 21:25:00]
+- ACTION: FL-05 (#1124) iter-2 authored + committed (4b3ad982) + Codex diff-gate iter-2 launched (bg bt579yszw).
+- RATIONALE: Codex iter-1 RC, 2 real P1 + 2 P2. P1#1: v6 PipelineStatus Literal missed abort_discovery_degraded (5th registration site) -> would 500 RunStatusResponse on an FL-05 abort; added + get_args test. P1#2: override left manifest.release_allowed True -> a degraded abort marked releasable; now release_allowed=False on override (status/release can never contradict). P2#1: corrected the default-OFF claim (kept always-emit per plan; status/control-flow/release unchanged). P2#2: robust truthy flag parse.
+- DOCS/RESEARCH: N/A.
+- SYNC: ledger FL-05 -> codex_diff_iter2_inflight (commit 4b3ad982).
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, src/polaris_v6/schemas/run_status.py, tests/polaris_graph/test_fl05_run_health_gate_iready017.py, outputs/audits/I-ready-017/fl05_s11_audit.md + .codex/I-ready-017/fl05_*iter2*.
+- EVIDENCE/FINDINGS: 8 FL-05 (incl v6 PipelineStatus guard) + 5 v6 schemas + 13 manifest-contract green.
+- STATUS: FL-05 iter-2 Codex diff gate IN FLIGHT (bg bt579yszw); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FL-05 verified, advance PHASE-3/4 (FX-17/19/20/14/12/13); RC => address within 5-cap (iter 2 of 5).

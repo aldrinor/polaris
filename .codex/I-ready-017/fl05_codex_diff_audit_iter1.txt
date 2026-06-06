@@ -1,0 +1,13 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_v6/schemas/run_status.py:26 omits abort_discovery_degraded from PipelineStatus. The v6 actor stores manifest.status into run_store.pipeline_status for abort_* runs, and RunStatusResponse validates against this Literal, so any FL-05 abort queried through GET/list runs can raise a Pydantic validation error/500. Add the status to PipelineStatus and pin it with a test like the existing abort_safety_refused coverage."
+  - "scripts/run_honest_sweep_r3.py:5818-5828 changes status to abort_discovery_degraded but leaves manifest.release_allowed as the prior evaluator/D8 value, commonly True on a would-be success. That creates a contradictory abort manifest marked release_allowed=true, so non-v6/UI/audit consumers that key on release_allowed can still treat the silently degraded report as releasable. Set release_allowed=False when overriding to abort_discovery_degraded."
+p2:
+  - "scripts/run_honest_sweep_r3.py:5816-5817 always adds discovery_llm_degraded/discovery_rounds_on_fallback even when PG_RUN_HEALTH_GATE is unset, so the documented default-OFF byte-identical claim is not true. Either gate those additive fields behind the flag or change the claim/tests to say default OFF only preserves status/control flow."
+  - "scripts/run_honest_sweep_r3.py:5814 treats any value except literal '0' as enabled, so PG_RUN_HEALTH_GATE=false/False/empty unexpectedly turns the gate on; align with the repo's usual true-token parsing if that env var may be operator-set."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Register abort_discovery_degraded in the v6 PipelineStatus schema/test surface."
+  - "Ensure the FL-05 override marks the manifest as non-releasable, not just abort-statused."
