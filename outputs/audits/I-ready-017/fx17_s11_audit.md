@@ -65,3 +65,16 @@ redundant per-query `+= 1` at the call site is removed.
 - **api_calls=None is safe**: default caller path (no kwarg) does not raise.
 - Slate+preflight regression: `pytest tests/dr_benchmark/` → 291 passed (the new floors do not break
   any existing slate/preflight/CLI fixtures).
+
+## Codex diff-gate iter-2 verdict — APPROVE (accept_remaining)
+`.codex/I-ready-017/fx17_codex_diff_audit_iter2.txt`: `verdict: APPROVE`, zero P0, zero P1, zero
+execution blockers, `convergence_call: accept_remaining`. One **accepted cosmetic P2** (documented
+here, no code change so the APPROVE'd diff stays intact per §8.3.6 accept_remaining):
+- **Page-granular budget, not a strict returned-URL cap.** `PG_SERPER_TOTAL_PER_QUERY` is enforced
+  per page: the whole final page is appended before the `len(out) >= _total` check, so a
+  non-multiple budget (e.g. total=41, per_page=20) can return up to 60 URLs. This is benign because
+  (a) every returned URL passes the identical downstream fetch/tier/strict_verify/4-role gates
+  (faithfulness-safe — returning a few extra candidates only widens discovery), and (b) the Gate-B
+  slate sets `PG_SERPER_TOTAL_PER_QUERY=60`, an exact multiple of the 20-item page, so the overshoot
+  case never arises on the paid benchmark. Behavior is bounded by `PG_SERPER_MAX_PAGES` regardless.
+  Captured as accepted-cosmetic per Codex `accept_remaining`; no follow-up issue needed.
