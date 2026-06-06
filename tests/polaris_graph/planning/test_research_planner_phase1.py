@@ -704,8 +704,12 @@ def test_p1_18_on_mode_bypasses_domain_template() -> None:
     assert "_template = None" in src
     assert "_reg_queries = []" in src
     assert "_trial_queries = []" in src
-    # check_completeness is gated; on-mode substitutes a neutral report.
-    assert "completeness = CompletenessReport(domain=q[\"domain\"])" in src
+    # check_completeness is gated; on-mode substitutes a NEUTRAL report tagged
+    # not_applicable (FX-10 / I-ready-017: the neutral report now carries
+    # notes=['no_checklist_loaded'] so its vacuous covered_fraction=1.0 is never read
+    # as a measured 100%).
+    assert "CompletenessReport(" in src
+    assert "no_checklist_loaded" in src
 
     # The neutral CompletenessReport yields ZERO uncovered topic ids, so the
     # uncovered-label -> generation hand-off produces NO checklist label.

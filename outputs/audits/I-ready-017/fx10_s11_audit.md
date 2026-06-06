@@ -45,3 +45,26 @@ shape only gains additive fields.
 `pytest test_fx10_completeness_state_iready017.py test_completeness_r6_gap3.py
 test_m205_evaluator_gate.py` → **27 passed** (4 FX-10 + 23 regression). All 3 modified
 files parse.
+
+---
+
+## iter-2 (Codex iter-1 RC: 1 P1 + 1 P2 → fixed)
+
+**P1 (CI blocker):** `test_research_planner_phase1.py:708` is a source-sentinel that
+string-matched the old ON-mode construction `CompletenessReport(domain=q["domain"])`,
+which FX-10 rewrote to carry `notes=["no_checklist_loaded"]`. **FIXED:** the sentinel now
+asserts `CompletenessReport(` AND `no_checklist_loaded` are present (legitimate contract
+update — the neutral report now tags itself not_applicable). Test passes.
+
+**P2 (consumer-facing honesty residual):** `audit_ir/loader.py:_parse_completeness_percent`
+maps any `covered_fraction: 1.0` → `100.0` and ignored `completeness_state`, so an
+AuditIR/API consumer could still present a not_applicable manifest as 100% complete.
+**FIXED:** added a `completeness_state` field to the `RunManifest` AuditIR dataclass
+(defaulted last → existing constructors unaffected) + `_parse_completeness_state()` that
+prefers the explicit manifest field and falls back to inferring not_applicable from
+`total_applicable==0` for pre-FX-10 manifests. covered_fraction stays numeric; the state
+is the honesty signal.
+
+**Offline smoke:** 58 tests pass (6 FX-10 incl. 2 new loader tests + audit_ir loader
+regression). Plus the P1 sentinel + all 5 RunManifest-constructor test files (129 in the
+broader run). loader.py parses.

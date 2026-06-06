@@ -87,3 +87,28 @@ def test_measured_thin_completeness_is_flagged() -> None:
         ev_out, judge_result=_judge_flagging_completeness(), completeness=measured_thin,
     )
     assert "judge_completeness_needs_revision" in gate.reasons
+
+
+# ----------------------------------------------------------------- AuditIR loader (P2)
+def test_loader_completeness_state_from_manifest() -> None:
+    """FX-10 P2 (Codex iter-1): the AuditIR loader surfaces completeness_state so an
+    API/AuditIR consumer never presents a vacuous covered_fraction=1.0 as 100%."""
+    from src.polaris_graph.audit_ir.loader import _parse_completeness_state
+    assert _parse_completeness_state(
+        {"completeness_state": "not_applicable", "covered_fraction": 1.0}
+    ) == "not_applicable"
+    assert _parse_completeness_state(
+        {"completeness_state": "measured", "covered_fraction": 0.5}
+    ) == "measured"
+
+
+def test_loader_completeness_state_inferred_for_pre_fx10_manifest() -> None:
+    """Pre-FX-10 manifests lack completeness_state: infer not_applicable from
+    total_applicable==0 so old runs are still honest in the AuditIR."""
+    from src.polaris_graph.audit_ir.loader import _parse_completeness_state
+    assert _parse_completeness_state(
+        {"covered_fraction": 1.0, "total_applicable": 0}
+    ) == "not_applicable"
+    assert _parse_completeness_state(
+        {"covered_fraction": 0.5, "total_applicable": 4}
+    ) == "measured"

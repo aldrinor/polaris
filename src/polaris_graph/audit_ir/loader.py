@@ -393,6 +393,11 @@ class RunManifest:
     v30_enabled: bool
     v30_warnings: tuple[str, ...]
     retrieval_stats: RetrievalStats | None
+    # FX-10 (I-ready-017): completeness 3VL state so an AuditIR/API consumer never presents
+    # a vacuous covered_fraction=1.0 (total_applicable==0, no checklist applied) as a
+    # measured 100%. Defaulted (last field) so existing RunManifest constructors are
+    # unaffected; the loader sets it from the manifest / inferred from total_applicable.
+    completeness_state: str = "measured"
 
 
 # ---------------------------------------------------------------------------
@@ -778,6 +783,26 @@ def _parse_completeness_percent(raw: Any) -> float:
     return 0.0
 
 
+def _parse_completeness_state(raw: Any) -> str:
+    """FX-10 (I-ready-017): the completeness 3VL state for AuditIR consumers.
+
+    Prefer the explicit manifest ``completeness_state`` field; fall back to inferring
+    from ``total_applicable`` for pre-FX-10 manifests so a consumer never reads a vacuous
+    ``covered_fraction=1.0`` (no checklist applied) as a measured 100%.
+    """
+    if isinstance(raw, Mapping):
+        state = raw.get("completeness_state")
+        if isinstance(state, str) and state:
+            return state
+        if "total_applicable" in raw:
+            try:
+                if int(raw["total_applicable"]) == 0:
+                    return "not_applicable"
+            except (TypeError, ValueError):
+                pass
+    return "measured"
+
+
 def _parse_manifest(raw: Mapping[str, Any]) -> RunManifest:
     _require_keys(
         raw,
@@ -808,6 +833,7 @@ def _parse_manifest(raw: Mapping[str, Any]) -> RunManifest:
         sentences_dropped=int(generator.get("sentences_dropped", 0)),
         contradictions_found=int(raw.get("contradictions_found", 0)),
         completeness_percent=_parse_completeness_percent(raw["completeness"]),
+        completeness_state=_parse_completeness_state(raw["completeness"]),
         evaluator_gate=_parse_evaluator_gate(raw["evaluator_gate"]),
         release_allowed=bool(raw.get("release_allowed", False)),
         v30_enabled=bool(raw.get("v30_enabled", False)),
