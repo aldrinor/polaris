@@ -4137,3 +4137,41 @@
 - FIX (mechanical, per PR, fresh context): for each stacked PR branch, add .codex/<issue_id>/architecture_conformance_attestation.md (from the template, filled honestly), commit, push -> CI goes green -> merge bottom-up. Plus: bot/I-run11-004-minimax-sentinel needs an open PR (or #1052 retargets).
 - ALSO PENDING: I-run11-008 (#1053) GLM-blank fix implementation (.codex/I-run11-008/brief.md) — the path to an actual beat-both verdict.
 - NEXT (fresh context, operator to prioritize): (A) add attestations bottom-up to unblock the merge stack, OR (B) implement I-run11-008 + re-run drb_72 for the verdict. Both are real; (B) gets the beat-both answer, (A) lands the queued fixes.
+
+[2026-06-06 00:00:00]
+- ACTION: Designed the I-ready-017 fix-campaign EXECUTION HARNESS (orchestration design, planning only — no code edits).
+- RATIONALE: Operator wants ~20 audit fixes run via parallel Claude-Codex workflows but "deployed carefully to avoid API error" + a "loop every 10 mins to wake a stalled AI". Researched SOTA (HiveMind OS-inspired scheduling: uncoordinated agents fail 72-100% under contention vs 0-18% coordinated; blackboard shared-state; heartbeat-vs-cron). Cross-checked against existing infra: .claude/workflows/polaris_task_cycle.md, state/overnight_driver_runbook.md, state/overnight_ready_audit.json (the proven I-ready-000 pattern), CLAUDE.md §8.4 (one codex exec at a time), polaris_task_cycle_reminder.py.
+- KEY CORRECTION: ScheduleWakeup is a PHANTOM — no such tool exists. Replaced with two-layer anti-pause: (primary) background Workflow completion notification; (backstop) CronCreate durable off-minute ~10-min job. Workflow engine is unstable (crashed on StructuredOutput x2) → inline-build + run_in_background bash codex gate is a first-class path, not a fallback.
+- EVIDENCE/FINDINGS: Forensic STEP 1-2 ALREADY LANDED (I-ready-018 #1100 keystone @openrouter_client.py:2644 now _REASONING_FIRST_MODELS; I-ready-019 #1102 fail-loud, current branch bot/I-ready-019-failloud). Remaining = missed_bugs_audit BUG-01..15 + forensic STEP 3-8. Same-file collision groups confirmed by grep: openrouter_client.py(BUG-01gen+BUG-10), run_honest_sweep_r3.py CORE(BUG-05+13+14), corpus_approval_gate.py(BUG-06:310+BUG-07:98), native_gate_b_inputs.py(BUG-02+11). BUG-12 lstrip still live @live_retriever.py:1900.
+- STATUS: Design complete; delivered via StructuredOutput (HARNESS-01..06).
+- NEXT_STEP: Operator/parent agent consumes the 6 harness design entries.
+
+[2026-06-06 02:10:00]
+- ACTION: I-ready-017 fix-campaign PHASE 0 — FL-01 + FL-02 (fail-loud completion of #1102) implemented, smoke-tested, Codex diff-gate APPROVE iter-2.
+- RATIONALE: Codex #1102 iter-1 found the leaf NoEndpointError re-raises were re-swallowed upstream (graph STORM wrappers + planner seed loop). Added `except NoEndpointError: raise` before the broad except at all 4 sites so a structural discovery 404 fails the run loud end-to-end (LAW II no-silent-downgrade).
+- DOCS/RESEARCH: outputs/audits/I-ready-017/fix_campaign_plan.md (Codex-approved); .codex/I-ready-019/codex_diff_audit.txt (APPROVE).
+- SYNC: state/ready017_fix_audit.json (FL-01/FL-02 -> verified; pointer -> FL-03). MEMORY.md + project_drb72_fix_campaign_2026_06_06.md pinned. restart_instructions.md campaign block.
+- AFFECTED_FILES: src/polaris_graph/graph.py, graph_v2.py, graph_v3.py, agents/planner.py; tests pass (7).
+- EVIDENCE/FINDINGS: all 4 AST-clean; test_structural_404_failloud_iready019 + test_generate_structured_reasoning_first_404_iready018 = 7 passed; Codex APPROVE 0 P0/P1. Branch bot/I-ready-019-failloud pushed; GH #1102 commented.
+- STATUS: PHASE 0 unit 1 (FL-01/FL-02) verified + recorded. Campaign loop armed (cron 62ef3e0a heartbeat + per-issue notifications).
+- NEXT_STEP: FL-03 (storm 3-deep swallow re-raise) -> FL-04 -> PHASE 1 faithfulness P0s (FX-01/FX-02/FX-03) + CANARY-01. Re-run HARD-gated behind FX-01+FX-02+FX-03+CANARY-01.
+
+[2026-06-06 04:20:00]
+- ACTION: FX-01 (#1105, faithfulness P0) implemented — finish_reason threading + dual CoT-promotion refusal; smoke PASS (34/34); Codex diff-gate iter-2 launched.
+- RATIONALE: Codex iter-1 REQUEST_CHANGES chose Option B (thread finish_reason; param-ceiling confounded by the 16384 reasoning-first floor + V4-Pro-reasons-until-ceiling) and flagged a novel P0 (COT-2 retry promotes unguarded). Implemented every iter-1 blocker: threaded provider finish_reason SSE+non-SSE into LLMResponse; refuse promotion on finish_reason=='length' at BOTH the main I-bug-088 branch and the retry leg; kept the [#ev:]-absent+mid-sentence heuristic only as a None fallback; preserved finish_reason across all 11 LLMResponse reconstructions; removed the param-ceiling entirely.
+- DOCS/RESEARCH: OpenRouter SSE finish_reason semantics (stop|length); iter-1 verdict .codex/I-ready-017/codex_fx01_audit.txt.
+- SYNC: state/ready017_fix_audit.json FX-01 phase_step -> smoke_pass_codex_diff_iter2_inflight, gh #1105, commit ae517970; fx01_status updated.
+- AFFECTED_FILES: src/polaris_graph/llm/openrouter_client.py; tests/polaris_graph/test_fx01_cot_promotion_guard_iready017.py (rewritten, no _call mock, real SSE); tests/polaris_graph/test_reasoning_first_token_budget.py (regex tightened to heuristic_fallback); .codex/I-ready-017/{fx01_diff_brief_iter2.md,codex_diff.patch}; state/ready017_fix_audit.json.
+- EVIDENCE/FINDINGS: 34/34 reasoning-first/openrouter tests pass. Net diff: 0 code occurrences of _hit_token_ceiling/param-ceiling (only a test docstring mentions the confound). Tests exercise real _read_stream->_accumulate_sse->_call->_generate_impl via faked httpx stream.
+- STATUS: FX-01 awaiting Codex diff verdict (iter-2 of 5). Phase 0 (FL-01..FL-04) complete. FX-02 + FX-03 next in Phase 1.
+- NEXT_STEP: Read Codex iter-2 verdict; if APPROVE -> mark FX-01 verified, advance to FX-02; if REQUEST_CHANGES -> address findings, iter-3.
+
+[2026-06-06 04:25:00]
+- ACTION: FX-01 (#1105) Codex diff-gate iter-3 = APPROVE (0 P0, 0 P1, 0 P2, accept_remaining). FX-01 VERIFIED.
+- RATIONALE: iter-1 RC (param-ceiling confound) -> threaded finish_reason; iter-2 RC (0 P0, 2 P1: missed </think>-extraction primary+retry + GLM always-reason promotion legs) -> centralized the guard into _refuse_if_truncated_reasoning_promotion and called it at ALL 5 reasoning->content legs; iter-3 APPROVE. The drb_72 scratchpad-as-verified-prose failure is now closed generation-side.
+- DOCS/RESEARCH: .codex/I-ready-017/codex_diff_audit.txt (iter-3 APPROVE, canonical CI-parsed), codex_diff_audit_iter2.txt (iter-2 RC), fx01_diff_brief_iter3.md.
+- SYNC: state/ready017_fix_audit.json FX-01 phase_step=verified; current_pointer advanced to FX-02.
+- AFFECTED_FILES: src/polaris_graph/llm/openrouter_client.py (commit 6e3887d2); tests/polaris_graph/test_fx01_cot_promotion_guard_iready017.py (8 tests); .codex/I-ready-017/{codex_diff_audit.txt,codex_diff_audit_iter2.txt,codex_diff_audit_iter3.txt,fx01_diff_brief_iter3.md}; state/ready017_fix_audit.json.
+- EVIDENCE/FINDINGS: 37/37 reasoning-first tests + 64-test sweep pass (real SSE path, no _call mock). Codex APPROVE. Live-truncation §-1.1 demo carried by CANARY-01 (pre-spend gate, also a rerun blocker). No orphan codex procs; lock released cleanly.
+- STATUS: FX-01 VERIFIED (1 of 4 rerun-gating P0s). Phase 0 (FL-01..04) complete. NEXT: FX-02 (BUG-03 empty-sentence floor + BUG-01 L2 discourse floor, INDEP files).
+- NEXT_STEP: Create FX-02 GitHub issue + branch bot/I-ready-017-fx02-strictverify; author BUG-03 (empty-sentence floor) + BUG-01 L2 (config-driven discourse floor, §-1.1-safe) with tests; smoke; Codex diff-gate.
