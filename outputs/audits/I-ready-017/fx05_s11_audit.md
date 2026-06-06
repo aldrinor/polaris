@@ -76,3 +76,30 @@ sanctioned auto-approve is the structured `PG_AUTHORIZED_SWEEP_APPROVAL` flag.
 This HOLDS sweeps that previously auto-approved (e.g. the held drb_72 run). Per
 the plan this is intended and honors §9.1 #5. Routed to Codex with
 quality-impact framing in the diff-gate brief.
+
+---
+
+## iter-2 (Codex iter-1 RC: 1 P1 + 1 P2 → fixed)
+
+**P1 (real, valid):** the gate returned `approved=False`, but 3 of the 4 callers
+computed it and then proceeded into generation/report/evaluator anyway — only
+`run_honest_sweep_r3.py` had the `if not approved` abort. So spend still
+happened for those 3 (violating §9.1 #5). Fixed: added the
+`abort_corpus_approval_denied` short-circuit BEFORE generation to all three:
+- `scripts/run_live_honest_cycle.py` — abort before `generate_live_draft` (return 4 + abort report.md).
+- `scripts/run_honest_on_prerebuild_corpus.py` — abort before `generate_multi_section_report` (return 4 + abort report.md).
+- `src/polaris_graph/honest_pipeline.py` — abort before `strict_verify`/report/evaluator; returns a `PipelineResult(status="abort_corpus_approval_denied", evaluator=None)` + abort report.md + manifest. Consumer `run_honest_full_cycle.py` now guards on `result.status` before using `result.evaluator` (now Optional).
+
+**Behavioral proof (REAL offline `run_honest_pipeline` run, no spend):** a clinical
+question over a 10×T5 industry corpus (material deviation) with no flag →
+`status=abort_corpus_approval_denied`, `evaluator is None`, `final_report_text==""`,
+`report.md` carries the abort verdict and contains NO `## Methods` synthesis. PASS.
+
+**P2 (stale operator text) — fixed in 3 places:** `render_approval_html`
+material banner, the module docstring, and the sweep abort artifact in
+`run_honest_sweep_r3.py` now all reference the structured
+`PG_AUTHORIZED_SWEEP_APPROVAL` credential instead of "provide a substantive note".
+
+**Offline smoke:** 36 tests pass (added 3 abort-before-generation enforcement
+tests, one per caller, asserting `if not approved:` precedes the generation call
+and returns early). All 4 modified modules import cleanly.

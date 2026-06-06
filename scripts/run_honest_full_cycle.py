@@ -268,6 +268,13 @@ def main() -> int:
         auto_approve_if_within_bounds=True,
     )
 
+    # FX-05 (I-ready-017): a denied corpus aborts before synthesis/evaluator;
+    # result.evaluator is None in that case. Handle the abort verdict explicitly.
+    if result.status != "success":
+        print(f"Pipeline aborted: status={result.status}")
+        print(f"See pipeline-verdict report: {result.artifacts.report_path}")
+        return 1
+
     # ── Validation ───────────────────────────────────────────────────────
     print("=" * 70)
     print("HONEST-REBUILD PIPELINE — FULL CYCLE VALIDATION")

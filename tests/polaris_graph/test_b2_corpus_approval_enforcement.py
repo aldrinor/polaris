@@ -104,6 +104,56 @@ def test_b2_sweep_orchestrator_has_enforcement_branch() -> None:
     )
 
 
+def test_fx05_live_honest_cycle_aborts_before_generation() -> None:
+    """FX-05: run_live_honest_cycle must short-circuit on denial BEFORE the live
+    DeepSeek generation call (§9.1 #5 — no generator tokens on a denied corpus)."""
+    import inspect
+
+    import scripts.run_live_honest_cycle as live
+    src = inspect.getsource(live.main_async)
+    assert "if not approved:" in src
+    assert "abort_corpus_approval_denied" in src
+    approval_idx = src.find("if not approved:")
+    gen_idx = src.find("generate_live_draft(")
+    assert approval_idx != -1 and gen_idx != -1
+    assert approval_idx < gen_idx, "abort branch must precede live generation"
+    assert "return" in src[approval_idx:gen_idx], "denied branch must return early"
+
+
+def test_fx05_prerebuild_aborts_before_generation() -> None:
+    """FX-05: run_honest_on_prerebuild_corpus must short-circuit on denial BEFORE
+    generate_multi_section_report."""
+    import inspect
+
+    import scripts.run_honest_on_prerebuild_corpus as pre
+    src = inspect.getsource(pre.main_async)
+    assert "if not approved:" in src
+    assert "abort_corpus_approval_denied" in src
+    approval_idx = src.find("if not approved:")
+    gen_idx = src.find("generate_multi_section_report(")
+    assert approval_idx != -1 and gen_idx != -1
+    assert approval_idx < gen_idx, "abort branch must precede multi-section generation"
+    assert "return" in src[approval_idx:gen_idx], "denied branch must return early"
+
+
+def test_fx05_honest_pipeline_aborts_before_strict_verify() -> None:
+    """FX-05: run_honest_pipeline must short-circuit on denial BEFORE strict_verify
+    / report / evaluator work, returning status=abort_corpus_approval_denied."""
+    import inspect
+
+    import src.polaris_graph.honest_pipeline as hp
+    src = inspect.getsource(hp.run_honest_pipeline)
+    assert "if not approved:" in src
+    assert "abort_corpus_approval_denied" in src
+    approval_idx = src.find("if not approved:")
+    verify_idx = src.find("strict_verify(")
+    assert approval_idx != -1 and verify_idx != -1
+    assert approval_idx < verify_idx, "abort branch must precede strict_verify"
+    assert "return PipelineResult(" in src[approval_idx:verify_idx], (
+        "denied branch must return an abort PipelineResult before strict_verify"
+    )
+
+
 def test_b2_expected_str_helper() -> None:
     """The abort-artifact helper formats expected tier distribution
     from a protocol dict."""

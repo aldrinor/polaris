@@ -198,6 +198,27 @@ async def main_async() -> int:
     )
     save_approval_decision(decision, run_dir)
 
+    # FX-05 (I-ready-017): §9.1 #5 — a denied corpus aborts BEFORE any generator
+    # token is billed. A material-deviation corpus with no structured
+    # PG_AUTHORIZED_SWEEP_APPROVAL authorization is denied; do NOT proceed to
+    # live generation.
+    if not approved:
+        _log("[ABORT] Corpus approval denied (material deviation without a "
+             "structured PG_AUTHORIZED_SWEEP_APPROVAL authorization). "
+             "Refusing to generate; no generator tokens billed.")
+        (run_dir / "report.md").write_text(
+            f"# Research report: {RESEARCH_QUESTION}\n\n"
+            "## Pipeline verdict\n\n"
+            "Corpus approval was denied: the corpus has a material deviation "
+            "from the pre-registered protocol and no structured operator "
+            "authorization (PG_AUTHORIZED_SWEEP_APPROVAL=1) was supplied. "
+            "No generator tokens were billed.\n\n"
+            "Status: abort_corpus_approval_denied\n",
+            encoding="utf-8",
+        )
+        log_f.close()
+        return 4
+
     # ── Phase 3: Contradiction detection ────────────────────────────────
     _log("")
     _log("[4/7] CONTRADICTION DETECTION")

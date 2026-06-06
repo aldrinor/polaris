@@ -253,6 +253,26 @@ async def main_async() -> int:
     _log(f"[3/6] corpus_approval: approved={approved}, "
          f"material_deviation={dist.has_material_deviation}")
 
+    # FX-05 (I-ready-017): §9.1 #5 — a denied corpus aborts BEFORE any generator
+    # token is billed. A material-deviation corpus with no structured
+    # PG_AUTHORIZED_SWEEP_APPROVAL authorization is denied; do NOT proceed to
+    # multi-section generation.
+    if not approved:
+        _log("[ABORT] Corpus approval denied (material deviation without a "
+             "structured PG_AUTHORIZED_SWEEP_APPROVAL authorization). "
+             "Refusing to generate; no generator tokens billed.")
+        (run_dir / "report.md").write_text(
+            f"# Research report: {question}\n\n"
+            "## Pipeline verdict\n\n"
+            "Corpus approval was denied: the corpus has a material deviation "
+            "from the pre-registered protocol and no structured operator "
+            "authorization (PG_AUTHORIZED_SWEEP_APPROVAL=1) was supplied. "
+            "No generator tokens were billed.\n\n"
+            "Status: abort_corpus_approval_denied\n",
+            encoding="utf-8",
+        )
+        return 4
+
     # Contradiction detection
     numeric_claims = extract_numeric_claims(evidence_rows)
     contradictions = detect_contradictions(numeric_claims)

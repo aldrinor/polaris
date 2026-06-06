@@ -99,9 +99,14 @@ class PipelineResult:
     corpus_decision: CorpusApprovalDecision
     contradictions_found: int
     final_report_text: str
-    evaluator: EvaluatorOutput
+    # FX-05 (I-ready-017): None on an abort_corpus_approval_denied run (no
+    # synthesis/evaluator work was done). Check `status` before using.
+    evaluator: Optional[EvaluatorOutput]
     sentences_verified: int
     sentences_dropped: int
+    # FX-05: "success" | "abort_corpus_approval_denied". A denied corpus
+    # short-circuits before strict-verify/report/evaluator (§9.1 #5).
+    status: str = "success"
 
 
 def _build_tier_signals(
@@ -211,6 +216,57 @@ def run_honest_pipeline(
         protocol_sha256=scope_result.protocol_sha256,
     )
     corpus_approval_path = save_approval_decision(decision, run_dir_path)
+
+    # FX-05 (I-ready-017): §9.1 #5 — a denied corpus aborts BEFORE any
+    # strict-verify / report / evaluator work. A material-deviation corpus with
+    # no structured PG_AUTHORIZED_SWEEP_APPROVAL authorization is denied; emit a
+    # pipeline-verdict report and return early (no normal report on a denied
+    # corpus).
+    if not approved:
+        abort_report_path = run_dir_path / "report.md"
+        abort_report_path.write_text(
+            f"# Research report: {research_question}\n\n"
+            "## Pipeline verdict\n\n"
+            "Corpus approval was denied: the corpus has a material deviation "
+            "from the pre-registered protocol and no structured operator "
+            "authorization (PG_AUTHORIZED_SWEEP_APPROVAL=1) was supplied. "
+            "No report was synthesized.\n\n"
+            "Status: abort_corpus_approval_denied\n",
+            encoding="utf-8",
+        )
+        abort_manifest_path = run_dir_path / "manifest.json"
+        abort_manifest_path.write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "status": "abort_corpus_approval_denied",
+                    "corpus_approved": False,
+                },
+                indent=2, sort_keys=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        abort_artifacts = PipelineArtifacts(
+            run_dir=run_dir_path,
+            protocol_path=scope_result.protocol_path,
+            corpus_approval_path=corpus_approval_path,
+            contradictions_path=run_dir_path / "contradictions.json",
+            report_path=abort_report_path,
+            bibliography_path=run_dir_path / "bibliography.json",
+            evaluator_output_path=run_dir_path / "evaluator_output.json",
+            manifest_path=abort_manifest_path,
+        )
+        return PipelineResult(
+            artifacts=abort_artifacts,
+            scope_result=scope_result,
+            corpus_decision=decision,
+            contradictions_found=0,
+            final_report_text="",
+            evaluator=None,
+            sentences_verified=0,
+            sentences_dropped=0,
+            status="abort_corpus_approval_denied",
+        )
 
     # ── Phase 3: contradiction detection ───────────────────────────────
     num_claims = extract_numeric_claims(evidence)

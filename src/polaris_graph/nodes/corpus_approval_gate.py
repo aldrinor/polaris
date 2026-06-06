@@ -12,14 +12,17 @@ visible checkpoint. Users saw the final report but could not see what
 corpus produced it. Corpora dominated by T5 industry marketing + T6
 blog posts were synthesized into confident-sounding claims.
 
-RUBBER-STAMP RESISTANCE:
-- The gate requires the user to acknowledge the specific tier mix
-  that was retrieved, not just click "OK".
+RUBBER-STAMP RESISTANCE (FX-05 / I-ready-017):
 - If actual distribution is >=15 percentage points off the expected
-  in any single tier, the gate blocks auto-approve. User must
-  explicitly opt in.
-- A free-text "why is this corpus acceptable" note is required when
-  the user approves a corpus that deviates materially from protocol.
+  in any single tier, the gate blocks auto-approve.
+- A material-deviation corpus is DENIED by default
+  (abort_corpus_approval_denied, no generator tokens billed). A free-text
+  note is NOT a sanctioned credential — the R-3 sweep's own 50-char canned
+  note defeated the old len>=30 + denylist heuristic and billed a
+  material-deviation corpus.
+- The ONLY sanctioned auto-approve is a structured operator authorization
+  (env/CLI PG_AUTHORIZED_SWEEP_APPROVAL=1), recorded as an audit-logged
+  AuthorizedSweep{authorized_by, authorized_at, flag_source}.
 """
 
 from __future__ import annotations
@@ -273,11 +276,13 @@ def render_approval_html(
     if report.has_material_deviation:
         material_banner = (
             "<div class='material'><strong>Material deviation from the "
-            "pre-registered protocol.</strong> Auto-approve is disabled. "
-            "Approving this corpus requires an explicit note explaining "
-            "why the deviation is acceptable for this research question. "
-            "The note will be included in the final report's methods "
-            "section.</div>"
+            "pre-registered protocol.</strong> Auto-approve is disabled and "
+            "the run is denied by default (status "
+            "<code>abort_corpus_approval_denied</code>, no generator tokens "
+            "billed). The ONLY sanctioned override is an explicit operator "
+            "authorization — set <code>PG_AUTHORIZED_SWEEP_APPROVAL=1</code> "
+            "(recorded as a structured, audit-logged credential). A free-text "
+            "note is not a sanctioned credential.</div>"
         )
 
     html_doc = f"""<!doctype html>
