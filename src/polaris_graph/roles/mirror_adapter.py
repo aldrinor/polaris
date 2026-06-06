@@ -223,6 +223,13 @@ def _coerce_classification_value(value: object) -> str | None:
     if isinstance(value, str):
         stripped = value.strip()
         return value if stripped else None
+    # FX-08 (I-ready-017): coerce scalar JSON types (int/float/bool) to their string
+    # form (json_repair philosophy) so a GROUNDED claim is not false-DROPped when the
+    # verifier emits e.g. {"classification": 0}. bool is an int subclass — str() handles
+    # both ("True" / "0" / "0.0"). Non-gating: classification is NOT part of the
+    # pass-1<->pass-2 binding hash or the grounding gate, so this cannot affect either.
+    if isinstance(value, (int, float)):  # includes bool (int subclass)
+        return str(value)
     if isinstance(value, dict) and value:
         return json.dumps(value, sort_keys=True, separators=(",", ":"))
     return None
@@ -288,9 +295,33 @@ def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
         )
     classification = _recover_classification(payload)
     if classification is None:
-        raise MirrorParseError(
-            "Mirror pass-2 JSON has no recoverable classification verdict "
-            f"(keys={list(payload)})"
+        # FX-08 (I-ready-017): a GROUNDED claim (pass-1 grounding already passed in
+        # run_mirror BEFORE this parse; verify_pass2_binding still gates the
+        # content_hash) must not be false-DROPped on classification FORMAT. The
+        # heterogeneous GLM-5.1 nested shape (e.g. {"domain":..,"field":..}) carries a
+        # real but UNRECOGNIZED verdict signal — serialize the WHOLE object as the
+        # non-gating verdict so the claim reaches the Judge (the Mirror classification
+        # is advisory MIRROR_SIGNAL, NOT a hard gate).
+        #
+        # NO-FALSE-ACCEPT GUARD PRESERVED: a body carrying ONLY echo/binding keys
+        # (content_hash, answer_text, rationale) or only an empty/blank recognized
+        # verdict key has NO genuine signal — it still fails closed (an echoed
+        # answer_text is never laundered into a verdict). Empty {} also fails closed.
+        _non_verdict_keys = {
+            _CONTENT_HASH_KEY,
+            _RATIONALE_KEY,
+            "answer_text",
+            _CLASSIFICATION_KEY,
+            *_ALTERNATE_CLASSIFICATION_KEYS,
+        }
+        genuine_signal_keys = set(payload) - _non_verdict_keys
+        if not genuine_signal_keys:
+            raise MirrorParseError(
+                "Mirror pass-2 has no recoverable classification verdict "
+                f"(keys={list(payload)})"
+            )
+        classification = json.dumps(
+            payload, sort_keys=True, separators=(",", ":")
         )
     return MirrorPass2(
         # Salvage ONLY on genuine key ABSENCE. A PRESENT content_hash is kept verbatim — even an

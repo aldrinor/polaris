@@ -459,3 +459,65 @@ def test_pass2_request_has_response_format_and_no_documents() -> None:
     assert request.params["response_format"]["type"] == "json_object"
     assert "documents" not in request.params
     assert request.params["pass2_input"]["content_hash"] == _pass2_hash_for(pass1)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# FX-08 (I-ready-017) PART A — tolerant pass-2 recovery. A GROUNDED claim
+# (pass-1 citation gate already passed) must NOT be false-DROPped on
+# classification FORMAT. classification is advisory MIRROR_SIGNAL, not a
+# hard gate; grounding + content_hash binding stay the real guards.
+# ─────────────────────────────────────────────────────────────────────
+def _grounded_pass1():
+    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
+    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
+    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
+    return pass1_response, expected_pass1
+
+
+def test_fx08_scalar_classification_zero_recovers() -> None:
+    # {"classification": 0} (run id 00-028) — int coerces to "0", not false-DROP.
+    pass1_response, expected_pass1 = _grounded_pass1()
+    h = _pass2_hash_for(expected_pass1)
+    body = json.dumps({"content_hash": h, "classification": 0})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert result.classification == "0"
+
+
+def test_fx08_bool_classification_recovers() -> None:
+    pass1_response, expected_pass1 = _grounded_pass1()
+    h = _pass2_hash_for(expected_pass1)
+    body = json.dumps({"content_hash": h, "classification": True})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    assert result.classification == "True"
+
+
+def test_fx08_unrecognized_nested_shape_serializes_whole_object() -> None:
+    # {"domain":..,"field":..} (run id 00-078) — heterogeneous GLM nested shape with a
+    # genuine (unrecognized) signal key → serialize the whole object as the verdict.
+    pass1_response, expected_pass1 = _grounded_pass1()
+    h = _pass2_hash_for(expected_pass1)
+    body = json.dumps({"content_hash": h, "domain": "Economics", "field": "labor"})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+    # Deterministic sorted serialization of the whole body; carries the genuine signal.
+    assert "domain" in result.classification and "Economics" in result.classification
+
+
+def test_fx08_echo_only_body_still_fails_closed() -> None:
+    # NO-FALSE-ACCEPT boundary: a body with ONLY echo/binding keys (no genuine signal)
+    # still fails closed even under the broadened parser.
+    pass1_response, expected_pass1 = _grounded_pass1()
+    h = _pass2_hash_for(expected_pass1)
+    body = json.dumps({"content_hash": h, "answer_text": "echoed answer", "rationale": "r"})
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
+
+
+def test_fx08_empty_object_still_fails_closed() -> None:
+    pass1_response, expected_pass1 = _grounded_pass1()
+    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, "{}")])
+    with pytest.raises(MirrorParseError):
+        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
