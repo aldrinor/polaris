@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "scripts/run_honest_sweep_r3.py:1552 and scripts/run_honest_sweep_r3.py:4824 compute per-run judge deltas from process-lifetime telemetry, but src/polaris_v6/queue/actors.py:70 invokes run_one_query from Dramatiq and scripts/v6_entrypoint.sh:59 starts one process with --threads 2. Two overlapping v6 runs in the same process share _JUDGE_TELEMETRY, so each run's delta can include a sibling run's calls/errors. That can dilute a degraded run below abort_verifier_degraded or false-abort a clean run. Use per-run/task-scoped telemetry or serialize this worker path."
+p2:
+  - "scripts/run_honest_sweep_r3.py:4891 still formats the abort summary with judge_error_sentences_checked, now the verifier-sentence context alias. The gate is correct, but an abort can show the corrected rate while displaying the old denominator in the message; use judge_calls there."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "P1: judge_error_rate denominator is not isolated for the real v6 in-process concurrent worker path."

@@ -1,5 +1,5 @@
 diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
-index 0ebaa4c0..e31c3419 100644
+index 0ebaa4c0..fed1ddb9 100644
 --- a/scripts/run_honest_sweep_r3.py
 +++ b/scripts/run_honest_sweep_r3.py
 @@ -1502,6 +1502,21 @@ def _normalize_quantified_telemetry(telemetry: dict) -> dict:
@@ -24,28 +24,29 @@ index 0ebaa4c0..e31c3419 100644
  async def run_one_query(
      q: dict,
      out_root: Path,
-@@ -1533,6 +1548,20 @@ async def run_one_query(
+@@ -1533,6 +1548,21 @@ async def run_one_query(
      byte-unchanged.
      """
      reset_run_cost()
-+    # FX-09 (I-ready-017): snapshot the process-lifetime entailment-judge counters at
-+    # the run boundary so judge_error_rate uses THIS run's ACTUAL judge invocations as
-+    # the denominator (delta), not all verifier-checked sentences (the judge only runs
-+    # on sentences that pass every mechanical check first → the old denominator diluted
-+    # the #1071 binding abort_verifier_degraded gate ~2.87x). Snapshot (NOT reset) for
-+    # reentrancy; the sweep never resets the global counters.
++    # FX-09 (I-ready-017): begin a per-RUN, concurrency-ISOLATED judge counter so
++    # judge_error_rate's denominator is THIS run's ACTUAL judge invocations, not all
++    # verifier-checked sentences (the judge only runs on sentences that pass every
++    # mechanical check first → the old denominator diluted the #1071 binding
++    # abort_verifier_degraded gate ~2.87x). The counter is a contextvar scope, isolated
++    # per OS-thread AND per asyncio Task, so a sibling run sharing the process (the v6
++    # Dramatiq worker runs `asyncio.run(run_one_query)` under `--threads 2`) cannot
++    # contaminate it. Read directly at the rate computation (no process-global delta).
 +    try:
 +        from src.polaris_graph.llm.entailment_judge import (
-+            get_judge_telemetry as _get_judge_telemetry,
++            begin_run_judge_telemetry as _begin_run_judge_telemetry,
 +        )
-+        _base_judge_tel = _get_judge_telemetry()
++        _run_judge_tel = _begin_run_judge_telemetry()
 +    except Exception:
-+        _get_judge_telemetry = None
-+        _base_judge_tel = {"calls": 0, "judge_error": 0}
++        _run_judge_tel = None
      # I-bug-111: reset synthesis-scrub alert + telemetry at run
      # boundary so per-run manifest reflects ONLY this run's
      # synthesis behavior. Without this reset, the sticky alert from
-@@ -4782,27 +4811,44 @@ async def run_one_query(
+@@ -4782,27 +4812,47 @@ async def run_one_query(
          # entailment_judge_error_fail_closed) so no unverified claim shipped; this is the run-level
          # guard + observability Codex's plan-gate required. denominator = all sentences the verifier
          # actually checked (kept + dropped) across sections.
@@ -62,9 +63,12 @@ index 0ebaa4c0..e31c3419 100644
              for s in verif_details["sections"]
          )
 -        _judge_err_rate = (_judge_err / _total_checked) if _total_checked else 0.0
-+        if _get_judge_telemetry is not None:
++        if _run_judge_tel is not None:
++            # Per-run, concurrency-isolated counter (started at the run boundary). Read
++            # directly via the pure delta helper with a zero base (the per-run dict
++            # starts at 0), so the denominator is THIS run's judge calls only.
 +            _judge_calls, _judge_err = _judge_calls_and_errors_from_telemetry(
-+                _base_judge_tel, _get_judge_telemetry(),
++                {"calls": 0, "judge_error": 0}, _run_judge_tel,
 +            )
 +        else:
 +            # Telemetry unavailable (defensive): fall back to the old reason-grep rate so
@@ -96,12 +100,75 @@ index 0ebaa4c0..e31c3419 100644
          # I-gen-005 Step 1.5: tally each post-strict-verify category
          # separately so the operator can distinguish the three drop
          # paths (strict_verify failures, dedup consolidations, M-41c
+@@ -4845,7 +4895,7 @@ async def run_one_query(
+                 f"judge_error_rate={verif_details.get('judge_error_rate')} > cap "
+                 f"{verif_details.get('judge_error_rate_cap')} "
+                 f"({verif_details.get('judge_error_count')}/"
+-                f"{verif_details.get('judge_error_sentences_checked')} sentences)"
++                f"{verif_details.get('judge_calls')} judge calls)"
+             )
+             _jerr_manifest = {
+                 "run_id": run_id,
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index 35cc64d3..6d72aa00 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -326,6 +326,34 @@ _JUDGE_TELEMETRY: dict[str, int] = {
+     "judge_error": 0,
+ }
+ 
++# FX-09 (I-ready-017): per-RUN, concurrency-isolated judge counters. The process-
++# lifetime _JUDGE_TELEMETRY above is shared across threads, so a per-run
++# judge_error_rate computed from its delta is contaminated when two runs share one
++# process (the v6 Dramatiq worker runs `asyncio.run(run_one_query(...))` under
++# `--threads 2`). A ContextVar is isolated per OS-thread AND per asyncio Task, so each
++# run that calls begin_run_judge_telemetry() gets its OWN {calls, judge_error}
++# counter. The global counter (health endpoint) is unaffected.
++import contextvars  # noqa: E402  (kept next to the counters it scopes)
++
++_RUN_JUDGE_TELEMETRY: contextvars.ContextVar[dict[str, int] | None] = (
++    contextvars.ContextVar("_run_judge_telemetry", default=None)
++)
++
++
++def begin_run_judge_telemetry() -> dict[str, int]:
++    """Start a per-run, concurrency-isolated judge counter and return it.
++
++    Bind a fresh {calls, judge_error} dict to the contextvar for THIS run. The judge
++    ticks both the process-lifetime counter and (if set) this per-run dict. Read the
++    returned dict at the end of the run for an isolated denominator — never
++    contaminated by a sibling run sharing the process (FX-09 #1114). Sequential calls
++    in one context each rebind to a fresh dict, so no reset is required for
++    correctness; the previous run's dict is simply replaced.
++    """
++    tel = {"calls": 0, "judge_error": 0}
++    _RUN_JUDGE_TELEMETRY.set(tel)
++    return tel
++
+ 
+ def get_judge_telemetry() -> dict[str, int]:
+     """Snapshot of process-lifetime entailment-judge counters.
+@@ -359,8 +387,14 @@ def _record_judge_outcome(verdict: str, reason: str) -> None:
+     the sentence" from "gate failed open."
+     """
+     _JUDGE_TELEMETRY["calls"] += 1
++    # FX-09: also tick the per-run, concurrency-isolated counter if a run scope is active.
++    _run_tel = _RUN_JUDGE_TELEMETRY.get()
++    if _run_tel is not None:
++        _run_tel["calls"] += 1
+     if reason.startswith("judge_error:"):
+         _JUDGE_TELEMETRY["judge_error"] += 1
++        if _run_tel is not None:
++            _run_tel["judge_error"] += 1
+         return
+     key = verdict.lower()
+     if key in _JUDGE_TELEMETRY:
 diff --git a/tests/polaris_graph/test_fx09_judge_error_rate_iready017.py b/tests/polaris_graph/test_fx09_judge_error_rate_iready017.py
 new file mode 100644
-index 00000000..59f94126
+index 00000000..28c8458c
 --- /dev/null
 +++ b/tests/polaris_graph/test_fx09_judge_error_rate_iready017.py
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,130 @@
 +"""FX-09 (I-ready-017): judge_error_rate denominator = ACTUAL judge invocations.
 +
 +The judge only runs on sentences that pass every mechanical check first, so the old
@@ -119,6 +186,7 @@ index 00000000..59f94126
 +from scripts.run_honest_sweep_r3 import _judge_calls_and_errors_from_telemetry
 +from src.polaris_graph.llm.entailment_judge import (
 +    _record_judge_outcome,
++    begin_run_judge_telemetry,
 +    get_judge_telemetry,
 +    reset_judge_telemetry,
 +)
@@ -147,17 +215,21 @@ index 00000000..59f94126
 +    assert abs(rate - 30 / 702) > 0.05  # NOT the diluted denominator
 +
 +
-+def test_real_telemetry_delta_counts_only_judge_invocations() -> None:
-+    base = get_judge_telemetry()
++def test_per_run_scope_counts_only_this_runs_judge_invocations() -> None:
++    run_tel = begin_run_judge_telemetry()
 +    # 245 real judge invocations; 30 errored (failed open as ENTAILED)
 +    for i in range(245):
 +        if i < 30:
 +            _record_judge_outcome("ENTAILED", "judge_error: timeout")
 +        else:
 +            _record_judge_outcome("ENTAILED", "ok")
-+    calls, errors = _judge_calls_and_errors_from_telemetry(base, get_judge_telemetry())
-+    assert calls == 245
-+    assert errors == 30
++    # the per-run dict starts at 0 and counts ONLY this run's judge calls
++    assert run_tel["calls"] == 245
++    assert run_tel["judge_error"] == 30
++    calls, errors = _judge_calls_and_errors_from_telemetry(
++        {"calls": 0, "judge_error": 0}, run_tel,
++    )
++    assert (calls, errors) == (245, 30)
 +
 +
 +def test_snapshot_is_stable_base_unaffected_by_later_ticks() -> None:
@@ -169,19 +241,44 @@ index 00000000..59f94126
 +    assert calls == 1
 +
 +
-+def test_process_lifetime_second_run_uses_only_its_delta() -> None:
-+    # run 1
-+    base1 = get_judge_telemetry()
++def test_second_run_scope_resets_to_fresh_counter() -> None:
++    # run 1 scope
++    run1 = begin_run_judge_telemetry()
 +    for _ in range(245):
 +        _record_judge_outcome("ENTAILED", "ok")
-+    calls1, _ = _judge_calls_and_errors_from_telemetry(base1, get_judge_telemetry())
-+    assert calls1 == 245
-+    # run 2 (NO reset — process-lifetime counters): snapshot a fresh base
-+    base2 = get_judge_telemetry()
++    assert run1["calls"] == 245
++    # a NEW run scope (NO global reset — sequential isolation): starts at 0
++    run2 = begin_run_judge_telemetry()
 +    for _ in range(100):
 +        _record_judge_outcome("ENTAILED", "ok")
-+    calls2, _ = _judge_calls_and_errors_from_telemetry(base2, get_judge_telemetry())
-+    assert calls2 == 100, "second run must use ONLY its own delta, not the lifetime total"
++    assert run2["calls"] == 100, "second run scope must count ONLY its own calls"
++    assert run1["calls"] == 245, "first run's dict is untouched by the second run"
++
++
++def test_per_run_scope_isolates_concurrent_threads() -> None:
++    """FX-09 P1 (Codex iter-1): the v6 Dramatiq worker runs asyncio.run(run_one_query)
++    under --threads 2, sharing ONE process. Per-run contextvar scopes must isolate each
++    thread's judge counts so a sibling run cannot dilute (or false-trip) the binding
++    abort_verifier_degraded gate. With the OLD process-global snapshot/delta this test
++    would see cross-contaminated counts."""
++    import threading
++
++    results: dict[str, dict] = {}
++    barrier = threading.Barrier(2)
++
++    def _worker(name: str, n_calls: int, n_errors: int) -> None:
++        tel = begin_run_judge_telemetry()
++        barrier.wait()  # maximize interleaving of the two threads' judge calls
++        for i in range(n_calls):
++            reason = "judge_error: x" if i < n_errors else "ok"
++            _record_judge_outcome("ENTAILED", reason)
++        results[name] = dict(tel)
++
++    t1 = threading.Thread(target=_worker, args=("A", 245, 30))
++    t2 = threading.Thread(target=_worker, args=("B", 100, 5))
++    t1.start(); t2.start(); t1.join(); t2.join()
++    assert results["A"] == {"calls": 245, "judge_error": 30}, "thread A contaminated by B"
++    assert results["B"] == {"calls": 100, "judge_error": 5}, "thread B contaminated by A"
 +
 +
 +def test_degraded_trip_fires_on_correct_denominator() -> None:
