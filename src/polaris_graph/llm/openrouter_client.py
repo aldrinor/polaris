@@ -749,7 +749,10 @@ class UsageTracker:
             "reasoning_tokens": reasoning_tokens,
             "duration_ms": duration_ms,
             "cost_usd": round(call_cost, 6),
-            "cumulative_cost_usd": round(self.total_cost_usd, 4),
+            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
+            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
+            # which is non-monotonic across clients sharing a run and under-reports the UI.
+            "cumulative_cost_usd": round(current_run_cost(), 4),
         }
         # TIER-3 Stage 6: Optional prompt component breakdown
         if prompt_component_tokens:
@@ -766,7 +769,10 @@ class UsageTracker:
             "reasoning_tokens": reasoning_tokens,
             "duration_ms": round(duration_ms, 1),
             "cost_usd": round(call_cost, 6),
-            "cumulative_cost_usd": round(self.total_cost_usd, 4),
+            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
+            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
+            # which is non-monotonic across clients sharing a run and under-reports the UI.
+            "cumulative_cost_usd": round(current_run_cost(), 4),
         })
 
     def _append_ledger(self, entry: dict):
@@ -1878,7 +1884,14 @@ class OpenRouterClient:
                 )
             api_cost = max(api_cost or 0.0, imputed)
 
-        # Track usage
+        # FX-11 (I-ready-017 BUG-10): contribute to the shared run-cost counter BEFORE
+        # usage.record so the cumulative_cost_usd it writes (now current_run_cost()) is
+        # INCLUSIVE of this call — matching the judge add-then-write order, and making the
+        # ledger's cumulative a monotonic run-total instead of a per-instance value. The
+        # budget cap is checked BEFORE the call by callers via check_run_budget(); this
+        # post-call add only accumulates (does not gate).
+        _add_run_cost(api_cost)
+        # Track usage (writes the line item + ledger row with the inclusive cumulative).
         self.usage.record(
             call_type=call_type,
             input_tokens=input_tokens,
@@ -1887,9 +1900,6 @@ class OpenRouterClient:
             duration_ms=duration_ms,
             api_cost=api_cost,
         )
-        # R-2: contribute to the shared run-cost counter AFTER the call.
-        # Checking the cap BEFORE is done by callers via check_run_budget().
-        _add_run_cost(api_cost)
 
         # COT-1: Strict separation — NEVER mix reasoning into content.
         # The API separates content and reasoning_content correctly.
@@ -1996,7 +2006,10 @@ class OpenRouterClient:
                     + (output_tokens / 1_000_000) * OUTPUT_COST_PER_M,
                     6,
                 ),
-                cumulative_cost_usd=round(self.usage.total_cost_usd, 4),
+                # FX-11 (BUG-10): the live-UI trace event uses the shared monotonic run
+                # total (current_run_cost(), inclusive — _add_run_cost ran before record),
+                # not the per-instance self.usage.total_cost_usd that under-reported NOW.
+                cumulative_cost_usd=round(current_run_cost(), 4),
                 model=self.model[:50],
             )
 
