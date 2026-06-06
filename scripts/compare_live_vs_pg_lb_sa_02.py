@@ -29,7 +29,7 @@ from src.polaris_graph.retrieval.tier_classifier import (  # noqa: E402
 
 def _domain(url: str) -> str:
     try:
-        return (urlparse(url).netloc or "").lower().lstrip("www.")
+        return (urlparse(url).netloc or "").lower().removeprefix("www.")  # FX-13 (#1125): not lstrip (char-set bug)
     except Exception:
         return ""
 

@@ -1898,7 +1898,10 @@ def _fetch_content(
 
 def _domain_of(url: str) -> str:
     try:
-        return (urlparse(url).netloc or "").lower().lstrip("www.")
+        # FX-13 (#1125): removeprefix, NOT lstrip — `lstrip("www.")` strips any leading char in the
+        # SET {w, .}, corrupting domains like www.who.int -> "ho.int" / www.washington.edu ->
+        # "ashington.edu". removeprefix removes only the literal "www." prefix.
+        return (urlparse(url).netloc or "").lower().removeprefix("www.")
     except Exception:
         return ""
 
