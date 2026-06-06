@@ -4539,3 +4539,13 @@
 - EVIDENCE/FINDINGS: anchors verified — agentic caller run_honest_sweep_r3.py:2907-2923; _agentic_telemetry:1604; _detect_conference_abstract tier_classifier.py:789; filter_search_results prefetch_offtopic_filter.py:152; Step-3 live_retriever.py:2438-2444 (the seed-drop landmine); _SEED_SOURCE_LABELS:2100.
 - STATUS: Session progress: FX-11 VERIFIED+closed (#1116), FX-15a VERIFIED+closed (#1118), FX-15b GROUNDED (#1119). 11 ledger issues verified. Codex gate lock free; no codex procs.
 - NEXT_STEP: next wake — author FX-15b per .codex/I-ready-017/fx15b_grounding_notes.md (structural filter + Step-3 seed-exclusion + telemetry + flag-gate), smoke (precision fixture + seed-survival + merge integration), §-1.1 on held trace, ONE codex gate.
+
+[2026-06-06 17:40:00]
+- ACTION: FX-15b (#1119) authored + committed (40a9fa79) + Codex diff-gate iter-1 launched (bg bujszfp43).
+- RATIONALE: RB-02b agentic junk. Grounding surfaced a latent catastrophic bug: Step-3 prefetch ran on empty-snippet seeds -> enabling the semantic filter would drop the whole agentic seed lane. Fix = precision-first structural host-class filter (0 real-article drops on the held trace) + Step-3 seed-exclusion (so enable_prefetch_filter=True is seed-safe) + urls_selectable telemetry + flag-gate PG_AGENTIC_HOST_FILTER. Quality/precision; no faithfulness path.
+- DOCS/RESEARCH: InfoGain-RAG (2509.12765), FILCO, WebFilter (2508.07956) — cheap structural pre-filter before semantic.
+- SYNC: ledger FX-15b -> codex_diff_iter1_inflight (commit 40a9fa79).
+- AFFECTED_FILES: live_retriever.py, run_honest_sweep_r3.py, test_fx15b_host_filter_iready017.py, outputs/audits/I-ready-017/fx15b_s11_audit.md + .codex/I-ready-017/fx15b_*.
+- EVIDENCE/FINDINGS: §-1.1 on REAL held trace = 41 agentic rows -> DROP 13 / KEEP 28, 0 real articles dropped (OUP /Supplement_1/ correctly caught as conference supplement). 4 FX-15b smoke + 46 regression green.
+- STATUS: FX-15b Codex diff gate IN FLIGHT (bg bujszfp43); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-15b verified, advance FX-06 (now unblocked); RC => address within 5-cap.
