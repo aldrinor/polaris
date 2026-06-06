@@ -10,7 +10,7 @@ import os
 from collections import Counter
 
 from src.polaris_graph.tracing import get_tracer
-from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
 from src.polaris_graph.schemas import QueryPlan, SeedQueryPlan
 from src.polaris_graph.state import (
     ResearchState,
@@ -445,6 +445,11 @@ These seeds will feed an agentic search loop that generates follow-up queries ba
                 "(attempt %d/%d)",
                 _attempt + 1, _seed_max_retries,
             )
+        except NoEndpointError:
+            # I-ready-019 FL-02 (#1102): a STRUCTURAL discovery 404 in the FIRST agentic seed-planner
+            # call reproduces every attempt — retrying is futile and the generic fallback to template
+            # seed queries silently buries it (LAW II). Fail loud instead of degrading to templates.
+            raise
         except Exception as plan_exc:
             logger.warning(
                 "[polaris graph] FIX-059-J: Seed planner attempt %d/%d failed: %s",

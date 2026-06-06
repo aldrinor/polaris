@@ -211,7 +211,7 @@ async def storm_interviews_node(state: ResearchStateV2) -> dict[str, Any]:
         logger.info("STORM: Skipping on iteration %d", state.get("iteration_count", 0))
         return {}
 
-    from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
 
     client = OpenRouterClient()
     tracer = get_tracer()
@@ -229,6 +229,9 @@ async def storm_interviews_node(state: ResearchStateV2) -> dict[str, Any]:
                 outline_sections=len(result.get("storm_outline", [])),
             )
         return result
+    except NoEndpointError:
+        # I-ready-019 FL-01 (#1102): structural discovery 404 must fail loud, not "continue without".
+        raise
     except Exception as exc:
         logger.warning("STORM interviews failed: %s — continuing without", str(exc)[:200])
         if tracer:

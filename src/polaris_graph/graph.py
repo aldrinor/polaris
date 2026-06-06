@@ -26,7 +26,7 @@ import psutil
 from dotenv import load_dotenv
 from langgraph.graph import END, StateGraph
 
-from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
 from src.polaris_graph.state import ResearchState, create_initial_state
 from src.polaris_graph.tracing import PipelineTracer, get_tracer
 
@@ -171,6 +171,11 @@ def build_graph() -> StateGraph:
                     outline_sections=len(result.get("storm_outline", [])),
                 )
             return result
+        except NoEndpointError:
+            # I-ready-019 FL-01 (#1102): a STRUCTURAL discovery 404 (config error, not transient)
+            # must NOT be swallowed into "continue without STORM" — that re-buries the silent
+            # downgrade one level above the leaf re-raise (LAW II, the drb_72 collapse). Propagate.
+            raise
         except Exception as exc:
             logger.warning(
                 "[polaris graph] STORM interviews failed: %s — continuing without",

@@ -334,6 +334,8 @@ def build_v3_graph(
                     "snippet": ev.get("statement", "")[:300],
                 })
 
+        from src.polaris_graph.llm.openrouter_client import NoEndpointError  # I-ready-019 FL-01
+
         try:
             storm_result = await run_storm_interviews(client, v1_state)
 
@@ -394,6 +396,9 @@ def build_v3_graph(
                 "perspectives": storm_perspectives,
             }
 
+        except NoEndpointError:
+            # I-ready-019 FL-01 (#1102): a STRUCTURAL discovery 404 must fail loud, not "non-fatal".
+            raise
         except Exception as exc:
             logger.warning("[v3 storm] STORM failed (non-fatal): %s", str(exc)[:300])
             if tracer:
