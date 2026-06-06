@@ -4,7 +4,8 @@ A FORCE-ENABLED discovery feature (STORM / agentic) that was turned ON but did N
 (firing_status in {attempted_empty, error}) silently degrades the run to the Serper/S2 baseline; it
 must NOT ship as success. `compute_run_health_gate` is the pure decision (always emits the
 observability fields; overrides a would-be success → abort_discovery_degraded only when
-PG_RUN_HEALTH_GATE is on). Default OFF = byte-identical. Offline, no network.
+PG_RUN_HEALTH_GATE is on). Default OFF leaves status/control-flow/release unchanged (the two
+additive observability fields are still emitted). Offline, no network.
 """
 from __future__ import annotations
 

@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Stale wording remains: tests/polaris_graph/test_fl05_run_health_gate_iready017.py still says 'Default OFF = byte-identical', and outputs/audits/I-ready-017/fl05_s11_audit.md has several similar byte-identical claims plus a stale 7-passed count. The implementation is correct: default OFF leaves status/control-flow/release unchanged while adding two observability fields."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

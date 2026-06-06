@@ -19,13 +19,14 @@ discovery feature at `attempted_empty` with no degradation field and no gate. Ha
 passed, the run would have shipped as **success** with STORM silently dead — exactly the
 no-silent-downgrade violation FL-05 closes.
 
-## The fix (fail-loud backstop; flag-gated; default byte-identical)
+## The fix (fail-loud backstop; flag-gated; default OFF leaves status/control-flow/release unchanged)
 - New pure `compute_run_health_gate(discovery_telemetries, *, unified_status, gate_on)`: ALWAYS
   returns `discovery_llm_degraded: bool` + `discovery_rounds_on_fallback: int`; returns
   `override_status='abort_discovery_degraded'` IFF `gate_on` AND ≥1 force-enabled feature with
   firing_status in {attempted_empty, error} AND the run is success-bound.
 - The success manifest tail emits the two fields ALWAYS (observability) and, behind
-  `PG_RUN_HEALTH_GATE` (default OFF = byte-identical; benchmark slate forces ON), overrides a
+  `PG_RUN_HEALTH_GATE` (default OFF: status/control-flow/release unchanged, only the two additive
+  observability fields are written; benchmark slate forces ON), overrides a
   would-be success to `abort_discovery_degraded` BEFORE recording success. Promotes
   `feature_firing_warning` from advisory to gating. Pairs with CANARY-01 (pre-spend); FL-05 is the
   mid/post-run regression backstop.
@@ -46,18 +47,18 @@ no-silent-downgrade violation FL-05 closes.
   control-flow + the release decision UNCHANGED (the accurate claim — not "byte-identical").
 
 ## Offline smoke (proves the fix)
-`pytest tests/polaris_graph/test_fl05_run_health_gate_iready017.py` → 7 passed:
+`pytest tests/polaris_graph/test_fl05_run_health_gate_iready017.py` → 8 passed:
 - registration: `abort_discovery_degraded` ∈ `UNIFIED_STATUS_VALUES`, to_unified_status round-trips,
   `abort_` prefix; `regression_lab.KNOWN_STATUS_VALUES == UNIFIED_STATUS_VALUES` (the mirror invariant).
 - gate decision matrix: force-enabled + {attempted_empty, error} + gate-on + success → override
   abort_discovery_degraded (degraded=True, rounds=1); healthy (fired) → no override; **gate-off →
-  no override (byte-identical) but degraded field still emitted**; non-success → never overridden;
+  no override (status/control-flow/release unchanged) but the degraded field is still emitted**; non-success → never overridden;
   disabled feature → not degraded.
 - Regression: manifest_contract (13, incl. the taxonomy-drift guard updated) + m207 invariant
   coverage (11) + the broad status-registry/regression_lab suites — all green.
 
 ## Faithfulness check
-Fail-loud, no-silent-downgrade backstop. Default OFF = byte-identical (no new abort on opt-in runs);
+Fail-loud, no-silent-downgrade backstop. Default OFF leaves status/control-flow/release unchanged (no new abort on opt-in runs; two additive observability fields still emitted);
 the benchmark slate turns it ON so a force-on discovery feature that didn't fire aborts rather than
 shipping as success. Fail-CLOSED (refuses to record success on degradation) per LAW II. No grounding
 / strict_verify / 4-role-decision change — it only converts a degraded would-be-success into an

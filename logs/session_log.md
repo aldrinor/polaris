@@ -4636,3 +4636,12 @@
 - EVIDENCE/FINDINGS: 8 FL-05 (incl v6 PipelineStatus guard) + 5 v6 schemas + 13 manifest-contract green.
 - STATUS: FL-05 iter-2 Codex diff gate IN FLIGHT (bg bt579yszw); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FL-05 verified, advance PHASE-3/4 (FX-17/19/20/14/12/13); RC => address within 5-cap (iter 2 of 5).
+
+[2026-06-06 21:45:00]
+- ACTION: FL-05 (#1124) Codex diff-gate iter-2 APPROVE -> VERIFIED + closed. iter-1 RC P2 stale-wording fixed inline (test docstring + audit doc; 7->8 count).
+- RATIONALE: iter-2 = 0 P0/P1, 1 P2 (stale "byte-identical" wording; impl correct per Codex). Fixed prose inline (no code change, no re-gate). 2 iter-1 P1 (v6 PipelineStatus 500, release_allowed contradiction) + 2 P2 all closed in iter-2.
+- SYNC: ledger FL-05 -> verified (15 verified); current_pointer -> NEXT PHASE-3/4 (FX-13/17/19/20/14/12).
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; tests/.../test_fl05_*.py + outputs/audits/.../fl05_s11_audit.md (wording); GH #1124 (closed), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fl05_codex_diff_audit_iter2.txt = APPROVE. 8 FL-05 + 5 v6 + 13 manifest-contract.
+- STATUS: FL-05 DONE. 15 ledger issues verified — ALL P0/P1 complete; only PHASE-3/4 P2/P3 cleanup left (FX-13/17/19/20/14/12) + FX-16 (operator Q5) + RERUN (operator Q4). Codex gate lock free; no codex procs.
+- NEXT_STEP: FX-13 (P2, live_retriever _domain_of lstrip('www.') -> removeprefix) — gh issue create, grep, smoke, fix, §-1.1, codex gate.
