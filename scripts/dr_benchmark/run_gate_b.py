@@ -863,7 +863,7 @@ async def run_gate_b_query(
         # returning >0 sources) must be ALIVE, or FAIL CLOSED before any sweep spend. Live-path only
         # (transport injected = offline test, no real calls); gated by PG_BEHAVIORAL_CANARY (slate).
         from scripts.dr_benchmark.pathB_run_gate import behavioral_canary
-        behavioral_canary()
+        await behavioral_canary()
         active_transport = build_gate_b_transport()
         # P2 (I-meta-007d): record the machine-readable stage marker so a future gate/manifest
         # reader can tell this benchmark OpenRouter run apart from the sovereign self-host path.
