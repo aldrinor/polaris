@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Structured authorization closes the free-text loophole in the gate itself, but default-deny is not enforced for all real callers. `scripts/run_live_honest_cycle.py:181` can set `approved=False`, saves the decision at `scripts/run_live_honest_cycle.py:199`, then still proceeds into live DeepSeek generation at `scripts/run_live_honest_cycle.py:219`. `scripts/run_honest_on_prerebuild_corpus.py:236`/`scripts/run_honest_on_prerebuild_corpus.py:252` similarly proceeds into `generate_multi_section_report` at `scripts/run_honest_on_prerebuild_corpus.py:273`. `src/polaris_graph/honest_pipeline.py:196`/`src/polaris_graph/honest_pipeline.py:213` proceeds to report/evaluator work at `src/polaris_graph/honest_pipeline.py:227`. Only `run_honest_sweep_r3.py` has the required `if not approved` short-circuit before generation."
+p2:
+  - "Operator-facing text is stale: the sweep abort artifact and `render_approval_html` still tell users to provide a substantive note, even though FX-05 makes the structured `PG_AUTHORIZED_SWEEP_APPROVAL` credential the only sanctioned override."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add and test `abort_corpus_approval_denied` short-circuits before any generation/report/evaluator path in `run_live_honest_cycle.py`, `run_honest_on_prerebuild_corpus.py`, and `honest_pipeline.py` when `approved` is false."
