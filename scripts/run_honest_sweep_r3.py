@@ -1502,6 +1502,21 @@ def _normalize_quantified_telemetry(telemetry: dict) -> dict:
     return telemetry
 
 
+def _judge_calls_and_errors_from_telemetry(
+    base_tel: dict, now_tel: dict,
+) -> tuple[int, int]:
+    """FX-09 (I-ready-017): (judge_calls, judge_errors) for THIS run, as the delta of the
+    process-lifetime entailment-judge telemetry counters.
+
+    denominator = actual judge invocations this run (calls delta); numerator = judge_error
+    delta (counts errors even on KEPT sentences that failed open). Pure + reentrant: the
+    sweep snapshots `base` at the run boundary and never resets the global counters.
+    """
+    calls = int(now_tel.get("calls", 0)) - int(base_tel.get("calls", 0))
+    errors = int(now_tel.get("judge_error", 0)) - int(base_tel.get("judge_error", 0))
+    return calls, errors
+
+
 async def run_one_query(
     q: dict,
     out_root: Path,
@@ -1533,6 +1548,20 @@ async def run_one_query(
     byte-unchanged.
     """
     reset_run_cost()
+    # FX-09 (I-ready-017): snapshot the process-lifetime entailment-judge counters at
+    # the run boundary so judge_error_rate uses THIS run's ACTUAL judge invocations as
+    # the denominator (delta), not all verifier-checked sentences (the judge only runs
+    # on sentences that pass every mechanical check first → the old denominator diluted
+    # the #1071 binding abort_verifier_degraded gate ~2.87x). Snapshot (NOT reset) for
+    # reentrancy; the sweep never resets the global counters.
+    try:
+        from src.polaris_graph.llm.entailment_judge import (
+            get_judge_telemetry as _get_judge_telemetry,
+        )
+        _base_judge_tel = _get_judge_telemetry()
+    except Exception:
+        _get_judge_telemetry = None
+        _base_judge_tel = {"calls": 0, "judge_error": 0}
     # I-bug-111: reset synthesis-scrub alert + telemetry at run
     # boundary so per-run manifest reflects ONLY this run's
     # synthesis behavior. Without this reset, the sticky alert from
@@ -4782,27 +4811,44 @@ async def run_one_query(
         # entailment_judge_error_fail_closed) so no unverified claim shipped; this is the run-level
         # guard + observability Codex's plan-gate required. denominator = all sentences the verifier
         # actually checked (kept + dropped) across sections.
-        _judge_err = reason_counts.get("entailment_judge_error_fail_closed", 0)
-        _total_checked = sum(
+        # FX-09 (I-ready-017): denominator = ACTUAL judge invocations this run (delta of
+        # the process-lifetime telemetry counter), NOT all verifier-checked sentences.
+        # The judge only runs on sentences that pass every mechanical check first, so the
+        # old kept+dropped denominator diluted the #1071 binding abort_verifier_degraded
+        # gate ~2.87x. Numerator = telemetry['judge_error'] delta (counts errors even on
+        # KEPT sentences that failed open, which the reason_counts grep under-counts).
+        _verifier_sentences_checked = sum(
             len(s.get("kept", [])) + len(s.get("dropped", []))
             for s in verif_details["sections"]
         )
-        _judge_err_rate = (_judge_err / _total_checked) if _total_checked else 0.0
+        if _get_judge_telemetry is not None:
+            _judge_calls, _judge_err = _judge_calls_and_errors_from_telemetry(
+                _base_judge_tel, _get_judge_telemetry(),
+            )
+        else:
+            # Telemetry unavailable (defensive): fall back to the old reason-grep rate so
+            # the degraded gate still functions (fail-functional, never silently inert).
+            _judge_err = reason_counts.get("entailment_judge_error_fail_closed", 0)
+            _judge_calls = _verifier_sentences_checked
+        _judge_err_rate = (_judge_err / _judge_calls) if _judge_calls else 0.0
         _max_jerr = float(os.getenv("PG_MAX_JUDGE_ERROR_RATE", "1.0"))
         verif_details["judge_error_count"] = _judge_err
-        verif_details["judge_error_sentences_checked"] = _total_checked
+        verif_details["judge_calls"] = _judge_calls
+        # Kept+dropped count retained as CONTEXT only (NOT the denominator).
+        verif_details["verifier_sentences_checked"] = _verifier_sentences_checked
+        verif_details["judge_error_sentences_checked"] = _verifier_sentences_checked  # back-compat alias
         verif_details["judge_error_rate"] = round(_judge_err_rate, 4)
         verif_details["judge_error_rate_cap"] = _max_jerr
         verif_details["judge_error_degraded"] = _judge_err_rate > _max_jerr
         if _judge_err_rate > _max_jerr:
             _log(
                 f"[verifier]    DEGRADED: judge_error_rate={_judge_err_rate:.3f} "
-                f"({_judge_err}/{_total_checked}) > cap {_max_jerr:.3f} — the binding entailment "
+                f"({_judge_err}/{_judge_calls} judge calls) > cap {_max_jerr:.3f} — the binding entailment "
                 f"verifier errored on too many sentences; the run is NOT trustworthy (each errored "
                 f"sentence was dropped, but the rate indicates a degraded judge)."
             )
         elif _judge_err > 0:
-            _log(f"[verifier]    judge_error_rate={_judge_err_rate:.3f} ({_judge_err}/{_total_checked}, under cap {_max_jerr:.3f})")
+            _log(f"[verifier]    judge_error_rate={_judge_err_rate:.3f} ({_judge_err}/{_judge_calls} judge calls, under cap {_max_jerr:.3f})")
         # I-gen-005 Step 1.5: tally each post-strict-verify category
         # separately so the operator can distinguish the three drop
         # paths (strict_verify failures, dedup consolidations, M-41c
