@@ -778,9 +778,32 @@ class OpenRouterRoleTransport:
                     import src.polaris_graph.llm.openrouter_client as _orc
                     from src.polaris_graph.roles.role_pipeline import compute_role_call_cost
 
-                    _orc._add_run_cost(
-                        compute_role_call_cost(request.model_slug, raw.get("usage"))
-                    )
+                    _blank_cost = compute_role_call_cost(request.model_slug, raw.get("usage"))
+                    _orc._add_run_cost(_blank_cost)
+                    # FX-11 (I-ready-017 BUG-10b / Codex iter-1 P2a): this BLANKED attempt is
+                    # DISCARDED, so RecordingTransport (which ledgers only the FINAL returned
+                    # response) never records it — yet it cost real money and DID feed the run
+                    # budget above. Append a row through the SINGLE canonical writer (shared
+                    # per-session accumulator) so the persisted ledger total stays == the run-budget
+                    # total; the distinct call_type marks it a discarded attempt (not the served
+                    # verdict). Best-effort I/O is handled inside the writer. Skip the row when the
+                    # blank carried no usage (cost 0 leaves the accumulator unchanged anyway).
+                    if _blank_cost > 0:
+                        _ub = raw.get("usage") or {}
+                        _rt = int(_ub.get("reasoning_tokens", 0) or 0) or int(
+                            (_ub.get("completion_tokens_details") or {}).get(
+                                "reasoning_tokens", 0
+                            )
+                            or 0
+                        )
+                        _orc.append_cost_ledger_row(
+                            session_id=_orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
+                            call_type=f"role:{request.role}:blank_attempt",
+                            cost_usd=_blank_cost,
+                            input_tokens=int(_ub.get("prompt_tokens", 0) or 0),
+                            output_tokens=int(_ub.get("completion_tokens", 0) or 0),
+                            reasoning_tokens=_rt,
+                        )
                     _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now crossed.
                     # I-run11-007 (#1051): exclude the provider that just returned blank so the NEXT
                     # attempt advances to the next HEALTHY provider in the ranked order (OpenRouter

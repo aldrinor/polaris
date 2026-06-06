@@ -300,6 +300,9 @@ class LoopbackLLMClient:
                     output_tokens=output_tokens,
                     duration_ms=duration_ms,
                     api_cost=0.0,  # operator is free
+                    # FX-11 (I-ready-017 P2b): free=True ledgers cost 0 instead of a phantom
+                    # paid-rate token estimate, and (with no _add_run_cost) keeps ledger==run-total.
+                    free=True,
                 )
 
                 logger.info(

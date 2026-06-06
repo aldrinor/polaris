@@ -52,7 +52,6 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
 
 # I-bug-100: import openrouter_client as a MODULE reference (not by-value)
 # so monkeypatch.setattr on its globals (`PG_MAX_COST_PER_RUN`,
@@ -279,20 +278,17 @@ def _append_judge_ledger_entry(
     test monkeypatch.setattr on `openrouter_client._COST_LEDGER_PATH`
     propagates correctly.
     """
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "session_id": _orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
-        "call_type": "entailment_judge",
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": 0,
-        "duration_ms": round(duration_ms, 1),
-        "cost_usd": round(actual_cost, 6),
-        "cumulative_cost_usd": round(_orc.current_run_cost(), 4),
-    }
-    _orc._COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_orc._COST_LEDGER_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    # FX-11 (BUG-10): route through the SINGLE canonical cost-ledger writer, which bumps the shared,
+    # monotonic per-session accumulator and appends the row atomically (NOT current_run_cost(),
+    # which is reset per parallel four-role worker). Best-effort I/O is handled inside the writer.
+    _orc.append_cost_ledger_row(
+        session_id=_orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
+        call_type="entailment_judge",
+        cost_usd=actual_cost,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        duration_ms=duration_ms,
+    )
 
 
 _JUDGE_SINGLETON: _EntailmentJudge | None = None

@@ -173,34 +173,24 @@ class RecordingTransport:
         # so the delta lands on the counter holding `generator_spend + verifier_spend`.
         _role_cost = compute_role_call_cost(request.model_slug, response.usage)
         _orc._add_run_cost(_role_cost)
-        # FX-11 (I-ready-017 BUG-10b): ledger THIS four-role verifier call AFTER the add so
-        # its cumulative_cost_usd is inclusive, mirroring entailment_judge's ledger row
-        # (call_type=f"role:{role}"). The 4-role verifier calls (mirror/sentinel/judge) wrote
-        # ZERO cost-ledger rows before this. Best-effort: a ledger-write failure must NEVER
-        # break the verifier call or the budget check below.
-        try:
-            import json as _json
-            from datetime import datetime as _dt, timezone as _tz
-            _ub = response.usage or {}
-            _rt = int(_ub.get("reasoning_tokens", 0) or 0) or int(
-                (_ub.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0
-            )
-            _entry = {
-                "timestamp": _dt.now(_tz.utc).isoformat(),
-                "session_id": _orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
-                "call_type": f"role:{request.role}",
-                "input_tokens": int(_ub.get("prompt_tokens", 0) or 0),
-                "output_tokens": int(_ub.get("completion_tokens", 0) or 0),
-                "reasoning_tokens": _rt,
-                "duration_ms": 0.0,
-                "cost_usd": round(_role_cost, 6),
-                "cumulative_cost_usd": round(_orc.current_run_cost(), 4),
-            }
-            _orc._COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(_orc._COST_LEDGER_PATH, "a", encoding="utf-8") as _f:
-                _f.write(_json.dumps(_entry) + "\n")
-        except Exception:
-            pass
+        # FX-11 (I-ready-017 BUG-10b + Codex iter-1 P1): the four-role verifier calls
+        # (mirror/sentinel/judge) wrote ZERO cost-ledger rows before this. Ledger THIS call through
+        # the SINGLE canonical writer, which bumps the shared per-session accumulator and appends
+        # the row atomically — so role-row cumulative is non-monotonic NEITHER across the parallel
+        # claim workers (each reset their own _RUN_COST_CTX) NOR in file write order. Best-effort
+        # inside the writer: a ledger failure never breaks the verifier call or the budget check.
+        _ub = response.usage or {}
+        _rt = int(_ub.get("reasoning_tokens", 0) or 0) or int(
+            (_ub.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0
+        )
+        _orc.append_cost_ledger_row(
+            session_id=_orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
+            call_type=f"role:{request.role}",
+            cost_usd=_role_cost,
+            input_tokens=int(_ub.get("prompt_tokens", 0) or 0),
+            output_tokens=int(_ub.get("completion_tokens", 0) or 0),
+            reasoning_tokens=_rt,
+        )
         _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
         return response
 

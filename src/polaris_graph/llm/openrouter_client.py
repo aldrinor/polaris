@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -251,6 +252,92 @@ def _add_run_cost(delta: float) -> None:
     # its own run-cost; concurrent gather() of run_one_query() no longer
     # stomps each other.
     _RUN_COST_CTX.set(_RUN_COST_CTX.get() + float(delta))
+
+
+# FX-11 (I-ready-017 BUG-10/10b): a PROCESS-GLOBAL, lock-protected, per-SESSION monotonic
+# accumulator for the cost LEDGER's `cumulative_cost_usd`. The budget guard uses the per-task
+# ContextVar `current_run_cost()`, which is RESET inside each parallel four-role claim worker
+# (sweep_integration) and merged to the parent only at the end — so a per-row cumulative read
+# from it is per-worker and NON-monotonic/interleaved. The ledger's cumulative must instead be a
+# single rising run total regardless of which thread/worker writes the row (Uptrace SOTA: LLM
+# cost is a MONOTONIC counter). Keyed by session_id (run_id, unique per run) so concurrent
+# workers of ONE run share the counter and distinct runs in one process never bleed. The budget
+# GATE (current_run_cost / check_run_budget) is intentionally NOT changed.
+# RLock (reentrant): append_cost_ledger_row holds it across bump+write and calls
+# ledger_bump_cumulative, which re-acquires it. A plain Lock would self-deadlock.
+_LEDGER_CUM_LOCK = threading.RLock()
+_LEDGER_CUM_BY_SESSION: dict[str, float] = {}
+
+
+def ledger_bump_cumulative(session_id: str, cost: float) -> float:
+    """Atomically add `cost` to the per-session ledger total; return the new total (rounded 4).
+
+    Monotonic within a `session_id` across threads/workers — this is the value every cost-ledger
+    row must record as `cumulative_cost_usd`.
+    """
+    sid = session_id or "no_run_id"
+    with _LEDGER_CUM_LOCK:
+        total = _LEDGER_CUM_BY_SESSION.get(sid, 0.0) + float(cost)
+        _LEDGER_CUM_BY_SESSION[sid] = total
+        return round(total, 4)
+
+
+def reset_ledger_cumulative(session_id: str) -> None:
+    """Clear the per-session ledger accumulator so a re-used `session_id` in one process starts
+    fresh. Production run_ids are unique per run (no reset needed); tests reuse ids and call this.
+    NOTE: do NOT hook this into reset_run_cost — that is called per parallel worker and would zero
+    the shared run total mid-run.
+    """
+    sid = session_id or "no_run_id"
+    with _LEDGER_CUM_LOCK:
+        _LEDGER_CUM_BY_SESSION.pop(sid, None)
+
+
+def append_cost_ledger_row(
+    *,
+    session_id: str,
+    call_type: str,
+    cost_usd: float,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    duration_ms: float = 0.0,
+) -> float:
+    """THE single canonical cost-ledger writer (FX-11, I-ready-017 #1116 — issue title).
+
+    Under ONE re-entrant process-global lock: (1) add ``cost_usd`` to the per-session monotonic
+    accumulator, (2) append the row — carrying that inclusive ``cumulative_cost_usd`` — to the
+    JSONL ledger. Bumping and appending share the lock so the PERSISTED FILE is non-decreasing in
+    WRITE order (not merely in assignment order) even under the parallel four-role
+    ThreadPoolExecutor workers (sweep_integration), which each copy_context() (inheriting the run
+    id) and reset their own ``_RUN_COST_CTX``. Returns the new cumulative (rounded 4).
+
+    Best-effort I/O: a write failure is logged, NEVER raised, and the in-memory accumulator still
+    advances so it stays == the run-budget total. Used by the four-role role / judge / blank-retry
+    writers; the generator (UsageTracker.record) bumps the SAME accumulator under the SAME lock via
+    its ``_append_ledger`` hook (kept distinct only because a test monkeypatches that hook).
+    """
+    sid = session_id or "no_run_id"
+    with _LEDGER_CUM_LOCK:
+        total = ledger_bump_cumulative(sid, cost_usd)  # reentrant acquire (RLock)
+        row = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": sid,
+            "call_type": call_type,
+            "input_tokens": int(input_tokens),
+            "output_tokens": int(output_tokens),
+            "reasoning_tokens": int(reasoning_tokens),
+            "duration_ms": round(float(duration_ms), 1),
+            "cost_usd": round(float(cost_usd), 6),
+            "cumulative_cost_usd": total,
+        }
+        try:
+            _COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(_COST_LEDGER_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+        except Exception as exc:  # best-effort: never break the caller's call/budget path
+            logger.warning("FIX-O1/FX-11: Cost ledger write failed: %s", exc)
+        return total
 
 
 # Codex round 1 B-4: conservative per-model prices used when OpenRouter
@@ -729,6 +816,7 @@ class UsageTracker:
         duration_ms: float = 0,
         api_cost: float = 0.0,
         prompt_component_tokens: dict | None = None,
+        free: bool = False,
     ):
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
@@ -737,11 +825,49 @@ class UsageTracker:
         # FIX-C2: Accumulate API-reported cost for accurate billing
         if api_cost > 0:
             self.total_api_reported_cost += api_cost
-        call_cost = api_cost if api_cost > 0 else round(
-            (input_tokens / 1_000_000) * INPUT_COST_PER_M
-            + (output_tokens / 1_000_000) * OUTPUT_COST_PER_M,
-            6,
-        )
+        # FX-11 (I-ready-017 Codex iter-1 P2b): a GENUINELY-FREE call (e.g. the operator
+        # loopback transport — "operator is free") must ledger cost 0, NOT a phantom paid-rate
+        # token estimate. `free=True` forces 0 and is the ONLY way to suppress the token-based
+        # fallback; it does NOT touch the imputation backstop (invariant #6) that paid calls rely
+        # on when OpenRouter omits usage.cost (those pass free=False / the default and still get
+        # the token estimate). A free call also does not feed `_add_run_cost`, so cost 0 keeps the
+        # persisted ledger total == the run-budget total.
+        if free:
+            call_cost = 0.0
+        else:
+            call_cost = api_cost if api_cost > 0 else round(
+                (input_tokens / 1_000_000) * INPUT_COST_PER_M
+                + (output_tokens / 1_000_000) * OUTPUT_COST_PER_M,
+                6,
+            )
+        # FX-11 (BUG-10): cumulative_cost_usd is the shared, monotonic per-session RUN total
+        # (process-global accumulator) — NOT the per-instance self.total_cost_usd (non-monotonic
+        # across clients sharing a run) and NOT current_run_cost() (the per-task ContextVar that
+        # is reset per parallel four-role worker). Bump ONCE here and reuse for BOTH the in-memory
+        # _call_log entry and the persisted ledger row, so they agree and never double-count.
+        # The accumulator KEY (and the row's session_id field) is resolved with the SAME precedence
+        # the judge + role writers use — `self.session_id or ambient run_id` — so all three writers
+        # of one run share ONE accumulator (N-301: pick up the ambient run_id when none was passed).
+        _sid = self.session_id or _CURRENT_RUN_ID_CTX.get() or ""
+        # Bump the shared per-session accumulator AND persist the ledger row ATOMICALLY under the
+        # canonical RLock, so the persisted file stays monotonic in WRITE order even if a four-role
+        # worker (which uses append_cost_ledger_row — the SAME lock + accumulator) writes
+        # concurrently. _append_ledger is kept as a method only because a test monkeypatches it; it
+        # is now invoked inside the lock. RLock => the inner ledger_bump_cumulative re-acquire is OK.
+        with _LEDGER_CUM_LOCK:
+            _cum = ledger_bump_cumulative(_sid, call_cost)
+            # FIX-305: Persist to JSONL cost ledger
+            self._append_ledger({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "session_id": _sid,  # FIX-F2/FX-11: ambient-resolved run ID (matches accumulator key)
+                "call_type": call_type,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "duration_ms": round(duration_ms, 1),
+                "cost_usd": round(call_cost, 6),
+                "cumulative_cost_usd": _cum,
+            })
         entry = {
             "type": call_type,
             "input_tokens": input_tokens,
@@ -749,31 +875,12 @@ class UsageTracker:
             "reasoning_tokens": reasoning_tokens,
             "duration_ms": duration_ms,
             "cost_usd": round(call_cost, 6),
-            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
-            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
-            # which is non-monotonic across clients sharing a run and under-reports the UI.
-            "cumulative_cost_usd": round(current_run_cost(), 4),
+            "cumulative_cost_usd": _cum,
         }
         # TIER-3 Stage 6: Optional prompt component breakdown
         if prompt_component_tokens:
             entry["prompt_components"] = prompt_component_tokens
         self._call_log.append(entry)
-
-        # FIX-305: Persist to JSONL cost ledger
-        self._append_ledger({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "session_id": self.session_id,  # FIX-F2: Tag entries with run ID
-            "call_type": call_type,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "reasoning_tokens": reasoning_tokens,
-            "duration_ms": round(duration_ms, 1),
-            "cost_usd": round(call_cost, 6),
-            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
-            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
-            # which is non-monotonic across clients sharing a run and under-reports the UI.
-            "cumulative_cost_usd": round(current_run_cost(), 4),
-        })
 
     def _append_ledger(self, entry: dict):
         """Append a cost entry to the persistent JSONL ledger."""
