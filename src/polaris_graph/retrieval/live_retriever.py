@@ -2090,6 +2090,14 @@ def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[
     return len(cand_tokens & question_tokens) / float(len(question_tokens))
 
 
+# FX-15a (#1118): the injected-seed source classes that share the reserved/undroppable/unranked
+# lane. `primary_trial_doi` = #817 layer-4 direct primary-trial DOI seeds; `agentic_seed` =
+# agentic-discovered URLs (relabeled from the mislabel that called them primary_trial_doi). BOTH
+# are split out and prepended unranked; FX-15b later makes `agentic_seed` droppable via the
+# host-class filter (telemetry-correctness here is the prerequisite).
+_SEED_SOURCE_LABELS: frozenset[str] = frozenset({"primary_trial_doi", "agentic_seed"})
+
+
 def _rerank_and_reserve(
     candidates: list["SearchCandidate"],
     *,
@@ -2102,8 +2110,10 @@ def _rerank_and_reserve(
     iter-1 required-changes).
 
     Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
-    relevance scoring would drop them. They are SPLIT OUT by `source == "primary_trial_doi"`
-    and prepended AFTER ranking — never ranked, never dropped, exactly additive as before.
+    relevance scoring would drop them. They are SPLIT OUT by `source in _SEED_SOURCE_LABELS`
+    (FX-15a #1118: the set `{primary_trial_doi, agentic_seed}` — both injected seed classes keep
+    the additive/reserved lane) and prepended AFTER ranking — never ranked, never dropped, exactly
+    additive as before.
 
     Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
     take at most ONE reserved item per origin while capacity remains (origins with the best
@@ -2114,8 +2124,8 @@ def _rerank_and_reserve(
     `candidates[:fetch_cap + n_seed_injected]`.
     """
     try:
-        seeds = [c for c in candidates if getattr(c, "source", "") == "primary_trial_doi"]
-        non_seeds = [c for c in candidates if getattr(c, "source", "") != "primary_trial_doi"]
+        seeds = [c for c in candidates if getattr(c, "source", "") in _SEED_SOURCE_LABELS]
+        non_seeds = [c for c in candidates if getattr(c, "source", "") not in _SEED_SOURCE_LABELS]
         if fetch_cap <= 0 or not non_seeds:
             return seeds + non_seeds[:max(fetch_cap, 0)]
 
@@ -2183,6 +2193,8 @@ def run_live_retrieval(
     domain: Optional[str] = None,
     seed_urls: Optional[list[str]] = None,
     seed_only: bool = False,
+    seed_source: str = "primary_trial_doi",
+    seed_query_origin: str = "primary_trial_doi_seed",
     research_frame: Any = None,
     anchor_seed: bool = True,
 ) -> LiveRetrievalResult:
@@ -2282,15 +2294,18 @@ def run_live_retrieval(
     for _surl in seed_urls or []:
         if _surl and _surl not in seen_urls:
             seen_urls.add(_surl)
+            # FX-15a (#1118): the seed SOURCE/ORIGIN labels are now caller-supplied so the agentic
+            # lane (seed_source='agentic_seed') is no longer mislabeled as a primary-trial DOI seed.
+            # Defaults preserve the #817 layer-4 DOI-lane labels for every existing caller.
             candidates.append(SearchCandidate(
-                url=_surl, title="", snippet="", source="primary_trial_doi",
-                query_origin="primary_trial_doi_seed",
+                url=_surl, title="", snippet="", source=seed_source,
+                query_origin=seed_query_origin,
             ))
             _n_seed_injected += 1
     if _n_seed_injected:
         logger.info(
-            "[live_retriever] injected %d direct primary-trial DOI seed candidates",
-            _n_seed_injected,
+            "[live_retriever] injected %d direct seed candidates (source=%s, query_origin=%s)",
+            _n_seed_injected, seed_source, seed_query_origin,
         )
 
     # I-meta-002-q1d (#942-deepener, Codex diff-gate iter-2 P1): seed_only processes ONLY the injected

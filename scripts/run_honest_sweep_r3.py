@@ -2909,6 +2909,11 @@ async def run_one_query(
                         enable_prefetch_filter=False,
                         seed_urls=_ag_urls,
                         seed_only=True,   # ONLY the agentic URLs — no Serper/S2/domain fan-out
+                        # FX-15a (#1118): truthful source/origin labels — these are agentic web
+                        # discoveries, NOT primary-trial DOI seeds. Keeps the reserved seed lane
+                        # (seed-split splits on {primary_trial_doi, agentic_seed}); telemetry only.
+                        seed_source="agentic_seed",
+                        seed_query_origin="agentic_seed",
                     )
                     # ATOMIC merge via the pure helper (dedup by URL + global ev_### renumber), then
                     # recompute dist/completeness/adequacy over the staged corpus and COMMIT only after
