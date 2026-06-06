@@ -157,6 +157,7 @@ from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     extract_numeric_claims,
 )
 from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
+    _is_low_content_host_or_page,
     run_live_retrieval,
 )
 
@@ -1602,7 +1603,7 @@ async def run_one_query(
         enabled=_storm_enabled, firing_status="enabled_not_reached" if _storm_enabled else "not_enabled",
     )
     _agentic_telemetry = make_feature_telemetry(
-        "agentic_search", urls_discovered=0,
+        "agentic_search", urls_discovered=0, urls_selectable=0,  # FX-15b (#1119): post-filter count
         enabled=_agentic_enabled, firing_status="enabled_not_reached" if _agentic_enabled else "not_enabled",
     )
     # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
@@ -2904,6 +2905,22 @@ async def run_one_query(
                 except Exception:  # noqa: BLE001
                     pass
 
+            # FX-15b (#1119): STRUCTURAL host-class filter — drop nav/SERP/conference-program URLs
+            # (which add ~0 evidence) from the agentic seed set BEFORE fetch. Cheap deterministic
+            # floor; faithfulness-safe (precision-first: never drops a real article). Flag-gated
+            # (PG_AGENTIC_HOST_FILTER, default ON) so it is reversible. urls_selectable telemetry =
+            # the post-filter count (vs urls_discovered = pre-filter).
+            if _ag_urls and os.getenv("PG_AGENTIC_HOST_FILTER", "1") != "0":
+                _ag_kept = [u for u in _ag_urls if not _is_low_content_host_or_page(u, "")]
+                _ag_dropped = len(_ag_urls) - len(_ag_kept)
+                if _ag_dropped:
+                    _log(
+                        f"[agentic]     host-class filter dropped {_ag_dropped} low-content urls "
+                        f"-> {len(_ag_kept)} selectable"
+                    )
+                _ag_urls = _ag_kept
+            _agentic_telemetry["urls_selectable"] = len(_ag_urls)
+
             if _ag_urls:
                 try:
                     agentic_retrieval = run_live_retrieval(
@@ -2912,7 +2929,12 @@ async def run_one_query(
                         protocol=protocol,
                         fetch_cap=min(len(_ag_urls), _ag_url_cap),
                         enable_openalex_enrich=True,
-                        enable_prefetch_filter=False,
+                        # FX-15b (#1119): semantic off-topic filter ON for this lane. Now seed-safe —
+                        # Step-3 excludes injected seeds from filter_search_results (empty-snippet
+                        # seeds would otherwise be off-topic-dropped). Inert for the URL-only seed_only
+                        # set (no non-seed candidates to score); the structural filter above is the
+                        # real defense for URL-only agentic seeds.
+                        enable_prefetch_filter=True,
                         seed_urls=_ag_urls,
                         seed_only=True,   # ONLY the agentic URLs — no Serper/S2/domain fan-out
                         # FX-15a (#1118): truthful source/origin labels — these are agentic web

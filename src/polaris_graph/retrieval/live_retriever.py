@@ -50,6 +50,7 @@ from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
+    _detect_conference_abstract,
     classify_source_tier,
 )
 
@@ -2102,6 +2103,41 @@ _SEED_SOURCE_LABELS: frozenset[str] = frozenset(
 )
 
 
+# FX-15b (#1119): path/route markers that unambiguously denote a NAV / SERP / conference-program
+# page carrying ~0 extractable evidence. Matched as lowercase substrings of the URL. Chosen
+# PRECISION-FIRST from the held drb_72 trace: every one of these appears only on listing/program
+# pages, NEVER on a real article URL (`/articles?id=...`, `pubs.*/doi/...`, arxiv `/abs/...`).
+# Note: `/issues/` (plural journal-TOC listing, e.g. `/issues/381`) is rejected, but `/issue/`
+# (singular) is NOT — it can prefix a real article path; conference programs are caught by the
+# reused `_detect_conference_abstract` heuristic instead.
+_LOW_CONTENT_PATH_MARKERS: tuple[str, ...] = (
+    "/search", "/browse", "/conference", "/annual-meeting", "/issues/", "/forum/",
+    "/toc/",  # journal table-of-contents listing (e.g. /toc/jpe/current) — never a real article
+)
+
+
+def _is_low_content_host_or_page(url: str, title: str = "") -> bool:
+    """FX-15b (#1119): structural reject of nav / SERP / conference-program URLs, applied to
+    agentic-discovered seed URLs BEFORE fetch (a cheap deterministic floor layered before the
+    semantic / tier filters). PRECISION-FIRST — must NEVER reject a real article/abstract page.
+    Pure + no network. Returns True iff the URL should be dropped as low-content.
+    """
+    if not url:
+        return False
+    u = url.lower()
+    if any(marker in u for marker in _LOW_CONTENT_PATH_MARKERS):
+        return True
+    # Paginated SERP / search-result listing pages (not an article).
+    if "search-results" in u or "per-page=" in u:
+        return True
+    # Conference-abstract / supplement program pages (reuse the tier-classifier heuristic so the
+    # two layers stay consistent). title is usually empty for URL-only agentic seeds; URL-only
+    # signals (/Supplement_, /abstract/, abstract-id prefixes) still fire.
+    if _detect_conference_abstract(title or "", url):
+        return True
+    return False
+
+
 def _rerank_and_reserve(
     candidates: list["SearchCandidate"],
     *,
@@ -2437,15 +2473,27 @@ def run_live_retrieval(
 
     # ── Step 3: prefetch off-topic filter ──────────────────────────
     if enable_prefetch_filter and candidates:
-        _pre_offtopic_urls = {c.url for c in candidates}
-        filt = filter_search_results(candidates, research_question)
-        candidates = filt.kept
-        for _dropped_url in _pre_offtopic_urls - {c.url for c in candidates}:
-            _trace_drop(_dropped_url, "offtopic")
-        notes.append(
-            f"prefetch_offtopic: {filt.total_kept} kept / "
-            f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
-        )
+        # FX-15b (#1119): EXCLUDE the injected seeds (empty title/snippet, source in
+        # _SEED_SOURCE_LABELS) from the semantic off-topic filter. They have no snippet to embed,
+        # so `filter_search_results` would score them ~0 similarity and REJECT the entire reserved
+        # seed lane (e.g. all agentic seeds). Filter only the non-seed search candidates; re-prepend
+        # the seeds untouched (mirrors the seed split in `_rerank_and_reserve`). Seeds are never
+        # off-topic-dropped — exactly as before this lane could enable the filter.
+        _seed_cands = [c for c in candidates if getattr(c, "source", "") in _SEED_SOURCE_LABELS]
+        _nonseed_cands = [
+            c for c in candidates if getattr(c, "source", "") not in _SEED_SOURCE_LABELS
+        ]
+        if _nonseed_cands:
+            _pre_offtopic_urls = {c.url for c in _nonseed_cands}
+            filt = filter_search_results(_nonseed_cands, research_question)
+            candidates = _seed_cands + filt.kept
+            for _dropped_url in _pre_offtopic_urls - {c.url for c in filt.kept}:
+                _trace_drop(_dropped_url, "offtopic")
+            notes.append(
+                f"prefetch_offtopic: {filt.total_kept} kept / "
+                f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
+            )
+        # else: only seeds present (e.g. seed_only mode) — nothing to off-topic filter.
     kept_by_offtopic = len(candidates)
 
     # ── Step 4: fetch-time relevance rerank + per-sub-query reservation, then cap ──
