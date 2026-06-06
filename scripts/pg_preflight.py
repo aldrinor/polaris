@@ -1689,6 +1689,51 @@ async def test_state_keys_complete() -> TestResult:
 # Test Registry
 # ===================================================================
 
+def _find_chromium_binary(cache_root: Optional[Path] = None) -> Optional[str]:
+    """FX-16 (#1131): return the path to a Playwright chromium binary under the ms-playwright cache,
+    or None. Pure + cross-platform (glob the Linux/Windows/macOS launcher layouts) so it is unit
+    testable with a synthetic cache_root. Default root: ``~/.cache/ms-playwright`` (the VM layout)."""
+    root = Path(cache_root) if cache_root is not None else (Path.home() / ".cache" / "ms-playwright")
+    try:
+        if not root.exists():
+            return None
+        for pattern in (
+            "chromium-*/chrome-linux*/chrome",
+            "chromium-*/chrome-win*/chrome.exe",
+            "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
+        ):
+            hits = sorted(root.glob(pattern))
+            if hits:
+                return str(hits[0])
+    except Exception:  # noqa: BLE001 — a probe must never crash the preflight
+        return None
+    return None
+
+
+async def test_chromium_browser_available() -> TestResult:
+    """FX-16 (#1131): fail closed when the AccessBypass browser-fetch tier (Playwright/Crawl4AI) is
+    dead. drb_72 fetched at success_rate 0.51 because chromium was absent on the VM and the cascade
+    SILENTLY fell back to httpx-naive (LAW II — no silent downgrade on a paid run). Probe the chromium
+    binary; if absent AND the cascade is not intentionally disabled, FAIL CLOSED (LIVE/paid path) with
+    remediation. DRY mode SKIPs with the same remediation so dev/CI runs do not break."""
+    name = "chromium_browser_available"
+    if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0").strip() in ("1", "true", "True"):
+        return TestResult(name, SKIP, "PG_DISABLE_ACCESS_BYPASS=1 -- browser-fetch tier intentionally off")
+    binary = _find_chromium_binary()
+    if binary:
+        return TestResult(name, PASS, f"chromium present: {binary}")
+    remediation = (
+        "Playwright chromium binary not found under ~/.cache/ms-playwright -- the AccessBypass "
+        "browser-fetch tier is DEAD (fetch will silently degrade to httpx-naive, ~0.51 success). "
+        "Run 'python -m playwright install chromium --with-deps' on this host, or set "
+        "PG_DISABLE_ACCESS_BYPASS=1 to intentionally disable the cascade."
+    )
+    if LIVE_MODE:
+        return TestResult(name, FAIL, remediation)
+    # DRY mode: do not break dev/CI; surface the gap as an actionable SKIP that WOULD fail a paid run.
+    return TestResult(name, SKIP, f"[would FAIL in LIVE/paid mode] {remediation}")
+
+
 TIER_1_TESTS = [
     ("test_openrouter_api_key", test_openrouter_api_key),
     ("test_serper_api_key", test_serper_api_key),
@@ -1701,6 +1746,9 @@ TIER_1_TESTS = [
     ("test_pydantic_schemas", test_pydantic_schemas),
     ("test_checkpoint_sqlite_writable", test_checkpoint_sqlite_writable),
     ("test_output_dir_writable", test_output_dir_writable),
+    # FX-16 (#1131): fail-closed chromium probe (LIVE/paid path) so a dead browser-fetch tier cannot
+    # silently degrade a paid run to httpx-naive. DRY mode SKIPs with remediation.
+    ("test_chromium_browser_available", test_chromium_browser_available),
 ]
 
 TIER_2_TESTS = [
