@@ -16,7 +16,11 @@ import os
 
 import pytest
 
-from scripts.dr_benchmark.pathB_run_gate import GateError, behavioral_canary
+from scripts.dr_benchmark.pathB_run_gate import (
+    GateError,
+    _default_structured_output_probe,
+    behavioral_canary,
+)
 from scripts.dr_benchmark.run_gate_b import (
     _BENCHMARK_FORCE_ON_FLAGS,
     _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
@@ -112,6 +116,45 @@ def test_canary_fails_closed_on_zero_live_sources():
         asyncio.run(
             behavioral_canary(structured_output_probe=_structured_ok, live_search_probe=lambda: 0)
         )
+
+
+# --------------------------------------------------------------------------- effective generator slug
+class _RecordingClient:
+    """Fake OpenRouterClient that records the model it was constructed with (no network)."""
+
+    last_model = None
+
+    def __init__(self, model: str = "", **_kw):
+        type(self).last_model = model
+
+    async def generate_structured(self, **_kw):
+        class _R:
+            ok = True
+
+        return _R()
+
+    async def close(self):
+        return None
+
+
+def test_default_structured_probe_uses_pg_generator_model(monkeypatch):
+    """Codex iter-2 P1: the structured probe MUST construct the client with the effective
+    PG_GENERATOR_MODEL (the searcher/generator slug the live run uses), NOT bare
+    OpenRouterClient()/OPENROUTER_DEFAULT_MODEL — else it can pass while the real generator slug's
+    structured path is dead (green-on-dead-discovery). PG_GENERATOR_MODEL is set DISTINCT from the
+    default here so a regression to the default would fail this test."""
+    import src.polaris_graph.llm.openrouter_client as orc
+
+    _RecordingClient.last_model = None
+    monkeypatch.setattr(orc, "PG_GENERATOR_MODEL", "test/generator-slug-XYZ", raising=False)
+    monkeypatch.setattr(orc, "OpenRouterClient", _RecordingClient, raising=False)
+
+    ok = asyncio.run(_default_structured_output_probe())
+    assert ok is True
+    assert _RecordingClient.last_model == "test/generator-slug-XYZ", (
+        "probe must use PG_GENERATOR_MODEL (the live generator/searcher slug), not "
+        "OPENROUTER_DEFAULT_MODEL"
+    )
 
 
 # --------------------------------------------------------------------------- slate wiring

@@ -547,12 +547,21 @@ async def _default_structured_output_probe() -> bool:
     would block every healthy live run."""
     from pydantic import BaseModel
 
-    from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
+    from src.polaris_graph.llm.openrouter_client import (
+        PG_GENERATOR_MODEL,
+        NoEndpointError,
+        OpenRouterClient,
+    )
 
     class _CanaryProbe(BaseModel):
         ok: bool
 
-    client = OpenRouterClient()  # OPENROUTER_DEFAULT_MODEL = the searcher/generator slug
+    # Codex iter-2 P1: probe the EXACT effective generator/searcher slug the live STORM/agentic
+    # structured calls use (PG_GENERATOR_MODEL > OPENROUTER_DEFAULT_MODEL precedence — the same
+    # constant multi_section_generator/the sweep import), NOT bare OpenRouterClient() (which would
+    # check OPENROUTER_DEFAULT_MODEL and could pass while the real generator slug's structured-output
+    # path is dead — recreating the green-on-dead-discovery failure).
+    client = OpenRouterClient(model=PG_GENERATOR_MODEL)
     try:
         result = await client.generate_structured(
             prompt='Reply with JSON only: {"ok": true}.',
