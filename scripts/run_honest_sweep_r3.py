@@ -49,6 +49,9 @@ for noisy in ("httpx", "httpcore"):
 
 from src.polaris_graph.evaluator.external_evaluator import run_external_evaluation  # noqa: E402
 from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
+from src.polaris_graph.nodes.journal_only_filter import (  # noqa: E402  # I-ready-017 #1134
+    JournalOnlyAbort as _JournalOnlyAbort,
+)
 # I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
 from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
@@ -239,6 +242,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_discovery_degraded": "abort_discovery_degraded",
     # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval.
     "abort_safety_refused": "abort_safety_refused",
+    # I-ready-017 (#1134): journal_only fail-closed aborts emit their named status.
+    "abort_journal_only_contract_conflict": "abort_journal_only_contract_conflict",
+    "error_journal_only_leak": "error_journal_only_leak",
     "error": "error_unexpected",
 }
 
@@ -3150,7 +3156,14 @@ async def run_one_query(
             # check must also credit the kept journal contract entities. Compute
             # them deterministically from the protocol contract (same entity
             # citeability the V30 prune applies).
+            # Codex diff-gate P1-4: credit contract anchor DOIs ONLY when V30
+            # Phase-2 is actually enabled (so the frame rows will be injected);
+            # a final pre-generator anchor-presence check (below) backstops the
+            # V30-fallback case where injection silently fails.
             _jo_contract_dois: list[str] = []
+            _v30_on = os.environ.get("PG_V30_PHASE2_ENABLED", "0").strip() in (
+                "1", "true", "True",
+            )
             _jo_req_entities = {
                 _e.get("id"): _e
                 for _e in (
@@ -3160,7 +3173,7 @@ async def run_one_query(
                 )
                 if _e.get("id")
             }
-            if _jo_req_entities:
+            if _v30_on and _jo_req_entities:
                 _jo_ent_keep = _jof.prune_contract_plans(_jo_req_entities, {}).kept_entity_ids
                 _jo_contract_dois = [
                     str(_jo_req_entities[_eid].get("doi") or "")
@@ -3990,7 +4003,7 @@ async def run_one_query(
                     rows, and re-gates on the billed set. Closes over the
                     enclosing `retrieval` / `evidence_for_gen` / `_suff` so the
                     final round's state flows to the generator."""
-                    nonlocal retrieval, evidence_for_gen, _suff
+                    nonlocal retrieval, evidence_for_gen, _suff, _jo_sidecar
                     _gap_ret = run_live_retrieval(
                         research_question=q["question"],
                         amplified_queries=list(gap_queries),
@@ -4005,6 +4018,22 @@ async def run_one_query(
                         research_frame=_retrieval_frame,
                         anchor_seed=False,   # GAP round: no broad anchor re-run
                     )
+                    # I-ready-017 #1134 (Codex diff-gate P1-1): a saturation gap
+                    # round re-retrieves AFTER the single source-filter, so its
+                    # rows must be filtered to citeable + their sidecar merged
+                    # here — otherwise unfiltered rows reach evidence_for_gen /
+                    # live_corpus, OR legitimate journal gap rows are false-aborted
+                    # by the pre-generator no-leak assert (no sidecar metadata).
+                    if _jo_active:
+                        _jo_sidecar = _jof.merge_sidecars(
+                            [_jo_sidecar, _gap_ret.journal_metadata_sidecar]
+                        )
+                        _gap_ret.classified_sources = _jof.filter_to_citeable(
+                            _gap_ret.classified_sources, _jo_sidecar
+                        ).citeable
+                        _gap_ret.evidence_rows = _jof.filter_to_citeable(
+                            _gap_ret.evidence_rows, _jo_sidecar
+                        ).citeable
                     # Merge new sources + GLOBAL evidence_id renumber (reuse the
                     # legacy-expansion pattern) so ids never collide/overwrite.
                     # Dedup on the SAME canonical-URL identity the novelty metric
@@ -4074,6 +4103,17 @@ async def run_one_query(
                         list(_gate_injected_prepend_rows)
                         + list(_resel.selected_rows)
                     )
+                    # I-ready-017 #1134 (Codex diff-gate P1-1): fail-closed no-leak
+                    # assert on THIS round's billed set — the saturation loop
+                    # regenerates from evidence_for_gen, so each round must be
+                    # verified, not only round 0.
+                    if _jo_active:
+                        _gap_leaks = _jof.assert_no_leak(_billed, _jo_sidecar)
+                        if _gap_leaks:
+                            raise _jof.JournalOnlyLeakError(
+                                "error_journal_only_leak (saturation gap round): "
+                                f"{_gap_leaks[:5]}"
+                            )
                     evidence_for_gen = _billed
                     _suff = assess_plan_sufficiency(
                         plan=_research_plan,
@@ -4397,9 +4437,10 @@ async def run_one_query(
             # cannot swallow it).
             if _jo_contract_conflict:
                 _log(f"[journal_only] CONTRACT CONFLICT ABORT: {_jo_contract_conflict}")
-                raise RuntimeError(
-                    "abort_journal_only_contract_conflict: required contract slot "
-                    "bound to a non-journal entity: " + _jo_contract_conflict
+                raise _jof.JournalOnlyAbort(
+                    "abort_journal_only_contract_conflict",
+                    "required contract slot bound to a non-journal entity: "
+                    + _jo_contract_conflict,
                 )
             _jo_leaks = _jof.assert_no_leak(evidence_for_gen, _jo_sidecar)
             if _jo_leaks:
@@ -4409,6 +4450,38 @@ async def run_one_query(
                     f"error_journal_only_leak: {len(_jo_leaks)} non-journal row(s) "
                     f"in evidence_for_gen: {_jo_leaks[:5]}"
                 )
+            # Codex diff-gate P1-4 backstop: verify the required S1 anchors are
+            # ACTUALLY present in the final billed set (not merely contract-
+            # promised). Catches the V30-fallback case where the contract frame
+            # rows were credited at the adequacy floor but never injected. DOIs
+            # come from each row OR the sidecar (retrieved journal rows carry the
+            # DOI in the sidecar; contract frame rows carry it inline).
+            _jo_floor_cfg2 = (protocol.get("corpus_adequacy") or {}).get("journal_only") or {}
+            _jo_want_anchors = {
+                _jof._normalize_doi(str(_d))
+                for _d in (_jo_floor_cfg2.get("required_anchor_dois") or [])
+                if _d
+            }
+            if _jo_want_anchors:
+                _jo_present = set()
+                for _r in evidence_for_gen:
+                    _rd = _jof._normalize_doi(str((_r.get("doi") if isinstance(_r, dict) else "") or ""))
+                    if _rd:
+                        _jo_present.add(_rd)
+                    _meta = _jo_sidecar.get(_jof.canonicalize_url(
+                        (_r.get("source_url") or _r.get("url") or "") if isinstance(_r, dict) else ""
+                    ))
+                    if isinstance(_meta, dict) and _meta.get("doi"):
+                        _jo_present.add(_jof._normalize_doi(str(_meta["doi"])))
+                _jo_missing_anchors = sorted(_jo_want_anchors - _jo_present)
+                if _jo_missing_anchors:
+                    _log(f"[journal_only] ANCHOR ABORT: required S1 anchors absent "
+                         f"from the billed set: {_jo_missing_anchors}")
+                    raise _jof.JournalOnlyAbort(
+                        "abort_corpus_inadequate",
+                        "journal_only required S1 anchors missing from billed set: "
+                        f"{_jo_missing_anchors}",
+                    )
             _log(
                 f"[journal_only] no-leak assert PASS: all {len(evidence_for_gen)} "
                 f"generator rows are citeable journal articles"
@@ -6205,6 +6278,36 @@ async def run_one_query(
                 summary["cost_usd"] = run_cost
         except Exception as manifest_exc:  # noqa: BLE001 — best-effort; never mask the budget abort
             _log(f"[BUDGET]      budget-abort manifest-write-also-failed: {manifest_exc}")
+    except _JournalOnlyAbort as _ja:
+        # I-ready-017 #1134 (Codex diff-gate P2): a journal_only fail-closed abort
+        # emits its NAMED status (not error_unexpected), so the manifest is
+        # self-documenting. No generation occurred (raised pre-generator).
+        _log(f"[journal_only] ABORT: status={_ja.status} — {_ja}")
+        summary["status"] = _ja.status
+        summary["error"] = str(_ja)[:300]
+        try:
+            if run_dir is not None:
+                run_cost = current_run_cost()
+                _ja_manifest = _base_manifest_envelope(
+                    run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
+                )
+                _ja_manifest["status"] = _ja.status
+                _ja_manifest["error"] = str(_ja)[:500]
+                _ja_manifest = augment_v6_manifest(
+                    _ja_manifest,
+                    external_run_id=q.get("external_run_id"),
+                    decision_id=q.get("decision_id"),
+                    query_slug=q.get("slug"),
+                )
+                _ja_manifest = _attach_tool_utilization(_ja_manifest, run_dir)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(_ja_manifest, indent=2, sort_keys=True, default=str) + "\n",
+                    encoding="utf-8",
+                )
+                summary["manifest"] = _ja_manifest
+                summary["cost_usd"] = run_cost
+        except Exception as _ja_mw:  # noqa: BLE001 — best-effort; never mask the abort
+            _log(f"[journal_only] abort manifest-write-also-failed: {_ja_mw}")
     except Exception as exc:
         tb = traceback.format_exc()
         _log(f"[FATAL]       {exc}")

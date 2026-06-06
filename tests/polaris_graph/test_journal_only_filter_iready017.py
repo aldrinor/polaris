@@ -164,9 +164,11 @@ def test_prune_contract_keeps_journal_drops_wef():
     entities = {
         "acemoglu_restrepo_automation_tasks": {
             "type": "economic_report", "doi": "10.1257/jep.33.2.3",
+            "journal": "Journal of Economic Perspectives",
         },
         "brynjolfsson_genai_at_work": {
             "type": "economic_report", "doi": "10.1093/qje/qjae044",
+            "journal": "Quarterly Journal of Economics",
         },
         "fourth_industrial_revolution_framing": {
             "type": "policy_report", "type_note": "authoritative_source",
@@ -224,15 +226,53 @@ def _journal_rows(n, start=0):
         u = f"https://journal{i}.org/article/{i}"
         rows.append({"source_url": u, "tier": "T1"})
         sc.update(_sidecar(u, openalex_pub_type="article", openalex_source_type="journal",
-                           is_peer_reviewed=True, doi=f"10.1/{i}"))
+                           is_peer_reviewed=True, doi=f"10.{1000 + i}/{i}",
+                           venue=f"Journal of Testing {i}"))
     return rows, sc
+
+
+def test_adequacy_counts_distinct_venues_not_urls():
+    # 12 articles but all from ONE journal venue must NOT satisfy ">=12 distinct".
+    rows, sc = [], {}
+    for i in range(12):
+        u = f"https://onejournal.org/article/{i}"
+        rows.append({"source_url": u, "tier": "T1"})
+        sc.update(_sidecar(u, openalex_pub_type="article", openalex_source_type="journal",
+                           is_peer_reviewed=True, doi=f"10.1/{i}",
+                           venue="The Only Journal"))
+    r = jof.assess_journal_only_adequacy(rows, sc, min_distinct=12)
+    assert r.ok is False
+    assert r.distinct_journals == 1
+    assert any("too_few_distinct_journals" in x for x in r.reasons)
+
+
+def test_predicate_fail_closed_on_blank_types():
+    # is_peer_reviewed=True but blank source_type/pub_type (malformed) → NOT citeable.
+    url = "https://j.org/a/1"
+    sc = _sidecar(url, openalex_pub_type="", openalex_source_type="",
+                  is_peer_reviewed=True, doi="10.1/abc")
+    ok, reason = jof.is_citeable_journal(url, "T1", sc)
+    assert ok is False
+    assert "source_type_not_journal:blank" in reason or "pub_type_not_article:blank" in reason
+
+
+def test_contract_entity_requires_journal_venue():
+    # A DOI-bearing entity with NO journal venue (e.g. a book/report) is NOT citeable.
+    entities = {
+        "book_with_doi": {"type": "economic_report", "doi": "10.1/book", "journal": ""},
+        "real_journal": {"type": "economic_report", "doi": "10.1257/jep.33.2.3",
+                         "journal": "Journal of Economic Perspectives"},
+    }
+    res = jof.prune_contract_plans(entities, {})
+    assert "real_journal" in res.kept_entity_ids
+    assert "book_with_doi" in res.dropped_entity_ids
 
 
 def test_adequacy_fails_below_min():
     rows, sc = _journal_rows(5)
     r = jof.assess_journal_only_adequacy(rows, sc, min_distinct=12)
     assert r.ok is False
-    assert any("too_few_citeable_journals" in x for x in r.reasons)
+    assert any("too_few_distinct_journals" in x for x in r.reasons)
 
 
 def test_adequacy_fails_missing_anchor():

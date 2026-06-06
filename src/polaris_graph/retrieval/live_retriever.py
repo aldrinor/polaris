@@ -1012,6 +1012,12 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
                 work.get("type") in ("article", "review")
                 and source.get("type") == "journal"
             ),
+            # I-ready-017 #1134 (Codex diff-gate P1-2/P1-3): carry the journal
+            # VENUE (for the distinct-journal adequacy count) and the RETRACTION
+            # flag (so the journal_only predicate can reject retracted articles)
+            # into the enrich dict -> sidecar. ADDITIVE; legacy consumers ignore.
+            "openalex_venue": (source.get("display_name", "") or ""),
+            "is_retracted": bool(work.get("is_retracted", False)),
             "openalex_id": work.get("id", ""),
             # BUG-M-12 (Codex pass 12): preserve OpenAlex's full
             # display_name. Serper snippet titles are often truncated

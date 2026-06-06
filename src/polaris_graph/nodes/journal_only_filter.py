@@ -248,14 +248,18 @@ def is_citeable_journal(
     if not bool(meta.get("is_peer_reviewed")):
         return False, "not_peer_reviewed_journal_article"
 
-    # Belt-and-suspenders: if OpenAlex source_type is present it must be a
-    # journal, and pub_type must be an article/review (not preprint/dataset).
+    # Fail-closed (Codex diff-gate P2): require the journal source_type AND an
+    # article/review pub_type to be EXPLICITLY present — a malformed sidecar entry
+    # with is_peer_reviewed=True but blank types is NOT accepted. (Legit live rows
+    # set is_peer_reviewed=True only when pub_type∈{article,review} AND
+    # source_type==journal, and the contract sidecar entries set both, so this
+    # rejects only malformed/uncertain entries.)
     src_type = str(meta.get("openalex_source_type") or "")
-    if src_type and src_type != "journal":
-        return False, f"source_type_not_journal:{src_type}"
+    if src_type != "journal":
+        return False, f"source_type_not_journal:{src_type or 'blank'}"
     pub_type = str(meta.get("openalex_pub_type") or "")
-    if pub_type and pub_type not in ("article", "review"):
-        return False, f"pub_type_not_article:{pub_type}"
+    if pub_type not in ("article", "review"):
+        return False, f"pub_type_not_article:{pub_type or 'blank'}"
 
     return True, "citeable_journal_article"
 
@@ -339,15 +343,22 @@ def _entity_is_citeable_journal(entity: Any) -> tuple[bool, str]:
     etype = _get("type").strip().lower()
     type_note = _get("type_note").strip().lower()
     doi = _normalize_doi(_get("doi"))
+    journal = _get("journal").strip()
 
     if type_note == "authoritative_source":
         return False, "authoritative_source_non_journal"
-    if etype in ("policy_report", "regulatory_label", "guideline"):
+    if etype in ("policy_report", "regulatory_label", "guideline", "book", "report"):
         return False, f"non_journal_entity_type:{etype}"
     if not doi:
         return False, "no_journal_doi"
     if any(doi.startswith(p) for p in _PREPRINT_DOI_MARKERS):
         return False, f"preprint_doi:{doi}"
+    # Codex diff-gate P1-5: DOI alone is NOT proof of a journal article (a book or
+    # report can carry a publisher DOI). Require a named journal venue too, so a
+    # DOI-bearing non-journal contract entity cannot bypass the predicate via the
+    # v30_frame_row no-leak exemption.
+    if not journal:
+        return False, "no_journal_venue"
     return True, "citeable_journal_entity"
 
 
@@ -440,9 +451,22 @@ def prune_plan_entities(plans: Iterable[Any], kept_entity_ids: set[str]) -> list
     return out
 
 
-class JournalOnlyLeakError(RuntimeError):
+class JournalOnlyAbort(RuntimeError):
+    """A journal_only fail-closed abort that carries its manifest ``status`` so the
+    sweep's outer handler emits the NAMED status (not error_unexpected). Codex
+    diff-gate P2."""
+
+    def __init__(self, status: str, message: str = ""):
+        super().__init__(message or status)
+        self.status = status
+
+
+class JournalOnlyLeakError(JournalOnlyAbort):
     """Raised when a non-journal row reaches the generator (status mapping
     target ``error_journal_only_leak``). Fail-closed: never synthesize."""
+
+    def __init__(self, message: str = ""):
+        super().__init__("error_journal_only_leak", message)
 
 
 def _is_verified_contract_row(row: Any) -> bool:
@@ -508,25 +532,41 @@ def assess_journal_only_adequacy(
     measures the RETRIEVED breadth only. Fail → caller aborts
     ``abort_corpus_inadequate``.
     """
-    distinct_urls: set[str] = set()
+    # Count distinct journal VENUES, not URLs (Codex diff-gate P1-2): 12 articles
+    # from a single journal must NOT satisfy a "≥12 distinct journals" floor. A
+    # row with no venue falls back to its DOI prefix (publisher) as a coarse venue
+    # proxy, then to its canonical URL host — so a missing venue cannot inflate
+    # the distinct count by treating each article as its own "journal".
+    distinct_venues: set[str] = set()
     present_dois: set[str] = set()
     for row in citeable_rows:
         url = _row_url(row)
-        distinct_urls.add(canonicalize_url(url))
         meta = sidecar.get(canonicalize_url(url)) if sidecar else None
+        venue = ""
+        doi = ""
         if isinstance(meta, Mapping):
+            venue = str(meta.get("venue") or "").strip().lower()
             doi = _normalize_doi(str(meta.get("doi") or ""))
             if doi:
                 present_dois.add(doi)
+        if venue:
+            distinct_venues.add(venue)
+        elif doi and "/" in doi:
+            distinct_venues.add("doiprefix:" + doi.split("/", 1)[0])
+        else:
+            try:
+                distinct_venues.add("host:" + urlsplit(url).netloc.lower())
+            except (ValueError, AttributeError):
+                distinct_venues.add("url:" + canonicalize_url(url))
 
     present_dois |= {_normalize_doi(d) for d in contract_guaranteed_dois if d}
     want = {_normalize_doi(d) for d in required_anchor_dois if d}
     missing = sorted(want - present_dois)
 
     reasons: list[str] = []
-    n = len(distinct_urls)
+    n = len(distinct_venues)
     if n < min_distinct:
-        reasons.append(f"too_few_citeable_journals:{n}<{min_distinct}")
+        reasons.append(f"too_few_distinct_journals:{n}<{min_distinct}")
     if missing:
         reasons.append(f"missing_s1_anchor_dois:{','.join(missing)}")
 

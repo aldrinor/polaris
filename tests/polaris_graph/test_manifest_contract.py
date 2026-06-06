@@ -54,8 +54,10 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_discovery_degraded",    # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop)
         "abort_safety_refused",        # I-ready-007 (#1072): input harm-refusal before retrieval
         "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
+        "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only required contract slot non-journal
         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
         "error_unexpected",
+        "error_journal_only_leak",     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
     })
     assert UNIFIED_STATUS_VALUES == expected, (
         f"Unified taxonomy has drifted: got {UNIFIED_STATUS_VALUES}, "
