@@ -1,0 +1,182 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index fed1ddb9..d7b73237 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -2577,7 +2577,12 @@ async def run_one_query(
+                 evidence_rows=retrieval.evidence_rows,
+             )
+         else:
+-            completeness = CompletenessReport(domain=q["domain"])
++            # FX-10 (I-ready-017): ON-mode (research-planner) substitutes a NEUTRAL report —
++            # no domain checklist applies, so this is NOT_APPLICABLE, not a measured 100%.
++            # Tag the reason so the vacuous covered_fraction=1.0 is never read as complete.
++            completeness = CompletenessReport(
++                domain=q["domain"], notes=["no_checklist_loaded"],
++            )
+         (run_dir / "completeness.json").write_text(
+             json.dumps(
+                 {
+@@ -2586,6 +2591,9 @@ async def run_one_query(
+                     "total_covered": completeness.total_covered,
+                     "total_uncovered": completeness.total_uncovered,
+                     "covered_fraction": completeness.covered_fraction,
++                    # FX-10: 3VL state disambiguates a vacuous 1.0 (not_applicable) from a
++                    # genuinely-measured fraction.
++                    "completeness_state": completeness.completeness_state,
+                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+                     "expand_queries": completeness.expand_queries,
+                     "notes": completeness.notes,
+@@ -2994,6 +3002,7 @@ async def run_one_query(
+                     "total_applicable": completeness.total_applicable,
+                     "total_covered": completeness.total_covered,
+                     "total_uncovered": completeness.total_uncovered,
++                    "completeness_state": completeness.completeness_state,  # FX-10
+                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+                 },
+             })
+@@ -5122,6 +5131,8 @@ async def run_one_query(
+                 "total_covered": completeness.total_covered,
+                 "total_uncovered": completeness.total_uncovered,
+                 "covered_fraction": round(completeness.covered_fraction, 3),
++                "completeness_state": completeness.completeness_state,  # FX-10
++                "notes": completeness.notes,
+                 "uncovered_topic_ids": completeness.uncovered_topic_ids(),
+             },
+             "contradictions_found": len(contradictions),
+diff --git a/src/polaris_graph/evaluator/evaluator_gate.py b/src/polaris_graph/evaluator/evaluator_gate.py
+index 5960ae35..944195e4 100644
+--- a/src/polaris_graph/evaluator/evaluator_gate.py
++++ b/src/polaris_graph/evaluator/evaluator_gate.py
+@@ -181,8 +181,14 @@ def compute_evaluator_gate(
+             if "judge_hedging_tone_needs_revision" not in reasons:
+                 reasons.append("judge_hedging_tone_needs_revision")
+         if "completeness" in needs:
++            # FX-10 (I-ready-017): a not_applicable completeness (no checklist applied →
++            # vacuous covered_fraction=1.0) is ADVISORY — never flag it as thin coverage.
++            # Only a MEASURED fraction below threshold is a real completeness concern; the
++            # state guard keeps this correct even if a future not_applicable carried a low
++            # numeric (covered_fraction stays numeric, so the comparison never TypeErrors).
+             comp_thin = (
+                 completeness is not None
++                and getattr(completeness, "completeness_state", "measured") == "measured"
+                 and getattr(completeness, "covered_fraction", 1.0) < 0.5
+             )
+             if comp_thin:
+diff --git a/src/polaris_graph/nodes/completeness_checker.py b/src/polaris_graph/nodes/completeness_checker.py
+index e8f26e44..c822b08d 100644
+--- a/src/polaris_graph/nodes/completeness_checker.py
++++ b/src/polaris_graph/nodes/completeness_checker.py
+@@ -64,6 +64,18 @@ class CompletenessReport:
+             return 1.0
+         return self.total_covered / self.total_applicable
+ 
++    @property
++    def completeness_state(self) -> str:
++        """FX-10 (I-ready-017): three-valued-logic state for the completeness check.
++
++        When no checklist topic applies (``total_applicable == 0``) the numeric
++        ``covered_fraction`` is a VACUOUS 1.0 — that is NOT_APPLICABLE, not a measured
++        pass (SQL 3VL: an empty applicable set is UNKNOWN/NULL, never TRUE). The numeric
++        stays as-is (consumers compare it and must not hit a TypeError), and this state
++        field is what disambiguates a vacuous 1.0 from a genuinely-measured 1.0.
++        """
++        return "not_applicable" if self.total_applicable == 0 else "measured"
++
+     def uncovered_topic_ids(self) -> list[str]:
+         return [
+             tc.topic.id
+diff --git a/tests/polaris_graph/test_fx10_completeness_state_iready017.py b/tests/polaris_graph/test_fx10_completeness_state_iready017.py
+new file mode 100644
+index 00000000..3ed5a310
+--- /dev/null
++++ b/tests/polaris_graph/test_fx10_completeness_state_iready017.py
+@@ -0,0 +1,89 @@
++"""FX-10 (I-ready-017): completeness NOT_APPLICABLE three-valued-logic state.
++
++`covered_fraction` returns a vacuous 1.0 when `total_applicable == 0` (no checklist
++applied). That is NOT_APPLICABLE, not a measured 100% pass. The new
++`completeness_state` property disambiguates it, and the evaluator_gate consumer must
++treat not_applicable as advisory (never flag thin coverage) — while covered_fraction
++stays numeric so the comparison never TypeErrors.
++
++Offline, no network: exercises the CompletenessReport property + drives the real
++`compute_evaluator_gate` with fake ev_out/judge inputs.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from src.polaris_graph.evaluator.evaluator_gate import compute_evaluator_gate
++from src.polaris_graph.nodes.completeness_checker import CompletenessReport
++
++
++# ----------------------------------------------------------------- property (legs 1)
++def test_not_applicable_state_when_zero_applicable() -> None:
++    rep = CompletenessReport(domain="workforce")  # total_applicable defaults to 0
++    assert rep.total_applicable == 0
++    assert rep.completeness_state == "not_applicable"
++    assert rep.covered_fraction == 1.0  # numeric stays 1.0 (no None — consumers compare it)
++
++
++def test_measured_state_when_applicable() -> None:
++    rep = CompletenessReport(domain="clinical", total_applicable=4, total_covered=2)
++    assert rep.completeness_state == "measured"
++    assert rep.covered_fraction == 0.5
++
++
++# ----------------------------------------------------------------- consumer safety
++@dataclass
++class _FakeRuleCheck:
++    item_id: str
++    passed: bool
++    details: str = ""
++
++
++@dataclass
++class _FakeEvaluatorOutput:
++    rule_checks: list = field(default_factory=list)
++    contradictions_missing: list = field(default_factory=list)
++
++
++@dataclass
++class _FakeJudgeResult:
++    parse_ok: bool = True
++    verdicts: dict = field(default_factory=dict)
++
++
++def _judge_flagging_completeness() -> _FakeJudgeResult:
++    # judge says completeness needs_revision (so "completeness" enters `needs`),
++    # everything else good.
++    return _FakeJudgeResult(parse_ok=True, verdicts={
++        "citation_tightness": {"verdict": "good", "note": ""},
++        "hedging_appropriateness": {"verdict": "good", "note": ""},
++        "tone_consistency": {"verdict": "good", "note": ""},
++        "flow": {"verdict": "good", "note": ""},
++        "completeness": {"verdict": "needs_revision", "note": ""},
++    })
++
++
++def test_not_applicable_completeness_is_advisory_not_flagged() -> None:
++    """A not_applicable completeness (vacuous 1.0) must NOT be flagged as thin coverage
++    even when the judge flags completeness — and must not TypeError."""
++    ev_out = _FakeEvaluatorOutput(rule_checks=[])
++    not_applicable = CompletenessReport(domain="workforce")  # state=not_applicable
++    gate = compute_evaluator_gate(
++        ev_out, judge_result=_judge_flagging_completeness(), completeness=not_applicable,
++    )
++    assert "judge_completeness_needs_revision" not in gate.reasons, (
++        "not_applicable completeness must be advisory, never a thin-coverage block"
++    )
++
++
++def test_measured_thin_completeness_is_flagged() -> None:
++    """A MEASURED low coverage (0.3) IS a real completeness concern → flagged."""
++    ev_out = _FakeEvaluatorOutput(rule_checks=[])
++    measured_thin = CompletenessReport(
++        domain="clinical", total_applicable=10, total_covered=3,  # 0.3
++    )
++    assert measured_thin.completeness_state == "measured"
++    gate = compute_evaluator_gate(
++        ev_out, judge_result=_judge_flagging_completeness(), completeness=measured_thin,
++    )
++    assert "judge_completeness_needs_revision" in gate.reasons
