@@ -494,6 +494,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
     # drb_72 failure). Force-on + required below; the canary itself runs only on the live path.
     "PG_BEHAVIORAL_CANARY": "1",
+    # I-ready-017 FX-14 (#1129): force the custody-lane honesty marker ON so the paid run emits
+    # custody_lane_status.json (not_applicable_planner_lane) instead of a silently-empty
+    # v29_primary_custody.json / m44_primary_citation_telemetry.json when primary-trial seeds reach
+    # generation but the M-44/V29 custody block does not run in the planner lane. Telemetry-only.
+    "PG_CUSTODY_LANE_MARKER": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -536,6 +541,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
     # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
     "PG_BEHAVIORAL_CANARY",
+    # I-ready-017 FX-14 (#1129): custody-lane honesty marker required — otherwise an explicit
+    # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
+    # run silently writes empty v29/m44 custody telemetry with no not_applicable disambiguation.
+    "PG_CUSTODY_LANE_MARKER",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an

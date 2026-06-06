@@ -313,6 +313,51 @@ def compute_run_health_gate(
     }
 
 
+def compute_custody_lane_status(
+    evidence_for_gen: list[Any],
+    *,
+    m44_injection_empty: bool,
+    custody_log_empty: bool,
+    primary_anchors_configured: bool,
+    marker_on: bool,
+) -> dict[str, Any] | None:
+    """FX-14 (#1129): custody-lane honesty marker DECISION (pure, no I/O — testable).
+
+    The M-44/M-52/V29 custody+injection block (multi_section_generator.py) is gated on
+    ``if primary_trial_anchors:``; in the planner lane those anchors are empty, so the block is skipped
+    and ``v29_primary_custody.json`` / ``m44_primary_citation_telemetry.json`` are written silently
+    empty. An empty diagnostic that cannot be disambiguated (no-activity vs not-applicable vs broken) is
+    the firing-status-lie §-1.1 forbids.
+
+    Returns a marker dict ONLY when ``marker_on`` AND there is >=1 ``primary_trial_doi_seed`` row in
+    ``evidence_for_gen`` (i.e. primary seeds DID reach generation) AND both custody logs are empty;
+    otherwise ``None`` (caller writes nothing — byte-identical). Telemetry-only: the generator path and
+    the two existing custody files are UNCHANGED. ``query_origin=='primary_trial_doi_seed'`` is the
+    honest primary-seed label post-FX-15a (agentic seeds are no longer mislabeled)."""
+    if not marker_on:
+        return None
+    n_primary_seed = sum(
+        1 for ev in evidence_for_gen
+        if isinstance(ev, dict) and ev.get("query_origin") == "primary_trial_doi_seed"
+    )
+    if not (n_primary_seed > 0 and m44_injection_empty and custody_log_empty):
+        return None
+    return {
+        "status": "not_applicable_planner_lane",
+        "reason": (
+            "M-44/M-52/V29 custody block did not run: primary_trial_anchors "
+            "(get_primary_trial_anchors_for_slug) was empty in this lane, so the block gated at "
+            "multi_section_generator.py 'if primary_trial_anchors:' was skipped. Primary-trial DOI "
+            "seeds DID reach generation but custody injection was not invoked. This is NOT "
+            "no-activity and NOT broken — it is not-applicable for the configured anchors of this run."
+        ),
+        "primary_trial_doi_seed_rows": n_primary_seed,
+        "primary_trial_anchors_configured": primary_anchors_configured,
+        "m44_injection_log_empty": True,
+        "v29_custody_log_empty": True,
+    }
+
+
 def _capped_finding_dedup_selection(
     *,
     base_rows: list[dict[str, Any]],
@@ -4384,6 +4429,35 @@ async def run_one_query(
             _log(
                 f"[m53]         v29 primary custody: {cited}/{total} "
                 f"anchors cited_in_verified_prose"
+            )
+
+        # FX-14 (#1129): custody-lane honesty marker. When BOTH the M-44 injection log and the V29
+        # custody log are empty BUT primary-trial DOI seeds DID reach generation, the empty telemetry
+        # is ambiguous (no-activity vs not-applicable vs broken — the firing-status-lie §-1.1 forbids).
+        # In planner ON-mode `primary_trial_anchors` (_primary_anchors) is empty, so the M-44/M-52/V29
+        # block at multi_section_generator.py is skipped and both files are written silently empty.
+        # Path B (faithfulness-safe): emit a SEPARATE custody_lane_status.json disambiguating the case.
+        # Telemetry-only — the generator path and the two existing files (whose dict/list contracts the
+        # m49/m53 tests assert) are UNCHANGED. Flag-gated default-OFF (byte-identical: no file written);
+        # the Gate-B slate forces it ON. Decision is the pure compute_custody_lane_status() helper.
+        _custody_status = compute_custody_lane_status(
+            evidence_for_gen,
+            m44_injection_empty=not m44_injection,
+            custody_log_empty=not custody_log,
+            primary_anchors_configured=bool(_primary_anchors),
+            marker_on=os.getenv("PG_CUSTODY_LANE_MARKER", "0").strip().lower()
+            in {"1", "true", "yes", "on"},
+        )
+        if _custody_status is not None:
+            (run_dir / "custody_lane_status.json").write_text(
+                json.dumps(_custody_status, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+            _log(
+                f"[fx14]        custody_lane_status: not_applicable_planner_lane "
+                f"({_custody_status['primary_trial_doi_seed_rows']} primary_trial_doi_seed rows "
+                f"reached generation; custody block skipped — "
+                f"anchors_configured={_custody_status['primary_trial_anchors_configured']})"
             )
 
         # M-50 (2026-04-22): persist per-trial subsection telemetry.
