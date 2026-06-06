@@ -51,3 +51,17 @@ Pure observability. No grounding / strict_verify / 4-role / retrieval-behavior c
 `_trace_tool` is record-only (cannot alter results). The funnel is DERIVED from recorded rows so it
 cannot fabricate; unrecorded counts are explicit `null`. No-silent-downgrade-aligned: a configured cap
 that the actual never reaches is now visible per stage.
+
+## Codex diff-gate iter-1 verdict — APPROVE (accept_remaining)
+`.codex/I-ready-017/fx20_codex_diff_audit_iter1.txt`: `verdict: APPROVE`, zero P0, zero P1, zero
+execution blockers, `convergence_call: accept_remaining`. One accepted observability P2 (documented;
+no code change so the APPROVE'd diff stays intact per §8.3.6):
+- **OpenAlex internal fail-open masks as `ok, result_count=0`.** `domain_backends.openalex_search()` is
+  fail-open by design — on an internal network/API error it returns `[]`, so the new call-site trace
+  records `status=ok, result_count=0` (looks like "0 results" rather than "failed"). The added
+  `status=fail` trace only catches import/post-processing exceptions at the call site, not errors
+  swallowed *inside* `openalex_search`. The funnel figure stays honest (it DID surface 0 usable
+  candidates) — the refinement is distinguishing "0 because empty" from "0 because internally failed".
+  Out of FX-20's scope (FX-20 = funnel/trace; this is openalex's internal error contract). Captured as
+  **follow-up FX-20b** (have `openalex_search` signal failure-vs-empty, or trace from inside it). Not a
+  blocker; accepted per Codex `accept_remaining`.

@@ -1,0 +1,221 @@
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index f683523a..8643b688 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -2459,12 +2459,22 @@ def run_live_retrieval(
+         # via the shared `seen_urls`. Candidates carry source="openalex_search"; default query_origin
+         # to `q`. Flag-gated PG_OPENALEX_SEARCH (default on). Fail-open: a backend fault adds 0 hits.
+         if os.getenv("PG_OPENALEX_SEARCH", "1") != "0":
++            _oa_t0 = time.time()
+             try:
+                 from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                     openalex_search,
+                 )
+                 _oa_hits = openalex_search(q, limit=max_s2)
+                 api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
++                # FX-20 (#1128): trace openalex as a first-class backend so the discovery_funnel reads
++                # its requested-vs-returned from the SAME tool_trace rows as serper/s2 (FX-18 wired the
++                # call but never traced it — a tracer-only funnel would silently OMIT openalex).
++                _trace_tool(
++                    "openalex_search", target=q, status="ok",
++                    latency_ms=(time.time() - _oa_t0) * 1000.0,
++                    backend_used="openalex_works_api",
++                    result_count=len(_oa_hits), num_requested=max_s2,
++                )
+                 for cand in _oa_hits:
+                     url = getattr(cand, "url", "")
+                     if not url or url in seen_urls:
+@@ -2474,6 +2484,12 @@ def run_live_retrieval(
+                         cand.query_origin = q
+                     candidates.append(cand)
+             except Exception as exc:
++                _trace_tool(
++                    "openalex_search", target=q, status="fail",
++                    latency_ms=(time.time() - _oa_t0) * 1000.0,
++                    backend_used="openalex_works_api",
++                    error=str(exc), result_count=0, num_requested=max_s2,
++                )
+                 logger.warning(
+                     "[live_retriever] openalex_search failed for %r (fail-open): %s",
+                     q[:60], exc,
+diff --git a/src/polaris_graph/telemetry/tool_tracer.py b/src/polaris_graph/telemetry/tool_tracer.py
+index 4d143e12..a4eba4e4 100644
+--- a/src/polaris_graph/telemetry/tool_tracer.py
++++ b/src/polaris_graph/telemetry/tool_tracer.py
+@@ -245,6 +245,56 @@ class ToolTracer:
+             },
+         }
+ 
++    def discovery_funnel(self) -> dict[str, Any]:
++        """FX-20 (#1128): per-stage requested-vs-actual discovery counts.
++
++        Derived ONLY from the recorded :class:`ToolCall` rows (the SAME source as
++        :meth:`manifest`) so the funnel can never fabricate — §-1.1 requires these to EQUAL
++        the raw ``tool_trace.jsonl`` tallies. A count a backend does not record is reported
++        as ``None`` with a ``*_source`` marker, NOT defaulted to 0 (which would misrepresent
++        an unrecorded value as a real zero / a silent under-report).
++
++        Stages:
++        * ``serper`` / ``s2`` / ``openalex_search`` — each ``{calls, returned, returned_source,
++          requested, requested_source}`` (``requested`` is ``None`` for backends that do not
++          record ``num_requested``, e.g. s2).
++        * ``fetch_content`` — ``{attempted, succeeded, source}`` where attempted = row count and
++          succeeded = rows with ``status == ok`` (stub/fail are NOT successes).
++        """
++        with self._lock:
++            calls = list(self._calls)
++
++        def _sum_meta(rows: list[ToolCall], key: str) -> tuple[int, int]:
++            present = [
++                int(r.metadata[key])
++                for r in rows
++                if isinstance(r.metadata, dict)
++                and isinstance(r.metadata.get(key), (int, float))
++                and not isinstance(r.metadata.get(key), bool)
++            ]
++            return sum(present), len(present)
++
++        funnel: dict[str, Any] = {}
++        for tool in ("serper", "s2", "openalex_search"):
++            rows = [c for c in calls if c.tool_name == tool]
++            ret_sum, ret_n = _sum_meta(rows, "result_count")
++            req_sum, req_n = _sum_meta(rows, "num_requested")
++            funnel[tool] = {
++                "calls": len(rows),
++                "returned": ret_sum if ret_n else None,
++                "returned_source": "tool_trace.result_count" if ret_n else "unrecorded",
++                "requested": req_sum if req_n else None,
++                "requested_source": "tool_trace.num_requested" if req_n else "unrecorded",
++            }
++
++        fetch_rows = [c for c in calls if c.tool_name == "fetch_content"]
++        funnel["fetch_content"] = {
++            "attempted": len(fetch_rows),
++            "succeeded": sum(1 for c in fetch_rows if c.status == STATUS_OK),
++            "source": "tool_trace.status",
++        }
++        return funnel
++
+ 
+ # ── process-global singleton ─────────────────────────────────────────────
+ _global_tracer: Optional[ToolTracer] = None
+@@ -305,7 +355,8 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
+     if not tool_tracker_enabled():
+         return manifest
+     try:
+-        tool_summary = get_tool_tracer().manifest()
++        _tracer = get_tool_tracer()
++        tool_summary = _tracer.manifest()
+         try:
+             (Path(run_dir) / "tool_summary.json").write_text(
+                 json.dumps(tool_summary, indent=2, sort_keys=True) + "\n",
+@@ -324,6 +375,10 @@ def attach_tool_utilization(manifest: dict[str, Any], run_dir: Path) -> dict[str
+             "tool_success_rate": (ok / total if total else 0.0),
+             "summary_by_tool": tool_summary.get("summary_by_tool", {}),
+         }
++        # FX-20 (#1128): per-stage requested-vs-actual discovery funnel, derived from the SAME
++        # recorded rows (no fabrication). Additive + only when the tracker is ON (this whole
++        # function is a no-op when OFF), so OFF-mode manifest.json stays byte-identical.
++        manifest["discovery_funnel"] = _tracer.discovery_funnel()
+     except Exception as exc:  # noqa: BLE001 — telemetry must never abort the run
+         logger.warning("attach_tool_utilization: skipped: %s", exc)
+     return manifest
+diff --git a/tests/polaris_graph/test_fx20_discovery_funnel_iready017.py b/tests/polaris_graph/test_fx20_discovery_funnel_iready017.py
+new file mode 100644
+index 00000000..784957f6
+--- /dev/null
++++ b/tests/polaris_graph/test_fx20_discovery_funnel_iready017.py
+@@ -0,0 +1,93 @@
++"""FX-20 (I-ready-017 #1128): discovery_funnel requested-vs-actual telemetry.
++
++The funnel is derived ONLY from the recorded ToolCall rows (same source as ToolTracer.manifest), so
++it equals the raw tool_trace tallies and can never fabricate. Unrecorded counts (e.g. s2 has no
++num_requested) are reported as None + a *_source marker, NOT defaulted to 0. The funnel is stamped
++onto the manifest by attach_tool_utilization only when the tracker is ON (byte-identical OFF).
++Offline, no network.
++"""
++from __future__ import annotations
++
++from pathlib import Path
++
++import src.polaris_graph.telemetry.tool_tracer as tt
++
++
++def _fresh_tracer(run_dir=None):
++    tt.reset_tool_tracer()
++    return tt.get_tool_tracer(run_dir)
++
++
++def test_funnel_tallies_per_backend_from_recorded_rows(monkeypatch):
++    tr = _fresh_tracer()
++    # serper: 2 calls, requested 20+20, returned 18+15
++    tr.record("serper", status="ok", result_count=18, num_requested=20)
++    tr.record("serper", status="ok", result_count=15, num_requested=20)
++    # s2: 1 call, returned 9, NO num_requested recorded
++    tr.record("s2", status="ok", result_count=9)
++    # openalex_search: 1 call, requested 12, returned 7
++    tr.record("openalex_search", status="ok", result_count=7, num_requested=12)
++    # fetch_content: 3 attempted, 2 ok (1 fail)
++    tr.record("fetch_content", status="ok")
++    tr.record("fetch_content", status="ok")
++    tr.record("fetch_content", status="fail")
++
++    f = tr.discovery_funnel()
++    assert f["serper"]["calls"] == 2
++    assert f["serper"]["returned"] == 33 and f["serper"]["requested"] == 40
++    assert f["serper"]["requested_source"] == "tool_trace.num_requested"
++    # s2 has no num_requested -> None + unrecorded marker (NOT 0)
++    assert f["s2"]["returned"] == 9
++    assert f["s2"]["requested"] is None
++    assert f["s2"]["requested_source"] == "unrecorded"
++    assert f["openalex_search"]["returned"] == 7 and f["openalex_search"]["requested"] == 12
++    assert f["fetch_content"]["attempted"] == 3
++    assert f["fetch_content"]["succeeded"] == 2          # fail is not a success
++    assert f["fetch_content"]["succeeded"] <= f["fetch_content"]["attempted"]
++
++
++def test_unrecorded_returned_is_none_not_zero(monkeypatch):
++    """A backend row with NO result_count metadata -> returned is None (unrecorded), never a fake 0."""
++    tr = _fresh_tracer()
++    tr.record("serper", status="ok")  # no metadata at all
++    f = tr.discovery_funnel()
++    assert f["serper"]["calls"] == 1
++    assert f["serper"]["returned"] is None
++    assert f["serper"]["returned_source"] == "unrecorded"
++
++
++def test_bool_metadata_not_counted_as_number(monkeypatch):
++    """`clamped=True` (a bool) must not be summed as 1 into a count (bool is an int subclass)."""
++    tr = _fresh_tracer()
++    tr.record("serper", status="ok", result_count=5, num_requested=20, clamped=True)
++    f = tr.discovery_funnel()
++    assert f["serper"]["returned"] == 5 and f["serper"]["requested"] == 20  # clamped ignored
++
++
++def test_funnel_equals_manifest_totals(monkeypatch):
++    """fetch attempted/succeeded must reconcile with the manifest's per-tool ok/total (same rows)."""
++    tr = _fresh_tracer()
++    tr.record("fetch_content", status="ok")
++    tr.record("fetch_content", status="fail")
++    f = tr.discovery_funnel()
++    m = tr.manifest()["summary_by_tool"]["fetch_content"]
++    assert f["fetch_content"]["attempted"] == m["total_calls"]
++    assert f["fetch_content"]["succeeded"] == m["ok_count"]
++
++
++def test_attach_stamps_funnel_when_tracker_on(monkeypatch, tmp_path):
++    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "1")
++    tr = _fresh_tracer(tmp_path)
++    tr.record("serper", status="ok", result_count=10, num_requested=20)
++    manifest = tt.attach_tool_utilization({}, tmp_path)
++    assert "discovery_funnel" in manifest
++    assert manifest["discovery_funnel"]["serper"]["returned"] == 10
++
++
++def test_attach_omits_funnel_when_tracker_off(monkeypatch, tmp_path):
++    """OFF -> attach is a pure no-op: no discovery_funnel key (byte-identical manifest)."""
++    monkeypatch.setenv("PG_ENABLE_TOOL_TRACKER", "0")
++    _fresh_tracer(tmp_path)
++    manifest = tt.attach_tool_utilization({}, tmp_path)
++    assert "discovery_funnel" not in manifest
++    assert "tool_utilization" not in manifest
