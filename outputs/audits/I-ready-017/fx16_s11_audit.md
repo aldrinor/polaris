@@ -47,3 +47,27 @@ DRY + absent → SKIP-with-remediation (dev/CI safe).
 Additive fail-closed preflight gate — observability/safety only. No grounding / strict_verify / 4-role
 change. It can only ABORT a paid run that would silently degrade; it never weakens a check. DRY mode is
 non-breaking (SKIP). No-silent-downgrade-aligned (LAW II): a dead fetch tier now fails loud pre-spend.
+
+## iter-2 — Codex iter-1 REQUEST_CHANGES addressed
+**P1 (real semantic hole) — FIXED.** iter-1 SKIP'd on `PG_DISABLE_ACCESS_BYPASS in {1,true,True}`, but
+production (`live_retriever.py:1764`) disables the cascade ONLY on exactly `== "1"` (no strip/truthy).
+So `PG_DISABLE_ACCESS_BYPASS=true` + chromium absent would SKIP the LIVE preflight while production
+STILL ran the dead Crawl4AI tier → the exact silent httpx-naive fallback this gate exists to prevent.
+Now the probe matches production EXACTLY: `os.getenv("PG_DISABLE_ACCESS_BYPASS","0") == "1"`. Proven by
+`test_probe_disable_semantics_match_production_exactly` (true/True/yes/on/0/""/"  1  " → do NOT skip →
+FAIL in LIVE when absent; only exact "1" → SKIP).
+
+**P2-1 (cache-root coverage) — FIXED.** `_find_chromium_binary` now searches, in order,
+`PLAYWRIGHT_BROWSERS_PATH` (the official override, skipping the special "0"), then the per-OS defaults
+(Linux `~/.cache/ms-playwright`, Windows `~/AppData/Local/ms-playwright`, macOS
+`~/Library/Caches/ms-playwright`) — no false-FAIL on non-Linux/relocated installs. Proven by
+`test_find_chromium_honors_playwright_browsers_path`.
+
+**P2-2 (file check) — FIXED.** Only a real `is_file()` launcher counts; a partial cache dir with the
+launcher path as a directory no longer passes. Proven by `test_find_chromium_ignores_non_file_match`.
+(The static gate is still weaker than "browser actually launches" — that is FX-16b's post-install live
+fetch check, operator-gated.)
+
+### iter-2 smoke
+`pytest tests/polaris_graph/test_fx16_chromium_preflight_iready017.py` → 11 passed (8 original + 3 new
+covering the P1 exact-semantics, PLAYWRIGHT_BROWSERS_PATH, and is_file fixes).

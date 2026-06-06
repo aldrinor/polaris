@@ -1689,22 +1689,40 @@ async def test_state_keys_complete() -> TestResult:
 # Test Registry
 # ===================================================================
 
+def _playwright_cache_roots() -> list:
+    """FX-16 (#1131): candidate Playwright browser-cache roots in resolution order — the official
+    PLAYWRIGHT_BROWSERS_PATH override first (skipping the special value '0' = install-next-to-package),
+    then the per-OS defaults (Linux/VM, Windows, macOS). Fixes the P2 false-FAIL on non-Linux installs."""
+    roots: list = []
+    env_root = os.getenv("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if env_root and env_root != "0":
+        roots.append(Path(env_root))
+    home = Path.home()
+    roots.append(home / ".cache" / "ms-playwright")              # Linux / VM default
+    roots.append(home / "AppData" / "Local" / "ms-playwright")    # Windows default
+    roots.append(home / "Library" / "Caches" / "ms-playwright")   # macOS default
+    return roots
+
+
 def _find_chromium_binary(cache_root: Optional[Path] = None) -> Optional[str]:
-    """FX-16 (#1131): return the path to a Playwright chromium binary under the ms-playwright cache,
-    or None. Pure + cross-platform (glob the Linux/Windows/macOS launcher layouts) so it is unit
-    testable with a synthetic cache_root. Default root: ``~/.cache/ms-playwright`` (the VM layout)."""
-    root = Path(cache_root) if cache_root is not None else (Path.home() / ".cache" / "ms-playwright")
+    """FX-16 (#1131): return the path to an EXISTING Playwright chromium launcher file, or None. Pure +
+    cross-platform (globs the Linux/Windows/macOS launcher layouts across all candidate cache roots) so
+    it is unit testable with a synthetic ``cache_root`` (which, when given, is the ONLY root searched).
+    Only a real file (``is_file()``) counts — a partial cache dir without the binary does NOT pass."""
+    roots = [Path(cache_root)] if cache_root is not None else _playwright_cache_roots()
+    patterns = (
+        "chromium-*/chrome-linux*/chrome",
+        "chromium-*/chrome-win*/chrome.exe",
+        "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
+    )
     try:
-        if not root.exists():
-            return None
-        for pattern in (
-            "chromium-*/chrome-linux*/chrome",
-            "chromium-*/chrome-win*/chrome.exe",
-            "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
-        ):
-            hits = sorted(root.glob(pattern))
-            if hits:
-                return str(hits[0])
+        for root in roots:
+            if not root.exists():
+                continue
+            for pattern in patterns:
+                for hit in sorted(root.glob(pattern)):
+                    if hit.is_file():
+                        return str(hit)
     except Exception:  # noqa: BLE001 — a probe must never crash the preflight
         return None
     return None
@@ -1717,7 +1735,11 @@ async def test_chromium_browser_available() -> TestResult:
     binary; if absent AND the cascade is not intentionally disabled, FAIL CLOSED (LIVE/paid path) with
     remediation. DRY mode SKIPs with the same remediation so dev/CI runs do not break."""
     name = "chromium_browser_available"
-    if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0").strip() in ("1", "true", "True"):
+    # Codex iter-1 P1: match the PRODUCTION opt-out EXACTLY (live_retriever.py:1764 uses
+    # `os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1"` — exact, no strip/truthy). A broader match
+    # here (e.g. accepting "true") would SKIP the preflight while production STILL runs the dead cascade
+    # → the exact silent httpx-naive fallback this gate exists to prevent.
+    if os.getenv("PG_DISABLE_ACCESS_BYPASS", "0") == "1":
         return TestResult(name, SKIP, "PG_DISABLE_ACCESS_BYPASS=1 -- browser-fetch tier intentionally off")
     binary = _find_chromium_binary()
     if binary:
