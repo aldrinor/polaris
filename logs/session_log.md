@@ -4529,3 +4529,13 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fx15a_codex_diff_audit_iter2.txt = APPROVE. 6 FX-15a + 39 regression + §-1.1 (41/41 mislabeled on held trace).
 - STATUS: FX-15a DONE. Codex gate lock free. Advancing to FX-15b (host-class junk filter + re-enable semantic prefetch filter on agentic lane; depends on 15a, now satisfied).
 - NEXT_STEP: FX-15b — gh issue create, grep agentic-merge path + prefetch_offtopic_filter + tier_classifier._detect_conference_abstract, smoke, fix (precision: no real article dropped), §-1.1, codex gate.
+
+[2026-06-06 17:05:00]
+- ACTION: FX-15b (#1119) created + fully grounded; authoring deferred to next wake (correctness-critical).
+- RATIONALE: Grounding surfaced a latent catastrophic bug — Step-3 prefetch filter (live_retriever:2438) runs filter_search_results on ALL candidates incl empty-snippet injected seeds; agentic seeds are URL-only -> ~0 similarity -> enabling the semantic filter naively would DROP every agentic seed. So FX-15b must (a) add a precision structural host-class filter (never drop a real article), (b) make Step-3 seed-aware before enabling the semantic filter. This is faithfulness-adjacent (dropping real evidence); per campaign cadence, ground now + author next wake with fresh context (current context heavily saturated).
+- DOCS/RESEARCH: InfoGain-RAG (2509.12765), FILCO, WebFilter (2508.07956) per plan — cheap structural pre-filter before semantic.
+- SYNC: ledger FX-15b -> grounded (#1119); current_pointer updated.
+- AFFECTED_FILES: .codex/I-ready-017/fx15b_grounding_notes.md; state/ready017_fix_audit.json; logs/session_log.md; GH #1119 (created).
+- EVIDENCE/FINDINGS: anchors verified — agentic caller run_honest_sweep_r3.py:2907-2923; _agentic_telemetry:1604; _detect_conference_abstract tier_classifier.py:789; filter_search_results prefetch_offtopic_filter.py:152; Step-3 live_retriever.py:2438-2444 (the seed-drop landmine); _SEED_SOURCE_LABELS:2100.
+- STATUS: Session progress: FX-11 VERIFIED+closed (#1116), FX-15a VERIFIED+closed (#1118), FX-15b GROUNDED (#1119). 11 ledger issues verified. Codex gate lock free; no codex procs.
+- NEXT_STEP: next wake — author FX-15b per .codex/I-ready-017/fx15b_grounding_notes.md (structural filter + Step-3 seed-exclusion + telemetry + flag-gate), smoke (precision fixture + seed-survival + merge integration), §-1.1 on held trace, ONE codex gate.
