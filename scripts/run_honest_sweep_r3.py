@@ -5803,15 +5803,18 @@ async def run_one_query(
         # FL-05 (#1124): run-health backstop. A FORCE-ENABLED discovery feature (STORM / agentic)
         # that was turned ON but did NOT fire (firing_status in {attempted_empty, error}) means the
         # run silently degraded to the Serper/S2 baseline — it must NOT ship as success. ALWAYS emit
-        # the degradation fields (observability); GATE the abort behind PG_RUN_HEALTH_GATE (default
-        # off => byte-identical; the benchmark slate forces it on) so non-benchmark opt-in runs are
-        # unaffected. Promotes run_log's advisory warning to a gating signal. Pairs with CANARY-01
-        # (pre-spend) — FL-05 is the mid/post-run regression backstop. Only overrides a would-be
-        # SUCCESS (partial_* already signals degradation; aborts/errors are more specific).
+        # the two additive degradation fields (observability — existing consumers ignore unknown
+        # keys); GATE the abort behind PG_RUN_HEALTH_GATE (default OFF: status + control-flow + the
+        # release decision are UNCHANGED — only the two additive observability fields are written; the
+        # benchmark slate forces it ON). Promotes run_log's advisory warning to a gating signal. Pairs
+        # with CANARY-01 (pre-spend) — FL-05 is the mid/post-run regression backstop. Only overrides a
+        # would-be SUCCESS (partial_* already signals degradation; aborts/errors are more specific).
+        # Codex iter-1 P2: robust truthy parse for this DEFAULT-OFF flag (so PG_RUN_HEALTH_GATE=false
+        # / empty does NOT accidentally enable it, unlike the bare `!= "0"` default-ON pattern).
         _fl05 = compute_run_health_gate(
             [_storm_telemetry, _agentic_telemetry],
             unified_status=unified_status,
-            gate_on=os.getenv("PG_RUN_HEALTH_GATE", "0") != "0",
+            gate_on=os.getenv("PG_RUN_HEALTH_GATE", "0").strip().lower() in {"1", "true", "yes", "on"},
         )
         manifest["discovery_llm_degraded"] = _fl05["discovery_llm_degraded"]
         manifest["discovery_rounds_on_fallback"] = _fl05["discovery_rounds_on_fallback"]
@@ -5826,6 +5829,12 @@ async def run_one_query(
             summary_status = _fl05["override_status"]
             unified_status = to_unified_status(summary_status)
             manifest["status"] = unified_status
+            # Codex iter-1 P1: a would-be-success carries release_allowed=True from the evaluator/D8
+            # gate. An abort_discovery_degraded manifest MUST also be non-releasable, or non-v6/UI/
+            # audit consumers keying on release_allowed would still treat the silently-degraded report
+            # as shippable. Keep status and release_allowed consistent (mirrors the eval-gate invariant
+            # at L5156-5158: a held status can never read as releasable).
+            manifest["release_allowed"] = False
             manifest["discovery_degraded_features"] = _fl05["degraded_features"]
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when

@@ -8,12 +8,15 @@ PG_RUN_HEALTH_GATE is on). Default OFF = byte-identical. Offline, no network.
 """
 from __future__ import annotations
 
+from typing import get_args
+
 from scripts.run_honest_sweep_r3 import (
     UNIFIED_STATUS_VALUES,
     compute_run_health_gate,
     to_unified_status,
 )
 from src.polaris_graph.audit_ir.regression_lab import KNOWN_STATUS_VALUES
+from src.polaris_v6.schemas.run_status import PipelineStatus
 
 
 def _feat(name, enabled, firing_status):
@@ -30,6 +33,13 @@ def test_regression_lab_known_statuses_mirror_runner():
     # The documented invariant: regression_lab KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES.
     assert KNOWN_STATUS_VALUES == UNIFIED_STATUS_VALUES
     assert "abort_discovery_degraded" in KNOWN_STATUS_VALUES
+
+
+def test_abort_discovery_degraded_in_v6_pipeline_status():
+    # Codex iter-1 P1: the v6 actor stores manifest.status into pipeline_status for abort_* runs and
+    # RunStatusResponse validates against the PipelineStatus Literal — omitting the new status would
+    # 500 any GET/list query of an FL-05 abort. Pin it in the schema mirror.
+    assert "abort_discovery_degraded" in get_args(PipelineStatus)
 
 
 def test_force_enabled_not_fired_overrides_success_when_gated():
@@ -56,8 +66,9 @@ def test_healthy_run_not_overridden():
     assert out["discovery_rounds_on_fallback"] == 0
 
 
-def test_gate_off_is_byte_identical_default():
-    # default (gate_on=False): degradation is OBSERVED (field emitted) but the run is NOT overridden.
+def test_gate_off_no_abort_but_degradation_observed():
+    # default (gate_on=False): status + control flow + the release decision are UNCHANGED (no
+    # override), but the degradation is still OBSERVED in the additive observability fields.
     out = compute_run_health_gate(
         [_feat("storm", True, "attempted_empty")],
         unified_status="success",

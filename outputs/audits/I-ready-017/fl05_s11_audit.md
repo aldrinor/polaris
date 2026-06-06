@@ -30,9 +30,20 @@ no-silent-downgrade violation FL-05 closes.
   `feature_firing_warning` from advisory to gating. Pairs with CANARY-01 (pre-spend); FL-05 is the
   mid/post-run regression backstop.
 - `abort_discovery_degraded` registered as a valid terminal status (mirroring
-  `abort_verifier_degraded`): runner `UNIFIED_STATUS_VALUES`, `_SUMMARY_TO_UNIFIED` map,
-  `regression_lab` severity (tier 2), and the manifest-contract taxonomy guard. Prefix-compliant
-  (`abort_`).
+  `abort_verifier_degraded`) across **5 sites**: runner `UNIFIED_STATUS_VALUES`, `_SUMMARY_TO_UNIFIED`
+  map, `regression_lab` severity (tier 2), the manifest-contract taxonomy guard, and **(Codex iter-1
+  P1) the v6 `PipelineStatus` Literal** (`src/polaris_v6/schemas/run_status.py`) — the v6 actor stores
+  `manifest.status` into `pipeline_status` for abort_* runs and `RunStatusResponse` validates against
+  this Literal, so omitting it would 500 a GET/list query of an FL-05 abort. Prefix-compliant (`abort_`).
+- **(Codex iter-1 P1) release consistency:** the override also sets `manifest['release_allowed'] =
+  False` — a would-be success carries `release_allowed=True` from the evaluator/D8 gate; an
+  abort_discovery_degraded manifest MUST be non-releasable too, or non-v6/UI/audit consumers keying on
+  `release_allowed` would still treat the silently-degraded report as shippable (mirrors the eval-gate
+  invariant: a held status can never read as releasable).
+- **(Codex iter-1 P2) flag parse + claim:** `PG_RUN_HEALTH_GATE` uses robust truthy parsing
+  (`in {1,true,yes,on}`) so a default-OFF flag set to `false`/empty does not accidentally enable it.
+  The two observability fields are emitted ALWAYS (plan intent); default-OFF leaves status +
+  control-flow + the release decision UNCHANGED (the accurate claim — not "byte-identical").
 
 ## Offline smoke (proves the fix)
 `pytest tests/polaris_graph/test_fl05_run_health_gate_iready017.py` → 7 passed:
