@@ -320,10 +320,29 @@ def compose_methods_disclosure(
       - gaps-present (at least one retrieval gap)
       - pipeline-fault (surfaces separately; Codex M-60 Medium)
     """
+    # FX-07 (I-ready-017) leg 1: a slot can be status=PASS yet its evidence is
+    # only abstract_only / metadata_only (NOT full text). Those count toward
+    # pass_count, so the old "all N populated with bound evidence" footer
+    # contradicted the body ("did not survive strict verification" / abstract-
+    # only). Surface shallow-provenance pass entries as a disclosed gap; only
+    # claim "all bound" when every pass entry is full-text (open_access).
+    _SHALLOW_PROVENANCE = {
+        ProvenanceClass.ABSTRACT_ONLY.value,
+        ProvenanceClass.METADATA_ONLY.value,
+    }
+    shallow_entries = [
+        e for e in coverage.entries
+        if e.status == ValidationVerdict.PASS.value
+        and e.provenance_class in _SHALLOW_PROVENANCE
+    ]
+    shallow_count = len(shallow_entries)
+    fully_bound_count = coverage.pass_count - shallow_count
+
     has_issues = (
         coverage.frame_gap_count
         or coverage.partial_count
         or coverage.pipeline_fault_count
+        or shallow_count
     )
     if not has_issues:
         return (
@@ -337,8 +356,16 @@ def compose_methods_disclosure(
             f"  - Total contract-required entities: "
             f"{coverage.total_entities}"
         ),
-        f"  - Fully populated: {coverage.pass_count}",
+        f"  - Fully populated (full-text bound evidence): {fully_bound_count}",
     ]
+    if shallow_count:
+        shallow_names = ", ".join(
+            sorted(e.entity_id for e in shallow_entries)
+        )
+        lines.append(
+            f"  - Populated from abstract/metadata only (full text NOT "
+            f"retrieved): {shallow_count} ({shallow_names})"
+        )
     if coverage.partial_count:
         lines.append(
             f"  - Partial coverage (below min_fields or unbound "

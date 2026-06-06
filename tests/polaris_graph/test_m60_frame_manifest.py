@@ -432,7 +432,7 @@ class TestMethodsDisclosure:
         text = compose_methods_disclosure(
             self._coverage(pass_count=8, partial=1, gaps=2),
         )
-        assert "Fully populated: 8" in text
+        assert "Fully populated (full-text bound evidence): 8" in text
         assert "Partial coverage" in text and "1" in text
         assert "Unretrievable" in text and "2" in text
         assert "manifest.json" in text
@@ -751,7 +751,7 @@ class TestPartialOnlyDisclosure:
         text = compose_methods_disclosure(
             self._coverage(pass_count=5, partial=2, gaps=0),
         )
-        assert "Fully populated: 5" in text
+        assert "Fully populated (full-text bound evidence): 5" in text
         assert "Partial coverage" in text
         assert "2" in text
         # Should NOT say "Unretrievable" (no true gap rows)
