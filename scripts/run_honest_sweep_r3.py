@@ -2983,6 +2983,31 @@ async def run_one_query(
         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
         _flush_retrieval_trace()
+
+        # FX-06 (#1120): the corpus-approval gate below scores the FINAL `dist` (post base + R-6
+        # expansion + deepener + agentic merges), but corpus_adequacy.json was last written PRE-merge
+        # (~2535 base / ~2698 expansion; the deepener + agentic merges reassign `dist`/`adequacy` in
+        # memory but never re-wrote the JSON). On the held drb_72 run that left approval=145 sources
+        # vs adequacy=45 — the gate scored a DIFFERENT population than adequacy + the report consume.
+        # Re-write corpus_adequacy.json ONCE here from the FINAL `adequacy` so adequacy + approval +
+        # the report all describe the SAME delivered corpus on EVERY exit path below (inadequate-abort,
+        # approval-denied, and success). Artifact-only: the abort decision still uses the in-memory
+        # `adequacy.decision`, so control flow / the pre-spend gate timing is unchanged.
+        (run_dir / "corpus_adequacy.json").write_text(
+            json.dumps(asdict(adequacy), indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
+        )
+        # FX-06 invariant (fail-loud): the approval gate (`report=dist`) and the adequacy artifact
+        # MUST score the SAME population. Both are `sum(tier_counts)`; they can only diverge if a
+        # future merge reassigns `dist` without recomputing `adequacy` from it — refuse to proceed
+        # rather than gate/approve on a population the report does not consume.
+        if adequacy.total_sources != dist.total_sources:
+            raise RuntimeError(
+                f"FX-06 invariant violated: corpus_adequacy.total_sources={adequacy.total_sources} "
+                f"!= corpus_approval dist.total_sources={dist.total_sources} — the approval gate "
+                f"would score a different population than the adequacy artifact + report consume."
+            )
+
         # R-6 Gap-1: if adequacy still says ABORT after optional
         # expansion, refuse to synthesize — emit a short "corpus
         # inadequate" manifest and return status=abort_corpus_inadequate.
