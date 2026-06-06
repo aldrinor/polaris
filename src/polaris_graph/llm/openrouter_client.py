@@ -2467,18 +2467,31 @@ class OpenRouterClient:
                 # never wrote the answer — fail loud so caller can retry
                 # with bigger budget instead of promoting planning prelude.
                 _reasoning_clean = result.reasoning.rstrip()
-                if (
+                # FX-01 / I-ready-017 (#1105, faithfulness P0): a DETERMINISTIC truncation signal
+                # (equivalent to finish_reason=='length'). The drb_72 scratchpad ENDED with a period
+                # ("...124 more words.") so the "ends mid-sentence" heuristic below MISSED it, and the
+                # token-starved planning monologue shipped into report.md as VERIFIED prose (strict_verify
+                # + NLI + 4-role all passed it). If the response consumed (essentially) its entire output
+                # OR reasoning budget, the model NEVER finished the answer -> refuse to promote the
+                # reasoning REGARDLESS of terminal punctuation. Promoting a truncated planning monologue
+                # as content is exactly the scratchpad-as-verified-prose failure (LAW II / §-1.1 clinical).
+                _hit_token_ceiling = bool(
+                    (max_tokens and result.output_tokens >= max_tokens)
+                    or (reasoning_max_tokens and result.reasoning_tokens >= reasoning_max_tokens)
+                )
+                if _hit_token_ceiling or (
                     "[#ev:" not in result.reasoning
                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
                 ):
                     self.usage.total_errors += 1
                     _finalize_reasoning_trace(_primary_trace_id, status="truncated")
                     raise ReasoningFirstTruncationError(
-                        f"I-bug-089: reasoning-first model {self.model} "
-                        f"truncated mid-planning. content empty, reasoning "
-                        f"has {len(result.reasoning)} chars but no [#ev:] "
-                        f"markers and ends mid-sentence — increase max_tokens "
-                        f"budget. SF-15 fail-loud."
+                        f"I-bug-089/FX-01: reasoning-first model {self.model} truncated. content "
+                        f"empty, reasoning has {len(result.reasoning)} chars; hit_token_ceiling="
+                        f"{_hit_token_ceiling} (out={result.output_tokens}/max={max_tokens}, "
+                        f"reasoning={result.reasoning_tokens}/cap={reasoning_max_tokens}). Promoting a "
+                        f"truncated planning monologue as content would ship the model's scratchpad as "
+                        f"verified prose — increase max_tokens budget. SF-15 fail-loud."
                     )
                 logger.warning(
                     "[polaris graph] I-bug-088: generate() content empty, "
