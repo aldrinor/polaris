@@ -2577,7 +2577,12 @@ async def run_one_query(
                 evidence_rows=retrieval.evidence_rows,
             )
         else:
-            completeness = CompletenessReport(domain=q["domain"])
+            # FX-10 (I-ready-017): ON-mode (research-planner) substitutes a NEUTRAL report —
+            # no domain checklist applies, so this is NOT_APPLICABLE, not a measured 100%.
+            # Tag the reason so the vacuous covered_fraction=1.0 is never read as complete.
+            completeness = CompletenessReport(
+                domain=q["domain"], notes=["no_checklist_loaded"],
+            )
         (run_dir / "completeness.json").write_text(
             json.dumps(
                 {
@@ -2586,6 +2591,9 @@ async def run_one_query(
                     "total_covered": completeness.total_covered,
                     "total_uncovered": completeness.total_uncovered,
                     "covered_fraction": completeness.covered_fraction,
+                    # FX-10: 3VL state disambiguates a vacuous 1.0 (not_applicable) from a
+                    # genuinely-measured fraction.
+                    "completeness_state": completeness.completeness_state,
                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
                     "expand_queries": completeness.expand_queries,
                     "notes": completeness.notes,
@@ -2994,6 +3002,7 @@ async def run_one_query(
                     "total_applicable": completeness.total_applicable,
                     "total_covered": completeness.total_covered,
                     "total_uncovered": completeness.total_uncovered,
+                    "completeness_state": completeness.completeness_state,  # FX-10
                     "uncovered_topic_ids": completeness.uncovered_topic_ids(),
                 },
             })
@@ -5122,6 +5131,8 @@ async def run_one_query(
                 "total_covered": completeness.total_covered,
                 "total_uncovered": completeness.total_uncovered,
                 "covered_fraction": round(completeness.covered_fraction, 3),
+                "completeness_state": completeness.completeness_state,  # FX-10
+                "notes": completeness.notes,
                 "uncovered_topic_ids": completeness.uncovered_topic_ids(),
             },
             "contradictions_found": len(contradictions),

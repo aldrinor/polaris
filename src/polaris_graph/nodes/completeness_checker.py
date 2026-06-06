@@ -64,6 +64,18 @@ class CompletenessReport:
             return 1.0
         return self.total_covered / self.total_applicable
 
+    @property
+    def completeness_state(self) -> str:
+        """FX-10 (I-ready-017): three-valued-logic state for the completeness check.
+
+        When no checklist topic applies (``total_applicable == 0``) the numeric
+        ``covered_fraction`` is a VACUOUS 1.0 — that is NOT_APPLICABLE, not a measured
+        pass (SQL 3VL: an empty applicable set is UNKNOWN/NULL, never TRUE). The numeric
+        stays as-is (consumers compare it and must not hit a TypeError), and this state
+        field is what disambiguates a vacuous 1.0 from a genuinely-measured 1.0.
+        """
+        return "not_applicable" if self.total_applicable == 0 else "measured"
+
     def uncovered_topic_ids(self) -> list[str]:
         return [
             tc.topic.id

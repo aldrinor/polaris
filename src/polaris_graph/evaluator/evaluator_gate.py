@@ -181,8 +181,14 @@ def compute_evaluator_gate(
             if "judge_hedging_tone_needs_revision" not in reasons:
                 reasons.append("judge_hedging_tone_needs_revision")
         if "completeness" in needs:
+            # FX-10 (I-ready-017): a not_applicable completeness (no checklist applied →
+            # vacuous covered_fraction=1.0) is ADVISORY — never flag it as thin coverage.
+            # Only a MEASURED fraction below threshold is a real completeness concern; the
+            # state guard keeps this correct even if a future not_applicable carried a low
+            # numeric (covered_fraction stays numeric, so the comparison never TypeErrors).
             comp_thin = (
                 completeness is not None
+                and getattr(completeness, "completeness_state", "measured") == "measured"
                 and getattr(completeness, "covered_fraction", 1.0) < 0.5
             )
             if comp_thin:
