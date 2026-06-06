@@ -99,9 +99,13 @@ async def test_v4_pro_truncated_planning_raises_fail_loud() -> None:
     assert "[#ev:" not in truncated_planning
     assert not truncated_planning.rstrip().endswith((".", "!", "?", '"'))
 
+    # FX-01 (#1105): _make_response sets no finish_reason (None), so this exercises the
+    # I-bug-089 HEURISTIC FALLBACK ([#ev:]-absent AND ends mid-sentence) that still guards the
+    # promotion when the provider reports no truncation signal. The canonical finish_reason=='length'
+    # path is covered end-to-end (no _call mock) in test_fx01_cot_promotion_guard_iready017.py.
     fake = _make_response(content="", reasoning=truncated_planning)
     with patch.object(client, "_call", new=AsyncMock(return_value=fake)):
-        with pytest.raises(RuntimeError, match="I-bug-089.*truncated mid-planning"):
+        with pytest.raises(RuntimeError, match=r"I-bug-089.*truncated.*heuristic_fallback=True"):
             await client.generate(prompt="Write the section")
 
     await client.close()

@@ -807,6 +807,11 @@ class LLMResponse:
     # captured into (set by _capture_reasoning_trace when a run-scoped sink
     # is registered). None when no sink / not a traced generator call.
     trace_call_id: Optional[str] = None
+    # FX-01 / I-ready-017 (#1105): the provider's finish_reason ("stop" | "length" | ...).
+    # "length" = the response was TRUNCATED at the token budget (the floor-independent truncation
+    # signal). The reasoning->content promotion guard refuses to promote when finish_reason=="length"
+    # so a truncated planning monologue is never shipped as content (BUG-01, faithfulness P0).
+    finish_reason: Optional[str] = None
 
 
 class BudgetExhaustedError(Exception):
@@ -1168,6 +1173,10 @@ class OpenRouterClient:
         content_bytes = 0
         reasoning_bytes = 0
         done_received = False
+        # FX-01 / I-ready-017 (#1105): capture the provider finish_reason from the final non-error
+        # chunk (the floor-independent truncation signal). Stashed into usage_data before return so
+        # the reasoning->content promotion guard can refuse promotion of a "length"-truncated trace.
+        final_finish_reason: Optional[str] = None
 
         async for line in response.aiter_lines():
             # Skip empty lines and SSE comments (keep-alive)
@@ -1222,6 +1231,8 @@ class OpenRouterClient:
                         error_msg[:200],
                     )
                     raise RuntimeError(f"SSE mid-stream error: {error_msg[:200]}")
+                if finish_reason and finish_reason != "error":
+                    final_finish_reason = finish_reason  # FX-01: keep the last real finish_reason
 
                 delta = choices[0].get("delta", {})
                 if delta.get("content"):
@@ -1263,6 +1274,10 @@ class OpenRouterClient:
                 chunk_count,
             )
 
+        # FX-01 (#1105): carry the captured finish_reason in usage_data (no tuple-arity change) so the
+        # downstream promotion guard sees "length" without threading a new return value everywhere.
+        usage_data = dict(usage_data or {})
+        usage_data["finish_reason"] = final_finish_reason
         return content_text, reasoning_text, usage_data, served
 
     async def _read_stream(
@@ -1350,12 +1365,20 @@ class OpenRouterClient:
                 len(message.get("reasoning_content", "") or ""),
             )
 
+            # FX-01 / I-ready-017 (#1105): carry the provider finish_reason from this
+            # within-_read_stream non-SSE branch (provider returned standard JSON despite
+            # stream:true) into the usage dict, so the downstream reasoning->content promotion
+            # guard sees "length" (token-ceiling truncation) without a tuple-arity change.
+            # Mirrors the SSE stash in _accumulate_sse.
+            _nonsse_usage = dict(data.get("usage", {}) or {})
+            _nonsse_usage["finish_reason"] = choices[0].get("finish_reason")
+
             return (
                 message.get("content", "") or "",
                 message.get("reasoning_content", "")
                 or message.get("reasoning", "")
                 or "",
-                data.get("usage", {}),
+                _nonsse_usage,
                 _served,
             )
 
@@ -1595,7 +1618,13 @@ class OpenRouterClient:
                                 "content": content_text,
                                 "reasoning_content": reasoning_text,
                             },
-                            "finish_reason": "stop",
+                            # FX-01 / I-ready-017 (#1105): carry the REAL provider finish_reason
+                            # captured by _accumulate_sse / the non-SSE branch (stashed in
+                            # stream_usage) instead of a hardcoded "stop", so a "length"
+                            # token-ceiling truncation is visible to the reasoning->content
+                            # promotion guard. None when the stream never reported one ->
+                            # the guard falls back to the I-bug-089 heuristic.
+                            "finish_reason": stream_usage.get("finish_reason"),
                         }],
                         "usage": stream_usage,
                         "model": self.model,
@@ -1893,6 +1922,16 @@ class OpenRouterClient:
                 bool(response_format),
             )
 
+        # FX-01 / I-ready-017 (#1105, faithfulness P0): the provider finish_reason — a real signal
+        # at the choice level for the resp.json non-streaming path AND for the streaming path
+        # (where _call_impl now carries _accumulate_sse's captured value into the synthesized
+        # choice). usage_data backstops it (the SSE / non-SSE-stream stash). None when no
+        # finish_reason was ever reported -> the reasoning->content promotion guard falls back to
+        # the [#ev:]-absent + ends-mid-sentence heuristic.
+        _provider_finish_reason = choice.get("finish_reason")
+        if _provider_finish_reason is None:
+            _provider_finish_reason = usage_data.get("finish_reason")
+
         result = LLMResponse(
             content=content,
             reasoning=reasoning,
@@ -1902,6 +1941,7 @@ class OpenRouterClient:
             model=data.get("model", self.model),
             duration_ms=duration_ms,
             raw_response=data,
+            finish_reason=_provider_finish_reason,
         )
 
         # I-gen-004 (#496): capture the raw completed provider response to the
@@ -2085,6 +2125,7 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                    finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                 )
                 result._parsed = None  # type: ignore[attr-defined]
             elif not schema:
@@ -2142,6 +2183,7 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                    finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                 )
                 result._parsed = None  # type: ignore[attr-defined]
             else:
@@ -2176,6 +2218,7 @@ class OpenRouterClient:
                             model=result.model,
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
+                            finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                         )
                         result._parsed = None  # type: ignore[attr-defined]
                     elif not schema:
@@ -2198,6 +2241,7 @@ class OpenRouterClient:
                             model=result.model,
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
+                            finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                         )
                         result._parsed = None  # type: ignore[attr-defined]
                     else:
@@ -2221,6 +2265,7 @@ class OpenRouterClient:
                                 model=result.model,
                                 duration_ms=result.duration_ms,
                                 raw_response=result.raw_response,
+                                finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                             )
                             result._parsed = None  # type: ignore[attr-defined]
                         else:
@@ -2379,6 +2424,7 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                    finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                 )
                 _finalize_reasoning_trace(
                     _primary_trace_id,
@@ -2444,6 +2490,7 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                    finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                 )
                 _finalize_reasoning_trace(
                     _primary_trace_id,
@@ -2467,31 +2514,37 @@ class OpenRouterClient:
                 # never wrote the answer — fail loud so caller can retry
                 # with bigger budget instead of promoting planning prelude.
                 _reasoning_clean = result.reasoning.rstrip()
-                # FX-01 / I-ready-017 (#1105, faithfulness P0): a DETERMINISTIC truncation signal
-                # (equivalent to finish_reason=='length'). The drb_72 scratchpad ENDED with a period
-                # ("...124 more words.") so the "ends mid-sentence" heuristic below MISSED it, and the
-                # token-starved planning monologue shipped into report.md as VERIFIED prose (strict_verify
-                # + NLI + 4-role all passed it). If the response consumed (essentially) its entire output
-                # OR reasoning budget, the model NEVER finished the answer -> refuse to promote the
-                # reasoning REGARDLESS of terminal punctuation. Promoting a truncated planning monologue
-                # as content is exactly the scratchpad-as-verified-prose failure (LAW II / §-1.1 clinical).
-                _hit_token_ceiling = bool(
-                    (max_tokens and result.output_tokens >= max_tokens)
-                    or (reasoning_max_tokens and result.reasoning_tokens >= reasoning_max_tokens)
-                )
-                if _hit_token_ceiling or (
-                    "[#ev:" not in result.reasoning
+                # FX-01 / I-ready-017 (#1105, faithfulness P0): refuse to promote a TRUNCATED
+                # reasoning trace. The provider's finish_reason=="length" is the canonical,
+                # floor-independent truncation signal. The prior param-ceiling heuristic was
+                # CONFOUNDED: _call_impl floors max_tokens to PG_REASONING_FIRST_MIN_MAX_TOKENS
+                # (16384) for reasoning-first models and V4 Pro reasons until the OVERALL ceiling,
+                # so output_tokens >= the caller's max_tokens param false-positived on perfectly
+                # complete answers (proven by a live generate(max_tokens=80) returning 10302 chars).
+                # The drb_72 scratchpad ENDED with a period ("...124 more words.") so the
+                # terminal-punctuation heuristic MISSED it and the token-starved planning monologue
+                # shipped into report.md as VERIFIED prose (strict_verify + NLI + 4-role all passed
+                # it). When finish_reason is None (provider/stream never reported one), fall back to
+                # the I-bug-089 heuristic: [#ev:]-absent AND ends mid-sentence. Promoting a truncated
+                # planning monologue as content is the scratchpad-as-verified-prose failure
+                # (LAW II / §-1.1 clinical).
+                _finish_length = result.finish_reason == "length"
+                _heuristic_truncated = (
+                    result.finish_reason is None
+                    and "[#ev:" not in result.reasoning
                     and not _reasoning_clean.endswith((".", "!", "?", '"'))
-                ):
+                )
+                if _finish_length or _heuristic_truncated:
                     self.usage.total_errors += 1
                     _finalize_reasoning_trace(_primary_trace_id, status="truncated")
                     raise ReasoningFirstTruncationError(
                         f"I-bug-089/FX-01: reasoning-first model {self.model} truncated. content "
-                        f"empty, reasoning has {len(result.reasoning)} chars; hit_token_ceiling="
-                        f"{_hit_token_ceiling} (out={result.output_tokens}/max={max_tokens}, "
-                        f"reasoning={result.reasoning_tokens}/cap={reasoning_max_tokens}). Promoting a "
-                        f"truncated planning monologue as content would ship the model's scratchpad as "
-                        f"verified prose — increase max_tokens budget. SF-15 fail-loud."
+                        f"empty, reasoning has {len(result.reasoning)} chars; "
+                        f"finish_reason={result.finish_reason!r} (finish_length={_finish_length}, "
+                        f"heuristic_fallback={_heuristic_truncated}; out={result.output_tokens}, "
+                        f"reasoning={result.reasoning_tokens}). Promoting a truncated planning "
+                        f"monologue as content would ship the model's scratchpad as verified prose "
+                        f"— increase max_tokens budget. SF-15 fail-loud."
                     )
                 logger.warning(
                     "[polaris graph] I-bug-088: generate() content empty, "
@@ -2508,6 +2561,7 @@ class OpenRouterClient:
                     model=result.model,
                     duration_ms=result.duration_ms,
                     raw_response=result.raw_response,
+                    finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                 )
                 _finalize_reasoning_trace(
                     _primary_trace_id,
@@ -2557,6 +2611,7 @@ class OpenRouterClient:
                             model=result.model,
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
+                            finish_reason=result.finish_reason,  # FX-01 (#1105): preserve truncation signal
                         )
                         _finalize_reasoning_trace(
                             _retry_trace_id,
@@ -2567,6 +2622,31 @@ class OpenRouterClient:
                         # I-bug-088: same response-shape-centric recovery on
                         # retry. If retry still produces reasoning-only output
                         # with substance, treat reasoning as the answer.
+                        # FX-01 / I-ready-017 (#1105, faithfulness P0, NEW Codex finding): the RETRY
+                        # leg ALSO promotes reasoning->content, so it MUST apply the SAME truncation
+                        # refusal as the primary branch — otherwise a token-starved retry scratchpad
+                        # ships as verified prose (the exact drb_72 failure, one level deeper).
+                        # finish_reason=="length" is the canonical signal; fall back to the
+                        # [#ev:]-absent + ends-mid-sentence heuristic when the provider reported none.
+                        _retry_clean = result.reasoning.rstrip()
+                        _retry_finish_length = result.finish_reason == "length"
+                        _retry_heuristic_truncated = (
+                            result.finish_reason is None
+                            and "[#ev:" not in result.reasoning
+                            and not _retry_clean.endswith((".", "!", "?", '"'))
+                        )
+                        if _retry_finish_length or _retry_heuristic_truncated:
+                            self.usage.total_errors += 1
+                            _finalize_reasoning_trace(_retry_trace_id, status="truncated")
+                            raise ReasoningFirstTruncationError(
+                                f"FX-01: reasoning-first model {self.model} retry truncated. content "
+                                f"empty, reasoning has {len(result.reasoning)} chars; "
+                                f"finish_reason={result.finish_reason!r} "
+                                f"(finish_length={_retry_finish_length}, "
+                                f"heuristic_fallback={_retry_heuristic_truncated}). Promoting a "
+                                f"truncated retry monologue as content would ship the scratchpad as "
+                                f"verified prose — increase max_tokens budget. SF-15 fail-loud."
+                            )
                         logger.warning(
                             "[polaris graph] I-bug-088: retry still reasoning-"
                             "only (%d chars) — promoting to content.",
@@ -2581,6 +2661,7 @@ class OpenRouterClient:
                             model=result.model,
                             duration_ms=result.duration_ms,
                             raw_response=result.raw_response,
+                            finish_reason=result.finish_reason,
                         )
                         _finalize_reasoning_trace(
                             _retry_trace_id,
