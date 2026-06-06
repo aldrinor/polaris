@@ -60,6 +60,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
 )
 from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     CorpusApprovalDecision,
+    authorization_from_env,
     check_auto_approve_allowed,
     compute_tier_distribution,
     save_approval_decision,
@@ -174,8 +175,10 @@ async def main_async() -> int:
     _log(f"       material_deviation={dist_report.has_material_deviation}")
 
     approval_note = "Live first-run; deviations expected."
+    # FX-05 (I-ready-017): structured authorization, never a free-text note.
+    authorization = authorization_from_env()
     if dist_report.has_material_deviation:
-        ok, err = check_auto_approve_allowed(dist_report, approval_note)
+        ok, err = check_auto_approve_allowed(dist_report, authorization)
         approved = ok
         _log(f"       deviation-approval: {'ACCEPTED' if ok else 'REJECTED'}  {err}")
     else:
@@ -187,6 +190,7 @@ async def main_async() -> int:
         decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         approved=approved,
         user_note=approval_note,
+        authorization=authorization,
         approved_source_urls=[s.url for s in classified_sources] if approved else [],
         rejected_source_urls=[] if approved else [s.url for s in classified_sources],
         report=dist_report,

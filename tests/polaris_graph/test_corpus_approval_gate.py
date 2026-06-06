@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 
 from src.polaris_graph.nodes.corpus_approval_gate import (
+    AuthorizedSweep,
     CorpusApprovalDecision,
     CorpusSource,
+    authorization_from_env,
     check_auto_approve_allowed,
     compute_tier_distribution,
     render_approval_html,
@@ -125,58 +127,81 @@ def test_html_shows_material_banner_when_deviation() -> None:
     assert "Material deviation" in html_doc
 
 
+def _material_deviation_report():
+    """A corpus that is 100% T5 → way over the clinical T5 cap → material."""
+    sources = [
+        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
+        for i in range(10)
+    ]
+    report = compute_tier_distribution(sources, _clinical_protocol())
+    assert report.has_material_deviation is True
+    return report
+
+
 def test_check_auto_approve_allowed_without_deviation() -> None:
     report = compute_tier_distribution(
         _on_protocol_corpus(), _clinical_protocol(),
     )
-    ok, err = check_auto_approve_allowed(report, "ok")
+    # FX-05: no material deviation → auto-approve regardless of authorization.
+    ok, err = check_auto_approve_allowed(report, None)
     assert ok is True
     assert err == ""
 
 
-def test_check_auto_approve_rejects_short_note_on_material() -> None:
-    sources = [
-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
-        for i in range(10)
-    ]
-    report = compute_tier_distribution(sources, _clinical_protocol())
-    ok, err = check_auto_approve_allowed(report, "ok")
+def test_material_deviation_denies_without_authorization() -> None:
+    """FX-05: material deviation + no structured authorization → DENY."""
+    report = _material_deviation_report()
+    ok, err = check_auto_approve_allowed(report, None)
     assert ok is False
-    assert "note" in err.lower()
+    assert "authoriz" in err.lower()
 
 
-def test_check_auto_approve_rejects_trivial_notes() -> None:
-    sources = [
-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
-        for i in range(10)
-    ]
-    report = compute_tier_distribution(sources, _clinical_protocol())
-    ok, err = check_auto_approve_allowed(report, "looks fine lgtm approve now!!")
-    # Too trivial even though length > 30
-    # (The trivial filter checks the whole note as one of the dismissible set;
-    # this note might pass the trivial set but is >= 30 chars. Adjust assertion.)
-    # The current logic: only matches exact trivial phrases. So this passes.
-    # Add a genuinely trivial test instead.
-    ok2, err2 = check_auto_approve_allowed(report, "approved" + " " * 30)
-    # "approved" alone is trivial; with trailing spaces it's still trivial
-    # after strip
-    assert ok2 is False
-
-
-def test_check_auto_approve_accepts_substantive_note() -> None:
-    sources = [
-        CorpusSource(url=f"https://x/{i}", tier="T5", domain="x")
-        for i in range(10)
-    ]
-    report = compute_tier_distribution(sources, _clinical_protocol())
-    note = (
+def test_material_deviation_denies_free_text_note() -> None:
+    """FX-05: a free-text note alone NEVER auto-approves (closes the loophole
+    where the R-3 sweep's own 48-char canned note slipped through)."""
+    report = _material_deviation_report()
+    substantive = (
         "Corpus is dominated by manufacturer HCP content because the "
         "research question is specifically about the labelled dosing "
         "regimen. Will flag in methods."
     )
-    ok, err = check_auto_approve_allowed(report, note)
+    ok, err = check_auto_approve_allowed(report, substantive)  # legacy free text
+    assert ok is False
+    assert "note" in err.lower() or "authoriz" in err.lower()
+
+
+def test_material_deviation_approves_with_structured_authorization() -> None:
+    """FX-05: a COMPLETE AuthorizedSweep is the one sanctioned auto-approve."""
+    report = _material_deviation_report()
+    auth = AuthorizedSweep(
+        authorized_by="env:PG_AUTHORIZED_SWEEP_APPROVAL",
+        authorized_at="2026-06-06T00:00:00Z",
+        flag_source="env",
+    )
+    ok, err = check_auto_approve_allowed(report, auth)
     assert ok is True
     assert err == ""
+
+
+def test_material_deviation_denies_incomplete_authorization() -> None:
+    """FX-05: an AuthorizedSweep missing required fields → DENY (fail-closed)."""
+    report = _material_deviation_report()
+    auth = AuthorizedSweep(authorized_by="", authorized_at="", flag_source="")
+    ok, err = check_auto_approve_allowed(report, auth)
+    assert ok is False
+
+
+def test_authorization_from_env_requires_flag(monkeypatch) -> None:
+    """FX-05: authorization_from_env() returns None unless the flag is truthy,
+    and a complete AuthorizedSweep when it is (LAW VI: from config only)."""
+    monkeypatch.delenv("PG_AUTHORIZED_SWEEP_APPROVAL", raising=False)
+    assert authorization_from_env() is None
+    monkeypatch.setenv("PG_AUTHORIZED_SWEEP_APPROVAL", "0")
+    assert authorization_from_env() is None
+    monkeypatch.setenv("PG_AUTHORIZED_SWEEP_APPROVAL", "1")
+    auth = authorization_from_env()
+    assert auth is not None
+    assert auth.authorized_by and auth.authorized_at and auth.flag_source == "env"
 
 
 def test_save_approval_decision_writes_json(tmp_path: Path) -> None:

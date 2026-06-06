@@ -44,6 +44,7 @@ from src.polaris_graph.generator.provenance_generator import (
 from src.polaris_graph.nodes.corpus_approval_gate import (
     CorpusApprovalDecision,
     CorpusSource,
+    authorization_from_env,
     check_auto_approve_allowed,
     compute_tier_distribution,
     save_approval_decision,
@@ -185,10 +186,14 @@ def run_honest_pipeline(
     # ── Phase 2g: corpus approval gate ──────────────────────────────────
     report = compute_tier_distribution(classified_sources, protocol_dict)
     approved = False
+    # FX-05 (I-ready-017): a material-deviation corpus auto-approves ONLY with a
+    # structured authorization (PG_AUTHORIZED_SWEEP_APPROVAL), never a free-text
+    # note. `approval_note` is descriptive/audit only.
+    authorization = authorization_from_env()
     if auto_approve_if_within_bounds and not report.has_material_deviation:
         approved = True
     else:
-        ok, _ = check_auto_approve_allowed(report, approval_note)
+        ok, _ = check_auto_approve_allowed(report, authorization)
         approved = ok
 
     decision = CorpusApprovalDecision(
@@ -199,6 +204,7 @@ def run_honest_pipeline(
         ),
         approved=approved,
         user_note=approval_note,
+        authorization=authorization,
         approved_source_urls=[s.url for s in classified_sources] if approved else [],
         rejected_source_urls=[] if approved else [s.url for s in classified_sources],
         report=report,

@@ -12,20 +12,15 @@ run requires network + API keys.
 from __future__ import annotations
 
 from src.polaris_graph.nodes.corpus_approval_gate import (
+    AuthorizedSweep,
     CorpusSource,
     check_auto_approve_allowed,
     compute_tier_distribution,
 )
 
 
-def _rubber_stamp_note() -> str:
-    return "ok"  # trivial, should trigger auto-approve denial
-
-
-def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
-    """If the corpus has material deviation, a trivial note must be
-    rejected by check_auto_approve_allowed."""
-    # 9 T5 + 1 T1 = way over T5 cap for clinical template
+def _material_deviation_report():
+    """9 T5 + 1 T1 = way over the clinical T5 cap → material deviation."""
     classified = [
         CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
                      tier="T5", tier_confidence=0.9, tier_rule="",
@@ -44,38 +39,42 @@ def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
     }
     report = compute_tier_distribution(classified, protocol)
     assert report.has_material_deviation is True
-    ok, err = check_auto_approve_allowed(report, _rubber_stamp_note())
+    return report
+
+
+def test_b2_rubber_stamp_note_rejected_for_material_deviation() -> None:
+    """FX-05: on material deviation, NO free-text credential (and no missing
+    authorization) auto-approves — default-deny gates spend."""
+    report = _material_deviation_report()
+    ok, err = check_auto_approve_allowed(report, None)
     assert ok is False
-    assert "note" in err.lower() or "deviation" in err.lower()
+    assert "authoriz" in err.lower() or "deviation" in err.lower()
 
 
-def test_b2_substantive_note_accepted_for_material_deviation() -> None:
-    """A real, substantive note (>=30 chars, not in trivial set) is OK."""
-    classified = [
-        CorpusSource(url=f"https://industry/{i}", title="", domain="industry",
-                     tier="T5", tier_confidence=0.9, tier_rule="",
-                     tier_reasons=[])
-        for i in range(9)
-    ] + [
-        CorpusSource(url="https://pmc/1", title="", domain="pmc",
-                     tier="T1", tier_confidence=0.9, tier_rule="",
-                     tier_reasons=[]),
-    ]
-    protocol = {
-        "expected_tier_distribution": [
-            {"tier": "T1", "min_fraction": 0.3, "max_fraction": 0.6},
-            {"tier": "T5", "min_fraction": 0.0, "max_fraction": 0.15},
-        ],
-    }
-    report = compute_tier_distribution(classified, protocol)
+def test_b2_free_text_note_alone_never_auto_approves() -> None:
+    """FX-05 (was test_b2_substantive_note_accepted, which encoded the loophole):
+    a free-text note — however substantive — NEVER auto-approves a material-
+    deviation corpus. Only a structured AuthorizedSweep does."""
+    report = _material_deviation_report()
     substantive = (
         "This market-research corpus is heavily weighted toward "
         "industry analyst reports because the research question "
         "specifically asks about competitor positioning; peer-reviewed "
         "T1 sources are rare in this domain."
     )
-    ok, _err = check_auto_approve_allowed(report, substantive)
-    assert ok is True
+    ok_note, err_note = check_auto_approve_allowed(report, substantive)
+    assert ok_note is False, "a free-text note must NOT auto-approve (FX-05)"
+    assert err_note  # a non-empty denial reason
+
+    # The ONE sanctioned path: a complete structured authorization.
+    auth = AuthorizedSweep(
+        authorized_by="env:PG_AUTHORIZED_SWEEP_APPROVAL",
+        authorized_at="2026-06-06T00:00:00Z",
+        flag_source="env",
+    )
+    ok_auth, err_auth = check_auto_approve_allowed(report, auth)
+    assert ok_auth is True
+    assert err_auth == ""
 
 
 def test_b2_sweep_orchestrator_has_enforcement_branch() -> None:

@@ -60,6 +60,7 @@ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
 )
 from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     CorpusApprovalDecision, CorpusSource,
+    authorization_from_env,
     check_auto_approve_allowed, compute_tier_distribution,
     save_approval_decision,
 )
@@ -229,8 +230,10 @@ async def main_async() -> int:
         "from the clinical template are expected because the pre-rebuild "
         "retrieval pulled a broader mix."
     )
+    # FX-05 (I-ready-017): structured authorization, never a free-text note.
+    authorization = authorization_from_env()
     if dist.has_material_deviation:
-        ok, _ = check_auto_approve_allowed(dist, approval_note)
+        ok, _ = check_auto_approve_allowed(dist, authorization)
         approved = ok
     else:
         approved = True
@@ -240,6 +243,7 @@ async def main_async() -> int:
         decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         approved=approved,
         user_note=approval_note,
+        authorization=authorization,
         approved_source_urls=[s.url for s in classified] if approved else [],
         rejected_source_urls=[] if approved else [s.url for s in classified],
         report=dist,

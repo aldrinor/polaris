@@ -81,6 +81,26 @@ class CorpusDistributionReport:
 
 
 @dataclass
+class AuthorizedSweep:
+    """Structured operator authorization to auto-approve a material-deviation
+    corpus (FX-05 / I-ready-017).
+
+    This REPLACES the old free-text "why is this corpus acceptable" note as the
+    auto-approve credential. A free-text field is defeatable (the R-3 sweep's own
+    48-char canned note passed the len>=30 + denylist guard → a material-deviation
+    corpus auto-approved and was billed). A credential must be a *positive,
+    audit-logged acknowledgement keyed to an explicit flag*, not prose.
+
+    Built only by `authorization_from_env()` when `PG_AUTHORIZED_SWEEP_APPROVAL`
+    is set truthy. Persisted as a structured block in `corpus_approval.json`.
+    """
+
+    authorized_by: str   # identity/source, e.g. "env:PG_AUTHORIZED_SWEEP_APPROVAL"
+    authorized_at: str   # ISO-8601 UTC timestamp the authorization was minted
+    flag_source: str     # provenance of the flag: "env" | "cli"
+
+
+@dataclass
 class CorpusApprovalDecision:
     """Persisted once the user approves / rejects the corpus."""
 
@@ -93,6 +113,10 @@ class CorpusApprovalDecision:
     rejected_source_urls: list[str] = field(default_factory=list)
     report: Optional[CorpusDistributionReport] = None
     protocol_sha256: str = ""
+    # FX-05: the STRUCTURED credential that authorized an auto-approve on a
+    # material-deviation corpus (None = no structured authorization; for a
+    # material-deviation corpus that means the run was/should be denied).
+    authorization: Optional[AuthorizedSweep] = None
 
 
 def compute_tier_distribution(
@@ -307,36 +331,88 @@ def save_approval_decision(
     return path
 
 
+# FX-05 (I-ready-017): the ONE sanctioned auto-approve credential for a
+# material-deviation corpus. A free-text note is NOT a credential.
+PG_AUTHORIZED_SWEEP_APPROVAL_ENV = "PG_AUTHORIZED_SWEEP_APPROVAL"
+# Optional: who/what to record as the authorizing identity (audit only).
+PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV = "PG_AUTHORIZED_SWEEP_APPROVED_BY"
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _is_truthy(value: Optional[str]) -> bool:
+    return (value or "").strip().lower() in _TRUTHY
+
+
+def authorization_from_env() -> Optional[AuthorizedSweep]:
+    """Build a structured :class:`AuthorizedSweep` iff
+    ``PG_AUTHORIZED_SWEEP_APPROVAL`` is set truthy.
+
+    This is the ONLY sanctioned path to auto-approve a material-deviation
+    corpus (FX-05). When the flag is absent/falsey this returns ``None`` and
+    the gate denies (``abort_corpus_approval_denied``) — default-deny honors
+    §9.1 invariant #5 and gates generator spend. LAW VI: the credential comes
+    exclusively from configuration, never hard-coded.
+    """
+    if not _is_truthy(os.getenv(PG_AUTHORIZED_SWEEP_APPROVAL_ENV)):
+        return None
+    return AuthorizedSweep(
+        authorized_by=(
+            os.getenv(PG_AUTHORIZED_SWEEP_APPROVED_BY_ENV)
+            or f"env:{PG_AUTHORIZED_SWEEP_APPROVAL_ENV}"
+        ),
+        authorized_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        flag_source="env",
+    )
+
+
 def check_auto_approve_allowed(
     report: CorpusDistributionReport,
-    user_note: str,
+    authorization: Optional[AuthorizedSweep] = None,
 ) -> tuple[bool, str]:
-    """Rubber-stamp resistance.
+    """Structured-authorization gate (FX-05 / I-ready-017).
 
-    Returns (ok, error_message).
-    - If no material deviation: auto-approve is fine, any note accepted.
-    - If material deviation exists: note must be >=30 chars and must
-      not be one of the trivial rubber-stamp strings.
+    Replaces the defeatable free-text-note heuristic (any prose >=30 chars not
+    in a small denylist auto-approved — the R-3 sweep's own canned note slipped
+    through and billed a material-deviation corpus).
+
+    Returns ``(ok, error_message)``.
+    - No material deviation → auto-approve is fine; no authorization needed.
+    - Material deviation → auto-approve ONLY with a complete structured
+      :class:`AuthorizedSweep`. A ``None`` authorization, or ANY non-
+      ``AuthorizedSweep`` value (e.g. a legacy free-text note), is rejected
+      fail-closed. Default-deny gates generator spend (§9.1 #5).
     """
     if not report.has_material_deviation:
         return True, ""
 
-    note = (user_note or "").strip()
-    if len(note) < 30:
+    if authorization is None:
         return False, (
             "Material deviation from the pre-registered protocol detected. "
-            "Approval requires a note (>=30 chars) explaining why the "
-            "deviation is acceptable."
+            "Auto-approve requires a structured operator authorization "
+            f"(set {PG_AUTHORIZED_SWEEP_APPROVAL_ENV}=1); a free-text note is "
+            "not a sanctioned credential. Denying "
+            "(abort_corpus_approval_denied)."
         )
-    trivial = {
-        "ok", "ok ok", "looks fine", "lgtm", "approve",
-        "approved", "fine", "good", "yes", "proceed", "go ahead",
-    }
-    if note.lower() in trivial:
+
+    if not isinstance(authorization, AuthorizedSweep):
         return False, (
-            f"Approval note {note!r} is a rubber-stamp. Provide a "
-            f"substantive explanation for the protocol deviation — what "
-            f"changed, why the deviation is acceptable, and whether the "
-            f"final report should flag the deviation in its methods section."
+            "Material deviation detected and the supplied approval credential "
+            f"is not a structured authorization ({type(authorization).__name__}). "
+            f"A free-text note alone never auto-approves; set "
+            f"{PG_AUTHORIZED_SWEEP_APPROVAL_ENV}=1. Denying "
+            "(abort_corpus_approval_denied)."
         )
+
+    if not (
+        authorization.authorized_by.strip()
+        and authorization.authorized_at.strip()
+        and authorization.flag_source.strip()
+    ):
+        return False, (
+            "Material deviation detected and the structured authorization is "
+            "incomplete (authorized_by / authorized_at / flag_source all "
+            "required). Denying (abort_corpus_approval_denied)."
+        )
+
     return True, ""

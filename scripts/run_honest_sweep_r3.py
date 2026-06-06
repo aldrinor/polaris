@@ -111,6 +111,7 @@ from src.polaris_graph.nodes.corpus_adequacy_gate import (  # noqa: E402
 )
 from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     CorpusApprovalDecision,
+    authorization_from_env,
     check_auto_approve_allowed,
     compute_tier_distribution,
     save_approval_decision,
@@ -2992,19 +2993,29 @@ async def run_one_query(
             log_f.close()
             return summary
 
-        note = f"R-3 sweep. Domain={q['domain']}. Auto-approve on sweep."
+        # FX-05 (I-ready-017): the auto-approve credential is a STRUCTURED
+        # authorization (PG_AUTHORIZED_SWEEP_APPROVAL), never a free-text note.
+        # The old canned note defeated the rubber-stamp guard and billed a
+        # material-deviation corpus. `note` below is descriptive/audit only.
+        authorization = authorization_from_env()
         if dist.has_material_deviation:
-            ok, err = check_auto_approve_allowed(dist, note)
+            ok, err = check_auto_approve_allowed(dist, authorization)
             approved = ok
             approval_error = err
         else:
             approved = True
             approval_error = ""
+        note = (
+            f"R-3 sweep. Domain={q['domain']}. "
+            + ("structured authorization present"
+               if authorization is not None else "no structured authorization")
+        )
         decision = CorpusApprovalDecision(
             run_id=run_id,
             decision_at_unix=time.time(),
             decision_at_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             approved=approved, user_note=note,
+            authorization=authorization,
             approved_source_urls=[s.url for s in retrieval.classified_sources] if approved else [],
             rejected_source_urls=[] if approved else [s.url for s in retrieval.classified_sources],
             report=dist, protocol_sha256=scope.protocol_sha256,
