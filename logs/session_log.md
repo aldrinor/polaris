@@ -4645,3 +4645,12 @@
 - EVIDENCE/FINDINGS: verdict .codex/I-ready-017/fl05_codex_diff_audit_iter2.txt = APPROVE. 8 FL-05 + 5 v6 + 13 manifest-contract.
 - STATUS: FL-05 DONE. 15 ledger issues verified — ALL P0/P1 complete; only PHASE-3/4 P2/P3 cleanup left (FX-13/17/19/20/14/12) + FX-16 (operator Q5) + RERUN (operator Q4). Codex gate lock free; no codex procs.
 - NEXT_STEP: FX-13 (P2, live_retriever _domain_of lstrip('www.') -> removeprefix) — gh issue create, grep, smoke, fix, §-1.1, codex gate.
+
+[2026-06-06 22:10:00]
+- ACTION: FX-13 (#1125) authored + committed (7d6996d1) + Codex diff-gate iter-1 launched (bg bd4azj3cy).
+- RATIONALE: _domain_of lstrip('www.') strips any leading {w,.} char (char-set bug), corrupting domains. §-1.1 on held trace: 2/145 corrupted (wol.iza.org->ol.iza.org [IZA World of Labor, a real source], www.weforum.org->eforum.org). Fix = removeprefix('www.') in all 3 identical instances. Other lstrip() calls are legitimate punctuation strips. Telemetry/diversity correctness; pure string fix.
+- SYNC: ledger FX-13 -> codex_diff_iter1_inflight (commit 7d6996d1).
+- AFFECTED_FILES: live_retriever.py, scripts/compare_live_vs_pg_lb_sa_02.py, scripts/run_honest_on_prerebuild_corpus.py, tests/polaris_graph/test_fx13_domain_of_iready017.py, outputs/audits/I-ready-017/fx13_s11_audit.md + .codex/I-ready-017/fx13_*.
+- EVIDENCE/FINDINGS: §-1.1 held 2/145 corrupted; 4 FX-13 smoke + 13 live_retriever regression green.
+- STATUS: FX-13 iter-1 Codex diff gate IN FLIGHT (bg bd4azj3cy); awaiting verdict. 15 verified.
+- NEXT_STEP: on verdict — APPROVE => FX-13 verified, advance FX-17; RC => address within 5-cap.
