@@ -1913,6 +1913,7 @@ async def _agentic_round_analysis(
     notebook is empty (round 1 or content reading disabled).
     """
     from src.polaris_graph.schemas import AgenticRoundAnalysis
+    from src.polaris_graph.llm.openrouter_client import NoEndpointError  # I-ready-019: fail-loud on structural 404
 
     notebook = research_notebook or []
 
@@ -2068,6 +2069,11 @@ async def _agentic_round_analysis(
                 )
             return result
 
+    except NoEndpointError:
+        # I-ready-019 (#1102): a STRUCTURAL discovery 404 (config error, not transient) must NOT be
+        # swallowed into perspective-based template queries — that is the silent-downgrade that killed
+        # drb_72 discovery while reporting success (LAW II). Propagate so the run fails loud.
+        raise
     except Exception as exc:
         logger.warning(
             "[polaris graph] Agentic round %d: LLM analysis failed: %s — "

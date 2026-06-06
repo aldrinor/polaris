@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src.polaris_graph.llm.openrouter_client import OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
 from src.polaris_graph.state import ResearchState, STORM_PERSPECTIVES
 from src.polaris_graph.tracing import get_tracer
 
@@ -491,6 +491,11 @@ async def _discover_perspectives(
                 )
             return _dedup_personas(result.personas, query)
 
+    except NoEndpointError:
+        # I-ready-019 (#1102): a STRUCTURAL discovery 404 (config error, not transient) must NOT be
+        # swallowed into template personas — that is the silent-downgrade that yields a green report
+        # on dead discovery (LAW II, the drb_72 collapse). Propagate so the run fails loud.
+        raise
     except Exception as exc:
         logger.warning(
             "[STORM] Phase 1: Persona generation failed: %s — using fallback personas",

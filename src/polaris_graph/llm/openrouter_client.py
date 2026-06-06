@@ -214,6 +214,15 @@ class BudgetExceededError(RuntimeError):
     """Raised when PG_MAX_COST_PER_RUN is breached mid-run."""
 
 
+class NoEndpointError(RuntimeError):
+    """I-ready-019 (#1102): OpenRouter returned 404 'No endpoints found' — the requested
+    parameters (e.g. forced reasoning + strict json_schema with provider require_parameters)
+    match NO provider for the model. A STRUCTURAL config error, NOT a transient routing miss.
+    Raised so discovery callers (STORM / agentic searcher) FAIL LOUD instead of silently
+    swallowing a dead LLM into template fallbacks (LAW II no-silent-downgrade — the drb_72
+    discovery collapse that produced a green report on 100%-dead discovery)."""
+
+
 class ReasoningFirstTruncationError(RuntimeError):
     """I-bug-089 / I-gen-003: a reasoning-first model (DeepSeek V4 Pro/
     Flash) ran out of token budget while still planning — content is
@@ -1667,12 +1676,36 @@ class OpenRouterClient:
                     await asyncio.sleep(wait)
                     continue
 
-                # I-bug-940: OpenRouter returns 404 transiently when the routed provider
-                # is briefly upstream-throttled or the edge routing has a momentary miss.
-                # Out-of-band probes confirmed the same call succeeds 8s later. Retry
-                # with backoff like 429 — a real "model not found" reproduces across all
-                # MAX_RETRIES+1 attempts (so a genuine config error still terminates).
-                if status == 404 and attempt < MAX_RETRIES:
+                # I-bug-940 / I-ready-019 (#1102): a 404 has TWO causes that MUST be told apart.
+                #   (a) STRUCTURAL "No endpoints found": the requested params (e.g. forced reasoning
+                #       + strict json_schema with provider require_parameters) match NO provider for
+                #       this slug. It reproduces on every attempt; retrying is futile. FAIL LOUD with
+                #       a typed NoEndpointError so discovery callers (STORM / agentic searcher) do NOT
+                #       silently swallow a dead LLM into template fallbacks (the drb_72 collapse, LAW II).
+                #   (b) TRANSIENT routing miss: out-of-band probes confirmed the same call succeeds
+                #       ~8s later — retry with backoff like 429.
+                # A non-structural 404 that survives ALL retries is treated as structural (a config
+                # error that never clears), so it also fails loud rather than re-raising a bare 404.
+                if status == 404:
+                    _body_text = ""
+                    try:
+                        _body_text = exc.response.text or ""
+                    except Exception:  # noqa: BLE001 — body read must never mask the 404 itself
+                        _body_text = ""
+                    _structural = "no endpoints found" in _body_text.lower()
+                    if _structural or attempt >= MAX_RETRIES:
+                        self.usage.total_errors += 1
+                        logger.error(
+                            "[polaris graph] I-ready-019: STRUCTURAL 404 for model=%s "
+                            "(structural=%s, attempt %d/%d) — FAILING LOUD, not silent fallback. "
+                            "Body: %s",
+                            self.model, _structural, attempt + 1, MAX_RETRIES + 1, _body_text[:200],
+                        )
+                        raise NoEndpointError(
+                            f"OpenRouter 404 'No endpoints found' for model {self.model}: the "
+                            f"requested parameters match no provider (structural={_structural}). "
+                            f"Config error, not transient — fix the call shape / provider routing."
+                        ) from exc
                     wait = RETRY_BACKOFF_BASE ** (attempt + 1)
                     logger.warning(
                         "[polaris graph] I-bug-940: 404 (transient provider routing), "
