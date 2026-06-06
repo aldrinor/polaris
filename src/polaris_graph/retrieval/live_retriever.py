@@ -107,6 +107,12 @@ class LiveRetrievalResult:
     corpus_truncated: bool = False
     candidates_total: int = 0
     candidates_processed: int = 0
+    # I-ready-017 #1134: journal_only metadata sidecar, keyed by canonical URL.
+    # Populated ONLY on the journal_only ON path (None = OFF = byte-identical).
+    # Carries the per-source journal-article signals (openalex pub_type /
+    # source_type / is_peer_reviewed / is_retracted / doi / venue) that the
+    # citeability predicate needs; merged across retrieval stages by the sweep.
+    journal_metadata_sidecar: dict[str, Any] | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2629,6 +2635,16 @@ def run_live_retrieval(
     evidence_rows: list[dict[str, Any]] = []
     fetched = 0
     failed_fetch = 0
+    # I-ready-017 #1134: journal_only metadata sidecar (ON-path only). Keyed by
+    # canonical URL; carries per-source journal-article signals for the
+    # citeability predicate. Stays None when the flag is OFF (byte-identical).
+    from src.polaris_graph.nodes.journal_only_filter import (
+        journal_only_flag_enabled as _jo_flag_enabled,
+        journal_metadata_entry as _jo_meta_entry,
+        canonicalize_url as _jo_canon,
+    )
+    _journal_only_on = _jo_flag_enabled()
+    _journal_sidecar: dict[str, Any] = {} if _journal_only_on else {}
 
     # ------------------------------------------------------------------
     # M-INT-1 — Parallel fetch into live_retriever (Phase E1)
@@ -2870,6 +2886,10 @@ def run_live_retrieval(
                 institution_type=_auth_dict.get("institution_type", "") or "",
                 country_code=_auth_dict.get("country_code", "") or "",
             )
+        # I-ready-017 #1134: resolve the article DOI for the journal_only
+        # citeability predicate (ADDITIVE — sourced from the candidate's OA
+        # hints; "" when unknown). Cheap, no network.
+        _jo_doi, _jo_pmid = _candidate_oa_hints(getattr(cand, "metadata", None))
         signals = ClassificationSignals(
             url=cand.url,
             title=classifier_title,
@@ -2878,6 +2898,7 @@ def run_live_retrieval(
             openalex_publication_type=oa.get("openalex_pub_type", "") or "",
             openalex_source_type=oa.get("openalex_source_type", "") or "",
             openalex_is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
+            doi=str(_jo_doi or ""),
             source_type_hint="",
             # BUG-M-17 (Codex pass 2): body-inspection secondary signal.
             body_article_type=body_article_type,
@@ -2912,6 +2933,19 @@ def run_live_retrieval(
             tier_rule=tier_result.matched_rules[0] if tier_result.matched_rules else "",
             tier_reasons=list(tier_result.reasons),
         ))
+
+        # I-ready-017 #1134: record the per-source journal-article signals into
+        # the journal_only sidecar (ON-path only; keyed by canonical URL). The
+        # citeability predicate reads these. OFF → never populated (no-op).
+        if _journal_only_on:
+            _journal_sidecar[_jo_canon(cand.url)] = _jo_meta_entry(
+                openalex_pub_type=oa.get("openalex_pub_type", "") or "",
+                openalex_source_type=oa.get("openalex_source_type", "") or "",
+                is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
+                is_retracted=bool(oa.get("is_retracted", False)),
+                doi=str(_jo_doi or ""),
+                venue=oa.get("openalex_venue", "") or "",
+            )
 
         # Build direct_quote: head-window (first 1500 chars) PLUS 500-char
         # windows around every decimal in the full content. This way the
@@ -2976,4 +3010,5 @@ def run_live_retrieval(
         corpus_truncated=_corpus_truncated,
         candidates_total=_candidates_total,
         candidates_processed=_candidates_processed,
+        journal_metadata_sidecar=(_journal_sidecar if _journal_only_on else None),
     )

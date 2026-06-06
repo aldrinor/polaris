@@ -93,6 +93,11 @@ class ClassificationSignals:
     openalex_is_retracted: bool = False
     openalex_venue: str = ""             # journal or venue name
     openalex_is_peer_reviewed: bool | None = None  # None = unknown
+    # I-ready-017 #1134: article DOI (normalized, no scheme). ADDITIVE — the
+    # legacy rule body NEVER reads it; consumed only by the journal_only filter
+    # (src/polaris_graph/nodes/journal_only_filter.py) on the ON path. Default
+    # "" = byte-identical to HEAD.
+    doi: str = ""
     # Bibliography-layer fields (when available)
     source_type_hint: str = ""  # upstream string like "industry_report"
     publisher: str = ""

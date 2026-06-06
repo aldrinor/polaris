@@ -68,6 +68,57 @@ expected_tier_distribution:
     rationale: >
       Narrative reviews of workforce trends.
 
+# -------------------------------------------------------------------
+# source_restriction: journal_only — PROSPECTIVE per-question-type profile
+# (I-ready-017 #1134, Codex direction + design APPROVE). Gated by the runtime
+# flag PG_SOURCE_RESTRICTION_JOURNAL_ONLY (default OFF). Both must hold for any
+# effect; default-OFF is byte-identical.
+#
+# WHY a distinct profile: the drb_72 benchmark question is a LITERATURE REVIEW
+# that explicitly instructs "only cites high-quality, English-language journal
+# articles." For that question the generic workforce expectation above (T3
+# statistical agencies 35-65%) is the WRONG contract — statistical-agency data
+# portals are not journal articles and would violate the question's own source
+# restriction. When journal_only is active the citeable corpus is restricted to
+# peer-reviewed journal articles (T1/T2), and the bands below + the adequacy
+# floor become the binding corpus-quality gate. This STRENGTHENS the contract
+# (it aligns the gate to the question's explicit instruction); it is NOT a
+# post-hoc relaxation. General (non-journal-restricted) workforce questions are
+# unaffected because the flag stays OFF for them.
+#
+# NOTE the binding gates under journal_only are the no-leak invariant + the
+# corpus_adequacy.journal_only floor below; the distribution bands are
+# satisfied by construction once the citeability partition has run (the
+# measured set is ~100% T1/T2), so they are intentionally permissive.
+source_restriction: journal_only
+
+journal_only_tier_distribution:
+  - tier: T1
+    min_fraction: 0.40
+    max_fraction: 1.00
+    rationale: >
+      Peer-reviewed primary journal articles dominate a journal-restricted
+      literature review.
+  - tier: T2
+    min_fraction: 0.00
+    max_fraction: 0.60
+    rationale: >
+      Systematic reviews / meta-analyses that are themselves journal articles.
+
+corpus_adequacy:
+  journal_only:
+    # Guards against a thin-corpus false pass after the citeability partition
+    # (Codex design P1-4). Both must hold or the run aborts corpus_inadequate.
+    min_distinct_journals: 12
+    # Every S1 canonical anchor (the foundational papers any faithful AI-labor
+    # review MUST cite) must be present as a citeable journal source. DOIs match
+    # the per_query_report_contract S1 required_entities below.
+    required_anchor_dois:
+      - "10.1257/jep.33.2.3"   # Acemoglu & Restrepo, JEP 2019 (task framework)
+      - "10.1257/jep.29.3.3"   # Autor, JEP 2015 (polarization)
+      - "10.1086/705716"       # Acemoglu & Restrepo, JPE 2020 (robots & jobs)
+      - "10.1093/qje/qjae044"  # Brynjolfsson et al., QJE 2025 (GenAI at work)
+
 required_jurisdictions:
   - CA
   - US
