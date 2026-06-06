@@ -326,6 +326,34 @@ _JUDGE_TELEMETRY: dict[str, int] = {
     "judge_error": 0,
 }
 
+# FX-09 (I-ready-017): per-RUN, concurrency-isolated judge counters. The process-
+# lifetime _JUDGE_TELEMETRY above is shared across threads, so a per-run
+# judge_error_rate computed from its delta is contaminated when two runs share one
+# process (the v6 Dramatiq worker runs `asyncio.run(run_one_query(...))` under
+# `--threads 2`). A ContextVar is isolated per OS-thread AND per asyncio Task, so each
+# run that calls begin_run_judge_telemetry() gets its OWN {calls, judge_error}
+# counter. The global counter (health endpoint) is unaffected.
+import contextvars  # noqa: E402  (kept next to the counters it scopes)
+
+_RUN_JUDGE_TELEMETRY: contextvars.ContextVar[dict[str, int] | None] = (
+    contextvars.ContextVar("_run_judge_telemetry", default=None)
+)
+
+
+def begin_run_judge_telemetry() -> dict[str, int]:
+    """Start a per-run, concurrency-isolated judge counter and return it.
+
+    Bind a fresh {calls, judge_error} dict to the contextvar for THIS run. The judge
+    ticks both the process-lifetime counter and (if set) this per-run dict. Read the
+    returned dict at the end of the run for an isolated denominator — never
+    contaminated by a sibling run sharing the process (FX-09 #1114). Sequential calls
+    in one context each rebind to a fresh dict, so no reset is required for
+    correctness; the previous run's dict is simply replaced.
+    """
+    tel = {"calls": 0, "judge_error": 0}
+    _RUN_JUDGE_TELEMETRY.set(tel)
+    return tel
+
 
 def get_judge_telemetry() -> dict[str, int]:
     """Snapshot of process-lifetime entailment-judge counters.
@@ -359,8 +387,14 @@ def _record_judge_outcome(verdict: str, reason: str) -> None:
     the sentence" from "gate failed open."
     """
     _JUDGE_TELEMETRY["calls"] += 1
+    # FX-09: also tick the per-run, concurrency-isolated counter if a run scope is active.
+    _run_tel = _RUN_JUDGE_TELEMETRY.get()
+    if _run_tel is not None:
+        _run_tel["calls"] += 1
     if reason.startswith("judge_error:"):
         _JUDGE_TELEMETRY["judge_error"] += 1
+        if _run_tel is not None:
+            _run_tel["judge_error"] += 1
         return
     key = verdict.lower()
     if key in _JUDGE_TELEMETRY:

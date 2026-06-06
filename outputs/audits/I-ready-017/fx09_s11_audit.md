@@ -43,3 +43,32 @@ the gate fail-functional (old reason-grep rate), never silently inert.
 process-lifetime second-run-uses-only-its-delta; degraded-trip boundary 30/245>cap vs
 30/702<cap; zero-calls no div-by-zero). Regression: `test_feature_firing_telemetry_iready005`
 + `test_manifest_contract` → 21 passed. `run_honest_sweep_r3.py` parses.
+
+---
+
+## iter-2 (Codex iter-1 RC: 1 P1 + 1 P2 → fixed)
+
+**P1 (real, valid):** the v6 Dramatiq worker runs `asyncio.run(run_one_query(...))`
+(`actors.py:206`) under `--threads 2`, so two overlapping runs share the process-global
+`_JUDGE_TELEMETRY`. The iter-1 snapshot/delta would cross-contaminate — diluting a
+degraded run below the abort OR false-aborting a clean one. **FIXED:** per-run counter
+isolated via a `contextvars.ContextVar` (`_RUN_JUDGE_TELEMETRY` +
+`begin_run_judge_telemetry()`), isolated per OS-thread AND per asyncio Task. The judge
+ticks both the process-lifetime counter (health endpoint, unchanged) and the per-run
+dict; `run_one_query` reads the per-run dict directly (no global delta). Sequential
+calls in one context each rebind to a fresh dict (no reset needed).
+
+**P2 (abort message):** **FIXED** — the `abort_verifier_degraded` summary now reports
+`{judge_error_count}/{judge_calls} judge calls`, not the verifier-sentence denominator.
+
+**Concurrency proof (the killer test):** `test_per_run_scope_isolates_concurrent_threads`
+runs 2 threads through a `Barrier` (245 calls/30 err vs 100 calls/5 err) and asserts each
+thread's per-run dict has ONLY its own counts. With the old process-global this would
+cross-contaminate. PASS.
+
+**Offline smoke:** 7 FX-09 tests (helper denominator; per-run scope counts only this
+run; snapshot stability; second-run-scope-resets; degraded-trip; zero-calls; **thread
+isolation**). Regression: `test_feature_firing_telemetry_iready005` +
+`test_manifest_contract` → 28 passed total. Both modified files parse. (The 68
+collection errors in scope/ + sovereignty/ are the pre-existing `No module named
+'polaris_graph'` bare-import issue, unrelated to this change.)

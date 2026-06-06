@@ -1548,20 +1548,21 @@ async def run_one_query(
     byte-unchanged.
     """
     reset_run_cost()
-    # FX-09 (I-ready-017): snapshot the process-lifetime entailment-judge counters at
-    # the run boundary so judge_error_rate uses THIS run's ACTUAL judge invocations as
-    # the denominator (delta), not all verifier-checked sentences (the judge only runs
-    # on sentences that pass every mechanical check first → the old denominator diluted
-    # the #1071 binding abort_verifier_degraded gate ~2.87x). Snapshot (NOT reset) for
-    # reentrancy; the sweep never resets the global counters.
+    # FX-09 (I-ready-017): begin a per-RUN, concurrency-ISOLATED judge counter so
+    # judge_error_rate's denominator is THIS run's ACTUAL judge invocations, not all
+    # verifier-checked sentences (the judge only runs on sentences that pass every
+    # mechanical check first → the old denominator diluted the #1071 binding
+    # abort_verifier_degraded gate ~2.87x). The counter is a contextvar scope, isolated
+    # per OS-thread AND per asyncio Task, so a sibling run sharing the process (the v6
+    # Dramatiq worker runs `asyncio.run(run_one_query)` under `--threads 2`) cannot
+    # contaminate it. Read directly at the rate computation (no process-global delta).
     try:
         from src.polaris_graph.llm.entailment_judge import (
-            get_judge_telemetry as _get_judge_telemetry,
+            begin_run_judge_telemetry as _begin_run_judge_telemetry,
         )
-        _base_judge_tel = _get_judge_telemetry()
+        _run_judge_tel = _begin_run_judge_telemetry()
     except Exception:
-        _get_judge_telemetry = None
-        _base_judge_tel = {"calls": 0, "judge_error": 0}
+        _run_judge_tel = None
     # I-bug-111: reset synthesis-scrub alert + telemetry at run
     # boundary so per-run manifest reflects ONLY this run's
     # synthesis behavior. Without this reset, the sticky alert from
@@ -4821,9 +4822,12 @@ async def run_one_query(
             len(s.get("kept", [])) + len(s.get("dropped", []))
             for s in verif_details["sections"]
         )
-        if _get_judge_telemetry is not None:
+        if _run_judge_tel is not None:
+            # Per-run, concurrency-isolated counter (started at the run boundary). Read
+            # directly via the pure delta helper with a zero base (the per-run dict
+            # starts at 0), so the denominator is THIS run's judge calls only.
             _judge_calls, _judge_err = _judge_calls_and_errors_from_telemetry(
-                _base_judge_tel, _get_judge_telemetry(),
+                {"calls": 0, "judge_error": 0}, _run_judge_tel,
             )
         else:
             # Telemetry unavailable (defensive): fall back to the old reason-grep rate so
@@ -4891,7 +4895,7 @@ async def run_one_query(
                 f"judge_error_rate={verif_details.get('judge_error_rate')} > cap "
                 f"{verif_details.get('judge_error_rate_cap')} "
                 f"({verif_details.get('judge_error_count')}/"
-                f"{verif_details.get('judge_error_sentences_checked')} sentences)"
+                f"{verif_details.get('judge_calls')} judge calls)"
             )
             _jerr_manifest = {
                 "run_id": run_id,

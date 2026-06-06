@@ -15,6 +15,7 @@ import pytest
 from scripts.run_honest_sweep_r3 import _judge_calls_and_errors_from_telemetry
 from src.polaris_graph.llm.entailment_judge import (
     _record_judge_outcome,
+    begin_run_judge_telemetry,
     get_judge_telemetry,
     reset_judge_telemetry,
 )
@@ -43,17 +44,21 @@ def test_helper_denominator_is_judge_calls_not_all_sentences() -> None:
     assert abs(rate - 30 / 702) > 0.05  # NOT the diluted denominator
 
 
-def test_real_telemetry_delta_counts_only_judge_invocations() -> None:
-    base = get_judge_telemetry()
+def test_per_run_scope_counts_only_this_runs_judge_invocations() -> None:
+    run_tel = begin_run_judge_telemetry()
     # 245 real judge invocations; 30 errored (failed open as ENTAILED)
     for i in range(245):
         if i < 30:
             _record_judge_outcome("ENTAILED", "judge_error: timeout")
         else:
             _record_judge_outcome("ENTAILED", "ok")
-    calls, errors = _judge_calls_and_errors_from_telemetry(base, get_judge_telemetry())
-    assert calls == 245
-    assert errors == 30
+    # the per-run dict starts at 0 and counts ONLY this run's judge calls
+    assert run_tel["calls"] == 245
+    assert run_tel["judge_error"] == 30
+    calls, errors = _judge_calls_and_errors_from_telemetry(
+        {"calls": 0, "judge_error": 0}, run_tel,
+    )
+    assert (calls, errors) == (245, 30)
 
 
 def test_snapshot_is_stable_base_unaffected_by_later_ticks() -> None:
@@ -65,19 +70,44 @@ def test_snapshot_is_stable_base_unaffected_by_later_ticks() -> None:
     assert calls == 1
 
 
-def test_process_lifetime_second_run_uses_only_its_delta() -> None:
-    # run 1
-    base1 = get_judge_telemetry()
+def test_second_run_scope_resets_to_fresh_counter() -> None:
+    # run 1 scope
+    run1 = begin_run_judge_telemetry()
     for _ in range(245):
         _record_judge_outcome("ENTAILED", "ok")
-    calls1, _ = _judge_calls_and_errors_from_telemetry(base1, get_judge_telemetry())
-    assert calls1 == 245
-    # run 2 (NO reset — process-lifetime counters): snapshot a fresh base
-    base2 = get_judge_telemetry()
+    assert run1["calls"] == 245
+    # a NEW run scope (NO global reset — sequential isolation): starts at 0
+    run2 = begin_run_judge_telemetry()
     for _ in range(100):
         _record_judge_outcome("ENTAILED", "ok")
-    calls2, _ = _judge_calls_and_errors_from_telemetry(base2, get_judge_telemetry())
-    assert calls2 == 100, "second run must use ONLY its own delta, not the lifetime total"
+    assert run2["calls"] == 100, "second run scope must count ONLY its own calls"
+    assert run1["calls"] == 245, "first run's dict is untouched by the second run"
+
+
+def test_per_run_scope_isolates_concurrent_threads() -> None:
+    """FX-09 P1 (Codex iter-1): the v6 Dramatiq worker runs asyncio.run(run_one_query)
+    under --threads 2, sharing ONE process. Per-run contextvar scopes must isolate each
+    thread's judge counts so a sibling run cannot dilute (or false-trip) the binding
+    abort_verifier_degraded gate. With the OLD process-global snapshot/delta this test
+    would see cross-contaminated counts."""
+    import threading
+
+    results: dict[str, dict] = {}
+    barrier = threading.Barrier(2)
+
+    def _worker(name: str, n_calls: int, n_errors: int) -> None:
+        tel = begin_run_judge_telemetry()
+        barrier.wait()  # maximize interleaving of the two threads' judge calls
+        for i in range(n_calls):
+            reason = "judge_error: x" if i < n_errors else "ok"
+            _record_judge_outcome("ENTAILED", reason)
+        results[name] = dict(tel)
+
+    t1 = threading.Thread(target=_worker, args=("A", 245, 30))
+    t2 = threading.Thread(target=_worker, args=("B", 100, 5))
+    t1.start(); t2.start(); t1.join(); t2.join()
+    assert results["A"] == {"calls": 245, "judge_error": 30}, "thread A contaminated by B"
+    assert results["B"] == {"calls": 100, "judge_error": 5}, "thread B contaminated by A"
 
 
 def test_degraded_trip_fires_on_correct_denominator() -> None:
