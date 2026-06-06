@@ -392,20 +392,81 @@ def prune_contract_plans(
 # ── No-leak assertion + adequacy floor ──────────────────────────────────────
 
 
+def prune_plan_entities(plans: Iterable[Any], kept_entity_ids: set[str]) -> list[Any]:
+    """Drop non-citeable entities from each V30 ContractSectionPlanExt.
+
+    For each plan: filter ``ev_ids`` and ``slots[*].entity_ids`` to the kept set,
+    drop ``frame_rows_by_entity`` / ``contract_entities_by_id`` keys not kept,
+    recompute the section ``focus`` from the surviving slots, and drop a plan
+    whose slots all became empty. Duck-typed on the plan attributes so it does
+    not import the generator's class.
+    """
+    out: list[Any] = []
+    for plan in plans:
+        ev_ids = [e for e in (getattr(plan, "ev_ids", None) or []) if e in kept_entity_ids]
+        slots = []
+        for slot in (getattr(plan, "slots", None) or []):
+            slot_ids = [e for e in (getattr(slot, "entity_ids", None) or [])
+                        if e in kept_entity_ids]
+            if slot_ids:
+                try:
+                    slot.entity_ids = slot_ids
+                except (AttributeError, TypeError):
+                    pass
+                slots.append(slot)
+        if not slots and not ev_ids:
+            continue  # whole section pruned away
+        frb = getattr(plan, "frame_rows_by_entity", None)
+        if isinstance(frb, dict):
+            for k in [k for k in frb if k not in kept_entity_ids]:
+                frb.pop(k, None)
+        ceb = getattr(plan, "contract_entities_by_id", None)
+        if isinstance(ceb, dict):
+            for k in [k for k in ceb if k not in kept_entity_ids]:
+                ceb.pop(k, None)
+        try:
+            plan.ev_ids = ev_ids
+            plan.slots = slots
+            # Recompute focus from surviving slots so no stale non-journal slot
+            # label appears in prompts/logs/telemetry (Codex design P2-1).
+            _titles = [getattr(s, "title", "") or getattr(s, "subsection_title", "")
+                       for s in slots]
+            _titles = [t for t in _titles if t]
+            if _titles and hasattr(plan, "focus"):
+                plan.focus = "; ".join(_titles)
+        except (AttributeError, TypeError):
+            pass
+        out.append(plan)
+    return out
+
+
 class JournalOnlyLeakError(RuntimeError):
     """Raised when a non-journal row reaches the generator (status mapping
     target ``error_journal_only_leak``). Fail-closed: never synthesize."""
+
+
+def _is_verified_contract_row(row: Any) -> bool:
+    """A V30 contract frame row that already passed entity-level journal
+    citeability pruning (``v30_frame_row``). Exempt from the URL/sidecar
+    predicate in the no-leak assert — its citeability was decided by
+    ``prune_contract_plans`` on the contract entity metadata, and the kept rows
+    were marked citeable in the sidecar; the marker just avoids a false leak on
+    a journal landing-page URL shape."""
+    return isinstance(row, Mapping) and bool(row.get("v30_frame_row"))
 
 
 def assert_no_leak(rows: Iterable[Any], sidecar: Mapping[str, Any]) -> list[dict[str, str]]:
     """Return the list of leaked (non-citeable) rows. Empty list == clean.
 
     Caller raises ``JournalOnlyLeakError`` / aborts on a non-empty result. Run
-    at the immediate pre-generator point AND on the generator's final evidence
-    pool (post-M52) as the structural backstop.
+    at the immediate pre-generator point (after contract + upload prepend) as the
+    structural backstop. Rows already verified by contract entity-pruning
+    (``v30_frame_row``) are exempt.
     """
     leaks: list[dict[str, str]] = []
     for row in rows:
+        if _is_verified_contract_row(row):
+            continue
         url = _row_url(row)
         ok, reason = is_citeable_journal(url, _row_tier(row), sidecar)
         if not ok:

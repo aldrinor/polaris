@@ -621,8 +621,15 @@ _STATUS_TIERS: dict[str, int] = {
     # test_md9_regression_lab). 4-role-held + user-cancel are terminal aborts (tier 2, no report).
     "abort_four_role_release_held": 2,
     "cancelled": 2,
+    # I-ready-017 (#1134): journal_only corpus-quality aborts. A required
+    # contract slot bound to a non-journal entity (tier 2, no trustworthy report);
+    # MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
+    "abort_journal_only_contract_conflict": 2,
     # error — unhandled exception
     "error_unexpected": 3,
+    # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a
+    # non-journal row reached the generator (should never happen). Tier 3.
+    "error_journal_only_leak": 3,
 }
 
 # Public alias of the keys for taxonomy-drift testing.

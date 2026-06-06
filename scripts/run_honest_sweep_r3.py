@@ -199,6 +199,8 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
     "abort_discovery_degraded",      # FL-05 (#1124): a FORCE-ENABLED discovery feature (STORM/agentic) was on but did NOT fire (firing_status attempted_empty/error) — silently degraded to baseline; refuse to ship as success (gated by PG_RUN_HEALTH_GATE)
     "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused BEFORE retrieval (PG_USE_SAFETY_REFUSAL); refuse-with-redirection, zero generator spend
+    "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — a required report-contract slot is bound to a non-journal entity; refuse rather than cite a non-journal source in a journal-restricted review
+    "error_journal_only_leak",       # I-ready-017 (#1134): journal_only — a non-journal row reached the generator past the source-filter (should never happen); fail-closed backstop, never synthesize
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
@@ -2520,6 +2522,21 @@ async def run_one_query(
              f"failed={retrieval.candidates_failed_fetch}, "
              f"elapsed={dt:.1f}s  api_calls={retrieval.api_calls}")
 
+        # I-ready-017 #1134: journal_only activation + per-stage result handles.
+        # journal_only is active iff PG_SOURCE_RESTRICTION_JOURNAL_ONLY=1 AND the
+        # protocol declares source_restriction: journal_only (default-OFF =
+        # byte-identical). The handles default None so the single source-filter
+        # (after all retrieval stages, ~L3072) can merge every stage's metadata
+        # sidecar in one place without editing each merge point.
+        from src.polaris_graph.nodes import journal_only_filter as _jof
+        _jo_active = _jof.journal_only_active(protocol)
+        _jo_force_inadequate = False
+        _jo_contract_conflict = ""
+        _jo_sidecar: dict = {}
+        exp_retrieval = None
+        deep_retrieval = None
+        agentic_retrieval = None
+
         # I-meta-005 Phase 1 FIX 1 (Codex diff-gate iter-1 P1 #1): ON-mode
         # does NO template-driven row labeling. The M-48 population-scope
         # labeler reads the domain scope template (None on-mode), so it is
@@ -3071,6 +3088,86 @@ async def run_one_query(
         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
         _flush_retrieval_trace()
 
+        # I-ready-017 #1134: journal_only SINGLE source-filter. After ALL
+        # retrieval stages, restrict the citeable corpus to peer-reviewed
+        # journal articles BEFORE the approval gate measures `dist`/`adequacy`
+        # and before any downstream consumer (contradiction/qualitative/semantic
+        # detectors, evidence selection, the generator's live_corpus/M-52). One
+        # upstream chokepoint = every consumer inherits journal-only by
+        # construction. Inert unless journal_only is active (default-OFF
+        # byte-identical). Fail-closed: an uncertain row (no proven
+        # journal-article signal) is excluded; a thin filtered corpus aborts.
+        if _jo_active:
+            _jo_sidecar = _jof.merge_sidecars([
+                getattr(_r, "journal_metadata_sidecar", None)
+                for _r in (retrieval, exp_retrieval, deep_retrieval, agentic_retrieval)
+                if _r is not None
+            ])
+            _jo_rows = _jof.filter_to_citeable(retrieval.evidence_rows, _jo_sidecar)
+            _jo_srcs = _jof.filter_to_citeable(retrieval.classified_sources, _jo_sidecar)
+            _log(
+                f"[journal_only] source-filter: evidence_rows "
+                f"{len(retrieval.evidence_rows)} -> {len(_jo_rows.citeable)} citeable "
+                f"({len(_jo_rows.excluded)} non-journal excluded); classified_sources "
+                f"{len(retrieval.classified_sources)} -> {len(_jo_srcs.citeable)}"
+            )
+            (run_dir / "journal_only_excluded.json").write_text(
+                json.dumps(
+                    {
+                        "evidence_rows_excluded": _jo_rows.excluded,
+                        "classified_sources_excluded": _jo_srcs.excluded,
+                        "merged_sidecar_size": len(_jo_sidecar),
+                    },
+                    indent=2, sort_keys=True, default=str,
+                ) + "\n",
+                encoding="utf-8",
+            )
+            retrieval.evidence_rows = _jo_rows.citeable
+            retrieval.classified_sources = _jo_srcs.citeable
+            # Re-measure against the journal_only tier profile + recompute
+            # adequacy on the filtered citeable set so the approval gate +
+            # adequacy artifact + report all describe the SAME journal-only
+            # corpus (keeps the FX-06 invariant below intact).
+            _jo_protocol = dict(protocol)
+            if protocol.get("journal_only_tier_distribution"):
+                _jo_protocol["expected_tier_distribution"] = (
+                    protocol["journal_only_tier_distribution"]
+                )
+            dist = compute_tier_distribution(retrieval.classified_sources, _jo_protocol)
+            adequacy = assess_corpus_adequacy(
+                tier_counts=dist.tier_counts,
+                evidence_row_count=len(retrieval.evidence_rows),
+                domain=q["domain"],
+                protocol=_jo_protocol,
+            )
+            # The journal_only adequacy FLOOR (>=N distinct journals + every S1
+            # canonical anchor present) — the binding guard against a thin-corpus
+            # false pass. Fires in BOTH planner and legacy modes (see the abort
+            # condition below). Fail-closed.
+            _jo_floor_cfg = (protocol.get("corpus_adequacy") or {}).get("journal_only") or {}
+            _jo_adq = _jof.assess_journal_only_adequacy(
+                retrieval.evidence_rows,
+                _jo_sidecar,
+                required_anchor_dois=_jo_floor_cfg.get("required_anchor_dois") or (),
+                min_distinct=int(
+                    _jo_floor_cfg.get(
+                        "min_distinct_journals", _jof.DEFAULT_MIN_DISTINCT_JOURNALS
+                    )
+                ),
+            )
+            if not _jo_adq.ok:
+                _jo_force_inadequate = True
+                adequacy.decision = "abort"
+                adequacy.notes = list(adequacy.notes or []) + [
+                    "journal_only_adequacy: " + "; ".join(_jo_adq.reasons)
+                ]
+                _log(f"[journal_only] adequacy floor FAILED: {_jo_adq.reasons}")
+            else:
+                _log(
+                    f"[journal_only] adequacy floor OK: "
+                    f"{_jo_adq.distinct_journals} distinct journals, all S1 anchors present"
+                )
+
         # FX-06 (#1120): the corpus-approval gate below scores the FINAL `dist` (post base + R-6
         # expansion + deepener + agentic merges), but corpus_adequacy.json was last written PRE-merge
         # (~2535 base / ~2698 expansion; the deepener + agentic merges reassign `dist`/`adequacy` in
@@ -3103,7 +3200,14 @@ async def run_one_query(
         # would exit via the aggregate-count gate BEFORE the binding plan-
         # sufficiency gate (the single final gate on `evidence_for_gen`) ever
         # runs. OFF-mode this aborts byte-identically (the off-mode gate as today).
-        if not _use_research_planner and adequacy.decision == "abort":
+        # I-ready-017 #1134: the legacy domain-keyed adequacy abort is gated on
+        # off-mode (ON-mode it is telemetry-only, deferred to the plan-
+        # sufficiency gate). The journal_only adequacy FLOOR, however, is a HARD
+        # corpus-quality gate that must abort in BOTH modes — so OR in
+        # `_jo_force_inadequate`.
+        if adequacy.decision == "abort" and (
+            not _use_research_planner or _jo_force_inadequate
+        ):
             _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
                  f"Refusing to ship a misleading short report.")
             summary["status"] = "abort_corpus_inadequate"
@@ -3649,6 +3753,58 @@ async def run_one_query(
                                 research_question=q["question"],
                             )
                         )
+                    # I-ready-017 #1134: journal_only — prune the contract to
+                    # citeable journal entities BEFORE prepend. The V30 contract
+                    # carries entities through evidence rows AND plan slots /
+                    # entity maps / anchors, so ALL are pruned (Codex design
+                    # P1-1). A required:true slot bound to a non-journal entity
+                    # ABORTS (fail-closed). drb_72's WEF S3 framing
+                    # (policy_report, url_pattern, required:false) prunes
+                    # cleanly; the journal-DOI entities pass.
+                    if _jo_active:
+                        _jo_slots_cfg = (
+                            (protocol.get("per_query_report_contract") or {})
+                            .get(q["slug"], {})
+                            .get("rendering_slots") or {}
+                        )
+                        _jo_prune = _jof.prune_contract_plans(
+                            _entity_metadata, _jo_slots_cfg,
+                        )
+                        if _jo_prune.required_conflicts:
+                            # Record, but DO NOT raise here — this block is inside
+                            # the V30 try/except that falls back to the legacy
+                            # generator, which would swallow the abort. Raised
+                            # after the V30 block (fail-closed) instead.
+                            _jo_contract_conflict = "; ".join(
+                                _jo_prune.required_conflicts
+                            )
+                        if _jo_prune.dropped_entity_ids:
+                            _contract_evidence_rows = [
+                                _r for _r in _contract_evidence_rows
+                                if _r.get("v30_entity_id") in _jo_prune.kept_entity_ids
+                            ]
+                            _phase2_contract_plans = _jof.prune_plan_entities(
+                                _phase2_contract_plans, _jo_prune.kept_entity_ids,
+                            )
+                            _log(
+                                f"[journal_only] contract prune: dropped "
+                                f"{sorted(_jo_prune.dropped_entity_ids)}; kept "
+                                f"{len(_jo_prune.kept_entity_ids)} journal entities"
+                            )
+                        # Mark the kept journal contract rows citeable in the
+                        # sidecar so the pre-generator no-leak assert recognizes
+                        # them (they passed entity-level journal citeability).
+                        for _r in _contract_evidence_rows:
+                            _u = _r.get("source_url") or ""
+                            if _u:
+                                _jo_sidecar[_jof.canonicalize_url(_u)] = (
+                                    _jof.journal_metadata_entry(
+                                        openalex_pub_type="article",
+                                        openalex_source_type="journal",
+                                        is_peer_reviewed=True,
+                                        doi=str(_r.get("doi") or ""),
+                                    )
+                                )
                     # Prepend the contract rows onto the existing
                     # evidence list so the generator's evidence_pool
                     # includes them keyed by entity_id.
@@ -3681,6 +3837,18 @@ async def run_one_query(
                 build_upload_evidence_rows,
             )
             _upload_rows = build_upload_evidence_rows(_upload_docs)
+            # I-ready-017 #1134: journal_only — uploaded documents are not
+            # peer-reviewed journal articles in the citeable sidecar, so they
+            # are excluded from the citeable corpus (fail-closed). drb_72 has no
+            # uploads; this is defense-in-depth for the prepend path.
+            if _jo_active and _upload_rows:
+                _ur = _jof.filter_to_citeable(_upload_rows, _jo_sidecar)
+                if _ur.excluded:
+                    _log(
+                        f"[journal_only] upload prune: excluded "
+                        f"{len(_ur.excluded)} non-journal uploaded row(s)"
+                    )
+                _upload_rows = _ur.citeable
             if _upload_rows:
                 evidence_for_gen = _upload_rows + list(evidence_for_gen)
             _log(
@@ -4190,6 +4358,37 @@ async def run_one_query(
                 f"distinct={_dedup.distinct_finding_count} "
                 f"collapsed={_dedup.collapsed_row_count} "
                 f"-> {len(evidence_for_gen)} generator rows"
+            )
+
+        # I-ready-017 #1134: journal_only FAIL-CLOSED no-leak backstop. At the
+        # immediate pre-generator point (after contract + upload prepend + dedup/
+        # cap), assert EVERY row reaching the generator is a citeable journal
+        # article (verified contract frame rows are exempt — they passed
+        # entity-level pruning). live_corpus = retrieval.evidence_rows is already
+        # the filtered set, so the generator's internal retrieval (M-52) can only
+        # pull citeable rows; this asserts the final union. Any non-journal row
+        # → abort error_journal_only_leak (never synthesize).
+        if _jo_active:
+            # Fail-closed: a required contract slot bound to a non-journal entity
+            # (recorded inside the V30 block, raised here so the V30 fallback
+            # cannot swallow it).
+            if _jo_contract_conflict:
+                _log(f"[journal_only] CONTRACT CONFLICT ABORT: {_jo_contract_conflict}")
+                raise RuntimeError(
+                    "abort_journal_only_contract_conflict: required contract slot "
+                    "bound to a non-journal entity: " + _jo_contract_conflict
+                )
+            _jo_leaks = _jof.assert_no_leak(evidence_for_gen, _jo_sidecar)
+            if _jo_leaks:
+                _log(f"[journal_only] NO-LEAK ABORT: {len(_jo_leaks)} non-journal "
+                     f"row(s) reached the generator: {_jo_leaks[:5]}")
+                raise _jof.JournalOnlyLeakError(
+                    f"error_journal_only_leak: {len(_jo_leaks)} non-journal row(s) "
+                    f"in evidence_for_gen: {_jo_leaks[:5]}"
+                )
+            _log(
+                f"[journal_only] no-leak assert PASS: all {len(evidence_for_gen)} "
+                f"generator rows are citeable journal articles"
             )
 
         _pathb_gen_tok = _pathb.set_role("generator")
