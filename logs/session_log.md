@@ -4466,3 +4466,38 @@
 - AFFECTED_FILES: .codex/I-ready-017/fx11_grounding_notes.md, state/ready017_fix_audit.json
 - STATUS: FX-11 grounded. 9 issues verified this session.
 - NEXT_STEP: author FX-11 (BUG-10 reorder + 3 producers + BUG-10b role row + tests + §-1.1 + gate)
+
+[2026-06-06 13:05:00]
+- ACTION: FX-11 (#1116) authored + iter-1 Codex gate launched (bg brbpjxq4y)
+- RATIONALE: cost_ledger monotonic accumulator (BUG-10 reorder + 3 producers -> current_run_cost) + role-call rows (BUG-10b RecordingTransport). Cost-accounting only.
+- SYNC: ledger FX-11 -> iter-1 inflight @ f05abc84; #1116 commented; pushed
+- EVIDENCE/FINDINGS: §-1.1 real held ledger 26 decreasing + 0 role rows/472; smoke monotonic + role rows; 3 FX-11 + 8 + 437 tests; diff 50+/8-
+- STATUS: FX-11 gate in flight
+- NEXT_STEP: process FX-11 verdict; then next ready issue (FX-12/13/14/15a...)
+
+[2026-06-06 13:25:00]
+- ACTION: FX-11 (#1116) iter-1 RC processed; iter-2 design persisted (NOT yet authored)
+- RATIONALE: P1 = role-row cumulative non-monotonic under 6 parallel four-role workers (per-worker _RUN_COST_CTX reset/merge). Correct fix = process-global per-session monotonic ledger accumulator across all 3 writers + P2a retry row. Multi-file concurrency redesign -> author next (compacted) wake.
+- SYNC: ledger FX-11 -> iter-1 RC; iter-2 design in fx11_grounding_notes.md; #1116 commented
+- STATUS: 9 verified this session + FX-11 in iter-2 design. Rerun unblocked. Followups FX-07b#1111 FX-08b#1113 FX-05-docdrift.
+- NEXT_STEP: author FX-11 iter-2 (ledger_bump_cumulative global accumulator + 3 writers + P2a + P2c test + parallel repro), smoke, gate
+
+[2026-06-06 15:20:00]
+- ACTION: FX-11 (#1116) iter-2 authored + committed (4bac44a7) + Codex diff-gate iter-2 launched (bg bi7d0bgrg).
+- RATIONALE: Codex iter-1 RC P1 = role-row cumulative non-monotonic under the real parallel four-role fan-out. Grounded the fan-out (sweep_integration.py:329-332 ThreadPoolExecutor + per-worker contextvars.copy_context() which INHERITS _CURRENT_RUN_ID_CTX; each worker resets only its own _RUN_COST_CTX). Fix = the issue's literal title: ONE process-global RLock-protected per-session accumulator + ONE canonical append_cost_ledger_row that bumps+appends under the SAME lock so the persisted file is non-decreasing in WRITE order. Unified all 4 writers' accumulator key precedence. P2a (blank-retry ledger row), P2b (free=True loopback ledgers 0; #6 imputation untouched for paid), P2c (forced write failure in test).
+- DOCS/RESEARCH: N/A (grounded in repo: sweep_integration copy_context fan-out; test_m206_n301 N-301 ambient-run-id intent; test_sota_quality_sprint _append_ledger monkeypatch constraint).
+- SYNC: state/ready017_fix_audit.json FX-11 -> codex_diff_iter2_inflight, commit 4bac44a7.
+- AFFECTED_FILES: src/polaris_graph/llm/openrouter_client.py, entailment_judge.py, loopback_client.py; src/polaris_graph/roles/role_pipeline.py, openrouter_role_transport.py; tests/polaris_graph/test_fx11_cost_ledger_iready017.py; outputs/audits/I-ready-017/fx11_s11_audit.md; .codex/I-ready-017/fx11_diff_brief_iter2.md + fx11_codex_diff.patch + fx11_diff_gate_input_iter2.md.
+- EVIDENCE/FINDINGS: offline smoke ALL GREEN — 6 FX-11 (incl parallel-worker monotonicity repro) + 437 tests/roles + 8 judge-cost + 10 N-301/M206 + 3 sota session_id/_append_ledger + 11 llm + 12 loopback regression. AST parse-check 5 src files OK.
+- STATUS: FX-11 iter-2 Codex diff gate IN FLIGHT (bg bi7d0bgrg); awaiting verdict. All other rerun-gating P0s already VERIFIED.
+- NEXT_STEP: on Codex verdict — APPROVE => ledger FX-11 verified + close #1116 + update #1100, advance next ledger issue (FX-06/12/13/14/15a/15b/17/18/19/20/FL-05). REQUEST_CHANGES => address within 5-cap.
+
+[2026-06-06 15:50:00]
+- ACTION: FX-11 (#1116) Codex diff-gate iter-2 APPROVE -> VERIFIED + closed; FX-11b (#1117) follow-up created for 3 P2s.
+- RATIONALE: APPROVE iff zero P0 AND zero P1 (§8.3.1) — iter-2 = 0 P0, 0 P1, 3 P2 accept_remaining. Confirmed rerun-safety: run_honest_sweep_r3.py:1590 set_current_run_id(run_id) => generator/judge/role share the run_id accumulator key on pipeline A; P2 #2 (graph.py session_id divergence) is pipeline-B-only. 3 P2s (NLI-conflict ledger row, pipeline-B key, free-call summary) captured as #1117.
+- DOCS/RESEARCH: N/A.
+- SYNC: ledger FX-11 -> verified (commit 4bac44a7, codex_diff APPROVE iter-2); followups += FX-11b #1117; current_pointer -> 10 verified, NEXT FX-15a.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; GH #1116 (closed), #1117 (created), #1100 (comment).
+- EVIDENCE/FINDINGS: verdict file .codex/I-ready-017/fx11_codex_diff_audit_iter2.txt = "verdict: APPROVE". 10 ledger issues verified.
+- STATUS: FX-11 DONE. Codex gate lock free; no codex procs. Advancing to FX-15a (CORE).
+- NEXT_STEP: FX-15a — gh issue create FIRST, then grep adjacent (live_retriever agentic seed labels + run_honest_sweep consumers), then smoke, then flag-gated fix, §-1.1, codex gate.

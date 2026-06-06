@@ -1,0 +1,10 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/retrieval/semantic_conflict_detector.py:397 adds semantic-conflict judge spend to the run budget but still writes no cost-ledger row, so runs with PG_SWEEP_NLI_CONFLICT enabled can have ledger total below run-budget total."
+  - "src/polaris_graph/graph.py:1470 passes an explicit session_id=vector_id to OpenRouterClient while entailment_judge/role writers only use the ambient run id; if those paths run without set_current_run_id(vector_id), generator rows and judge rows use different accumulator keys."
+  - "src/polaris_graph/llm/openrouter_client.py:794 keeps UsageTracker.total_cost_usd token-imputed even for record(..., free=True), so loopback ledger rows are fixed at $0 but usage summaries can still show phantom cost."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
