@@ -192,6 +192,8 @@ def build_v3_graph(
         }
 
         # Step 1: Execute searches (all 6 providers, query amplification, etc.)
+        from src.polaris_graph.llm.openrouter_client import NoEndpointError  # I-ready-019 FL-04
+
         try:
             search_result = await execute_searches(v1_state, client)
             v1_state.update(search_result)
@@ -200,6 +202,8 @@ def build_v3_graph(
                 len(v1_state.get("web_results", [])),
                 len(v1_state.get("academic_results", [])),
             )
+        except NoEndpointError:
+            raise  # I-ready-019 FL-04 (#1104): structural discovery 404 must fail loud, not continue.
         except Exception as exc:
             logger.error("[v3 search] execute_searches failed: %s", str(exc)[:300])
 

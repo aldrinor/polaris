@@ -363,6 +363,13 @@ async def execute_searches(
         web_task, academic_task, exa_task, return_exceptions=True,
     )
 
+    # I-ready-019 FL-04 (#1104): gather(return_exceptions=True) captures a STRUCTURAL discovery 404
+    # as a result ELEMENT — re-raise it BEFORE the per-lane Exception->[] conversion below, so a dead
+    # discovery LLM fails the run loud instead of silently degrading to empty results (LAW II).
+    for _gathered in (web_result, academic_result, exa_result):
+        if isinstance(_gathered, NoEndpointError):
+            raise _gathered
+
     # Handle web results
     if isinstance(web_result, Exception):
         logger.error(
