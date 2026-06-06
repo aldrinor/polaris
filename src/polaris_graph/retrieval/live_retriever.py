@@ -80,7 +80,11 @@ OPENALEX_SOURCES_SELECT = (
 AUTHORITY_CACHE_DB = Path(
     os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
 )
-AUTHORITY_CACHE_SCHEMA_VERSION = 1
+# I-ready-017 #1134 (Codex diff-gate P1-2): bumped 1->2 so cached enrich payloads
+# written before the journal_only `is_retracted` + `openalex_venue` fields are
+# REBUILT (not served stale) — a cached retracted article must not pass the
+# journal_only predicate via a payload that predates the retraction field.
+AUTHORITY_CACHE_SCHEMA_VERSION = 2
 
 # Hard caps
 DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
@@ -1018,6 +1022,10 @@ def _openalex_enrich(url: str, title: str) -> dict[str, Any]:
             # into the enrich dict -> sidecar. ADDITIVE; legacy consumers ignore.
             "openalex_venue": (source.get("display_name", "") or ""),
             "is_retracted": bool(work.get("is_retracted", False)),
+            # Codex diff-gate P2: carry the OpenAlex work DOI so the journal_only
+            # sidecar can credit an anchor discovered via a Serper/URL-only path
+            # (not just SearchCandidate metadata). Normalized (no scheme).
+            "doi": str(work.get("doi", "") or "").replace("https://doi.org/", "").replace("http://doi.org/", ""),
             "openalex_id": work.get("id", ""),
             # BUG-M-12 (Codex pass 12): preserve OpenAlex's full
             # display_name. Serper snippet titles are often truncated
@@ -2944,12 +2952,20 @@ def run_live_retrieval(
         # the journal_only sidecar (ON-path only; keyed by canonical URL). The
         # citeability predicate reads these. OFF → never populated (no-op).
         if _journal_only_on:
+            # Codex diff-gate P2: resolve the DOI from candidate metadata, then
+            # the OpenAlex work DOI, then a DOI embedded in the URL — so an anchor
+            # discovered via a Serper/URL-only path is still credited.
+            _jo_doi_resolved = str(_jo_doi or "") or str(oa.get("doi", "") or "")
+            if not _jo_doi_resolved:
+                _jo_doi_m = re.search(r"10\.\d{4,9}/[^\s?#\"'<>]+", cand.url or "")
+                if _jo_doi_m:
+                    _jo_doi_resolved = _jo_doi_m.group(0)
             _journal_sidecar[_jo_canon(cand.url)] = _jo_meta_entry(
                 openalex_pub_type=oa.get("openalex_pub_type", "") or "",
                 openalex_source_type=oa.get("openalex_source_type", "") or "",
                 is_peer_reviewed=bool(oa.get("is_peer_reviewed", False)),
                 is_retracted=bool(oa.get("is_retracted", False)),
-                doi=str(_jo_doi or ""),
+                doi=_jo_doi_resolved,
                 venue=oa.get("openalex_venue", "") or "",
             )
 

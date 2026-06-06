@@ -377,17 +377,23 @@ def prune_contract_plans(
     recomputes section focus from the survivors.
     """
     res = ContractPruneResult()
-    # Map each entity to its rendering slot's required flag (default: optional).
-    required_by_entity: dict[str, bool] = {}
-    if rendering_slots:
-        for _slot_key, slot in rendering_slots.items():
-            ent_id = ""
-            req = False
-            if isinstance(slot, Mapping):
-                ent_id = str(slot.get("entity_id") or slot.get("entity") or "")
-                req = bool(slot.get("required"))
-            if ent_id:
-                required_by_entity[ent_id] = req
+
+    def _slot_required(slot_id: str) -> bool:
+        if not slot_id or not rendering_slots:
+            return False
+        slot = rendering_slots.get(slot_id)
+        if isinstance(slot, Mapping):
+            return bool(slot.get("required"))
+        return bool(getattr(slot, "required", False))
+
+    def _entity_slot_id(entity: Any) -> str:
+        # The REAL binding direction (Codex diff-gate P1): each entity names its
+        # rendering slot via `rendering_slot`; the slot (in `rendering_slots`)
+        # carries `required`. (Slots do NOT carry entity_id.) Fall back to a
+        # legacy entity_id-on-slot shape only if `rendering_slot` is absent.
+        if isinstance(entity, Mapping):
+            return str(entity.get("rendering_slot") or "")
+        return str(getattr(entity, "rendering_slot", "") or "")
 
     for ent_id, entity in entities_by_id.items():
         ok, reason = _entity_is_citeable_journal(entity)
@@ -395,7 +401,7 @@ def prune_contract_plans(
             res.kept_entity_ids.add(ent_id)
         else:
             res.dropped_entity_ids.add(ent_id)
-            if required_by_entity.get(ent_id):
+            if _slot_required(_entity_slot_id(entity)):
                 res.required_conflicts.append(f"{ent_id}:{reason}")
     return res
 

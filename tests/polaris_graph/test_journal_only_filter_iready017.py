@@ -161,27 +161,29 @@ def test_filter_partitions_mixed_corpus():
 
 
 def test_prune_contract_keeps_journal_drops_wef():
+    # REAL contract shape: each entity names its rendering_slot; the slot carries
+    # `required` (slots do NOT carry entity_id).
     entities = {
         "acemoglu_restrepo_automation_tasks": {
             "type": "economic_report", "doi": "10.1257/jep.33.2.3",
             "journal": "Journal of Economic Perspectives",
+            "rendering_slot": "theory_task_framework",
         },
         "brynjolfsson_genai_at_work": {
             "type": "economic_report", "doi": "10.1093/qje/qjae044",
             "journal": "Quarterly Journal of Economics",
+            "rendering_slot": "genai_productivity",
         },
         "fourth_industrial_revolution_framing": {
             "type": "policy_report", "type_note": "authoritative_source",
             "url_pattern": "https://www.weforum.org/...",
+            "rendering_slot": "theory_4ir_framing",
         },
     }
     rendering_slots = {
-        "theory_task_framework": {"entity_id": "acemoglu_restrepo_automation_tasks",
-                                  "required": True},
-        "genai_productivity": {"entity_id": "brynjolfsson_genai_at_work",
-                               "required": True},
-        "theory_4ir_framing": {"entity_id": "fourth_industrial_revolution_framing",
-                               "required": False},
+        "theory_task_framework": {"required": True},
+        "genai_productivity": {"required": True},
+        "theory_4ir_framing": {"required": False},
     }
     res = jof.prune_contract_plans(entities, rendering_slots)
     assert "acemoglu_restrepo_automation_tasks" in res.kept_entity_ids
@@ -192,14 +194,20 @@ def test_prune_contract_keeps_journal_drops_wef():
 
 
 def test_prune_contract_required_non_journal_is_conflict():
+    # REAL shape: a non-journal entity bound (via rendering_slot) to a slot whose
+    # required=True must raise a conflict (not be silently dropped).
     entities = {
-        "wef_required": {"type": "policy_report", "type_note": "authoritative_source"},
+        "wef_required": {
+            "type": "policy_report", "type_note": "authoritative_source",
+            "rendering_slot": "slot_a",
+        },
     }
     rendering_slots = {
-        "slot_a": {"entity_id": "wef_required", "required": True},
+        "slot_a": {"required": True},
     }
     res = jof.prune_contract_plans(entities, rendering_slots)
     assert res.required_conflicts  # required + non-journal → conflict
+    assert "wef_required" in res.dropped_entity_ids
 
 
 # ── no-leak assertion ───────────────────────────────────────────────────────

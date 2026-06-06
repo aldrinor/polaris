@@ -3798,13 +3798,23 @@ async def run_one_query(
                     # (policy_report, url_pattern, required:false) prunes
                     # cleanly; the journal-DOI entities pass.
                     if _jo_active:
-                        _jo_slots_cfg = (
+                        _jo_contract_cfg = (
                             (protocol.get("per_query_report_contract") or {})
                             .get(q["slug"], {})
-                            .get("rendering_slots") or {}
                         )
+                        _jo_slots_cfg = _jo_contract_cfg.get("rendering_slots") or {}
+                        # Use the PROTOCOL required_entities dicts (reliable
+                        # doi / journal / type / rendering_slot from the YAML) for
+                        # the citeability + requiredness decision; keyed by entity
+                        # id so kept_entity_ids matches each frame row's
+                        # v30_entity_id (Codex diff-gate P1: real binding shape).
+                        _jo_contract_entities = {
+                            _e.get("id"): _e
+                            for _e in _jo_contract_cfg.get("required_entities", [])
+                            if _e.get("id")
+                        }
                         _jo_prune = _jof.prune_contract_plans(
-                            _entity_metadata, _jo_slots_cfg,
+                            _jo_contract_entities, _jo_slots_cfg,
                         )
                         if _jo_prune.required_conflicts:
                             # Record, but DO NOT raise here — this block is inside
