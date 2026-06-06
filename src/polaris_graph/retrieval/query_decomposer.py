@@ -151,6 +151,25 @@ def decompose_question(question: str, *, max_subqueries: int = DEFAULT_MAX_SUBQU
     return out
 
 
+def distill_keywords(question: str, *, max_terms: int = 8) -> str:
+    """FX-18 (#1122): distill an NL question to a SHORT space-joined keyword phrase for a KEYWORD
+    index (Semantic Scholar bulk returned ~0 for the 40-70-word NL golden questions). Content tokens
+    only (stopword-filtered, 3+ chars — reuses `_content_tokens`), de-duplicated in first-seen order,
+    capped at `max_terms`. Pure / no-network / no-LLM. Returns '' when the question has no content
+    tokens so the caller falls back to the full query (never sends an empty search).
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in _content_tokens(question):
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+        if len(out) >= max_terms:
+            break
+    return " ".join(out)
+
+
 def build_amplified_query_list(
     *,
     hand_authored: list[str],

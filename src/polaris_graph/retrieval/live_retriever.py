@@ -46,6 +46,7 @@ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
 from src.polaris_graph.retrieval.scope_query_validator import (
     validate_amplified_queries,
 )
+from src.polaris_graph.retrieval.query_decomposer import distill_keywords  # FX-18 (#1122)
 from src.polaris_graph.authority.authority_model import score_source_authority
 from src.polaris_graph.authority.source_class import AuthoritySignals
 from src.polaris_graph.retrieval.tier_classifier import (
@@ -2372,8 +2373,18 @@ def run_live_retrieval(
                 query_origin=q,
             ))
 
-        logger.info("[live_retriever] S2 q=%r", q[:80])
-        s2_hits = _s2_bulk_search(q, limit=max_s2)
+        # FX-18 (#1122): S2 bulk is a KEYWORD index — feeding it the 40-70-word NL query returned ~0
+        # for 4/5 golden questions. Send a SHORT content-keyword distillation of `q` instead (pure,
+        # stopword-filtered, capped). Flag-gated PG_S2_KEYWORD_DISTILL (default on); an empty
+        # distillation falls back to the NL `q` (never an empty search). The candidate's `query_origin`
+        # stays the NL `q` so the per-sub-query rerank reservation + plan-sufficiency are unchanged.
+        _s2_query = q
+        if os.getenv("PG_S2_KEYWORD_DISTILL", "1") != "0":
+            _kw = distill_keywords(q, max_terms=int(os.getenv("PG_S2_KEYWORD_MAX_TERMS", "8")))
+            if _kw:
+                _s2_query = _kw
+        logger.info("[live_retriever] S2 q=%r", _s2_query[:80])
+        s2_hits = _s2_bulk_search(_s2_query, limit=max_s2)
         api_calls["s2"] += 1
         for hit in s2_hits:
             url = hit.get("url", "")
@@ -2388,6 +2399,32 @@ def run_live_retrieval(
                 metadata={"doi": hit.get("doi"), "year": hit.get("year")},
                 query_origin=q,
             ))
+
+        # FX-18 (#1122): OpenAlex /works?search handles NL queries that the S2 keyword index does not,
+        # and is already built (domain_backends.openalex_search, fail-open). Wire it as a PARALLEL
+        # academic backend — ADD (union), not replace S2 (Codex Q8) — sending the NL `q`; union+dedup
+        # via the shared `seen_urls`. Candidates carry source="openalex_search"; default query_origin
+        # to `q`. Flag-gated PG_OPENALEX_SEARCH (default on). Fail-open: a backend fault adds 0 hits.
+        if os.getenv("PG_OPENALEX_SEARCH", "1") != "0":
+            try:
+                from src.polaris_graph.retrieval.domain_backends import (  # noqa: E402
+                    openalex_search,
+                )
+                _oa_hits = openalex_search(q, limit=max_s2)
+                api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
+                for cand in _oa_hits:
+                    url = getattr(cand, "url", "")
+                    if not url or url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    if not getattr(cand, "query_origin", ""):
+                        cand.query_origin = q
+                    candidates.append(cand)
+            except Exception as exc:
+                logger.warning(
+                    "[live_retriever] openalex_search failed for %r (fail-open): %s",
+                    q[:60], exc,
+                )
 
     # ── Step 2a: specialized issuer-class backends ──────────────────
     # I-meta-005 Phase 2 (#986) DUAL PATH:
