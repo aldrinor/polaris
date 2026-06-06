@@ -4501,3 +4501,13 @@
 - EVIDENCE/FINDINGS: verdict file .codex/I-ready-017/fx11_codex_diff_audit_iter2.txt = "verdict: APPROVE". 10 ledger issues verified.
 - STATUS: FX-11 DONE. Codex gate lock free; no codex procs. Advancing to FX-15a (CORE).
 - NEXT_STEP: FX-15a — gh issue create FIRST, then grep adjacent (live_retriever agentic seed labels + run_honest_sweep consumers), then smoke, then flag-gated fix, §-1.1, codex gate.
+
+[2026-06-06 16:10:00]
+- ACTION: FX-15a (#1118) authored + committed (3be605c2) + Codex diff-gate iter-1 launched (bg bydn0slmq).
+- RATIONALE: RB-02a — agentic seeds mislabeled source=primary_trial_doi. §-1.1 on REAL held retrieval_trace confirmed 41/41 primary_trial_doi rows are aeaweb web/conference/SERP URLs (0 true doi.org; drb_72 AI/labor has no primary-trial DOIs). Fix is label-only + behavior-preserving: SET seed-split keeps agentic seeds reserved (no selection change), SENTINEL_ORIGINS += agentic_seed preserves fallback-eligibility. Telemetry-correctness only; no faithfulness path.
+- DOCS/RESEARCH: AuthorityBench (2603.25092), WebFilter (2508.07956) per plan — source-class per candidate must be truthful.
+- SYNC: ledger FX-15a -> codex_diff_iter1_inflight (commit 3be605c2); current_pointer updated.
+- AFFECTED_FILES: src/polaris_graph/retrieval/live_retriever.py, src/polaris_graph/adequacy/plan_sufficiency_gate.py, scripts/run_honest_sweep_r3.py, tests/polaris_graph/test_fx15a_agentic_seed_label_iready017.py, outputs/audits/I-ready-017/fx15a_s11_audit.md + .codex/I-ready-017/fx15a_*.
+- EVIDENCE/FINDINGS: 5 FX-15a smoke (incl stubbed-fetch injection-label proof) + 46 regression (rerank/bug776/trace/plan_sufficiency) green. §-1.1: 41/41 mislabeled rows on held trace.
+- STATUS: FX-15a Codex diff gate IN FLIGHT (bg bydn0slmq); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-15a verified, advance FX-15b; RC => address within 5-cap. Codex was asked whether the deepener lane should also be relabeled.
