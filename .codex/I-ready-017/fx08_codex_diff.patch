@@ -1,0 +1,125 @@
+diff --git a/src/polaris_graph/roles/mirror_adapter.py b/src/polaris_graph/roles/mirror_adapter.py
+index 94f82743..fcf856d4 100644
+--- a/src/polaris_graph/roles/mirror_adapter.py
++++ b/src/polaris_graph/roles/mirror_adapter.py
+@@ -223,6 +223,13 @@ def _coerce_classification_value(value: object) -> str | None:
+     if isinstance(value, str):
+         stripped = value.strip()
+         return value if stripped else None
++    # FX-08 (I-ready-017): coerce scalar JSON types (int/float/bool) to their string
++    # form (json_repair philosophy) so a GROUNDED claim is not false-DROPped when the
++    # verifier emits e.g. {"classification": 0}. bool is an int subclass — str() handles
++    # both ("True" / "0" / "0.0"). Non-gating: classification is NOT part of the
++    # pass-1<->pass-2 binding hash or the grounding gate, so this cannot affect either.
++    if isinstance(value, (int, float)):  # includes bool (int subclass)
++        return str(value)
+     if isinstance(value, dict) and value:
+         return json.dumps(value, sort_keys=True, separators=(",", ":"))
+     return None
+@@ -288,9 +295,33 @@ def _parse_pass2(raw_text: str, *, expected_content_hash: str) -> MirrorPass2:
+         )
+     classification = _recover_classification(payload)
+     if classification is None:
+-        raise MirrorParseError(
+-            "Mirror pass-2 JSON has no recoverable classification verdict "
+-            f"(keys={list(payload)})"
++        # FX-08 (I-ready-017): a GROUNDED claim (pass-1 grounding already passed in
++        # run_mirror BEFORE this parse; verify_pass2_binding still gates the
++        # content_hash) must not be false-DROPped on classification FORMAT. The
++        # heterogeneous GLM-5.1 nested shape (e.g. {"domain":..,"field":..}) carries a
++        # real but UNRECOGNIZED verdict signal — serialize the WHOLE object as the
++        # non-gating verdict so the claim reaches the Judge (the Mirror classification
++        # is advisory MIRROR_SIGNAL, NOT a hard gate).
++        #
++        # NO-FALSE-ACCEPT GUARD PRESERVED: a body carrying ONLY echo/binding keys
++        # (content_hash, answer_text, rationale) or only an empty/blank recognized
++        # verdict key has NO genuine signal — it still fails closed (an echoed
++        # answer_text is never laundered into a verdict). Empty {} also fails closed.
++        _non_verdict_keys = {
++            _CONTENT_HASH_KEY,
++            _RATIONALE_KEY,
++            "answer_text",
++            _CLASSIFICATION_KEY,
++            *_ALTERNATE_CLASSIFICATION_KEYS,
++        }
++        genuine_signal_keys = set(payload) - _non_verdict_keys
++        if not genuine_signal_keys:
++            raise MirrorParseError(
++                "Mirror pass-2 has no recoverable classification verdict "
++                f"(keys={list(payload)})"
++            )
++        classification = json.dumps(
++            payload, sort_keys=True, separators=(",", ":")
+         )
+     return MirrorPass2(
+         # Salvage ONLY on genuine key ABSENCE. A PRESENT content_hash is kept verbatim — even an
+diff --git a/tests/roles/test_mirror_adapter.py b/tests/roles/test_mirror_adapter.py
+index bb1b2f56..6258fd93 100644
+--- a/tests/roles/test_mirror_adapter.py
++++ b/tests/roles/test_mirror_adapter.py
+@@ -459,3 +459,65 @@ def test_pass2_request_has_response_format_and_no_documents() -> None:
+     assert request.params["response_format"]["type"] == "json_object"
+     assert "documents" not in request.params
+     assert request.params["pass2_input"]["content_hash"] == _pass2_hash_for(pass1)
++
++
++# ─────────────────────────────────────────────────────────────────────
++# FX-08 (I-ready-017) PART A — tolerant pass-2 recovery. A GROUNDED claim
++# (pass-1 citation gate already passed) must NOT be false-DROPped on
++# classification FORMAT. classification is advisory MIRROR_SIGNAL, not a
++# hard gate; grounding + content_hash binding stay the real guards.
++# ─────────────────────────────────────────────────────────────────────
++def _grounded_pass1():
++    spans = [CitationSpan(span_start=0, span_end=6, doc_ids=("doc_surmount1",))]
++    pass1_response = RoleResponse(raw_text="answer", served_model=_MODEL, citations=spans)
++    expected_pass1 = MirrorPass1(answer_text="answer", citation_spans=spans)
++    return pass1_response, expected_pass1
++
++
++def test_fx08_scalar_classification_zero_recovers() -> None:
++    # {"classification": 0} (run id 00-028) — int coerces to "0", not false-DROP.
++    pass1_response, expected_pass1 = _grounded_pass1()
++    h = _pass2_hash_for(expected_pass1)
++    body = json.dumps({"content_hash": h, "classification": 0})
++    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
++    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.classification == "0"
++
++
++def test_fx08_bool_classification_recovers() -> None:
++    pass1_response, expected_pass1 = _grounded_pass1()
++    h = _pass2_hash_for(expected_pass1)
++    body = json.dumps({"content_hash": h, "classification": True})
++    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
++    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    assert result.classification == "True"
++
++
++def test_fx08_unrecognized_nested_shape_serializes_whole_object() -> None:
++    # {"domain":..,"field":..} (run id 00-078) — heterogeneous GLM nested shape with a
++    # genuine (unrecognized) signal key → serialize the whole object as the verdict.
++    pass1_response, expected_pass1 = _grounded_pass1()
++    h = _pass2_hash_for(expected_pass1)
++    body = json.dumps({"content_hash": h, "domain": "Economics", "field": "labor"})
++    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
++    result, _ = run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++    # Deterministic sorted serialization of the whole body; carries the genuine signal.
++    assert "domain" in result.classification and "Economics" in result.classification
++
++
++def test_fx08_echo_only_body_still_fails_closed() -> None:
++    # NO-FALSE-ACCEPT boundary: a body with ONLY echo/binding keys (no genuine signal)
++    # still fails closed even under the broadened parser.
++    pass1_response, expected_pass1 = _grounded_pass1()
++    h = _pass2_hash_for(expected_pass1)
++    body = json.dumps({"content_hash": h, "answer_text": "echoed answer", "rationale": "r"})
++    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, body)])
++    with pytest.raises(MirrorParseError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
++
++
++def test_fx08_empty_object_still_fails_closed() -> None:
++    pass1_response, expected_pass1 = _grounded_pass1()
++    transport = _SequencedTransport([pass1_response, _pass2_raw(expected_pass1, "{}")])
++    with pytest.raises(MirrorParseError):
++        run_mirror(transport, _CLAIM, _DOCS, model_slug=_MODEL)
