@@ -94,15 +94,18 @@ def test_bug03_real_clinical_sentence_with_content_still_passes() -> None:
 @pytest.mark.parametrize(
     "sentence",
     [
-        'We can split it: "Strong complementarities increase productivity." But that might be too choppy.',
-        "That's three sentences from the thesis.",
-        'I\'ll use the exact phrase: "However, automation also complements labor." That\'s fine, even if short.',
-        "Final attempt: the labor market adjusts over decades.",
+        # Only DRAFTING-PROCESS self-talk with NO clinical homograph is matched after the Codex
+        # iter-1/iter-2 narrowing. The drb_72 word-count scratchpad line is the canonical case.
         "Still 176. I need to add about 124 more words.",
+        "I need to add about 30 more words to the section.",
+        "Roughly 50 more words to go before this is done.",
+        "That's a bit clunky, let me reconsider.",
+        "This is wordy and could be trimmed.",
+        "This reads long-winded in the current draft.",
     ],
 )
 def test_bug01l2_discourse_sentences_match(sentence: str) -> None:
-    """The exact drb_72 scratchpad shapes are detected as discourse narration."""
+    """Drafting-process self-talk (word counts, clunky/wordy prose) is detected as narration."""
     assert is_discourse_narration(sentence) is not None, f"missed narration: {sentence!r}"
 
 
@@ -125,6 +128,13 @@ def test_bug01l2_discourse_sentences_match(sentence: str) -> None:
         "This is repetitive transcranial magnetic stimulation for treatment-resistant depression.",
         "The final attempt at intubation failed after three tries.",
         "On the second attempt the catheter was placed without complication.",
+        # Codex iter-2 P1 adversarial cases — procedure-attempt COLON labels + patient-communication
+        # and aphasia-rehab uses of rephrase / "use the exact phrase".
+        "Second attempt: the catheter was placed without complication.",
+        "First attempt: endotracheal intubation failed because of airway edema.",
+        "For low-health-literacy patients, we can use the exact phrase 'take one tablet by mouth daily' to reduce dosing errors.",
+        "In aphasia rehabilitation, we can rephrase questions to improve comprehension.",
+        "The infusion was clunky to administer but the regimen reduced events.",  # 'clunky' here describes admin, not prose — but no first-person draft frame; must not match
     ],
 )
 def test_bug01l2_clinical_prose_not_flagged(sentence: str) -> None:
@@ -138,10 +148,12 @@ def test_bug01l2_clinical_prose_not_flagged(sentence: str) -> None:
 def _discourse_pool() -> tuple[EvidencePool, str]:
     full = "Strong complementarities between automation and labor increase productivity."
     pool = _pool(_src(full_text=full))
-    # Discourse narration WRAPPING the verbatim span quote — clears overlap (>=2) + (entailment off).
+    # Drafting-process self-talk WRAPPING the verbatim span quote — clears overlap (>=2 content
+    # words from the quote) with entailment off, and carries NO extraneous number (so it is not
+    # pre-empted by numeric_mismatch); the "this is wordy" prose-critique marks it narration.
     sentence = (
-        'We can split it: "Strong complementarities between automation and labor increase '
-        f'productivity." But that might be too choppy [#ev:src-1:0-{len(full)}].'
+        "Strong complementarities between automation and labor increase productivity, "
+        f"but this is wordy [#ev:src-1:0-{len(full)}]."
     )
     return pool, sentence
 
@@ -194,6 +206,18 @@ def test_bug03_provenance_token_only_dropped_regardless_of_number_match(
     bypassable via require_number_match=False (Codex iter-1 P2)."""
     result = verify_sentence_provenance(
         "[#ev:src_1:0-5].", _prov_pool(), require_number_match=require_number_match
+    )
+    assert result.is_verified is False
+    assert "empty_or_contentless_sentence" in result.failure_reasons
+
+
+def test_bug03_provenance_numeric_only_fragment_dropped_when_number_match_off() -> None:
+    """Codex iter-2 P2: with require_number_match=False the numeric block is skipped, so a
+    numeric-only fragment ('23.5 [#ev:...]') is never validated against the span — a bare number
+    with no content words is unverifiable and must be dropped."""
+    pool = {"src_1": {"direct_quote": "The event rate was 23.5 percent in the treatment arm."}}
+    result = verify_sentence_provenance(
+        "23.5 [#ev:src_1:0-5].", pool, require_number_match=False
     )
     assert result.is_verified is False
     assert "empty_or_contentless_sentence" in result.failure_reasons

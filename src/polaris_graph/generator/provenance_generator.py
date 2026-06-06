@@ -1287,11 +1287,16 @@ def verify_sentence_provenance(
         _bug03_stripped = _strip_dose_patterns(sentence_for_numbers)
         _bug03_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", _bug03_stripped)
         _bug03_stripped = _THRESHOLD_RE.sub(" ", _bug03_stripped)
-        if (
-            not _content_words(_bug03_stripped)
-            and not _decimals_in(_bug03_stripped)
-            and not _numbers_in(_bug03_stripped)
-        ):
+        _bug03_no_content = not _content_words(_bug03_stripped)
+        _bug03_no_numbers = (
+            not _decimals_in(_bug03_stripped) and not _numbers_in(_bug03_stripped)
+        )
+        # Drop a content-word-LESS sentence when EITHER it is fully empty (no numbers either —
+        # token-only/punctuation residue) OR number-matching is disabled. Codex iter-2 P2: under
+        # require_number_match=False the numeric/content/entailment block is SKIPPED, so a
+        # numeric-only fragment like "23.5 [#ev:...]" is never validated against the span — a bare
+        # number with no content words is unverifiable and is not a prose claim, so fail closed.
+        if _bug03_no_content and (_bug03_no_numbers or not require_number_match):
             failures.append("empty_or_contentless_sentence")
 
     if require_number_match and valid_token_found:
