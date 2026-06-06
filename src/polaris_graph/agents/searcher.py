@@ -293,7 +293,11 @@ async def execute_searches(
 
     web_search_fn, academic_search_fn = _import_search_tools()
 
-    # Change 2: Query amplification — expand queries for broader web coverage
+    # Change 2: Query amplification — expand queries for broader web coverage.
+    # I-ready-017 FX-19 (#1127): this is the LEGACY STATIC PATH. It is unreachable under the
+    # agentic slate (the early return above at PG_AGENTIC_SEARCH_ENABLED branch hands off to
+    # execute_agentic_search before this point), so PG_AMPLIFICATION_VARIANTS is INERT on the
+    # benchmark. Retained only for the non-agentic lane (PG_AGENTIC_SEARCH_ENABLED=0).
     if PG_AMPLIFICATION_ENABLED:
         try:
             amplify_fn = _import_amplifier()

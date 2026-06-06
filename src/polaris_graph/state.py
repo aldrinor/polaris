@@ -68,6 +68,14 @@ STORM_PERSPECTIVES = [
 QUERIES_PER_PERSPECTIVE = int(os.getenv("PG_QUERIES_PER_PERSPECTIVE", "6"))
 
 # Query amplification (Change 2)
+# I-ready-017 FX-19 (#1127) RETIRED-FROM-ADVERTISED-SLATE: PG_AMPLIFICATION_VARIANTS is
+# LEGACY-STATIC-PATH-ONLY. It is consumed exclusively in the non-agentic branch of
+# searcher.execute_searches (searcher.py:303,311), which is unreachable when
+# PG_AGENTIC_SEARCH_ENABLED=1 (early return to execute_agentic_search at searcher.py:291-292).
+# The benchmark runs agentic ON, so this knob is INERT there — active breadth comes from the
+# planner-decomposer + STORM + the agentic reasoning loop, NOT this variant multiplier. Kept
+# (not deleted) because the legacy static lane (PG_AGENTIC_SEARCH_ENABLED=0) still uses it.
+# Do NOT re-advertise it as a full-capability benchmark lever (was a dead knob in the SOTA slate).
 PG_AMPLIFICATION_ENABLED = os.getenv("PG_AMPLIFICATION_ENABLED", "1") == "1"
 PG_AMPLIFICATION_VARIANTS = int(os.getenv("PG_AMPLIFICATION_VARIANTS", "3"))
 
