@@ -769,3 +769,85 @@ class TestPartialOnlyDisclosure:
         assert "engineer investigation" in text
         # Not mis-routed as a paywalled gap
         assert "Unretrievable" not in text
+
+
+# ─────────────────────────────────────────────────────────────────────
+# FX-07 (I-ready-017) leg 1 — footer must not claim "all bound" when PASS
+# entries are abstract_only / metadata_only (full text NOT retrieved).
+# Shape mirrors the REAL held drb_72 manifest: 3 open_access + 4 shallow,
+# all status=pass.
+# ─────────────────────────────────────────────────────────────────────
+def _pass_entry(entity_id: str, provenance: str) -> SlotCoverageEntry:
+    return SlotCoverageEntry(
+        slot_id=f"s_{entity_id}",
+        entity_id=entity_id,
+        entity_type="primary_study",
+        section="Findings",
+        subsection_title=entity_id,
+        status=ValidationVerdict.PASS.value,
+        provenance_class=provenance,
+        failure_reason=None,
+        retrieval_attempt_log=[],
+        available_artifacts=[],
+        human_completion_eligible=False,
+        is_pipeline_fault=False,
+        required_fields=[],
+        min_fields_for_completion=1,
+        doi=None,
+        pmid=None,
+    )
+
+
+def _real_shape_coverage() -> FrameCoverageReport:
+    entries = (
+        _pass_entry("acemoglu_restrepo_automation_tasks", "open_access"),
+        _pass_entry("autor_why_still_jobs", "open_access"),
+        _pass_entry("fourth_industrial_revolution_framing", "open_access"),
+        _pass_entry("acemoglu_restrepo_robots_jobs", "abstract_only"),
+        _pass_entry("frey_osborne_computerisation", "metadata_only"),
+        _pass_entry("brynjolfsson_genai_at_work", "abstract_only"),
+        _pass_entry("eloundou_gpts_are_gpts", "abstract_only"),
+    )
+    return FrameCoverageReport(
+        research_question="ai labor",
+        schema_version="v30.1",
+        total_slots=7,
+        total_entities=7,
+        frame_gap_count=0,
+        partial_count=0,
+        pass_count=7,
+        pipeline_fault_count=0,
+        by_status={},
+        entries=entries,
+    )
+
+
+def test_fx07_footer_not_all_bound_when_shallow_provenance() -> None:
+    text = compose_methods_disclosure(_real_shape_coverage())
+    # Must NOT falsely claim all 7 populated with bound evidence.
+    assert "all 7" not in text
+    # Only the 3 open_access are full-text bound.
+    assert "Fully populated (full-text bound evidence): 3" in text
+    # The 4 shallow-provenance entries are disclosed by name.
+    assert "abstract/metadata only" in text
+    for name in (
+        "acemoglu_restrepo_robots_jobs",
+        "frey_osborne_computerisation",
+        "brynjolfsson_genai_at_work",
+        "eloundou_gpts_are_gpts",
+    ):
+        assert name in text
+
+
+def test_fx07_footer_all_bound_only_when_all_open_access() -> None:
+    entries = (
+        _pass_entry("a", "open_access"),
+        _pass_entry("b", "open_access"),
+    )
+    cov = FrameCoverageReport(
+        research_question="q", schema_version="v30.1", total_slots=2,
+        total_entities=2, frame_gap_count=0, partial_count=0, pass_count=2,
+        pipeline_fault_count=0, by_status={}, entries=entries,
+    )
+    text = compose_methods_disclosure(cov)
+    assert "all 2 contract-required entities populated with bound evidence" in text
