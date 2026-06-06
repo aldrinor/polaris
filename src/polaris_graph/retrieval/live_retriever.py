@@ -231,7 +231,9 @@ def _serper_fetch_page(
         return [], False, (time.time() - _t0) * 1000.0, 0, str(exc)
 
 
-def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
+def _serper_search(
+    query: str, num: int = 10, api_calls: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
     api_key = os.getenv("SERPER_API_KEY", "").strip()
     if not api_key:
         logger.warning("[live_retriever] SERPER_API_KEY missing — skipping Serper")
@@ -277,6 +279,10 @@ def _serper_search(query: str, num: int = 10) -> list[dict[str, Any]]:
         items, ok, _last_latency, _last_bytes, _last_err = _serper_fetch_page(
             query, per_page, _page, headers
         )
+        # FX-17 (#1126) iter-2: count EACH HTTP page request (a real Serper API call), not once
+        # per query. P2 fix — api_calls['serper'] used to undercount paginated breadth.
+        if api_calls is not None:
+            api_calls["serper"] = api_calls.get("serper", 0) + 1
         if not ok:
             _trace_tool(
                 "serper", target=query, status="fail", latency_ms=_last_latency,
@@ -2404,8 +2410,9 @@ def run_live_retrieval(
     # exactly the citation-snowball-discovered URLs (and nothing else) through the same chokepoint.
     for q in ([] if seed_only else effective_queries):
         logger.info("[live_retriever] SERPER q=%r", q[:80])
-        serper_hits = _serper_search(q, num=max_serper)
-        api_calls["serper"] += 1
+        # FX-17 (#1126) iter-2: pass api_calls so each HTTP page (not each query) is counted inside
+        # _serper_search. The old `+= 1` here undercounted paginated breadth.
+        serper_hits = _serper_search(q, num=max_serper, api_calls=api_calls)
         for hit in serper_hits:
             url = hit.get("url", "")
             if not url or url in seen_urls:

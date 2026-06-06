@@ -73,3 +73,21 @@ def test_max_pages_cap_respected(monkeypatch):
     out = lr._serper_search("q", num=20)
     assert calls == [1, 2]                      # capped at PG_SERPER_MAX_PAGES even though budget=200
     assert len(out) == 40
+
+
+def test_api_calls_counts_each_page_not_each_query(monkeypatch):
+    """FX-17 iter-2 P2 fix: api_calls['serper'] must count EACH HTTP page, not once per query."""
+    monkeypatch.setenv("PG_SERPER_TOTAL_PER_QUERY", "40")
+    p1 = [f"https://x/{i}" for i in range(20)]
+    p2 = [f"https://x/{i}" for i in range(20, 40)]
+    _install_pages(monkeypatch, {1: p1, 2: p2})
+    api_calls = {"serper": 0}
+    lr._serper_search("q", num=20, api_calls=api_calls)
+    assert api_calls["serper"] == 2             # two pages fetched -> two API calls counted
+
+
+def test_api_calls_none_is_safe(monkeypatch):
+    """Passing api_calls=None (default) must not raise — back-compat for non-tracking callers."""
+    _install_pages(monkeypatch, {1: [f"https://x/{i}" for i in range(10)]})
+    out = lr._serper_search("q", num=10)        # no api_calls kwarg
+    assert len(out) == 10

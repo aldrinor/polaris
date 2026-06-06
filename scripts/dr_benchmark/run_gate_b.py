@@ -413,6 +413,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_SWEEP_FETCH_CAP": "1000",   # total URLs fetched+classified per query (operator: ~1000)
     "PG_SWEEP_MAX_SERPER": "100",
     "PG_SWEEP_MAX_S2": "100",
+    # FX-17 (#1126): Serper `num` is a PAGE size (max ~20); breadth needs the new PAGINATION budget.
+    # Without these the benchmark stays single-page (~20/query) despite MAX_SERPER=100. 60 over <=3
+    # pages = up to 3 Serper pages/query.
+    "PG_SERPER_TOTAL_PER_QUERY": "60",
+    "PG_SERPER_MAX_PAGES": "3",
     # Feature activation that Gate-B previously MISSED (STORM was dead-by-config; deepener off).
     "PG_STORM_ENABLED_IN_BENCHMARK": "1",
     "PG_SWEEP_EVIDENCE_DEEPENER": "1",
@@ -497,6 +502,12 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     "PG_SWEEP_FETCH_CAP": 500,
     "PG_SWEEP_MAX_SERPER": 50,
     "PG_SWEEP_MAX_S2": 50,
+    # FX-17 (#1126): fail closed if the Serper pagination budget is below the floor — otherwise an
+    # explicit operator override (or absence) leaves the run single-page (~20/query) and the
+    # pagination fix is silently inert on the paid benchmark. TOTAL>=40 guarantees >1 page;
+    # MAX_PAGES>=2 lets the budget be reached.
+    "PG_SERPER_TOTAL_PER_QUERY": 40,
+    "PG_SERPER_MAX_PAGES": 2,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
 # Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
