@@ -1408,6 +1408,20 @@ def verify_sentence_provenance(
         # unsupported claim, sentence dropped.
         sentence_content = _content_words(sentence_stripped)
         span_content = _content_words(" ".join(aggregated_span_text))
+        # BUG-03 (FX-02, #1106): a truly contentless sentence — NO content words AND no decimals
+        # AND no integers (after dose/placebo/threshold stripping) — reaches here having passed
+        # every numeric branch vacuously, and the content-overlap floor below is GATED behind
+        # `if sentence_content:`, so it is SKIPPED and the sentence is counted VERIFIED. A
+        # token-only / punctuation-only / all-stopword "sentence" (residue reduces to ".") must
+        # NEVER be a verified clinical claim. Fail closed. This is strictly faithfulness-TIGHTENING:
+        # any content word OR any number present routes to the existing overlap / numeric floors,
+        # so a real clinical sentence can never trip this (no false-drop risk).
+        if (
+            not sentence_content
+            and not sentence_decimals
+            and not _numbers_in(sentence_stripped)
+        ):
+            failures.append("empty_or_contentless_sentence")
         if sentence_content:
             overlap = sentence_content & span_content
             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
@@ -1679,6 +1693,28 @@ def verify_sentence_provenance(
                 "[provenance] WARN would_fail_closed_on_judge_error "
                 "(enforce-mode would drop this sentence)",
             )
+
+    # BUG-01 Layer-2 (FX-02, #1106): discourse-narration floor — shared policy with
+    # clinical_generator.strict_verify (single source of patterns + mode). Runs only on an
+    # otherwise-passing sentence; drops one that narrates the act of writing while wrapping a
+    # verbatim source quote (the drb_72 scratchpad leak that cleared mechanical + entailment).
+    # Config-driven (LAW VI), flag-gated (PG_STRICT_VERIFY_DISCOURSE_FLOOR, default off), fail-safe.
+    if not failures:
+        from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+            _discourse_floor_mode as _dfloor_mode,
+            is_discourse_narration as _is_discourse,
+        )
+
+        _dmode = _dfloor_mode()
+        if _dmode in ("warn", "enforce"):
+            _matched = _is_discourse(_verifier_cleaned_text(sentence))
+            if _matched:
+                logger.warning(
+                    "[provenance] discourse_narration (mode=%s): sentence=%r matched=%r",
+                    _dmode, sentence[:160], _matched,
+                )
+                if _dmode == "enforce":
+                    failures.append(f"discourse_narration:{_matched}")
 
     is_verified = len(failures) == 0
     return SentenceVerification(

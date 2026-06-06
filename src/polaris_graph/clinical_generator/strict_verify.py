@@ -198,6 +198,96 @@ def _entailment_mode() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Discourse-narration floor (I-ready-017 FX-02 / BUG-01 Layer-2, #1106)
+# ---------------------------------------------------------------------------
+
+_DISCOURSE_FLOOR_DEFAULT_MODE = "off"
+_DISCOURSE_PATTERN_CACHE: dict[str, list[re.Pattern[str]]] = {}
+
+
+def _discourse_floor_mode() -> str:
+    """Return 'off' | 'warn' | 'enforce' for the discourse-narration floor.
+
+    Default 'off' — this floor can only DROP a sentence, and a mis-tuned pattern could
+    false-drop a real clinical claim, so it is OPT-IN per the "no silent downgrade without
+    operator approval" standing flag. The beat-both slate activates it ('enforce'); 'warn'
+    logs would-drops without dropping (shadow). Unknown values map to the default.
+    """
+    raw = os.environ.get("PG_STRICT_VERIFY_DISCOURSE_FLOOR", _DISCOURSE_FLOOR_DEFAULT_MODE)
+    raw = raw.lower().strip()
+    if raw not in ("off", "warn", "enforce"):
+        return _DISCOURSE_FLOOR_DEFAULT_MODE
+    return raw or _DISCOURSE_FLOOR_DEFAULT_MODE
+
+
+def _discourse_markers_path() -> str:
+    override = os.environ.get("PG_DISCOURSE_MARKERS_PATH", "").strip()
+    if override:
+        return override
+    from pathlib import Path  # noqa: PLC0415
+
+    # .../src/polaris_graph/clinical_generator/strict_verify.py -> parents[3] == repo root
+    return str(
+        Path(__file__).resolve().parents[3]
+        / "config" / "strict_verify" / "discourse_narration_markers.yaml"
+    )
+
+
+def _load_discourse_patterns() -> list[re.Pattern[str]]:
+    """Load + compile the config-driven discourse-narration regexes (cached per path).
+
+    LAW VI: the patterns live in config, NOT hardcoded here. On a missing/empty/malformed config
+    the floor degrades to a NO-OP (empty list) rather than crashing the verifier — a discourse
+    floor that cannot load is simply inactive (fail-SAFE toward KEEPING content).
+    """
+    path = _discourse_markers_path()
+    cached = _DISCOURSE_PATTERN_CACHE.get(path)
+    if cached is not None:
+        return cached
+    compiled: list[re.Pattern[str]] = []
+    try:
+        import yaml  # noqa: PLC0415
+
+        with open(path, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        for raw in (data.get("patterns") or []):
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            try:
+                compiled.append(re.compile(raw, re.IGNORECASE))
+            except re.error as exc:
+                logger.warning(
+                    "discourse-narration pattern failed to compile (skipped): %r — %s",
+                    raw, exc,
+                )
+    except FileNotFoundError:
+        logger.warning(
+            "discourse-narration markers config not found at %s — floor inactive (no-op)", path,
+        )
+    except Exception as exc:  # malformed YAML / IO — fail-safe to no-op
+        logger.warning(
+            "discourse-narration markers config unreadable at %s (%s) — floor inactive", path, exc,
+        )
+    _DISCOURSE_PATTERN_CACHE[path] = compiled
+    return compiled
+
+
+def is_discourse_narration(sentence_clean: str) -> str | None:
+    """Return the FIRST matching discourse-narration pattern source, or None.
+
+    `sentence_clean` MUST already have provenance tokens stripped (so an embedded `[#ev:...]`
+    cannot interfere). The drb_72 scratchpad WRAPPED a verbatim source quote in writing-act
+    narration ("We can split it: ... too choppy", "I'll use the exact phrase", "Final attempt:",
+    "I need to add about 124 more words"): the quote passes strict_verify + entailment, but the
+    SENTENCE narrates the act of writing and is not a clinical claim (BUG-01 Layer-2).
+    """
+    for pat in _load_discourse_patterns():
+        if pat.search(sentence_clean):
+            return pat.pattern
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Per-sentence verifier
 # ---------------------------------------------------------------------------
 
@@ -268,6 +358,14 @@ def verify_sentence(
     # Content-word overlap
     sentence_words = _content_words(sentence_clean)
     span_words = _content_words(combined_span)
+    # BUG-03 (FX-02, #1106): a truly contentless sentence — NO content words AND no decimals —
+    # is dropped EXPLICITLY here (mirrors the provenance_generator floor). With the default
+    # threshold=2 it would already fail as overlap_too_low, but this fail-closes the
+    # PG_PROVENANCE_MIN_CONTENT_OVERLAP=0 edge (where overlap=0 is not < 0) and gives a precise
+    # reason. Faithfulness-TIGHTENING: any content word OR decimal routes to the numeric/overlap
+    # floors, so a real clinical sentence can never trip this.
+    if not sentence_words and not sentence_decimals:
+        return False, "empty_or_contentless_sentence"
     overlap = len(sentence_words & span_words)
     if overlap < threshold:
         return False, "overlap_too_low"
@@ -298,6 +396,22 @@ def verify_sentence(
             )
             if mode == "enforce":
                 return False, "entailment_failed"
+
+    # BUG-01 Layer-2 (FX-02, #1106): discourse-narration floor — applied LAST, after every
+    # mechanical + entailment check. A sentence can clear (a)-(f) by WRAPPING a verbatim source
+    # quote in writing-act narration (the quote is entailed, the narration rides along); such a
+    # sentence is the generator thinking out loud, not a clinical claim. Config-driven (LAW VI),
+    # flag-gated (default off), fail-safe (cannot load -> no-op). It can only DROP, never rescue.
+    dmode = _discourse_floor_mode()
+    if dmode in ("warn", "enforce"):
+        matched = is_discourse_narration(sentence_clean)
+        if matched:
+            logger.warning(
+                "discourse_narration (mode=%s): sentence=%r matched=%r",
+                dmode, sentence_clean, matched,
+            )
+            if dmode == "enforce":
+                return False, "discourse_narration"
 
     return True, None
 

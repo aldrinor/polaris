@@ -1,0 +1,59 @@
+# I-ready-017 FX-02 / BUG-01 Layer-2 (#1106) — discourse-narration floor patterns.
+#
+# WHY (forensic, drb_72): the token-starved generator scratchpad was promoted to report.md
+# (FX-01 fixes the generation side). Some scratchpad sentences WRAP A VERBATIM QUOTE of the
+# source span, e.g. — quoted from the held report.md:
+#   `We can split it: "Strong complementarities between automation and labor increase
+#    productivity." ... But that might be too choppy.[2]`
+#   `That's three sentences from the thesis.[2]`
+#   `I'll use the exact phrase: "However, automation also complements labor." That's fine,
+#    even if short.[2]`
+#   `Final attempt:` ... `I need to add about 124 more words.`
+# Because the embedded quote IS in the cited span, strict_verify (numeric + >=2 content-word
+# overlap) AND the entailment judge (the quote is entailed) BOTH pass it — the writing-act
+# NARRATION wrapper rides along and ships as "verified" clinical prose. This is the exact
+# "pattern-matching evaluation misses real fabrications -> lethal in clinical" CLAUDE.md §-1.1
+# failure.
+#
+# DESIGN (config-driven per LAW VI; NOT hardcoded in .py; §-1.1-aware):
+#  - These are HIGH-PRECISION, writing-act-ANCHORED regexes (case-insensitive). Each requires a
+#    first-person/meta-writing CONSTRUCT (an authoring verb, a draft-attempt phrase, or a
+#    word/sentence-count meta-remark) that does NOT occur in genuine clinical/scientific report
+#    prose. A bare "we can" / "for example" is deliberately NOT a marker (those appear in real
+#    prose) — the authoring VERB or meta-phrase is mandatory.
+#  - Fail-SAFE bias: when in doubt, DO NOT add a pattern. A false-drop of a real clinical claim
+#    (contraindication, dose, negation) is worse than letting one narration sentence through to
+#    the entailment judge. Patterns here must be ones no faithful report sentence would contain.
+#  - The floor is FLAG-GATED (PG_STRICT_VERIFY_DISCOURSE_FLOOR, default off) and applied only
+#    AFTER all mechanical + entailment checks; it can only ever DROP a sentence, never rescue one.
+#
+# To extend per-domain, add patterns here — no code change (LAW VI).
+
+version: 1
+
+# Each entry: a Python `re` pattern (compiled with re.IGNORECASE). A sentence matching ANY
+# pattern (after provenance-token stripping) is classed discourse-narration and dropped with
+# reason `discourse_narration`.
+patterns:
+  # First-person authoring intent + an UNAMBIGUOUS text-editing verb. The verb list is
+  # deliberately restricted to copy-editing actions that NEVER occur in a faithful clinical
+  # report ("split/rephrase/reword/rewrite/combine/condense/shorten/lengthen the sentence",
+  # "use the exact phrase", "phrase/word it"). Verbs that DO occur in clinical prose
+  # (keep/use/write/draft/say/start) are deliberately EXCLUDED to avoid false-dropping a real
+  # claim like "we can keep the dose at 5 mg".
+  - "\\b(?:i['’]?ll|i will|i'?m going to|let me|let['’]?s|we (?:can|could|should|will|need to|might))\\b[^.?!]{0,50}\\b(?:split|rephrase|reword|rewrite|re-?word|combine|condense|shorten|lengthen|use the (?:exact )?phrase|phrase it|word it)\\b"
+  # Explicit draft-attempt / deliberation markers (no faithful report says these).
+  - "\\bfinal attempt\\b\\s*[:]?"
+  - "\\b(?:first|second|third|another|one more|next) attempt\\b\\s*[:]"
+  # Writing-critique adjectives about the prose itself. Restricted to words that critique TEXT
+  # STYLE (choppy/clunky/awkward/wordy/repetitive) — NOT "short/long" which describe clinical
+  # quantities (short duration, long-term).
+  - "\\b(?:that['’]?s|this is|it['’]?s|might be|maybe|perhaps) (?:a bit |too |slightly )?(?:choppy|clunky|awkward|wordy|repetitive)\\b"
+  - "\\bthat['’]?s fine,? even if (?:short|brief|choppy)\\b"
+  # Meta word/sentence-count remarks about the draft itself.
+  - "\\bi need to add about \\d+ more words\\b"
+  - "\\b(?:that['’]?s|these are|there are) (?:one|two|three|four|five|six|seven|eight|nine|ten|\\d+) (?:sentences?|words?|paragraphs?) (?:from|of|in) (?:the )?(?:thesis|source|abstract|paper|passage)\\b"
+  - "\\b\\d+ more words? (?:to (?:go|add|reach)|needed|required)\\b"
+  # Authoring self-reference about quoting/citing the source as a writing act.
+  - "\\b(?:for example,? )?from the thesis\\b\\s*[:]"
+  - "\\bi['’]?ll (?:cite|quote|reference|pull) (?:this|that|it|the (?:exact )?(?:phrase|sentence|line))\\b"
