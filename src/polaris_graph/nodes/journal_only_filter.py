@@ -36,7 +36,7 @@ non-journal row reaching the generator, ABORTS rather than silently degrades
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass, replace as _dc_replace
 from typing import Any, Iterable, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -418,6 +418,32 @@ def prune_plan_entities(plans: Iterable[Any], kept_entity_ids: set[str]) -> list
     whose slots all became empty. Duck-typed on the plan attributes so it does
     not import the generator's class.
     """
+    def _set_field(obj: Any, **changes: Any) -> Any:
+        """Set fields on obj, handling FROZEN dataclasses (Codex diff-gate P2:
+        ContractSlotPlan is frozen) via dataclasses.replace, plain dataclasses /
+        objects via setattr, and dicts via item-set. Returns the (possibly new)
+        object."""
+        if is_dataclass(obj) and not isinstance(obj, type):
+            try:
+                return _dc_replace(obj, **changes)
+            except (TypeError, ValueError):
+                # Not all fields are init params; fall back to setattr (non-frozen).
+                for k, v in changes.items():
+                    try:
+                        setattr(obj, k, v)
+                    except (AttributeError, TypeError):
+                        pass
+                return obj
+        if isinstance(obj, dict):
+            obj.update(changes)
+            return obj
+        for k, v in changes.items():
+            try:
+                setattr(obj, k, v)
+            except (AttributeError, TypeError):
+                pass
+        return obj
+
     out: list[Any] = []
     for plan in plans:
         ev_ids = [e for e in (getattr(plan, "ev_ids", None) or []) if e in kept_entity_ids]
@@ -426,13 +452,13 @@ def prune_plan_entities(plans: Iterable[Any], kept_entity_ids: set[str]) -> list
             slot_ids = [e for e in (getattr(slot, "entity_ids", None) or [])
                         if e in kept_entity_ids]
             if slot_ids:
-                try:
-                    slot.entity_ids = slot_ids
-                except (AttributeError, TypeError):
-                    pass
-                slots.append(slot)
+                # Rebuild the (possibly frozen) slot with the filtered entity_ids
+                # so dropped entities cannot survive in a mixed kept+dropped slot.
+                slots.append(_set_field(slot, entity_ids=slot_ids))
         if not slots and not ev_ids:
             continue  # whole section pruned away
+        # frame_rows_by_entity / contract_entities_by_id are dicts: prune keys in
+        # place (mutating the dict is fine even on a frozen plan).
         frb = getattr(plan, "frame_rows_by_entity", None)
         if isinstance(frb, dict):
             for k in [k for k in frb if k not in kept_entity_ids]:
@@ -441,19 +467,15 @@ def prune_plan_entities(plans: Iterable[Any], kept_entity_ids: set[str]) -> list
         if isinstance(ceb, dict):
             for k in [k for k in ceb if k not in kept_entity_ids]:
                 ceb.pop(k, None)
-        try:
-            plan.ev_ids = ev_ids
-            plan.slots = slots
-            # Recompute focus from surviving slots so no stale non-journal slot
-            # label appears in prompts/logs/telemetry (Codex design P2-1).
-            _titles = [getattr(s, "title", "") or getattr(s, "subsection_title", "")
-                       for s in slots]
-            _titles = [t for t in _titles if t]
-            if _titles and hasattr(plan, "focus"):
-                plan.focus = "; ".join(_titles)
-        except (AttributeError, TypeError):
-            pass
-        out.append(plan)
+        # Recompute focus from surviving slots so no stale non-journal slot label
+        # appears in prompts/logs/telemetry (Codex design P2-1).
+        _titles = [getattr(s, "title", "") or getattr(s, "subsection_title", "")
+                   for s in slots]
+        _titles = [t for t in _titles if t]
+        _changes: dict[str, Any] = {"ev_ids": ev_ids, "slots": slots}
+        if _titles and hasattr(plan, "focus"):
+            _changes["focus"] = "; ".join(_titles)
+        out.append(_set_field(plan, **_changes))
     return out
 
 

@@ -816,7 +816,24 @@ def _authority_cache_init() -> None:
         conn.close()
 
 
+# I-ready-017 #1134 (Codex diff-gate P1): run the versioned migration once before
+# the FIRST cache access (read OR write), so a stale v1 payload — which predates
+# the journal_only is_retracted/openalex_venue fields — is rebuilt away on the
+# READ path too, never served unchanged. Previously the migration ran only on
+# _authority_cache_put, so a get-before-put returned a stale payload and a cached
+# retracted journal article could pass the journal_only predicate.
+_authority_cache_migrated = False
+
+
+def _ensure_authority_cache_migrated() -> None:
+    global _authority_cache_migrated
+    if not _authority_cache_migrated:
+        _authority_cache_init()
+        _authority_cache_migrated = True
+
+
 def _authority_cache_get(key: str) -> Optional[dict[str, Any]]:
+    _ensure_authority_cache_migrated()
     if not AUTHORITY_CACHE_DB.exists():
         return None
     conn = sqlite3.connect(AUTHORITY_CACHE_DB)
@@ -839,7 +856,7 @@ def _authority_cache_get(key: str) -> Optional[dict[str, Any]]:
 
 def _authority_cache_put(key: str, payload: dict[str, Any]) -> None:
     import json
-    _authority_cache_init()
+    _ensure_authority_cache_migrated()
     conn = sqlite3.connect(AUTHORITY_CACHE_DB)
     try:
         conn.execute(

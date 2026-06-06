@@ -193,6 +193,41 @@ def test_prune_contract_keeps_journal_drops_wef():
     assert res.required_conflicts == []
 
 
+def test_prune_plan_entities_rebuilds_frozen_slot():
+    # ContractSlotPlan is frozen in production; prune must REBUILD the slot with
+    # filtered entity_ids (dataclasses.replace), not silently fail to mutate.
+    import dataclasses
+
+    @dataclasses.dataclass(frozen=True)
+    class _FrozenSlot:
+        entity_ids: tuple
+        title: str = "Slot"
+
+    @dataclasses.dataclass
+    class _Plan:
+        ev_ids: list
+        slots: list
+        focus: str = ""
+        frame_rows_by_entity: dict = dataclasses.field(default_factory=dict)
+        contract_entities_by_id: dict = dataclasses.field(default_factory=dict)
+
+    plan = _Plan(
+        ev_ids=["keep_a", "drop_b"],
+        slots=[_FrozenSlot(entity_ids=("keep_a", "drop_b"))],
+        frame_rows_by_entity={"keep_a": 1, "drop_b": 2},
+        contract_entities_by_id={"keep_a": 1, "drop_b": 2},
+    )
+    out = jof.prune_plan_entities([plan], {"keep_a"})
+    assert len(out) == 1
+    p = out[0]
+    assert p.ev_ids == ["keep_a"]
+    assert len(p.slots) == 1
+    # The frozen slot was rebuilt with the dropped entity removed.
+    assert list(p.slots[0].entity_ids) == ["keep_a"]
+    assert "drop_b" not in p.frame_rows_by_entity
+    assert "drop_b" not in p.contract_entities_by_id
+
+
 def test_prune_contract_required_non_journal_is_conflict():
     # REAL shape: a non-journal entity bound (via rendering_slot) to a slot whose
     # required=True must raise a conflict (not be silently dropped).
