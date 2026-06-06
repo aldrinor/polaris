@@ -4549,3 +4549,13 @@
 - EVIDENCE/FINDINGS: §-1.1 on REAL held trace = 41 agentic rows -> DROP 13 / KEEP 28, 0 real articles dropped (OUP /Supplement_1/ correctly caught as conference supplement). 4 FX-15b smoke + 46 regression green.
 - STATUS: FX-15b Codex diff gate IN FLIGHT (bg bujszfp43); awaiting verdict.
 - NEXT_STEP: on verdict — APPROVE => FX-15b verified, advance FX-06 (now unblocked); RC => address within 5-cap.
+
+[2026-06-06 18:15:00]
+- ACTION: FX-15b (#1119) iter-2 authored + committed (15406387) + Codex diff-gate iter-2 launched (bg brywr366j). Killed orphan codex PID 20804.
+- RATIONALE: Codex iter-1 RC P1 (sharp, correct) — blanket /conference reject false-dropped real papers. EMPIRICAL §-1.1 cross-ref of evidence_pool.json confirmed: /conference/2025/program/paper/S7SHZQ4n (50k) + S25ktKkD (30k) are real; junk 8A8RRTQY has identical URL shape (URL cannot distinguish). FIX: narrow structural filter to pure-nav only; let post-fetch tier classifier + content-starvation decide conference/supplement pages. Precision now empirically perfect (0 false drops).
+- DOCS/RESEARCH: N/A (empirical evidence_pool cross-reference is the §-1.1 ground truth).
+- SYNC: ledger FX-15b -> codex_diff_iter2_inflight (commit 15406387).
+- AFFECTED_FILES: live_retriever.py, test_fx15b_host_filter_iready017.py, outputs/audits/I-ready-017/fx15b_s11_audit.md + .codex/I-ready-017/fx15b_*iter2*.
+- EVIDENCE/FINDINGS: §-1.1 evidence_pool re-audit: 41 agentic -> DROP 7 (all 0-evidence) / KEEP 34, 0 false drops, S7SHZQ4n+S25ktKkD KEPT. 5 FX-15b smoke (+P1 regression) + 47 regression green.
+- STATUS: FX-15b iter-2 Codex diff gate IN FLIGHT (bg brywr366j); awaiting verdict.
+- NEXT_STEP: on verdict — APPROVE => FX-15b verified, advance FX-06 (now unblocked); RC => address within 5-cap (iter 2 of 5).

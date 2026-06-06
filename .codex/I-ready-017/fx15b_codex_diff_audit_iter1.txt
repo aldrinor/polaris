@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/retrieval/live_retriever.py:2114 and scripts/run_honest_sweep_r3.py:2914 blanket-drop every agentic URL containing /conference before fetch. The held artifact itself shows AEA /conference/2025/program/paper/S7SHZQ4n and /S25ktKkD were kept retrieval rows and produced large evidence-bearing paper content in outputs/audits/I-ready-017/run_artifacts/evidence_pool.json:289 and :300. So the precision boundary is too broad: it drops real papers, not just nav/SERP/conference-program junk."
+p2:
+  - "tests/polaris_graph/test_fx15b_host_filter_iready017.py covers only conference URLs expected to reject, but omits the held AEA program-paper URLs that actually yielded full evidence. That lets the precision smoke pass while missing the core false-drop case."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Narrow the structural filter so /conference program-paper URLs that fetch as real papers are not pre-fetch dropped; add regression fixtures for the held S7SHZQ4n/S25ktKkD-style URLs."
