@@ -4434,3 +4434,35 @@
 - AFFECTED_FILES: .codex/I-ready-017/fx10_grounding_notes.md, state/ready017_fix_audit.json
 - STATUS: FX-10 grounded; author next wake. Session verified: FX-01/02/03/CANARY-01 + FX-05 + FX-07leg1 + FX-08partA + FX-09 (8 issues). Rerun unblocked pending operator Q4.
 - NEXT_STEP: author FX-10 (completeness_state property + serialization + evaluator_gate guard + tests + §-1.1 + gate)
+
+[2026-06-06 11:50:00]
+- ACTION: FX-10 (#1115) authored + iter-1 Codex gate launched (bg bxjd4ieyy)
+- RATIONALE: completeness vacuous-true 1.0 when 0 applicable. Added completeness_state 3VL property; threaded to artifacts; evaluator_gate advisory-skip for not_applicable; covered_fraction numeric. Honesty fix.
+- SYNC: ledger FX-10 -> iter-1 inflight @ 64c4f5f5; #1115 commented; pushed
+- EVIDENCE/FINDINGS: 27 tests (4 FX-10 incl behavioral consumer + 23 regression); §-1.1 real manifest replay PASS; diff 182 lines
+- STATUS: FX-10 gate in flight
+- NEXT_STEP: process FX-10 verdict; then next ready issue (FX-11/FX-12/...)
+
+[2026-06-06 12:10:00]
+- ACTION: FX-10 (#1115) iter-1 RC processed -> iter-2 fix + gate launched (bg b1jk4esvi)
+- RATIONALE: P1 brittle sentinel updated (no_checklist_loaded). P2 AuditIR loader honesty: completeness_state field + _parse_completeness_state (manifest or inferred). Defaulted-last field keeps 5 constructors safe.
+- SYNC: ledger FX-10 -> iter-2 inflight @ f860b2a1; #1115 commented; pushed
+- EVIDENCE/FINDINGS: 58 FX-10/loader tests + 129 broader (incl 5 RunManifest constructors) pass; diff 277 lines
+- STATUS: iter-2 gate in flight
+- NEXT_STEP: process FX-10 iter-2 verdict
+
+[2026-06-06 12:25:00]
+- ACTION: FX-10 (#1115) iter-2 Codex APPROVE -> VERIFIED + closed
+- RATIONALE: 0 P0/P1/P2. completeness NOT_APPLICABLE 3VL state end-to-end (producer + evaluator_gate + AuditIR loader).
+- SYNC: ledger FX-10 -> verified; #1115 closed; #1100 updated; commit e63c102b pushed
+- EVIDENCE/FINDINGS: APPROVE; 58 FX-10/loader + 129 broader tests; §-1.1 real manifest replay
+- STATUS: 9 issues verified this session. Follow-ups FX-07b#1111 FX-08b#1113 FX-05-docdrift.
+- NEXT_STEP: FX-11 (cost_ledger single canonical accumulator + verifier rows, P2 after FX-01) — read plan, scope, GitHub issue
+
+[2026-06-06 12:35:00]
+- ACTION: FX-11 (#1116) created + grounded (cost_ledger monotonic accumulator + role-call rows)
+- RATIONALE: non-monotonic cumulative_cost_usd (3 producers) + 0 role-call ledger rows. Multi-site cost-accounting fix. Grounded against plan + code; author next (compacted) wake.
+- SYNC: ledger FX-11 -> grounded @ #1116; grounding notes persisted
+- AFFECTED_FILES: .codex/I-ready-017/fx11_grounding_notes.md, state/ready017_fix_audit.json
+- STATUS: FX-11 grounded. 9 issues verified this session.
+- NEXT_STEP: author FX-11 (BUG-10 reorder + 3 producers + BUG-10b role row + tests + §-1.1 + gate)
