@@ -2593,9 +2593,22 @@ class OpenRouterClient:
         # The fix makes generate_structured aware that these models always reason,
         # so it skips response_format and uses prompt-based JSON extraction (which
         # works because the prompt's json_hint instructs JSON-only output).
+        #
+        # I-ready-018 (#1100 keystone): the gate originally checked _ALWAYS_REASON_MODELS
+        # (GLM-only). But _call()'s REQUEST-side switch (line ~1474) forces a reasoning block
+        # for the WIDER _REASONING_FIRST_MODELS set, which also includes the reasoning-first
+        # deepseek default (deepseek-v4-pro / -v4-flash). For those models _effective_reasoning
+        # was False here, so generate_structured attached response_format=json_schema strict:true
+        # WHILE _call() forced reasoning -> with provider require_parameters:true + the generator
+        # provider pin, OpenRouter found no endpoint serving both and returned 404 "No endpoints
+        # found", killing STORM persona-gen and every agentic-searcher round-analysis (drb_72
+        # forensic: discovery 100% dead from LLM call #1, while the SAME slug served 31 successful
+        # generate() calls). Aligning this gate to _REASONING_FIRST_MODELS routes deepseek down the
+        # same prompt-based-JSON / reasoning-extraction path GLM uses (the recovery at ~2650 is
+        # model-agnostic), so the structured-output 404 cannot recur.
         response_format = None
         strict_schema_enabled = os.getenv("PG_STRICT_JSON_SCHEMA", "1") == "1"
-        _effective_reasoning = reasoning_enabled or (self.model in _ALWAYS_REASON_MODELS)
+        _effective_reasoning = reasoning_enabled or (self.model in _REASONING_FIRST_MODELS)
         if not _effective_reasoning and strict_schema_enabled:
             try:
                 json_schema = schema.model_json_schema()
