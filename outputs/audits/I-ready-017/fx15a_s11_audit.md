@@ -23,28 +23,31 @@ primary-trial DOI seed. Sample line-by-line verdicts (each = MISLABELED):
 ## The fix (label-only; behavior-preserving)
 - `live_retriever.run_live_retrieval` gains `seed_source` / `seed_query_origin` params (defaults =
   the #817 DOI-lane labels); the seed injection uses them.
-- The reserved-seed split now keys on the SET `{primary_trial_doi, agentic_seed}` so the relabel
-  changes NO selection — agentic seeds stay reserved/undroppable exactly as before (FX-15b is what
-  later makes them droppable).
+- The reserved-seed split now keys on the SET `{primary_trial_doi, agentic_seed, deepener_seed}` so
+  the relabel changes NO selection — all seed classes stay reserved/undroppable exactly as before
+  (FX-15b is what later makes the web-discovered classes droppable).
 - The agentic caller (`run_honest_sweep_r3.py`) passes `seed_source='agentic_seed',
-  seed_query_origin='agentic_seed'`; the DOI caller keeps defaults.
-- `plan_sufficiency_gate.SENTINEL_ORIGINS` adds `'agentic_seed'` so fallback-eligibility is
-  identical to the old `primary_trial_doi_seed` (a sentinel) — no plan-sufficiency behavior change.
+  seed_query_origin='agentic_seed'`; the citation-snowball **deepener** caller passes
+  `seed_source='deepener_seed', seed_query_origin='deepener_seed'` (Codex iter-1 P1: deepener URLs
+  are primary-trial-DERIVED but NOT direct DOI seeds, so they must not pollute `primary_trial_doi`
+  telemetry either); the off-mode DOI caller keeps defaults.
+- `plan_sufficiency_gate.SENTINEL_ORIGINS` adds `'agentic_seed'` and `'deepener_seed'` so
+  fallback-eligibility is identical to the old `primary_trial_doi_seed` (a sentinel) — no
+  plan-sufficiency behavior change.
 
 After the fix, those 41 rows would carry `backend == 'agentic_seed'` (truthful); no ordinary web
 URL would carry `primary_trial_doi`.
 
 ## Offline smoke (proves the fix)
-`pytest tests/polaris_graph/test_fx15a_agentic_seed_label_iready017.py` → 5 passed:
-- **seed-split SET**: a `primary_trial_doi` seed + an `agentic_seed` seed + a `serper` non-seed
-  through `_rerank_and_reserve(fetch_cap=1)` → BOTH seeds reserved & prepended, none dropped (the
-  relabel does not change selection).
-- **`_SEED_SOURCE_LABELS == {primary_trial_doi, agentic_seed}`**.
-- **`agentic_seed` ∈ SENTINEL_ORIGINS** (and `primary_trial_doi_seed` still present).
-- **injection label (stubbed `_fetch_content`)**: `run_live_retrieval(seed_source='agentic_seed',
-  seed_query_origin='agentic_seed', seed_only=True)` → the kept evidence row carries
-  `source=='agentic_seed'` & `query_origin=='agentic_seed'`; the DOI default call →
-  `'primary_trial_doi'` / `'primary_trial_doi_seed'` (no DOI-lane regression).
+`pytest tests/polaris_graph/test_fx15a_agentic_seed_label_iready017.py` → 6 passed:
+- **seed-split SET**: a `primary_trial_doi` + an `agentic_seed` + a `deepener_seed` seed + a
+  `serper` non-seed through `_rerank_and_reserve(fetch_cap=1)` → ALL three seeds reserved &
+  prepended, none dropped (the relabel does not change selection).
+- **`_SEED_SOURCE_LABELS == {primary_trial_doi, agentic_seed, deepener_seed}`**.
+- **`agentic_seed` & `deepener_seed` ∈ SENTINEL_ORIGINS** (and `primary_trial_doi_seed` still present).
+- **injection label (stubbed `_fetch_content`)**: `run_live_retrieval(seed_source='agentic_seed', ...)`
+  → kept row `source/query_origin=='agentic_seed'`; `seed_source='deepener_seed'` → `'deepener_seed'`;
+  the DOI default call → `'primary_trial_doi'` / `'primary_trial_doi_seed'` (no DOI-lane regression).
 - Regression: `test_live_retriever_rerank` (8) + `test_bug776_layer4_doi_seeds` (5) +
   `test_retrieval_trace` (7) + `test_plan_sufficiency_phase3` (26) all pass.
 

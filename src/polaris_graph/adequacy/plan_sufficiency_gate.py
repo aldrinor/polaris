@@ -12,7 +12,7 @@ KEY DESIGN (brief §2.2):
   `query_origin` matches (normalized equality) one of the sub-query texts at the
   section's `sub_query_indices`. The content-word overlap fallback is used ONLY
   for rows whose `query_origin` is EMPTY or one of the explicit NON-QUERY
-  SENTINEL origins (`{primary_trial_doi_seed, agentic_seed, need_type_backend, domain_backend}`)
+  SENTINEL origins (`{primary_trial_doi_seed, agentic_seed, deepener_seed, need_type_backend, domain_backend}`)
   — these lanes surface authoritative evidence with no originating sub-query, so
   they must be creditable. A row whose `query_origin` is a REAL sub-query text
   that does not match the section is NOT relevant to it (no title-overlap rescue).
@@ -51,10 +51,11 @@ SufficiencyVerdict = Literal["proceed", "expand", "abort"]
 # section's sub-query texts. A REAL sub-query origin is authoritative and uses
 # provenance-first matching only. Codex-LOCKED — do not widen.
 SENTINEL_ORIGINS: frozenset[str] = frozenset(
-    # FX-15a (#1118): `agentic_seed` is a non-query seed lane (agentic-discovered URLs), creditable
-    # via the overlap fallback exactly as the old mislabel `primary_trial_doi_seed` was — so the
-    # relabel preserves plan-sufficiency fallback-eligibility (no behavior change).
-    {"primary_trial_doi_seed", "agentic_seed", "need_type_backend", "domain_backend"}
+    # FX-15a (#1118): `agentic_seed` (agentic-discovered URLs) and `deepener_seed` (citation-
+    # snowball deepener URLs, Codex iter-1 P1) are non-query seed lanes, creditable via the overlap
+    # fallback exactly as the old mislabel `primary_trial_doi_seed` was — so the relabels preserve
+    # plan-sufficiency fallback-eligibility (no behavior change).
+    {"primary_trial_doi_seed", "agentic_seed", "deepener_seed", "need_type_backend", "domain_backend"}
 )
 
 

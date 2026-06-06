@@ -2740,6 +2740,12 @@ async def run_one_query(
                         enable_prefetch_filter=False,
                         seed_urls=_deep_urls,
                         seed_only=True,     # ONLY the deepener URLs — no Serper/S2/domain fan-out
+                        # FX-15a (#1118, Codex iter-1 P1): citation-snowball deepener URLs are
+                        # primary-trial-DERIVED but NOT direct DOI seeds — label them truthfully so
+                        # they don't pollute primary_trial_doi telemetry. Stays in the reserved seed
+                        # lane (seed-split + SENTINEL_ORIGINS include deepener_seed); telemetry only.
+                        seed_source="deepener_seed",
+                        seed_query_origin="deepener_seed",
                     )
                     # ATOMIC merge (Codex diff-gate iter-1 P1): stage everything in LOCAL copies,
                     # recompute dist/completeness/adequacy over the staged corpus, and COMMIT all

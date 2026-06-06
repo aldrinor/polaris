@@ -32,32 +32,40 @@ def test_seed_split_reserves_both_seed_classes_unranked():
         url="https://aeaweb.org/articles?id=10.1257/y", title="", snippet="",
         source="agentic_seed", query_origin="agentic_seed",
     )
+    deepener_seed = SearchCandidate(
+        url="https://example.org/cited-ref", title="", snippet="",
+        source="deepener_seed", query_origin="deepener_seed",
+    )
     web = SearchCandidate(
         url="https://example.org/web", title="W", snippet="w", source="serper",
         query_origin="sub query text",
     )
     out = _rerank_and_reserve(
-        [web, doi_seed, agentic_seed],
+        [web, doi_seed, agentic_seed, deepener_seed],
         research_question="anticoagulation in atrial fibrillation",
         fetch_cap=1,
-        n_seed_injected=2,
+        n_seed_injected=3,
     )
     out_sources = [c.source for c in out]
-    # both seed classes survive (reserved); none dropped despite fetch_cap=1
+    # ALL three seed classes survive (reserved); none dropped despite fetch_cap=1
     assert "primary_trial_doi" in out_sources
     assert "agentic_seed" in out_sources
+    assert "deepener_seed" in out_sources
     # seeds are PREPENDED before the (single) reserved web candidate
-    assert out_sources[:2] == ["primary_trial_doi", "agentic_seed"]
+    assert out_sources[:3] == ["primary_trial_doi", "agentic_seed", "deepener_seed"]
     assert "serper" in out_sources  # the one non-seed slot
 
 
 def test_seed_source_labels_constant():
-    assert _SEED_SOURCE_LABELS == frozenset({"primary_trial_doi", "agentic_seed"})
+    assert _SEED_SOURCE_LABELS == frozenset(
+        {"primary_trial_doi", "agentic_seed", "deepener_seed"}
+    )
 
 
-def test_agentic_seed_is_a_sentinel_origin():
+def test_seed_origins_are_sentinels():
     """Preserves fallback-eligibility the old mislabel `primary_trial_doi_seed` (a sentinel) had."""
     assert "agentic_seed" in SENTINEL_ORIGINS
+    assert "deepener_seed" in SENTINEL_ORIGINS  # Codex iter-1 P1
     assert "primary_trial_doi_seed" in SENTINEL_ORIGINS  # unchanged
 
 
@@ -84,6 +92,25 @@ def test_injection_uses_caller_label_agentic(monkeypatch):
     assert rows, "the stubbed agentic seed should produce one kept evidence row"
     assert rows[0]["source"] == "agentic_seed"
     assert rows[0]["query_origin"] == "agentic_seed"
+
+
+def test_injection_uses_caller_label_deepener(monkeypatch):
+    """Codex iter-1 P1: the citation-snowball deepener caller labels its URLs deepener_seed
+    (NOT primary_trial_doi), staying in the reserved lane."""
+    monkeypatch.setattr(lr, "_fetch_content", _stub_fetch)
+    res = lr.run_live_retrieval(
+        research_question="anticoagulation in atrial fibrillation",
+        seed_urls=["https://example.org/cited-ref"],
+        seed_only=True,
+        seed_source="deepener_seed",
+        seed_query_origin="deepener_seed",
+        enable_openalex_enrich=False,
+        fetch_cap=5,
+    )
+    rows = [r for r in res.evidence_rows if r["source_url"] == "https://example.org/cited-ref"]
+    assert rows, "the stubbed deepener seed should produce one kept evidence row"
+    assert rows[0]["source"] == "deepener_seed"
+    assert rows[0]["query_origin"] == "deepener_seed"
 
 
 def test_injection_default_label_is_doi_seed(monkeypatch):

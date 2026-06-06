@@ -2092,10 +2092,14 @@ def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[
 
 # FX-15a (#1118): the injected-seed source classes that share the reserved/undroppable/unranked
 # lane. `primary_trial_doi` = #817 layer-4 direct primary-trial DOI seeds; `agentic_seed` =
-# agentic-discovered URLs (relabeled from the mislabel that called them primary_trial_doi). BOTH
-# are split out and prepended unranked; FX-15b later makes `agentic_seed` droppable via the
-# host-class filter (telemetry-correctness here is the prerequisite).
-_SEED_SOURCE_LABELS: frozenset[str] = frozenset({"primary_trial_doi", "agentic_seed"})
+# agentic-discovered URLs; `deepener_seed` = citation-snowball deepener URLs (Codex iter-1 P1:
+# these are primary-trial-DERIVED but NOT direct DOI seeds, so they must not pollute
+# `primary_trial_doi` telemetry either). ALL are split out and prepended unranked; FX-15b later
+# makes the web-discovered classes droppable via the host-class filter (telemetry-correctness
+# here is the prerequisite).
+_SEED_SOURCE_LABELS: frozenset[str] = frozenset(
+    {"primary_trial_doi", "agentic_seed", "deepener_seed"}
+)
 
 
 def _rerank_and_reserve(
