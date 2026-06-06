@@ -1,0 +1,291 @@
+diff --git a/docs/capability_downgrade_audit_2026_06_04.md b/docs/capability_downgrade_audit_2026_06_04.md
+new file mode 100644
+index 00000000..13860412
+--- /dev/null
++++ b/docs/capability_downgrade_audit_2026_06_04.md
+@@ -0,0 +1,90 @@
++# POLARIS silent capability-downgrade audit — 2026-06-04 (I-cap-001 / #1059)
++
++**Trigger:** operator caught POLARIS fetching only ~40 URLs when the design advertises "up to 1000
++high-quality URLs." A 6-agent audit swept every capability dimension. **Operator directive: any
++downgrade requires in-person approval; default posture is FULL capability.**
++
++## Root finding
++`config/settings/sota_parameters.yaml` documents the INTENDED depth (e.g. `max_sources_per_vector:
++300`, `min_searches_per_vector: 100`, `url_timeout_seconds: 30`). **The code defaults hardcode far
++lower values (40 / 20 / 20s) and ignore that config.** Multiple unit tests even ASSERT the SOTA
++minimums (e.g. `PG_AGENTIC_PAGES_PER_ROUND >= 6`, `PG_AGENTIC_PAGE_CONTENT_CAP >= 15000`,
++`PG_AGENTIC_FETCH_TIMEOUT >= 20`) — the code knows the right values but ships throttled. Net effect:
++effective research depth ~40 URLs / 3 rounds / 10%-page-content vs the claimed frontier 1000 URLs /
++12 rounds / full-page analysis.
++
++Almost every knob is **env-overridable** — so lifting them needs NO code change, just env at run launch.
++
++---
++
++## TIER A — LIFT NOW (well-tested paths, just throttled; safe env overrides)
++
++| Param (env) | Default | Recommend | Sev | What it costs us today |
++|---|---|---|---|---|
++| `PG_LIVE_FETCH_CAP` | 40 | **300** | CRIT | THE bottleneck — total URLs fetched. run12 got 26. |
++| `PG_LIVE_MAX_SERPER` | 20 | **100** | CRIT | web results per query |
++| `PG_LIVE_MAX_S2` | 20 | **100** | CRIT | academic results per query |
++| `PG_DOMAIN_MAX_HITS` | 10 | **50** | HIGH | per specialised backend (arXiv/SEC/policy/EuropePMC/OpenAlex/GitHub) |
++| `PG_MAX_EVIDENCE_TO_EXTRACT` | 600 | **1500** | HIGH | stops extracting evidence after 600 rows |
++| `PG_DEEPENER_EVIDENCE_CAP` | 150 | **500** | MED | citation-graph secondary discovery |
++| `PG_MOST_MAX_EVIDENCE` | 300 | **800** | MED | evidence rows reaching synthesis |
++| `PG_LIVE_CONTENT_MAX` | 25000 | **50000** | MED | chars kept per fetched doc (truncates papers) |
++| `PG_LIVE_RETRIEVER_MAX_WORKERS` | 8 | **16** | LOW | fetch concurrency (needed once cap is 300) |
++| `DEFAULT_MAX_SUBQUERIES` (hardcoded, query_decomposer.py:36) | 6 | **15** | CRIT | sub-queries per question (NO env override — needs code) |
++| ~~`PG_AMPLIFICATION_VARIANTS`~~ | 3 | ~~**8**~~ | ~~HIGH~~ → **RETIRED** | **I-ready-017 FX-19 (#1127): legacy-static-path-only; INERT under `PG_AGENTIC_SEARCH_ENABLED=1` (early return at `searcher.py:291-292`). NOT a benchmark lever — agentic breadth comes from decomposer/STORM/agentic loop. Do not set it for the benchmark.** |
++| `PG_AMPLIFIER_SCOPE_FLOOR` | 0.15 | **0.08** | HIGH | drops valid regional/temporal variants (run12 dropped 19, kept 5) |
++| `PG_V3_MAX_GAP_SEARCHES` | 2 | **5** | MED | gap-fill iterations |
++| `PG_LIVE_HTTP_TIMEOUT` | 20s | **30s** | CRIT | dropped 14/40 fetches in run12 |
++| `PG_AGENTIC_FETCH_TIMEOUT` | 15s | **30s** | CRIT | test asserts >=20; drops slow PDFs |
++| `PG_PLAN_TIMEOUT` | 30s | **300s** | CRIT | aborts complex decompositions |
++| `PG_FRAME_FETCHER_TIMEOUT` | 15s | **30s** | MED | CrossRef/PubMed enrichment |
++| `PG_LLM_TIMEOUT_SECONDS` | 90s | **180s** | MED | verifier time pressure |
++| `PG_OPENALEX_ENRICH_DEADLINE` | 45s | **90s** | MED | authority enrichment |
++| `PG_POST_FETCH_LOOP_BUDGET` | 900s | **2400s** | MED | WILL break at 200+ sources |
++| `PG_MAX_COST_PER_RUN` | 10 | **25** | MED | budget abort on deep runs |
++| Section prose `max_tokens` (multi_section_generator.py:4056) | 2400 | **5000** | HIGH | ~2 paragraphs max per section (depth cap) |
++| Limitations `max_tokens` (multi_section_generator.py:4064) | 400 | **1500** | CRIT | can't transparently report corpus gaps (§-1.1) |
++| Trial-table `max_tokens` | 800 | **1200** | MED | truncates multi-outcome tables |
++
++## TIER B — DISABLED CAPABILITIES (turn ON, but VERIFY they're wired in the launch path first)
++These are whole features switched OFF. The Q1 capability audit warned "depth/conflict/memory machinery
++unwired from launch path" — so they may be off because they're not actually wired/tested, not just
++conservative. **Enabling blindly could break the run.** Verify each is reachable before the full run.
++
++| Param (env) | Default | Recommend | Sev | Capability |
++|---|---|---|---|---|
++| `PG_AGENTIC_SEARCH_ENABLED` | 0 (OFF) | **1** | CRIT | Gemini-style 12-round deep agentic loop (the primary depth pipeline) |
++| `PG_AGENTIC_PAGES_PER_ROUND` | 3 | **6** | CRIT | pages/round (test asserts >=6) |
++| `PG_AGENTIC_PAGE_CONTENT_CAP` | 5000 | **15000** | CRIT | per-page chars (test asserts >=15000) |
++| `PG_AGENTIC_SUMMARY_MAX_TOKENS` | 2048 | **4096** | HIGH | page-summary depth (test asserts >=4096) |
++| `PG_AGENTIC_MAX_NOTEBOOK_ENTRIES` | 30 | **100** | HIGH | cross-round research memory |
++| `PG_NLI_ENABLED` | 0 (OFF) | **1** | CRIT | NLI verification: 75% acc + FREE + 20-50x faster vs LLM 54% (needs flan-t5 model present) |
++| `PG_V3_DEPTH_GATE` | 0 (OFF) | **1** | HIGH | analytical-depth quality gate |
++| `PG_STORM_ENABLED` | 0 (OFF) | decide | — | multi-perspective interviews (perspectives 8→15, rounds 4→8) |
++| `PG_SYNTHESIS_MAX_EXPANSION_PASSES` | 2 | **3** | MED | report-expansion passes |
++
++## TIER C — KEEP (legitimate safety/correctness caps, NOT downgrades)
++`PG_MAX_EVIDENCE_PER_CLAIM=20`, `PG_MAX_EVIDENCE_PER_URL=5`, Judge `max_tokens=16` (single enum
++arbiter — intentional), Sentinel decomposition floor `3000` (below it the certified JSON truncates →
++all-UNGROUNDED), Sentinel classifier `256`, the blank-verdict effort ladder `(xhigh,low,None)`,
++`PG_ROLE_TRANSPORT_RETRIES=2`, `PG_PROVIDER_BLANK_RETRIES=3`, generator timeout `1800s`, seam timeout
++`7200s`, react timeout `900s`. The Mirror reasoning cap `4000` is the honest #1053 GLM-no-op fix
++(documented tradeoff — could raise to 8000 or swap the model later).
++
++---
++
++## Proposed env slate for the full VM run (Tier A only, pending operator approval)
++```
++PG_LIVE_FETCH_CAP=300 PG_LIVE_MAX_SERPER=100 PG_LIVE_MAX_S2=100 PG_DOMAIN_MAX_HITS=50 \
++PG_MAX_EVIDENCE_TO_EXTRACT=1500 PG_DEEPENER_EVIDENCE_CAP=500 PG_MOST_MAX_EVIDENCE=800 \
++PG_LIVE_CONTENT_MAX=50000 PG_LIVE_RETRIEVER_MAX_WORKERS=16 \
++# PG_AMPLIFICATION_VARIANTS RETIRED (I-ready-017 FX-19 #1127): legacy-static-path-only, inert under agentic; do NOT set for the benchmark. \
++PG_AMPLIFIER_SCOPE_FLOOR=0.08 PG_V3_MAX_GAP_SEARCHES=5 PG_LIVE_HTTP_TIMEOUT=30 \
++PG_AGENTIC_FETCH_TIMEOUT=30 PG_PLAN_TIMEOUT=300 PG_FRAME_FETCHER_TIMEOUT=30 \
++PG_LLM_TIMEOUT_SECONDS=180 PG_OPENALEX_ENRICH_DEADLINE=90 PG_POST_FETCH_LOOP_BUDGET=2400 \
++PG_MAX_COST_PER_RUN=25
++```
++(DEFAULT_MAX_SUBQUERIES + the section/limitations max_tokens are hardcoded → small code PR. Tier B
++enables held for verification-first.)
++
++**Status: NOT applied. Awaiting operator per-tier approval per the no-silent-downgrade rule.**
+diff --git a/src/polaris_graph/agents/searcher.py b/src/polaris_graph/agents/searcher.py
+index 582e3c78..cb4de40d 100644
+--- a/src/polaris_graph/agents/searcher.py
++++ b/src/polaris_graph/agents/searcher.py
+@@ -293,7 +293,11 @@ async def execute_searches(
+ 
+     web_search_fn, academic_search_fn = _import_search_tools()
+ 
+-    # Change 2: Query amplification — expand queries for broader web coverage
++    # Change 2: Query amplification — expand queries for broader web coverage.
++    # I-ready-017 FX-19 (#1127): this is the LEGACY STATIC PATH. It is unreachable under the
++    # agentic slate (the early return above at PG_AGENTIC_SEARCH_ENABLED branch hands off to
++    # execute_agentic_search before this point), so PG_AMPLIFICATION_VARIANTS is INERT on the
++    # benchmark. Retained only for the non-agentic lane (PG_AGENTIC_SEARCH_ENABLED=0).
+     if PG_AMPLIFICATION_ENABLED:
+         try:
+             amplify_fn = _import_amplifier()
+diff --git a/src/polaris_graph/state.py b/src/polaris_graph/state.py
+index 2052d596..3289abd0 100644
+--- a/src/polaris_graph/state.py
++++ b/src/polaris_graph/state.py
+@@ -68,6 +68,14 @@ STORM_PERSPECTIVES = [
+ QUERIES_PER_PERSPECTIVE = int(os.getenv("PG_QUERIES_PER_PERSPECTIVE", "6"))
+ 
+ # Query amplification (Change 2)
++# I-ready-017 FX-19 (#1127) RETIRED-FROM-ADVERTISED-SLATE: PG_AMPLIFICATION_VARIANTS is
++# LEGACY-STATIC-PATH-ONLY. It is consumed exclusively in the non-agentic branch of
++# searcher.execute_searches (searcher.py:303,311), which is unreachable when
++# PG_AGENTIC_SEARCH_ENABLED=1 (early return to execute_agentic_search at searcher.py:291-292).
++# The benchmark runs agentic ON, so this knob is INERT there — active breadth comes from the
++# planner-decomposer + STORM + the agentic reasoning loop, NOT this variant multiplier. Kept
++# (not deleted) because the legacy static lane (PG_AGENTIC_SEARCH_ENABLED=0) still uses it.
++# Do NOT re-advertise it as a full-capability benchmark lever (was a dead knob in the SOTA slate).
+ PG_AMPLIFICATION_ENABLED = os.getenv("PG_AMPLIFICATION_ENABLED", "1") == "1"
+ PG_AMPLIFICATION_VARIANTS = int(os.getenv("PG_AMPLIFICATION_VARIANTS", "3"))
+ 
+diff --git a/tests/polaris_graph/discovery/test_source_discovery_phase2.py b/tests/polaris_graph/discovery/test_source_discovery_phase2.py
+index 005c3c97..f777f7ca 100644
+--- a/tests/polaris_graph/discovery/test_source_discovery_phase2.py
++++ b/tests/polaris_graph/discovery/test_source_discovery_phase2.py
+@@ -613,7 +613,7 @@ def _install_capture_baseline(monkeypatch):
+     serper_calls: list[str] = []
+     s2_calls: list[str] = []
+ 
+-    def _fake_serper(query, num=10):
++    def _fake_serper(query, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
+         serper_calls.append(query)
+         return [{"url": f"https://serp/{len(serper_calls)}", "title": "", "snippet": ""}]
+ 
+diff --git a/tests/polaris_graph/planning/test_research_planner_phase1.py b/tests/polaris_graph/planning/test_research_planner_phase1.py
+index 58557e8a..0d71496f 100644
+--- a/tests/polaris_graph/planning/test_research_planner_phase1.py
++++ b/tests/polaris_graph/planning/test_research_planner_phase1.py
+@@ -142,7 +142,7 @@ class CaptureSearch:
+     def __init__(self):
+         self.queries: list[str] = []
+ 
+-    def serper(self, q, num=10):
++    def serper(self, q, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
+         self.queries.append(q)
+         return []
+ 
+diff --git a/tests/polaris_graph/test_fx18_s2_keyword_openalex_iready017.py b/tests/polaris_graph/test_fx18_s2_keyword_openalex_iready017.py
+index 66aa9d04..c5f9eef2 100644
+--- a/tests/polaris_graph/test_fx18_s2_keyword_openalex_iready017.py
++++ b/tests/polaris_graph/test_fx18_s2_keyword_openalex_iready017.py
+@@ -42,7 +42,7 @@ def _stub_fetch(url, max_chars, **kwargs):
+ 
+ def test_s2_gets_distilled_query_and_openalex_merged_deduped(monkeypatch):
+     captured_s2: dict = {}
+-    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10: [
++    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: [
+         {"url": "https://dup.org/a", "title": "Serper A", "snippet": "labor"}
+     ])
+ 
+diff --git a/tests/polaris_graph/test_fx19_amplification_retired_iready017.py b/tests/polaris_graph/test_fx19_amplification_retired_iready017.py
+new file mode 100644
+index 00000000..25dbaae6
+--- /dev/null
++++ b/tests/polaris_graph/test_fx19_amplification_retired_iready017.py
+@@ -0,0 +1,91 @@
++"""FX-19 (I-ready-017 #1127): PG_AMPLIFICATION_VARIANTS is RETIRED from the advertised slate.
++
++The knob is consumed ONLY in the legacy static branch of `execute_searches`
++(searcher.py amplification block), which is unreachable on the agentic slate — the function
++returns `execute_agentic_search(...)` early when `PG_AGENTIC_SEARCH_ENABLED` is on. These offline
++behavioral tests PROVE that claim (the benchmark runs agentic, so the knob is inert there) and that
++the doc/comment-only RETIRE did NOT sever the legacy non-agentic lane that still uses it.
++No network. FX-19 makes no code-logic change — comments + advertised-slate doc annotation only.
++"""
++from __future__ import annotations
++
++import asyncio
++
++import src.polaris_graph.agents.searcher as searcher
++
++
++def _state(sub_queries):
++    return {"sub_queries": list(sub_queries), "region": "global", "original_query": "q"}
++
++
++def test_amplifier_unreachable_under_agentic_slate(monkeypatch):
++    """Core RETIRE proof: with PG_AGENTIC_SEARCH_ENABLED=1, execute_searches hands off to the agentic
++    loop BEFORE the amplification block, so PG_AMPLIFICATION_VARIANTS is never consulted."""
++    monkeypatch.setattr(searcher, "PG_AGENTIC_SEARCH_ENABLED", True)
++
++    agentic_called = {"n": 0}
++
++    async def _fake_agentic(state, client):
++        agentic_called["n"] += 1
++        return {"web_results": [], "academic_results": []}
++
++    monkeypatch.setattr(searcher, "execute_agentic_search", _fake_agentic)
++
++    def _boom():
++        raise AssertionError("_import_amplifier reached under the agentic slate — knob is NOT inert!")
++
++    monkeypatch.setattr(searcher, "_import_amplifier", _boom)
++
++    out = asyncio.run(searcher.execute_searches(_state(["a", "b"]), client=object()))
++    assert agentic_called["n"] == 1                 # agentic path taken
++    assert out == {"web_results": [], "academic_results": []}
++    # _import_amplifier never raised -> the amplification block (and the variants knob) was skipped.
++
++
++def test_legacy_static_path_still_consults_variants_knob(monkeypatch):
++    """Regression guard: with PG_AGENTIC_SEARCH_ENABLED=0 the legacy lane still enters the
++    amplification block and PG_AMPLIFICATION_VARIANTS still governs the cap (doc/comment-only RETIRE
++    did not delete the legacy behavior)."""
++    monkeypatch.setattr(searcher, "PG_AGENTIC_SEARCH_ENABLED", False)
++    monkeypatch.setattr(searcher, "PG_AMPLIFICATION_ENABLED", True)
++    monkeypatch.setattr(searcher, "PG_AMPLIFICATION_VARIANTS", 2)
++    monkeypatch.setattr(searcher, "PG_CITATION_CHASE_ENABLED", False)
++
++    monkeypatch.setattr(searcher, "_import_search_tools", lambda: (object(), object()))
++
++    amplifier_called = {"n": 0}
++
++    def _fake_import_amplifier():
++        def _amplify(sub_queries, region=None):
++            amplifier_called["n"] += 1
++            # return more than the cap so we can prove the cap (original_count * VARIANTS) is applied
++            return [f"v{i}" for i in range(10)]
++        return _amplify
++
++    monkeypatch.setattr(searcher, "_import_amplifier", _fake_import_amplifier)
++
++    seen_web_queries = {}
++
++    async def _fake_web(web_search_fn, web_queries, region, client=None, original_query=None):
++        seen_web_queries["q"] = list(web_queries)
++        return []
++
++    async def _fake_academic(academic_search_fn, academic_queries):
++        return []
++
++    async def _fake_exa(sub_queries):
++        return []
++
++    async def _fake_ddg(web_queries, web_results, region):
++        return web_results
++
++    monkeypatch.setattr(searcher, "_adaptive_web_search", _fake_web)
++    monkeypatch.setattr(searcher, "_run_academic_searches", _fake_academic)
++    monkeypatch.setattr(searcher, "_run_exa_searches", _fake_exa)
++    monkeypatch.setattr(searcher, "_run_ddg_fallback_for_zeros", _fake_ddg)
++
++    out = asyncio.run(searcher.execute_searches(_state(["only-one"]), client=None))
++    assert amplifier_called["n"] == 1                          # legacy lane DID consult the amplifier
++    # original_count=1, VARIANTS=2 -> cap=2: the 10 amplified queries are trimmed to 2.
++    assert seen_web_queries["q"] == ["v0", "v1"]
++    assert out["status"] == "analyzing"
+diff --git a/tests/polaris_graph/test_post_fetch_loop_timeout.py b/tests/polaris_graph/test_post_fetch_loop_timeout.py
+index 101cb881..67c86811 100644
+--- a/tests/polaris_graph/test_post_fetch_loop_timeout.py
++++ b/tests/polaris_graph/test_post_fetch_loop_timeout.py
+@@ -80,13 +80,17 @@ def _stub_pipeline(monkeypatch, n, openalex_impl):
+     """Stub serper / s2 / filter / fetch so run_live_retrieval's post-fetch
+     loop runs over `n` synthetic candidates with zero network."""
+     monkeypatch.setenv("PG_USE_PARALLEL_FETCH", "0")  # serial path
++    # FX-18 (#1122) wired openalex_search (default-ON) into run_live_retrieval. This stub is
++    # explicitly "zero network", so disable that academic backend here — otherwise it hits the real
++    # OpenAlex API and adds non-deterministic candidates (breaks the n-candidate count assertions).
++    monkeypatch.setenv("PG_OPENALEX_SEARCH", "0")
+     hits = [
+         {"url": f"https://example.test/doc-{i}",
+          "title": f"Carbon pricing household energy costs study {i}",
+          "snippet": "carbon pricing household energy costs"}
+         for i in range(n)
+     ]
+-    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10: list(hits))
++    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: list(hits))
+     monkeypatch.setattr(lr, "_s2_bulk_search", lambda q, limit=20: [])
+     monkeypatch.setattr(
+         lr, "filter_search_results",
