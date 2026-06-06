@@ -1,0 +1,214 @@
+diff --git a/src/polaris_graph/llm/openrouter_client.py b/src/polaris_graph/llm/openrouter_client.py
+index 8bcc4d5b..4623a69a 100644
+--- a/src/polaris_graph/llm/openrouter_client.py
++++ b/src/polaris_graph/llm/openrouter_client.py
+@@ -749,7 +749,10 @@ class UsageTracker:
+             "reasoning_tokens": reasoning_tokens,
+             "duration_ms": duration_ms,
+             "cost_usd": round(call_cost, 6),
+-            "cumulative_cost_usd": round(self.total_cost_usd, 4),
++            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
++            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
++            # which is non-monotonic across clients sharing a run and under-reports the UI.
++            "cumulative_cost_usd": round(current_run_cost(), 4),
+         }
+         # TIER-3 Stage 6: Optional prompt component breakdown
+         if prompt_component_tokens:
+@@ -766,7 +769,10 @@ class UsageTracker:
+             "reasoning_tokens": reasoning_tokens,
+             "duration_ms": round(duration_ms, 1),
+             "cost_usd": round(call_cost, 6),
+-            "cumulative_cost_usd": round(self.total_cost_usd, 4),
++            # FX-11 (BUG-10): the cumulative is the shared, monotonic RUN total (inclusive
++            # of this call — _add_run_cost ran first), not the per-instance self.total_cost_usd
++            # which is non-monotonic across clients sharing a run and under-reports the UI.
++            "cumulative_cost_usd": round(current_run_cost(), 4),
+         })
+ 
+     def _append_ledger(self, entry: dict):
+@@ -1878,7 +1884,14 @@ class OpenRouterClient:
+                 )
+             api_cost = max(api_cost or 0.0, imputed)
+ 
+-        # Track usage
++        # FX-11 (I-ready-017 BUG-10): contribute to the shared run-cost counter BEFORE
++        # usage.record so the cumulative_cost_usd it writes (now current_run_cost()) is
++        # INCLUSIVE of this call — matching the judge add-then-write order, and making the
++        # ledger's cumulative a monotonic run-total instead of a per-instance value. The
++        # budget cap is checked BEFORE the call by callers via check_run_budget(); this
++        # post-call add only accumulates (does not gate).
++        _add_run_cost(api_cost)
++        # Track usage (writes the line item + ledger row with the inclusive cumulative).
+         self.usage.record(
+             call_type=call_type,
+             input_tokens=input_tokens,
+@@ -1887,9 +1900,6 @@ class OpenRouterClient:
+             duration_ms=duration_ms,
+             api_cost=api_cost,
+         )
+-        # R-2: contribute to the shared run-cost counter AFTER the call.
+-        # Checking the cap BEFORE is done by callers via check_run_budget().
+-        _add_run_cost(api_cost)
+ 
+         # COT-1: Strict separation — NEVER mix reasoning into content.
+         # The API separates content and reasoning_content correctly.
+@@ -1996,7 +2006,10 @@ class OpenRouterClient:
+                     + (output_tokens / 1_000_000) * OUTPUT_COST_PER_M,
+                     6,
+                 ),
+-                cumulative_cost_usd=round(self.usage.total_cost_usd, 4),
++                # FX-11 (BUG-10): the live-UI trace event uses the shared monotonic run
++                # total (current_run_cost(), inclusive — _add_run_cost ran before record),
++                # not the per-instance self.usage.total_cost_usd that under-reported NOW.
++                cumulative_cost_usd=round(current_run_cost(), 4),
+                 model=self.model[:50],
+             )
+ 
+diff --git a/src/polaris_graph/roles/role_pipeline.py b/src/polaris_graph/roles/role_pipeline.py
+index 32db5c14..99a1ac77 100644
+--- a/src/polaris_graph/roles/role_pipeline.py
++++ b/src/polaris_graph/roles/role_pipeline.py
+@@ -171,7 +171,36 @@ class RecordingTransport:
+         # generator feeds, then enforce the cap. `_RUN_COST_CTX` is per-asyncio-Task; the seam
+         # runs synchronously inside the same `run_one_query` task that holds the generator spend,
+         # so the delta lands on the counter holding `generator_spend + verifier_spend`.
+-        _orc._add_run_cost(compute_role_call_cost(request.model_slug, response.usage))
++        _role_cost = compute_role_call_cost(request.model_slug, response.usage)
++        _orc._add_run_cost(_role_cost)
++        # FX-11 (I-ready-017 BUG-10b): ledger THIS four-role verifier call AFTER the add so
++        # its cumulative_cost_usd is inclusive, mirroring entailment_judge's ledger row
++        # (call_type=f"role:{role}"). The 4-role verifier calls (mirror/sentinel/judge) wrote
++        # ZERO cost-ledger rows before this. Best-effort: a ledger-write failure must NEVER
++        # break the verifier call or the budget check below.
++        try:
++            import json as _json
++            from datetime import datetime as _dt, timezone as _tz
++            _ub = response.usage or {}
++            _rt = int(_ub.get("reasoning_tokens", 0) or 0) or int(
++                (_ub.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0
++            )
++            _entry = {
++                "timestamp": _dt.now(_tz.utc).isoformat(),
++                "session_id": _orc._CURRENT_RUN_ID_CTX.get() or "no_run_id",
++                "call_type": f"role:{request.role}",
++                "input_tokens": int(_ub.get("prompt_tokens", 0) or 0),
++                "output_tokens": int(_ub.get("completion_tokens", 0) or 0),
++                "reasoning_tokens": _rt,
++                "duration_ms": 0.0,
++                "cost_usd": round(_role_cost, 6),
++                "cumulative_cost_usd": round(_orc.current_run_cost(), 4),
++            }
++            _orc._COST_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
++            with open(_orc._COST_LEDGER_PATH, "a", encoding="utf-8") as _f:
++                _f.write(_json.dumps(_entry) + "\n")
++        except Exception:
++            pass
+         _orc.check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
+         return response
+ 
+diff --git a/tests/polaris_graph/test_fx11_cost_ledger_iready017.py b/tests/polaris_graph/test_fx11_cost_ledger_iready017.py
+new file mode 100644
+index 00000000..b8c79b74
+--- /dev/null
++++ b/tests/polaris_graph/test_fx11_cost_ledger_iready017.py
+@@ -0,0 +1,100 @@
++"""FX-11 (I-ready-017): cost_ledger single canonical accumulator + role-call rows.
++
++BUG-10: cumulative_cost_usd was the per-instance total (non-monotonic across clients
++sharing a run, under-reported the UI). Now it is the shared, monotonic run total
++(current_run_cost(), inclusive — _add_run_cost runs before usage.record).
++BUG-10b: the four-role verifier calls (mirror/sentinel/judge) wrote ZERO ledger rows;
++RecordingTransport now appends one row per role call.
++
++Cost-accounting only — no faithfulness/strict_verify/4-role-decision change. Offline,
++no network: a tmp ledger + direct UsageTracker.record + a fake RoleTransport.
++"""
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.llm import openrouter_client as orc
++from src.polaris_graph.llm.openrouter_client import (
++    UsageTracker,
++    _add_run_cost,
++    current_run_cost,
++    reset_run_cost,
++    set_current_run_id,
++)
++from src.polaris_graph.roles.role_pipeline import RecordingTransport
++from src.polaris_graph.roles.role_transport import RoleRequest, RoleResponse
++
++
++@pytest.fixture
++def tmp_ledger(tmp_path, monkeypatch):
++    p = tmp_path / "cost_ledger.jsonl"
++    monkeypatch.setattr(orc, "_COST_LEDGER_PATH", p)
++    reset_run_cost()
++    set_current_run_id("FX11_TEST")
++    try:
++        yield p
++    finally:
++        reset_run_cost()
++        set_current_run_id(None)
++
++
++def _rows(p):
++    if not p.exists():
++        return []
++    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
++
++
++def test_bug10_cumulative_is_monotonic_run_total(tmp_ledger):
++    usage = UsageTracker(session_id="FX11_TEST")
++    # Simulate the reordered real path: _add_run_cost BEFORE record, once per call.
++    for cost in (0.5, 0.3, 0.2):
++        _add_run_cost(cost)
++        usage.record(call_type="generate", input_tokens=10, output_tokens=5, api_cost=cost)
++    rows = [r for r in _rows(tmp_ledger) if r.get("session_id") == "FX11_TEST"]
++    cums = [r["cumulative_cost_usd"] for r in rows]
++    assert cums == sorted(cums), f"cumulative must be NON-DECREASING, got {cums}"
++    assert abs(cums[-1] - round(current_run_cost(), 4)) < 1e-9, "final == run total"
++    assert abs(cums[-1] - 1.0) < 1e-9
++    # generate rows no longer equal their OWN cost after >1 call (the old per-instance bug)
++    assert rows[-1]["cumulative_cost_usd"] != rows[-1]["cost_usd"]
++
++
++class _FakeTransport:
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        return RoleResponse(
++            raw_text="ok",
++            served_model=request.model_slug,
++            usage={"prompt_tokens": 100, "completion_tokens": 50},
++        )
++
++
++def test_bug10b_role_call_writes_inclusive_ledger_row(tmp_ledger):
++    rt = RecordingTransport(_FakeTransport())
++    rt.complete(RoleRequest(role="mirror", model_slug="z-ai/glm-5.1"))
++    rt.complete(RoleRequest(role="sentinel", model_slug="minimax/minimax-m2"))
++    role_rows = [r for r in _rows(tmp_ledger) if str(r.get("call_type", "")).startswith("role:")]
++    assert len(role_rows) == 2, "each four-role verifier call must write ONE ledger row"
++    assert {r["call_type"] for r in role_rows} == {"role:mirror", "role:sentinel"}
++    cums = [r["cumulative_cost_usd"] for r in role_rows]
++    assert cums == sorted(cums), "role-row cumulative must be NON-DECREASING"
++    assert abs(cums[-1] - round(current_run_cost(), 4)) < 1e-9, "inclusive of both calls"
++    assert role_rows[0]["cost_usd"] > 0, "non-zero role cost (floor guarantees > 0)"
++
++
++def test_bug10b_ledger_write_failure_never_breaks_role_call(tmp_path, monkeypatch):
++    # Point the ledger at an un-writable path; the role call must STILL succeed (best-effort).
++    reset_run_cost()
++    set_current_run_id("FX11_TEST")
++    bad = tmp_path / "nonexistent_dir_seg" / "x" / "cost_ledger.jsonl"
++    monkeypatch.setattr(orc, "_COST_LEDGER_PATH", bad)
++    monkeypatch.setattr(
++        orc, "_impute_cost_from_tokens", lambda *a, **k: 0.001, raising=False,
++    )
++    rt = RecordingTransport(_FakeTransport())
++    # Even if the write path were to fail, complete() must return the response.
++    resp = rt.complete(RoleRequest(role="judge", model_slug="qwen/qwen3.6-35b-a3b"))
++    assert resp.raw_text == "ok"
++    reset_run_cost()
++    set_current_run_id(None)
