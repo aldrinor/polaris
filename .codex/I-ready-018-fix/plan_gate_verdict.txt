@@ -1,0 +1,20 @@
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: PLAN-SEQUENCE-A9-A10
+    finding: "The plan classifies A9/A10 as high-severity silent degradations, but the execution sequence still allows the paid canary after only FIX-A3, FIX-SLOT, FIX-BP, FIX-JO, and FIX-GLM. That leaves known silent-downgrade risks unresolved before spend."
+    evidence: "Held-run artifacts confirm A9: quantified_analysis enabled=true, execution_success=false, fired=false, spec_produced=false, outputs=0, sourced_numbers_extracted=111. They confirm A10: retrieval failed=129/fetched=26, parallel_fetch_timeout_count=129; run_log reports pre_filter=155, fetched=26, failed=129."
+    required_change: "Either promote A9 and A10 into blocking pre-canary fixes with fail-loud/report-disclosure ACs, or explicitly downgrade/scope them out with operator acceptance. As written, the plan's own severity model contradicts its execution sequence."
+p2:
+  - id: FIX-A3-SMOKE-SHARPEN
+    finding: "FIX-A3 option B is the right direction over silent re-pointing for this run: ev_037[7500:8300] contains 5.4% versus 3.7%, while 50% versus 19% starts at index 8421 and is absent from the printed span. But the smoke wording should explicitly retire or invert the existing local-window-positive I-gen-005 test, since option B intentionally changes that policy."
+  - id: FIX-SLOT-COVERAGE-WORDING
+    finding: "Gate-neutrality is basically correct because CoverageLedger uses a fixed required-set denominator, so dropping placeholder prose cannot increase Gate-B coverage. However, 'can only LOWER coverage' is too strong for this frozen run: placeholder prose appears in report/NLI surfaces but not in four_role_claim_audit, so coverage may remain unchanged rather than lower."
+  - id: FIX-JO-CONFIRMED
+    finding: "Per-question journal_only activation is the correct constraint. The current Gate-B slate does not set PG_SOURCE_RESTRICTION_JOURNAL_ONLY, and journal_only_active requires both the env flag and source_restriction: journal_only. The caveat that this does not make drb_72 shippable is correct."
+  - id: FIX-GLM-CONFIRMED
+    finding: "The GLM decision is supportable: llm_io shows Mirror GLM attempts by provider as Parasail 126 with 23 blank statuses, Io Net 39 with 0 blank statuses, and Friendli 17 with 1 length blank. Final role calls still show 158 successful Mirror calls, so the evidence points to provider routing, not a model swap."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Make A9 quantified-analysis no-op and A10 retrieval degradation blocking pre-canary work items, or explicitly obtain operator acceptance to defer them despite the current P0/P1 labeling."
+verdict: REQUEST_CHANGES
