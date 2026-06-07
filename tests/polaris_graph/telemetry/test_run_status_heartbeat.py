@@ -60,6 +60,29 @@ def test_writes_both_targets_with_schema(tmp_path, monkeypatch):
         assert doc["last_update_utc"].endswith("Z")
 
 
+def test_apply_persisted_sources_kept_injects_when_absent():
+    """The run loop sets the kept-source count once at retrieval_done; later stages that pass
+    no explicit value inherit it (so run_status.json never reverts to sources_kept=None)."""
+    kw: dict = {}
+    out = hb.apply_persisted_sources_kept(kw, 180)
+    assert out is kw  # mutates in place
+    assert kw["sources_kept"] == 180
+
+
+def test_apply_persisted_sources_kept_does_not_override_explicit():
+    """A stage that reports its own sources_kept (e.g. a re-measured corpus) is NOT clobbered."""
+    kw = {"sources_kept": 42}
+    hb.apply_persisted_sources_kept(kw, 180)
+    assert kw["sources_kept"] == 42
+
+
+def test_apply_persisted_sources_kept_noop_while_unknown():
+    """Before retrieval_done the count is unknown (None) — no key is added (stays absent → None)."""
+    kw: dict = {}
+    hb.apply_persisted_sources_kept(kw, None)
+    assert "sources_kept" not in kw
+
+
 def test_off_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv(hb.HEARTBEAT_ENABLED_ENV, "0")
     mirror = tmp_path / "state" / "run_status.json"

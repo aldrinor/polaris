@@ -1698,12 +1698,22 @@ async def run_one_query(
     # Codex AC1-gate iter-2 P1-1: serialize the seam-worker progress callback vs the parent's
     # clear/terminal writes so a check-then-write race can't land stale progress after terminal.
     _hb_lock = threading.Lock()
+    # I-obs-001 #1141 AC1 (overnight completeness fix): the kept-source count, set once at
+    # retrieval_done and then PERSISTED into every later heartbeat so a human tailing run_status.json
+    # at ANY post-retrieval stage sees the real retrieval volume — the silent-URL-throttle signal —
+    # instead of None. A 1-element list-box so the nested `_hb` closure can read the latest value;
+    # the read is a single GIL-atomic index, set once by the parent before the seam thread starts.
+    _hb_sources_kept = [None]
     from src.polaris_graph.telemetry.run_status_heartbeat import (
+        apply_persisted_sources_kept as _apply_persisted_sources_kept,
         write_heartbeat as _write_heartbeat,
     )
 
     def _hb(stage: str, **kw) -> None:
         try:
+            # Persist the kept-source count across stages without overriding an explicit caller value
+            # (tested pure helper: src/polaris_graph/telemetry/run_status_heartbeat.py).
+            _apply_persisted_sources_kept(kw, _hb_sources_kept[0])
             _write_heartbeat(
                 run_dir=run_dir,
                 run_id=run_id,
@@ -2650,6 +2660,11 @@ async def run_one_query(
                 )
 
         if len(retrieval.classified_sources) == 0:
+            # I-obs-001 #1141 AC1 (Codex P2-1): this no-source abort returns BEFORE the
+            # retrieval_done site that normally sets the kept-count box, so publish 0 here too —
+            # the guaranteed-finally terminal heartbeat then reports sources_kept: 0 (the
+            # worst-case dead-route/throttle collapse) instead of null.
+            _hb_sources_kept[0] = 0
             # BUG-B-101 fix: previously returned without any manifest,
             # so downstream couldn't tell the run happened at all.
             summary["status"] = "fail_no_sources"
@@ -3166,7 +3181,10 @@ async def run_one_query(
         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
         _flush_retrieval_trace()
-        _hb("retrieval_done")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): stage heartbeat
+        # I-obs-001 #1141 AC1 (overnight completeness fix): publish the kept-source count so the
+        # heartbeat carries the retrieval-volume / silent-throttle signal from retrieval_done onward.
+        _hb_sources_kept[0] = len(retrieval.classified_sources)
+        _hb("retrieval_done", sources_kept=_hb_sources_kept[0])  # I-obs-001 #1141 AC1: stage heartbeat
 
         # I-ready-017 #1134: journal_only SINGLE source-filter. After ALL
         # retrieval stages, restrict the citeable corpus to peer-reviewed

@@ -52,6 +52,23 @@ def heartbeat_paths(run_dir: Path | str) -> list[Path]:
     ]
 
 
+def apply_persisted_sources_kept(
+    kw: dict[str, Any], persisted: int | None
+) -> dict[str, Any]:
+    """Inject a persisted kept-source count into a heartbeat kwargs dict (pure; mutates+returns ``kw``).
+
+    The run loop sets the kept-source count once at ``retrieval_done`` and wants every LATER
+    heartbeat (generation / four_role / manifest / terminal) to keep reporting it, so a human
+    tailing ``run_status.json`` at any post-retrieval stage sees the real retrieval volume — the
+    silent-URL-throttle signal — instead of ``None``. The injection NEVER overrides a stage that
+    passes its own explicit ``sources_kept``, and is a no-op while the count is still unknown
+    (``persisted is None``).
+    """
+    if "sources_kept" not in kw and persisted is not None:
+        kw["sources_kept"] = persisted
+    return kw
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     """Write ``payload`` as JSON to ``path`` atomically (temp + ``os.replace``).
 
