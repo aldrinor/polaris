@@ -285,6 +285,52 @@ def feature_firing_warning(telemetry: dict[str, Any]) -> str | None:
     return None
 
 
+def retrieval_fetch_disclosure(fetched: int, failed: int, total: int) -> str:
+    """FIX-A10 (#1100): one reader-facing Methods line disclosing the retrieval fetch outcome, so a
+    run whose corpus was upstream-starved (e.g. drb_72: 26/155 fetched, 129 failed/timeout) does not
+    look complete. Pure; no I/O."""
+    return (
+        f"Retrieval fetch outcome: {int(fetched)} of {int(total)} candidate sources fetched; "
+        f"{int(failed)} failed or timed out.\n"
+    )
+
+
+def retrieval_failure_warning(fetched: int, failed: int, total: int, warn_rate: float) -> str | None:
+    """FIX-A10 (#1100): LOUD warning string when the fetch-failure rate >= ``warn_rate`` (env-driven,
+    LAW VI), else None. Silent upstream starvation is the no-downgrade directive's high-harm case."""
+    total = int(total)
+    if total <= 0:
+        return None
+    rate = int(failed) / total
+    if rate < warn_rate:
+        return None
+    return (
+        f"{int(failed)}/{total} candidate fetches failed or timed out "
+        f"({rate:.0%} >= {warn_rate:.0%} PG_RETRIEVAL_FAILURE_WARN_RATE) — corpus is "
+        f"upstream-starved; coverage may be degraded"
+    )
+
+
+def quantified_degradation_disclosure(telemetry: dict[str, Any] | None) -> str:
+    """FIX-A9 (#1100): reader-facing '## Capability disclosures' block IFF quantified-analysis was
+    ENABLED but produced no verified output (fired-equivalent = verified_sentences>0, the same signal
+    _normalize_quantified_telemetry uses). Returns '' when not degraded (no report change). Pure."""
+    if not isinstance(telemetry, dict):
+        return ""
+    if not telemetry.get("enabled"):
+        return ""
+    if int(telemetry.get("verified_sentences", 0) or 0) > 0:
+        return ""
+    why = telemetry.get("firing_status") or telemetry.get("error") or "no verified quantified output"
+    extracted = int(telemetry.get("sourced_numbers_extracted", 0) or 0)
+    return (
+        f"\n## Capability disclosures\n"
+        f"Quantified trade-off analysis was ENABLED but did not contribute to this report "
+        f"({why}); {extracted} sourced numbers were extracted but not modeled into a verified "
+        f"quantified comparison.\n"
+    )
+
+
 # FL-05 (#1124): a force-enabled discovery feature with one of these firing states silently
 # degraded the run to the Serper/S2 baseline (block ran but produced nothing / errored).
 _FL05_DEGRADED_FIRING: frozenset[str] = frozenset({"attempted_empty", "error"})
@@ -5165,12 +5211,26 @@ async def run_one_query(
             completeness_line += f"; uncovered: {uncovered_labels}"
         completeness_line += "."
 
+        # FIX-A10 (#1100): disclose the retrieval fetch outcome in the REPORT (not just logs) and emit
+        # a LOUD warning when the failure rate exceeds an env-driven threshold (LAW VI). In the drb_72
+        # run 62% of fetches failed/timed out silently — the reader saw no sign the corpus was
+        # upstream-starved, a primary driver of the low coverage. Disclosure-first (not a hard abort).
+        _ret_fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
+        _ret_failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
+        _ret_total = int(getattr(retrieval, "candidates_total", 0) or 0) or (_ret_fetched + _ret_failed)
+        _ret_warn = retrieval_failure_warning(
+            _ret_fetched, _ret_failed, _ret_total,
+            float(os.getenv("PG_RETRIEVAL_FAILURE_WARN_RATE", "0.5")),
+        )
+        if _ret_warn:
+            _log(f"[retrieval]   WARNING: {_ret_warn}")
         methods = (
             "\n\n## Methods\n"
             f"Pre-registered protocol.json (SHA-256 {scope.protocol_sha256[:16]}...).\n"
             f"Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, "
             f"augmented by domain backends ({q['domain']}: "
             f"{retrieval.notes[-1] if retrieval.notes else 'none'}).\n"
+            f"{retrieval_fetch_disclosure(_ret_fetched, _ret_failed, _ret_total)}"
             f"Generator model: {PG_GENERATOR_MODEL} (multi-section: outline + "
             f"{len([s for s in multi.sections if not s.dropped_due_to_failure])} "
             f"parallel sections + strict_verify + regen-on-failure).\n"
@@ -5185,6 +5245,10 @@ async def run_one_query(
             f"{adequacy_line}\n"
             f"{completeness_line}\n"
         )
+        # FIX-A9 (#1100): report-visible disclosure of a SILENT quantified-analysis degradation
+        # (operator no-downgrade directive) — complements the loud log at the manifest build. The
+        # helper returns "" unless the capability was ENABLED but produced no verified output.
+        methods += quantified_degradation_disclosure(_quantified_telemetry)
         # M-22 + M-25e (DR audit passes 1-5): contradiction disclosure.
         # M-22 (earlier) surfaced a bounded narrative paragraph to avoid a
         # raw dump. But the evaluator's PT08 check requires that every
@@ -5200,13 +5264,12 @@ async def run_one_query(
                 f"The contradiction detector flagged {len(contradictions)} "
                 f"numeric disagreements across the evidence pool. Most are "
                 f"extraction artifacts produced by grouping different "
-                f"endpoints (e.g. HbA1c % vs body-weight %), different "
-                f"doses, different populations (T2D vs obesity-without-"
-                f"diabetes), or different comparators under the same "
-                f"subject/predicate label. The detector does NOT adjudicate "
-                f"by endpoint, population, dose, timepoint, or source tier; "
-                f"raw detector output is available in `contradictions.json`. "
-                f"Per-flag enumeration (PT08 disclosure):\n\n"
+                f"measured endpoints, units, sub-populations, time windows, "
+                f"or comparators under the same subject/predicate label. The "
+                f"detector does NOT adjudicate by endpoint, population, "
+                f"timepoint, or source tier; raw detector output is available "
+                f"in `contradictions.json`. Per-flag enumeration (PT08 "
+                f"disclosure):\n\n"
             )
             for c in contradictions:
                 subj = getattr(c, "subject", None) or (
