@@ -374,6 +374,8 @@ class _SemanticContradictionJudge:
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
+        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
+        # the served response (post ok, parse failed) over the exception string.
         try:
             response = self._client.post(
                 self._endpoint,
@@ -385,6 +387,18 @@ class _SemanticContradictionJudge:
             )
             response.raise_for_status()
             data = response.json()
+            # I-obs-001 #1141 AC3: verbatim raw I/O forensic capture (success). Default-OFF; never raises.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is not None:
+                    import uuid as _uuid
+                    _io_sink.record(
+                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                        raw_response=data, duration_ms=None, status="ok",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             usage = data.get("usage", {}) or {}
             input_tokens = int(usage.get("prompt_tokens", 0) or 0)
             output_tokens = int(usage.get("completion_tokens", 0) or 0)
@@ -435,6 +449,21 @@ class _SemanticContradictionJudge:
             if isinstance(exc, BudgetExceededError):
                 raise
             logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
+            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
+            # silently drops a possible real conflict on a transient/parse failure (drb_72-class
+            # signal). Prefer the bound served `data`. Default-OFF; never raises.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is not None:
+                    import uuid as _uuid
+                    _io_sink.record(
+                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                        raw_response=(data if data is not None else {"error": str(exc)}),
+                        duration_ms=None, status="judge_error",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             return "neutral", 0.0
 
 

@@ -183,6 +183,8 @@ class _EntailmentJudge:
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
+        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture below can
+        # prefer the served response (post succeeded, parse/verdict failed) over the exception string.
         try:
             response = self._client.post(
                 self._endpoint,
@@ -209,6 +211,21 @@ class _EntailmentJudge:
                         raw_response=data,
                     )
             except Exception:  # noqa: BLE001 — capture must never break the judge
+                pass
+
+            # I-obs-001 #1141 AC3: verbatim raw I/O forensic capture (success). Disjoint from the
+            # sanitized pathB capture above (captures the served response incl. reasoning); default-OFF.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is not None:
+                    import uuid as _uuid
+                    _io_sink.record(
+                        call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
+                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                        raw_response=data,
+                        duration_ms=(time.monotonic() - started) * 1000.0, status="ok",
+                    )
+            except Exception:  # noqa: BLE001
                 pass
 
             # I-bug-100: cost recording. Reads + records BEFORE verdict
@@ -257,6 +274,21 @@ class _EntailmentJudge:
             raise
         except Exception as exc:  # noqa: BLE001 — fail-open by design
             logger.warning("entailment judge error: %s", exc)
+            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — a drb_72-class signal (the
+            # judge silently passes a sentence it could not verify). Prefer the bound served `data`
+            # (parse-failure on a real response) over the exc string. Default-OFF; never raises.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is not None:
+                    import uuid as _uuid
+                    _io_sink.record(
+                        call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
+                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                        raw_response=(data if data is not None else {"error": str(exc)}),
+                        duration_ms=None, status="judge_error",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
             return "ENTAILED", f"judge_error: {type(exc).__name__}"
 
 
