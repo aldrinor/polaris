@@ -851,3 +851,115 @@ def test_fx07_footer_all_bound_only_when_all_open_access() -> None:
     )
     text = compose_methods_disclosure(cov)
     assert "all 2 contract-required entities populated with bound evidence" in text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-ready-017 FX-07b leg-2 (#1111): strict_verify -> frame_coverage pipeline-fault
+# honesty override. A validated (verdict==pass) non-gap entity whose generator
+# produced content sentences that ALL failed strict_verify must read as
+# generation_failed (pipeline fault), NOT pass.
+# ─────────────────────────────────────────────────────────────────────────────
+class TestFx07bLeg2PipelineFaultOverride:
+    def _svk(self, slot, eid, generated, kept, pc="abstract_only"):
+        return {(slot, eid): {
+            "sentences_generated_content": generated,
+            "sentences_kept": kept,
+            "provenance_class": pc,
+        }}
+
+    def test_pass_with_generated_but_zero_kept_flips_to_generation_failed(self):
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk("s1", "e1", generated=3, kept=0),
+        )
+        e = cov.entries[0]
+        assert e.status == "generation_failed"
+        assert e.is_pipeline_fault is True
+        assert e.human_completion_eligible is False
+        assert cov.pipeline_fault_count == 1
+        assert cov.pass_count == 0
+        assert cov.by_status.get("generation_failed") == 1
+
+    def test_non_gap_fail_min_fields_zero_kept_stays_partial(self):
+        # verdict != PASS -> NOT an override (this is an extraction gap, curator-actionable).
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.FAIL_MIN_FIELDS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk("s1", "e1", generated=2, kept=0),
+        )
+        e = cov.entries[0]
+        assert e.status != "generation_failed"
+        assert e.is_pipeline_fault is False
+        assert cov.pipeline_fault_count == 0
+        assert cov.partial_count == 1
+
+    def test_frame_gap_unrecoverable_zero_kept_stays_gap(self):
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(provenance=ProvenanceClass.FRAME_GAP_UNRECOVERABLE),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk("s1", "e1", generated=1, kept=0,
+                                           pc="frame_gap_unrecoverable"),
+        )
+        e = cov.entries[0]
+        assert e.status != "generation_failed"
+        assert e.is_pipeline_fault is False
+        assert cov.frame_gap_count == 1
+        assert cov.pipeline_fault_count == 0
+
+    def test_pass_with_kept_content_unaffected(self):
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk("s1", "e1", generated=3, kept=3),
+        )
+        e = cov.entries[0]
+        assert e.status == ValidationVerdict.PASS.value
+        assert e.is_pipeline_fault is False
+        assert cov.pass_count == 1
+        assert cov.pipeline_fault_count == 0
+
+    def test_no_metric_is_non_overriding(self):
+        # No strict_verify_by_key entry (None / unknown) -> never overrides.
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(cf, outline, rows, validation,
+                                     strict_verify_by_key=None)
+        assert cov.entries[0].status == ValidationVerdict.PASS.value
+        assert cov.pipeline_fault_count == 0
+
+    def test_mixed_two_entities_only_zero_kept_flips(self):
+        b1 = _make_binding(entity_id="e1", slot="s1")
+        b2 = _make_binding(entity_id="e2", slot="s2")
+        cf = _make_compiled_frame((b1, b2))
+        outline = _make_outline(cf)
+        rows = (_make_row(entity_id="e1", slot="s1"),
+                _make_row(entity_id="e2", slot="s2"))
+        validation = _make_validation([
+            ("s1", "e1", ValidationVerdict.PASS),
+            ("s2", "e2", ValidationVerdict.PASS),
+        ])
+        svk = {}
+        svk.update(self._svk("s1", "e1", generated=2, kept=0))   # fault
+        svk.update(self._svk("s2", "e2", generated=2, kept=2))   # fine
+        cov = compose_frame_coverage(cf, outline, rows, validation,
+                                     strict_verify_by_key=svk)
+        by_eid = {e.entity_id: e for e in cov.entries}
+        assert by_eid["e1"].status == "generation_failed"
+        assert by_eid["e2"].status == ValidationVerdict.PASS.value
+        assert cov.pipeline_fault_count == 1
+        assert cov.pass_count == 1

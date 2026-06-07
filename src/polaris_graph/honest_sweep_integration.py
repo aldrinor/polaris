@@ -161,6 +161,11 @@ def run_v30_post_generation(
     log: Any,
     legacy_report_text: str | None = None,
     legacy_bibliography: list[dict[str, Any]] | None = None,
+    # I-ready-017 FX-07b leg-2 (#1111): per-(slot_id,entity_id) strict_verify
+    # telemetry from the generation run (MultiSectionResult.slot_strict_verify_by_key).
+    # Default None -> compose_frame_coverage applies no pipeline-fault override
+    # (byte-identical to legacy callers).
+    strict_verify_by_key: dict[Any, Any] | None = None,
 ) -> V30SweepResult:
     """Run V30 contract/compile/fetch/outline/coverage chain.
 
@@ -215,6 +220,7 @@ def run_v30_post_generation(
             warnings=warnings,
             legacy_report_text=legacy_report_text,
             legacy_bibliography=legacy_bibliography,
+            strict_verify_by_key=strict_verify_by_key,
         )
     except Exception as exc:  # noqa: BLE001
         tb_line = f"{type(exc).__name__}: {exc}"
@@ -239,6 +245,7 @@ def _run_inner(
     warnings: list[str],
     legacy_report_text: str | None = None,
     legacy_bibliography: list[dict[str, Any]] | None = None,
+    strict_verify_by_key: dict[Any, Any] | None = None,  # I-ready-017 #1111
 ) -> V30SweepResult:
     """Actual chain. Separated so run_v30_post_generation can wrap
     it in a broad exception guard without obscuring the happy-path
@@ -361,6 +368,7 @@ def _run_inner(
     # M-60: compose coverage report + methods disclosure + M-61 tasks
     coverage = compose_frame_coverage(
         compiled, outline, frame_rows, validation,
+        strict_verify_by_key=strict_verify_by_key,
     )
     log(
         f"[V30]         coverage: pass={coverage.pass_count}, "

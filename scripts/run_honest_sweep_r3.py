@@ -5986,6 +5986,14 @@ async def run_one_query(
                     slug=q["slug"],
                     run_dir=run_dir,
                     log=_log,
+                    # I-ready-017 FX-07b leg-2 (#1111): pass the generation run's
+                    # per-(slot,entity) strict_verify telemetry so compose_frame_
+                    # coverage can flip a validated-but-all-dropped slot to
+                    # generation_failed (pipeline fault) instead of pass.
+                    # Defensive getattr: None on any non-MultiSectionResult path.
+                    strict_verify_by_key=getattr(
+                        multi, "slot_strict_verify_by_key", None,
+                    ),
                 )
                 # Manifest merge via factored helper (unit-tested
                 # in tests/polaris_graph/test_honest_sweep_integration.py).

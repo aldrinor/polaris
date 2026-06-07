@@ -149,6 +149,7 @@ def compose_frame_coverage(
     outline: ContractOutline,
     frame_rows: tuple[FrameRow, ...],
     validation_report: ValidationReport,
+    strict_verify_by_key: dict[Any, Any] | None = None,
 ) -> FrameCoverageReport:
     """M-60 entrypoint. Produce the structured coverage block for
     manifest.json.
@@ -238,7 +239,32 @@ def compose_frame_coverage(
                     == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
                 )
 
-                if is_gap_row:
+                # I-ready-017 FX-07b leg-2 (#1111): pipeline-fault honesty
+                # override. A non-gap entity that VALIDATED (verdict==pass) and
+                # whose generator DID produce content sentences but ALL of them
+                # failed strict_verify is a PIPELINE FAULT — it must NOT read as
+                # pass (the report has no verified prose for it). Triple-gated so
+                # an extraction gap (verdict!=pass) or a no-content-attempted row
+                # (generated==0) or a FRAME_GAP_UNRECOVERABLE row is NEVER
+                # reclassified. Unknown/missing metrics → non-overriding.
+                _sv_meta = (strict_verify_by_key or {}).get(
+                    (slot.slot_id, entity_id)
+                )
+                _is_gen_failed = bool(
+                    (not is_gap_row)
+                    and status == ValidationVerdict.PASS.value
+                    and isinstance(_sv_meta, dict)
+                    and (_sv_meta.get("sentences_generated_content") or 0) > 0
+                    and (_sv_meta.get("sentences_kept") or 0) == 0
+                )
+                if _is_gen_failed:
+                    # Correct the aggregate: this would-be pass is a fault.
+                    pipeline_fault_count += 1
+                    by_status[status] = max(0, by_status.get(status, 0) - 1)
+                    by_status["generation_failed"] = (
+                        by_status.get("generation_failed", 0) + 1
+                    )
+                elif is_gap_row:
                     gap_count += 1
                 elif status == ValidationVerdict.PASS.value:
                     pass_count += 1
@@ -254,12 +280,17 @@ def compose_frame_coverage(
                     entity_type=row.entity_type,
                     section=section.section,
                     subsection_title=slot.subsection_title,
-                    status=status,
+                    status=("generation_failed" if _is_gen_failed else status),
                     provenance_class=row.provenance_class.value,
-                    failure_reason=_failure_reason(
-                        row, status, reasons_by_key.get(
-                            (slot.slot_id, entity_id), ""
-                        ),
+                    failure_reason=(
+                        "strict_verify dropped all generated content sentences "
+                        "(pipeline fault — no verified prose for this entity)"
+                        if _is_gen_failed
+                        else _failure_reason(
+                            row, status, reasons_by_key.get(
+                                (slot.slot_id, entity_id), ""
+                            ),
+                        )
                     ),
                     retrieval_attempt_log=[
                         {
@@ -277,10 +308,13 @@ def compose_frame_coverage(
                     # statuses (unbound citation, gap-no-language,
                     # payload mismatch) and already-passing entries
                     # are NOT routed to human completion.
-                    human_completion_eligible=_is_curator_actionable(
-                        is_gap_row=is_gap_row, status=status,
+                    human_completion_eligible=(
+                        False if _is_gen_failed
+                        else _is_curator_actionable(
+                            is_gap_row=is_gap_row, status=status,
+                        )
                     ),
-                    is_pipeline_fault=False,
+                    is_pipeline_fault=_is_gen_failed,
                     required_fields=required_fields,
                     min_fields_for_completion=min_fields,
                     doi=row.doi,
