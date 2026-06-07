@@ -860,21 +860,36 @@ def test_fx07_footer_all_bound_only_when_all_open_access() -> None:
 # generation_failed (pipeline fault), NOT pass.
 # ─────────────────────────────────────────────────────────────────────────────
 class TestFx07bLeg2PipelineFaultOverride:
-    def _svk(self, slot, eid, generated, kept, pc="abstract_only"):
+    # I-ready-017 FX-07b leg-2 (#1111) root-cause design (Codex-ratified):
+    # the override keys on TOKEN-INDEPENDENT SUBSTANTIVE signals, not raw
+    # token counts. A validated (verdict==pass) non-gap entity with zero
+    # substantive kept prose flips out of pass; owner routing splits on
+    # (has_usable_quote AND substantive drafted) -> generation_failed
+    # (pipeline fault) vs otherwise -> curator_gap_no_substantive_content.
+    def _svk(self, slot, eid, *, drafted_substantive=0, kept_substantive=0,
+             has_usable_quote=False, generated=0, kept=0, pc="abstract_only"):
         return {(slot, eid): {
             "sentences_generated_content": generated,
             "sentences_kept": kept,
+            "sentences_drafted_substantive": drafted_substantive,
+            "sentences_kept_substantive": kept_substantive,
+            "has_usable_quote": has_usable_quote,
             "provenance_class": pc,
         }}
 
-    def test_pass_with_generated_but_zero_kept_flips_to_generation_failed(self):
+    def test_usable_quote_substantive_drafted_all_dropped_is_pipeline_fault(self):
+        # Drafted real substantive prose from a usable quote, strict_verify
+        # dropped it all -> engineer-owned generation_failed.
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows = (_make_row(),)
         validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
         cov = compose_frame_coverage(
             cf, outline, rows, validation,
-            strict_verify_by_key=self._svk("s1", "e1", generated=3, kept=0),
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=3, kept_substantive=0,
+                has_usable_quote=True, generated=3, kept=0,
+            ),
         )
         e = cov.entries[0]
         assert e.status == "generation_failed"
@@ -884,46 +899,120 @@ class TestFx07bLeg2PipelineFaultOverride:
         assert cov.pass_count == 0
         assert cov.by_status.get("generation_failed") == 1
 
-    def test_non_gap_fail_min_fields_zero_kept_stays_partial(self):
-        # verdict != PASS -> NOT an override (this is an extraction gap, curator-actionable).
+    def test_metadata_only_empty_quote_flips_to_curator_gap(self):
+        # THE frey_osborne_computerisation class (Class A): metadata_only, no
+        # usable quote, drafted only not-extractable placeholders (zero
+        # substantive drafted/kept). Must NOT read pass; must be a CURATOR gap
+        # (human-completable), NOT a pipeline fault.
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=0, kept_substantive=0,
+                has_usable_quote=False, generated=0, kept=0, pc="metadata_only",
+            ),
+        )
+        e = cov.entries[0]
+        assert e.status == "curator_gap_no_substantive_content"
+        assert e.is_pipeline_fault is False
+        assert e.human_completion_eligible is True
+        assert cov.pass_count == 0
+        assert cov.pipeline_fault_count == 0
+        assert cov.frame_gap_count == 1
+        assert cov.by_status.get("curator_gap_no_substantive_content") == 1
+
+    def test_placeholder_kept_only_flips_to_curator_gap(self):
+        # Class B (eloundou): a usable quote exists and sentences were KEPT, but
+        # every kept sentence is a not-extractable placeholder (zero substantive
+        # kept) and nothing substantive was drafted -> curator gap, NOT pipeline
+        # fault (the generator had no real fields to render).
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=0, kept_substantive=0,
+                has_usable_quote=True, generated=5, kept=5,
+            ),
+        )
+        e = cov.entries[0]
+        assert e.status == "curator_gap_no_substantive_content"
+        assert e.is_pipeline_fault is False
+        assert e.human_completion_eligible is True
+        assert cov.pass_count == 0
+        assert cov.pipeline_fault_count == 0
+
+    def test_curator_gap_in_human_tasks_with_substantive_guidance(self):
+        # The curator-gap entry must be routed to the human task list with
+        # SUBSTANTIVE-CONTENT guidance (curator supplies licensed full-text).
+        cf = _make_compiled_frame((_make_binding(),))
+        outline = _make_outline(cf)
+        rows = (_make_row(),)
+        validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
+        cov = compose_frame_coverage(
+            cf, outline, rows, validation,
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=0, kept_substantive=0,
+                has_usable_quote=False, pc="metadata_only",
+            ),
+        )
+        tasks = compose_human_completion_tasks(cov)
+        assert len(tasks) == 1
+        assert tasks[0]["status"] == "curator_gap_no_substantive_content"
+        assert "SUBSTANTIVE-CONTENT gap" in tasks[0]["needs"]
+
+    def test_non_gap_fail_min_fields_stays_partial(self):
+        # verdict != PASS -> NOT an override (extraction gap, curator-actionable).
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows = (_make_row(),)
         validation = _make_validation([("s1", "e1", ValidationVerdict.FAIL_MIN_FIELDS)])
         cov = compose_frame_coverage(
             cf, outline, rows, validation,
-            strict_verify_by_key=self._svk("s1", "e1", generated=2, kept=0),
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=2, kept_substantive=0,
+            ),
         )
         e = cov.entries[0]
-        assert e.status != "generation_failed"
+        assert e.status not in ("generation_failed", "curator_gap_no_substantive_content")
         assert e.is_pipeline_fault is False
         assert cov.pipeline_fault_count == 0
         assert cov.partial_count == 1
 
-    def test_frame_gap_unrecoverable_zero_kept_stays_gap(self):
+    def test_frame_gap_unrecoverable_stays_gap(self):
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows = (_make_row(provenance=ProvenanceClass.FRAME_GAP_UNRECOVERABLE),)
         validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
         cov = compose_frame_coverage(
             cf, outline, rows, validation,
-            strict_verify_by_key=self._svk("s1", "e1", generated=1, kept=0,
-                                           pc="frame_gap_unrecoverable"),
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=1, kept_substantive=0,
+                pc="frame_gap_unrecoverable",
+            ),
         )
         e = cov.entries[0]
-        assert e.status != "generation_failed"
+        assert e.status not in ("generation_failed", "curator_gap_no_substantive_content")
         assert e.is_pipeline_fault is False
         assert cov.frame_gap_count == 1
         assert cov.pipeline_fault_count == 0
 
-    def test_pass_with_kept_content_unaffected(self):
+    def test_pass_with_substantive_kept_unaffected(self):
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows = (_make_row(),)
         validation = _make_validation([("s1", "e1", ValidationVerdict.PASS)])
         cov = compose_frame_coverage(
             cf, outline, rows, validation,
-            strict_verify_by_key=self._svk("s1", "e1", generated=3, kept=3),
+            strict_verify_by_key=self._svk(
+                "s1", "e1", drafted_substantive=3, kept_substantive=3,
+                has_usable_quote=True, generated=3, kept=3,
+            ),
         )
         e = cov.entries[0]
         assert e.status == ValidationVerdict.PASS.value
@@ -932,7 +1021,8 @@ class TestFx07bLeg2PipelineFaultOverride:
         assert cov.pipeline_fault_count == 0
 
     def test_no_metric_is_non_overriding(self):
-        # No strict_verify_by_key entry (None / unknown) -> never overrides.
+        # No strict_verify_by_key entry (None / unknown) -> never overrides
+        # (byte-identical legacy behaviour).
         cf = _make_compiled_frame((_make_binding(),))
         outline = _make_outline(cf)
         rows = (_make_row(),)
@@ -942,24 +1032,38 @@ class TestFx07bLeg2PipelineFaultOverride:
         assert cov.entries[0].status == ValidationVerdict.PASS.value
         assert cov.pipeline_fault_count == 0
 
-    def test_mixed_two_entities_only_zero_kept_flips(self):
+    def test_mixed_three_entities_route_each_correctly(self):
+        # e1 pipeline fault, e2 curator gap, e3 genuine pass — all in one report.
         b1 = _make_binding(entity_id="e1", slot="s1")
         b2 = _make_binding(entity_id="e2", slot="s2")
-        cf = _make_compiled_frame((b1, b2))
+        b3 = _make_binding(entity_id="e3", slot="s3")
+        cf = _make_compiled_frame((b1, b2, b3))
         outline = _make_outline(cf)
         rows = (_make_row(entity_id="e1", slot="s1"),
-                _make_row(entity_id="e2", slot="s2"))
+                _make_row(entity_id="e2", slot="s2"),
+                _make_row(entity_id="e3", slot="s3"))
         validation = _make_validation([
             ("s1", "e1", ValidationVerdict.PASS),
             ("s2", "e2", ValidationVerdict.PASS),
+            ("s3", "e3", ValidationVerdict.PASS),
         ])
         svk = {}
-        svk.update(self._svk("s1", "e1", generated=2, kept=0))   # fault
-        svk.update(self._svk("s2", "e2", generated=2, kept=2))   # fine
+        svk.update(self._svk("s1", "e1", drafted_substantive=2,
+                             kept_substantive=0, has_usable_quote=True))  # fault
+        svk.update(self._svk("s2", "e2", drafted_substantive=0,
+                             kept_substantive=0, has_usable_quote=False,
+                             pc="metadata_only"))                          # curator gap
+        svk.update(self._svk("s3", "e3", drafted_substantive=2,
+                             kept_substantive=2, has_usable_quote=True))  # pass
         cov = compose_frame_coverage(cf, outline, rows, validation,
                                      strict_verify_by_key=svk)
         by_eid = {e.entity_id: e for e in cov.entries}
         assert by_eid["e1"].status == "generation_failed"
-        assert by_eid["e2"].status == ValidationVerdict.PASS.value
+        assert by_eid["e1"].is_pipeline_fault is True
+        assert by_eid["e2"].status == "curator_gap_no_substantive_content"
+        assert by_eid["e2"].is_pipeline_fault is False
+        assert by_eid["e2"].human_completion_eligible is True
+        assert by_eid["e3"].status == ValidationVerdict.PASS.value
         assert cov.pipeline_fault_count == 1
         assert cov.pass_count == 1
+        assert cov.frame_gap_count == 1

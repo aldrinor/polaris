@@ -124,6 +124,9 @@ def test_normalize_frame_status_generation_failed_maps_to_fail() -> None:
     graph inspector must render it as a failed frame, not frame_status null."""
     from polaris_graph.api.graph_route import _normalize_frame_status
     assert _normalize_frame_status("generation_failed") == "fail"
+    # I-ready-017 FX-07b leg-2 (#1111) root-cause design: the curator-gap
+    # honesty status also renders as a failed frame (not null).
+    assert _normalize_frame_status("curator_gap_no_substantive_content") == "fail"
     # Unchanged mappings still hold.
     assert _normalize_frame_status("pass") == "pass"
     assert _normalize_frame_status("partial") == "partial"

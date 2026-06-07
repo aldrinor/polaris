@@ -96,6 +96,19 @@ _NUMERIC_DROP_PREFIXES: frozenset[str] = frozenset({
 _GAP_DISCLOSURE_MARKER = "not extractable from available primary content"
 
 
+def _is_gap_disclosure_sentence(text: Any) -> bool:
+    """Shared predicate (single source of truth): True iff a sentence is a
+    deterministic gap-disclosure placeholder ("<field>: not extractable from
+    available primary content") rather than SUBSTANTIVE verified prose.
+
+    I-ready-017 FX-07b leg-2 (#1111, root-cause design P2): centralizing this on
+    `_GAP_DISCLOSURE_MARKER` so the marker cannot drift and silently let a
+    placeholder count as substantive prose in the frame_coverage honesty
+    override (the Class-B placeholder-kept escape).
+    """
+    return _GAP_DISCLOSURE_MARKER in str(text or "").lower()
+
+
 def _drop_is_numeric(sv: Any) -> bool:
     """True iff a dropped SentenceVerification failed for a NUMERIC reason
     AND is not a deterministic gap-disclosure.
@@ -108,7 +121,7 @@ def _drop_is_numeric(sv: Any) -> bool:
     must not block their rescue.
     """
     sentence = str(getattr(sv, "sentence", "") or "")
-    if _GAP_DISCLOSURE_MARKER in sentence.lower():
+    if _is_gap_disclosure_sentence(sentence):
         return False
     failure_reasons = getattr(sv, "failure_reasons", None) or []
     return any(
@@ -546,6 +559,17 @@ async def run_contract_section(
     regulatory_body_blocks: list[str] = []    # M-70 regulatory stream
     narrative_body_blocks: list[str] = []     # narrative stream
 
+    # I-ready-017 FX-07b leg-2 (#1111, root-cause design): TOKEN-INDEPENDENT
+    # per-entity count of SUBSTANTIVE drafted fields (status=="extracted"),
+    # captured during generation BEFORE _rewrite_draft_with_spans can strip an
+    # unspannable marker. This is the signal the frame_coverage honesty override
+    # uses to tell "the generator drafted real content that strict_verify then
+    # dropped" (engineer/pipeline fault) apart from "the generator only had
+    # not-extractable placeholders to emit" (curator gap) — closing the Class-A
+    # (metadata_only/empty-quote) escape where the dropped disclosure sentences
+    # carry no [#ev:] token and were thus invisible to token-counted metrics.
+    _substantive_drafted_by_entity: dict[str, int] = {}
+
     for slot in plan.slots:
         if not slot.entity_ids:
             # Defensive: outline compiler shouldn't emit empty slots,
@@ -660,6 +684,14 @@ async def run_contract_section(
             )
             has_extracted = any(
                 f.status == "extracted" for f in payload.fields
+            )
+            # I-ready-017 FX-07b leg-2 (#1111): record token-independent
+            # substantive-drafted count per entity (extracted fields become real
+            # prose; not_extractable fields are disclosure placeholders). Summed
+            # across this entity's payload(s) in the slot.
+            _substantive_drafted_by_entity[entity_id] = (
+                _substantive_drafted_by_entity.get(entity_id, 0)
+                + sum(1 for f in payload.fields if f.status == "extracted")
             )
             if narrative_enabled and has_extracted:
                 narr_prompt = build_slot_narrative_prompt(
@@ -882,6 +914,20 @@ async def run_contract_section(
         _draw = getattr(_dsv, "sentence", "") or ""
         for _dm in _prov_re.finditer(_draw):
             _dropped_by_entity[_dm.group(1)] += 1
+    # I-ready-017 FX-07b leg-2 (#1111, root-cause design): SUBSTANTIVE kept
+    # count per entity = kept sentences EXCLUDING gap-disclosure placeholders.
+    # Attributed to the sentence's PRIMARY token (tokens[0]) — the same rule the
+    # slot-regroup uses — so a multi-token sentence cannot inflate a secondary
+    # entity's substantive-kept (Codex root-cause P2 / aggregation-edgecase P2).
+    # This closes the Class-B escape (eloundou: kept>0 but all placeholders read
+    # pass) — a placeholder is NOT substantive verified prose.
+    _kept_substantive_by_entity: _Counter = _Counter()
+    for _ksv in kept_sentences:
+        if _is_gap_disclosure_sentence(getattr(_ksv, "sentence", "")):
+            continue
+        _ktoks = getattr(_ksv, "tokens", None) or []
+        if _ktoks:
+            _kept_substantive_by_entity[_ktoks[0].evidence_id] += 1
 
     verified_blocks: list[str] = []
     slot_drop_log: list[dict[str, Any]] = []  # M-66a-T telemetry
@@ -985,11 +1031,29 @@ async def run_contract_section(
             _pc = getattr(
                 getattr(_frow, "provenance_class", None), "value", "",
             ) if _frow is not None else ""
+            # has_usable_quote: derived from the SAME floor that contract
+            # rendering uses (_MIN_VERIFIABLE_SPAN_CHARS) — i.e. the generator
+            # COULD have produced verifiable prose. quote_len/min_quote_chars
+            # are emitted for auditability (Codex root-cause P2).
+            _qlen = len((getattr(_frow, "direct_quote", "") or "").strip())
             slot_strict_verify.append({
                 "slot_id": slot.slot_id,
                 "entity_id": entity_id,
                 "sentences_kept": _kept,
                 "sentences_generated_content": _kept + _dropped,
+                # FX-07b root-cause design: token-independent substantive signals
+                # that decide the honesty override (drafted real content + zero
+                # substantive kept + usable quote = pipeline fault; otherwise a
+                # curator gap). See frame_manifest.compose_frame_coverage.
+                "sentences_drafted_substantive": int(
+                    _substantive_drafted_by_entity.get(entity_id, 0)
+                ),
+                "sentences_kept_substantive": int(
+                    _kept_substantive_by_entity.get(entity_id, 0)
+                ),
+                "has_usable_quote": _qlen >= _MIN_VERIFIABLE_SPAN_CHARS,
+                "quote_len": _qlen,
+                "min_quote_chars": _MIN_VERIFIABLE_SPAN_CHARS,
                 "provenance_class": _pc,
             })
 

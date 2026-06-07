@@ -123,6 +123,13 @@ def _normalize_frame_status(raw: str) -> FrameStatus | None:
     # the manifest still carries the finer-grained classification.
     if raw == "generation_failed":
         return "fail"
+    # I-ready-017 FX-07b leg-2 (#1111) root-cause design: a validated entity that
+    # produced zero substantive verified prose (curator must supply licensed
+    # full-text). Renders as a failed frame in the inspector; human_completion_
+    # eligible / is_pipeline_fault on the manifest carry the curator-vs-engineer
+    # routing.
+    if raw == "curator_gap_no_substantive_content":
+        return "fail"
     return None
 
 

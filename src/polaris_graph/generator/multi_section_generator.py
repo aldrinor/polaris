@@ -5688,6 +5688,14 @@ async def generate_multi_section_report(
                 _slot_sv_by_key[(_sid, _eid)] = {
                     "sentences_kept": _e.get("sentences_kept", 0),
                     "sentences_generated_content": _e.get("sentences_generated_content", 0),
+                    # I-ready-017 FX-07b leg-2 (#1111, root-cause design):
+                    # token-independent substantive signals for the honesty
+                    # override's three-way classification.
+                    "sentences_drafted_substantive": _e.get("sentences_drafted_substantive", 0),
+                    "sentences_kept_substantive": _e.get("sentences_kept_substantive", 0),
+                    "has_usable_quote": _e.get("has_usable_quote", False),
+                    "quote_len": _e.get("quote_len", 0),
+                    "min_quote_chars": _e.get("min_quote_chars", 0),
                     "provenance_class": _e.get("provenance_class", ""),
                 }
 

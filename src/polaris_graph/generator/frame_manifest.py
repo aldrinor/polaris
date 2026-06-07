@@ -239,30 +239,66 @@ def compose_frame_coverage(
                     == ProvenanceClass.FRAME_GAP_UNRECOVERABLE
                 )
 
-                # I-ready-017 FX-07b leg-2 (#1111): pipeline-fault honesty
-                # override. A non-gap entity that VALIDATED (verdict==pass) and
-                # whose generator DID produce content sentences but ALL of them
-                # failed strict_verify is a PIPELINE FAULT — it must NOT read as
-                # pass (the report has no verified prose for it). Triple-gated so
-                # an extraction gap (verdict!=pass) or a no-content-attempted row
-                # (generated==0) or a FRAME_GAP_UNRECOVERABLE row is NEVER
-                # reclassified. Unknown/missing metrics → non-overriding.
+                # I-ready-017 FX-07b leg-2 (#1111) honesty override (root-cause
+                # design, Codex-ratified). A non-gap entity that VALIDATED
+                # (verdict==pass) but contributes ZERO SUBSTANTIVE verified prose
+                # to the report MUST NOT read as pass. Owner routing matters:
+                #   - generator HAD a usable quote AND drafted substantive prose
+                #     that strict_verify then dropped to zero -> generation_failed
+                #     (pipeline fault; engineer-owned; not human-completable).
+                #   - otherwise (no usable quote, OR only not-extractable
+                #     placeholders drafted) -> curator_gap_no_substantive_content
+                #     (a curator can supply licensed full-text; human-completable;
+                #     NOT a pipeline fault — mis-routing it to engineers would be
+                #     a different dishonesty).
+                # The discriminator is TOKEN-INDEPENDENT (sentences_kept_substantive
+                # / sentences_drafted_substantive from contract_section_runner), so
+                # it catches the Class-A (metadata_only/empty-quote: dropped
+                # disclosures carry no [#ev:] token) and Class-B (placeholder-kept)
+                # escapes that a token-counted metric missed. Triple-guarded:
+                # extraction/retrieval gaps (verdict!=pass), FRAME_GAP_UNRECOVERABLE
+                # rows, and missing telemetry (default-None) are NEVER reclassified
+                # (byte-identical when telemetry is absent).
                 _sv_meta = (strict_verify_by_key or {}).get(
                     (slot.slot_id, entity_id)
                 )
-                _is_gen_failed = bool(
+                _meta_ok = isinstance(_sv_meta, dict)
+                _zero_substantive = bool(
                     (not is_gap_row)
                     and status == ValidationVerdict.PASS.value
-                    and isinstance(_sv_meta, dict)
-                    and (_sv_meta.get("sentences_generated_content") or 0) > 0
-                    and (_sv_meta.get("sentences_kept") or 0) == 0
+                    and _meta_ok
+                    and (_sv_meta.get("sentences_kept_substantive") or 0) == 0
+                )
+                _is_gen_failed = bool(
+                    _zero_substantive
+                    and bool(_sv_meta.get("has_usable_quote"))
+                    and (_sv_meta.get("sentences_drafted_substantive") or 0) > 0
+                )
+                _is_curator_gap = bool(_zero_substantive and not _is_gen_failed)
+                _override_status = (
+                    "generation_failed" if _is_gen_failed
+                    else "curator_gap_no_substantive_content" if _is_curator_gap
+                    else status
                 )
                 if _is_gen_failed:
-                    # Correct the aggregate: this would-be pass is a fault.
+                    # Would-be pass with no verified prose, but the generator had
+                    # real source — engineer-owned pipeline fault.
                     pipeline_fault_count += 1
                     by_status[status] = max(0, by_status.get(status, 0) - 1)
                     by_status["generation_failed"] = (
                         by_status.get("generation_failed", 0) + 1
+                    )
+                elif _is_curator_gap:
+                    # Would-be pass with no substantive verified prose and no
+                    # usable source — a curator-fixable coverage gap. Rolled up
+                    # with frame gaps for the clinician summary; by_status keeps
+                    # the precise status. NOT a pass, NOT a pipeline fault.
+                    gap_count += 1
+                    by_status[status] = max(0, by_status.get(status, 0) - 1)
+                    by_status["curator_gap_no_substantive_content"] = (
+                        by_status.get(
+                            "curator_gap_no_substantive_content", 0
+                        ) + 1
                     )
                 elif is_gap_row:
                     gap_count += 1
@@ -280,12 +316,18 @@ def compose_frame_coverage(
                     entity_type=row.entity_type,
                     section=section.section,
                     subsection_title=slot.subsection_title,
-                    status=("generation_failed" if _is_gen_failed else status),
+                    status=_override_status,
                     provenance_class=row.provenance_class.value,
                     failure_reason=(
                         "strict_verify dropped all generated content sentences "
                         "(pipeline fault — no verified prose for this entity)"
                         if _is_gen_failed
+                        else (
+                            "no substantive verified prose — only "
+                            "not-extractable disclosures; curator must supply a "
+                            "licensed copy covering the required fields"
+                        )
+                        if _is_curator_gap
                         else _failure_reason(
                             row, status, reasons_by_key.get(
                                 (slot.slot_id, entity_id), ""
@@ -310,8 +352,13 @@ def compose_frame_coverage(
                     # are NOT routed to human completion.
                     human_completion_eligible=(
                         False if _is_gen_failed
+                        # Use the EFFECTIVE (post-override) status so the
+                        # curator_gap_no_substantive_content outcome routes to a
+                        # human task (it is in the _is_curator_actionable
+                        # allowlist); generation_failed already short-circuits
+                        # False above.
                         else _is_curator_actionable(
-                            is_gap_row=is_gap_row, status=status,
+                            is_gap_row=is_gap_row, status=_override_status,
                         )
                     ),
                     is_pipeline_fault=_is_gen_failed,
@@ -517,6 +564,19 @@ def _compose_task_needs(entry: SlotCoverageEntry) -> str:
             f"a direct_quote from a richer licensed copy covering "
             f"the missing fields in [{required_csv}]."
         )
+    if entry.status == "curator_gap_no_substantive_content":
+        # I-ready-017 FX-07b leg-2 (#1111): validated row whose generated prose
+        # was zero substantive verified sentences (only not-extractable
+        # disclosures / no usable quote). Curator supplies a licensed copy.
+        return (
+            f"SUBSTANTIVE-CONTENT gap: the entity validated but no substantive "
+            f"verified prose could be produced from the available content "
+            f"(only not-extractable disclosures). Operator must provide a "
+            f"direct_quote from a licensed copy covering at least "
+            f"{entry.min_fields_for_completion} of [{required_csv}], with "
+            f"structured provenance (artifact hash, retention pointer, "
+            f"curator_id)."
+        )
     # Defensive catch-all. Should not fire if _is_curator_actionable
     # is kept in sync with this function. Surface the routing drift
     # loudly in the manifest rather than silently mislabeling it.
@@ -567,6 +627,11 @@ def _is_curator_actionable(is_gap_row: bool, status: str) -> bool:
         (True,  ValidationVerdict.FAIL_MIN_FIELDS.value),
         (True,  ValidationVerdict.FAIL_MISSING_PAYLOAD.value),
         (False, ValidationVerdict.FAIL_MIN_FIELDS.value),
+        # I-ready-017 FX-07b leg-2 (#1111): the honesty override's curator-gap
+        # outcome — a non-gap entity that read pass but produced zero substantive
+        # verified prose with no usable source. A curator supplies licensed
+        # full-text; NOT a pipeline fault.
+        (False, "curator_gap_no_substantive_content"),
     }
     return (is_gap_row, status) in curator_actionable
 
