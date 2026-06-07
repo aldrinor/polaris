@@ -111,11 +111,16 @@ def test_frontend_landing_page_templates_is_canonical_8():
     assert _ids_in_block(_read("web/app/page.tsx"), "const templates") == CANONICAL_8
 
 
-def test_frontend_dashboard_fallback_is_canonical_8():
-    assert (
-        _ids_in_block(_read("web/app/dashboard/page.tsx"), "FALLBACK_TEMPLATES")
-        == CANONICAL_8
-    )
+# NOTE (I-ready-018 #1140): the dashboard's hardcoded FALLBACK_TEMPLATES list was removed in the v6
+# dashboard rebuild (#466 "Dashboard / runs — monitoring only"). The rebuilt page no longer offers
+# template selection — it only displays `run.template` for completed runs (web/app/dashboard/page.tsx
+# line ~166), so there is no template-id surface left on the dashboard to guard. The canonical-8
+# template contract remains enforced on every surface that DOES carry template ids: the landing page
+# (test_frontend_landing_page_templates_is_canonical_8), the web/lib/api.ts TemplateId union, and the
+# backend registry / scope_gate / run_request / actors / v30 synthesizer plus both template dirs.
+# The former `test_frontend_dashboard_fallback_is_canonical_8` therefore asserted against a removed
+# symbol and was deleted here (OBSOLETE_TEST — NOT an assertion relaxation; no template-id surface
+# goes unguarded as a result).
 
 
 # ── benchmark ────────────────────────────────────────────────────────────────
