@@ -28,7 +28,7 @@ python -c "import json,collections,glob; f=sorted(glob.glob('outputs/**/retrieva
 
 | Failure mode | Signal | Healthy | RED FLAG → action |
 |---|---|---|---|
-| **Silent URL throttle** | trace `fetched_urls` + heartbeat `sources_kept` | fetched approaches `PG_SWEEP_FETCH_CAP` (1000); kept in tens-to-hundreds | fetched « ~200 at `retrieval_done`, or `sources_kept` ≤ ~40 → **ABORT**; a `PG_SWEEP_*` knob isn't taking effect (the #1098 0.286 baseline / the cap the operator is furious about) |
+| **Silent URL throttle** | trace `fetched_urls` + heartbeat `sources_kept` (`null` until `retrieval_done`, then the real count; `0` on the no-source abort) | fetched approaches `PG_SWEEP_FETCH_CAP` (1000); kept in tens-to-hundreds | fetched « ~200 at `retrieval_done`, or `sources_kept` ≤ ~40 → **ABORT**; a `PG_SWEEP_*` knob isn't taking effect (the #1098 0.286 baseline / the cap the operator is furious about) |
 | **Dead-route 404 collapse** (drb_72 root cause) | `PG_BEHAVIORAL_CANARY` (pre-sweep, fail-closed) + trace `drops` by `reason` + heartbeat `claims_total` | canary passes; few drops; `claims_total` > 0 at `generation_done` | canary fail-closed = GOOD (no spend wasted); else a storm of `drop` with 404/empty/dead `reason`, or `kept ≈ 0` / `claims_total ≈ 0` → **ABORT** |
 | **Verifier degradation** (#1071) | terminal `stage` + `claims_verified/total` | `stage=success`, `claims_verified` > 0 | terminal `stage=abort_verifier_degraded` → judge-error-rate gate FIRED (correct fail-closed; NOT a faithfulness leak). Inspect judge errors via `PG_CAPTURE_RAW_LLM_IO=1`; do NOT relax the gate |
 | **Budget** | `running_cost_usd` vs `budget_cap_usd` | climbs steadily, < 1.0 | approaching cap → `BudgetExceededError` imminent (expected) |

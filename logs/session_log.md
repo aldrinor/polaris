@@ -5082,3 +5082,13 @@
 - EVIDENCE/FINDINGS: #1070 guards 13/13 green (test_evidence_to_generation_cap_iready001 4 + test_capped_finding_dedup_iready004 9); #1071 guards 20/20 green (test_fx09_judge_error_rate_iready017 7 + test_manifest_contract 13). Monitoring one-liner verified: "q1/5 stage=retrieval_done kept=180 claims=None/None cost=$4.1/25.0 elapsed=42.0s".
 - STATUS: Observability complete + verified; #1070/#1071 test-verified + honestly reported (OPEN pending live-run audit); Q1 run prepped one-go-ahead-away WITH a live failure-mode watch. Zero paid spend.
 - NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
+
+[2026-06-07 13:55:46]
+- ACTION: I-obs-001 overnight wake — found+fixed a hollow AC1 field (heartbeat sources_kept always None); Codex diff-gate APPROVE iter-1 + P2-1 applied.
+- RATIONALE: Verifying the monitoring runbook is fit-for-purpose, traced the actual _hb() call sites and found sources_kept (the silent-URL-throttle signal the runbook tells the operator to watch) was never populated → serialized null all run. Fixed the SOURCE: set kept count at retrieval_done + persist via a tested pure helper; Codex P2-1 → no-source abort now reports 0 not null. LAW II: did not relax/hide; filled a real gap.
+- DOCS/RESEARCH: .codex/I-obs-001/ac1_sources_kept_verdict.txt (APPROVE).
+- SYNC: N/A
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, src/polaris_graph/telemetry/run_status_heartbeat.py, tests/polaris_graph/telemetry/test_run_status_heartbeat.py (commit 5d9db17c); docs/run_observability_monitoring.md (precision note); GitHub #1141 (issuecomment-4642875569); logs/session_log.md.
+- EVIDENCE/FINDINGS: Codex verdict APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (applied). Tests: heartbeat 14 (11 prior + 3 new), offline e2e 13, seam 8, pathB 15 — green. py_compile OK.
+- STATUS: Observability AC1/AC2/AC3 complete + Codex-approved (AC1 now incl. the sources_kept completeness fix). #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away with a live abort-early watch. Zero paid spend.
+- NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
