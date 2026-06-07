@@ -111,16 +111,33 @@ def test_frontend_landing_page_templates_is_canonical_8():
     assert _ids_in_block(_read("web/app/page.tsx"), "const templates") == CANONICAL_8
 
 
+def _template_ids_array(text: str) -> set[str]:
+    """Extract the ids from a `const TEMPLATE_IDS [: type] = [ ... ]` literal."""
+    m = re.search(r"const TEMPLATE_IDS[^=]*=\s*\[([^\]]+)\]", text)
+    assert m, "TEMPLATE_IDS array literal not found"
+    return set(re.findall(r'"([a-z_]+)"', m.group(1)))
+
+
+def test_frontend_plan_page_template_ids_is_canonical_8():
+    # Codex #1140 P2: /plan carries its own hardcoded TEMPLATE_IDS allowlist; guard it too.
+    assert _template_ids_array(_read("web/app/plan/page.tsx")) == CANONICAL_8
+
+
+def test_frontend_source_review_page_template_ids_is_canonical_8():
+    # Codex #1140 P2: /source_review carries its own hardcoded TEMPLATE_IDS allowlist; guard it too.
+    assert _template_ids_array(_read("web/app/source_review/page.tsx")) == CANONICAL_8
+
+
 # NOTE (I-ready-018 #1140): the dashboard's hardcoded FALLBACK_TEMPLATES list was removed in the v6
 # dashboard rebuild (#466 "Dashboard / runs — monitoring only"). The rebuilt page no longer offers
 # template selection — it only displays `run.template` for completed runs (web/app/dashboard/page.tsx
 # line ~166), so there is no template-id surface left on the dashboard to guard. The canonical-8
-# template contract remains enforced on every surface that DOES carry template ids: the landing page
-# (test_frontend_landing_page_templates_is_canonical_8), the web/lib/api.ts TemplateId union, and the
-# backend registry / scope_gate / run_request / actors / v30 synthesizer plus both template dirs.
-# The former `test_frontend_dashboard_fallback_is_canonical_8` therefore asserted against a removed
-# symbol and was deleted here (OBSOLETE_TEST — NOT an assertion relaxation; no template-id surface
-# goes unguarded as a result).
+# template contract remains enforced on every surface that DOES carry template ids: the landing page,
+# the /plan and /source_review TEMPLATE_IDS allowlists (added above per Codex #1140 P2), the
+# web/lib/api.ts TemplateId union, and the backend registry / scope_gate / run_request / actors /
+# v30 synthesizer plus both template dirs and the benchmark runner. The former
+# `test_frontend_dashboard_fallback_is_canonical_8` asserted against a removed symbol and was deleted
+# here (OBSOLETE_TEST — NOT an assertion relaxation; no template-id surface goes unguarded as a result).
 
 
 # ── benchmark ────────────────────────────────────────────────────────────────
