@@ -780,6 +780,7 @@ class TestM68GapDisclosureFallback:
             # run_contract_section since the verification-details work).
             kept_sentences_pre_resolve: list = field(default_factory=list)
             dropped_sentences_final: list = field(default_factory=list)
+            slot_strict_verify: list = field(default_factory=list)  # I-ready-017 #1111
 
         from src.polaris_graph.generator.live_deepseek_generator import (
             _rewrite_draft_with_spans,
@@ -982,6 +983,7 @@ class TestM68GapDisclosureFallback:
             # run_contract_section since the verification-details work).
             kept_sentences_pre_resolve: list = field(default_factory=list)
             dropped_sentences_final: list = field(default_factory=list)
+            slot_strict_verify: list = field(default_factory=list)  # I-ready-017 #1111
 
         async def _go():
             return await run_contract_section(
@@ -1166,6 +1168,7 @@ class TestM68GapDisclosureFallback:
             error: str
             kept_sentences_pre_resolve: list = field(default_factory=list)
             dropped_sentences_final: list = field(default_factory=list)
+            slot_strict_verify: list = field(default_factory=list)  # I-ready-017 #1111
 
         async def _go():
             return await run_contract_section(
@@ -1354,6 +1357,7 @@ class TestM68GapDisclosureFallback:
             error: str
             kept_sentences_pre_resolve: list = field(default_factory=list)
             dropped_sentences_final: list = field(default_factory=list)
+            slot_strict_verify: list = field(default_factory=list)  # I-ready-017 #1111
 
         async def _go():
             return await run_contract_section(

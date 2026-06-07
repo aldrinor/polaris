@@ -241,6 +241,12 @@ class SectionResult:
     # (NOT strict-verify failures — these are LLM-consolidated). String
     # only because the dedup pass produces strings, not SV objects.
     dropped_sentences_dedup_redundant: list[str] = field(default_factory=list)
+    # I-ready-017 FX-07b leg-2 (#1111): per-(slot_id, entity_id) strict_verify
+    # telemetry for the frame_coverage honesty override. Each entry:
+    # {slot_id, entity_id, sentences_kept, sentences_generated_content,
+    #  provenance_class, disposition}. Empty for non-contract sections / legacy.
+    # ADDITIVE — default empty so OFF/legacy paths are byte-identical.
+    slot_strict_verify: list[dict[str, Any]] = field(default_factory=list)
     # I-gen-005 Step 1.5 iter-2 (Codex P1 multi_section_generator:1426):
     # sentences dropped by M-41c post-strict_verify policy filter
     # (under-framed trial-name claims). Captured as SV objects so
