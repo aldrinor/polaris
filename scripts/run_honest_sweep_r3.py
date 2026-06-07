@@ -5213,8 +5213,8 @@ async def run_one_query(
 
         # FIX-A10 (#1100): disclose the retrieval fetch outcome in the REPORT (not just logs) and emit
         # a LOUD warning when the failure rate exceeds an env-driven threshold (LAW VI). In the drb_72
-        # run 62% of fetches failed/timed out silently — the reader saw no sign the corpus was
-        # upstream-starved, a primary driver of the low coverage. Disclosure-first (not a hard abort).
+        # run ~83% of candidate fetches (129/155) failed/timed out silently — the reader saw no sign
+        # the corpus was upstream-starved, a primary driver of the low coverage. Disclosure-first.
         _ret_fetched = int(getattr(retrieval, "candidates_fetched", 0) or 0)
         _ret_failed = int(getattr(retrieval, "candidates_failed_fetch", 0) or 0)
         _ret_total = int(getattr(retrieval, "candidates_total", 0) or 0) or (_ret_fetched + _ret_failed)
