@@ -10,9 +10,14 @@ roles:
     ignore: [atlas-cloud, parasail, fireworks, digitalocean, together]
   mirror:
     model: z-ai/glm-5.1
-    order: [friendli, parasail, io-net, fireworks, baidu, siliconflow]
-    ignore: [chutes, phala, baseten, together, ambient]
-    notes: "some providers have NULL uptime (ranked last)"
+    # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run
+    # GLM-5.1 returned blank verdicts on 23/126 Parasail calls (~18%) but 0/39 on Io Net and 1/17 on
+    # Friendli — a flaky-PROVIDER empty-200 defect, NOT the model. Io Net (0 blanks) leads; Parasail
+    # is removed from `order` and added to `ignore` so allow_fallbacks:false never routes the binding
+    # Mirror through it. Model unchanged (operator + Codex confirmed: keep GLM, swap provider only).
+    order: [io-net, friendli, fireworks, baidu, siliconflow]
+    ignore: [chutes, phala, baseten, together, ambient, parasail]
+    notes: "some providers have NULL uptime (ranked last); parasail demoted (I-ready-018 FIX-GLM: ~18% blank)"
   sentinel:
     model: minimax/minimax-m2
     order: [google-vertex, novita, atlas-cloud, minimax]
