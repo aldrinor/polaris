@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/roles/sweep_integration.py:276 dedup key treats claim whitespace and evidence-document order as non-semantic by normalizing claim_text and sorting (doc_id, text). That is probably fine for the held BUG-04 duplicate shape, but it is broader than strict byte-identical pipeline input because the actual prompts preserve document order."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

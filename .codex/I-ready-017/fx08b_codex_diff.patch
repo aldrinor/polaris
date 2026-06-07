@@ -1,0 +1,235 @@
+diff --git a/src/polaris_graph/roles/openrouter_role_transport.py b/src/polaris_graph/roles/openrouter_role_transport.py
+index a3b6ac1e..df1ddc54 100644
+--- a/src/polaris_graph/roles/openrouter_role_transport.py
++++ b/src/polaris_graph/roles/openrouter_role_transport.py
+@@ -536,6 +536,21 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
+         routed = apply_provider_routing({}, request.role)
+         if routed:
+             body["provider"] = routed
++
++    # I-ready-017 FX-08b (#1113): determinism knobs (LAW VI, env-overridable).
++    # temperature=0 (greedy decoding) is universally supported, so it is safe to
++    # send even alongside provider.require_parameters=True. seed is OPT-IN
++    # (default OFF): a `seed` in the body under require_parameters=True can make
++    # OpenRouter REFUSE to route to the pinned healthy provider (seed is not
++    # universally advertised) -> a fail-loud no-endpoint crash on every verifier
++    # call. The real determinism guarantee is the claim-level dedup in
++    # sweep_integration (identical input -> ONE pipeline run -> one shared
++    # verdict); temperature/seed are necessary-not-sufficient under shared-batch
++    # nondeterminism, so seed stays operator-gated for providers known to honor it.
++    body["temperature"] = float(os.getenv("PG_VERIFIER_TEMPERATURE", "0"))
++    _seed = os.getenv("PG_VERIFIER_SEED", "").strip()
++    if _seed:
++        body["seed"] = int(_seed)
+     return body
+ 
+ 
+diff --git a/src/polaris_graph/roles/sweep_integration.py b/src/polaris_graph/roles/sweep_integration.py
+index 3f6fdf01..9bd5da44 100644
+--- a/src/polaris_graph/roles/sweep_integration.py
++++ b/src/polaris_graph/roles/sweep_integration.py
+@@ -39,7 +39,7 @@ import concurrent.futures
+ import contextvars
+ import json
+ import os
+-from dataclasses import dataclass, field
++from dataclasses import dataclass, field, replace
+ from pathlib import Path
+ from typing import Callable
+ 
+@@ -252,6 +252,72 @@ def _compute_claim_results(
+     """
+     n = len(claims)
+ 
++    # I-ready-017 FX-08b (#1113): CLAIM-LEVEL DEDUP (BUG-04 determinism half).
++    # 4+ byte-identical claims were SPLIT VERIFIED/UNSUPPORTED in the same run
++    # (a non-deterministic release gate). Two claims whose ENTIRE pipeline INPUT
++    # is identical MUST get the same verdict — so run the pipeline ONCE per
++    # distinct input and fan the verdict out. The key is the FULL input the
++    # pipeline consumes (claim_text + evidence doc_id+text + severity +
++    # s0_categories), NOT just (sentence+ids+spans): anything that could
++    # legitimately change the verdict is in the key, so two genuinely-different
++    # claims can NEVER collapse to one verdict (faithfulness-safe; identical
++    # input => identical output is the only justification for sharing a verdict).
++    # The evidence doc `text` is the FX-03 cited WINDOW, so it encodes the span.
++    # Fan-out is HONEST on the audit trail + cost: a duplicate gets its OWN
++    # claim_id (dataclasses.replace on d8_row), the SHARED verdict + sub-results,
++    # EMPTY records (no new model calls were made for it, so all_records /
++    # role_call_log are not inflated), and zero cost (cost_delta None). Coverage
++    # credit still flows per-claim (each dup's covered_element_ids on its VERIFIED
++    # verdict). Flag-gated (PG_FOUR_ROLE_CLAIM_DEDUP, default ON); OFF reverts to
++    # the per-claim run. Recursion on representatives is one level deep (reps have
++    # all-distinct keys -> this branch is skipped on the inner call).
++    _dedup_enabled = os.getenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1") != "0"
++
++    def _dedup_key(c: FourRoleClaim) -> tuple:
++        return (
++            " ".join((c.claim_text or "").split()),
++            tuple(sorted(
++                (d.doc_id, d.text) for d in (c.evidence_documents or [])
++            )),
++            c.severity,
++            tuple(sorted(c.s0_categories or [])),
++        )
++
++    if _dedup_enabled and n > 1:
++        rep_idx_by_key: dict[tuple, int] = {}
++        rep_indices: list[int] = []
++        for idx, claim in enumerate(claims):
++            k = _dedup_key(claim)
++            if k not in rep_idx_by_key:
++                rep_idx_by_key[k] = idx
++                rep_indices.append(idx)
++        if len(rep_indices) < n:
++            # At least one duplicate — run the pipeline only on representatives.
++            rep_results = _compute_claim_results(
++                transport,
++                claims=[claims[i] for i in rep_indices],
++                model_slugs=model_slugs,
++                timestamp=timestamp,
++                run_dir=run_dir,
++            )
++            rep_result_by_idx = {
++                rep_indices[j]: rep_results[j] for j in range(len(rep_indices))
++            }
++            fanned: list[tuple[ClaimPipelineResult, float | None]] = []
++            for idx, claim in enumerate(claims):
++                rep_idx = rep_idx_by_key[_dedup_key(claim)]
++                rep_res, rep_cost = rep_result_by_idx[rep_idx]
++                if idx == rep_idx:
++                    fanned.append((rep_res, rep_cost))
++                else:
++                    # Fan the verdict out to this duplicate under ITS own
++                    # claim_id; no new model calls (records=[]) and no new spend
++                    # (cost None) — the representative already paid + recorded.
++                    dup_row = replace(rep_res.d8_row, claim_id=claim.claim_id)
++                    dup_res = replace(rep_res, d8_row=dup_row, records=[])
++                    fanned.append((dup_res, None))
++            return fanned
++
+     def _compute_one(
+         idx: int, claim: FourRoleClaim, worker_ctx: contextvars.Context
+     ) -> tuple[int, ClaimPipelineResult, float]:
+diff --git a/tests/roles/test_seam_parallel.py b/tests/roles/test_seam_parallel.py
+index 16ec93a9..008c209d 100644
+--- a/tests/roles/test_seam_parallel.py
++++ b/tests/roles/test_seam_parallel.py
+@@ -659,3 +659,118 @@ def test_cap_trip_is_bounded_in_flight(monkeypatch, tmp_path):
+         f"cap trip ran {ran} claims; the cumulative cap crosses after ~3 claims and only a bounded "
+         f"number more can be in-flight at the breach (bounded overspend, P1.1, workers={workers})."
+     )
++
++
++# === I-ready-017 FX-08b (#1113): claim-level dedup + determinism knobs ==========================
++def _dup_claim(claim_id: str, *, input_idx: int, covers=None) -> FourRoleClaim:
++    """A claim with an explicit claim_id but the SAME pipeline INPUT as _claim(input_idx)
++    (identical claim_text + evidence + severity + s0). Two _dup_claims with the same input_idx
++    but different claim_id share ONE dedup key (the key excludes claim_id + covered_element_ids)."""
++    return FourRoleClaim(
++        claim_id=claim_id,
++        claim_text=f"The dose is {input_idx}.0 mg. [[CLAIMIDX={input_idx}]]",
++        evidence_documents=[
++            EvidenceDocument(
++                doc_id=f"doc-{input_idx}",
++                text=f"The trial reported a {input_idx}.0 mg dose. [[CLAIMIDX={input_idx}]]",
++            )
++        ],
++        severity="S0",
++        s0_categories=["contraindications"],
++        covered_element_ids=covers if covers is not None else [f"elem-{input_idx}"],
++    )
++
++
++def test_claim_dedup_runs_pipeline_once_and_fans_verdict(monkeypatch, tmp_path):
++    # Two byte-identical-INPUT claims, different claim_id. Dedup ON (default): the pipeline runs
++    # ONCE (4 role calls, not 8) and BOTH claims get the SAME final_verdict (the determinism
++    # guarantee — they can never SPLIT VERIFIED/UNSUPPORTED).
++    monkeypatch.setenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1")
++    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 1)
++    claims = [_dup_claim("claim-a", input_idx=0), _dup_claim("claim-b", input_idx=0)]
++    ledger = CoverageLedger(required_element_ids=["elem-0"])
++    transport = _DelayedFakeTransport(judge_verdict_by_index={0: "VERIFIED"})
++
++    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
++
++    # Pipeline invoked ONCE (mirror x2 + sentinel + judge == 4), NOT twice (8).
++    assert transport.completions == 4, transport.completions
++    # Both claim_ids present, IDENTICAL verdict (fan-out under each claim's own id).
++    assert result.final_verdicts == {"claim-a": "VERIFIED", "claim-b": "VERIFIED"}
++    # Audit trail NOT inflated: role_call_log has exactly one claim's worth of rows, and the
++    # duplicate (records=[]) contributes none.
++    log = _read_role_call_log(tmp_path)
++    assert len(log) == 4, log
++    assert {e["claim_id"] for e in log} == {"claim-a"}, "duplicate must not emit phantom call records"
++
++
++def test_claim_dedup_disabled_runs_each(monkeypatch, tmp_path):
++    # Flag OFF -> byte-identical-to-pre-fix: both claims run independently (8 calls).
++    monkeypatch.setenv("PG_FOUR_ROLE_CLAIM_DEDUP", "0")
++    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 1)
++    claims = [_dup_claim("claim-a", input_idx=0), _dup_claim("claim-b", input_idx=0)]
++    ledger = CoverageLedger(required_element_ids=["elem-0"])
++    transport = _DelayedFakeTransport(judge_verdict_by_index={0: "VERIFIED"})
++
++    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
++
++    assert transport.completions == 8, transport.completions
++    assert result.final_verdicts == {"claim-a": "VERIFIED", "claim-b": "VERIFIED"}
++
++
++def test_distinct_claims_are_not_deduped(monkeypatch, tmp_path):
++    # DIFFERENT pipeline input (idx 0 vs 1) -> different dedup keys -> BOTH run (no false collision).
++    # This is the faithfulness guard: two genuinely-different claims must never share one verdict.
++    monkeypatch.setenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1")
++    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 1)
++    claims = [_claim(0), _claim(1)]
++    ledger = CoverageLedger(required_element_ids=["elem-0", "elem-1"])
++    transport = _DelayedFakeTransport(
++        judge_verdict_by_index={0: "VERIFIED", 1: "UNSUPPORTED"},
++    )
++
++    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
++
++    assert transport.completions == 8, transport.completions
++    # Distinct claims keep their distinct verdicts (NOT collapsed).
++    assert result.final_verdicts == {"claim-0": "VERIFIED", "claim-1": "UNSUPPORTED"}
++
++
++def test_dedup_fan_out_credits_coverage_per_claim(monkeypatch, tmp_path):
++    # Two identical-INPUT claims differing ONLY in claim_id + covered_element_ids still DEDUP
++    # (covered_element_ids is not pipeline input), and BOTH elements are credited on the shared
++    # VERIFIED verdict (per-claim coverage fan-out).
++    monkeypatch.setenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1")
++    monkeypatch.setattr(sweep_integration, "_CLAIM_WORKERS", 1)
++    claims = [
++        _dup_claim("claim-a", input_idx=0, covers=["elem-a"]),
++        _dup_claim("claim-b", input_idx=0, covers=["elem-b"]),
++    ]
++    ledger = CoverageLedger(required_element_ids=["elem-a", "elem-b"])
++    transport = _DelayedFakeTransport(judge_verdict_by_index={0: "VERIFIED"})
++
++    result = _run(transport, claims, run_dir=tmp_path, ledger=ledger)
++
++    assert transport.completions == 4
++    assert result.final_verdicts == {"claim-a": "VERIFIED", "claim-b": "VERIFIED"}
++    # Both elements covered (each claim credits its OWN covered_element_ids on the shared VERIFIED
++    # verdict) -> full coverage despite the single deduped pipeline run.
++    assert result.coverage_fraction == pytest.approx(1.0), result.coverage_fraction
++
++
++def test_build_openrouter_body_temperature_zero_and_seed_optin(monkeypatch):
++    # FX-08b determinism knobs: temperature=0 always (safe under require_parameters); seed OPT-IN.
++    from src.polaris_graph.roles.openrouter_role_transport import _build_openrouter_body
++    from src.polaris_graph.roles.role_transport import RoleRequest
++
++    req = RoleRequest(role="judge", model_slug="qwen/qwen3.6-35b-a3b",
++                      prompt="claim + evidence", params={})
++    monkeypatch.delenv("PG_VERIFIER_SEED", raising=False)
++    monkeypatch.delenv("PG_VERIFIER_TEMPERATURE", raising=False)
++    body = _build_openrouter_body(req, "qwen/qwen3.6-35b-a3b", [{"role": "user", "content": "x"}])
++    assert body["temperature"] == 0.0
++    assert "seed" not in body, "seed must be opt-in (require_parameters routing safety)"
++
++    monkeypatch.setenv("PG_VERIFIER_SEED", "42")
++    body2 = _build_openrouter_body(req, "qwen/qwen3.6-35b-a3b", [{"role": "user", "content": "x"}])
++    assert body2["seed"] == 42
