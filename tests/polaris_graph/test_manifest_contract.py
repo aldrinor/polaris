@@ -183,7 +183,12 @@ def test_manifest_contract_abort_statuses_are_authoritative() -> None:
     #     (run_honest_sweep_r3.py:~5682), a SWEEP-level refusal artifact — never a run manifest.
     # The feature-firing telemetry that previously tripped this regex (fired / not_enabled / ...)
     # was renamed to the `firing_status` key (#1086), so it no longer matches `"status":`.
-    allowed_non_manifest = {"started", "abort_quota_exceeded"}
+    #   - "not_applicable_planner_lane": FX-14 (#1129) custody-lane honesty marker, returned by
+    #     compute_custody_lane_status() (run_honest_sweep_r3.py:356) and written ONLY to
+    #     custody_lane_status.json (run_honest_sweep_r3.py:~4844) — NEVER to manifest.json. Same
+    #     non-manifest false-positive class as the firing_status carve-out above; provably never a
+    #     run manifest status, so excluding it does NOT weaken the manifest-status contract.
+    allowed_non_manifest = {"started", "abort_quota_exceeded", "not_applicable_planner_lane"}
     status_values -= allowed_non_manifest
     unknown = status_values - UNIFIED_STATUS_VALUES
     assert not unknown, (

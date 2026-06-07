@@ -435,14 +435,15 @@ def test_pt12_still_flags_real_out_of_range_citation_in_prose() -> None:
 
 
 def test_same_family_pair_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Force both sides to be the same family
-    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-chat")
-    monkeypatch.setenv("PG_EVALUATOR_MODEL", "deepseek/deepseek-coder")
-    # Reload the module so it picks up the env vars
-    import importlib
+    # I-ready-018 (#1088): force both sides to the same family by monkeypatch.setattr on the LIVE
+    # module globals (auto-restored) instead of setenv + importlib.reload(orc). reload() rebinds
+    # openrouter_client.BudgetExceededError to a non-subclass class object and resets _RUN_COST_CTX,
+    # poisoning the 4-role seam / fx01 / semantic-conflict budget tests later in the full sweep.
+    # check_family_segregation reads PG_GENERATOR_MODEL / PG_EVALUATOR_MODEL as module globals at
+    # call time (openrouter_client.py:627-628), so setattr is sufficient and reload-free.
     import src.polaris_graph.llm.openrouter_client as orc
-    importlib.reload(orc)
-    # Patch the evaluator's re-import
+    monkeypatch.setattr(orc, "PG_GENERATOR_MODEL", "deepseek/deepseek-chat")
+    monkeypatch.setattr(orc, "PG_EVALUATOR_MODEL", "deepseek/deepseek-coder")
     with pytest.raises(RuntimeError) as excinfo:
         run_external_evaluation(
             report_text="dummy report",
@@ -452,7 +453,4 @@ def test_same_family_pair_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) 
             evidence_pool={},
         )
     assert "same" in str(excinfo.value).lower()
-    # Restore defaults
-    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v3.2-exp")
-    monkeypatch.setenv("PG_EVALUATOR_MODEL", "qwen/qwen3-8b")
-    importlib.reload(orc)
+    # No manual restore + reload needed — monkeypatch.setattr auto-restores both globals.

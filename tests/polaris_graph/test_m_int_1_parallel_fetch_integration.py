@@ -199,7 +199,11 @@ def test_disabled_flag_falls_back_to_serial(
     )
     monkeypatch.setattr(
         lr_mod, "_serper_search",
-        lambda q, num=10: [
+        # FX-17 (#1126) added api_calls= to the real _serper_search call site
+        # (live_retriever.py:2452, paginated-breadth counting). The mock must
+        # accept it — stale-mock fix (test signature lagged the code), NOT a
+        # product change.
+        lambda q, num=10, **kwargs: [
             {"link": "https://example.com/a", "title": "A",
              "snippet": "snip a"},
         ],

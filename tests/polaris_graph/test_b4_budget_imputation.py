@@ -4,8 +4,6 @@ tokens were consumed but OpenRouter omitted usage.cost.
 """
 from __future__ import annotations
 
-import importlib
-
 
 def _mod():
     import src.polaris_graph.llm.openrouter_client as m
@@ -53,9 +51,13 @@ def test_b4_budget_guard_not_bypassable_when_cost_missing(
 ) -> None:
     """If OpenRouter omits cost but tokens were used, the budget guard
     must still accumulate a non-zero amount per call."""
-    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
+    # I-ready-018 (#1088): set the cap via monkeypatch.setattr on the LIVE module (auto-restored)
+    # instead of setenv + importlib.reload(mod). Reloading openrouter_client rebinds
+    # BudgetExceededError to a non-subclass class object and resets _RUN_COST_CTX, which poisoned
+    # the 4-role seam / fx01 / semantic-conflict tests downstream in the full sweep. The budget
+    # check reads PG_MAX_COST_PER_RUN as a module global at call time, so setattr is sufficient.
     import src.polaris_graph.llm.openrouter_client as mod
-    importlib.reload(mod)
+    monkeypatch.setattr(mod, "PG_MAX_COST_PER_RUN", 0.10)
     mod.reset_run_cost()
     # Simulate what the _call() code path does when api_cost is None
     # and tokens were consumed: the imputed cost is fed into _add_run_cost.
@@ -71,8 +73,7 @@ def test_b4_budget_guard_not_bypassable_when_cost_missing(
     import pytest
     with pytest.raises(mod.BudgetExceededError):
         mod.check_run_budget()
-    monkeypatch.setenv("PG_MAX_COST_PER_RUN", "0.10")
-    importlib.reload(mod)
+    mod.reset_run_cost()
 
 
 def test_b4_negative_tokens_clamped_to_zero() -> None:

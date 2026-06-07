@@ -520,9 +520,12 @@ def test_s0b7_reproduction_gap18_fixture(monkeypatch):
     Under off it drops; under enforce the bounded-window rescue passes it.
     A genuinely unsupported sentence still drops under enforce.
     """
-    # Import the harness module (repo root is on sys.path above) to reuse its
-    # exact CASE 3b fixtures — same rows the diagnosis recorded.
-    harness = importlib.import_module("scripts.rediagnose_gap18")
+    # I-ready-018 (#1088): the CASE-3b fixtures are inline below. The previous
+    # `importlib.import_module("scripts.rediagnose_gap18")` referenced a local
+    # diagnostic script that was NEVER committed to git (ModuleNotFoundError in
+    # any clean checkout / CI). Removed the dead dependency; the inline rows are
+    # the same ones the diagnosis recorded, and the rescue logic under test is
+    # exercised directly via pg below (STALE_ASSERTION, no feature removed).
     row_a = (
         "Background note. The carbon levy drove decarbonization and "
         "structural change in regional industry."
@@ -536,9 +539,6 @@ def test_s0b7_reproduction_gap18_fixture(monkeypatch):
         "Decarbonization reflects structural change in the regional industry "
         "[#ev:a:0-16][#ev:b:0-15]."
     )
-    # Sanity: the harness module imported cleanly and exposes the same
-    # provenance module under test (it reuses pg._content_words, not its own).
-    assert harness.pg is pg
 
     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
     _install_judge(monkeypatch, AllEntailJudge())
