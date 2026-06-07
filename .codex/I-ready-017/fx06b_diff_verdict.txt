@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: "P1-1"
+    finding: "scripts/run_honest_sweep_r3.py:3299 returns from the new error_corpus_population_mismatch branch before the common post-try teardown can run. A return inside the try executes only the finally at 6438, then exits, so this path misses write_per_run_cost_ledger, emit_terminal_event, set_current_run_id(None), set_reasoning_sink(None), and log_f.close(); unlike abort_corpus_inadequate, v6 clients can miss the named terminal event and the run-scoped state/log handle is left uncleared on the exact path this change adds."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Mirror the neighboring abort cleanup before returning from error_corpus_population_mismatch, or refactor early-abort teardown into a shared helper, and add coverage that exercises the actual new run_one_query abort path."

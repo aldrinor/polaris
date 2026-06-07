@@ -1,0 +1,204 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 9b666616..ce87dcc6 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -204,6 +204,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+     "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused BEFORE retrieval (PG_USE_SAFETY_REFUSAL); refuse-with-redirection, zero generator spend
+     "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — a required report-contract slot is bound to a non-journal entity; refuse rather than cite a non-journal source in a journal-restricted review
+     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only — a non-journal row reached the generator past the source-filter (should never happen); fail-closed backstop, never synthesize
++    "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
+     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
+     # error — unhandled exception
+@@ -245,6 +246,7 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     # I-ready-017 (#1134): journal_only fail-closed aborts emit their named status.
+     "abort_journal_only_contract_conflict": "abort_journal_only_contract_conflict",
+     "error_journal_only_leak": "error_journal_only_leak",
++    "error_corpus_population_mismatch": "error_corpus_population_mismatch",
+     "error": "error_unexpected",
+ }
+ 
+@@ -3239,12 +3241,79 @@ async def run_one_query(
+         # MUST score the SAME population. Both are `sum(tier_counts)`; they can only diverge if a
+         # future merge reassigns `dist` without recomputing `adequacy` from it — refuse to proceed
+         # rather than gate/approve on a population the report does not consume.
+-        if adequacy.total_sources != dist.total_sources:
+-            raise RuntimeError(
+-                f"FX-06 invariant violated: corpus_adequacy.total_sources={adequacy.total_sources} "
+-                f"!= corpus_approval dist.total_sources={dist.total_sources} — the approval gate "
++        # FX-06b (#1121): (1) STRENGTHEN to also compare tier_counts — a
++        # same-SIZE tier mismatch (e.g. a T1 swapped for a T4 with equal total)
++        # would pass the total-only check yet still mean the gate scored a
++        # different population. (2) Emit a NAMED abort-manifest
++        # (error_corpus_population_mismatch) rather than a generic RuntimeError
++        # -> error_unexpected, so a divergence is self-documenting for triage.
++        # Defensive: should never fire (all merge paths recompute adequacy from
++        # the same dist); fail-loud refuse rather than gate on a population the
++        # report does not consume.
++        _pop_total_mismatch = adequacy.total_sources != dist.total_sources
++        _pop_tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
++        if _pop_total_mismatch or _pop_tier_mismatch:
++            _pop_msg = (
++                f"FX-06 invariant violated: corpus_adequacy(total={adequacy.total_sources}, "
++                f"tier_counts={dict(adequacy.tier_counts)}) != corpus_approval dist(total="
++                f"{dist.total_sources}, tier_counts={dict(dist.tier_counts)}) — the approval gate "
+                 f"would score a different population than the adequacy artifact + report consume."
+             )
++            _log(f"[ABORT]       {_pop_msg}")
++            summary["status"] = "error_corpus_population_mismatch"
++            summary["error"] = _pop_msg[:300]
++            run_cost = current_run_cost()
++            _pm_manifest = _base_manifest_envelope(
++                run_id=run_id, q=q, retrieval=retrieval, run_cost=run_cost,
++            )
++            _pm_manifest["status"] = "error_corpus_population_mismatch"
++            _pm_manifest["error"] = _pop_msg[:500]
++            _pm_manifest["corpus"] = {
++                "adequacy_total_sources": adequacy.total_sources,
++                "approval_total_sources": dist.total_sources,
++                "adequacy_tier_counts": dict(adequacy.tier_counts),
++                "approval_tier_counts": dict(dist.tier_counts),
++            }
++            _pm_manifest = augment_v6_manifest(
++                _pm_manifest,
++                external_run_id=q.get("external_run_id"),
++                decision_id=q.get("decision_id"),
++                query_slug=q.get("slug"),
++            )
++            _pm_manifest = _attach_tool_utilization(_pm_manifest, run_dir)
++            (run_dir / "manifest.json").write_text(
++                json.dumps(_pm_manifest, indent=2, sort_keys=True, default=str)
++                + "\n",
++                encoding="utf-8",
++            )
++            (run_dir / "report.md").write_text(
++                f"# Research report: {q['question']}\n\n## Pipeline verdict\n\n"
++                "The corpus-approval gate and the corpus_adequacy artifact would "
++                "score DIFFERENT populations (total_sources or tier_counts "
++                "diverge). The pipeline refuses to gate or approve on a "
++                "population the report does not consume.\n",
++                encoding="utf-8",
++            )
++            summary["manifest"] = _pm_manifest
++            summary["cost_usd"] = run_cost
++            # FX-06b (#1121, Codex diff-gate P1): mirror the neighboring
++            # early-abort teardown (abort_corpus_inadequate) before returning
++            # from inside the try — a bare return here would skip the cost-ledger
++            # write, the v6 terminal event, and the run-scoped state/log cleanup.
++            try:
++                write_per_run_cost_ledger(run_dir, run_id)
++            except Exception:
++                pass
++            if q.get("v6_mode") and q.get("external_run_id"):
++                emit_terminal_event(
++                    q.get("external_run_id"),
++                    "error_corpus_population_mismatch",
++                    error_msg=summary.get("error"),
++                )
++            set_current_run_id(None)
++            set_reasoning_sink(None)
++            log_f.close()
++            return summary
+ 
+         # R-6 Gap-1: if adequacy still says ABORT after optional
+         # expansion, refuse to synthesize — emit a short "corpus
+diff --git a/src/polaris_graph/audit_ir/regression_lab.py b/src/polaris_graph/audit_ir/regression_lab.py
+index 87136461..4c0ecc30 100644
+--- a/src/polaris_graph/audit_ir/regression_lab.py
++++ b/src/polaris_graph/audit_ir/regression_lab.py
+@@ -630,6 +630,10 @@ _STATUS_TIERS: dict[str, int] = {
+     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a
+     # non-journal row reached the generator (should never happen). Tier 3.
+     "error_journal_only_leak": 3,
++    # I-ready-017 FX-06b (#1121): corpus-approval gate vs adequacy artifact
++    # would score different populations (total_sources or tier_counts diverge);
++    # defensive fail-loud — no trustworthy report. Tier 3.
++    "error_corpus_population_mismatch": 3,
+ }
+ 
+ # Public alias of the keys for taxonomy-drift testing.
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index b863c4a2..b01cf8c8 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -50,6 +50,7 @@ PipelineStatus = Literal[
+     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
+     "error_unexpected",
+     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
++    "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): corpus-approval gate vs adequacy artifact score different populations (total_sources or tier_counts diverge); defensive fail-loud
+ ]
+ 
+ # Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+diff --git a/tests/polaris_graph/test_fx06_approval_population_iready017.py b/tests/polaris_graph/test_fx06_approval_population_iready017.py
+index a685f31c..1270fdea 100644
+--- a/tests/polaris_graph/test_fx06_approval_population_iready017.py
++++ b/tests/polaris_graph/test_fx06_approval_population_iready017.py
+@@ -69,3 +69,56 @@ def test_fx06_divergence_detected_pre_vs_post_merge():
+     # Pre-merge adequacy vs post-merge approval population diverge — the FX-06 invariant fails loud.
+     assert pre_adequacy.total_sources != post_dist.total_sources
+     assert (pre_adequacy.total_sources, post_dist.total_sources) == (45, 145)
++
++
++# === FX-06b (I-ready-017 #1121): tier_counts equality + named abort status ====================
++def test_fx06b_tier_counts_divergence_caught_at_equal_total():
++    """FX-06b item 2: the strengthened invariant also compares tier_counts, so a SAME-SIZE tier
++    mismatch (equal total_sources, different tier composition) is caught — the total-only check
++    would have missed it."""
++    dist = compute_tier_distribution(_sources(_HELD_45), _PROTOCOL)  # total 45
++    # A DIFFERENT tier composition with the SAME total (45): one T1 swapped for a T4.
++    skewed = dict(_HELD_45)
++    skewed["T1"] -= 1
++    skewed["T4"] += 1
++    adequacy = assess_corpus_adequacy(
++        tier_counts=skewed,
++        evidence_row_count=45,
++        domain="workforce",
++        protocol=_PROTOCOL,
++    )
++    # total-only check would PASS (both 45) — the bug the strengthening closes.
++    assert adequacy.total_sources == dist.total_sources == 45
++    # tier_counts check CATCHES the divergence (the orchestrator's strengthened condition).
++    assert dict(adequacy.tier_counts) != dict(dist.tier_counts)
++    _total_mismatch = adequacy.total_sources != dist.total_sources
++    _tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
++    assert (_total_mismatch or _tier_mismatch) is True  # invariant fires
++
++
++def test_fx06b_no_false_positive_when_populations_match():
++    """The strengthened invariant must NOT fire when adequacy is written from the same dist
++    (total AND tier_counts identical) — the normal, correct path."""
++    dist = compute_tier_distribution(_sources(_HELD_45), _PROTOCOL)
++    adequacy = assess_corpus_adequacy(
++        tier_counts=dist.tier_counts,
++        evidence_row_count=45,
++        domain="workforce",
++        protocol=_PROTOCOL,
++    )
++    _total_mismatch = adequacy.total_sources != dist.total_sources
++    _tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
++    assert (_total_mismatch or _tier_mismatch) is False  # no false abort
++
++
++def test_fx06b_named_status_registered_in_all_taxonomies():
++    """FX-06b item 1: error_corpus_population_mismatch is registered across all status surfaces
++    (so the manifest is self-documenting, not a generic error_unexpected)."""
++    from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES, _SUMMARY_TO_UNIFIED
++    from src.polaris_graph.audit_ir.regression_lab import KNOWN_STATUS_VALUES
++    from src.polaris_v6.schemas.run_status import PipelineStatus
++    s = "error_corpus_population_mismatch"
++    assert s in UNIFIED_STATUS_VALUES
++    assert _SUMMARY_TO_UNIFIED[s] == s
++    assert s in KNOWN_STATUS_VALUES
++    assert s in set(PipelineStatus.__args__)
+diff --git a/tests/polaris_graph/test_manifest_contract.py b/tests/polaris_graph/test_manifest_contract.py
+index 730d0ccd..addccb88 100644
+--- a/tests/polaris_graph/test_manifest_contract.py
++++ b/tests/polaris_graph/test_manifest_contract.py
+@@ -58,6 +58,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
+         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
+         "error_unexpected",
+         "error_journal_only_leak",     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
++        "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): corpus-approval vs adequacy population divergence
+     })
+     assert UNIFIED_STATUS_VALUES == expected, (
+         f"Unified taxonomy has drifted: got {UNIFIED_STATUS_VALUES}, "
