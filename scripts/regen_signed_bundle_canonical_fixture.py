@@ -211,9 +211,10 @@ def _sign_manifest(fixture_dir: Path) -> None:
     present + non-empty, but the bundle's whole point is a genuine signature, so
     every regeneration MUST produce one that `gpg --verify` accepts.
 
-    Key/homedir/passphrase come from POLARIS_GPG_KEY_ID / POLARIS_GPG_HOMEDIR
-    (or GNUPGHOME) / POLARIS_GPG_PASSPHRASE — the same env contract as
-    src/polaris_graph/audit_bundle/gpg_signer.load_config_from_env.
+    Key/passphrase come from POLARIS_GPG_KEY_ID / POLARIS_GPG_PASSPHRASE, matching
+    src/polaris_graph/audit_bundle/gpg_signer.load_config_from_env. Homedir: this
+    script prefers POLARIS_GPG_HOMEDIR then GNUPGHOME (gpg_signer reads GNUPGHOME
+    only); set POLARIS_GPG_HOMEDIR (as .env does) so both resolve the same keyring.
     """
     key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
     if not key_id:
@@ -238,6 +239,12 @@ def _sign_manifest(fixture_dir: Path) -> None:
     sign_cmd = list(base)
     if passphrase:
         sign_cmd += ["--passphrase", passphrase]
+    # Deterministic signature (Codex #1139b P2): GPG embeds a creation time in the
+    # detached sig, so a normal re-sign changes the .asc bytes even when content is
+    # unchanged. Pin the creation time to the fixture's frozen FIXED_TIMESTAMP (with
+    # a trailing '!' to freeze it, not advance) so re-running regen is byte-idempotent.
+    faked_time = datetime.fromisoformat(FIXED_TIMESTAMP).strftime("%Y%m%dT%H%M%S") + "!"
+    sign_cmd += ["--faked-system-time", faked_time]
     sign_cmd += [
         "--local-user", key_id, "--armor", "--detach-sign",
         "--output", str(signature), str(manifest),
