@@ -1106,19 +1106,19 @@ def _resolve_benchmark_upload(
     import asyncio
     from pathlib import Path
 
-    # I-ready-018 (#1138, Codex iter-1 P1): use the canonical ``src.`` import root. The beat-both
-    # run launches from the repo root WITHOUT ``PYTHONPATH=src`` (so only ``src.polaris_graph`` /
-    # ``src.polaris_v6`` resolve and the sitecustomize alias does NOT load). A bare ``polaris_graph``/
-    # ``polaris_v6`` import here would raise ModuleNotFoundError on the --upload-file path under the
-    # root-only run. Match the rest of run_gate_b's ``src.`` imports.
-    from src.polaris_graph.document_ingester import (
+    # I-ready-018 (#1138): these stay BARE + LAZY (inside the resolver) — the NO-SPEND/NO-NETWORK-
+    # at-import invariant (test_upload_imports_are_lazy_inside_the_resolver) requires the bare module
+    # paths inside the function body, NOT hoisted to module top. They are root-safe because
+    # ``install_import_root_alias()`` ran at module load (top of this file), so bare ``polaris_graph``/
+    # ``polaris_v6`` alias to their ``src.`` counterparts even under the root-only run launch.
+    from polaris_graph.document_ingester import (
         DocumentIngester,
         DocumentIngestionError,
     )
-    from src.polaris_v6.adapters.upload_evidence import (
+    from polaris_v6.adapters.upload_evidence import (
         partition_uploads_by_sovereignty,
     )
-    from src.polaris_v6.api.upload import chunk_text
+    from polaris_v6.api.upload import chunk_text
 
     path = Path(upload_file)
     if not path.exists():
