@@ -1622,6 +1622,8 @@ async def run_one_query(
     four_role_transport=None,
     four_role_inputs=None,
     four_role_input_builder=None,
+    query_index: int | None = None,
+    query_total: int | None = None,
 ) -> dict:
     """Run the full honest pipeline on one query. Returns a summary dict.
 
@@ -1686,6 +1688,34 @@ async def run_one_query(
     # BUG-N-301 fix: set ambient run_id so every downstream
     # OpenRouterClient tags its cost-ledger entries with this run.
     set_current_run_id(run_id)
+
+    # I-obs-001 #1141 AC1: live run-status heartbeat. Purely ADDITIVE, kill-switchable
+    # (PG_RUN_STATUS_HEARTBEAT), and never raises into the run (write_heartbeat swallows all IO).
+    # _hb_started is a DEDICATED entry timestamp (not the late-set t0) so elapsed_s is accurate.
+    # The closure binds run_dir/run_id/slug/query_index + live cost so every stage call is a one-liner.
+    _hb_started = time.monotonic()
+    from src.polaris_graph.telemetry.run_status_heartbeat import (
+        write_heartbeat as _write_heartbeat,
+    )
+
+    def _hb(stage: str, **kw) -> None:
+        try:
+            _write_heartbeat(
+                run_dir=run_dir,
+                run_id=run_id,
+                slug=q.get("slug", ""),
+                query_index=query_index,
+                query_total=query_total,
+                stage=stage,
+                started_monotonic=_hb_started,
+                running_cost_usd=current_run_cost(),
+                budget_cap_usd=get_max_cost_per_run(),
+                **kw,
+            )
+        except Exception:  # noqa: BLE001 — observability must never perturb the run
+            pass
+
+    _hb("started")  # file exists immediately; a pre-try crash still leaves a record
 
     # I-ready-005 (#1076) Codex iter-1 P1: initialize per-feature FIRING telemetry HERE — at the top of
     # run_one_query, BEFORE any early-abort/budget/error manifest write — and publish it into the
@@ -5884,6 +5914,13 @@ async def run_one_query(
             _seam_cost_holder = [_seam_parent_cost]
             _seam_parent_ctx = _seam_cv.copy_context()
 
+            # I-obs-001 #1141 AC1: narrow progress callback — keeps the heartbeat's last_update_utc
+            # advancing during the up-to-7200s verifier phase (the parent blocks on .result()).
+            # Plain closure threaded as an argument (NOT a ContextVar), so it is unaffected by the
+            # worker-thread context copy; _hb's atomic writer is concurrency-safe (unique temps).
+            def _hb_claims(done: int, n: int) -> None:
+                _hb("four_role_progress", claims_verified=done, claims_total=n)
+
             def _seam_worker() -> FourRoleEvaluationResult:
                 def _run_under_ctx() -> FourRoleEvaluationResult:
                     try:
@@ -5902,6 +5939,9 @@ async def run_one_query(
                             # db so later questions in this sweep can reuse THIS question's VERIFIED
                             # claims (fail-closed read).
                             campaign_kg_db=str(_seam_kg_path),
+                            # I-obs-001 #1141 AC1: progress callback (anti-staleness during the
+                            # up-to-7200s verifier phase). Opaque to sweep_integration.
+                            heartbeat_claims_cb=_hb_claims,
                         )
                     finally:
                         # Capture accumulated verifier spend even on raise/timeout so the parent
@@ -5915,6 +5955,7 @@ async def run_one_query(
             # timeout entirely (Codex diff-gate P1). shutdown(wait=False, cancel_futures=True) returns
             # promptly so the held manifest is written AT PG_FOUR_ROLE_SEAM_TIMEOUT_SECONDS; the
             # orphaned worker thread exits on its own per-call timeout. Mirrors audit_ir/parallel_fetch.py.
+            _hb("four_role_started")  # I-obs-001 #1141 AC1: bracket the up-to-7200s verifier phase
             _seam_pool = _seam_futures.ThreadPoolExecutor(max_workers=1)
             try:
                 four_role_result = _seam_pool.submit(_seam_worker).result(
@@ -5960,6 +6001,12 @@ async def run_one_query(
                     needs_rewrite=[],
                     kg_path=_seam_kg_path,
                 )
+            # I-obs-001 #1141 AC1: verifier phase complete — stamp claims processed.
+            try:
+                _n_claims = len(getattr(four_role_result, "final_verdicts", {}) or {})
+                _hb("four_role_done", claims_verified=_n_claims, claims_total=_n_claims)
+            except Exception:  # noqa: BLE001
+                pass
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
             manifest["release_allowed"] = four_role_result.release_allowed
@@ -6463,6 +6510,15 @@ async def run_one_query(
         # context. Replaces the iter-3 wrapper split (which broke the run_one_query source-introspection
         # contract gates) — the body stays in run_one_query per Codex iter-4's first-listed fix.
         _FEATURE_TELEMETRY_CTX.set(None)
+        # I-obs-001 #1141 AC1: terminal heartbeat stamp. This finally is the ONE choke point
+        # every exit passes through — success, every early abort-return (incl. the three
+        # _abort_if_cancelled returns + abort_verifier_degraded), AND the budget/journal/error
+        # excepts above — so stamping summary.get("status") here yields the terminal heartbeat
+        # for ALL paths without per-abort edits. Must never raise (it is inside a finally).
+        try:
+            _hb(summary.get("status") or "unknown")
+        except Exception:  # noqa: BLE001
+            pass
 
     # BUG-M-206 + BUG-N-301 teardown: per-run ledger copy + run_id reset.
     try:

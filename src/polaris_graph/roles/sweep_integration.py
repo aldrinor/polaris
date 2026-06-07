@@ -222,6 +222,7 @@ def _compute_claim_results(
     model_slugs: dict[str, str],
     timestamp: str,
     run_dir: Path,
+    heartbeat_claims_cb=None,
 ) -> list[tuple[ClaimPipelineResult, float | None]]:
     """COMPUTE the per-claim 4-role pipeline for every claim, returning results BY INPUT INDEX.
 
@@ -414,6 +415,14 @@ def _compute_claim_results(
                 json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+            # I-obs-001 #1141 AC1: forward the same done/total to the run-status heartbeat (opaque
+            # callback — sweep_integration stays ignorant of the heartbeat schema). Additive
+            # observability on the compute loop, NOT the D8 release decision; never raises.
+            if heartbeat_claims_cb is not None:
+                try:
+                    heartbeat_claims_cb(done, n)
+                except Exception:  # noqa: BLE001
+                    pass
             # Enforce the run budget DURING compute (P1.1): thread this claim's verifier spend into
             # the SINGLE parent run counter and re-check the cap immediately. A `BudgetExceededError`
             # here bounds overspend to the workers in-flight at the breach (~workers-1), not all n.
@@ -453,6 +462,7 @@ def run_four_role_evaluation(
     rewrite_already_attempted: bool = False,
     d8_config_path: str | Path | None = None,
     campaign_kg_db: str | Path | None = None,
+    heartbeat_claims_cb=None,
 ) -> FourRoleEvaluationResult:
     """Drive the per-claim 4-role pipeline, apply the SINGLE binding D8 gate, persist the KG.
 
@@ -549,6 +559,7 @@ def run_four_role_evaluation(
         model_slugs=model_slugs,
         timestamp=timestamp,
         run_dir=run_dir,
+        heartbeat_claims_cb=heartbeat_claims_cb,
     )
 
     role_calls_path = run_dir / FOUR_ROLE_ROLE_CALLS_FILENAME
@@ -692,6 +703,7 @@ def run_four_role_seam(
     domain: str | None = None,
     ev_pool: object = None,
     campaign_kg_db: str | Path | None = None,
+    heartbeat_claims_cb=None,
 ) -> FourRoleEvaluationResult:
     """Resolve the 4-role inputs (builder WINS), run the SINGLE binding D8 gate, persist audit.
 
@@ -733,6 +745,7 @@ def run_four_role_seam(
             model_slugs=inputs.model_slugs,
             rewrite_already_attempted=inputs.rewrite_already_attempted,
             campaign_kg_db=campaign_kg_db,
+            heartbeat_claims_cb=heartbeat_claims_cb,
         )
         # The SEAM (not the builder) persists the per-claim audit map alongside the run.
         (run_dir / FOUR_ROLE_CLAIM_AUDIT_FILENAME).write_text(
@@ -759,4 +772,5 @@ def run_four_role_seam(
         model_slugs=four_role_inputs.model_slugs,
         rewrite_already_attempted=four_role_inputs.rewrite_already_attempted,
         campaign_kg_db=campaign_kg_db,
+        heartbeat_claims_cb=heartbeat_claims_cb,
     )

@@ -813,6 +813,8 @@ async def run_gate_b_query(
     *,
     transport: OpenRouterRoleTransport | OpenAICompatibleRoleTransport | None = None,
     d8_config_path: str | Path | None = None,
+    query_index: int | None = None,
+    query_total: int | None = None,
 ) -> dict:
     """Run ONE query through the honest sweep with the native 4-role Gate-B seam ACTIVE.
 
@@ -922,6 +924,8 @@ async def run_gate_b_query(
         out_root,
         four_role_transport=active_transport,
         four_role_input_builder=builder,
+        query_index=query_index,
+        query_total=query_total,
     )
 
 
@@ -1299,7 +1303,8 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 72)
 
     overall_rc = 0
-    for q in questions:
+    # I-obs-001 #1141 AC1: enumerate so the heartbeat can report "query N of 5".
+    for query_index, q in enumerate(questions, 1):
         slug = q["slug"]
         domain = q["domain"]
         if _attach_uploads:
@@ -1314,7 +1319,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n>>> {domain} / {slug}")
         # Sequential — one question at a time (CLAUDE.md §8.4 resource discipline; no parallel
         # runs). Each delegates entirely to the existing 4-role entrypoint.
-        summary = asyncio.run(run_gate_b_query(q, out_root))
+        summary = asyncio.run(
+            run_gate_b_query(
+                q, out_root, query_index=query_index, query_total=len(questions)
+            )
+        )
         status = summary.get("status", "<no-status>")
         print(f"<<< {domain} / {slug}: status={status}")
         if not (status == "success" or str(status).startswith("partial")):
