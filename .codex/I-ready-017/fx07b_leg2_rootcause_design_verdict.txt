@@ -1,0 +1,18 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The proposed `has_usable_quote -> generation_failed` split is too broad. Placeholder-only/all-not_extractable rows with a usable quote can be honest extraction/curator gaps, not pipeline faults. Add a substantive-drafted signal (`fields_extracted` / `sentences_drafted_substantive` / payload origin) and reserve `generation_failed` for substantive prose that was drafted and then kept zero substantive sentences."
+p2:
+  - "Register any new curator-gap frame status in `_is_curator_actionable` and `_compose_task_needs` too, not only graph normalization."
+  - "Use one shared gap-disclosure predicate/constant so `_GAP_DISCLOSURE_MARKER` drift cannot make placeholders count as substantive."
+  - "Derive `has_usable_quote` from the same threshold/helper used by contract rendering, and emit quote length/threshold in telemetry for auditability."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Before coding, change the override decision from `sentences_drafted>0` to a split that distinguishes substantive drafted content from disclosure-only placeholders."
+q1_scope: "Keep in #1111 leg-2. Class A and Class B are the same false-pass coverage honesty bug; the committed override is correct but incomplete. A separate issue is only appropriate for later Phase-1 cleanup."
+q2_classification: "Do not use the proposed split exactly as written. Correct split: `has_usable_quote && sentences_drafted_substantive>0 && sentences_kept_substantive==0` -> `generation_failed`, `is_pipeline_fault=True`, `human_completion_eligible=False`. `sentences_drafted>0` but only not_extractable/disclosure placeholders -> curator gap, even if a quote exists. No usable quote -> curator gap. Do not collapse both into one uncovered status; owner routing matters."
+q3_substantive_kept: "Fold in now. Excluding `_GAP_DISCLOSURE_MARKER` from kept-substantive is the right Class B discriminator, but pair it with substantive-drafted/payload-status telemetry so placeholder-only rows do not become pipeline faults."
+q4_phase1_root: "Keep the override-layer correction for #1111. Fixing `_synthesize_phase1_validation` has wider blast radius and still would not solve placeholder-kept Class B by itself. A later Phase-1 verdict tightening can require usable source text instead of URL-only retrieval."
+q5_status_name: "Use `curator_gap_no_substantive_content` for the new frame-entry status. Register/map it in graph_route `_normalize_frame_status` as `fail`; ensure the AuditIR loader remains string-tolerant; do not add it to run-level `PipelineStatus` or `KNOWN_STATUS_VALUES`. Also add it to `_is_curator_actionable` and `_compose_task_needs` with licensed-full-text guidance."
+q6_drafted_signal: "Use token-independent per-entity payload/raw-prose telemetry before `_rewrite_draft_with_spans`, excluding the post-strict slot gap-disclosure fallback. `slot_drop_log.rendered_as_gap_disclosure` is per-slot and cannot safely classify multi-entity slots, so it is not sufficient."
