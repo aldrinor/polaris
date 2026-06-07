@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking contract precision: define sentences_kept as strict_verify-kept non-gap content sentences for the same (slot_id, entity_id), with unknown/default-None metrics non-overriding. The triple gate is otherwise correct for isolating validated-payload plus generated-prose plus zero-survivor pipeline faults."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
