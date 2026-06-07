@@ -371,6 +371,33 @@ def _sanitize_raw_for_capture(raw: dict, *, bare_text: object) -> dict:
     return sanitized
 
 
+def _raw_io_capture(*, role, request, raw_response, duration_ms, status, call_type=None):
+    """I-obs-001 #1141 AC3: best-effort raw LLM I/O forensic capture for the self-host transport.
+
+    Cycle-safe lazy current_raw_io_sink import; no-op when the sink is None (flag OFF); generates
+    call_id; defaults call_type to f"role:{role}"; NEVER raises (decision-INERT side-car).
+    """
+    try:
+        from src.polaris_graph.llm.openrouter_client import current_raw_io_sink as _crs
+
+        _sink = _crs()
+        if _sink is None:
+            return
+        import uuid as _uuid
+
+        _sink.record(
+            call_id=_uuid.uuid4().hex,
+            call_type=call_type or f"role:{role}",
+            role=role,
+            request=request,
+            raw_response=raw_response,
+            duration_ms=duration_ms,
+            status=status,
+        )
+    except Exception:  # noqa: BLE001 — forensic side-car must never perturb the verdict
+        pass
+
+
 def _parse_response(raw: dict) -> tuple[object, str | None, dict | None, str | None]:
     """Extract `(raw_text, served_model, usage, reasoning)` from an OpenAI-compatible body.
 
@@ -480,7 +507,19 @@ class OpenAICompatibleRoleTransport:
 
             # I-meta-002-q1b (#939): reasoning is separated from the bare verdict/body HERE so
             # the verdict parsers only ever see the bare answer (no "soap").
-            raw_text, served_model, usage, reasoning = _parse_response(raw)
+            # I-obs-001 #1141 AC3: a blank/think-only parse failure raises RoleTransportError from
+            # _parse_response — capture the raw 200 (the silent verifier signal) BEFORE re-raising.
+            try:
+                raw_text, served_model, usage, reasoning = _parse_response(raw)
+            except RoleTransportError:
+                _raw_io_capture(
+                    role=request.role,
+                    request={**body, "messages": normalized_messages},
+                    raw_response=raw,
+                    duration_ms=None,
+                    status="blank",
+                )
+                raise
 
             # Augment the captured raw with the served block BEFORE capture so M4's
             # served==pinned check can read the endpoint a self-host role was served from
@@ -495,6 +534,15 @@ class OpenAICompatibleRoleTransport:
                 role=request.role,
                 messages=normalized_messages,
                 raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
+            )
+            # I-obs-001 #1141 AC3: verbatim raw I/O capture (success) — full served response incl.
+            # reasoning, disjoint from the sanitized pathB channel; default-OFF (sink None => no-op).
+            _raw_io_capture(
+                role=request.role,
+                request={**body, "messages": normalized_messages},
+                raw_response=raw,
+                duration_ms=None,
+                status="ok",
             )
 
         # Self-host citation invariant (iter-2): return raw_text AS-IS (<co> tags intact),
