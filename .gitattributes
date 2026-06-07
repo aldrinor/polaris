@@ -4,3 +4,11 @@
 *.sh text eol=lf
 Dockerfile* text eol=lf
 config/architecture/polaris_runtime_lock.yaml text eol=lf
+
+# Signed audit-bundle fixtures are SHA256-pinned in manifest.yaml AND GPG-signed
+# (manifest.yaml.asc). Their bytes MUST be byte-identical across platforms or the
+# per-file hashes + the detached signature break. With core.autocrlf=true (Windows)
+# git was rewriting these to CRLF on checkout, flipping every SHA256 and failing
+# audit_bundle/test_conformance. Freeze line endings (treat as binary — no EOL
+# conversion, ever) for the whole tree. I-ready-018 #1139.
+tests/fixtures/signed_bundle/** -text
