@@ -3296,6 +3296,23 @@ async def run_one_query(
             )
             summary["manifest"] = _pm_manifest
             summary["cost_usd"] = run_cost
+            # FX-06b (#1121, Codex diff-gate P1): mirror the neighboring
+            # early-abort teardown (abort_corpus_inadequate) before returning
+            # from inside the try — a bare return here would skip the cost-ledger
+            # write, the v6 terminal event, and the run-scoped state/log cleanup.
+            try:
+                write_per_run_cost_ledger(run_dir, run_id)
+            except Exception:
+                pass
+            if q.get("v6_mode") and q.get("external_run_id"):
+                emit_terminal_event(
+                    q.get("external_run_id"),
+                    "error_corpus_population_mismatch",
+                    error_msg=summary.get("error"),
+                )
+            set_current_run_id(None)
+            set_reasoning_sink(None)
+            log_f.close()
             return summary
 
         # R-6 Gap-1: if adequacy still says ABORT after optional
