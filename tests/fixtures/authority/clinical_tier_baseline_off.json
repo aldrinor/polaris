@@ -9098,13 +9098,13 @@
   {
     "url": "https://www.bls.gov/bls/congressional-reports/assessing-the-impact-of-new-technologies-on-the-labor-market.htm",
     "title": "Assessing the Impact of New Technologies on the Labor Market",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'bls.gov' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
@@ -13274,25 +13274,25 @@
   {
     "url": "https://www.oecd.org/en/publications/2021/01/the-impact-of-artificial-intelligence-on-the-labour-market_a4b9cac2.html",
     "title": "The impact of Artificial Intelligence on the labour market - OECD",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'oecd.org' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
     "url": "https://www.oecd.org/en/publications/science-technology-and-innovation-policy-case-studies_089a31c7-en/scale-ai-canada_cd1e2c76-en.html",
     "title": "Scale AI (Canada) - OECD",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'oecd.org' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
@@ -17606,13 +17606,13 @@
   {
     "url": "https://www.stlouisfed.org/on-the-economy/2026/apr/supply-side-of-us-housing-challenge",
     "title": "The Supply Side of the U.S. Housing Challenge | St. Louis Fed",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'stlouisfed.org' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
@@ -18302,25 +18302,25 @@
   {
     "url": "https://www150.statcan.gc.ca/n1/pub/36-28-0001/2026001/article/00003-eng.htm",
     "title": "Canadian employment trends in the era of generative artificial ...",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'www150.statcan.gc.ca' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
     "url": "https://www150.statcan.gc.ca/n1/pub/46-28-0001/2023001/article/00003-eng.htm",
     "title": "A toolkit for understanding housing supply",
-    "tier": "UNKNOWN",
-    "confidence": 0.0,
+    "tier": "T3",
+    "confidence": 0.95,
     "matched_rules": [
-      "no_rule_matched"
+      "R2b_statistical_agency"
     ],
     "reasons": [
-      "No classifier rule matched. Marking UNKNOWN (not BRONZE / T6) so misconfiguration surfaces. Typical fixes: add the domain to REGULATORY_DOMAINS / NEWS_BLOG_DOMAINS / PEER_REVIEWED_JOURNAL_DOMAINS; supply a source_type_hint upstream; provide OpenAlex metadata."
+      "Domain 'www150.statcan.gc.ca' is a national or international statistical / data agency (e.g. BLS, OECD, ILO, Eurostat, StatCan, World Bank, IMF, Federal Reserve, Census). Authoritative primary quantitative evidence — T3 regardless of OpenAlex metadata (which mis-labelled BLS reports as preprint/repository or narrative review). Not T1 primary-research-paper credit."
     ]
   },
   {
