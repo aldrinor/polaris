@@ -50,6 +50,11 @@ from src._polaris_import_alias import install_import_root_alias
 install_import_root_alias()
 
 from scripts.architecture.verify_lock import load_lock
+# I-ready-017 FIX-JO (#1100): the canonical journal_only runtime-flag NAME. Imported (not
+# re-hardcoded) so the per-slug activation below sets the SAME env the consumer reads in
+# run_honest_sweep_r3.run_one_query -> journal_only_active (single source of truth, LAW VI).
+# journal_only_filter imports only stdlib (os/dataclasses/urllib) — NO network/spend at import.
+from src.polaris_graph.nodes.journal_only_filter import JOURNAL_ONLY_FLAG
 from src.polaris_graph.roles.native_gate_b_inputs import (
     NativeGateBBundle,
     build_native_gate_b_inputs,
@@ -807,6 +812,47 @@ def preflight_import_time_constants() -> None:
             )
 
 
+# I-ready-017 FIX-JO (#1100/#1134): the PER-QUESTION journal_only benchmark slugs. The drb_72
+# AI-labor question is a LITERATURE REVIEW that explicitly instructs "only cites high-quality,
+# English-language journal articles", so its corpus contract is journal_only. This is a NAMED
+# slug set (the SAME hardcoded-slug-tuple pattern as LOCKED_BENCHMARK_SLUGS above — LAW VI:
+# a named module constant, not a magic value). It is deliberately PER-SLUG, NOT keyed on the
+# domain template: workforce.yaml declares `source_restriction: journal_only` at the TEMPLATE
+# (domain) level, so EVERY workforce-domain slug loads the same journal_only protocol — keying
+# the flag on the template would over-activate for a non-lit-review workforce query and silently
+# kill the generic T3 statistical-agency path. journal_only_active() requires BOTH this runtime
+# flag AND the protocol field, so a clinical slug (no journal_only template) stays inert even if
+# the flag were ever stale. A future journal-only benchmark question is added by appending its
+# slug here (and giving its domain template a journal_only profile).
+JOURNAL_ONLY_BENCHMARK_SLUGS: frozenset[str] = frozenset({"drb_72_ai_labor"})
+
+
+def apply_journal_only_for_slug(slug: str) -> bool:
+    """DETERMINISTICALLY set/clear the journal_only runtime flag for ONE benchmark slug.
+
+    Sets ``PG_SOURCE_RESTRICTION_JOURNAL_ONLY=1`` iff ``slug`` is a journal_only benchmark slug
+    (``JOURNAL_ONLY_BENCHMARK_SLUGS``); otherwise it REMOVES the flag from the env so a value
+    left over from a prior journal_only slug in the SAME process (e.g. the ``--all`` loop, or a
+    conservative ``.env`` default) can NEVER carry into a non-journal slug. Returns True iff the
+    flag was set ON for this slug.
+
+    This is the per-question seam (mirrors how the slate is applied per ``run_gate_b_query``): it
+    runs INSIDE ``run_gate_b_query`` so the flag is correct for exactly the question being run,
+    NOT added to the always-on global ``_FULL_CAPABILITY_BENCHMARK_SLATE`` (which would blanket-
+    activate journal_only for every workforce query and kill the generic T3 path). The downstream
+    consumer (``run_honest_sweep_r3.run_one_query`` -> ``_jo_active`` -> ``journal_only_active``)
+    reads ``JOURNAL_ONLY_FLAG`` from the env at run time AND requires the protocol's
+    ``source_restriction: journal_only``, so setting it here before the ``run_one_query`` call is
+    what makes journal_only fire for the journal-only slug only. Default non-journal runs are
+    byte-identical (the flag is removed, not set).
+    """
+    if slug in JOURNAL_ONLY_BENCHMARK_SLUGS:
+        os.environ[JOURNAL_ONLY_FLAG] = "1"
+        return True
+    os.environ.pop(JOURNAL_ONLY_FLAG, None)
+    return False
+
+
 async def run_gate_b_query(
     q: dict,
     out_root: Path,
@@ -896,6 +942,14 @@ async def run_gate_b_query(
     os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    # I-ready-017 FIX-JO (#1100/#1134): per-QUESTION journal_only corpus-quality activation. Set the
+    # journal_only runtime flag ON for drb_72 (the AI-labor LITERATURE REVIEW whose contract is
+    # journal_only) and DETERMINISTICALLY clear it for every other slug — NOT in the always-on global
+    # slate, so the generic T3 statistical-agency path survives for non-lit-review workforce queries.
+    # The downstream consumer (run_honest_sweep_r3.run_one_query -> _jo_active) reads this flag AND
+    # requires the protocol's source_restriction:journal_only, so a clinical slug stays inert. Default
+    # non-journal runs are byte-identical (the flag is removed, never set). Per-slug, never blanket.
+    apply_journal_only_for_slug(q["slug"])
     # I-cap-005 (#1068) KEYSTONE: FAIL CLOSED here — AFTER every cap+flag is applied, BEFORE a single
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
     # feature flag / the tool tracker is off, this raises RuntimeError and the run aborts. A silent throttle
