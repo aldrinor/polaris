@@ -94,6 +94,24 @@ def _require_v28_output() -> Path:
             f"(or set POLARIS_V28_SWEEP_ROOT to point at a test "
             f"fixture)."
         )
+    # I-ready-018 (#1088): these are V28 ACCEPTANCE floors against a SUCCESSFUL full sweep.
+    # A leftover PARTIAL/aborted run dir (e.g. manifest status='partial_qwen_advisory') has the
+    # path present but low counts, so root.exists() passes and the floor asserts FALSE-FAIL. Require
+    # a success manifest so a partial artifact yields a clean SKIP (env-only) instead — this does NOT
+    # weaken the floors against a real success run (LAW II: a success manifest still asserts fully).
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        pytest.skip(f"V28 manifest.json not present at {manifest_path} (incomplete run).")
+    try:
+        _status = json.loads(manifest_path.read_text(encoding="utf-8")).get("status")
+    except (ValueError, OSError) as exc:
+        pytest.skip(f"V28 manifest.json unreadable at {manifest_path}: {exc}")
+    if _status != "success":
+        pytest.skip(
+            f"V28 sweep at {root} has manifest status={_status!r} (not 'success') — a partial/"
+            f"aborted run. Re-run a full V28 sweep (or point POLARIS_V28_SWEEP_ROOT at a success "
+            f"fixture) before asserting the V27/V28 preservation floors."
+        )
     return root
 
 

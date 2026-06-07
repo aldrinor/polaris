@@ -65,6 +65,21 @@ def _require_v26_output() -> Path:
             f"V26 sweep output not yet present at {root}. "
             f"Run `python scripts/run_full_scale_v26.py` first."
         )
+    # I-ready-018 (#1088): require a SUCCESS manifest so a leftover partial/aborted run dir yields a
+    # clean SKIP (env-only) instead of a false-fail on the preservation floors. Mirrors the m49 guard.
+    # Does NOT weaken the floors against a real success run (LAW II).
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        pytest.skip(f"V26 manifest.json not present at {manifest_path} (incomplete run).")
+    try:
+        _status = json.loads(manifest_path.read_text(encoding="utf-8")).get("status")
+    except (ValueError, OSError) as exc:
+        pytest.skip(f"V26 manifest.json unreadable at {manifest_path}: {exc}")
+    if _status != "success":
+        pytest.skip(
+            f"V26 sweep at {root} has manifest status={_status!r} (not 'success') — a partial/"
+            f"aborted run. Re-run a full V26 sweep before asserting the preservation floors."
+        )
     return root
 
 
