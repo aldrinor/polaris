@@ -711,22 +711,20 @@ def render_slot_prose(payload: SlotFillPayload) -> str:
     # is needed for each sentence boundary to trigger.
     sentences: list[str] = []
     for field in payload.fields:
-        # Title-case the first character of field_name so the
-        # sentence splitter triggers. Underscore→space for
-        # readability (e.g. "etd_with_uncertainty" →
-        # "Etd with uncertainty").
+        # I-ready-018 FIX-SLOT (#1144): render ONLY extracted fields. A field the source does not
+        # support (status 'not_extractable', or a 'gap_unrecoverable' mixed into a partial slot) is
+        # NO LONGER verbalized as a sentence. The prior "<Label>: not extractable from available
+        # primary content [ev]." / "<Label>: primary source unavailable [ev]." placeholders pass
+        # strict_verify (valid ev id, no numbers, label-word overlap) yet assert NOTHING — they
+        # flooded report.md and collapsed Gate-B coverage (drb_72 0.286; Eloundou 5/5 not_extractable,
+        # Frey-Osborne 0). When NO field is extractable this returns "" and the caller's existing
+        # zero-kept gap path emits ONE honest curator-actionable-gap sentence (the all_gap
+        # short-circuit above preserves the all-gap_unrecoverable single-disclosure shape).
+        if field.status != "extracted":
+            continue
+        # Title-case the first character of field_name so the sentence splitter triggers.
+        # Underscore→space for readability (e.g. "etd_with_uncertainty" → "Etd with uncertainty").
         label = field.field_name.replace("_", " ")
         label = label[:1].upper() + label[1:] if label else label
-        if field.status == "extracted":
-            sentences.append(
-                f"{label}: {field.value} [{bound}]."
-            )
-        elif field.status == "not_extractable":
-            sentences.append(
-                f"{label}: {_NOT_EXTRACTABLE_PHRASE} [{bound}]."
-            )
-        else:  # gap_unrecoverable mixed into partial slot
-            sentences.append(
-                f"{label}: primary source unavailable [{bound}]."
-            )
+        sentences.append(f"{label}: {field.value} [{bound}].")
     return " ".join(sentences)

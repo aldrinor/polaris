@@ -735,16 +735,59 @@ class TestRenderSlotProse:
         # Every extracted field has a citation
         assert prose.count("[surpass_2_primary]") == 2
 
-    def test_not_extractable_phrasing(self) -> None:
+    def test_not_extractable_is_not_rendered_as_prose(self) -> None:
+        """I-ready-018 FIX-SLOT (#1144): a not_extractable field produces NO sentence — it is
+        SKIPPED, not verbalized as 'not extractable from available primary content'. The prior
+        placeholder prose passed strict_verify (valid ev id, no numbers, label overlap) yet
+        asserted nothing — the dominant drb_72 coverage killer (0.286). Only the extracted field
+        is rendered."""
         required = ("N", "baseline_hba1c")
-        response = _well_formed_response(required)  # baseline missing
+        response = _well_formed_response(required)  # baseline missing -> not_extractable
         payload = parse_slot_fill_response(
             response, _slot_plan(), _frame_row(), required,
         )
         prose = render_slot_prose(payload)
-        assert "not extractable from available primary content" in prose
-        # Phase-2: field names Title Cased with underscore→space
-        assert "Baseline hba1c" in prose
+        # The not_extractable placeholder phrase must NOT appear.
+        assert "not extractable from available primary content" not in prose
+        # The not_extractable field's label is NOT rendered (field skipped entirely).
+        assert "Baseline hba1c" not in prose
+        # The extracted field IS still rendered with its citation.
+        assert "N:" in prose
+        assert "[surpass_2_primary]." in prose
+
+    def test_all_not_extractable_renders_empty_for_gap_fallthrough(self) -> None:
+        """I-ready-018 FIX-SLOT (#1144): when NO field is extractable, render_slot_prose returns ''
+        so the slot falls through to the contract_section_runner zero-kept gap path (ONE honest
+        curator-actionable-gap sentence). This is what stops the Eloundou-5/5-not_extractable
+        placeholder spam without silently omitting the slot (the M-68 Fix #1 structural guard)."""
+        payload = SlotFillPayload(
+            slot_id="s1", entity_id="eloundou", subsection_title="X",
+            bound_ev_id="ev_x", provenance_class="abstract_only",
+            fields=(
+                SlotFieldFill("exposure_method", "not_extractable", None, "ev_x", None),
+                SlotFieldFill("headline_estimate", "not_extractable", None, "ev_x", None),
+            ),
+        )
+        assert render_slot_prose(payload) == ""
+
+    def test_partial_slot_renders_only_extracted_fields(self) -> None:
+        """A mixed slot renders ONLY its extracted field(s); not_extractable / gap_unrecoverable
+        fields produce no sentence and no 'not extractable' / 'primary source unavailable' text."""
+        payload = SlotFillPayload(
+            slot_id="s2", entity_id="e", subsection_title="X",
+            bound_ev_id="ev_y", provenance_class="full_text",
+            fields=(
+                SlotFieldFill("population", "extracted", "5,172 agents", "ev_y", "5,172"),
+                SlotFieldFill("effect_estimate", "not_extractable", None, "ev_y", None),
+                SlotFieldFill("generalizability", "gap_unrecoverable", None, "ev_y", None),
+            ),
+        )
+        prose = render_slot_prose(payload)
+        assert "Population: 5,172 agents [ev_y]." in prose
+        assert "not extractable from available primary content" not in prose
+        assert "primary source unavailable" not in prose
+        # exactly one sentence (only the extracted field)
+        assert prose.count("[ev_y].") == 1
 
     def test_gap_payload_prose(self) -> None:
         payload = compose_gap_payload(
