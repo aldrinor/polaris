@@ -5132,3 +5132,11 @@
 - EVIDENCE/FINDINGS: status abort_four_role_release_held, coverage_fraction 0.286, release_allowed False, 248 sources, T1=17% T4=50%, NLI 79 entailed/21 disputed (15 non-empty = all "not extractable" slot artifacts), mirror-blank 23/157 (flaky provider, recovered). Observability validated end-to-end in production (canary/heartbeat/sources_kept=248/raw-IO all 4 roles).
 - STATUS: Run done, gate held correctly, audit complete. Observability (I-obs-001) validated. Beat-both N/A (nothing released). Root causes routed to #1100. NO new paid run started — awaiting operator direction on fixes.
 - NEXT_STEP: Operator decision — drive the #1100 fixes (template-slot drop + domain-neutral boilerplate + T1 corpus floor), each Codex-gated + offline micro-smoke, then re-run behind canary (budget-gated).
+
+[2026-06-07 22:58:07]
+- ACTION: drb_72 #1100 fix campaign COMPLETE — all 7 fixes Codex-APPROVED + committed.
+- RATIONALE: Operator directive "continue until codex truly approve all fixes". A3/SLOT/JO/GLM/BP/A9/A10 each implemented -> offline heavy smoke -> Codex diff-gate APPROVE -> committed. Heavy smoke caught A3 planned-fix-insufficient (decimal/integer mutual-exclusivity) + over-tighten regression. Also fixed the Stop-hook stale-waiting_on trap + added active_fix_campaign marker (mid-campaign stops now harness-prevented).
+- AFFECTED_FILES: provenance_generator.py, slot_fill.py, run_gate_b.py, run_honest_sweep_r3.py, openrouter_provider_routing.yaml + 5 new test files; .claude/hooks/ultimate_goal_stop_reminder.py; commits 2f665301/7642bbb7/2b0c3352/a80742a6/5d980a77/3105b102 + earlier JO/A3; GitHub #1100/#1143/#1144/#1145.
+- EVIDENCE/FINDINGS: per-fix Codex APPROVE verdicts in .codex/I-ready-018-fix/; offline smokes 9-119 green per fix; faithfulness gates untouched; drb_72 stays release_allowed=False by design.
+- STATUS: 7/7 fixes done + Codex-confirmed. Campaign marker=complete. NEXT = operator-gated canary re-run (waiting_on set). Zero paid spend.
+- NEXT_STEP: operator sets PG_AUTHORIZED_SWEEP_APPROVAL -> NO-SPEND --list -> drb_72 re-run -> fresh §-1.1 audit.
