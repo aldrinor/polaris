@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -198,14 +200,63 @@ def _build_source_snapshot() -> str:
     )
 
 
-SIGNATURE_PLACEHOLDER = (
-    "-----BEGIN PGP SIGNATURE-----\n"
-    "# I-cd-012 canonical fixture fixture content.\n"
-    "# Conformance check enforces presence + non-empty ONLY; cryptographic\n"
-    "# verification belongs to operator-side tooling (gpg --verify).\n"
-    "# Real bundles ship a real armored signature here.\n"
-    "-----END PGP SIGNATURE-----\n"
-)
+def _sign_manifest(fixture_dir: Path) -> None:
+    """Sign manifest.yaml -> manifest.yaml.asc with the real POLARIS bundle key.
+
+    Fail-loud (LAW II): if POLARIS_GPG_KEY_ID is unset, or signing/verify fails,
+    RAISE. This script must NEVER write a placeholder/stub signature — a stub was
+    the root cause of the born-inconsistent fixture (I-ready-018 #1139): the
+    committed fixtures ship a REAL armored signature, and a stub-writing regen
+    would silently downgrade it. The conformance check only asserts the .asc is
+    present + non-empty, but the bundle's whole point is a genuine signature, so
+    every regeneration MUST produce one that `gpg --verify` accepts.
+
+    Key/homedir/passphrase come from POLARIS_GPG_KEY_ID / POLARIS_GPG_HOMEDIR
+    (or GNUPGHOME) / POLARIS_GPG_PASSPHRASE — the same env contract as
+    src/polaris_graph/audit_bundle/gpg_signer.load_config_from_env.
+    """
+    key_id = os.environ.get("POLARIS_GPG_KEY_ID", "").strip()
+    if not key_id:
+        raise RuntimeError(
+            "POLARIS_GPG_KEY_ID is unset — cannot sign the canonical fixture. "
+            "Set it (see .env / scripts/bootstrap_gpg_demo_key.sh) and re-run. "
+            "Refusing to emit a placeholder stub (LAW II: no silent signature "
+            "downgrade)."
+        )
+    manifest = fixture_dir / "manifest.yaml"
+    signature = fixture_dir / "manifest.yaml.asc"
+    if signature.exists():
+        signature.unlink()
+    homedir = (
+        os.environ.get("POLARIS_GPG_HOMEDIR", "").strip()
+        or os.environ.get("GNUPGHOME", "").strip()
+    )
+    passphrase = os.environ.get("POLARIS_GPG_PASSPHRASE", "").strip()
+    base = ["gpg", "--batch", "--yes", "--pinentry-mode", "loopback"]
+    if homedir:
+        base += ["--homedir", homedir]
+    sign_cmd = list(base)
+    if passphrase:
+        sign_cmd += ["--passphrase", passphrase]
+    sign_cmd += [
+        "--local-user", key_id, "--armor", "--detach-sign",
+        "--output", str(signature), str(manifest),
+    ]
+    result = subprocess.run(sign_cmd, capture_output=True, text=True)
+    if not signature.exists() or signature.stat().st_size == 0:
+        raise RuntimeError(f"gpg signing failed: {result.stderr.strip()}")
+    # LF-normalize so the committed signature is byte-stable cross-platform,
+    # paired with the `tests/fixtures/signed_bundle/** -text` .gitattributes rule.
+    signature.write_bytes(signature.read_bytes().replace(b"\r\n", b"\n"))
+    verify = subprocess.run(
+        base + ["--verify", str(signature), str(manifest)],
+        capture_output=True, text=True,
+    )
+    if "Good signature" not in verify.stderr:
+        raise RuntimeError(
+            f"gpg --verify failed after signing {signature}: {verify.stderr.strip()}"
+        )
+    print(f"  signed manifest.yaml.asc with key {key_id} (gpg --verify: GOOD)")
 
 
 def regenerate() -> None:
@@ -228,12 +279,7 @@ def regenerate() -> None:
     write("reasoning_trace.jsonl", "reasoning_trace", _build_reasoning_trace_jsonl())
     write(f"sources/{FIXED_SOURCE_ID}.txt", "source_snapshot", _build_source_snapshot())
 
-    # --- 2. Write the signature fixture content --------------------------
-    (FIXTURE_DIR / "manifest.yaml.asc").write_text(
-        SIGNATURE_PLACEHOLDER, encoding="utf-8", newline="\n"
-    )
-
-    # --- 3. Build the manifest referencing the on-disk files ---------
+    # --- 2. Build the manifest referencing the on-disk files ---------
     entries: list[FileEntry] = []
     for rel_path, content_type, body in files_on_disk:
         body_bytes = body.encode("utf-8")
@@ -265,6 +311,9 @@ def regenerate() -> None:
         default_flow_style=False,
     )
     (FIXTURE_DIR / "manifest.yaml").write_text(manifest_dump, encoding="utf-8", newline="\n")
+
+    # --- 3. Sign the manifest with the real bundle key (fail-loud) -------
+    _sign_manifest(FIXTURE_DIR)
 
     print(f"regenerated fixture at {FIXTURE_DIR}")
     print(f"  {len(entries)} content files + manifest.yaml + manifest.yaml.asc")
@@ -402,10 +451,6 @@ def regenerate_success() -> None:
     write("reasoning_trace.jsonl", "reasoning_trace", _build_reasoning_trace_jsonl())
     write(f"sources/{FIXED_SOURCE_ID}.txt", "source_snapshot", _build_source_snapshot())
 
-    (fixture_dir / "manifest.yaml.asc").write_text(
-        SIGNATURE_PLACEHOLDER, encoding="utf-8", newline="\n"
-    )
-
     entries: list[FileEntry] = []
     for rel_path, content_type, body in files_on_disk:
         body_bytes = body.encode("utf-8")
@@ -436,6 +481,8 @@ def regenerate_success() -> None:
         default_flow_style=False,
     )
     (fixture_dir / "manifest.yaml").write_text(manifest_dump, encoding="utf-8", newline="\n")
+
+    _sign_manifest(fixture_dir)
 
     print(f"regenerated success fixture at {fixture_dir}")
     print(f"  {len(entries)} content files + manifest.yaml + manifest.yaml.asc")

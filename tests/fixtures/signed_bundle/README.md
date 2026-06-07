@@ -12,7 +12,7 @@ Schema version **v1.0** per `src/polaris_graph/audit_bundle/bundle_schema.py:BUN
 | File | Content type | Purpose |
 |---|---|---|
 | `manifest.yaml` | (the manifest itself) | Top-level `BundleManifest` referencing every other file with SHA256 anchors |
-| `manifest.yaml.asc` | (the signature) | GPG armored signature **placeholder** — presence-only test fixture, not a real key signature. See note below. |
+| `manifest.yaml.asc` | (the signature) | **Real** GPG detached armored signature over `manifest.yaml`, made by the POLARIS bundle key (`POLARIS_GPG_KEY_ID`, `signing@polaris.local`). `gpg --verify` => Good signature. See note below. |
 | `scope_decision.json` | `scope_decision` | One `ScopeDecision` (slice 001 output) |
 | `evidence_pool.json` | `evidence_pool` | One `EvidencePool` (slice 002 output) with one Source |
 | `verified_report.json` | `verified_report` | One `VerifiedReport` (slice 003 output) — minimal sections |
@@ -35,12 +35,22 @@ The script:
 4. Computes SHA256 + size of each file.
 5. Constructs `BundleManifest` referencing the files.
 6. Writes `manifest.yaml` using `yaml.safe_dump(..., sort_keys=True)`.
+7. **Signs `manifest.yaml` -> `manifest.yaml.asc` with the real POLARIS bundle
+   key** via `_sign_manifest()` (gpg detached armored sig; key/homedir/passphrase
+   from `POLARIS_GPG_KEY_ID` / `POLARIS_GPG_HOMEDIR` / `POLARIS_GPG_PASSPHRASE`,
+   the same env contract as `audit_bundle/gpg_signer`). **Fail-loud:** if the key
+   is unset or signing/verify fails the script raises — it will NOT write a
+   placeholder stub (a stub silently downgrades the real signature; that was the
+   I-ready-018 #1139 born-inconsistent-fixture root cause).
 
-The placeholder `manifest.yaml.asc` is a fixed GPG-armored stub authored
-once and reused. Real signatures require an operator key; conformance
-checks presence + non-empty only (cryptographic verification belongs to
-operator/reviewer-side tooling, NOT the I-B-08 emitter's pre-sign
-conformance check).
+The `check_bundle_conformance` step asserts the `.asc` is present + non-empty
+(cryptographic `gpg --verify` is operator/reviewer-side), but the fixture ships
+a genuine signature so an external `gpg --verify` also succeeds.
+
+> **Line endings:** the whole `tests/fixtures/signed_bundle/` tree is pinned to
+> LF via `.gitattributes` (`... -text`). These bytes are SHA256-anchored + signed;
+> any CRLF conversion (e.g. Windows `core.autocrlf=true`) flips every hash and
+> breaks conformance. Do not "fix" line endings here.
 
 ## When to bump
 

@@ -25,13 +25,13 @@
       ],
       "domain": "example.org",
       "fetched_at_utc": "2026-05-19T00:00:00+00:00",
-      "full_text": "Full text body placeholder for the canonical fixture source.",
+      "full_text": "Full text body fixture content for the canonical fixture source.",
       "full_text_available": true,
       "provenance": {
         "fetched_by": "canonical_fixture"
       },
       "retracted": false,
-      "snippet": "Snippet placeholder for the canonical fixture source.",
+      "snippet": "Snippet fixture content for the canonical fixture source.",
       "source_id": "src_v1_canonical_0001",
       "tier": "T1",
       "title": "Canonical clinical evidence \u2014 v1 fixture source",
