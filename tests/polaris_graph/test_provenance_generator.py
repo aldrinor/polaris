@@ -94,35 +94,35 @@ def test_verify_sentence_passes_with_valid_span() -> None:
     assert v.is_verified is True
 
 
-def test_verify_passes_when_number_in_local_support_window() -> None:
-    """I-gen-005 Step 1 (PR #905): when a number is missing from the
-    CITED span but IS present in the broader evidence direct_quote,
-    the local_support_window logic rescues the sentence. Without this,
-    `abort_no_verified_sections` fires whenever the writer cites a
-    narrow byte range but the data lives in a later table.
-
-    Original test (pre-Step-1) asserted is_verified=False for this case;
-    Step 1 reverses that behavior — narrow-cite-but-data-in-evidence now
-    PASSES with a warning log line. Test renamed to reflect actual
-    behavior under §-1.1 trade-off (false-negative recoverable,
-    false-positive lethal)."""
+def test_verify_fails_when_number_outside_cited_span_even_if_in_evidence() -> None:
+    """I-ready-018 FIX-A3 (#1143) — INVERTS the prior I-gen-005 Step-1 local-window
+    rescue. When a number is missing from the CITED span but present elsewhere in the
+    broader evidence direct_quote, the prior code rescued it (passed). FIX-A3 (option B,
+    Codex plan+diff APPROVE) reverts that: the §-1.1 rule is that the PRINTED citation
+    token must contain the number. A number outside the cited span is the exact lethal
+    pattern that let drb_72 claim 03-004 ("50% versus 19%" cited to a span that did not
+    contain it) pass VERIFIED. Tightening, not loosening: this number is in the evidence
+    but outside the printed span, so the claim must now DROP. The fix for a genuine
+    narrow-cite is to cite the correct span, not to rescue an out-of-span number."""
     direct_quote = "At week 68, adults receiving semaglutide achieved a mean weight loss of 14.9%."
     evidence_pool = {
         "ev_step1": {"direct_quote": direct_quote},
     }
-    # Span 0-50 = "At week 68, adults receiving semaglutide achieved "
-    # shares content words (adults, receiving, semaglutide) with the
-    # sentence but does NOT contain "14.9" — that's at offset 73 in
-    # the broader direct_quote. local_support_window rescues.
+    # Span 0-50 = "At week 68, adults receiving semaglutide achieved " — shares content
+    # words with the sentence but does NOT contain "14.9" (that's at offset ~73). Under
+    # FIX-A3 there is no out-of-span rescue, so the claim FAILS.
     sentence = (
         "Adults receiving semaglutide achieved a 14.9% reduction "
         "[#ev:ev_step1:0-50]."
     )
     v = verify_sentence_provenance(sentence, evidence_pool)
-    assert v.is_verified is True, (
-        f"local_support_window should rescue narrow-cite-but-data-in-evidence "
-        f"case. Got failure_reasons={v.failure_reasons}"
+    assert v.is_verified is False, (
+        f"FIX-A3: a number outside the cited span must DROP (no out-of-span rescue). "
+        f"Got failure_reasons={v.failure_reasons}"
     )
+    assert any(
+        str(r).startswith("number_not_in_any_cited_span") for r in v.failure_reasons
+    ), v.failure_reasons
 
 
 def test_verify_sentence_fails_when_number_not_in_evidence_at_all() -> None:

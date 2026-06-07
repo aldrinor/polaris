@@ -460,6 +460,14 @@ _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 # evidence-backed claim.
 _DECIMAL_NUMBER_RE = re.compile(r"-?\d+\.\d+")
 
+# I-ready-018 FIX-A3 (#1143): a standalone integer expressed as a PERCENTAGE ("50%", "19%",
+# "50 percent") IS a claimed value, unlike the study/duration markers above ("STEP 1", "week 68",
+# "104 weeks"). Captures the full number (incl. any decimal part) immediately before %/percent;
+# the caller subtracts the decimal set so only standalone integers remain. This lets the
+# decimal-bearing branch ALSO catch a %-claimed integer (the drb_72 03-004 "50% versus 19%" leak)
+# WITHOUT requiring structural integers beside a decimal to appear in the cited span.
+_INTEGER_PERCENT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:%|percent\b)", re.IGNORECASE)
+
 # Dose-pattern (e.g., "2.4 mg", "1.0 mg", "0.5 µg") — these are drug
 # identifiers / dosing descriptors, not the empirical claim. We strip
 # them from the sentence before extracting claim-decimals so sentences
@@ -1234,18 +1242,6 @@ def verify_sentence_provenance(
     # not the claim itself.
     aggregated_span_decimals: set[str] = set()
     aggregated_span_text: list[str] = []
-    # I-gen-005 root cause fix: also collect the FULL evidence text per
-    # cited evidence_id, so we can fall back to whole-document grounding
-    # when the writer's byte range is narrower than the data location.
-    # Reasoning trace evidence (outputs/v4_reasoning_traces/) shows V4
-    # Pro reads the entire evidence document, writes accurate numbers
-    # from later sections (e.g. data tables at offset 4000+), then cites
-    # a narrower span like [#ev:ev_017:0-500]. The numbers ARE in the
-    # cited evidence — just not in the cited byte range. The strict
-    # byte-range check was rejecting GROUNDED claims as fabrications.
-    aggregated_full_decimals: set[str] = set()
-    aggregated_full_text: list[str] = []
-    aggregated_full_numbers: set[str] = set()
     valid_token_found = False
     for tok in tokens:
         ev = evidence_pool.get(tok.evidence_id)
@@ -1268,12 +1264,6 @@ def verify_sentence_provenance(
         span_stripped = _strip_dose_patterns(span_text)
         aggregated_span_decimals |= _decimals_in(span_stripped)
         aggregated_span_text.append(span_text)
-        # Full-evidence fallback: also collect decimals/numbers/text from
-        # the whole direct_quote, not just the cited byte range.
-        full_stripped = _strip_dose_patterns(direct_quote)
-        aggregated_full_decimals |= _decimals_in(full_stripped)
-        aggregated_full_numbers |= _numbers_in(full_stripped)
-        aggregated_full_text.append(direct_quote)
 
     # BUG-03 (FX-02, #1106): the empty/contentless floor runs UNCONDITIONALLY whenever a valid
     # token exists — NOT nested inside `if require_number_match and valid_token_found:` (Codex
@@ -1309,119 +1299,61 @@ def verify_sentence_provenance(
         sentence_stripped = _THRESHOLD_RE.sub(" ", sentence_stripped)
 
         sentence_decimals = _decimals_in(sentence_stripped)
-        # Pre-compute content words once (used by local-window fallback).
-        sentence_content_for_window = _content_words(sentence_stripped)
+        # I-ready-018 FIX-A3 (#1143): build the span INTEGER aggregate from the CITED span text only
+        # (aggregated_span_decimals was already built from direct_quote[tok.start:tok.end] above).
+        aggregated_span_numbers: set[str] = set()
+        for tok in tokens:
+            ev = evidence_pool.get(tok.evidence_id)
+            if ev is None:
+                continue
+            direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+            span_text = direct_quote[tok.start:tok.end]
+            aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
+        ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+        # FIX-A3 ROOT CAUSE: `_numbers_in` (-?\d+(?:\.\d+)?) is a SUPERSET of `_decimals_in`
+        # (-?\d+\.\d+). The prior gate checked decimals OR integers (`if sentence_decimals: ...
+        # else: ...`), so a sentence with an IN-span decimal AND an OUT-of-span standalone integer
+        # (drb_72 03-004: in-span "5.4"/"3.7" + out-of-span "50"/"19" at index 8421) took the decimal
+        # branch and its integers were NEVER checked → it passed VERIFIED. Now BOTH are checked, each
+        # SPAN-SCOPED: every sentence decimal AND every standalone integer must appear in a cited span.
+        # The prior I-gen-005 local-window fallback (which rescued a number found ANYWHERE in the whole
+        # direct_quote, even outside the cited span) is removed: a number genuinely inside a cited span
+        # is already in the span aggregate and so never reaches the missing-set, so the rescue could
+        # only ever pass an out-of-span number — the §-1.1 "number not in the cited span" leak.
         if sentence_decimals:
-            # First check the cited span (strict precision check).
             missing_in_span = sentence_decimals - aggregated_span_decimals
             if missing_in_span:
-                # I-gen-005 Step 1 (Codex P1 #1): replace prior
-                # whole-document fallback with safe LOCAL-WINDOW
-                # check. Numbers must co-occur with sentence content
-                # words in a contiguous ≤400-byte window of one cited
-                # evidence — prevents the cancer-50% failure mode
-                # where "50%" appears in an unrelated paragraph.
-                found_window: Optional[tuple[int, int]] = None
-                found_ev_id: Optional[str] = None
-                for tok in tokens:
-                    ev = evidence_pool.get(tok.evidence_id)
-                    if ev is None:
-                        continue
-                    direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
-                    win = _find_local_support_window(
-                        missing_in_span,
-                        sentence_content_for_window,
-                        direct_quote,
-                        window=400,
-                        min_content_overlap=2,
-                    )
-                    if win:
-                        found_window = win
-                        found_ev_id = tok.evidence_id
-                        break
-
-                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-                if found_window:
-                    logger.warning(
-                        "[provenance] local_support_window_found ev=%s "
-                        "window=%d-%d missing=%s — span_imprecise but "
-                        "locally grounded; passing",
-                        found_ev_id, found_window[0], found_window[1],
-                        sorted(missing_in_span),
-                    )
-                else:
-                    # No local window — true fabrication (or numbers
-                    # in evidence but in unrelated context).
-                    failures.append(
-                        f"number_not_in_any_cited_span:{ev_ids}:"
-                        f"missing={sorted(missing_in_span)}"
-                    )
-        else:
-            sentence_numbers = _numbers_in(sentence_stripped)
-            aggregated_span_numbers: set[str] = set()
-            for tok in tokens:
-                ev = evidence_pool.get(tok.evidence_id)
-                if ev is None:
-                    continue
-                direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
-                span_text = direct_quote[tok.start:tok.end]
-                aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
-            # I-faith-001 Fix D (integer SUBSET, not intersection): the
-            # prior check `sentence_numbers and not (sentence_numbers &
-            # aggregated_span_numbers)` passed a sentence if ANY single
-            # integer overlapped the span — so "15 percent over 35 weeks"
-            # would pass against a 15-only span on the 15 alone, smuggling
-            # the fabricated 35. Mirror the decimal path above: EVERY
-            # sentence integer must be present in the cited spans. Any
-            # missing integer triggers the local-window fallback (searched
-            # for the MISSING integers only, with content-word overlap);
-            # if it is still not locally grounded, the sentence fails.
-            missing_int_in_span = sentence_numbers - aggregated_span_numbers
-            if sentence_numbers and missing_int_in_span:
-                # Same local-window fallback for integer-only sentences
-                # (Codex P1 #5 safety: integer fallback was unsafe with
-                # whole-doc check — one coincidental N/year/dose could
-                # validate fabricated claims. Local-window with content
-                # overlap closes that hole.)
-                found_window = None
-                found_ev_id = None
-                for tok in tokens:
-                    ev = evidence_pool.get(tok.evidence_id)
-                    if ev is None:
-                        continue
-                    direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
-                    # Codex iter 1 P1 fix: pass the integer regex
-                    # (_NUMBER_RE) so token-exact matching uses the same
-                    # tokenization the sentence_numbers set used.
-                    # Fix D: search for the MISSING integers (subset),
-                    # not the full sentence_numbers set — the integers
-                    # already present in the span need no local rescue.
-                    win = _find_local_support_window(
-                        missing_int_in_span,
-                        sentence_content_for_window,
-                        direct_quote,
-                        window=400,
-                        min_content_overlap=2,
-                        token_regex=_NUMBER_RE,
-                    )
-                    if win:
-                        found_window = win
-                        found_ev_id = tok.evidence_id
-                        break
-                ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
-                if found_window:
-                    logger.warning(
-                        "[provenance] local_support_window_found_int "
-                        "ev=%s window=%d-%d missing=%s — span_imprecise "
-                        "but locally grounded; passing",
-                        found_ev_id, found_window[0], found_window[1],
-                        sorted(missing_int_in_span),
-                    )
-                else:
+                failures.append(
+                    f"number_not_in_any_cited_span:{ev_ids}:"
+                    f"missing={sorted(missing_in_span)}"
+                )
+            # FIX-A3 iter-2 (Codex P1): the decimal is the claim, but a PERCENT-expressed standalone
+            # integer beside it is ALSO a claim (drb_72 03-004 "50% versus 19%"). Check ONLY
+            # %-expressed integers here — NOT every integer — so structural/admin integers (week 68,
+            # STEP 1, 104 weeks, phase 3) are NOT required in the span and a decimal claim sitting
+            # beside a trial/week label is not false-dropped (per the _DECIMAL_NUMBER_RE exemption).
+            claimed_pct_ints = {
+                m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_stripped)
+            } - sentence_decimals
+            if claimed_pct_ints:
+                aggregated_span_int_only = aggregated_span_numbers - aggregated_span_decimals
+                missing_pct_int = claimed_pct_ints - aggregated_span_int_only
+                if missing_pct_int:
                     failures.append(
                         f"no_integer_overlap_any_cited_span:{ev_ids}:"
-                        f"missing={sorted(missing_int_in_span)}"
+                        f"missing={sorted(missing_pct_int)}"
                     )
+        else:
+            # No decimals: the integers ARE the claim — EVERY standalone integer must appear in a
+            # cited span (I-faith-001 Fix D, unchanged in scope). FIX-A3 only removed the prior
+            # local-window out-of-span rescue (a number in no cited span now fails directly).
+            sentence_numbers = _numbers_in(sentence_stripped)
+            missing_int_in_span = sentence_numbers - aggregated_span_numbers
+            if sentence_numbers and missing_int_in_span:
+                failures.append(
+                    f"no_integer_overlap_any_cited_span:{ev_ids}:"
+                    f"missing={sorted(missing_int_in_span)}"
+                )
 
         # Codex round 1 B-1: semantic grounding for non-numeric claims.
         # A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]"
