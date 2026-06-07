@@ -1804,6 +1804,18 @@ async def run_one_query(
     except Exception as _tt_exc:  # noqa: BLE001 — telemetry must not abort the run
         print(f"[tool_tracker] init skipped: {_tt_exc}")
 
+    # I-obs-001 #1141 AC3: raw LLM I/O forensic sink. The PG_CAPTURE_RAW_LLM_IO flag is read ONLY
+    # here (runner owns the env, LAW VI / reasoning-sink precedent); the client + transports + judges
+    # stay flag-agnostic and only read the injected sink ContextVar. OFF (default) => set_raw_io_sink
+    # is never called => ContextVar stays None => every egress path no-ops => byte-unchanged.
+    if os.environ.get("PG_CAPTURE_RAW_LLM_IO", "0").strip() in ("1", "true", "True"):
+        try:
+            from src.polaris_graph.telemetry.llm_io_sink import LlmIoSink as _LlmIoSink
+            from src.polaris_graph.llm.openrouter_client import set_raw_io_sink as _set_raw_io_sink
+            _set_raw_io_sink(_LlmIoSink(out_dir=run_dir / "llm_io"))
+        except Exception as _io_exc:  # noqa: BLE001 — telemetry must not abort the run
+            print(f"[llm_io] raw-IO sink init skipped: {_io_exc}")
+
     log_path = run_dir / "run_log.txt"
     log_f = log_path.open("w", encoding="utf-8")
 
@@ -6569,6 +6581,18 @@ async def run_one_query(
             # finally already cleared the flag under this lock before any terminal write).
             with _hb_lock:
                 _hb(summary.get("status") or "unknown")
+        except Exception:  # noqa: BLE001
+            pass
+        # I-obs-001 #1141 AC3 (P1#2): clear the raw LLM I/O sink UNCONDITIONALLY here — the one
+        # choke point EVERY exit passes through (incl. the early abort-returns the scattered
+        # set_reasoning_sink(None) teardown misses). Clearing a None sink is a harmless no-op, so the
+        # sink is ALWAYS None at function exit regardless of the flag → no stale sink can write the
+        # next query's I/O into this run_dir.
+        try:
+            from src.polaris_graph.llm.openrouter_client import (
+                set_raw_io_sink as _clear_raw_io_sink,
+            )
+            _clear_raw_io_sink(None)
         except Exception:  # noqa: BLE001
             pass
 
