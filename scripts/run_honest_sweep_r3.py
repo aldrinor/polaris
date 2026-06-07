@@ -2024,6 +2024,7 @@ async def run_one_query(
                     f"adapters={domain_route_summary['adapter_ids']}"
                 )
 
+        _hb("scope_gate_passed")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): past scope + routing
         # M-INT-6: best-effort auto-induction. Telemetry only —
         # abstain verdicts surface in operator_review_queue.jsonl.
         # PG_USE_AUTO_INDUCTION=0 disables (default 0).
@@ -3146,6 +3147,7 @@ async def run_one_query(
         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,
         # and the success path) ships the full per-call search/fetch trace for line-by-line audit.
         _flush_retrieval_trace()
+        _hb("retrieval_done")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): stage heartbeat
 
         # I-ready-017 #1134: journal_only SINGLE source-filter. After ALL
         # retrieval stages, restrict the citeable corpus to peer-reviewed
@@ -5477,6 +5479,19 @@ async def run_one_query(
             json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",
         )
+        # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): generation + per-sentence verification complete
+        # (generation is one batched await with no mid-stream hook, spec §1.8, so this is the earliest
+        # truthful "generation_done" point — right before the 4-role seam).
+        try:
+            _hb(
+                "generation_done",
+                sections_done=sum(
+                    1 for s in verif_details.get("sections", []) if s.get("verified_sentences")
+                ),
+                sections_total=len(verif_details.get("sections", [])),
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
         # I-beat-001: persist evidence_pool.json so the line-by-line
         # audit harness (scripts/run_line_by_line_audit.py
@@ -5921,7 +5936,16 @@ async def run_one_query(
             # advancing during the up-to-7200s verifier phase (the parent blocks on .result()).
             # Plain closure threaded as an argument (NOT a ContextVar), so it is unaffected by the
             # worker-thread context copy; _hb's atomic writer is concurrency-safe (unique temps).
+            # Codex AC1-gate P1-1: a 1-element "live" flag (matches the _seam_cost_holder idiom;
+            # GIL-atomic boolean read/write) so an ORPHANED worker that keeps running after a seam
+            # TIMEOUT (parent does shutdown(wait=False)) can NOT overwrite the terminal heartbeat or
+            # bleed a stale query's progress into the next query's state/run_status.json. The parent
+            # clears it in the seam finally below; the worker's callback then no-ops.
+            _seam_hb_live = [True]
+
             def _hb_claims(done: int, n: int) -> None:
+                if not _seam_hb_live[0]:
+                    return
                 _hb("four_role_progress", claims_verified=done, claims_total=n)
 
             def _seam_worker() -> FourRoleEvaluationResult:
@@ -5976,6 +6000,11 @@ async def run_one_query(
             except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
                 _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
             finally:
+                # Codex AC1-gate P1-1: stop the heartbeat progress callback the INSTANT the parent
+                # leaves the seam (success OR timeout) so an orphaned still-running worker can't
+                # overwrite the terminal heartbeat or bleed stale progress into the next query's
+                # state/run_status.json. (GIL-atomic flag flip; the worker's _hb_claims checks it.)
+                _seam_hb_live[0] = False
                 # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
                 _seam_pool.shutdown(wait=False, cancel_futures=True)
                 # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
@@ -6391,6 +6420,7 @@ async def run_one_query(
         summary["manifest"] = manifest
         summary["cost_usd"] = run_cost
         _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+        _hb("manifest_written")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): success manifest written
     except BudgetExceededError as budget_exc:
         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN was breached mid-run — generator OR (now) a
         # 4-role verifier call via the RecordingTransport cost hook. This is a CLEAN budget

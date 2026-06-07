@@ -300,6 +300,7 @@ def _compute_claim_results(
                 model_slugs=model_slugs,
                 timestamp=timestamp,
                 run_dir=run_dir,
+                heartbeat_claims_cb=heartbeat_claims_cb,  # Codex AC1-gate P2-1: dedup path too
             )
             rep_result_by_idx = {
                 rep_indices[j]: rep_results[j] for j in range(len(rep_indices))
@@ -415,20 +416,22 @@ def _compute_claim_results(
                 json.dumps({"done": done, "total": n}, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            # I-obs-001 #1141 AC1: forward the same done/total to the run-status heartbeat (opaque
-            # callback — sweep_integration stays ignorant of the heartbeat schema). Additive
-            # observability on the compute loop, NOT the D8 release decision; never raises.
-            if heartbeat_claims_cb is not None:
-                try:
-                    heartbeat_claims_cb(done, n)
-                except Exception:  # noqa: BLE001
-                    pass
             # Enforce the run budget DURING compute (P1.1): thread this claim's verifier spend into
             # the SINGLE parent run counter and re-check the cap immediately. A `BudgetExceededError`
             # here bounds overspend to the workers in-flight at the breach (~workers-1), not all n.
             if delta is not None:
                 _add_run_cost(delta)
                 check_run_budget(0)  # raises BudgetExceededError if the cap is now exceeded.
+            # I-obs-001 #1141 AC1 (Codex AC1-gate P2): forward done/total to the run-status heartbeat
+            # AFTER _add_run_cost so running_cost_usd reflects the just-completed claim. The progress
+            # marker above already recorded this claim BEFORE the budget check (cap-breach visibility);
+            # if check_run_budget raised, the terminal heartbeat captures the abort. Opaque callback —
+            # sweep_integration stays ignorant of the heartbeat schema; additive, never raises.
+            if heartbeat_claims_cb is not None:
+                try:
+                    heartbeat_claims_cb(done, n)
+                except Exception:  # noqa: BLE001
+                    pass
     except BaseException:
         # On ANY failure (BudgetExceededError from the cap OR a propagated worker exception) cancel
         # still-pending claims and tear the pool down NON-BLOCKING (P2.2), then re-raise so the
