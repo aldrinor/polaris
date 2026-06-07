@@ -5102,3 +5102,13 @@
 - EVIDENCE/FINDINGS: 4 real drop reasons {offtopic, rerank_not_selected, fetch_failed, content_starved}; abort_verifier_degraded set at 5553 + emitted by terminal _hb. No code change (doc-only correctness fix).
 - STATUS: Observability complete + Codex-approved; ALL monitoring-runbook fields now verified real against the running code (sources_kept populated, abort_verifier_degraded emitted, drop-reason vocab corrected). #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away. Zero paid spend.
 - NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
+
+[2026-06-07 14:17:19]
+- ACTION: I-obs-001 overnight wake — verified AC3 raw-LLM-IO operator-facing wiring against running code (no change needed).
+- RATIONALE: Completing the fit-for-purpose verification across all 3 ACs. Confirmed the monitoring doc's AC3 instruction is accurate: PG_CAPTURE_RAW_LLM_IO read at run_honest_sweep_r3.py:1821 (truthy 1/true/True) gates set_raw_io_sink(LlmIoSink(out_dir=run_dir/"llm_io")) at :1825; sink writes <run_dir>/llm_io/<call_id>.json (llm_io_sink.py:67); cleared in the finally at :6611. Flag name + output path + per-call naming all match the doc — no hollow-field/inaccurate-instruction gap (unlike sources_kept + drop-reason found earlier).
+- DOCS/RESEARCH: scripts/run_honest_sweep_r3.py:1817-1827,6611; src/polaris_graph/telemetry/llm_io_sink.py.
+- SYNC: N/A
+- AFFECTED_FILES: logs/session_log.md (verification-only wake; no code/doc change).
+- EVIDENCE/FINDINGS: AC3 wiring real + doc accurate. All 3 ACs' operator-facing claims now confirmed against running code (AC1 sources_kept populated+fixed, AC2 drop-reason vocab corrected, AC3 raw-IO flag/path verified).
+- STATUS: Observability complete + Codex-approved + end-to-end fit-for-purpose verified. #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away. Zero paid spend. No further zero-spend gap found; remaining step is the operator-gated paid run.
+- NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
