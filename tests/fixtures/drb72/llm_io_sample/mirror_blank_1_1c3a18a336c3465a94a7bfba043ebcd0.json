@@ -1,0 +1,102 @@
+{
+  "call_id": "1c3a18a336c3465a94a7bfba043ebcd0",
+  "call_type": "role:mirror",
+  "role": "mirror",
+  "status": "blank",
+  "duration_ms": null,
+  "timestamp_utc": "2026-06-07T16:57:32.775859Z",
+  "request": {
+    "model": "z-ai/glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "PASS-2 CLASSIFICATION INPUT — classify EXACTLY this bound pass-1 artifact.\ncontent_hash: 81070d50187c9e5d87c4e10cdad70313365109316d52b46d791f243652d7681f\nanswer_text:\nTheir empirical decomposition of industry-level data suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product."
+      },
+      {
+        "role": "user",
+        "content": "Classify the bound pass-1 artifact and return JSON."
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    },
+    "reasoning": {
+      "max_tokens": 4000
+    },
+    "provider": {
+      "require_parameters": true,
+      "order": [
+        "friendli",
+        "parasail",
+        "io-net",
+        "fireworks",
+        "baidu",
+        "siliconflow"
+      ],
+      "ignore": [
+        "chutes",
+        "phala",
+        "baseten",
+        "together",
+        "ambient"
+      ],
+      "allow_fallbacks": false
+    },
+    "max_tokens": 24000,
+    "temperature": 0.0
+  },
+  "raw_response": {
+    "id": "gen-1780851454-ccejzeb1hs9GNQA9c0ux",
+    "object": "chat.completion",
+    "created": 1780851454,
+    "model": "z-ai/glm-5.1-20260406",
+    "provider": "Parasail",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": null,
+          "reasoning": "{\"classification\": \"academic\"}",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "{\"classification\": \"academic\"}",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 134,
+      "completion_tokens": 7,
+      "total_tokens": 141,
+      "cost": 0.0002184,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0002184,
+        "upstream_inference_prompt_cost": 0.0001876,
+        "upstream_inference_completions_cost": 3.08e-05
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 8,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}

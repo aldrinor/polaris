@@ -1,0 +1,943 @@
+{
+  "00-000-aeb55808": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Polarization evidence: a \u201cpolarization\u201d of the labor market, in which wage gains went disproportionately to those at the top and at the bottom of the income and skill distribution, not to those in the middle [#ev:autor_why_still_jobs:200-1000].",
+    "severity": "S1"
+  },
+  "00-001-c5ad6983": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "In this framework, automation is defined as the process by which capital replaces labor in tasks it was previously engaged in [#ev:acemoglu_restrepo_automation_tasks:0-800].",
+    "severity": "S1"
+  },
+  "00-002-4b8c2322": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "This automation shifts the task content of production against labor because of a displacement effect [#ev:acemoglu_restrepo_automation_tasks:0-800].",
+    "severity": "S1"
+  },
+  "00-003-9db1c0f6": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "However, the effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage [#ev:acemoglu_restrepo_automation_tasks:0-800].",
+    "severity": "S1"
+  },
+  "00-004-449aafe9": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect [#ev:acemoglu_restrepo_automation_tasks:100-900].",
+    "severity": "S1"
+  },
+  "00-005-0a78c9c8": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "This reinstatement effect always raises the labor share and labor demand [#ev:acemoglu_restrepo_automation_tasks:100-900].",
+    "severity": "S1"
+  },
+  "00-006-727aee6a": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Additionally, a weaker reinstatement effect contributed to the slowdown [#ev:acemoglu_restrepo_automation_tasks:500-1300].",
+    "severity": "S1"
+  },
+  "00-007-9e03d710": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Slower growth of productivity than in previous decades also played a role [#ev:acemoglu_restrepo_automation_tasks:531-1331].",
+    "severity": "S1"
+  },
+  "00-008-6cacd741": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The manufacturing sector, in particular, experienced a pronounced acceleration in the displacement effect [#ev:acemoglu_restrepo_automation_tasks:500-1300].",
+    "severity": "S1"
+  },
+  "00-009-e2b13ede": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Autor\u2019s analysis reveals that automation also complements labor, raising output in ways that leads to higher demand for labor and interacting with adjustments in labor supply [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-010-94f17f67": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "This complementarity is a central mechanism through which technological progress can increase labor demand [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-011-be390701": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Evidence points to a \u201cpolarization\u201d of the labor market, in which wage gains went disproportionately to those at the top and at the bottom of the income and skill distribution, not to those in the middle [#ev:autor_why_still_jobs:200-1000].",
+    "severity": "S1"
+  },
+  "00-012-e3836142": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "In contrast, those in the middle did not see such wage gains [#ev:autor_why_still_jobs:200-1000].",
+    "severity": "S1"
+  },
+  "00-013-ff014c5d": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The strong complementarities between automation and labor increase productivity, raise earnings, and augment demand for labor [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-014-5f258f02": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "These complementarities are a key reason why automation does not simply eliminate jobs but can also create them [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-015-e3e96199": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "Although automation raises output and productivity, the resulting wage gains are concentrated at the extremes of the distribution [#ev:autor_why_still_jobs:200-1000].",
+    "severity": "S1"
+  },
+  "00-016-ae29bdbc": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The interaction between automation and labor supply adjustments further shapes these outcomes [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-017-31b9a14e": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The polarization evidence shows that wage gains went disproportionately to the top and bottom, leaving the middle behind [#ev:autor_why_still_jobs:200-1000].",
+    "severity": "S1"
+  },
+  "00-018-440ecb44": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The strong complementarities between automation and labor increase productivity and raise earnings, but these gains are not evenly shared [#ev:autor_why_still_jobs:100-900].",
+    "severity": "S1"
+  },
+  "00-019-496e9fd3": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The complementarities between automation and labor are strong, raising output and augmenting demand [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "00-020-fd285c14": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "However, the polarization of wage gains indicates that these benefits are not distributed equally across the labor market [#ev:autor_why_still_jobs:100-900].",
+    "severity": "S1"
+  },
+  "00-021-c2453484": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Foundational_Theory",
+    "sentence": "The strong complementarities that increase productivity and raise earnings are a central force, yet wage gains remain skewed [#ev:autor_why_still_jobs:100-900].",
+    "severity": "S1"
+  },
+  "01-000-d690321c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "Identification strategy: using variation in exposure to robots\u2014defined from industry-level advances in robotics and local industry employment [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-001-f0c14187": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "Population: US labor markets [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-002-5982c59a": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "Outcome: employment and wages [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-003-d7384d16": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The study focuses on US labor markets, specifically examining commuting zones as the geographic units of observation [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-004-30076c19": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The identification strategy uses variation in exposure to robots across these commuting zones [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-005-505e268c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "This exposure is defined from industry-level advances in robotics [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-006-646cb07d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The measure captures technological progress in robotics at the industry level, rather than relying on firm-level adoption data [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-007-fc9e6445": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "However, the exposure index is not purely an industry-level construct; it is combined with local industry employment to generate a commuting-zone-specific measure [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-008-264bd49d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The primary outcomes of interest are employment and wages [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-009-443fcf3b": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The analysis examines how changes in robot exposure affect the number of jobs in each commuting zone [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-010-9523c5ee": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "It also evaluates the impact on wage levels for workers in those local labor markets [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-011-e548142c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "Although the outcomes are measured at the local level, the key explanatory variable is constructed from industry-level technological advances [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-012-9db4e5f6": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The identification strategy thus integrates industry-level variation in robotics with local employment structures to identify causal effects [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-013-2f0ed2d3": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The study's design leverages the fact that some commuting zones have industries that are more exposed to robotics advances than others [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-014-fcd43d49": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "This cross-sectional variation, driven by historical industry employment patterns, provides a source of identifying variation [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-015-5ac682c2": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "The exposure measure is therefore a product of industry-level technological progress and the local industry mix [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "01-016-f9a909b1": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Empirical_Displacement",
+    "sentence": "In summary, the study provides rigorous evidence on how industrial robots, through their differential exposure across industries and localities, affect employment and wages in US labor markets [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "02-000-e0c45dfc": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "Design: staggered introduction [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-001-4afa61be": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "Population: 5,172 customer-support agents [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-002-a679fe05": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "Intervention: generative AI\u2013based conversational assistant [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-003-02617e78": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "The intervention under evaluation was a generative AI\u2013based conversational assistant, a tool designed to augment agent performance [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-004-b3f28ea8": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "However, the staggered introduction design, rather than a simultaneous rollout, meant that agents were exposed to the assistant at different points in time [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-005-9fafcd46": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "The intervention, a generative AI\u2013based conversational assistant, was integrated into the workflow of the 5,172 customer-support agents [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-006-c69b2d0a": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "The 5,172 customer-support agents were observed under the staggered introduction of the generative AI\u2013based conversational assistant [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "02-007-a5d52a41": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Generative_AI_Evidence",
+    "sentence": "Ultimately, the study's core elements\u2014a staggered introduction design, a population of 5,172 customer-support agents, and a generative AI\u2013based conversational assistant\u2014formed the basis for evaluating the technology's real-world impact [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "03-000-753d3a4f": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "Historical analysis of technological change reveals that automation displaces labor by enabling capital to perform tasks previously done by workers, a displacement effect that reduces the labor share in value added [#ev:acemoglu_restrepo_automation_tasks:0-800].",
+    "severity": "S1"
+  },
+  "03-001-94ed5e49": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "However, this displacement is counterbalanced by the creation of new tasks in which labor has a comparative advantage, generating a reinstatement effect that raises labor demand and the labor share [#ev:acemoglu_restrepo_automation_tasks:100-900].",
+    "severity": "S1"
+  },
+  "03-002-002c1270": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "The recent wave of generative AI introduces new dynamics; a study of 5,172 customer-support agents found that access to a generative AI-based conversational assistant increased worker productivity by 15% on average, with the largest gains among less experienced and lower-skilled workers [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "03-003-7270b6c9": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "At the firm level, a cross-sectional analysis of 5,851 German firms revealed that approximately 7% (409 firms) had adopted AI by 2018, with an average AI intensity of 12.9% among users [#ev:ev_037:5900-6700].",
+    "severity": "S3"
+  },
+  "03-004-4457f86b": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "AI-using firms in that sample reported higher sales growth (5.4% versus 3.7% for non-users) and were more likely to engage in continuous R&D (50% versus 19%) [#ev:ev_037:7500-8300].",
+    "severity": "S3"
+  },
+  "03-005-69f9a514": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "Among AI adopters, 60% used AI in products or services, 56% for process automation, 34% for data analysis, and 22% for client interaction [#ev:ev_037:5900-6700].",
+    "severity": "S3"
+  },
+  "03-006-86fb7b25": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "Related research on Industry 4.0 patents found that an additional such patent increased firms' sales by 8.3%, with the effect diminishing by firm size [#ev:ev_037:2800-3600].",
+    "severity": "S3"
+  },
+  "03-007-58a93082": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 3,
+    "section_title": "Background",
+    "sentence": "The slower employment growth observed in recent decades has been attributed to an acceleration of the displacement effect, particularly in manufacturing, a weaker reinstatement effect, and slower growth of product [#ev:acemoglu_restrepo_automation_tasks:500-1300].",
+    "severity": "S1"
+  },
+  "04-000-1a9c1f3c": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Acemoglu and Restrepo's task-based framework posits that automation displaces labor by enabling capital to replace workers in existing tasks, reducing the labor share and potentially labor demand, while the creation of new tasks reinstates labor by shifting the task content of production in favor of workers [#ev:acemoglu_restrepo_automation_tasks:100-900].",
+    "severity": "S1"
+  },
+  "04-001-29fd74d8": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Autor similarly emphasizes that automation substitutes for labor but also complements it, raising output and demand for labor, and that commentators often overstate substitution while ignoring complementarities [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "04-002-8f3a46a5": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "One study of US commuting zones found that each additional industrial robot per thousand workers reduced the employment-to-population ratio by 0.2 percentage points and wages by 0.42% [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "04-003-1cafab31": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "acemoglu_restrepo_robots_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "These negative effects were robust and distinct from other capital and technologies, and areas most exposed to robots after 1990 showed no differential trends beforehand [#ev:acemoglu_restrepo_robots_jobs:0-688].",
+    "severity": "S3"
+  },
+  "04-004-8d7df01e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "As noted under Background, a generative AI assistant increased productivity by 15% on average [#ev:brynjolfsson_genai_at_work:0-800]",
+    "severity": "S3"
+  },
+  "04-005-31e5ef6e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "The productivity gains were heterogeneous: less experienced and lower-skilled workers improved both speed and quality, while the most experienced and highest-skilled workers saw only small speed gains and small declines in quality [#ev:brynjolfsson_genai_at_work:0-800].",
+    "severity": "S3"
+  },
+  "04-006-8f392c42": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "AI assistance also facilitated worker learning, improved English fluency among international agents, and led to customers being more polite and less likely to request a manager [#ev:brynjolfsson_genai_at_work:313-1113].",
+    "severity": "S3"
+  },
+  "04-007-47d24280": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Autor notes that recent decades have seen labor market polarization, with wage gains concentrated at the top and bottom of the skill distribution, though he argues this polarization is unlikely to persist [#ev:autor_why_still_jobs:300-1100].",
+    "severity": "S1"
+  },
+  "04-008-5354d574": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "The interplay between machine and human comparative advantage allows computers to substitute for routine, codifiable tasks while amplifying human advantages in problem-solving, adaptability, and creativity [#ev:autor_why_still_jobs:730-1530].",
+    "severity": "S1"
+  },
+  "04-009-e9394afc": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks",
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks",
+      "autor_why_still_jobs",
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Overall, the evidence indicates that while AI and automation displace some jobs, they also create new tasks and complement human labor, with net effects depending on the balance between displacement and reinstatement and on the skill level of workers [#ev:acemoglu_restrepo_automation_tasks:100-900][#ev:autor_why_still_jobs:200-1000][#ev:brynjolfsson_genai_at_work:300-1100].",
+    "severity": "S1"
+  },
+  "04-010-540a1cce": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Their empirical decomposition of industry-level data suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product [#ev:acemoglu_restrepo_automation_tasks:500-1300].",
+    "severity": "S1"
+  },
+  "04-011-774c8e97": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Key Findings",
+    "sentence": "Behrens and Trunschke (2020) found that an additional \"4.0 patent\" increased sales by 8.3% for German firms, with the effect diminishing by firm size [#ev:ev_037:2900-3700].",
+    "severity": "S3"
+  },
+  "05-000-14c19cad": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The study further constructed an AI intensity index measuring the number of AI method\u2013application combinations, with an average of 2.5 out of 20 among AI-using firms [#ev:ev_037:6300-7100].",
+    "severity": "S3"
+  },
+  "05-001-f2a10611": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The cross-sectional sample contained 5,851 firms, of which 409 (about 7%) were AI users [#ev:ev_037:6000-6800]",
+    "severity": "S3"
+  },
+  "06-000-9cca1d63": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Implications",
+    "sentence": "However, productivity gains from AI may take time to materialize; one Finnish study cited in the literature found that early adopters did not experience immediate productivity increases and that a delay of at least three years between adoption and productivity effects is common [#ev:ev_037:3600-4400].",
+    "severity": "S3"
+  },
+  "06-001-c0ae8ca7": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Implications",
+    "sentence": "As noted under Background, AI adoption is associated with higher sales growth [#ev:ev_037:7500-8300]",
+    "severity": "S3"
+  },
+  "06-002-00b6f240": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037",
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Implications",
+    "sentence": "AI can improve productivity and worker learning [#ev:ev_037:1600-2400][#ev:brynjolfsson_genai_at_work:300-1100]",
+    "severity": "S3"
+  },
+  "06-003-303bc634": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "brynjolfsson_genai_at_work"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Implications",
+    "sentence": "The evidence also indicates that AI assistance facilitates worker learning and improves English fluency, particularly among international agents [#ev:brynjolfsson_genai_at_work:300-1100].",
+    "severity": "S3"
+  },
+  "07-000-909a04e5": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "The current evidence base on AI's labor market impacts is constrained by limited data availability, particularly at the firm level [#ev:ev_037:1100-1900].",
+    "severity": "S3"
+  },
+  "07-001-16933a49": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "Much empirical work relies on industrial robot data, which may not capture the full range of AI applications, as not all robotization involves AI [#ev:ev_037:2400-3200].",
+    "severity": "S3"
+  },
+  "07-002-dbd22f70": {
+    "covered_element_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "evidence_ids": [
+      "acemoglu_restrepo_automation_tasks"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "Theoretical frameworks highlight that automation's displacement effect on labor is counterbalanced by the reinstatement effect from new tasks, rendering the net outcome ambiguous [#ev:acemoglu_restrepo_automation_tasks:100-900].",
+    "severity": "S1"
+  },
+  "07-003-9413bb6d": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "Furthermore, commentators frequently overstate machine substitution for human labor while ignoring strong complementarities that raise productivity and labor demand [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "07-004-ce9019ba": {
+    "covered_element_ids": [
+      "autor_why_still_jobs"
+    ],
+    "evidence_ids": [
+      "autor_why_still_jobs"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "Historical trends such as labor market polarization have been observed [#ev:autor_why_still_jobs:0-800].",
+    "severity": "S1"
+  },
+  "07-005-91b6d28a": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_037"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Limitations",
+    "sentence": "Firm-level analyses indicate that AI adoption may have delayed productivity effects, with early adopters not experiencing immediate gains and a lag of at least three years before benefits materialize [#ev:ev_037:4000-4800].",
+    "severity": "S3"
+  }
+}

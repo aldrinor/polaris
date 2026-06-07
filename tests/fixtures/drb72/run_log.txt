@@ -1,0 +1,43 @@
+========================================================================
+SWEEP domain=workforce slug=drb_72_ai_labor
+Question: Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles.
+Budget cap: $25.0000
+========================================================================
+[scope]       sha256=8c3fdbb34ea9e0d2... decision=proceed needs_review=False
+[q1d]         query_decompose: +3 sub-queries (slug=drb_72_ai_labor)
+[storm]       +15 perspective queries from 5 interviews (slug=drb_72_ai_labor)
+[retrieval]   pre_filter=155, fetched=26, failed=129, elapsed=302.3s  api_calls={'serper': 5, 's2': 5, 'openalex': 151, 'fetch': 155, 'openalex_search': 5, 'parallel_fetch_success_count': 26, 'parallel_fetch_errored_count': 0, 'parallel_fetch_timeout_count': 129}
+[corpus]      total=155  T1=17%, T2=12%, T3=2%, T4=50%, T5=1%, T6=4%, T7=9%, UNKNOWN=5%  material_deviation=True
+[adequacy]    decision=proceed  applicable_checks=8  critical=0  warn=0
+[completeness] 0/0 topics covered  uncovered=[]
+[agentic]     discovered 100 urls (cap=100)
+[agentic]     host-class filter dropped 7 low-content urls -> 93 selectable
+[agentic]     merged +53 evidence rows from +93 sources (post-chokepoint); adequacy=proceed uncovered=0
+[contradict]  numeric_claims=9  numeric_contradictions=1  qualitative_conflicts=0  qualitative_review_flags=0
+[capped-dedup] floored 12 -> dedup+capped 12 (max_ev=150); #1070 cap + floor both hold
+[select]      strategy=tier_balanced_v1_all_m46_ordered selected=12 of 75 dropped=0
+              full_tiers={'T1': 2, 'T4': 8, 'UNKNOWN': 2} selected_tiers={'T1': 2, 'T4': 8, 'UNKNOWN': 2}
+[generation]  multi-section DeepSeek V3.2-Exp, evidence=12...
+[V30-P2]      compiled contract: entities=7
+[V30-P2]      fetched 7 frame rows
+[V30-P2]      prepared 3 contract sections + 7 contract evidence rows
+[finding-dedup] raw=19 distinct=2 collapsed=0 -> 19 generator rows
+              elapsed=837.7s outline=8 sections, words=1868, verified=100, dropped=86, limitations_words=69
+[phase7]      no quantified section (spec_produced=False)
+[evaluator]   rule_checks=12/13 pass
+                FAIL PT13: 5 unhedged: ["'top' in: '## Key Findings\\n\\n_Each finding below is a verbatim, span-verified state
+[judge]       skipped — 4-role seam (D8) is the binding gate
+[eval_gate]   class=pass release_allowed=True reasons=['advisory_pt13_unhedged_superlatives', 'judge_skipped_d8_binding']
+[phase7]      WARNING: quantified analysis ran but produced NO verified quantified output (silent no-op) — manifest.quantified_analysis.fired=False
+[four_role]   release_allowed=False coverage=0.286 held_reasons=['d8_unsupported_residual_below_coverage', 'd8_pending_rewrite']
+[V30]         compiled frame: slug='drb_72_ai_labor', schema=v30.1, entities=7
+[V30]         fetching 7 entities via M-56
+[V30]         fetch summary: abstract_only=3, metadata_only=1, open_access=3
+[V30]         outline: 3 sections, 7 slots, gaps=0
+[V30]         coverage: pass=4, partial=0, gap=3, pipeline_fault=0
+[V30]         wrote human_gap_tasks.json: 3 curator-actionable tasks
+[V30]         appended frame-coverage disclosure to report.md
+[depth]       advisory comparisons=7 tables=0 key_findings=0 challenges=1 deficient=18 (non-gating)
+[nli]         checked=100 eligible=100 skipped_no_span=0 entailed=79 disputed=21 (advisory, non-gating)
+[cost]        $4.8038 (cap $25.0000)
+[status]      four_role_held (manifest.status=abort_four_role_release_held)

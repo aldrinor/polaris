@@ -1,0 +1,1043 @@
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 8,
+    "findings_total": 8
+  },
+  "agentic_search": {
+    "enabled": true,
+    "feature": "agentic_search",
+    "fired": true,
+    "firing_status": "fired",
+    "urls_discovered": 100,
+    "urls_selectable": 93
+  },
+  "analytical_depth_advisory": {
+    "advisory": true,
+    "aggregation_patterns": 2,
+    "challenge_markers": 1,
+    "comparison_markers": 7,
+    "deficient_sections": [
+      "Research report: Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles.",
+      "Key Findings",
+      "Empirical_Displacement",
+      "Robots and jobs commuting-zone evidence (Acemoglu & Restrepo, JPE 2020)",
+      "Occupational computerisation susceptibility (Frey & Osborne, TFSC 2017)",
+      "Generative_AI_Evidence",
+      "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)",
+      "LLM occupational-exposure measurement (Eloundou et al., Science 2024)",
+      "Background",
+      "Key Findings",
+      "Evidence and Analysis",
+      "Implications",
+      "Limitations",
+      "Limitations",
+      "Methods",
+      "Contradiction disclosures",
+      "Bibliography",
+      "V30 Phase-1 Retrieval Coverage Disclosure"
+    ],
+    "key_findings": 0,
+    "passed": false,
+    "surface": "benchmark_atx_split",
+    "tables": 0
+  },
+  "budget_cap_usd": 25.0,
+  "completeness": {
+    "completeness_state": "not_applicable",
+    "covered_fraction": 1.0,
+    "notes": [
+      "no_checklist_loaded"
+    ],
+    "total_applicable": 0,
+    "total_covered": 0,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
+  "contradictions_found": 1,
+  "corpus": {
+    "approved": true,
+    "count": 248,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.1976,
+      "T2": 0.0726,
+      "T3": 0.0161,
+      "T4": 0.4194,
+      "T5": 0.0081,
+      "T6": 0.0323,
+      "T7": 0.1774,
+      "UNKNOWN": 0.0766
+    }
+  },
+  "cost_usd": 4.803832832000001,
+  "discovery_funnel": {
+    "fetch_content": {
+      "attempted": 120,
+      "source": "tool_trace.status",
+      "succeeded": 108
+    },
+    "openalex_search": {
+      "calls": 5,
+      "requested": 500,
+      "requested_source": "tool_trace.num_requested",
+      "returned": 109,
+      "returned_source": "tool_trace.result_count"
+    },
+    "s2": {
+      "calls": 5,
+      "requested": null,
+      "requested_source": "unrecorded",
+      "returned": 4,
+      "returned_source": "tool_trace.result_count"
+    },
+    "serper": {
+      "calls": 5,
+      "requested": 500,
+      "requested_source": "tool_trace.num_requested",
+      "returned": 50,
+      "returned_source": "tool_trace.result_count"
+    }
+  },
+  "discovery_llm_degraded": false,
+  "discovery_rounds_on_fallback": 0,
+  "domain": "workforce",
+  "evaluator_gate_advisory": {
+    "gate_class": "pass",
+    "judge_critical_axes": [],
+    "judge_parse_ok": true,
+    "reasons": [
+      "advisory_pt13_unhedged_superlatives",
+      "judge_skipped_d8_binding"
+    ],
+    "release_allowed": true,
+    "rule_blockers": []
+  },
+  "evaluator_rule_fail": 1,
+  "evaluator_rule_pass": 12,
+  "evidence_selection": {
+    "dropped_count": 0,
+    "evidence_selected": 12,
+    "evidence_total": 12,
+    "full_tier_counts": {
+      "T1": 2,
+      "T4": 8,
+      "UNKNOWN": 2
+    },
+    "notes": [
+      "pool_size<=max_rows (12/150)",
+      "m46_short_pool_ordered_selection",
+      "recency_tiebreak enabled epsilon=0.05 dated=0/12"
+    ],
+    "selected_tier_counts": {
+      "T1": 2,
+      "T4": 8,
+      "UNKNOWN": 2
+    },
+    "selection_strategy": "tier_balanced_v1_all_m46_ordered"
+  },
+  "fact_dedup": {
+    "n_drops": 0,
+    "n_groups": 4,
+    "n_redundants": 6,
+    "n_rewrites_applied": 6,
+    "n_rewrites_strict_verify_drop": 4,
+    "n_rewrites_strict_verify_pass": 2
+  },
+  "finding_dedup": {
+    "clusters": [
+      {
+        "corroboration_count": 1,
+        "finding_key": [
+          "__unknown__",
+          "ev_069",
+          0
+        ],
+        "member_hosts": [
+          "sciencedirect.com"
+        ]
+      },
+      {
+        "corroboration_count": 1,
+        "finding_key": [
+          "__unknown__",
+          "ev_002",
+          0
+        ],
+        "member_hosts": [
+          "chicagobooth.edu"
+        ]
+      }
+    ],
+    "collapsed_row_count": 0,
+    "distinct_finding_count": 2,
+    "raw_row_count": 19
+  },
+  "four_role_evaluation": {
+    "coverage_fraction": 0.286,
+    "evaluator_agrees": {
+      "00-000-aeb55808": true,
+      "00-001-c5ad6983": true,
+      "00-002-4b8c2322": true,
+      "00-003-9db1c0f6": true,
+      "00-004-449aafe9": true,
+      "00-005-0a78c9c8": true,
+      "00-006-727aee6a": true,
+      "00-007-9e03d710": true,
+      "00-008-6cacd741": true,
+      "00-009-e2b13ede": true,
+      "00-010-94f17f67": true,
+      "00-011-be390701": true,
+      "00-012-e3836142": true,
+      "00-013-ff014c5d": true,
+      "00-014-5f258f02": true,
+      "00-015-e3e96199": false,
+      "00-016-ae29bdbc": true,
+      "00-017-31b9a14e": true,
+      "00-018-440ecb44": true,
+      "00-019-496e9fd3": true,
+      "00-020-fd285c14": true,
+      "00-021-c2453484": true,
+      "01-000-d690321c": true,
+      "01-001-f0c14187": true,
+      "01-002-5982c59a": true,
+      "01-003-d7384d16": true,
+      "01-004-30076c19": false,
+      "01-005-505e268c": true,
+      "01-006-646cb07d": true,
+      "01-007-fc9e6445": true,
+      "01-008-264bd49d": true,
+      "01-009-443fcf3b": true,
+      "01-010-9523c5ee": true,
+      "01-011-e548142c": true,
+      "01-012-9db4e5f6": true,
+      "01-013-2f0ed2d3": true,
+      "01-014-fcd43d49": true,
+      "01-015-5ac682c2": false,
+      "01-016-f9a909b1": true,
+      "02-000-e0c45dfc": true,
+      "02-001-4afa61be": true,
+      "02-002-a679fe05": true,
+      "02-003-02617e78": true,
+      "02-004-b3f28ea8": false,
+      "02-005-9fafcd46": true,
+      "02-006-c69b2d0a": true,
+      "02-007-a5d52a41": true,
+      "03-000-753d3a4f": true,
+      "03-001-94ed5e49": true,
+      "03-002-002c1270": false,
+      "03-003-7270b6c9": true,
+      "03-004-4457f86b": true,
+      "03-005-69f9a514": true,
+      "03-006-86fb7b25": true,
+      "03-007-58a93082": false,
+      "04-000-1a9c1f3c": true,
+      "04-001-29fd74d8": true,
+      "04-002-8f3a46a5": true,
+      "04-003-1cafab31": true,
+      "04-004-8d7df01e": true,
+      "04-005-31e5ef6e": true,
+      "04-006-8f392c42": true,
+      "04-007-47d24280": true,
+      "04-008-5354d574": true,
+      "04-009-e9394afc": true,
+      "04-010-540a1cce": false,
+      "04-011-774c8e97": true,
+      "05-000-14c19cad": true,
+      "05-001-f2a10611": true,
+      "06-000-9cca1d63": true,
+      "06-001-c0ae8ca7": false,
+      "06-002-00b6f240": true,
+      "06-003-303bc634": true,
+      "07-000-909a04e5": false,
+      "07-001-16933a49": true,
+      "07-002-dbd22f70": true,
+      "07-003-9413bb6d": true,
+      "07-004-ce9019ba": true,
+      "07-005-91b6d28a": true
+    },
+    "fabricated_occurrence_latched": false,
+    "final_verdicts": {
+      "00-000-aeb55808": "VERIFIED",
+      "00-001-c5ad6983": "VERIFIED",
+      "00-002-4b8c2322": "VERIFIED",
+      "00-003-9db1c0f6": "VERIFIED",
+      "00-004-449aafe9": "VERIFIED",
+      "00-005-0a78c9c8": "VERIFIED",
+      "00-006-727aee6a": "VERIFIED",
+      "00-007-9e03d710": "VERIFIED",
+      "00-008-6cacd741": "VERIFIED",
+      "00-009-e2b13ede": "VERIFIED",
+      "00-010-94f17f67": "VERIFIED",
+      "00-011-be390701": "VERIFIED",
+      "00-012-e3836142": "VERIFIED",
+      "00-013-ff014c5d": "VERIFIED",
+      "00-014-5f258f02": "VERIFIED",
+      "00-015-e3e96199": "UNSUPPORTED",
+      "00-016-ae29bdbc": "VERIFIED",
+      "00-017-31b9a14e": "VERIFIED",
+      "00-018-440ecb44": "VERIFIED",
+      "00-019-496e9fd3": "VERIFIED",
+      "00-020-fd285c14": "VERIFIED",
+      "00-021-c2453484": "VERIFIED",
+      "01-000-d690321c": "VERIFIED",
+      "01-001-f0c14187": "VERIFIED",
+      "01-002-5982c59a": "VERIFIED",
+      "01-003-d7384d16": "VERIFIED",
+      "01-004-30076c19": "UNSUPPORTED",
+      "01-005-505e268c": "VERIFIED",
+      "01-006-646cb07d": "VERIFIED",
+      "01-007-fc9e6445": "VERIFIED",
+      "01-008-264bd49d": "VERIFIED",
+      "01-009-443fcf3b": "VERIFIED",
+      "01-010-9523c5ee": "VERIFIED",
+      "01-011-e548142c": "VERIFIED",
+      "01-012-9db4e5f6": "VERIFIED",
+      "01-013-2f0ed2d3": "VERIFIED",
+      "01-014-fcd43d49": "VERIFIED",
+      "01-015-5ac682c2": "UNSUPPORTED",
+      "01-016-f9a909b1": "VERIFIED",
+      "02-000-e0c45dfc": "VERIFIED",
+      "02-001-4afa61be": "VERIFIED",
+      "02-002-a679fe05": "VERIFIED",
+      "02-003-02617e78": "VERIFIED",
+      "02-004-b3f28ea8": "UNSUPPORTED",
+      "02-005-9fafcd46": "VERIFIED",
+      "02-006-c69b2d0a": "VERIFIED",
+      "02-007-a5d52a41": "VERIFIED",
+      "03-000-753d3a4f": "VERIFIED",
+      "03-001-94ed5e49": "VERIFIED",
+      "03-002-002c1270": "UNSUPPORTED",
+      "03-003-7270b6c9": "VERIFIED",
+      "03-004-4457f86b": "VERIFIED",
+      "03-005-69f9a514": "VERIFIED",
+      "03-006-86fb7b25": "VERIFIED",
+      "03-007-58a93082": "UNSUPPORTED",
+      "04-000-1a9c1f3c": "VERIFIED",
+      "04-001-29fd74d8": "VERIFIED",
+      "04-002-8f3a46a5": "VERIFIED",
+      "04-003-1cafab31": "VERIFIED",
+      "04-004-8d7df01e": "VERIFIED",
+      "04-005-31e5ef6e": "VERIFIED",
+      "04-006-8f392c42": "VERIFIED",
+      "04-007-47d24280": "VERIFIED",
+      "04-008-5354d574": "VERIFIED",
+      "04-009-e9394afc": "VERIFIED",
+      "04-010-540a1cce": "UNSUPPORTED",
+      "04-011-774c8e97": "VERIFIED",
+      "05-000-14c19cad": "VERIFIED",
+      "05-001-f2a10611": "VERIFIED",
+      "06-000-9cca1d63": "VERIFIED",
+      "06-001-c0ae8ca7": "UNSUPPORTED",
+      "06-002-00b6f240": "VERIFIED",
+      "06-003-303bc634": "VERIFIED",
+      "07-000-909a04e5": "UNSUPPORTED",
+      "07-001-16933a49": "VERIFIED",
+      "07-002-dbd22f70": "VERIFIED",
+      "07-003-9413bb6d": "VERIFIED",
+      "07-004-ce9019ba": "VERIFIED",
+      "07-005-91b6d28a": "VERIFIED"
+    },
+    "gaps": [
+      {
+        "kind": "coverage_shortfall",
+        "note": "required-element coverage 0.286 is below the 0.700 threshold (fixed required-set denominator)",
+        "ref": "__coverage__",
+        "severity": "S0"
+      }
+    ],
+    "held_reasons": [
+      "d8_unsupported_residual_below_coverage",
+      "d8_pending_rewrite"
+    ],
+    "kg_path": "outputs\\honest_sweep_r3\\verified_claim_graph_campaign.db",
+    "needs_rewrite": [
+      "00-015-e3e96199",
+      "03-007-58a93082",
+      "04-010-540a1cce"
+    ],
+    "release_allowed": false
+  },
+  "frame_coverage_report": {
+    "by_status": {
+      "curator_gap_no_substantive_content": 3,
+      "pass": 4
+    },
+    "entries": [
+      {
+        "available_artifacts": [
+          "oa_url",
+          "crossref_abstract",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1257/jep.33.2.3",
+        "entity_id": "acemoglu_restrepo_automation_tasks",
+        "entity_type": "economic_report",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "thesis",
+          "mechanism",
+          "displacement_vs_reinstatement",
+          "empirical_support",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1257/jep.33.2.3"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1257/jep.33.2.3?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "skipped:prefer_abstract",
+            "source": "access_bypass",
+            "url": "oa_full_text_skipped:https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3"
+          }
+        ],
+        "section": "Foundational_Theory",
+        "slot_id": "theory_task_framework",
+        "status": "pass",
+        "subsection_title": "Task-based automation framework (Acemoglu & Restrepo, JEP 2019)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "crossref_abstract",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1257/jep.29.3.3",
+        "entity_id": "autor_why_still_jobs",
+        "entity_type": "economic_report",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "thesis",
+          "polarization_evidence",
+          "complementarity_argument",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1257/jep.29.3.3"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1257/jep.29.3.3?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "skipped:prefer_abstract",
+            "source": "access_bypass",
+            "url": "oa_full_text_skipped:https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.29.3.3"
+          }
+        ],
+        "section": "Foundational_Theory",
+        "slot_id": "theory_polarization",
+        "status": "pass",
+        "subsection_title": "Labor-market polarization and complementarity (Autor, JEP 2015)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "fourth_industrial_revolution_framing",
+        "entity_type": "policy_report",
+        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 1,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "definition",
+          "relation_to_ai",
+          "scope_caveat"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.weforum.org/about/the-fourth-industrial-revolution-by-klaus-schwab/"
+          }
+        ],
+        "section": "Foundational_Theory",
+        "slot_id": "theory_4ir_framing",
+        "status": "curator_gap_no_substantive_content",
+        "subsection_title": "Fourth Industrial Revolution framing (contextual)"
+      },
+      {
+        "available_artifacts": [
+          "openalex_abstract",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1086/705716",
+        "entity_id": "acemoglu_restrepo_robots_jobs",
+        "entity_type": "economic_report",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "identification_strategy",
+          "population",
+          "effect_estimate_with_uncertainty",
+          "outcome",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1086/705716"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1086/705716?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "openalex",
+            "url": "https://api.openalex.org/works/https://doi.org/10.1086/705716?mailto=aldrin.or@c-polarbiotech.com"
+          }
+        ],
+        "section": "Empirical_Displacement",
+        "slot_id": "empirical_robots",
+        "status": "pass",
+        "subsection_title": "Robots and jobs commuting-zone evidence (Acemoglu & Restrepo, JPE 2020)"
+      },
+      {
+        "available_artifacts": [
+          "oa_url",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1016/j.techfore.2016.08.019",
+        "entity_id": "frey_osborne_computerisation",
+        "entity_type": "economic_report",
+        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "metadata_only",
+        "required_fields": [
+          "method",
+          "exposure_measure",
+          "headline_estimate",
+          "limitations",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1016/j.techfore.2016.08.019"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1016/j.techfore.2016.08.019?email=aldrin.or@c-polarbiotech.com"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": null,
+            "outcome": "skipped:prefer_abstract",
+            "source": "access_bypass",
+            "url": "oa_full_text_skipped:https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "openalex",
+            "url": "https://api.openalex.org/works/https://doi.org/10.1016/j.techfore.2016.08.019?mailto=aldrin.or@c-polarbiotech.com"
+          }
+        ],
+        "section": "Empirical_Displacement",
+        "slot_id": "empirical_exposure",
+        "status": "curator_gap_no_substantive_content",
+        "subsection_title": "Occupational computerisation susceptibility (Frey & Osborne, TFSC 2017)"
+      },
+      {
+        "available_artifacts": [
+          "crossref_abstract",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1093/qje/qjae044",
+        "entity_id": "brynjolfsson_genai_at_work",
+        "entity_type": "economic_report",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "design",
+          "population",
+          "intervention",
+          "effect_estimate_with_uncertainty",
+          "generalizability",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1093/qje/qjae044"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1093/qje/qjae044?email=aldrin.or@c-polarbiotech.com"
+          }
+        ],
+        "section": "Generative_AI_Evidence",
+        "slot_id": "genai_productivity",
+        "status": "pass",
+        "subsection_title": "Generative-AI productivity field evidence (Brynjolfsson et al., QJE 2025)"
+      },
+      {
+        "available_artifacts": [
+          "crossref_abstract",
+          "crossref_metadata",
+          "doi"
+        ],
+        "doi": "10.1126/science.adj0998",
+        "entity_id": "eloundou_gpts_are_gpts",
+        "entity_type": "economic_report",
+        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "abstract_only",
+        "required_fields": [
+          "exposure_method",
+          "occupations_covered",
+          "headline_exposure_estimate",
+          "limitations",
+          "journal_quality_tier"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "crossref",
+            "url": "https://api.crossref.org/works/10.1126/science.adj0998"
+          },
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "unpaywall",
+            "url": "https://api.unpaywall.org/v2/10.1126/science.adj0998?email=aldrin.or@c-polarbiotech.com"
+          }
+        ],
+        "section": "Generative_AI_Evidence",
+        "slot_id": "genai_exposure",
+        "status": "curator_gap_no_substantive_content",
+        "subsection_title": "LLM occupational-exposure measurement (Eloundou et al., Science 2024)"
+      }
+    ],
+    "frame_gap_count": 3,
+    "partial_count": 0,
+    "pass_count": 4,
+    "pipeline_fault_count": 0,
+    "research_question": "Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles.",
+    "schema_version": "v30.1",
+    "total_entities": 7,
+    "total_slots": 7
+  },
+  "generator": {
+    "analyst_synthesis_input_tokens": 0,
+    "analyst_synthesis_output_tokens": 0,
+    "analyst_synthesis_words": 0,
+    "limitations_words": 69,
+    "outline_sections": [
+      "Foundational_Theory",
+      "Empirical_Displacement",
+      "Generative_AI_Evidence",
+      "Background",
+      "Key Findings",
+      "Evidence and Analysis",
+      "Implications",
+      "Limitations"
+    ],
+    "sections_kept": 8,
+    "sentences_dropped": 86,
+    "sentences_verified": 100,
+    "verified_words": 1868,
+    "words": 1868
+  },
+  "judge_verdicts": {
+    "superseded_by_four_role_seam": true
+  },
+  "nli_verification": {
+    "advisory": true,
+    "contradicted_count": 0,
+    "disputed": [
+      {
+        "evidence_id": "acemoglu_restrepo_automation_tasks",
+        "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "acemoglu_restrepo_automation_tasks",
+        "reason": "The sentence is empty and contains no factual assertions to be evaluated against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "acemoglu_restrepo_automation_tasks",
+        "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "acemoglu_restrepo_automation_tasks",
+        "reason": "The sentence is empty and contains no factual assertions to be evaluated against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "acemoglu_restrepo_automation_tasks",
+        "reason": "The span discusses automation and labor demand and contains no information regarding the journal quality tier.",
+        "section": "Foundational_Theory",
+        "sentence": "Journal quality tier: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "autor_why_still_jobs",
+        "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "autor_why_still_jobs",
+        "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+        "section": "Foundational_Theory",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "autor_why_still_jobs",
+        "reason": "The span contains no information regarding the quality tier of the journal.",
+        "section": "Foundational_Theory",
+        "sentence": "Journal quality tier: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "fourth_industrial_revolution_framing",
+        "reason": "The span contains a list of stories and titles but does not provide a definition for the term mentioned in the sentence.",
+        "section": "Foundational_Theory",
+        "sentence": "Definition: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "fourth_industrial_revolution_framing",
+        "reason": "The sentence makes a meta-claim about the extractability of information which is not discussed in the provided span.",
+        "section": "Foundational_Theory",
+        "sentence": "Scope caveat: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "acemoglu_restrepo_robots_jobs",
+        "reason": "The span discusses the effects of industrial robots on labor markets and contains no information regarding the journal quality tier.",
+        "section": "Empirical_Displacement",
+        "sentence": "Journal quality tier: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "brynjolfsson_genai_at_work",
+        "reason": "The SPAN describes qualitative effects but does not provide specific numerical effect estimates or uncertainty measures, nor does it explicitly state they are not extractable.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Effect estimate with uncertainty: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "brynjolfsson_genai_at_work",
+        "reason": "The span does not mention generalizability or the ability to extract it, making the sentence an external claim about the text's content.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Generalizability: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "brynjolfsson_genai_at_work",
+        "reason": "The span contains no information regarding the journal quality tier.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Journal quality tier: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "eloundou_gpts_are_gpts",
+        "reason": "The sentence discusses exposure methods, which is not mentioned in the span regarding job research.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Exposure method: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "eloundou_gpts_are_gpts",
+        "reason": "The span states that research is needed to estimate job effects, but it does not explicitly state that the specific occupations covered are not extractable from the content.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Occupations covered: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "eloundou_gpts_are_gpts",
+        "reason": "The span states that research is needed, but it does not explicitly state that a headline exposure estimate is not extractable from the content.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Headline exposure estimate: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "eloundou_gpts_are_gpts",
+        "reason": "The sentence describes a limitation regarding data extraction, which is not mentioned in the span.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Limitations: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "eloundou_gpts_are_gpts",
+        "reason": "The sentence discusses journal quality tiers, which is not mentioned in the span regarding job research.",
+        "section": "Generative_AI_Evidence",
+        "sentence": "Journal quality tier: not extractable from available primary content .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "ev_037",
+        "reason": "The span supports the sales growth figures but does not contain the specific percentages (50% versus 19%) for continuous R&D engagement.",
+        "section": "Background",
+        "sentence": "AI-using firms in that sample reported higher sales growth (5.4% versus 3.7% for non-users) and were more likely to engage in continuous R&D (50% versus 19%) .",
+        "verdict": "NEUTRAL"
+      },
+      {
+        "evidence_id": "ev_037",
+        "reason": "The span mentions limited data availability regarding AI's effects at the firm-level, but it does not specifically mention 'labor market impacts'.",
+        "section": "Limitations",
+        "sentence": "The current evidence base on AI's labor market impacts is constrained by limited data availability, particularly at the firm level .",
+        "verdict": "NEUTRAL"
+      }
+    ],
+    "disputed_count": 21,
+    "eligible_sentences": 100,
+    "entailed_count": 79,
+    "judge": "llm_entailment",
+    "judge_error_count": 0,
+    "judge_errors": [],
+    "model": "google/gemma-4-31b-it",
+    "neutral_count": 21,
+    "nli_status": "ok",
+    "sentences_checked": 100,
+    "sentences_scored": 100,
+    "skipped_no_span": 0
+  },
+  "protocol_sha256": "8c3fdbb34ea9e0d20585ce48421988289739291859a48b380521827317e27140",
+  "quantified_analysis": {
+    "conflicts": [],
+    "dropped_sentences": 0,
+    "enabled": true,
+    "execution_success": false,
+    "fired": false,
+    "modeled_inputs": 0,
+    "outputs": 0,
+    "sourced_inputs": 0,
+    "sourced_numbers_extracted": 111,
+    "spec_produced": false,
+    "verified_sentences": 0
+  },
+  "question": "Please write a literature review on the restructuring impact of Artificial Intelligence (AI) on the labor market. Focus on how AI, as a key driver of the Fourth Industrial Revolution, is causing significant disruptions and affecting various industries. Ensure the review only cites high-quality, English-language journal articles.",
+  "reasoning_trace": {
+    "description": "raw model reasoning channel captured per generator LLM call; process-transparency evidence, NOT verified claims",
+    "file": "reasoning_trace.jsonl"
+  },
+  "release_allowed": false,
+  "retrieval": {
+    "api_calls": {
+      "fetch": 155,
+      "openalex": 151,
+      "openalex_search": 5,
+      "parallel_fetch_errored_count": 0,
+      "parallel_fetch_success_count": 26,
+      "parallel_fetch_timeout_count": 129,
+      "s2": 5,
+      "serper": 5
+    },
+    "candidates_processed": 155,
+    "candidates_total": 155,
+    "corpus_truncated": false,
+    "failed": 129,
+    "fetched": 26,
+    "pre_filter": 155
+  },
+  "run_id": "SWEEP_workforce_drb_72_ai_labor_1780848496",
+  "slug": "drb_72_ai_labor",
+  "status": "abort_four_role_release_held",
+  "storm_query_expansion": {
+    "enabled": true,
+    "feature": "storm_query_expansion",
+    "fired": true,
+    "firing_status": "fired",
+    "interviews": 5,
+    "questions_added": 15
+  },
+  "synthesis_n_scrub_alert": false,
+  "tool_utilization": {
+    "summary_by_tool": {
+      "fetch_content": {
+        "backends_used": [
+          "crawl4ai",
+          "direct",
+          "failed",
+          "httpx_naive",
+          "jina_reader",
+          "oa_resolver",
+          "pdf_extract",
+          "pmc_bioc",
+          "trafilatura"
+        ],
+        "error_reasons": {
+          "access_bypass_timeout_90s": 2,
+          "no_content": 10
+        },
+        "fail_count": 12,
+        "latency_stats": {
+          "max_ms": 92312.89029121399,
+          "mean_ms": 11911.585326989492,
+          "min_ms": 504.9629211425781,
+          "p95_ms": 62356.92024230957
+        },
+        "ok_count": 108,
+        "success_rate": 0.9,
+        "total_calls": 120
+      },
+      "openalex_search": {
+        "backends_used": [
+          "openalex_works_api"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 1788.4776592254639,
+          "mean_ms": 1690.4651165008545,
+          "min_ms": 1586.0302448272705,
+          "p95_ms": 1788.4776592254639
+        },
+        "ok_count": 5,
+        "success_rate": 1.0,
+        "total_calls": 5
+      },
+      "s2": {
+        "backends_used": [
+          "semantic_scholar_api"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 1028.8355350494385,
+          "mean_ms": 828.1646251678467,
+          "min_ms": 561.8422031402588,
+          "p95_ms": 1028.8355350494385
+        },
+        "ok_count": 5,
+        "success_rate": 1.0,
+        "total_calls": 5
+      },
+      "serper": {
+        "backends_used": [
+          "serper_api_v1"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 1442.983865737915,
+          "mean_ms": 1275.377368927002,
+          "min_ms": 1194.4925785064697,
+          "p95_ms": 1442.983865737915
+        },
+        "ok_count": 5,
+        "success_rate": 1.0,
+        "total_calls": 5
+      }
+    },
+    "summary_file": "tool_summary.json",
+    "tool_success_rate": 0.9111111111111111,
+    "total_fail": 12,
+    "total_ok": 123,
+    "total_tool_calls": 135,
+    "trace_file": "tool_trace.jsonl"
+  },
+  "uploaded_documents_blocked": 0,
+  "uploaded_documents_used": 0,
+  "v30_enabled": true,
+  "v30_warnings": [
+    "phase1_retrieval_coverage_only: Phase-1 V30 manifest.frame_coverage_report reflects retrieval success only, NOT whether the legacy generator cited each entity in the verified report. Phase-2 (M-58 slot-bound generator integration) will populate the same key with true report-coverage semantics. See manifest.frame_coverage_report.entries[*].status = 'pass' only confirms M-56 fetched the entity."
+  ]
+}

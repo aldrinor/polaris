@@ -1,0 +1,102 @@
+{
+  "call_id": "03bf3eca2af84fce96c97b30d0ecde58",
+  "call_type": "role:mirror",
+  "role": "mirror",
+  "status": "blank",
+  "duration_ms": null,
+  "timestamp_utc": "2026-06-07T16:51:55.607284Z",
+  "request": {
+    "model": "z-ai/glm-5.1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "PASS-2 CLASSIFICATION INPUT — classify EXACTLY this bound pass-1 artifact.\ncontent_hash: 2c3f8d1b4183c4f33482f879a84cca95d44344bbf300f72b0f837450c64b889f\nanswer_text:\nemployment and wages"
+      },
+      {
+        "role": "user",
+        "content": "Classify the bound pass-1 artifact and return JSON."
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    },
+    "reasoning": {
+      "max_tokens": 4000
+    },
+    "provider": {
+      "require_parameters": true,
+      "order": [
+        "friendli",
+        "parasail",
+        "io-net",
+        "fireworks",
+        "baidu",
+        "siliconflow"
+      ],
+      "ignore": [
+        "chutes",
+        "phala",
+        "baseten",
+        "together",
+        "ambient"
+      ],
+      "allow_fallbacks": false
+    },
+    "max_tokens": 24000,
+    "temperature": 0.0
+  },
+  "raw_response": {
+    "id": "gen-1780851117-cOY5KwGzQ00SfUkr7acd",
+    "object": "chat.completion",
+    "created": 1780851117,
+    "model": "z-ai/glm-5.1-20260406",
+    "provider": "Parasail",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": null,
+          "reasoning": "{\n  \"classification\": \"economic\"\n}",
+          "reasoning_details": [
+            {
+              "type": "reasoning.text",
+              "text": "{\n  \"classification\": \"economic\"\n}",
+              "format": "unknown",
+              "index": 0
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 92,
+      "completion_tokens": 10,
+      "total_tokens": 102,
+      "cost": 0.0001728,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0001728,
+        "upstream_inference_prompt_cost": 0.0001288,
+        "upstream_inference_completions_cost": 4.4e-05
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 10,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}

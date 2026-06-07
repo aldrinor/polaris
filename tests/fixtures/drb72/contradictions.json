@@ -1,0 +1,77 @@
+[
+  {
+    "absolute_difference": 8.0,
+    "claims": [
+      {
+        "arm": "treatment",
+        "context_snippet": "y depth. This set back represents about 15 percent of India\u2019s prog-ress in poverty reducti",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_034",
+        "predicate": "ttr",
+        "source_tier": "T4",
+        "source_url": "https://doi.org/10.1257/app.2.4.1",
+        "subject": "unknown",
+        "unit": "%",
+        "value": 15.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "oy-ment of the story increases by up to 22.6%, and how boring the story is decreases ",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_059",
+        "predicate": "ttr",
+        "source_tier": "T1",
+        "source_url": "https://www.science.org/doi/10.1126/sciadv.adn5290",
+        "subject": "unknown",
+        "unit": "%",
+        "value": 22.6
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of 2023, the top 10% hold approximately 23% of the total vertex share, a decrease o",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_061",
+        "predicate": "ttr",
+        "source_tier": "T1",
+        "source_url": "https://www.science.org/doi/abs/10.1126/sciadv.adu5800",
+        "subject": "unknown",
+        "unit": "%",
+        "value": 23.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of 2023, the top 10% hold approximately 23% of the total vertex share, a decrease o",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_062",
+        "predicate": "ttr",
+        "source_tier": "T1",
+        "source_url": "https://www.science.org/doi/pdf/10.1126/sciadv.adu5800",
+        "subject": "unknown",
+        "unit": "%",
+        "value": 23.0
+      },
+      {
+        "arm": "treatment",
+        "context_snippet": "of 2023, the top 10% hold approximately 23% of the total vertex share, a decrease o",
+        "dose": "",
+        "endpoint_phrase": "",
+        "evidence_id": "ev_066",
+        "predicate": "ttr",
+        "source_tier": "T1",
+        "source_url": "https://www.science.org/doi/10.1126/sciadv.adu5800",
+        "subject": "unknown",
+        "unit": "%",
+        "value": 23.0
+      }
+    ],
+    "predicate": "ttr",
+    "recommended_action": "Disclose both values with their source tiers in the final report. If one source is T1 (RCT) and another is T5 (industry), note the authority gap alongside the numeric gap.",
+    "relative_difference": 0.5333,
+    "severity": "high",
+    "subject": "unknown"
+  }
+]

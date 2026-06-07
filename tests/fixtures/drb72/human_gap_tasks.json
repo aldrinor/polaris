@@ -1,0 +1,129 @@
+[
+  {
+    "available_artifacts": [
+      "url_pattern_fetch",
+      "url_pattern"
+    ],
+    "doi": null,
+    "entity_id": "fourth_industrial_revolution_framing",
+    "entity_type": "policy_report",
+    "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+    "min_fields_for_completion": 1,
+    "needs": "SUBSTANTIVE-CONTENT gap: the entity validated but no substantive verified prose could be produced from the available content (only not-extractable disclosures). Operator must provide a direct_quote from a licensed copy covering at least 1 of [definition, relation_to_ai, scope_caveat], with structured provenance (artifact hash, retention pointer, curator_id).",
+    "pmid": null,
+    "required_fields": [
+      "definition",
+      "relation_to_ai",
+      "scope_caveat"
+    ],
+    "retrieval_attempt_log": [
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "access_bypass",
+        "url": "url_pattern:https://www.weforum.org/about/the-fourth-industrial-revolution-by-klaus-schwab/"
+      }
+    ],
+    "section": "Foundational_Theory",
+    "slot_id": "theory_4ir_framing",
+    "status": "curator_gap_no_substantive_content",
+    "subsection_title": "Fourth Industrial Revolution framing (contextual)"
+  },
+  {
+    "available_artifacts": [
+      "oa_url",
+      "crossref_metadata",
+      "doi"
+    ],
+    "doi": "10.1016/j.techfore.2016.08.019",
+    "entity_id": "frey_osborne_computerisation",
+    "entity_type": "economic_report",
+    "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+    "min_fields_for_completion": 2,
+    "needs": "SUBSTANTIVE-CONTENT gap: the entity validated but no substantive verified prose could be produced from the available content (only not-extractable disclosures). Operator must provide a direct_quote from a licensed copy covering at least 2 of [method, exposure_measure, headline_estimate, limitations, journal_quality_tier], with structured provenance (artifact hash, retention pointer, curator_id).",
+    "pmid": null,
+    "required_fields": [
+      "method",
+      "exposure_measure",
+      "headline_estimate",
+      "limitations",
+      "journal_quality_tier"
+    ],
+    "retrieval_attempt_log": [
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "crossref",
+        "url": "https://api.crossref.org/works/10.1016/j.techfore.2016.08.019"
+      },
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "unpaywall",
+        "url": "https://api.unpaywall.org/v2/10.1016/j.techfore.2016.08.019?email=aldrin.or@c-polarbiotech.com"
+      },
+      {
+        "attempt_index": 1,
+        "http_status": null,
+        "outcome": "skipped:prefer_abstract",
+        "source": "access_bypass",
+        "url": "oa_full_text_skipped:https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491"
+      },
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "openalex",
+        "url": "https://api.openalex.org/works/https://doi.org/10.1016/j.techfore.2016.08.019?mailto=aldrin.or@c-polarbiotech.com"
+      }
+    ],
+    "section": "Empirical_Displacement",
+    "slot_id": "empirical_exposure",
+    "status": "curator_gap_no_substantive_content",
+    "subsection_title": "Occupational computerisation susceptibility (Frey & Osborne, TFSC 2017)"
+  },
+  {
+    "available_artifacts": [
+      "crossref_abstract",
+      "crossref_metadata",
+      "doi"
+    ],
+    "doi": "10.1126/science.adj0998",
+    "entity_id": "eloundou_gpts_are_gpts",
+    "entity_type": "economic_report",
+    "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+    "min_fields_for_completion": 2,
+    "needs": "SUBSTANTIVE-CONTENT gap: the entity validated but no substantive verified prose could be produced from the available content (only not-extractable disclosures). Operator must provide a direct_quote from a licensed copy covering at least 2 of [exposure_method, occupations_covered, headline_exposure_estimate, limitations, journal_quality_tier], with structured provenance (artifact hash, retention pointer, curator_id).",
+    "pmid": null,
+    "required_fields": [
+      "exposure_method",
+      "occupations_covered",
+      "headline_exposure_estimate",
+      "limitations",
+      "journal_quality_tier"
+    ],
+    "retrieval_attempt_log": [
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "crossref",
+        "url": "https://api.crossref.org/works/10.1126/science.adj0998"
+      },
+      {
+        "attempt_index": 1,
+        "http_status": 200,
+        "outcome": "success",
+        "source": "unpaywall",
+        "url": "https://api.unpaywall.org/v2/10.1126/science.adj0998?email=aldrin.or@c-polarbiotech.com"
+      }
+    ],
+    "section": "Generative_AI_Evidence",
+    "slot_id": "genai_exposure",
+    "status": "curator_gap_no_substantive_content",
+    "subsection_title": "LLM occupational-exposure measurement (Eloundou et al., Science 2024)"
+  }
+]

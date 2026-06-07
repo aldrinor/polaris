@@ -1,0 +1,58 @@
+[
+  {
+    "evidence_id": "autor_why_still_jobs",
+    "num": 1,
+    "statement": "Why Are There Still So Many Jobs? The History and Future of Workplace Automation",
+    "tier": "T1",
+    "url": "https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.29.3.3"
+  },
+  {
+    "evidence_id": "acemoglu_restrepo_automation_tasks",
+    "num": 2,
+    "statement": "Automation and New Tasks: How Technology Displaces and Reinstates Labor",
+    "tier": "T1",
+    "url": "https://www.aeaweb.org/articles/pdf/doi/10.1257/jep.33.2.3"
+  },
+  {
+    "evidence_id": "fourth_industrial_revolution_framing",
+    "num": 3,
+    "statement": "fourth_industrial_revolution_framing",
+    "tier": "T1",
+    "url": "https://www.weforum.org/about/the-fourth-industrial-revolution-by-klaus-schwab/"
+  },
+  {
+    "evidence_id": "acemoglu_restrepo_robots_jobs",
+    "num": 4,
+    "statement": "Robots and Jobs: Evidence from US Labor Markets",
+    "tier": "T1",
+    "url": ""
+  },
+  {
+    "evidence_id": "frey_osborne_computerisation",
+    "num": 5,
+    "statement": "The future of employment: How susceptible are jobs to computerisation?",
+    "tier": "T1",
+    "url": "https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491"
+  },
+  {
+    "evidence_id": "brynjolfsson_genai_at_work",
+    "num": 6,
+    "statement": "Generative AI at Work",
+    "tier": "T1",
+    "url": ""
+  },
+  {
+    "evidence_id": "eloundou_gpts_are_gpts",
+    "num": 7,
+    "statement": "GPTs are GPTs: Labor market impact potential of LLMs",
+    "tier": "T1",
+    "url": ""
+  },
+  {
+    "evidence_id": "ev_037",
+    "num": 8,
+    "statement": "Artificial intelligence and firm-level productivity",
+    "tier": "T1",
+    "url": "https://doi.org/10.1016/j.jebo.2023.05.008"
+  }
+]

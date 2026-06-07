@@ -1,0 +1,165 @@
+{
+  "advisory": true,
+  "contradicted_count": 0,
+  "disputed": [
+    {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "reason": "The sentence is empty and contains no factual assertions to be evaluated against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "reason": "The sentence is empty and contains no factual assertions to be evaluated against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "acemoglu_restrepo_automation_tasks",
+      "reason": "The span discusses automation and labor demand and contains no information regarding the journal quality tier.",
+      "section": "Foundational_Theory",
+      "sentence": "Journal quality tier: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "autor_why_still_jobs",
+      "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "autor_why_still_jobs",
+      "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+      "section": "Foundational_Theory",
+      "sentence": ".",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "autor_why_still_jobs",
+      "reason": "The span contains no information regarding the quality tier of the journal.",
+      "section": "Foundational_Theory",
+      "sentence": "Journal quality tier: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "fourth_industrial_revolution_framing",
+      "reason": "The span contains a list of stories and titles but does not provide a definition for the term mentioned in the sentence.",
+      "section": "Foundational_Theory",
+      "sentence": "Definition: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "fourth_industrial_revolution_framing",
+      "reason": "The sentence makes a meta-claim about the extractability of information which is not discussed in the provided span.",
+      "section": "Foundational_Theory",
+      "sentence": "Scope caveat: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "acemoglu_restrepo_robots_jobs",
+      "reason": "The span discusses the effects of industrial robots on labor markets and contains no information regarding the journal quality tier.",
+      "section": "Empirical_Displacement",
+      "sentence": "Journal quality tier: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "brynjolfsson_genai_at_work",
+      "reason": "The SPAN describes qualitative effects but does not provide specific numerical effect estimates or uncertainty measures, nor does it explicitly state they are not extractable.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Effect estimate with uncertainty: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "brynjolfsson_genai_at_work",
+      "reason": "The span does not mention generalizability or the ability to extract it, making the sentence an external claim about the text's content.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Generalizability: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "brynjolfsson_genai_at_work",
+      "reason": "The span contains no information regarding the journal quality tier.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Journal quality tier: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "reason": "The sentence discusses exposure methods, which is not mentioned in the span regarding job research.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Exposure method: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "reason": "The span states that research is needed to estimate job effects, but it does not explicitly state that the specific occupations covered are not extractable from the content.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Occupations covered: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "reason": "The span states that research is needed, but it does not explicitly state that a headline exposure estimate is not extractable from the content.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Headline exposure estimate: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "reason": "The sentence describes a limitation regarding data extraction, which is not mentioned in the span.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Limitations: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "eloundou_gpts_are_gpts",
+      "reason": "The sentence discusses journal quality tiers, which is not mentioned in the span regarding job research.",
+      "section": "Generative_AI_Evidence",
+      "sentence": "Journal quality tier: not extractable from available primary content .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "ev_037",
+      "reason": "The span supports the sales growth figures but does not contain the specific percentages (50% versus 19%) for continuous R&D engagement.",
+      "section": "Background",
+      "sentence": "AI-using firms in that sample reported higher sales growth (5.4% versus 3.7% for non-users) and were more likely to engage in continuous R&D (50% versus 19%) .",
+      "verdict": "NEUTRAL"
+    },
+    {
+      "evidence_id": "ev_037",
+      "reason": "The span mentions limited data availability regarding AI's effects at the firm-level, but it does not specifically mention 'labor market impacts'.",
+      "section": "Limitations",
+      "sentence": "The current evidence base on AI's labor market impacts is constrained by limited data availability, particularly at the firm level .",
+      "verdict": "NEUTRAL"
+    }
+  ],
+  "disputed_count": 21,
+  "eligible_sentences": 100,
+  "entailed_count": 79,
+  "judge": "llm_entailment",
+  "judge_error_count": 0,
+  "judge_errors": [],
+  "model": "google/gemma-4-31b-it",
+  "neutral_count": 21,
+  "nli_status": "ok",
+  "sentences_checked": 100,
+  "sentences_scored": 100,
+  "skipped_no_span": 0
+}
