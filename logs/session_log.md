@@ -5112,3 +5112,13 @@
 - EVIDENCE/FINDINGS: AC3 wiring real + doc accurate. All 3 ACs' operator-facing claims now confirmed against running code (AC1 sources_kept populated+fixed, AC2 drop-reason vocab corrected, AC3 raw-IO flag/path verified).
 - STATUS: Observability complete + Codex-approved + end-to-end fit-for-purpose verified. #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away. Zero paid spend. No further zero-spend gap found; remaining step is the operator-gated paid run.
 - NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
+
+[2026-06-07 14:32:40]
+- ACTION: I-obs-001 overnight wake — ran the §3.1/§10 canonical-pin + CHARTER/PLAN drift-defense check (had drifted from it during the multi-hour autonomous loop). Found a PRE-EXISTING stale-pin condition; emitted accurate halt marker.
+- RATIONALE: Item (8) names canonical-pin mismatch as a halt trigger. Did the CRLF diagnosis drill (memory: compare as-is vs LF-norm vs HEAD-blob per file) BEFORE concluding drift. Result: CHARTER+PLAN cage pins INTACT; 11/14 canonical files verify (7 CRLF working-tree artifacts w/ HEAD-blob MATCH, 4 as-is); 3 files (architecture.md, task_acceptance_matrix.yaml [historical], REVIEW_BRIEF_FORMAT.md) genuinely mismatch — working tree clean, raw HEAD-blob != pin in any line-ending variant => pin is STALE. All 3 last changed 05-19..06-02 (before the pin's 06-04 commit); I never touched them tonight. Branch-hygiene gap, not tampering, not faithfulness-affecting, not caused by my work.
+- DOCS/RESEARCH: docs/canonical_pin.txt; state/polaris_restart/charter_sha_pin.txt; git log of the 3 files + the pin.
+- SYNC: N/A
+- AFFECTED_FILES: state/halt_20260607T143216Z_canonical_pin_drift.md (new, accurate); logs/session_log.md.
+- EVIDENCE/FINDINGS: CHARTER blob f4935571 OK, PLAN blob 0dd0dd80 OK. 3 stale-pin files diagnosed via per-file as-is/LF-norm/HEAD-blob drill. Reconciliation requires a user-signed canonical_pin regeneration; Claude cannot self-fix the pin.
+- STATUS: Observability complete + Codex-approved + verified (unaffected). Canonical pin STALE for 3 docs (pre-existing) — surfaced for user-signed reconciliation. Does NOT technically block run_gate_b (no canonical_pin gate there). Zero paid spend. No further task work started (halt semantics).
+- NEXT_STEP: Operator: regenerate canonical_pin for the 3 files (user-signed) and/or proceed with paid run go-ahead. Heartbeat cron armed.
