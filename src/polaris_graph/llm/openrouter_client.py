@@ -790,13 +790,26 @@ class UsageTracker:
     # FIX-C2: Track API-reported cost for accurate billing
     total_api_reported_cost: float = 0.0
 
+    # FX-11b (#1117): tokens from GENUINELY-FREE calls (record(free=True), e.g. the
+    # operator loopback transport) are accumulated separately so they NEVER feed the
+    # token-imputed total_cost_usd fallback. A free call ledgers cost 0 (record sets
+    # call_cost=0) and feeds neither _add_run_cost nor the persisted ledger; without
+    # excluding its tokens here the in-memory usage SUMMARY would still show a phantom
+    # imputed cost. These are still counted in total_input/output_tokens for honest
+    # token REPORTING — only the COST imputation excludes them.
+    total_free_input_tokens: int = 0
+    total_free_output_tokens: int = 0
+
     @property
     def total_cost_usd(self) -> float:
         # Prefer API-reported cost if available (accurate per-provider pricing)
         if self.total_api_reported_cost > 0:
             return self.total_api_reported_cost
-        input_cost = (self.total_input_tokens / 1_000_000) * INPUT_COST_PER_M
-        output_cost = (self.total_output_tokens / 1_000_000) * OUTPUT_COST_PER_M
+        # FX-11b (#1117): impute over PAID tokens only — exclude free-call tokens.
+        paid_input = max(0, self.total_input_tokens - self.total_free_input_tokens)
+        paid_output = max(0, self.total_output_tokens - self.total_free_output_tokens)
+        input_cost = (paid_input / 1_000_000) * INPUT_COST_PER_M
+        output_cost = (paid_output / 1_000_000) * OUTPUT_COST_PER_M
         return input_cost + output_cost
 
     @property
@@ -834,6 +847,10 @@ class UsageTracker:
         # persisted ledger total == the run-budget total.
         if free:
             call_cost = 0.0
+            # FX-11b (#1117): record the free tokens so total_cost_usd's imputed
+            # fallback excludes them (no phantom cost in the in-memory summary).
+            self.total_free_input_tokens += input_tokens
+            self.total_free_output_tokens += output_tokens
         else:
             call_cost = api_cost if api_cost > 0 else round(
                 (input_tokens / 1_000_000) * INPUT_COST_PER_M

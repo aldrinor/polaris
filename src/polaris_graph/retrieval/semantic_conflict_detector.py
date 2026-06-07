@@ -396,6 +396,24 @@ class _SemanticContradictionJudge:
                 actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
             _orc._add_run_cost(actual_cost)
             _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+            # FX-11b (#1117): also write the canonical cost-ledger ROW for this
+            # NLI-conflict judge call. It already feeds the run BUDGET via
+            # _add_run_cost above, but without a ledger row the persisted ledger
+            # total trails the run-budget total whenever PG_SWEEP_NLI_CONFLICT is
+            # on. Route through the same canonical writer + ambient-run-id key the
+            # judge/role writers use, so all rows of one run share one accumulator.
+            # append_cost_ledger_row bumps the SEPARATE ledger accumulator (not
+            # _RUN_COST_CTX), so this does NOT double-count the run budget.
+            try:
+                _orc.append_cost_ledger_row(
+                    session_id=_orc.current_run_id() or "",
+                    call_type="nli_conflict_judge",
+                    cost_usd=actual_cost,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
+                pass
             content = data["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             verdict = str(parsed.get("verdict", "")).strip().upper()

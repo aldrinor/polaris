@@ -26,7 +26,11 @@ import psutil
 from dotenv import load_dotenv
 from langgraph.graph import END, StateGraph
 
-from src.polaris_graph.llm.openrouter_client import NoEndpointError, OpenRouterClient
+from src.polaris_graph.llm.openrouter_client import (
+    NoEndpointError,
+    OpenRouterClient,
+    set_current_run_id,
+)
 from src.polaris_graph.state import ResearchState, create_initial_state
 from src.polaris_graph.tracing import PipelineTracer, get_tracer
 
@@ -1468,6 +1472,15 @@ async def build_and_run(
     else:
         _client_cls = OpenRouterClient
     async with _client_cls(session_id=vector_id, budget_usd=budget_limit) as client:
+        # FX-11b (#1117): align the AMBIENT run id with this client's session_id
+        # (vector_id). The generator client keys its cost-ledger rows on its
+        # session_id, but the judge/role writers key on the ambient run id
+        # (current_run_id()); without this, pipeline-B (graph.py) generator rows
+        # and judge/role rows land in DIFFERENT accumulator keys. Pipeline A
+        # (benchmark) already sets this in run_honest_sweep_r3. Reset before the
+        # normal return below (best-effort: an exception leaves it for the next
+        # build_and_run to overwrite — benign on the per-request pipeline-B path).
+        set_current_run_id(vector_id)
         graph._pg_client_holder["client"] = client  # type: ignore[attr-defined]
         # D2: Store steer callback for live steering
         graph._pg_client_holder["steer_callback"] = steer_callback  # type: ignore[attr-defined]
@@ -1661,6 +1674,10 @@ async def build_and_run(
     # Save output
     _save_output(result, vector_id)
 
+    # FX-11b (#1117): clear the ambient run id set inside the client block above,
+    # so it does not leak into unrelated ambient cost code after this per-request
+    # pipeline-B run completes.
+    set_current_run_id(None)
     return result
 
 
