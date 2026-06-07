@@ -499,6 +499,16 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # v29_primary_custody.json / m44_primary_citation_telemetry.json when primary-trial seeds reach
     # generation but the M-44/V29 custody block does not run in the planner lane. Telemetry-only.
     "PG_CUSTODY_LANE_MARKER": "1",
+    # I-ready-017 FL-05b (#1137): activate the FL-05 (#1124) run-health backstop. FL-05's
+    # compute_run_health_gate aborts a would-be-SUCCESS run to abort_discovery_degraded (+
+    # release_allowed=False) when a FORCE-ENABLED discovery feature (STORM / agentic) was on but did NOT
+    # fire (firing_status attempted_empty/error) — i.e. the run silently fell back to the Serper/S2
+    # baseline. The gate is flag-gated PG_RUN_HEALTH_GATE (default OFF in run_honest_sweep_r3.py: status,
+    # control-flow and the release decision are unchanged when off — only two additive observability
+    # fields are written). The benchmark MUST run with it ON so a silently-degraded discovery cannot
+    # ship green. Force-on + required below (an explicit operator =0 must not survive the slate). Pairs
+    # with CANARY-01 (pre-spend); FL-05 is the mid/post-run regression backstop.
+    "PG_RUN_HEALTH_GATE": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -545,6 +555,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
     # run silently writes empty v29/m44 custody telemetry with no not_applicable disambiguation.
     "PG_CUSTODY_LANE_MARKER",
+    # I-ready-017 FL-05b (#1137): the run-health backstop must be ON for a paid run — OFF lets a
+    # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
+    # on the VM — the 2026-06-05 drb_72 smoke) ship as success. Fail closed if it is not active.
+    "PG_RUN_HEALTH_GATE",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -578,6 +592,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
     # survive the slate and let a dead-discovery run go green.
     "PG_BEHAVIORAL_CANARY",
+    # I-ready-017 FL-05b (#1137): force-on the run-health backstop so an explicit operator
+    # PG_RUN_HEALTH_GATE=0 cannot survive the setdefault slate and silently restore the
+    # ship-green-on-degraded-discovery behavior (the I-cap-005 P1-1 force-on pattern).
+    "PG_RUN_HEALTH_GATE",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
