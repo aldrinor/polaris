@@ -5072,3 +5072,13 @@
 - EVIDENCE/FINDINGS: 51 + 62 = 113 tests passed (run_status_heartbeat 11, llm_io_sink 5, retrieval_trace_live_append 5, retrieval_trace 7, two-family 5, entailment 10, gate_b_seam 8, provenance 28, strict_verify floors 6, offline_e2e 13, pathB_capture 15). I-obs-001 commits c8bc5ef5..2e247098 all pushed to origin/bot/I-ready-017-faithfulness.
 - STATUS: Observability complete + verified. Paid Q1 run prepped one-go-ahead-away, NOT launched, no operator-gated auth env var self-set. Overnight heartbeat cron 0c6a34c7 still armed.
 - NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; keep heartbeat armed; no paid spend.
+
+[2026-06-07 13:31:17]
+- ACTION: I-obs-001 overnight wake — verified #1070/#1071 by running guard tests (33 green); authored grounded live-run monitoring runbook for the 3 drb_72 failure modes.
+- RATIONALE: Per operator's "VERIFY by running tests, don't relay" standard, backed the "#1070/#1071 already fixed" report with passing guard tests. Then turned "we have observability" into actionable monitoring: grounded each drb_72 failure mode (silent URL throttle / dead-route 404 collapse / verifier degradation) to a real emitted field + red-flag threshold + abort action, after reading the actual run_status.json + retrieval_trace.jsonl record shapes from source (plan-from-running-system). Smoke-tested the monitoring one-liner against a real heartbeat payload.
+- DOCS/RESEARCH: src/polaris_graph/telemetry/run_status_heartbeat.py (payload schema); src/polaris_graph/benchmark/pathB_capture.py (trace record shapes).
+- SYNC: N/A
+- AFFECTED_FILES: docs/run_observability_monitoring.md (new, tracked); state/q1_run_prep_one_go_ahead.md (Step 3b watch added — gitignored); state/iobs001_observability.json (P0 test-verified note); GitHub #1070 (issuecomment-4642802091) + #1071 (issuecomment-4642802123); logs/session_log.md.
+- EVIDENCE/FINDINGS: #1070 guards 13/13 green (test_evidence_to_generation_cap_iready001 4 + test_capped_finding_dedup_iready004 9); #1071 guards 20/20 green (test_fx09_judge_error_rate_iready017 7 + test_manifest_contract 13). Monitoring one-liner verified: "q1/5 stage=retrieval_done kept=180 claims=None/None cost=$4.1/25.0 elapsed=42.0s".
+- STATUS: Observability complete + verified; #1070/#1071 test-verified + honestly reported (OPEN pending live-run audit); Q1 run prepped one-go-ahead-away WITH a live failure-mode watch. Zero paid spend.
+- NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
