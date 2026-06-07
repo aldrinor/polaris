@@ -395,7 +395,6 @@ class _SemanticContradictionJudge:
             if actual_cost == 0 and not usage:
                 actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
             _orc._add_run_cost(actual_cost)
-            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
             # FX-11b (#1117): also write the canonical cost-ledger ROW for this
             # NLI-conflict judge call. It already feeds the run BUDGET via
             # _add_run_cost above, but without a ledger row the persisted ledger
@@ -404,6 +403,11 @@ class _SemanticContradictionJudge:
             # judge/role writers use, so all rows of one run share one accumulator.
             # append_cost_ledger_row bumps the SEPARATE ledger accumulator (not
             # _RUN_COST_CTX), so this does NOT double-count the run budget.
+            # FX-11c (#1136): write the row BEFORE check_run_budget — a
+            # budget-BREACHING call is already billed to the accumulator by
+            # _add_run_cost, so it must also land in the ledger; if check_run_budget
+            # raised first the breaching call would be billed-but-unledgered (the
+            # exact ledger<budget drift FX-11/FX-11b exist to eliminate).
             try:
                 _orc.append_cost_ledger_row(
                     session_id=_orc.current_run_id() or "",
@@ -414,6 +418,7 @@ class _SemanticContradictionJudge:
                 )
             except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
                 pass
+            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
             content = data["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             verdict = str(parsed.get("verdict", "")).strip().upper()

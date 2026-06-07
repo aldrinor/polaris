@@ -127,3 +127,42 @@ def test_api_reported_cost_still_wins_over_imputation():
     ut = UsageTracker(session_id="fx11b-api-test")
     ut.record("paid_api", input_tokens=10, output_tokens=10, api_cost=0.5)
     assert ut.total_cost_usd == pytest.approx(0.5)
+
+
+# ───────────────────────── FX-11c (#1136): ledger row precedes budget check ─────────────────────────
+def test_nli_ledger_row_written_before_budget_breach(monkeypatch):
+    """FX-11c: a budget-BREACHING NLI call is billed to the run accumulator (_add_run_cost) before
+    the budget check; the ledger row must therefore be written BEFORE check_run_budget raises, else
+    the breaching call is billed-but-unledgered (ledger < budget — the exact drift FX-11 fixes)."""
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(orc, "check_family_segregation", lambda **k: None)
+    monkeypatch.setattr(orc, "current_run_id", lambda: "run-breach")
+    monkeypatch.setattr(orc, "_add_run_cost", lambda c: None)
+
+    def _breach(_):
+        raise BudgetExceededError("run budget cap reached")
+
+    monkeypatch.setattr(orc, "check_run_budget", _breach)
+    captured: list[dict] = []
+    monkeypatch.setattr(orc, "append_cost_ledger_row", lambda **kw: captured.append(kw) or 0.0)
+    judge = scd._SemanticContradictionJudge()
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "usage": {"prompt_tokens": 50, "completion_tokens": 10, "cost": 0.001},
+                "choices": [{"message": {"content": '{"verdict": "CONTRADICT", "confidence": 0.9}'}}],
+            }
+
+    monkeypatch.setattr(judge._client, "post", lambda *a, **k: _Resp())
+    # The breaching call must re-raise BudgetExceededError (keep-partial caller path)...
+    with pytest.raises(BudgetExceededError):
+        judge.judge("a", "b")
+    # ...AND the ledger row must already have been written (before the budget check raised).
+    assert len(captured) == 1, "ledger row must be written BEFORE check_run_budget raises"
+    assert captured[0]["call_type"] == "nli_conflict_judge"
+    assert captured[0]["cost_usd"] == pytest.approx(0.001)

@@ -1611,6 +1611,10 @@ async def build_and_run(
                     })
                 except Exception:
                     pass
+                # FX-11c (#1136): clear the ambient run id on the FAILURE-return
+                # too (not only the success return), so a failed pipeline-B run
+                # does not leak vector_id into unrelated ambient cost code.
+                set_current_run_id(None)
                 return result
 
             elapsed = time.monotonic() - start_time
