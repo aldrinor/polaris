@@ -39,7 +39,7 @@ import concurrent.futures
 import contextvars
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -251,6 +251,72 @@ def _compute_claim_results(
         M4 gate — it is NOT isolated. A worker exception PROPAGATES (fail closed; no `except: pass`).
     """
     n = len(claims)
+
+    # I-ready-017 FX-08b (#1113): CLAIM-LEVEL DEDUP (BUG-04 determinism half).
+    # 4+ byte-identical claims were SPLIT VERIFIED/UNSUPPORTED in the same run
+    # (a non-deterministic release gate). Two claims whose ENTIRE pipeline INPUT
+    # is identical MUST get the same verdict — so run the pipeline ONCE per
+    # distinct input and fan the verdict out. The key is the FULL input the
+    # pipeline consumes (claim_text + evidence doc_id+text + severity +
+    # s0_categories), NOT just (sentence+ids+spans): anything that could
+    # legitimately change the verdict is in the key, so two genuinely-different
+    # claims can NEVER collapse to one verdict (faithfulness-safe; identical
+    # input => identical output is the only justification for sharing a verdict).
+    # The evidence doc `text` is the FX-03 cited WINDOW, so it encodes the span.
+    # Fan-out is HONEST on the audit trail + cost: a duplicate gets its OWN
+    # claim_id (dataclasses.replace on d8_row), the SHARED verdict + sub-results,
+    # EMPTY records (no new model calls were made for it, so all_records /
+    # role_call_log are not inflated), and zero cost (cost_delta None). Coverage
+    # credit still flows per-claim (each dup's covered_element_ids on its VERIFIED
+    # verdict). Flag-gated (PG_FOUR_ROLE_CLAIM_DEDUP, default ON); OFF reverts to
+    # the per-claim run. Recursion on representatives is one level deep (reps have
+    # all-distinct keys -> this branch is skipped on the inner call).
+    _dedup_enabled = os.getenv("PG_FOUR_ROLE_CLAIM_DEDUP", "1") != "0"
+
+    def _dedup_key(c: FourRoleClaim) -> tuple:
+        return (
+            " ".join((c.claim_text or "").split()),
+            tuple(sorted(
+                (d.doc_id, d.text) for d in (c.evidence_documents or [])
+            )),
+            c.severity,
+            tuple(sorted(c.s0_categories or [])),
+        )
+
+    if _dedup_enabled and n > 1:
+        rep_idx_by_key: dict[tuple, int] = {}
+        rep_indices: list[int] = []
+        for idx, claim in enumerate(claims):
+            k = _dedup_key(claim)
+            if k not in rep_idx_by_key:
+                rep_idx_by_key[k] = idx
+                rep_indices.append(idx)
+        if len(rep_indices) < n:
+            # At least one duplicate — run the pipeline only on representatives.
+            rep_results = _compute_claim_results(
+                transport,
+                claims=[claims[i] for i in rep_indices],
+                model_slugs=model_slugs,
+                timestamp=timestamp,
+                run_dir=run_dir,
+            )
+            rep_result_by_idx = {
+                rep_indices[j]: rep_results[j] for j in range(len(rep_indices))
+            }
+            fanned: list[tuple[ClaimPipelineResult, float | None]] = []
+            for idx, claim in enumerate(claims):
+                rep_idx = rep_idx_by_key[_dedup_key(claim)]
+                rep_res, rep_cost = rep_result_by_idx[rep_idx]
+                if idx == rep_idx:
+                    fanned.append((rep_res, rep_cost))
+                else:
+                    # Fan the verdict out to this duplicate under ITS own
+                    # claim_id; no new model calls (records=[]) and no new spend
+                    # (cost None) — the representative already paid + recorded.
+                    dup_row = replace(rep_res.d8_row, claim_id=claim.claim_id)
+                    dup_res = replace(rep_res, d8_row=dup_row, records=[])
+                    fanned.append((dup_res, None))
+            return fanned
 
     def _compute_one(
         idx: int, claim: FourRoleClaim, worker_ctx: contextvars.Context

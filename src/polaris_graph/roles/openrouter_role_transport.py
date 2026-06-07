@@ -536,6 +536,21 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         routed = apply_provider_routing({}, request.role)
         if routed:
             body["provider"] = routed
+
+    # I-ready-017 FX-08b (#1113): determinism knobs (LAW VI, env-overridable).
+    # temperature=0 (greedy decoding) is universally supported, so it is safe to
+    # send even alongside provider.require_parameters=True. seed is OPT-IN
+    # (default OFF): a `seed` in the body under require_parameters=True can make
+    # OpenRouter REFUSE to route to the pinned healthy provider (seed is not
+    # universally advertised) -> a fail-loud no-endpoint crash on every verifier
+    # call. The real determinism guarantee is the claim-level dedup in
+    # sweep_integration (identical input -> ONE pipeline run -> one shared
+    # verdict); temperature/seed are necessary-not-sufficient under shared-batch
+    # nondeterminism, so seed stays operator-gated for providers known to honor it.
+    body["temperature"] = float(os.getenv("PG_VERIFIER_TEMPERATURE", "0"))
+    _seed = os.getenv("PG_VERIFIER_SEED", "").strip()
+    if _seed:
+        body["seed"] = int(_seed)
     return body
 
 
