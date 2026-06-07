@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/retrieval/semantic_conflict_detector.py:397: NLI cost is added to _RUN_COST_CTX before check_run_budget, but the ledger row is written only after that check; a budget-breaching NLI call is therefore billed in the run accumulator but omitted from the persisted ledger."
+  - "src/polaris_graph/graph.py:1483: pipeline-B sets the ambient run id but only clears it on the normal success path at line 1680; the failure return at line 1614 and exceptions before/around _run_with_stream can leak the id in the current task. A try/finally reset would be cleaner."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
