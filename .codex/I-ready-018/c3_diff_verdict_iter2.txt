@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "CONTINUING P2-3: src/_polaris_import_alias.py:118,126 still fails to restore canonical __spec__ on first import. The module is stored under the alias key, but exec_module pops using canonical module.__name__, so importlib.resources.files(polaris_graph).iterdir() is empty until reload. Identity collapse and normal submodule imports still work, so this is not an execution blocker."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

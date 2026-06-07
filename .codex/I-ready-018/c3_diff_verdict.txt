@@ -1,0 +1,16 @@
+```yaml
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/sitecustomize.py does not load in the root-only Gate-B command, and scripts/dr_benchmark/run_gate_b.py:1099 still has a live bare import in _resolve_benchmark_upload. Repro: root-only _resolve_benchmark_upload('__missing__') raises ModuleNotFoundError for polaris_graph before file validation. This violates the C3 root-hook run-safety intent for accidental bare imports."
+  - "tests/polaris_graph/test_demo_smoke.py:17-27 is not hermetic against ambient .env/live backend vars. Because the alias imports src.__init__ and load_dotenv(override=False), POLARIS_GPG_KEY_ID/SERPER_API_KEY/OPENROUTER_API_KEY can be populated before create_app(); locally this caused collection to fail in build_gpg_signer(). The smoke claims zero-cost sentinel fall-throughs, so it must set these backend env vars to empty strings before importing demo_smoke."
+p2:
+  - "tests/polaris_graph/test_import_root_alias_iready018.py:25 has a bad single-root skip predicate. Root-only pytest collected the tests and all 9 failed with ModuleNotFoundError instead of skipping cleanly."
+  - "src/sitecustomize.py breaks bare-only absolute-PYTHONPATH launches from outside repo root: PYTHONPATH=C:\\POLARIS\\src from C:\\tmp loads sitecustomize, then import polaris_graph fails because src.polaris_graph is not importable."
+  - "src/sitecustomize.py:113-129 does not restore the real package __spec__ on first import; aliased packages keep submodule_search_locations=None until reload, making importlib.resources.files(polaris_graph) empty."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add root-only protection for Gate-B accidental bare imports, or fix the run_gate_b.py:1099 import path and add the missing root-only smoke covering _resolve_benchmark_upload."
+  - "Make test_demo_smoke set live backend env vars to empty strings before importing demo_smoke/create_app, not merely setdefault auth vars."
+verdict: REQUEST_CHANGES
+```

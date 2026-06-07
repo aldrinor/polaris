@@ -1,0 +1,22 @@
+verdict: APPROVE
+chosen_option: C3
+rationale: >-
+  Use C3, but only as a full-prefix import alias, not a top-level sys.modules assignment.
+  It is the only constrained fix that keeps the root-only beat-both command working while fixing the both-roots V6/pytest process without a 100+ file migration.
+  C1 is the right long-term cleanup, but as stated it is incomplete because removing src/__init__.py does not make src.polaris_graph invalid while repo-root is on sys.path; src becomes a namespace package.
+exact_mechanism: >-
+  Add repo-root sitecustomize.py so Python loads it before uvicorn app import, pytest collection, and python -m scripts.dr_benchmark.run_gate_b.
+  It must install an idempotent MetaPathFinder/AliasLoader for the entire polaris_graph <-> src.polaris_graph prefix, including submodules; the loader imports the canonical counterpart once, registers both sys.modules names to the same module object, and exec_module is a no-op.
+  If both spellings are already loaded to different objects, fail fast instead of silently aliasing.
+  Do not rely on root conftest.py except as a pytest assertion/fallback, and do not change strict_verify/provenance import prefixes in this fix.
+beat_both_run_safe: true
+faithfulness_risk: >-
+  none under the specified full-prefix early alias; it collapses strict_verify/provenance to one module object and therefore one _JUDGE_SINGLETON plus one telemetry-counter set.
+  A top-level-only alias, late conftest-only alias, or C4 local shim would leave duplicate submodules possible and is a faithfulness risk.
+separate_issue_ok: true
+remaining_blockers_for_execution:
+  - "Implement the alias as a full-prefix import hook; a simple sys.modules['src.polaris_graph'] = sys.modules['polaris_graph'] is insufficient."
+  - "Add identity regression tests proving bare and src VerifiedSentence, Section, strict_verify, and provenance modules are identical under the both-roots pytest path."
+  - "Add a root-only python -m smoke proving the beat-both import path still resolves src.polaris_graph and any accidental bare polaris_graph import aliases to the same objects."
+  - "Confirm CI/Docker entrypoints do not launch Python with -S or otherwise suppress sitecustomize."
+

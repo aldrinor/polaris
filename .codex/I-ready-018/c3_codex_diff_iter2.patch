@@ -1,0 +1,400 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index c4d63999..1e5d93b0 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -39,6 +39,16 @@ from typing import Any, Callable, Mapping
+ 
+ import httpx
+ 
++# I-ready-018 (#1138, Codex iter-1 P1-1): install the import-root alias BEFORE any repo import. The
++# beat-both run launches from repo-root WITHOUT PYTHONPATH=src, so src/sitecustomize.py does NOT
++# auto-load here. The core run path is src.-consistent (unaffected), but the --upload-file path imports
++# polaris_v6 internals via the BARE root, which would ModuleNotFoundError root-only. Installing the
++# alias here makes any bare polaris_graph/polaris_v6 import resolve to its src. counterpart. Idempotent
++# + a no-op when the alias is already installed (sitecustomize) or the canonical tree is absent.
++from src._polaris_import_alias import install_import_root_alias
++
++install_import_root_alias()
++
+ from scripts.architecture.verify_lock import load_lock
+ from src.polaris_graph.roles.native_gate_b_inputs import (
+     NativeGateBBundle,
+@@ -1096,14 +1106,19 @@ def _resolve_benchmark_upload(
+     import asyncio
+     from pathlib import Path
+ 
+-    from polaris_graph.document_ingester import (
++    # I-ready-018 (#1138, Codex iter-1 P1): use the canonical ``src.`` import root. The beat-both
++    # run launches from the repo root WITHOUT ``PYTHONPATH=src`` (so only ``src.polaris_graph`` /
++    # ``src.polaris_v6`` resolve and the sitecustomize alias does NOT load). A bare ``polaris_graph``/
++    # ``polaris_v6`` import here would raise ModuleNotFoundError on the --upload-file path under the
++    # root-only run. Match the rest of run_gate_b's ``src.`` imports.
++    from src.polaris_graph.document_ingester import (
+         DocumentIngester,
+         DocumentIngestionError,
+     )
+-    from polaris_v6.adapters.upload_evidence import (
++    from src.polaris_v6.adapters.upload_evidence import (
+         partition_uploads_by_sovereignty,
+     )
+-    from polaris_v6.api.upload import chunk_text
++    from src.polaris_v6.api.upload import chunk_text
+ 
+     path = Path(upload_file)
+     if not path.exists():
+diff --git a/src/_polaris_import_alias.py b/src/_polaris_import_alias.py
+new file mode 100644
+index 00000000..eb56b2cd
+--- /dev/null
++++ b/src/_polaris_import_alias.py
+@@ -0,0 +1,135 @@
++"""Standalone POLARIS import-root alias installer (I-ready-018 #1138, Codex C3).
++
++Why standalone (NOT under ``polaris_graph`` / ``polaris_v6``): installing the alias must NOT itself
++import the very packages it unifies (that would create the un-aliased tree before the finder is in
++place — the exact divergence we prevent). This module lives directly under ``src/`` and imports
++nothing from the aliased packages, so it is safe to import from both ``sitecustomize`` (interpreter
++startup) and an explicit entrypoint (``run_gate_b``) before any ``polaris_graph``/``polaris_v6``
++import.
++
++PROBLEM. ``src/`` is a real package (``src/__init__.py``), so when BOTH repo-root and ``src/`` are on
++``sys.path`` (V6 server ``PYTHONPATH=src`` + ``python -m`` CWD; pytest) Python builds TWO module trees
++``polaris_graph.*`` / ``src.polaris_graph.*`` (and ``polaris_v6.*`` / ``src.polaris_v6.*``) with
++DISTINCT class objects → pydantic ``model_type`` aborts in the generator chain + duplicate
++``strict_verify`` singletons (a faithfulness hazard).
++
++FIX. A ``MetaPathFinder`` that aliases each bare root onto its canonical ``src.`` counterpart so both
++spellings are the SAME module object. CANONICAL = the ``src.``-prefixed name: the beat-both RUN
++launches from repo-root WITHOUT ``src`` on ``sys.path`` (only ``src.polaris_graph`` resolves), and the
++``--upload-file`` path imports ``polaris_v6`` internals via the bare root — so installing this alias
++from the run entrypoint keeps those bare imports working root-only too (Codex iter-1 P1-1).
++
++SAFETY: idempotent; fail-fast on pre-loaded divergence; re-entrancy guarded; restores the canonical
++``__spec__``/``__name__``/``__path__`` so ``importlib.reload`` re-execs the real module and package
++resource discovery works on first import; defers to the default machinery when the canonical root is
++not importable (so a legitimate bare-only launch from outside the repo still works).
++"""
++from __future__ import annotations
++
++import sys
++
++# (alias_root, canonical_root) pairs. Both are real src/ packages imported BOTH ways across the tree.
++_ALIAS_ROOTS = (
++    ("polaris_graph", "src.polaris_graph"),
++    ("polaris_v6", "src.polaris_v6"),
++)
++_FINDER_TAG = "_polaris_import_root_alias"
++
++
++def install_import_root_alias() -> None:
++    """Install the import-root alias MetaPathFinder (idempotent)."""
++    for finder in sys.meta_path:
++        if getattr(finder, "_tag", None) == _FINDER_TAG:
++            return  # already installed
++
++    import importlib
++    import importlib.abc
++    import importlib.machinery
++    import importlib.util
++
++    class _PolarisAliasFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
++        """Alias bare ``<root>[.sub]`` → canonical ``src.<root>[.sub]`` (same module object)."""
++
++        _tag = _FINDER_TAG
++
++        def __init__(self) -> None:
++            # Re-entrancy guard ONLY — NO threading.Lock (CPython serializes imports per-module via
++            # _bootstrap._ModuleLock; holding our own lock across import_module(), which re-enters this
++            # finder for the canonical module's own bare submodule imports, DEADLOCKS).
++            self._in_progress: set[str] = set()
++            # alias_name -> the canonical module's REAL ModuleSpec, captured before the import machinery
++            # clobbers the returned module's __spec__/__name__ with our alias spec (matters for reload).
++            self._real_specs: dict[str, object] = {}
++            # canonical_root -> bool importable (None = unchecked). If the canonical tree does not exist
++            # (bare-only launch from outside the repo), defer to the default machinery.
++            self._canon_ok: dict[str, bool] = {}
++
++        @staticmethod
++        def _split(fullname: str):
++            for alias_root, canonical_root in _ALIAS_ROOTS:
++                if fullname == alias_root or fullname.startswith(alias_root + "."):
++                    return alias_root, canonical_root
++            return None
++
++        def _canonical_importable(self, canonical_root: str) -> bool:
++            if canonical_root not in self._canon_ok:
++                if canonical_root in sys.modules:
++                    self._canon_ok[canonical_root] = True
++                else:
++                    try:
++                        self._canon_ok[canonical_root] = (
++                            importlib.util.find_spec(canonical_root) is not None
++                        )
++                    except (ImportError, ValueError, AttributeError):
++                        self._canon_ok[canonical_root] = False
++            return self._canon_ok[canonical_root]
++
++        def find_spec(self, fullname, path=None, target=None):  # noqa: ARG002
++            match = self._split(fullname)
++            if match is None:
++                return None
++            alias_root, canonical_root = match
++            if fullname in self._in_progress:
++                return None
++            if not self._canonical_importable(canonical_root):
++                return None  # no canonical tree → let the default machinery resolve the bare name
++            return importlib.machinery.ModuleSpec(fullname, self, origin="polaris-import-root-alias")
++
++        def create_module(self, spec):
++            alias_root, canonical_root = self._split(spec.name)
++            canonical = canonical_root + spec.name[len(alias_root):]
++            existing_alias = sys.modules.get(spec.name)
++            existing_canon = sys.modules.get(canonical)
++            if (
++                existing_alias is not None
++                and existing_canon is not None
++                and existing_alias is not existing_canon
++            ):
++                raise ImportError(
++                    f"polaris import-root alias divergence: {spec.name!r} and {canonical!r} are "
++                    f"already loaded as DIFFERENT module objects; the alias must be installed BEFORE "
++                    f"any {alias_root} import."
++                )
++            self._in_progress.add(spec.name)
++            try:
++                module = importlib.import_module(canonical)
++            finally:
++                self._in_progress.discard(spec.name)
++            self._real_specs[spec.name] = module.__spec__
++            sys.modules[spec.name] = module
++            return module
++
++        def exec_module(self, module):
++            # _init_module_attrs just clobbered module.__name__/__spec__ to the alias values (no-op
++            # loader). Restore the canonical ones so the module identity is real and reload() re-execs
++            # the real code; restore __path__ so package resource discovery works on first import.
++            real_spec = self._real_specs.pop(module.__name__, None)
++            if real_spec is not None:
++                module.__spec__ = real_spec
++                module.__name__ = real_spec.name
++                locations = getattr(real_spec, "submodule_search_locations", None)
++                if locations is not None:
++                    module.__path__ = list(locations)
++            return None
++
++    sys.meta_path.insert(0, _PolarisAliasFinder())
+diff --git a/src/sitecustomize.py b/src/sitecustomize.py
+index be717686..68153528 100644
+--- a/src/sitecustomize.py
++++ b/src/sitecustomize.py
+@@ -1,135 +1,24 @@
+-"""Repo-root sitecustomize — POLARIS import-root unifier (I-ready-018 #1138, Codex C3).
++"""Repo/src sitecustomize — installs the POLARIS import-root alias (I-ready-018 #1138, Codex C3).
+ 
+-PROBLEM. ``src/`` is a real package (``src/__init__.py`` exists). When BOTH the repo root AND
+-``src/`` are on ``sys.path`` — which happens in the V6 server (``PYTHONPATH=src python -m
+-uvicorn`` → ``src`` from PYTHONPATH + repo-root from ``python -m`` CWD) and in pytest
+-(``PYTHONPATH=src`` + pytest rootdir) — Python builds TWO distinct module trees,
+-``polaris_graph.*`` and ``src.polaris_graph.*``, with DISTINCT class objects. Because
+-``src/polaris_graph/clinical_generator`` mixes import prefixes (consumers + generator.py +
+-verified_report.py use bare ``polaris_graph``; strict_verify.py + provenance.py use
+-``src.polaris_graph``), a ``Section(verified_sentences=[strict_verify output])`` is built with
+-the bare ``VerifiedSentence`` field type but fed the ``src.`` instance → pydantic ``model_type``
+-ValidationError → generation aborts ``completion_backend_unavailable``. It also means duplicate
+-``strict_verify`` module objects → duplicate ``_JUDGE_SINGLETON`` + telemetry counters (a
+-faithfulness hazard).
++Auto-loaded by CPython's ``site`` at interpreter startup when ``src/`` is on ``sys.path`` — which is
++exactly the both-roots condition that creates the dual-module-tree bug (V6 server ``PYTHONPATH=src``
+++ ``python -m`` CWD; pytest). The beat-both RUN is ``src.``-only single-root and does NOT load this
++(and does not need it for its core path; the ``--upload-file`` path installs the alias explicitly via
++``run_gate_b``).
+ 
+-FIX (Codex design ruling C3, .codex/I-ready-018/clusterA_design_verdict.txt). A full-prefix import
+-ALIAS: redirect every ``polaris_graph[.X]`` import to the canonical ``src.polaris_graph[.X]`` so both
+-spellings resolve to the SAME module object (and therefore one VerifiedSentence / Section /
+-strict_verify / one ``_JUDGE_SINGLETON``). NOT a top-level ``sys.modules`` assignment (that misses
+-submodules imported later) — a ``MetaPathFinder`` covering the whole prefix.
+-
+-CANONICAL = ``src.polaris_graph``. Rationale: the beat-both RUN launches from the repo root WITHOUT
+-``src`` on ``sys.path`` (``python -m scripts.dr_benchmark.run_gate_b``), so ONLY ``src.polaris_graph``
+-is importable there; bare ``polaris_graph`` is not. The run therefore never triggers this finder
+-(it never imports the bare spelling) → the run is byte-unaffected. In the both-roots contexts the
+-finder collapses the bare spelling onto the ``src.`` tree.
+-
+-SAFETY:
+-  * Idempotent: installs once (guarded by a module-global + a sys.meta_path membership check).
+-  * Fail-fast: if the bare AND src. spellings are ALREADY loaded as DIFFERENT objects before the
+-    finder can unify them, raise ImportError rather than silently leaving a split identity.
+-  * Re-entrancy guarded: a per-thread in-progress set prevents infinite recursion while importing
+-    the canonical counterpart (whose own bare imports re-enter the finder).
+-  * No eager imports at interpreter startup — the finder triggers lazily on the first
+-    ``polaris_graph`` import.
++The actual finder lives in the standalone ``_polaris_import_alias`` module so installing it does NOT
++import the very packages it unifies (chicken-and-egg). See that module for the full rationale.
+ """
+ from __future__ import annotations
+ 
+-import sys
+-import threading
+-
+-_ALIAS_ROOT = "polaris_graph"
+-_CANONICAL_ROOT = "src.polaris_graph"
+-_FINDER_TAG = "_polaris_import_root_alias"
+-
+-
+-def _install_polaris_import_alias() -> None:
+-    # Idempotent: never install twice (sitecustomize can be imported more than once in odd setups).
+-    for finder in sys.meta_path:
+-        if getattr(finder, "_tag", None) == _FINDER_TAG:
+-            return
+-
+-    import importlib
+-    import importlib.abc
+-    import importlib.machinery
+-
+-    class _PolarisAliasFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+-        """Redirect ``polaris_graph[.sub]`` → the canonical ``src.polaris_graph[.sub]`` module."""
+-
+-        _tag = _FINDER_TAG
+-
+-        def __init__(self) -> None:
+-            # Re-entrancy guard ONLY (NO threading.Lock — CPython's import system already serializes
+-            # imports per module via _bootstrap._ModuleLock; adding our own non-reentrant lock here and
+-            # holding it across import_module() — which re-enters this finder for the canonical module's
+-            # own polaris_graph submodule imports — DEADLOCKS. The _in_progress set is sufficient.)
+-            self._in_progress: set[str] = set()
+-            # alias_name -> the canonical module's REAL ModuleSpec, captured in create_module before
+-            # the import system clobbers the returned module's __spec__/__name__ with the alias spec
+-            # (see exec_module for why this matters for importlib.reload()).
+-            self._real_specs: dict[str, object] = {}
+-
+-        @staticmethod
+-        def _canonical_name(fullname: str) -> str:
+-            # polaris_graph -> src.polaris_graph ; polaris_graph.a.b -> src.polaris_graph.a.b
+-            return _CANONICAL_ROOT + fullname[len(_ALIAS_ROOT):]
+-
+-        def find_spec(self, fullname, path=None, target=None):  # noqa: ARG002
+-            if fullname != _ALIAS_ROOT and not fullname.startswith(_ALIAS_ROOT + "."):
+-                return None
+-            # Avoid re-entrancy: while we are importing the canonical counterpart, let the default
+-            # machinery resolve any nested lookups for THIS exact name.
+-            if fullname in self._in_progress:
+-                return None
+-            return importlib.machinery.ModuleSpec(fullname, self, origin="polaris-import-root-alias")
+-
+-        def create_module(self, spec):
+-            canonical = self._canonical_name(spec.name)
+-            # Fail-fast: if both spellings are already loaded as DIFFERENT objects, we cannot safely
+-            # unify after the fact — surface it loudly instead of papering over a split identity.
+-            existing_alias = sys.modules.get(spec.name)
+-            existing_canon = sys.modules.get(canonical)
+-            if (
+-                existing_alias is not None
+-                and existing_canon is not None
+-                and existing_alias is not existing_canon
+-            ):
+-                raise ImportError(
+-                    f"polaris import-root alias divergence: {spec.name!r} and {canonical!r} are "
+-                    f"already loaded as DIFFERENT module objects; the alias finder must be "
+-                    f"installed (sitecustomize) BEFORE any polaris_graph import."
+-                )
+-            self._in_progress.add(spec.name)
+-            try:
+-                module = importlib.import_module(canonical)
+-            finally:
+-                self._in_progress.discard(spec.name)
+-            # Capture the canonical module's REAL spec BEFORE the import machinery's _init_module_attrs
+-            # overwrites module.__spec__ / module.__name__ with OUR alias spec (which carries the no-op
+-            # alias loader). Without restoring these in exec_module, importlib.reload(bare_module) would
+-            # route through this finder's no-op exec_module and silently NOT re-execute the real module
+-            # code — e.g. test_real_completion reloads after setenv to re-read OPENROUTER_ENDPOINT.
+-            self._real_specs[spec.name] = module.__spec__
+-            # Register the canonical module object under the alias name too, so both spellings are
+-            # the SAME object for every future import.
+-            sys.modules[spec.name] = module
+-            return module
+-
+-        def exec_module(self, module):
+-            # create_module already executed the canonical module. _init_module_attrs just clobbered
+-            # module.__name__ / module.__spec__ to the ALIAS values (name = bare spelling, loader =
+-            # this no-op finder). Restore the canonical spec/name so the module object's identity is
+-            # the real one and importlib.reload() re-execs the real module code (not our no-op). The
+-            # module object is shared between the bare and src. sys.modules entries, so restoring once
+-            # fixes both. Keyed by the alias name (module.__name__ is currently the alias name).
+-            real_spec = self._real_specs.pop(module.__name__, None)
+-            if real_spec is not None:
+-                module.__spec__ = real_spec
+-                module.__name__ = real_spec.name
+-            return None
+-
+-    sys.meta_path.insert(0, _PolarisAliasFinder())
+-
+-
+-_install_polaris_import_alias()
++try:
++    # ``src`` is on sys.path (this file is src/sitecustomize.py), so the standalone installer module
++    # resolves as a bare top-level import WITHOUT touching polaris_graph / polaris_v6.
++    import _polaris_import_alias
++
++    _polaris_import_alias.install_import_root_alias()
++except Exception:  # noqa: BLE001 — sitecustomize must NEVER break interpreter startup
++    # If the installer is unavailable for any reason, fall through silently: the dual-identity bug only
++    # affects the both-roots test/server contexts (caught loudly by test_import_root_alias_iready018),
++    # never the single-root beat-both run.
++    pass
+diff --git a/tests/polaris_graph/test_demo_smoke.py b/tests/polaris_graph/test_demo_smoke.py
+index 886d525a..7c144800 100644
+--- a/tests/polaris_graph/test_demo_smoke.py
++++ b/tests/polaris_graph/test_demo_smoke.py
+@@ -19,6 +19,20 @@ os.environ.setdefault(
+     "POLARIS_STATIC_ACCOUNTS_PATH",
+     str(Path(__file__).resolve().parents[1] / "fixtures" / "auth" / "test_static_accounts.yaml"),
+ )
++# I-ready-018 (#1138, Codex iter-1 P1-2): make this smoke HERMETIC against ambient .env / live-backend
++# vars. The import-root alias pulls in src/__init__.py which runs load_dotenv(override=False), so a
++# developer's real .env can populate GPG / search / model keys BEFORE create_app() — and a real
++# POLARIS_GPG_KEY_ID makes build_gpg_signer() try the live signer at collection time. This smoke only
++# asserts create_app() boots + the zero-cost sentinel fall-throughs, so FORCE the live-backend vars to
++# empty (override, not setdefault) so the boot is deterministic regardless of the ambient environment.
++for _backend_var in (
++    "POLARIS_GPG_KEY_ID",
++    "SERPER_API_KEY",
++    "OPENROUTER_API_KEY",
++    "OPENAI_API_KEY",
++    "S2_API_KEY",
++):
++    os.environ[_backend_var] = ""
+ 
+ # Make scripts/ importable
+ SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
+diff --git a/tests/polaris_graph/test_import_root_alias_iready018.py b/tests/polaris_graph/test_import_root_alias_iready018.py
+index f9dbc8e0..3b759b17 100644
+--- a/tests/polaris_graph/test_import_root_alias_iready018.py
++++ b/tests/polaris_graph/test_import_root_alias_iready018.py
+@@ -19,14 +19,20 @@ import sys
+ 
+ import pytest
+ 
+-# Only meaningful when BOTH roots are importable (the both-roots context this test guards). Under a
+-# pure single-root launch (the beat-both run) the bare spelling is not importable and the bug cannot
+-# occur, so skip rather than fail.
+-_BARE_IMPORTABLE = any(p.rstrip("\\/").endswith("src") for p in sys.path) or "src" in sys.modules
++# P2-1 (Codex iter-1): the alias is only active when src/sitecustomize.py installed the finder (the
++# both-roots context: PYTHONPATH=src + repo-root on path). The previous `endswith('src')` sys.path
++# heuristic was wrong — under a single-root launch the tests COLLECTED and FAILED with
++# ModuleNotFoundError instead of skipping. The definitive, robust signal is whether the alias finder
++# is on sys.meta_path. If it is not (single-root run, or `python -S`), the dual-identity bug cannot
++# occur in this process, so skip cleanly.
++_ALIAS_FINDER_ACTIVE = any(
++    getattr(f, "_tag", None) == "_polaris_import_root_alias" for f in sys.meta_path
++)
+ 
+ pytestmark = pytest.mark.skipif(
+-    not _BARE_IMPORTABLE,
+-    reason="bare 'polaris_graph' root not on sys.path (single-root launch); dual-identity cannot occur",
++    not _ALIAS_FINDER_ACTIVE,
++    reason="polaris import-root alias finder not installed (single-root / -S launch); "
++    "dual-identity cannot occur in this process",
+ )
+ 
+ 
