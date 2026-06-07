@@ -57,9 +57,6 @@ def install_import_root_alias() -> None:
             # _bootstrap._ModuleLock; holding our own lock across import_module(), which re-enters this
             # finder for the canonical module's own bare submodule imports, DEADLOCKS).
             self._in_progress: set[str] = set()
-            # alias_name -> the canonical module's REAL ModuleSpec, captured before the import machinery
-            # clobbers the returned module's __spec__/__name__ with our alias spec (matters for reload).
-            self._real_specs: dict[str, object] = {}
             # canonical_root -> bool importable (None = unchecked). If the canonical tree does not exist
             # (bare-only launch from outside the repo), defer to the default machinery.
             self._canon_ok: dict[str, bool] = {}
@@ -115,15 +112,20 @@ def install_import_root_alias() -> None:
                 module = importlib.import_module(canonical)
             finally:
                 self._in_progress.discard(spec.name)
-            self._real_specs[spec.name] = module.__spec__
+            # Codex P2-3 (iter-1/2): stash the canonical spec ON the module object (NOT a name-keyed
+            # dict). exec_module runs AFTER _init_module_attrs has overwritten module.__name__ to the
+            # ALIAS name, so a dict keyed by either spelling is fragile; a private attr on the module is
+            # unambiguous. This makes the __path__/__spec__ restore actually fire on FIRST import.
+            module.__polaris_canonical_spec__ = module.__spec__
             sys.modules[spec.name] = module
             return module
 
         def exec_module(self, module):
             # _init_module_attrs just clobbered module.__name__/__spec__ to the alias values (no-op
             # loader). Restore the canonical ones so the module identity is real and reload() re-execs
-            # the real code; restore __path__ so package resource discovery works on first import.
-            real_spec = self._real_specs.pop(module.__name__, None)
+            # the real code; restore __path__ so package resource discovery (importlib.resources/pkgutil)
+            # works on FIRST import, not only after a reload.
+            real_spec = module.__dict__.pop("__polaris_canonical_spec__", None)
             if real_spec is not None:
                 module.__spec__ = real_spec
                 module.__name__ = real_spec.name
