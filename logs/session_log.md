@@ -5122,3 +5122,13 @@
 - EVIDENCE/FINDINGS: CHARTER blob f4935571 OK, PLAN blob 0dd0dd80 OK. 3 stale-pin files diagnosed via per-file as-is/LF-norm/HEAD-blob drill. Reconciliation requires a user-signed canonical_pin regeneration; Claude cannot self-fix the pin.
 - STATUS: Observability complete + Codex-approved + verified (unaffected). Canonical pin STALE for 3 docs (pre-existing) — surfaced for user-signed reconciliation. Does NOT technically block run_gate_b (no canonical_pin gate there). Zero paid spend. No further task work started (halt semantics).
 - NEXT_STEP: Operator: regenerate canonical_pin for the 3 files (user-signed) and/or proceed with paid run go-ahead. Heartbeat cron armed.
+
+[2026-06-07 17:09:10]
+- ACTION: Q1 (drb_72) paid run COMPLETED + §-1.1 audit. 4-role HELD the release (abort_four_role_release_held, release_allowed=False, coverage 0.286, $4.80/$25, 248 sources).
+- RATIONALE: Operator-authorized paid run executed + monitored (~10-min ticks). On completion ran the §-1.1 line-by-line audit of report.md. Verdict: HOLD CORRECT, report NOT shippable, NO fabrication shipped (degeneracy + template-leak + low coverage, not hallucination). Reproduces the known drb_72 0.286 failure (#1100). Two precise root causes located: template-slot leakage (frame-fill verbalizes "not extractable" pseudo-sentences — coverage killer) + hardcoded clinical boilerplate at run_honest_sweep_r3.py:5202 (HbA1c/T2D) leaking into the AI-labor report. Corpus T1=17%/T4=50% vs "high-quality journal articles only". Verified content WAS faithful.
+- DOCS/RESEARCH: manifest four_role_evaluation/nli_verification; report.md full read; run_honest_sweep_r3.py:5202 boilerplate source.
+- SYNC: N/A
+- AFFECTED_FILES: outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md (durable audit, gitignored); GitHub #1100 (issuecomment-4643354939) + #1141 (4643354983); memory project_observability_complete_q1_run_prepped_2026_06_07.md; logs/session_log.md.
+- EVIDENCE/FINDINGS: status abort_four_role_release_held, coverage_fraction 0.286, release_allowed False, 248 sources, T1=17% T4=50%, NLI 79 entailed/21 disputed (15 non-empty = all "not extractable" slot artifacts), mirror-blank 23/157 (flaky provider, recovered). Observability validated end-to-end in production (canary/heartbeat/sources_kept=248/raw-IO all 4 roles).
+- STATUS: Run done, gate held correctly, audit complete. Observability (I-obs-001) validated. Beat-both N/A (nothing released). Root causes routed to #1100. NO new paid run started — awaiting operator direction on fixes.
+- NEXT_STEP: Operator decision — drive the #1100 fixes (template-slot drop + domain-neutral boilerplate + T1 corpus floor), each Codex-gated + offline micro-smoke, then re-run behind canary (budget-gated).
