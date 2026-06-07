@@ -117,6 +117,21 @@ def test_frame_status_normalization(small_ir: SimpleNamespace) -> None:
     assert statuses["frame:safety_endpoint"] == "fail"  # fail_min_fields → fail
 
 
+def test_normalize_frame_status_generation_failed_maps_to_fail() -> None:
+    """I-ready-017 FX-07b leg-2 (#1111) Codex diff-gate iter-1 P2: the
+    frame_coverage honesty override emits status='generation_failed' for a
+    pipeline-fault slot (drafted prose fully dropped by strict_verify). The
+    graph inspector must render it as a failed frame, not frame_status null."""
+    from polaris_graph.api.graph_route import _normalize_frame_status
+    assert _normalize_frame_status("generation_failed") == "fail"
+    # Unchanged mappings still hold.
+    assert _normalize_frame_status("pass") == "pass"
+    assert _normalize_frame_status("partial") == "partial"
+    assert _normalize_frame_status("fail_min_fields") == "fail"
+    # Genuinely unknown statuses still fall through to None.
+    assert _normalize_frame_status("some_unknown_status") is None
+
+
 def test_graph_route_mounted_in_create_app(monkeypatch: pytest.MonkeyPatch) -> None:
     """Smoke: graph route must be mounted in the serving FastAPI app.
 

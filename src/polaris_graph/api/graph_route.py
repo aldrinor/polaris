@@ -114,6 +114,15 @@ def _normalize_frame_status(raw: str) -> FrameStatus | None:
         return "partial"
     if raw.startswith("fail"):
         return "fail"
+    # I-ready-017 FX-07b leg-2 (#1111) — Codex diff-gate iter-1 P2: the
+    # frame_coverage honesty override emits status="generation_failed" for a
+    # contract slot whose drafted prose was fully dropped by strict_verify
+    # (a pipeline fault — zero verified content for that frame). Map it to
+    # "fail" so the graph inspector renders the frame node as a failed slot
+    # instead of leaving frame_status null (uncolored). is_pipeline_fault on
+    # the manifest still carries the finer-grained classification.
+    if raw == "generation_failed":
+        return "fail"
     return None
 
 

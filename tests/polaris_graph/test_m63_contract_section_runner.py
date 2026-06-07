@@ -1392,3 +1392,198 @@ class TestM68GapDisclosureFallback:
             "verified_text. The regulatory (M-70) stream must be rescue-"
             f"INELIGIBLE. verified_text={result.verified_text!r}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# (N) FX-07b leg-2 (#1111) — Codex diff-gate iter-1 P1:
+#     per-(slot_id, entity_id) strict_verify telemetry, NOT per slot-primary.
+# ─────────────────────────────────────────────────────────────────────
+class TestFx07bLeg2PerEntityTelemetry:
+    """The frame_coverage pipeline-fault override is PER ENTITY. A real
+    contract slot can bind MULTIPLE entities; if telemetry were keyed only
+    to the slot's primary entity (the pre-fix bug Codex flagged), a
+    NON-primary entity whose generated prose was fully dropped by
+    strict_verify would get NO (slot,entity) row and could remain `pass`
+    in frame_coverage — re-opening the exact honesty gap #1111 closes.
+
+    Drives a SINGLE slot bound to TWO entities through run_contract_section
+    with a fake strict_verify that KEEPS the primary entity's sentence and
+    DROPS the secondary entity's sentence, then asserts BOTH entities get
+    their own per-(slot,entity) row, and the dropped secondary shows
+    sentences_kept=0 with sentences_generated_content>0 (the shape that
+    flips to generation_failed downstream)."""
+
+    @pytest.mark.asyncio
+    async def test_multi_entity_slot_emits_row_per_entity(
+        self, clinical_template: dict,
+    ) -> None:
+        import dataclasses
+        from dataclasses import dataclass, field
+
+        from src.polaris_graph.generator.contract_section_runner import (
+            ContractSectionPlanExt,
+            register_frame_rows_into_evidence_pool,
+            run_contract_section,
+        )
+        from src.polaris_graph.generator.live_deepseek_generator import (
+            _rewrite_draft_with_spans,
+        )
+        from src.polaris_graph.nodes.contract_outline import (
+            compose_outline_from_contract,
+        )
+        from src.polaris_graph.nodes.frame_compiler import compile_frame
+
+        cf = compile_frame(
+            "tirzepatide evidence", clinical_template,
+            "clinical_tirzepatide_t2dm",
+        )
+        rows = _stub_fetch_rows(cf)
+        outline = compose_outline_from_contract(cf, rows)
+        section = next(s for s in outline.sections if s.section == "Efficacy")
+
+        # Fuse two real bound entities into ONE slot so it is genuinely
+        # multi-entity (entity_ids length 2).
+        all_eids = [eid for sl in section.slots for eid in sl.entity_ids]
+        primary_eid, secondary_eid = all_eids[0], all_eids[1]
+        base_slot = section.slots[0]
+        fused_slot = dataclasses.replace(
+            base_slot,
+            entity_ids=(primary_eid, secondary_eid),
+            provenance_classes=(
+                base_slot.provenance_classes[0],
+                base_slot.provenance_classes[0],
+            ),
+        )
+
+        plan = ContractSectionPlanExt(
+            title=section.section,
+            focus=section.focus,
+            ev_ids=[primary_eid, secondary_eid],
+            slots=[fused_slot],
+            frame_rows_by_entity={r.entity_id: r for r in rows},
+            contract_entities_by_id=cf.contract.entities_by_id(),
+            research_question="tirzepatide evidence",
+        )
+
+        evidence_pool: dict[str, Any] = {}
+        register_frame_rows_into_evidence_pool(evidence_pool, rows)
+
+        async def _fake_llm(prompt: str):
+            # Emit one extracted field so the deterministic stream is
+            # non-empty (forces a real strict_verify_fn call).
+            m = re.search(
+                r"=== REQUIRED FIELDS ===\n.*?\n((?:  - \w+\n)+)",
+                prompt, re.DOTALL,
+            )
+            required = [
+                ln.strip("- ").strip()
+                for ln in (m.group(1).strip().splitlines() if m else [])
+                if ln.strip().startswith("-")
+            ]
+            fields = []
+            for fname in required:
+                if fname == "N":
+                    fields.append({
+                        "field_name": "N", "status": "extracted",
+                        "value": "N=1879", "source_span": "N=1879",
+                    })
+                else:
+                    fields.append({
+                        "field_name": fname, "status": "not_extractable",
+                        "value": None, "source_span": None,
+                    })
+            return json.dumps({"fields": fields}), 100, 50
+
+        @dataclass
+        class _Tok:
+            evidence_id: str
+
+        @dataclass
+        class _SV:
+            sentence: str
+            tokens: list = field(default_factory=list)
+            soft_warnings: list = field(default_factory=list)
+
+        @dataclass
+        class _Report:
+            total_in: int
+            total_kept: int
+            total_dropped: int
+            kept_sentences: list
+            dropped_sentences: list
+
+        # Synthetic strict_verify: KEEP primary, DROP secondary. Returns the
+        # controlled report on the FIRST non-empty stream call (deterministic
+        # stream) and empties thereafter so counts aren't double-applied. The
+        # dropped secondary sv carries EMPTY tokens so the M-69 deterministic
+        # rescue (keys on tokens[0]) cannot rescue it — the drop must stick.
+        _fired: list[bool] = []
+
+        def _fake_strict(text: str, pool: dict):
+            if text and not _fired:
+                _fired.append(True)
+                kept = [_SV(
+                    sentence=(
+                        f"HbA1c reduction was clinically significant "
+                        f"[#ev:{primary_eid}:0-6]"
+                    ),
+                    tokens=[_Tok(primary_eid)],
+                )]
+                dropped = [_SV(
+                    sentence=(
+                        f"Unsupported efficacy claim for the secondary "
+                        f"entity [#ev:{secondary_eid}:0-6]"
+                    ),
+                    tokens=[],
+                )]
+                return _Report(
+                    total_in=2, total_kept=1, total_dropped=1,
+                    kept_sentences=kept, dropped_sentences=dropped,
+                )
+            return _Report(
+                total_in=0, total_kept=0, total_dropped=0,
+                kept_sentences=[], dropped_sentences=[],
+            )
+
+        class _SR:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        result, _payloads = await run_contract_section(
+            plan, evidence_pool,
+            llm_call=_fake_llm,
+            section_result_cls=_SR,
+            strict_verify_fn=_fake_strict,
+            rewrite_fn=_rewrite_draft_with_spans,
+        )
+
+        rows_out = result.slot_strict_verify
+        by_entity = {r["entity_id"]: r for r in rows_out}
+
+        # P1 CORE: BOTH bound entities get their own (slot,entity) row —
+        # not just the slot-primary. Pre-fix, secondary_eid was absent.
+        assert primary_eid in by_entity, (
+            f"primary entity {primary_eid!r} missing a telemetry row"
+        )
+        assert secondary_eid in by_entity, (
+            f"secondary entity {secondary_eid!r} got NO per-(slot,entity) "
+            f"telemetry row — the pre-fix per-slot-primary bug. "
+            f"rows={rows_out!r}"
+        )
+
+        # Every row is keyed to the fused slot.
+        for r in rows_out:
+            assert r["slot_id"] == fused_slot.slot_id
+
+        # Primary KEPT: kept=1, generated=1 → stays pass downstream.
+        assert by_entity[primary_eid]["sentences_kept"] == 1
+        assert by_entity[primary_eid]["sentences_generated_content"] == 1
+
+        # Secondary DROPPED: kept=0 AND generated>0 → the exact shape the
+        # frame_coverage override flips to generation_failed (pipeline fault).
+        assert by_entity[secondary_eid]["sentences_kept"] == 0
+        assert by_entity[secondary_eid]["sentences_generated_content"] >= 1, (
+            "secondary entity drafted-then-fully-dropped must report "
+            "generated_content>0 so compose_frame_coverage can flip it to "
+            "generation_failed instead of leaving it a false pass"
+        )

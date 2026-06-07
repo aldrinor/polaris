@@ -863,30 +863,25 @@ async def run_contract_section(
     # citation_tightness=needs_revision, blocking release_allowed.
     # Synthesize a bibliography entry for the bound entity if it
     # didn't already get one from kept_sentences.
-    # I-ready-017 FX-07b leg-2 (#1111): attribute DROPPED (strict_verify-failed)
-    # sentences to their originating entity via [#ev:entity_id:..] tokens — the
-    # SAME extraction used for kept sentences (_prov_re above). Lets the
-    # slot_drop_log carry sentences_generated_content = kept + dropped per slot's
-    # primary entity, so compose_frame_coverage can distinguish "generated prose
-    # all failed strict_verify" (pipeline fault) from "no content attempted"
-    # (curator gap). Pure telemetry — no behaviour change.
+    # I-ready-017 FX-07b leg-2 (#1111): count kept AND dropped strict_verify
+    # sentences PER ENTITY via [#ev:entity_id:..] tokens (the SAME _prov_re used
+    # for kept attribution above). PER-ENTITY — not per slot-primary — because
+    # real slots are multi-entity: a non-primary entity whose generated prose was
+    # fully dropped must get its own (slot,entity) telemetry row, and a primary
+    # entity must NOT be shielded by a sibling entity's kept sentence (Codex
+    # diff-gate iter-1 P1). The per-(slot,entity) rows are emitted after the slot
+    # loop into `slot_strict_verify`. Pure telemetry — no behaviour change.
     from collections import Counter as _Counter
+    _kept_by_entity: _Counter = _Counter()
+    for _ksv in kept_sentences:
+        _kraw = getattr(_ksv, "sentence", "") or ""
+        for _km in _prov_re.finditer(_kraw):
+            _kept_by_entity[_km.group(1)] += 1
     _dropped_by_entity: _Counter = _Counter()
     for _dsv in dropped_sentences:
         _draw = getattr(_dsv, "sentence", "") or ""
         for _dm in _prov_re.finditer(_draw):
             _dropped_by_entity[_dm.group(1)] += 1
-
-    def _slot_strict_verify_meta(_sid: str, _kept: int) -> dict[str, Any]:
-        _eid = slot_primary_entity.get(_sid, "")
-        _frow = plan.frame_rows_by_entity.get(_eid) if _eid else None
-        _pc = getattr(getattr(_frow, "provenance_class", None), "value", "") if _frow else ""
-        return {
-            "entity_id": _eid,
-            "sentences_kept": _kept,
-            "sentences_generated_content": _kept + int(_dropped_by_entity.get(_eid, 0)),
-            "provenance_class": _pc,
-        }
 
     verified_blocks: list[str] = []
     slot_drop_log: list[dict[str, Any]] = []  # M-66a-T telemetry
@@ -900,7 +895,6 @@ async def run_contract_section(
                 "slot_id": slot_id,
                 "kept_sentences": len(body_sentences),
                 "disposition": "rendered_with_content",
-                **_slot_strict_verify_meta(slot_id, len(body_sentences)),
             })
         else:
             # M-68 Fix #1b: ensure the gap disclosure carries a
@@ -964,12 +958,40 @@ async def run_contract_section(
                 "slot_id": slot_id,
                 "kept_sentences": 0,
                 "disposition": "rendered_as_gap_disclosure",
-                **_slot_strict_verify_meta(slot_id, 0),
             })
             logger.info(
                 "[m63] slot %r rendered as gap disclosure "
                 "(strict_verify kept 0 sentences)", slot_id,
             )
+
+    # I-ready-017 FX-07b leg-2 (#1111) — Codex diff-gate iter-1 P1:
+    # emit ONE strict_verify telemetry row PER (slot_id, entity_id), NOT one
+    # per slot keyed to the slot's primary entity. Real contract slots are
+    # multi-entity; the frame_coverage honesty override is per-ENTITY, so each
+    # bound entity needs its own {sentences_kept, sentences_generated_content}
+    # counted from the per-entity [#ev:entity_id:..] attribution above
+    # (_kept_by_entity / _dropped_by_entity). This way a non-primary entity
+    # whose generated prose was fully dropped gets its own row (and can flip to
+    # generation_failed), and a primary entity is never shielded by a sibling
+    # entity's kept sentence. Pure telemetry — no behaviour change.
+    slot_strict_verify: list[dict[str, Any]] = []
+    for slot in plan.slots:
+        if not slot.entity_ids:
+            continue
+        for entity_id in slot.entity_ids:
+            _kept = int(_kept_by_entity.get(entity_id, 0))
+            _dropped = int(_dropped_by_entity.get(entity_id, 0))
+            _frow = plan.frame_rows_by_entity.get(entity_id)
+            _pc = getattr(
+                getattr(_frow, "provenance_class", None), "value", "",
+            ) if _frow is not None else ""
+            slot_strict_verify.append({
+                "slot_id": slot.slot_id,
+                "entity_id": entity_id,
+                "sentences_kept": _kept,
+                "sentences_generated_content": _kept + _dropped,
+                "provenance_class": _pc,
+            })
 
     if verified_blocks:
         verified_text = "\n\n".join(verified_blocks)
@@ -1024,8 +1046,9 @@ async def run_contract_section(
         kept_sentences_pre_resolve=list(kept_sentences),
         dropped_sentences_final=final_dropped_svs,
         # I-ready-017 FX-07b leg-2 (#1111): per-(slot,entity) strict_verify
-        # telemetry for the frame_coverage honesty override.
-        slot_strict_verify=slot_drop_log,
+        # telemetry for the frame_coverage honesty override (Codex diff-gate
+        # iter-1 P1 — per entity, not per slot-primary).
+        slot_strict_verify=slot_strict_verify,
     )
     return result, payloads
 
