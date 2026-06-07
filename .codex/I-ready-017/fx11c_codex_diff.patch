@@ -1,0 +1,94 @@
+diff --git a/src/polaris_graph/graph.py b/src/polaris_graph/graph.py
+index 4c8f7a5c..d80c0ea4 100644
+--- a/src/polaris_graph/graph.py
++++ b/src/polaris_graph/graph.py
+@@ -1611,6 +1611,10 @@ async def build_and_run(
+                     })
+                 except Exception:
+                     pass
++                # FX-11c (#1136): clear the ambient run id on the FAILURE-return
++                # too (not only the success return), so a failed pipeline-B run
++                # does not leak vector_id into unrelated ambient cost code.
++                set_current_run_id(None)
+                 return result
+ 
+             elapsed = time.monotonic() - start_time
+diff --git a/src/polaris_graph/retrieval/semantic_conflict_detector.py b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+index 33aee214..c5455692 100644
+--- a/src/polaris_graph/retrieval/semantic_conflict_detector.py
++++ b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+@@ -395,7 +395,6 @@ class _SemanticContradictionJudge:
+             if actual_cost == 0 and not usage:
+                 actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
+             _orc._add_run_cost(actual_cost)
+-            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+             # FX-11b (#1117): also write the canonical cost-ledger ROW for this
+             # NLI-conflict judge call. It already feeds the run BUDGET via
+             # _add_run_cost above, but without a ledger row the persisted ledger
+@@ -404,6 +403,11 @@ class _SemanticContradictionJudge:
+             # judge/role writers use, so all rows of one run share one accumulator.
+             # append_cost_ledger_row bumps the SEPARATE ledger accumulator (not
+             # _RUN_COST_CTX), so this does NOT double-count the run budget.
++            # FX-11c (#1136): write the row BEFORE check_run_budget — a
++            # budget-BREACHING call is already billed to the accumulator by
++            # _add_run_cost, so it must also land in the ledger; if check_run_budget
++            # raised first the breaching call would be billed-but-unledgered (the
++            # exact ledger<budget drift FX-11/FX-11b exist to eliminate).
+             try:
+                 _orc.append_cost_ledger_row(
+                     session_id=_orc.current_run_id() or "",
+@@ -414,6 +418,7 @@ class _SemanticContradictionJudge:
+                 )
+             except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
+                 pass
++            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+             content = data["choices"][0]["message"]["content"]
+             parsed = json.loads(content)
+             verdict = str(parsed.get("verdict", "")).strip().upper()
+diff --git a/tests/polaris_graph/test_fx11b_cost_ledger_iready017.py b/tests/polaris_graph/test_fx11b_cost_ledger_iready017.py
+index 9292502b..69e1fd5c 100644
+--- a/tests/polaris_graph/test_fx11b_cost_ledger_iready017.py
++++ b/tests/polaris_graph/test_fx11b_cost_ledger_iready017.py
+@@ -127,3 +127,42 @@ def test_api_reported_cost_still_wins_over_imputation():
+     ut = UsageTracker(session_id="fx11b-api-test")
+     ut.record("paid_api", input_tokens=10, output_tokens=10, api_cost=0.5)
+     assert ut.total_cost_usd == pytest.approx(0.5)
++
++
++# ───────────────────────── FX-11c (#1136): ledger row precedes budget check ─────────────────────────
++def test_nli_ledger_row_written_before_budget_breach(monkeypatch):
++    """FX-11c: a budget-BREACHING NLI call is billed to the run accumulator (_add_run_cost) before
++    the budget check; the ledger row must therefore be written BEFORE check_run_budget raises, else
++    the breaching call is billed-but-unledgered (ledger < budget — the exact drift FX-11 fixes)."""
++    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setattr(orc, "check_family_segregation", lambda **k: None)
++    monkeypatch.setattr(orc, "current_run_id", lambda: "run-breach")
++    monkeypatch.setattr(orc, "_add_run_cost", lambda c: None)
++
++    def _breach(_):
++        raise BudgetExceededError("run budget cap reached")
++
++    monkeypatch.setattr(orc, "check_run_budget", _breach)
++    captured: list[dict] = []
++    monkeypatch.setattr(orc, "append_cost_ledger_row", lambda **kw: captured.append(kw) or 0.0)
++    judge = scd._SemanticContradictionJudge()
++
++    class _Resp:
++        def raise_for_status(self):
++            return None
++
++        def json(self):
++            return {
++                "usage": {"prompt_tokens": 50, "completion_tokens": 10, "cost": 0.001},
++                "choices": [{"message": {"content": '{"verdict": "CONTRADICT", "confidence": 0.9}'}}],
++            }
++
++    monkeypatch.setattr(judge._client, "post", lambda *a, **k: _Resp())
++    # The breaching call must re-raise BudgetExceededError (keep-partial caller path)...
++    with pytest.raises(BudgetExceededError):
++        judge.judge("a", "b")
++    # ...AND the ledger row must already have been written (before the budget check raised).
++    assert len(captured) == 1, "ledger row must be written BEFORE check_run_budget raises"
++    assert captured[0]["call_type"] == "nli_conflict_judge"
++    assert captured[0]["cost_usd"] == pytest.approx(0.001)
