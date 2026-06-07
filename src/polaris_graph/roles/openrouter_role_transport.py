@@ -452,6 +452,35 @@ def openrouter_role_endpoint(role: str) -> tuple[str, str, str]:
 _OPENROUTER_UNSUPPORTED_TOP_LEVEL_KEYS = ("documents",)
 
 
+def _raw_io_capture(*, role, request, raw_response, duration_ms, status, call_type=None):
+    """I-obs-001 #1141 AC3: best-effort raw LLM I/O forensic capture for the verifier transport.
+
+    Cycle-safe lazy import of current_raw_io_sink (openrouter_client does NOT import the roles
+    package). No-op when the sink is None (PG_CAPTURE_RAW_LLM_IO OFF). Generates call_id; defaults
+    call_type to f"role:{role}". NEVER raises — this decision-INERT side-car must not convert the
+    transport's fail-loud-on-verdict contract into an error.
+    """
+    try:
+        from src.polaris_graph.llm.openrouter_client import current_raw_io_sink as _crs
+
+        _sink = _crs()
+        if _sink is None:
+            return
+        import uuid as _uuid
+
+        _sink.record(
+            call_id=_uuid.uuid4().hex,
+            call_type=call_type or f"role:{role}",
+            role=role,
+            request=request,
+            raw_response=raw_response,
+            duration_ms=duration_ms,
+            status=status,
+        )
+    except Exception:  # noqa: BLE001 — forensic side-car must never perturb the verdict
+        pass
+
+
 def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_messages: list[dict]) -> dict:
     """Assemble the OpenRouter request body: the SAME OpenAI-compatible body the self-host
     transport builds, MINUS the top-level `documents` key (P1-4), PLUS the MAX-reasoning param.
@@ -782,6 +811,17 @@ class OpenRouterRoleTransport:
                     raw_text, served_model, usage, reasoning = _parse_openrouter_response(raw)
                 except BlankVerdictError as exc:
                     last_blank = exc
+                    # I-obs-001 #1141 AC3: capture the blank/0-token verifier 200 BEFORE the
+                    # blank-cost accounting + check_run_budget(0) below (which can raise and exit the
+                    # block) — a budget-exhausted-on-blank verifier call is a primary drb_72-class
+                    # forensic signal we must persist. No-op when the sink is off.
+                    _raw_io_capture(
+                        role=request.role,
+                        request={**body, "messages": normalized_messages},
+                        raw_response=raw,
+                        duration_ms=None,
+                        status="blank",
+                    )
                     # Codex diff-gate P1 (budget-cap bypass): a blank attempt is DISCARDED, so its
                     # `usage` never reaches RecordingTransport (which bills only the final returned
                     # response). Account THIS blank attempt's tokens into the SAME shared
@@ -849,6 +889,16 @@ class OpenRouterRoleTransport:
                     role=request.role,
                     messages=normalized_messages,
                     raw_response=_sanitize_raw_for_capture(raw, bare_text=raw_text),
+                )
+                # I-obs-001 #1141 AC3: verbatim raw I/O capture (success). Unlike the sanitized
+                # pathB capture above, this persists the FULL served response INCLUDING verifier
+                # reasoning (the forensic point) — disjoint, decision-INERT, default-OFF channel.
+                _raw_io_capture(
+                    role=request.role,
+                    request={**body, "messages": normalized_messages},
+                    raw_response=raw,
+                    duration_ms=None,
+                    status="ok",
                 )
                 # Mirror <co> citation invariant: return raw_text AS-IS (tags intact),
                 # citations=None — mirror_adapter owns the parse/strip/offset alignment. reasoning
