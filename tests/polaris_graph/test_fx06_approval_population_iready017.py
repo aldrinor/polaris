@@ -69,3 +69,56 @@ def test_fx06_divergence_detected_pre_vs_post_merge():
     # Pre-merge adequacy vs post-merge approval population diverge — the FX-06 invariant fails loud.
     assert pre_adequacy.total_sources != post_dist.total_sources
     assert (pre_adequacy.total_sources, post_dist.total_sources) == (45, 145)
+
+
+# === FX-06b (I-ready-017 #1121): tier_counts equality + named abort status ====================
+def test_fx06b_tier_counts_divergence_caught_at_equal_total():
+    """FX-06b item 2: the strengthened invariant also compares tier_counts, so a SAME-SIZE tier
+    mismatch (equal total_sources, different tier composition) is caught — the total-only check
+    would have missed it."""
+    dist = compute_tier_distribution(_sources(_HELD_45), _PROTOCOL)  # total 45
+    # A DIFFERENT tier composition with the SAME total (45): one T1 swapped for a T4.
+    skewed = dict(_HELD_45)
+    skewed["T1"] -= 1
+    skewed["T4"] += 1
+    adequacy = assess_corpus_adequacy(
+        tier_counts=skewed,
+        evidence_row_count=45,
+        domain="workforce",
+        protocol=_PROTOCOL,
+    )
+    # total-only check would PASS (both 45) — the bug the strengthening closes.
+    assert adequacy.total_sources == dist.total_sources == 45
+    # tier_counts check CATCHES the divergence (the orchestrator's strengthened condition).
+    assert dict(adequacy.tier_counts) != dict(dist.tier_counts)
+    _total_mismatch = adequacy.total_sources != dist.total_sources
+    _tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
+    assert (_total_mismatch or _tier_mismatch) is True  # invariant fires
+
+
+def test_fx06b_no_false_positive_when_populations_match():
+    """The strengthened invariant must NOT fire when adequacy is written from the same dist
+    (total AND tier_counts identical) — the normal, correct path."""
+    dist = compute_tier_distribution(_sources(_HELD_45), _PROTOCOL)
+    adequacy = assess_corpus_adequacy(
+        tier_counts=dist.tier_counts,
+        evidence_row_count=45,
+        domain="workforce",
+        protocol=_PROTOCOL,
+    )
+    _total_mismatch = adequacy.total_sources != dist.total_sources
+    _tier_mismatch = dict(adequacy.tier_counts) != dict(dist.tier_counts)
+    assert (_total_mismatch or _tier_mismatch) is False  # no false abort
+
+
+def test_fx06b_named_status_registered_in_all_taxonomies():
+    """FX-06b item 1: error_corpus_population_mismatch is registered across all status surfaces
+    (so the manifest is self-documenting, not a generic error_unexpected)."""
+    from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES, _SUMMARY_TO_UNIFIED
+    from src.polaris_graph.audit_ir.regression_lab import KNOWN_STATUS_VALUES
+    from src.polaris_v6.schemas.run_status import PipelineStatus
+    s = "error_corpus_population_mismatch"
+    assert s in UNIFIED_STATUS_VALUES
+    assert _SUMMARY_TO_UNIFIED[s] == s
+    assert s in KNOWN_STATUS_VALUES
+    assert s in set(PipelineStatus.__args__)

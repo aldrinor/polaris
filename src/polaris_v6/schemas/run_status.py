@@ -50,6 +50,7 @@ PipelineStatus = Literal[
     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",
     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
+    "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): corpus-approval gate vs adequacy artifact score different populations (total_sources or tier_counts diverge); defensive fail-loud
 ]
 
 # Backcompat alias used by older code/tests (tests/v6/ asserts body['status']

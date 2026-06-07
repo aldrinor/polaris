@@ -630,6 +630,10 @@ _STATUS_TIERS: dict[str, int] = {
     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop — a
     # non-journal row reached the generator (should never happen). Tier 3.
     "error_journal_only_leak": 3,
+    # I-ready-017 FX-06b (#1121): corpus-approval gate vs adequacy artifact
+    # would score different populations (total_sources or tier_counts diverge);
+    # defensive fail-loud — no trustworthy report. Tier 3.
+    "error_corpus_population_mismatch": 3,
 }
 
 # Public alias of the keys for taxonomy-drift testing.

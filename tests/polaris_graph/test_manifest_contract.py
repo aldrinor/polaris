@@ -58,6 +58,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
         "error_unexpected",
         "error_journal_only_leak",     # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
+        "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): corpus-approval vs adequacy population divergence
     })
     assert UNIFIED_STATUS_VALUES == expected, (
         f"Unified taxonomy has drifted: got {UNIFIED_STATUS_VALUES}, "
