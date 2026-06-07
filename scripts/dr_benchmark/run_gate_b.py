@@ -39,6 +39,16 @@ from typing import Any, Callable, Mapping
 
 import httpx
 
+# I-ready-018 (#1138, Codex iter-1 P1-1): install the import-root alias BEFORE any repo import. The
+# beat-both run launches from repo-root WITHOUT PYTHONPATH=src, so src/sitecustomize.py does NOT
+# auto-load here. The core run path is src.-consistent (unaffected), but the --upload-file path imports
+# polaris_v6 internals via the BARE root, which would ModuleNotFoundError root-only. Installing the
+# alias here makes any bare polaris_graph/polaris_v6 import resolve to its src. counterpart. Idempotent
+# + a no-op when the alias is already installed (sitecustomize) or the canonical tree is absent.
+from src._polaris_import_alias import install_import_root_alias
+
+install_import_root_alias()
+
 from scripts.architecture.verify_lock import load_lock
 from src.polaris_graph.roles.native_gate_b_inputs import (
     NativeGateBBundle,
@@ -1096,14 +1106,19 @@ def _resolve_benchmark_upload(
     import asyncio
     from pathlib import Path
 
-    from polaris_graph.document_ingester import (
+    # I-ready-018 (#1138, Codex iter-1 P1): use the canonical ``src.`` import root. The beat-both
+    # run launches from the repo root WITHOUT ``PYTHONPATH=src`` (so only ``src.polaris_graph`` /
+    # ``src.polaris_v6`` resolve and the sitecustomize alias does NOT load). A bare ``polaris_graph``/
+    # ``polaris_v6`` import here would raise ModuleNotFoundError on the --upload-file path under the
+    # root-only run. Match the rest of run_gate_b's ``src.`` imports.
+    from src.polaris_graph.document_ingester import (
         DocumentIngester,
         DocumentIngestionError,
     )
-    from polaris_v6.adapters.upload_evidence import (
+    from src.polaris_v6.adapters.upload_evidence import (
         partition_uploads_by_sovereignty,
     )
-    from polaris_v6.api.upload import chunk_text
+    from src.polaris_v6.api.upload import chunk_text
 
     path = Path(upload_file)
     if not path.exists():

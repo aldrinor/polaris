@@ -19,6 +19,20 @@ os.environ.setdefault(
     "POLARIS_STATIC_ACCOUNTS_PATH",
     str(Path(__file__).resolve().parents[1] / "fixtures" / "auth" / "test_static_accounts.yaml"),
 )
+# I-ready-018 (#1138, Codex iter-1 P1-2): make this smoke HERMETIC against ambient .env / live-backend
+# vars. The import-root alias pulls in src/__init__.py which runs load_dotenv(override=False), so a
+# developer's real .env can populate GPG / search / model keys BEFORE create_app() — and a real
+# POLARIS_GPG_KEY_ID makes build_gpg_signer() try the live signer at collection time. This smoke only
+# asserts create_app() boots + the zero-cost sentinel fall-throughs, so FORCE the live-backend vars to
+# empty (override, not setdefault) so the boot is deterministic regardless of the ambient environment.
+for _backend_var in (
+    "POLARIS_GPG_KEY_ID",
+    "SERPER_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "S2_API_KEY",
+):
+    os.environ[_backend_var] = ""
 
 # Make scripts/ importable
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"

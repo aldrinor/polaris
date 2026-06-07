@@ -19,14 +19,20 @@ import sys
 
 import pytest
 
-# Only meaningful when BOTH roots are importable (the both-roots context this test guards). Under a
-# pure single-root launch (the beat-both run) the bare spelling is not importable and the bug cannot
-# occur, so skip rather than fail.
-_BARE_IMPORTABLE = any(p.rstrip("\\/").endswith("src") for p in sys.path) or "src" in sys.modules
+# P2-1 (Codex iter-1): the alias is only active when src/sitecustomize.py installed the finder (the
+# both-roots context: PYTHONPATH=src + repo-root on path). The previous `endswith('src')` sys.path
+# heuristic was wrong — under a single-root launch the tests COLLECTED and FAILED with
+# ModuleNotFoundError instead of skipping. The definitive, robust signal is whether the alias finder
+# is on sys.meta_path. If it is not (single-root run, or `python -S`), the dual-identity bug cannot
+# occur in this process, so skip cleanly.
+_ALIAS_FINDER_ACTIVE = any(
+    getattr(f, "_tag", None) == "_polaris_import_root_alias" for f in sys.meta_path
+)
 
 pytestmark = pytest.mark.skipif(
-    not _BARE_IMPORTABLE,
-    reason="bare 'polaris_graph' root not on sys.path (single-root launch); dual-identity cannot occur",
+    not _ALIAS_FINDER_ACTIVE,
+    reason="polaris import-root alias finder not installed (single-root / -S launch); "
+    "dual-identity cannot occur in this process",
 )
 
 
