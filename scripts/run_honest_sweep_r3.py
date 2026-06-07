@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 import traceback
 from dataclasses import asdict
@@ -1694,6 +1695,9 @@ async def run_one_query(
     # _hb_started is a DEDICATED entry timestamp (not the late-set t0) so elapsed_s is accurate.
     # The closure binds run_dir/run_id/slug/query_index + live cost so every stage call is a one-liner.
     _hb_started = time.monotonic()
+    # Codex AC1-gate iter-2 P1-1: serialize the seam-worker progress callback vs the parent's
+    # clear/terminal writes so a check-then-write race can't land stale progress after terminal.
+    _hb_lock = threading.Lock()
     from src.polaris_graph.telemetry.run_status_heartbeat import (
         write_heartbeat as _write_heartbeat,
     )
@@ -2024,7 +2028,10 @@ async def run_one_query(
                     f"adapters={domain_route_summary['adapter_ids']}"
                 )
 
-        _hb("scope_gate_passed")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): past scope + routing
+        # I-obs-001 #1141 AC1 (Codex AC1-gate iter-2 P2): only emit once the scope-reject abort is
+        # bypassed — a to-be-rejected query must not briefly report the scope gate passed.
+        if not scope.protocol.scope_rejected:
+            _hb("scope_gate_passed")
         # M-INT-6: best-effort auto-induction. Telemetry only —
         # abstain verdicts surface in operator_review_queue.jsonl.
         # PG_USE_AUTO_INDUCTION=0 disables (default 0).
@@ -5944,9 +5951,14 @@ async def run_one_query(
             _seam_hb_live = [True]
 
             def _hb_claims(done: int, n: int) -> None:
-                if not _seam_hb_live[0]:
-                    return
-                _hb("four_role_progress", claims_verified=done, claims_total=n)
+                # Codex AC1-gate iter-2 P1-1: check the live flag AND write the heartbeat under the
+                # SAME lock the parent holds when it clears the flag, so an entered-but-preempted
+                # worker callback can NOT land a stale four_role_progress after the parent has cleared
+                # the flag and written terminal status (the check-then-write race in iter-1's guard).
+                with _hb_lock:
+                    if not _seam_hb_live[0]:
+                        return
+                    _hb("four_role_progress", claims_verified=done, claims_total=n)
 
             def _seam_worker() -> FourRoleEvaluationResult:
                 def _run_under_ctx() -> FourRoleEvaluationResult:
@@ -6000,11 +6012,14 @@ async def run_one_query(
             except Exception as _seam_exc:  # noqa: BLE001 - any OTHER seam failure must fail CLOSED
                 _seam_held_reason = f"seam_error:{type(_seam_exc).__name__}:{str(_seam_exc)[:120]}"
             finally:
-                # Codex AC1-gate P1-1: stop the heartbeat progress callback the INSTANT the parent
-                # leaves the seam (success OR timeout) so an orphaned still-running worker can't
-                # overwrite the terminal heartbeat or bleed stale progress into the next query's
-                # state/run_status.json. (GIL-atomic flag flip; the worker's _hb_claims checks it.)
-                _seam_hb_live[0] = False
+                # Codex AC1-gate iter-2 P1-1: clear the live flag UNDER _hb_lock so it is mutually
+                # exclusive with the worker's check-then-write in _hb_claims. An in-flight callback
+                # either completes its write BEFORE this acquires the lock, or is blocked and then sees
+                # the cleared flag and returns — so NO four_role_progress write can land after this
+                # point. Stops an orphaned post-timeout worker from overwriting the terminal heartbeat
+                # or bleeding stale progress into the next query's state/run_status.json.
+                with _hb_lock:
+                    _seam_hb_live[0] = False
                 # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
                 _seam_pool.shutdown(wait=False, cancel_futures=True)
                 # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
@@ -6549,7 +6564,11 @@ async def run_one_query(
         # excepts above — so stamping summary.get("status") here yields the terminal heartbeat
         # for ALL paths without per-abort edits. Must never raise (it is inside a finally).
         try:
-            _hb(summary.get("status") or "unknown")
+            # Codex AC1-gate iter-2 P1-1: terminal write under _hb_lock too, so it can never be
+            # superseded by an in-flight orphaned progress callback (belt-and-suspenders: the seam
+            # finally already cleared the flag under this lock before any terminal write).
+            with _hb_lock:
+                _hb(summary.get("status") or "unknown")
         except Exception:  # noqa: BLE001
             pass
 
