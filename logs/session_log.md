@@ -5092,3 +5092,13 @@
 - EVIDENCE/FINDINGS: Codex verdict APPROVE — 0 P0, 0 P1, 1 non-blocking P2 (applied). Tests: heartbeat 14 (11 prior + 3 new), offline e2e 13, seam 8, pathB 15 — green. py_compile OK.
 - STATUS: Observability AC1/AC2/AC3 complete + Codex-approved (AC1 now incl. the sources_kept completeness fix). #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away with a live abort-early watch. Zero paid spend.
 - NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
+
+[2026-06-07 14:05:55]
+- ACTION: I-obs-001 overnight wake — verified the remaining monitoring-runbook fields against the running code; corrected the dead-route drop-reason vocabulary (doc-only).
+- RATIONALE: Same fit-for-purpose verification I applied to sources_kept. (a) Confirmed summary["status"]="abort_verifier_degraded" is set (run_honest_sweep_r3.py:5553) and the guaranteed-finally terminal _hb emits it → the verifier-degradation detector is real. (b) Found the runbook's "look for 404/empty/dead reason" was IMPRECISE — the real record_retrieval_drop reasons are offtopic, rerank_not_selected (healthy), fetch_failed, content_starved (live_retriever.py:2640/2663/2853/3005); there is no literal "404" reason. A grep for "404" during the live run would have found nothing and misread a collapse as healthy. Corrected both the tracked monitoring doc + the run-prep card to name fetch_failed/content_starved as the dead-route signals.
+- DOCS/RESEARCH: src/polaris_graph/retrieval/live_retriever.py (drop-reason call sites); run_honest_sweep_r3.py:5553 (abort_verifier_degraded status).
+- SYNC: N/A
+- AFFECTED_FILES: docs/run_observability_monitoring.md, state/q1_run_prep_one_go_ahead.md (gitignored), logs/session_log.md.
+- EVIDENCE/FINDINGS: 4 real drop reasons {offtopic, rerank_not_selected, fetch_failed, content_starved}; abort_verifier_degraded set at 5553 + emitted by terminal _hb. No code change (doc-only correctness fix).
+- STATUS: Observability complete + Codex-approved; ALL monitoring-runbook fields now verified real against the running code (sources_kept populated, abort_verifier_degraded emitted, drop-reason vocab corrected). #1070/#1071 test-verified. Q1 run prepped one-go-ahead-away. Zero paid spend.
+- NEXT_STEP: Hold for operator go-ahead on the paid drb_72 run; heartbeat cron armed.
