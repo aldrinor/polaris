@@ -183,8 +183,25 @@ class _EntailmentJudge:
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
-        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture below can
-        # prefer the served response (post succeeded, parse/verdict failed) over the exception string.
+        def _emit_raw_io(status: str, raw_response, duration_ms=None) -> None:
+            # I-obs-001 #1141 AC3 (gate iter-1 P1): single capture point so a judge call emits EXACTLY
+            # one raw-IO record tagged by its TRUE outcome — "ok" ONLY after a validated verdict;
+            # "judge_error" on bad_verdict / parse-failure / transport fail-open. Default-OFF; never raises.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is None:
+                    return
+                import uuid as _uuid
+                _io_sink.record(
+                    call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
+                    request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                    raw_response=raw_response, duration_ms=duration_ms, status=status,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
+        # the served response (post ok, parse/verdict failed) over the exception string.
         try:
             response = self._client.post(
                 self._endpoint,
@@ -211,21 +228,6 @@ class _EntailmentJudge:
                         raw_response=data,
                     )
             except Exception:  # noqa: BLE001 — capture must never break the judge
-                pass
-
-            # I-obs-001 #1141 AC3: verbatim raw I/O forensic capture (success). Disjoint from the
-            # sanitized pathB capture above (captures the served response incl. reasoning); default-OFF.
-            try:
-                _io_sink = _orc.current_raw_io_sink()
-                if _io_sink is not None:
-                    import uuid as _uuid
-                    _io_sink.record(
-                        call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
-                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
-                        raw_response=data,
-                        duration_ms=(time.monotonic() - started) * 1000.0, status="ok",
-                    )
-            except Exception:  # noqa: BLE001
                 pass
 
             # I-bug-100: cost recording. Reads + records BEFORE verdict
@@ -266,7 +268,11 @@ class _EntailmentJudge:
             verdict = str(parsed.get("verdict", "")).upper().strip()
             reason = str(parsed.get("reason", ""))
             if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+                # Bad verdict = a failed verification → ONE judge_error record, not ok (gate iter-1 P1).
+                _emit_raw_io("judge_error", data)
                 return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
+            # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+            _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
             return verdict, reason
         except _orc.BudgetExceededError:
             # I-bug-100: do NOT fail-open on cap breach. Propagate so
@@ -274,21 +280,10 @@ class _EntailmentJudge:
             raise
         except Exception as exc:  # noqa: BLE001 — fail-open by design
             logger.warning("entailment judge error: %s", exc)
-            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — a drb_72-class signal (the
-            # judge silently passes a sentence it could not verify). Prefer the bound served `data`
-            # (parse-failure on a real response) over the exc string. Default-OFF; never raises.
-            try:
-                _io_sink = _orc.current_raw_io_sink()
-                if _io_sink is not None:
-                    import uuid as _uuid
-                    _io_sink.record(
-                        call_id=_uuid.uuid4().hex, call_type="entailment_judge", role="evaluator",
-                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
-                        raw_response=(data if data is not None else {"error": str(exc)}),
-                        duration_ms=None, status="judge_error",
-                    )
-            except Exception:  # noqa: BLE001
-                pass
+            # Fail-OPEN judge_error (the drb_72-class signal): prefer the bound served data (parse
+            # failure on a real response) over the exc string. ONE judge_error record — no preceding
+            # "ok" was emitted because the success capture now lives AFTER verdict validation.
+            _emit_raw_io("judge_error", data if data is not None else {"error": str(exc)})
             return "ENTAILED", f"judge_error: {type(exc).__name__}"
 
 

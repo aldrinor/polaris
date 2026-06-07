@@ -374,6 +374,22 @@ class _SemanticContradictionJudge:
                 "allow_fallbacks": False,
                 "require_parameters": True,
             }
+        def _emit_raw_io(status: str, raw_response) -> None:
+            # I-obs-001 #1141 AC3 (gate iter-1 P1): ONE raw-IO record per call tagged by its TRUE
+            # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is None:
+                    return
+                import uuid as _uuid
+                _io_sink.record(
+                    call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+                    request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                    raw_response=raw_response, duration_ms=None, status=status,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
         # the served response (post ok, parse failed) over the exception string.
         try:
@@ -387,18 +403,6 @@ class _SemanticContradictionJudge:
             )
             response.raise_for_status()
             data = response.json()
-            # I-obs-001 #1141 AC3: verbatim raw I/O forensic capture (success). Default-OFF; never raises.
-            try:
-                _io_sink = _orc.current_raw_io_sink()
-                if _io_sink is not None:
-                    import uuid as _uuid
-                    _io_sink.record(
-                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
-                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
-                        raw_response=data, duration_ms=None, status="ok",
-                    )
-            except Exception:  # noqa: BLE001
-                pass
             usage = data.get("usage", {}) or {}
             input_tokens = int(usage.get("prompt_tokens", 0) or 0)
             output_tokens = int(usage.get("completion_tokens", 0) or 0)
@@ -439,6 +443,8 @@ class _SemanticContradictionJudge:
             confidence = float(parsed.get("confidence", 0.0) or 0.0)
             label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
                      "NEUTRAL": "neutral"}.get(verdict, "neutral")
+            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+            _emit_raw_io("ok", data)
             return label, confidence
         except Exception:
             # BudgetExceededError is a subclass-free RuntimeError in openrouter_client;
