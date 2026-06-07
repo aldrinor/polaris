@@ -5,8 +5,12 @@ from __future__ import annotations
 from polaris_graph.audit_ir.manifest_augment import augment_v6_manifest
 
 
-def test_non_v6_mode_returns_input_unchanged() -> None:
-    """When external_run_id is None, the helper is a passthrough (byte-identical)."""
+def test_non_v6_mode_adds_only_reasoning_trace_no_v6_fields() -> None:
+    """I-ready-018 (#1088): in non-v6 mode (external_run_id is None) the helper now adds ONLY the
+    I-gen-004 (#496) reasoning_trace reference (operator process-transparency directive, added on
+    EVERY invocation per the function docstring + module docstring) and NO v6 run_store fields. The
+    prior assertion `out is manifest` predates I-gen-004 — it is STALE, not a regression. Faithfulness
+    note: reasoning_trace is process-transparency EVIDENCE explicitly NOT subject to strict_verify."""
     manifest = {"status": "success", "run_id": "SWEEP_x_y_123", "scope": {"decision": "in_scope"}}
     out = augment_v6_manifest(
         manifest,
@@ -14,7 +18,17 @@ def test_non_v6_mode_returns_input_unchanged() -> None:
         decision_id=None,
         query_slug=None,
     )
-    assert out is manifest  # exact same object — zero behavioral change
+    # Input is NOT mutated (the helper returns a copy).
+    assert "reasoning_trace" not in manifest
+    # Non-v6 output = input + the reasoning_trace ref, and NOTHING else.
+    assert out["status"] == "success"
+    assert out["run_id"] == "SWEEP_x_y_123"
+    assert out["scope"] == {"decision": "in_scope"}  # no decision_id injected in non-v6 mode
+    assert out["reasoning_trace"]["file"] == "reasoning_trace.jsonl"
+    # No v6 run_store / retrieval / adequacy / models fields in non-v6 mode.
+    for v6_key in ("external_run_id", "query_slug", "retrieval", "adequacy", "models"):
+        assert v6_key not in out, f"non-v6 mode must NOT add {v6_key!r}"
+    assert set(out) == set(manifest) | {"reasoning_trace"}
 
 
 def test_v6_mode_adds_external_run_id_and_query_slug() -> None:
