@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# I-ready-018 (#1088): demo_smoke imports polaris_v6.api.app.create_app at module load, which refuses
+# to start without the auth substrate (LAW II) — raising RuntimeError "static_accounts.yaml not found"
+# at COLLECTION time when neither POLARIS_AUTH_DISABLED nor a static-accounts path is set. Mirror the
+# established tests/v6/conftest.py convention (POLARIS_AUTH_DISABLED=1) AND point at the committed test
+# fixture, BEFORE importing demo_smoke. ENV_ONLY (auth/deploy substrate); no product behaviour change —
+# this is a create_app() boot smoke.
+os.environ.setdefault("POLARIS_AUTH_DISABLED", "1")
+os.environ.setdefault(
+    "POLARIS_STATIC_ACCOUNTS_PATH",
+    str(Path(__file__).resolve().parents[1] / "fixtures" / "auth" / "test_static_accounts.yaml"),
+)
 
 # Make scripts/ importable
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
