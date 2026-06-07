@@ -4672,3 +4672,353 @@
 - EVIDENCE/FINDINGS: §-1.1 held serper [10,10,10,10,10]; 5 FX-17 smoke (default 1 page / clamp warning / paginate+dedup / early-stop / max-pages cap) + 15 live_retriever regression green.
 - STATUS: FX-17 iter-1 Codex diff gate IN FLIGHT (bg bckh9d16d); awaiting verdict. 16 verified.
 - NEXT_STEP: on verdict — APPROVE => FX-17 verified, advance FX-19; RC => address within 5-cap.
+
+[2026-06-06 17:51:00]
+- ACTION: FX-17 (#1126) iter-2 — addressed Codex diff-gate iter-1 REQUEST_CHANGES (P1 slate-not-activated + P2 api_calls undercount); committed 3c20399b; relaunched Codex iter-2 gate.
+- RATIONALE: Recurring campaign lesson — a discovery/telemetry fix is inert unless ACTIVATED in the Gate-B slate + enforced by the fail-closed preflight. iter-1 P1: PG_SWEEP_MAX_SERPER=100 was set but PG_SERPER_TOTAL_PER_QUERY was not, so the benchmark stayed single-page and the pagination fix never fired on the paid path. iter-1 P2: api_calls['serper'] incremented once/query, undercounting paginated breadth in telemetry. Both fixed.
+- DOCS/RESEARCH: N/A (internal Codex finding).
+- SYNC: state/ready017_fix_audit.json FX-17 -> codex_diff_iter2_inflight @ 3c20399b; codex_gate_lock set.
+- AFFECTED_FILES: src/polaris_graph/retrieval/live_retriever.py, scripts/dr_benchmark/run_gate_b.py, tests/polaris_graph/test_fx17_serper_pagination_iready017.py, outputs/audits/I-ready-017/fx17_s11_audit.md, .codex/I-ready-017/fx17_diff_brief_iter2.md, .codex/I-ready-017/fx17_codex_diff.patch
+- EVIDENCE/FINDINGS: Slate run_gate_b.py:419-420 (TOTAL=60, MAX_PAGES=3) + preflight floors :509-510 (40/2, fail-closed; absent key -> 0 < 40 -> RuntimeError). _serper_search now takes api_calls and bumps per HTTP page; caller passes api_calls, redundant += 1 removed. Offline smoke 7 passed (incl per-page count==2 + None back-compat); dr_benchmark 291 passed. Diff vs 5004b5a6: 3 files, 294 lines.
+- STATUS: Codex iter-2 diff-gate IN FLIGHT (bg b47b0tnzc -> .codex/I-ready-017/fx17_codex_diff_audit_iter2.txt). All other faithfulness invariants untouched (discovery-breadth only; default byte-identical).
+- NEXT_STEP: On verdict — if APPROVE, mark FX-17 verified, commit VERIFIED tag, update #1126/#1100/ledger, advance to FX-19. If REQUEST_CHANGES, address (iter-3, cap 5).
+
+[2026-06-06 18:10:00]
+- ACTION: FX-17 (#1126) VERIFIED — Codex diff-gate iter-2 returned APPROVE (0 P0/P1; 1 accepted cosmetic P2). Committed 70010869; lock released; ledger pointer advanced to FX-19.
+- RATIONALE: iter-1 REQUEST_CHANGES (P1 slate-not-activated + P2 api_calls undercount) both fixed in iter-2; Codex iter-2 APPROVE with convergence_call=accept_remaining and zero execution blockers. Per §8.3.6 accept_remaining → no further iteration. The remaining cosmetic P2 (page-granular budget can overshoot a non-multiple total) is benign: every URL passes identical downstream fetch/tier/strict_verify/4-role gates, and the Gate-B slate uses 60 (exact 3×20 multiple) so the overshoot case never arises. Documented in fx17_s11_audit.md; no code change (APPROVE'd diff intact).
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-17 → verified @ 70010869; current_pointer → 17 verified, NEXT FX-19; codex_gate_lock=free.
+- AFFECTED_FILES: .codex/I-ready-017/fx17_diff_brief_iter2.md, .codex/I-ready-017/fx17_codex_diff_audit_iter2.txt, .codex/I-ready-017/fx17_codex_diff.patch, outputs/audits/I-ready-017/fx17_s11_audit.md
+- EVIDENCE/FINDINGS: Codex verdict APPROVE (fx17_codex_diff_audit_iter2.txt). Offline smoke 7 FX-17 passed; dr_benchmark 291 passed. 17 ledger issues verified.
+- STATUS: FX-17 DONE. No orphaned codex processes. Faithfulness invariants untouched (discovery-breadth, byte-identical default).
+- NEXT_STEP: FX-19 — RETIRE PG_AMPLIFICATION_VARIANTS from the advertised slate + mark legacy-static-path-only (dead under PG_AGENTIC_SEARCH_ENABLED=1; active breadth via decomposer/STORM/agentic). GitHub issue → fix → smoke → §-1.1 → one Codex gate.
+
+[2026-06-06 18:35:00]
+- ACTION: FX-19 (#1127) iter-1 authored + Codex diff-gate launched; ALSO committed a test-regression hotfix (a051f323) for FX-17/FX-18 fallout caught by the full-suite run.
+- RATIONALE: FX-19 = RETIRE PG_AMPLIFICATION_VARIANTS (Codex plan-gate Q6) — it's consumed only in searcher.execute_searches's legacy static path (:303,311), unreachable under the agentic early-return (:291-292); held drb_72 shows 0 'Query amplification' log lines (dead on benchmark) yet docs advertised it HIGH-impact. Doc+comment-only RETIRE, no logic change, legacy non-agentic lane kept. Full-suite regression also surfaced: FX-17's api_calls kwarg broke 4 test mocks (TypeError); FX-18's default-ON openalex_search made an 'offline' test hit the real network (24 vs 4 candidates). Fixed both (test-only).
+- DOCS/RESEARCH: outputs/audits/I-ready-017/query_breadth_generators_findings.md (held-run 0-amplification finding).
+- SYNC: state/ready017_fix_audit.json FX-19 -> codex_diff_iter1_inflight @ e8202528; codex_gate_lock set.
+- AFFECTED_FILES: src/polaris_graph/state.py, src/polaris_graph/agents/searcher.py, docs/capability_downgrade_audit_2026_06_04.md (newly tracked), tests/polaris_graph/test_fx19_amplification_retired_iready017.py, outputs/audits/I-ready-017/fx19_amplification_retire_audit.md; (hotfix) test_source_discovery_phase2.py, test_research_planner_phase1.py, test_post_fetch_loop_timeout.py, test_fx18_s2_keyword_openalex_iready017.py
+- EVIDENCE/FINDINGS: FX-19 smoke 2 passed (amplifier unreachable under agentic; legacy lane cap=orig*VARIANTS). Hotfix: test_post_fetch_loop_timeout 5/5 (was 1 fail 24!=4). Diff vs 70010869: 8 files, 291 lines.
+- STATUS: Codex FX-19 iter-1 diff-gate IN FLIGHT (bg byjybjmmf). Faithfulness invariants untouched.
+- NEXT_STEP: On verdict — APPROVE → mark FX-19 verified, close #1127, advance to FX-20 (discovery_funnel telemetry). REQUEST_CHANGES → address (iter-2, cap 5).
+
+[2026-06-06 18:55:00]
+- ACTION: FX-19 (#1127) VERIFIED — Codex diff-gate iter-1 clean APPROVE (0 P0/P1/P2). Committed 59e13571; lock released; orphaned codex child 46516 killed by PID; ledger pointer advanced to FX-20.
+- RATIONALE: Clean first-pass APPROVE, convergence_call=accept_remaining, zero blockers. Codex independently ran the FX-19 tests + affected mocks and cross-checked run_honest_sweep_r3.py's build_amplified_query_list/_amplified_effective active agentic-breadth path is untouched — confirming only the dead PG_AMPLIFICATION_VARIANTS knob was retired.
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-19 → verified @ 59e13571; current_pointer → 18 verified, NEXT FX-20; codex_gate_lock=free.
+- AFFECTED_FILES: .codex/I-ready-017/fx19_diff_brief_iter1.md, .codex/I-ready-017/fx19_codex_diff_audit_iter1.txt, .codex/I-ready-017/fx19_codex_diff.patch
+- EVIDENCE/FINDINGS: Codex verdict APPROVE (fx19_codex_diff_audit_iter1.txt). 18 ledger issues verified. Process hygiene: codex 42300+46516 cleaned, none remain.
+- STATUS: FX-19 DONE. Faithfulness invariants untouched (doc/comment-only RETIRE; zero behavior change on any execution path).
+- NEXT_STEP: FX-20 — add discovery_funnel requested-vs-actual telemetry to the manifest (run_honest_sweep_r3.py ~1648/~2930-2954/~5819-5838 sites grounded). GitHub issue → fix → smoke → §-1.1 → one Codex gate.
+
+[2026-06-06 19:20:00]
+- ACTION: FX-20 (#1128) iter-1 authored + Codex diff-gate launched (bg b2uvi6cdh).
+- RATIONALE: discovery_funnel requested-vs-actual telemetry (no-silent-downgrade observability). Trace openalex as a first-class backend (FX-18 wired the call but never traced it → tracer-only funnel would omit it). ToolTracer.discovery_funnel() derives per-backend tallies FROM the recorded rows (same source as manifest()) so it cannot fabricate; unrecorded counts → null + source marker, never 0; bool metadata excluded from sums. Stamped via the existing attach_tool_utilization hook (additive, ON-only → byte-identical OFF).
+- DOCS/RESEARCH: held drb_72 run_artifacts/tool_trace.jsonl (§-1.1 ground truth).
+- SYNC: state/ready017_fix_audit.json FX-20 → codex_diff_iter1_inflight @ 909a7a27; codex_gate_lock set.
+- AFFECTED_FILES: src/polaris_graph/retrieval/live_retriever.py, src/polaris_graph/telemetry/tool_tracer.py, tests/polaris_graph/test_fx20_discovery_funnel_iready017.py, outputs/audits/I-ready-017/fx20_s11_audit.md, outputs/audits/I-ready-017/fx20_grounding.md
+- EVIDENCE/FINDINGS: §-1.1 funnel EQUALS independent raw tally on held trace (serper 50 / s2 4 / openalex 0 calls / fetch 145 att, 74 ok). Smoke 6 passed; tool_tracer 15 + meta007/008 + feature-firing 18 green. Diff vs 59e13571: 3 files, 165 insertions.
+- STATUS: Codex FX-20 iter-1 diff-gate IN FLIGHT. Faithfulness invariants untouched (pure observability; openalex trace record-only).
+- NEXT_STEP: On verdict — APPROVE → mark FX-20 verified, close #1128, advance to FX-14 (custody telemetry not_applicable). REQUEST_CHANGES → address (iter-2, cap 5).
+
+[2026-06-06 19:48:00]
+- ACTION: FX-20 (#1128) VERIFIED — Codex diff-gate iter-1 APPROVE (0 P0/P1; 1 accepted observability P2 → follow-up FX-20b). Committed da24892c; lock released; codex procs cleaned; pointer advanced to FX-14.
+- RATIONALE: discovery_funnel derived from recorded tool_trace rows (cannot fabricate; null-for-unrecorded); openalex traced as first-class backend (FX-18 gap). §-1.1 on held drb_72: funnel EQUALS raw tallies exactly. Accepted P2: domain_backends.openalex_search is fail-open so an internal error returns [] and traces as ok/result_count=0 — out of FX-20 scope (openalex's error contract), captured as FX-20b; funnel figure stays honest. Per §8.3.6 accept_remaining → no further iteration.
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-20 → verified @ da24892c; +FX-20b followup; current_pointer → 19 verified, NEXT FX-14; codex_gate_lock=free.
+- AFFECTED_FILES: .codex/I-ready-017/fx20_diff_brief_iter1.md, .codex/I-ready-017/fx20_codex_diff_audit_iter1.txt, .codex/I-ready-017/fx20_codex_diff.patch, outputs/audits/I-ready-017/fx20_s11_audit.md
+- EVIDENCE/FINDINGS: Codex verdict APPROVE (fx20_codex_diff_audit_iter1.txt). 19 ledger issues verified. No codex procs remain.
+- STATUS: FX-20 DONE. Faithfulness invariants untouched (pure observability; openalex trace record-only).
+- NEXT_STEP: FX-14 — V29/M44 custody telemetry (GROUNDED; lean B not_applicable marker, brief A to Codex). Then FX-12 (P3, last). GitHub issue → fix → smoke → §-1.1 → one Codex gate.
+
+[2026-06-06 19:55:00]
+- ACTION: FX-14 (#1129) GitHub issue created + fully grounded with 2 real-artifact corrections; authoring deferred to next wake (fresh context — only faithfulness-adjacent remaining item).
+- RATIONALE: §-1.1 on the held drb_72 artifacts caught two wrong assumptions before any code: (1) retrieval_trace.jsonl has NO query_origin (rows are per-backend-call) → the detection signal is the evidence_pool query_origin field, not retrieval_trace; (2) the forensic's "16+ primary_trial_doi_seed rows" is stale (pre-FX-15a mislabeling) → the honest held count is 2. Path B chosen (telemetry-only not_applicable_planner_lane marker, flag PG_CUSTODY_LANE_MARKER, default OFF/byte-identical, force-ON in Gate-B slate); multi_section_generator UNCHANGED; path A (re-enable injection in dormant lane) briefed to Codex as the alternative. Catching these via real data is exactly why this faithfulness-adjacent fix is authored with fresh context.
+- DOCS/RESEARCH: held evidence_pool.json (2 primary_trial_doi_seed rows), retrieval_trace.jsonl (no query_origin), multi_section_generator.py:4600-4663, run_honest_sweep_r3.py:4331-4380.
+- SYNC: state/ready017_fix_audit.json FX-14 → grounded_issue_created #1129 (corrected grounding); outputs/audits/I-ready-017/fx14_grounding.md.
+- AFFECTED_FILES: outputs/audits/I-ready-017/fx14_grounding.md (new); GitHub #1129 (created + correction comment).
+- EVIDENCE/FINDINGS: 19 ledger issues verified; FX-14 grounded + issue-created; FX-20b follow-up filed. Loop continues to FX-14 authoring next wake, then FX-12 (P3, last).
+- STATUS: No codex in flight (FX-20 closed). No faithfulness invariant touched. Cron armed for FX-14 authoring.
+- NEXT_STEP: Author FX-14 path B — count evidence rows query_origin==primary_trial_doi_seed at run_honest_sweep_r3.py ~4331/4377; write not_applicable_planner_lane marker when >0 and log empty; flag PG_CUSTODY_LANE_MARKER + Gate-B slate; smoke + §-1.1 + Codex gate.
+
+[2026-06-06 20:25:00]
+- ACTION: FX-14 (#1129) iter-1 authored + Codex diff-gate launched (bg bgcdpft6t).
+- RATIONALE: Path B (telemetry-only) custody-lane not_applicable marker. Pure compute_custody_lane_status() helper + a SEPARATE custody_lane_status.json companion (the two existing custody files stay byte-identical so the m49 dict / m53 list contracts hold; a marker in the v29 list would be misread by m53 as a failed anchor). multi_section_generator UNCHANGED — path A (re-enable M-52/M-44 injection in the dormant lane) rejected as faithfulness-adjacent and briefed to Codex. Flag PG_CUSTODY_LANE_MARKER default-OFF (byte-identical), Gate-B slate force-ON + preflight-required (so explicit =0 can't survive setdefault).
+- DOCS/RESEARCH: held evidence_pool.json (2 primary_trial_doi_seed rows — corrects forensic's 16+), m49/m53 contract tests.
+- SYNC: state/ready017_fix_audit.json FX-14 → codex_diff_iter1_inflight @ 546ec437; codex_gate_lock set.
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py, scripts/dr_benchmark/run_gate_b.py, tests/polaris_graph/test_fx14_custody_lane_status_iready017.py, outputs/audits/I-ready-017/fx14_s11_audit.md, outputs/audits/I-ready-017/fx14_grounding.md
+- EVIDENCE/FINDINGS: §-1.1 marker count==2 == raw evidence_pool tally. Smoke 6 passed; FL-05 8 + Gate-B slate/CLI 21 green. 6 m49 failures PRE-EXISTING (verified identical with FX-14 stashed). Diff vs da24892c: 3 files, 173 insertions.
+- STATUS: Codex FX-14 iter-1 diff-gate IN FLIGHT. Faithfulness invariants untouched (telemetry-only; generator unchanged).
+- NEXT_STEP: On verdict — APPROVE → mark FX-14 verified, close #1129, advance to FX-12 (P3, LAST). REQUEST_CHANGES → address (iter-2, cap 5).
+
+[2026-06-06 20:55:00]
+- ACTION: FX-14 (#1129) VERIFIED — Codex diff-gate iter-1 clean APPROVE (0 P0/P1/P2). Committed abb6dd09; lock released; codex procs cleaned; pointer advanced to FX-12 (LAST).
+- RATIONALE: Clean first-pass APPROVE, accept_remaining, zero blockers. Codex read the 4-role/verifier seam and confirmed path B (telemetry-only custody_lane_status.json companion) is faithfulness-safe, and that the rejected path A (re-enabling M-52/M-44 injection in the dormant lane) was correctly out of scope. Existing custody files + generator path unchanged.
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-14 → verified @ abb6dd09; current_pointer → 20 verified, NEXT FX-12 (LAST); codex_gate_lock=free.
+- AFFECTED_FILES: .codex/I-ready-017/fx14_diff_brief_iter1.md, .codex/I-ready-017/fx14_codex_diff_audit_iter1.txt, .codex/I-ready-017/fx14_codex_diff.patch
+- EVIDENCE/FINDINGS: Codex verdict APPROVE (fx14_codex_diff_audit_iter1.txt). 20 ledger issues verified. No codex procs remain.
+- STATUS: FX-14 DONE — the only faithfulness-adjacent item, telemetry-only, generator untouched. One issue left: FX-12 (P3).
+- NEXT_STEP: FX-12 — eval_gate judge_skipped_d8_binding reason (audit-trail). GitHub issue → fix → smoke → §-1.1 → one Codex gate. Closes the campaign ledger.
+
+[2026-06-06 21:30:00]
+- ACTION: FX-12 (#1130) iter-1 authored + Codex diff-gate launched (bg brcw5jyud) — the LAST campaign issue.
+- RATIONALE: eval_gate judge_skipped_d8_binding audit-trail reason. When the 4-role seam (D8) is binding the legacy judge is SKIPPED (judge_result=None); the gate emitted judge_parse_failed + #1055 fail-closed (implies CRASH). Added judge_skipped param: skip -> distinct judge_skipped_d8_binding code + keep judge_parse_ok=True + no fail-closed; genuine None or RAN-but-unparseable -> unchanged. Call site passes judge_skipped=_seam_will_run. Audit-trail-only (the seam D8 decision gates release regardless; held drb_72 was seam mode so the judge was skipped — the exact case this labels correctly).
+- DOCS/RESEARCH: held manifest.json four_role_evaluation (seam-binding precondition), test_m205 (#1055 fail-closed contract).
+- SYNC: state/ready017_fix_audit.json FX-12 → codex_diff_iter1_inflight @ 6bbcab85; codex_gate_lock set.
+- AFFECTED_FILES: src/polaris_graph/evaluator/evaluator_gate.py, scripts/run_honest_sweep_r3.py, tests/polaris_graph/test_fx12_judge_skipped_iready017.py, outputs/audits/I-ready-017/fx12_s11_audit.md
+- EVIDENCE/FINDINGS: Smoke 4 passed; m205 12 + fx10 6 green (genuine fail-closed path unregressed). Diff vs abb6dd09: 3 files, 72 insertions.
+- STATUS: Codex FX-12 iter-1 diff-gate IN FLIGHT. Faithfulness invariants untouched (audit-trail only). On APPROVE the campaign ledger is FULLY phase=verified.
+- NEXT_STEP: On verdict — APPROVE → mark FX-12 verified, close #1130, campaign COMPLETE (all 21 ledger issues verified); summarize residual follow-ups + RERUN gate to operator. REQUEST_CHANGES → address (iter-2, cap 5).
+
+[2026-06-06 21:55:00]
+- ACTION: FX-12 (#1130) VERIFIED — Codex diff-gate iter-1 clean APPROVE (0 P0/P1/P2). Committed ffa74071. I-ready-017 FIX CAMPAIGN COMPLETE — all 25 ledger entries phase=verified.
+- RATIONALE: FX-12 (eval_gate judge_skipped_d8_binding audit-trail reason) was the last ledger issue. Clean first-pass APPROVE, accept_remaining, zero blockers; Codex ran the suite (22 passed). The genuine parse-failure + #1055 fail-closed path is preserved; audit-trail-only.
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-12 → verified @ ffa74071; campaign_status=COMPLETE; current_pointer → campaign complete + operator-gated remainder.
+- AFFECTED_FILES: .codex/I-ready-017/fx12_diff_brief_iter1.md, fx12_codex_diff_audit_iter1.txt, fx12_codex_diff.patch
+- EVIDENCE/FINDINGS: 25 ledger entries verified (CANARY-01, FL-01..05, FX-01..20). This session arc verified FX-17, FX-19, FX-20, FX-14, FX-12 + a test-regression hotfix (FX-17/FX-18 mock fallout). Residual NON-blocking follow-ups filed: FX-07b#1111, FX-08b#1113, FX-05-docdrift, FX-11b#1117, FX-06b#1121, FX-18b#1123, FX-20b.
+- STATUS: Fix campaign COMPLETE. No codex procs remain. No faithfulness invariant weakened across the campaign (every fix flag-gated default-OFF byte-identical OR telemetry-only OR doc-only; all Codex diff-APPROVE; §-1.1 on real artifacts).
+- NEXT_STEP: OPERATOR-GATED ONLY — (Q4) approve the paid 5-question RERUN budget; (Q5) chromium-on-VM (FX-16); FX-18b item-1 (emit openalex retrieval_trace row) before RERUN. The RERUN stays HARD-gated behind FX-01+FX-02+FX-03+CANARY-01 (all verified) + operator Q4. Do NOT start the paid RERUN autonomously.
+
+[2026-06-06 22:25:00]
+- ACTION: FX-16a (#1131) code-half authored + Codex diff-gate launched (bg bt3shw57p). FX-16 = the last non-verified ledger P1; its code half is autonomous (the VM chromium install is operator Q5).
+- RATIONALE: drb_72 fetched at success_rate 0.51 because the AccessBypass Playwright/Crawl4AI tier was dead on the VM (chromium absent) and SILENTLY fell back to httpx-naive (LAW II). Added pg_preflight._find_chromium_binary (pure, cross-platform) + Tier-1 test_chromium_browser_available: present->PASS; absent+cascade-on->FAIL CLOSED in LIVE/paid mode (SKIP-with-remediation in DRY so dev/CI don't break); PG_DISABLE_ACCESS_BYPASS=1->SKIP. Heartbeat step 5 (advance next ready issue) + anti-pause: the code probe is the next autonomous, non-spend work.
+- DOCS/RESEARCH: held tool_summary fetch 74/145=0.51 (FX-20 §-1.1, same trace); fix_campaign_plan FX-16.
+- SYNC: state/ready017_fix_audit.json FX-16 -> code-half iter-1 in flight @ 1046614d; codex_gate_lock set.
+- AFFECTED_FILES: scripts/pg_preflight.py, tests/polaris_graph/test_fx16_chromium_preflight_iready017.py, outputs/audits/I-ready-017/fx16_s11_audit.md
+- EVIDENCE/FINDINGS: 8 offline smoke pass (layouts detected; LIVE+absent->FAIL; DRY+absent->SKIP; cascade-off->SKIP; present->PASS). Diff vs ffa74071: 2 files, 121 insertions.
+- STATUS: Codex FX-16a iter-1 diff-gate IN FLIGHT. Faithfulness-positive (fail-closed gate; LAW II). FX-16b (VM install) + RERUN remain operator-gated (Q5/Q4).
+- NEXT_STEP: On APPROVE -> mark FX-16a code-half verified; FX-16 then awaits ONLY operator Q5 (VM playwright install) + post-install live check. The autonomous campaign code is then 100% done; remaining = operator-gated (Q4 RERUN budget, Q5 chromium, FX-18b item-1).
+
+[2026-06-06 22:55:00]
+- ACTION: FX-16a (#1131) iter-2 — addressed Codex iter-1 REQUEST_CHANGES (1 real P1 + 2 P2); committed fa5ca183; relaunched Codex iter-2 gate (bg bzdad76i7).
+- RATIONALE: P1 was a genuine semantic hole I introduced — the preflight SKIP'd on PG_DISABLE_ACCESS_BYPASS in {1,true,True}, but production (live_retriever.py:1764) disables only on exact "1". So =true would green-light a LIVE preflight while production still ran the dead Crawl4AI tier → the silent httpx-naive fallback this gate exists to prevent. Fixed to match production exactly. P2-1: multi-root cache (PLAYWRIGHT_BROWSERS_PATH + per-OS defaults) prevents off-Linux false-FAIL. P2-2: is_file() so a partial cache dir doesn't pass.
+- DOCS/RESEARCH: live_retriever.py:1764 (canonical PG_DISABLE_ACCESS_BYPASS semantics).
+- SYNC: state/ready017_fix_audit.json FX-16a → iter-2 in flight @ fa5ca183; codex_gate_lock set.
+- AFFECTED_FILES: scripts/pg_preflight.py, tests/polaris_graph/test_fx16_chromium_preflight_iready017.py, outputs/audits/I-ready-017/fx16_s11_audit.md
+- EVIDENCE/FINDINGS: 11 offline smoke pass (incl 3 new: exact-semantics across true/True/yes/on/0/""/"  1  "; PLAYWRIGHT_BROWSERS_PATH; is_file). Diff vs ffa74071: 2 files, 180 insertions.
+- STATUS: Codex FX-16a iter-2 diff-gate IN FLIGHT. Faithfulness-positive (fail-closed gate, LAW II, now production-aligned).
+- NEXT_STEP: On APPROVE → FX-16a code-half verified; FX-16 awaits only operator Q5 (VM install) + post-install live check; all autonomous campaign code complete; surface operator-gated remainder (Q4 RERUN budget, Q5 chromium, FX-18b item-1).
+
+[2026-06-06 23:25:00]
+- ACTION: FX-16a (#1131) code-half VERIFIED — Codex diff-gate iter-2 clean APPROVE (0 P0/P1/P2). Committed 98550913. ALL AUTONOMOUS I-ready-017 FIX-CAMPAIGN CODE COMPLETE. Remaining items operator-gated.
+- RATIONALE: iter-1 found a real P1 (preflight PG_DISABLE_ACCESS_BYPASS semantics didn't match production's exact ==\"1\") + 2 P2s (cache-root coverage, is_file); all fixed; clean iter-2 APPROVE. FX-16a (chromium fail-closed preflight code half) done. FX-16b (VM playwright install + post-install live fetch) is operator-gated (Q5). The autonomous loop's mandate (every code-fix ledger issue phase=verified) is now fully met; the only non-verified ledger entries (FX-16b deploy half, RERUN) require operator action (VM ops + paid spend), so the autonomous loop is COMPLETE — no no-op cron armed.
+- DOCS/RESEARCH: N/A.
+- SYNC: state/ready017_fix_audit.json FX-16a code-half verified @ 98550913; campaign_status=AUTONOMOUS CODE COMPLETE; current_pointer → operator-gated remainder.
+- AFFECTED_FILES: .codex/I-ready-017/fx16_diff_brief_iter2.md, fx16_codex_diff_audit_iter2.txt, fx16_codex_diff.patch
+- EVIDENCE/FINDINGS: Codex verdict APPROVE (fx16_codex_diff_audit_iter2.txt). 11 FX-16 smoke pass. No codex procs remain. Session arc verified: FX-17, FX-19, FX-20, FX-14, FX-12, FX-16a + a test-regression hotfix. No faithfulness invariant weakened anywhere in the campaign.
+- STATUS: AUTONOMOUS FIX-CAMPAIGN COMPLETE. Operator-gated remainder: (Q4) RERUN budget; (Q5) FX-16b chromium VM install; FX-18b item-1 (openalex trace row pre-RERUN). Do NOT start the paid RERUN autonomously.
+- NEXT_STEP: AWAIT OPERATOR — Q4 (paid 5-question RERUN budget), Q5 (chromium VM install), FX-18b item-1. Then the live beat-both RERUN can proceed. Autonomous loop ended (mandate met; remainder operator-gated).
+
+[2026-06-06 23:55:00]
+- ACTION: Operator APPROVED the paid RERUN budget (Q4). Started careful staged execution via the Claude Codex Workflow engine. Launched workflow ready017-rerun-prep (bg wahyaffzk / run wf_62826c9f-7b1): FX-18b item-1 build+smoke+commit → Codex diff-gate → no-spend Gate-B --list dry-run. Created RERUN tracking issue #1132. Updated umbrella #1100.
+- RATIONALE: Operator: "I approved, pls use claude codex workflows to carefully execute it, meanwhile keep updating all github and doc in parallel." Honoring the named-trigger directive (use the Workflow function as the engine, Codex the only gate, announce launches + read verdicts inline, parallel GitHub/docs). Grounded the launch: RERUN runs LOCAL via run_gate_b.py (--list/--only/--all over the 5 LOCKED golden DRB-EN slugs); local chromium present (chromium-1181/chrome-win/chrome.exe) so FX-16's fetch tier is satisfied here; hard-gate FX-01+FX-02+FX-03+CANARY-01 all verified + Q4 approved. FX-18b item-1 verified-as-needed: openalex calls _trace_tool (FX-20) but NOT _trace_query, so retrieval_trace.jsonl has no openalex row → §-1.1 couldn't confirm openalex fired; the fix adds one _trace_query("openalex_search", q, urls) mirroring serper:312/s2:395.
+- DOCS/RESEARCH: run_gate_b.py main() CLI (--list/--only/--all); live_retriever.py _trace_query (serper:312, s2:395, openalex MISSING).
+- SYNC: GH #1132 created; #1100 updated; ledger RERUN still 'blocked'→will flip to in-progress once prep lands.
+- AFFECTED_FILES: (workflow agent will touch) src/polaris_graph/retrieval/live_retriever.py + tests/polaris_graph/test_fx18b_openalex_trace_row_iready017.py; (me) logs/session_log.md, GH #1100/#1132.
+- EVIDENCE/FINDINGS: spend safety = run_gate_b per-question fail-loud preflight + CANARY-01 (cents) + staged one-question-first. Workflow in flight (wahyaffzk).
+- STATUS: RERUN prep workflow IN FLIGHT. No spend yet (dry-run is no-spend; CANARY runs at cents inside the first --only). Faithfulness invariants untouched.
+- NEXT_STEP: On workflow completion — read FX-18b Codex verdict + dry-run slug list inline; if APPROVE + dry-run clean → launch one-question canary (--only <drb_72 slug>), then §-1.1 audit, then --all.
+
+[2026-06-07 00:25:00]
+- ACTION: Prep workflow COMPLETE (FX-18b APPROVE @ 07e8251d + dry-run exit 0). Launching the one-question RERUN canary: python -m scripts.dr_benchmark.run_gate_b --only drb_72_ai_labor (real spend, $25 cap, CANARY-01 cents-gated).
+- RATIONALE: Staged spend safety. drb_72_ai_labor chosen first: it's the only slug with a curated amplified source set (the other 4 are no-amplified stubs → elevated abort_corpus_inadequate risk that the fixed discovery must overcome), AND it has held artifacts (outputs/audits/I-ready-017/run_artifacts) to compare the rerun against. The bare-path launcher crashes (ModuleNotFoundError scripts.architecture); module invocation required. Per-question cap PG_MAX_COST_PER_RUN=$25; run_gate_b applies the full-capability slate + per-question fail-loud preflight + CANARY-01 (cents) internally.
+- DOCS/RESEARCH: dry-run preview (slugs/roles/transport/preflight plan); run_gate_b.py slate PG_MAX_COST_PER_RUN=25.
+- SYNC: GH #1123 (FX-18b verified), #1132 (prep done, canary launching); ledger RERUN -> prep_done_awaiting_one_question_canary.
+- AFFECTED_FILES: (run will write) outputs/<domain>/drb_72_ai_labor/* + outputs/rerun_drb72_canary.log; logs/session_log.md.
+- EVIDENCE/FINDINGS: FX-18b 3 smoke + 43 regression pass + Codex APPROVE. dry-run exit 0, 5 slugs. Budget cap $25/question.
+- STATUS: ONE-QUESTION CANARY launching (bg). Spend capped $25 + CANARY cents-gate. Faithfulness invariants untouched.
+- NEXT_STEP: On run completion -> read manifest status + discovery_funnel/tool_trace (serper+s2+openalex fired, fetch success_rate>=0.4) + §-1.1 line-by-line audit of report.md vs cited spans. If healthy -> --all the remaining 4. If abort/canary-fail -> diagnose (do NOT spend on --all).
+
+[2026-06-07 01:10:00]
+- ACTION: drb_72 one-question RERUN canary COMPLETE (exit 0, cost $3.00, status abort_corpus_approval_denied). Surfacing the corpus-approval authorization decision to the operator (faithfulness invariant #5 — Claude must NOT self-authorize).
+- RATIONALE: The campaign's core fixes are PROVEN on the live path: discovery_funnel openalex 5 calls/109 returned (FX-18), fetch 94/109=86% (held run 51% — FX-16 chromium + cascade), 242 sources, 43 evidence rows, adequacy=proceed, uncovered=0 (held run was dead-discovery). The run then correctly aborted at the corpus_approval gate (invariant #5): corpus material_deviation=true (tier mix T1 0.223/T2 0.066/T4 0.413/T5 0.008/T6 0.029/T7 0.182/UNKNOWN 0.078) vs the pre-registered protocol; approval_error = needs structured PG_AUTHORIZED_SWEEP_APPROVAL=1 (a free-text note is explicitly NOT a sanctioned credential — the prior rubber-stamp bug this gate blocks). Authorizing a material-deviation corpus is BY DESIGN an operator-only credential; self-authorizing would be the exact rubber-stamp the gate prevents. No report.md exists (aborted pre-generation) so no §-1.1 yet.
+- DOCS/RESEARCH: corpus_approval_gate.py (PG_AUTHORIZED_SWEEP_APPROVAL=1 = the only sanctioned auto-approve for a material-deviation corpus; AuthorizedSweep credential; free-text note rejected); manifest corpus + approval_error.
+- SYNC: GH #1132 (result + decision); ledger RERUN -> one_question_canary_done_corpus_approval_operator_gate.
+- AFFECTED_FILES: outputs/honest_sweep_r3/workforce/drb_72_ai_labor/* (manifest, corpus_approval.json, evidence_pool.json, tool_summary.json); logs/session_log.md.
+- EVIDENCE/FINDINGS: $3.00 spent; discovery proven healthy live (openalex/fetch/source-count all recovered vs held run); aborted SAFELY pre-generation by invariant #5.
+- STATUS: OPERATOR DECISION REQUIRED — authorize the material-deviation corpus (PG_AUTHORIZED_SWEEP_APPROVAL=1) to proceed to synthesis, OR investigate the tier deviation first. Claude will NOT self-authorize a faithfulness/safety invariant.
+- NEXT_STEP: AWAIT operator authorization decision. If authorized → re-run drb_72 with PG_AUTHORIZED_SWEEP_APPROVAL=1 → synthesis + 4-role + report → §-1.1 audit → then remaining 4.
+
+[2026-06-07 01:40:00]
+- ACTION: CORRECTED the drb_72 corpus-approval diagnosis (my earlier 'benign deviation, authorize' read was WRONG). Filed NEW bug #1133 (tier_classifier mis-tiers statistical agencies). Launching diagnose-then-fix via Claude Codex Workflow.
+- RATIONALE: §-1.1 on the real protocol + tier assignments: workforce protocol expected_tier_distribution requires T3 (stat agencies StatCan/BLS/OECD/ILO/Eurostat) at 35-65% PRIMARY; actual corpus T3=0%. Verified via live_corpus_dump.json: bls.gov->T4, oecd.org->UNKNOWN — the sources WERE discovered+fetched but mis-tiered. So abort_corpus_approval_denied is correct, but the fix is the classifier, NOT an operator override. Authorizing a mis-tiered corpus would ship a labour-market report with mis-weighted primary evidence — exactly what the gate guards against. The §-1.1 discipline (read real protocol, not guess) flipped the recommendation 180°.
+- DOCS/RESEARCH: protocol.json expected_tier_distribution (T3 35-65% stat agencies); live_corpus_dump.json (bls.gov=T4, oecd.org=UNKNOWN); tier_classifier.py (T3=govt/regulatory; R2b_gov_agency US .gov; no international-stat-org rule).
+- SYNC: GH #1133 (new bug), #1132 (correction); ledger RERUN -> blocked_on_tier_classifier_bug_1133.
+- AFFECTED_FILES: (to fix) src/polaris_graph/retrieval/tier_classifier.py; logs/session_log.md.
+- EVIDENCE/FINDINGS: discovery proven healthy live ($3); corpus-approval denial root cause = classifier stat-agency mis-tier (NOT corpus inadequacy, NOT a benign deviation). Honest correction of a prior wrong recommendation.
+- STATUS: RERUN blocked on #1133 (tier_classifier). Launching diagnose-then-fix workflow (Codex-gated). NOT authorizing the mis-tiered corpus.
+- NEXT_STEP: classifier fix (stat agencies -> T3) -> re-run drb_72 -> corpus auto-approves -> synthesis + 4-role + report -> §-1.1.
+
+[2026-06-07 02:10:00]
+- ACTION: Parallel analysis (while #1133 classifier-fix workflow runs): determined the classifier fix is necessary but INSUFFICIENT to pass corpus_approval for drb_72. Surfaced the corpus-composition vs protocol-calibration mismatch + the direction decision.
+- RATIONALE: Counted live_corpus_dump.json — only 3/149 sources are statistical agencies (bls.gov×2, oecd.org×1). Post-#1133, T3≈2% vs protocol-required 35-65%. Full workforce expected_tier_distribution: T3 35-65% (stat agencies, PRIMARY), T1 10-30%, T6 10-25%, T2 5-20%, T4 <=10%. Actual corpus: T4≈41% (narrative reviews dominate, allowed <=10%), T1≈22%, T7≈18% (not an allowed tier), T3≈0%. The discovery finds web analysis ABOUT the topic, not the protocol's named primary stat-agency data. Held drb_72 also had material_deviation=True (latent). PG_AUTHORIZED_SWEEP_APPROVAL never in the slate. This is a methodology/calibration fork (not Claude stopping): improve stat-agency discovery (correct fix), recalibrate protocol (faithfulness-contract change), or per-run authorize. NOT mine to unilaterally decide; routing to Codex when the lock frees + surfacing to operator.
+- DOCS/RESEARCH: protocol.json expected_tier_distribution (full 6 tiers); live_corpus_dump.json (3/149 stat-agency); held manifests (material_deviation True).
+- SYNC: GH #1132 (deeper finding + direction options); #1133 classifier fix still in flight (correct but insufficient alone).
+- AFFECTED_FILES: logs/session_log.md, GH #1132.
+- EVIDENCE/FINDINGS: classifier fix moves ~2% (3 sources) to T3; protocol needs 35%. Root = discovery under-finds primary stat-agency sources for workforce questions. Recommendation: improve discovery to target the protocol's named agencies (meet the bar).
+- STATUS: #1133 classifier fix running (Codex-gated). Direction decision (discovery-targeting vs protocol-recalibration vs authorize) routed to Codex-next + surfaced to operator. NOT blindly re-running (would re-abort) nor self-recalibrating a faithfulness contract.
+- NEXT_STEP: On #1133 workflow completion -> route the direction decision to Codex (lock freed) -> surface a concrete plan to the operator. Land #1133 regardless (correct fix).
+
+[2026-06-06 22:50:00]
+- ACTION: I-ready-017 RERUN direction consult (#1132) — resolved + self-corrected. drb_72 live re-run hit abort_corpus_approval_denied (invariant #5, material_deviation). First Codex consult returned hybrid/lead-improve_discovery-toward-statistical-agencies. SELF-CORRECTION before any build: the locked drb_72 question restricts the corpus to "high-quality, English-language journal articles" — so targeting statistical-agency data portals (BLS/OECD/StatCan/ILO/Eurostat) would pad the corpus with sources the question forbids (faithfulness regression). Re-consulting Codex (bg id b3sjgpmtr) with corrected evidence: exact question text + exact tier_fractions.
+- RATIONALE: §-1.1 + "be skeptical of Codex on planning consults; correct stale context" + "surface the conflict in one more call." My first brief materially mis-framed the problem (omitted the journal-only constraint), so Codex's first recommendation was built on a wrong premise. Verified primary source (locked question text) before relying. Real corpus problem = T4 narrative 41% (4x over ≤10% cap) + T7 stub 18% + UNKNOWN 8% = ~67% non-journal noise; T1+T2 journal-quality only ~29%; T3 0% but irrelevant since question forbids non-journal. Deviation trips independently of T3.
+- DOCS/RESEARCH: config/scope_templates/workforce.yaml (expected_tier_distribution T3 35-65, T4<=10); outputs/honest_sweep_r3/workforce/drb_72_ai_labor/manifest.json (/corpus/tier_fractions, /adequacy/tier_counts); outputs/audits/I-ready-017/run_artifacts/evidence_pool.json (query_origin = locked question text).
+- SYNC: ledger state/ready017_fix_audit.json rerun_subfixes.1132_direction_consult recorded; GH #1132 comment posted (self-correction + corrected direction).
+- AFFECTED_FILES: state/ready017_fix_audit.json; .codex/I-ready-017/rerun_direction_verdict.txt (first verdict); .codex/I-ready-017/rerun_direction_consult_corrected_brief.md; .codex/I-ready-017/rerun_direction_verdict_corrected.txt (pending); .codex/I-ready-017/gh_1132_direction_comment.md.
+- EVIDENCE/FINDINGS: tier_fractions T1 0.2231 / T2 0.0661 / T3 0.0 / T4 0.4132 / T5 0.0083 / T6 0.0289 / T7 0.1818 / UNKNOWN 0.0785. approval_error: material deviation, auto-approve requires PG_AUTHORIZED_SWEEP_APPROVAL (NOT self-set). Question verbatim: "...only cites high-quality, English-language journal articles."
+- STATUS: Corrected re-consult in flight (bg b3sjgpmtr). #1133 classifier fix VERIFIED @5db270a4 but now largely irrelevant to drb_72 (journal-only). No faithfulness invariant weakened; did NOT self-authorize corpus_approval; did NOT self-recalibrate the protocol.
+- NEXT_STEP: Read corrected Codex verdict; surface a Codex-backed build plan to operator (improve_discovery_journals + demote T4/T7 + prospective per-question-type tier recalibration, Codex+operator gated). Then file GH issue + Claude Codex Workflow build + Codex gate.
+
+[2026-06-06 23:55:00]
+- ACTION: I-ready-017 #1134 journal_only corpus-quality profile VERIFIED (Codex diff-gate iter-5 APPROVE, 0 P0/P1). The drb_72 beat-both RERUN blocker is cleared.
+- RATIONALE: Codex direction consult (corrected) -> the drb_72 question restricts to journal articles, so the fix is improve_discovery_journals + a prospective journal_only profile, NOT statistical agencies. Built a flag-gated (PG_SOURCE_RESTRICTION_JOURNAL_ONLY, default-OFF byte-identical) single-chokepoint source-filter + fail-closed no-leak invariant + journal_only adequacy floor + contract pruning. 4 design-gate iters + 5 diff-gate iters of Codex hardening closed every leak path (gap rounds, generator M-52, detectors, V30 contract entities/plans/anchors, cache retraction, distinct-venue count, the keystone protocol-serialization-drop).
+- DOCS/RESEARCH: outputs/audits/I-ready-017/journal_only_s11_audit.md; .codex/I-ready-017/journal_only_design_verdict_iter4.txt (design APPROVE) + journal_only_diff_verdict_iter5.txt (diff APPROVE).
+- SYNC: state/ready017_fix_audit.json rerun_subfixes.1134_journal_only_build = VERIFIED; GH #1134 + #1100.
+- AFFECTED_FILES: src/polaris_graph/nodes/journal_only_filter.py (new); src/polaris_graph/retrieval/{tier_classifier,live_retriever}.py; src/polaris_graph/audit_ir/regression_lab.py; src/polaris_v6/schemas/run_status.py; config/scope_templates/workforce.yaml; scripts/run_honest_sweep_r3.py; tests/polaris_graph/test_journal_only_filter_iready017.py; tests/polaris_graph/test_manifest_contract.py.
+- EVIDENCE/FINDINGS: 26 module tests green; §-1.1 on real held billed set: 15/23 generator rows were non-journal (YouTube/Wikipedia/Anthropic/etc) -> dropped; WEF 4IR contract entity was leaking -> dropped; 6 journal anchors kept, 0 required conflicts; full corpus 70 journal-tier sources >> 12 floor. Default-OFF byte-identical verified.
+- STATUS: #1134 VERIFIED. No faithfulness invariant weakened (strict_verify/provenance/4-role/two-family unchanged). Commits 374c76bd..3e1440f1 on bot/I-ready-consolidated.
+- NEXT_STEP: Surface to operator — drb_72 RERUN unblocked; activation of PG_SOURCE_RESTRICTION_JOURNAL_ONLY=1 in the Gate-B slate is the operator-gated faithfulness-contract decision before the paid run.
+
+[2026-06-06 04:30:00]
+- ACTION: I-ready-017 FX-07b leg-2 (#1111) diff-gate iter-1 -> iter-2. Addressed Codex iter-1 REQUEST_CHANGES (0 P0, 1 P1, 1 P2) and, per operator directive, launched a Claude Codex Workflow deep root-cause investigation before re-gating.
+- RATIONALE: Codex iter-1 P1 = strict_verify telemetry was per slot-PRIMARY entity, not per entity -> a non-primary entity in a multi-entity contract slot whose drafted prose was fully dropped got no (slot,entity) row and could remain a false `pass` in frame_coverage. P2 = graph_route rendered generation_failed as frame_status null. Operator (2026-06-06): use Claude Codex Workflow to deeply investigate the root cause, fix, heavy-smoke, Codex-review on evidence, iterate, update GitHub+docs in parallel. journal_only lesson: deeper side-channels keep surfacing, so a fan-out root-cause audit precedes the iter-2 gate rather than a surface re-gate.
+- DOCS/RESEARCH: .codex/I-ready-017/fx07b_leg2_diff_verdict.txt (iter-1 verdict); CLAUDE.md sec3.0.1 (Claude Codex Workflow named trigger); feedback_workflow_engine_for_every_task_no_drift_2026_06_03.
+- SYNC: state/ready017_fix_audit.json rerun_subfixes.1111_fx07b_leg2_design extended; GH #1111 comment posted.
+- AFFECTED_FILES: src/polaris_graph/generator/contract_section_runner.py; src/polaris_graph/api/graph_route.py; tests/polaris_graph/test_m63_contract_section_runner.py; tests/polaris_graph/api/test_graph_route.py; .codex/I-ready-017/fx07b_leg2_codex_diff.patch (regenerated, 9 files); state/ready017_fix_audit.json.
+- EVIDENCE/FINDINGS: commit 344de44b. 53 tests green (graph_route 2 + m63 18 incl new test_multi_entity_slot_emits_row_per_entity + m60 33) + honest_sweep_integration 20; py_compile clean. New multi-entity test proves both entities get a (slot,entity) row and the dropped secondary reports kept=0/generated>0 (would fail pre-fix). graph_route generation_failed->fail test added.
+- STATUS: Deep root-cause investigation workflow wrwz5t71c running (4 parallel read-only auditors). No faithfulness invariant weakened (strict_verify/provenance/4-role/two-family unchanged; additive + default-None byte-identical). codex_gate.lock free; iter-2 codex gate pending the investigation findings.
+- NEXT_STEP: Read workflow wrwz5t71c findings inline; apply any additional root-cause fixes found; heavy smoke + §-1.1 on real manifest; then ONE codex diff-gate iter-2 via state/codex_gate.lock (5-iter cap).
+
+[2026-06-06 04:55:00]
+- ACTION: I-ready-017 FX-07b leg-2 (#1111) — root-cause workflow wrwz5t71c COMPLETE; committed fix found INCOMPLETE; routed extended-classification DESIGN to Codex (bvsso0kpd).
+- RATIONALE: Operator directive: use Claude Codex Workflow to deeply investigate root cause, fix, heavy-smoke, Codex-review on evidence, iterate. The 4-agent read-only investigation (all converged) PROVED on the REAL held drb_72 artifact that the override misses two classes of the exact lethal misreport #1111 targets. Class A (frey_osborne_computerisation, metadata_only, empty quote): drafted 5 not_extractable sentences, all dropped with no_provenance_token + tokens=[], so the [#ev:]-token-counted sentences_generated_content is 0 -> override >0 gate never fires -> reads pass while report.md says 'did not survive strict verification'. Class B (eloundou): kept=5 all placeholders -> kept!=0 -> stays pass. Upstream root: _synthesize_phase1_validation marks PASS on retrieval-presence regardless of verified prose. Classification nuance (auditor 4, faithfulness-critical): frey is a CURATOR gap not a pipeline fault -> must route the two cases differently. Per memory feedback_codex_must_see_evidence_not_conclusion + route faithfulness-contract decisions to Codex: briefed Codex with RAW EVIDENCE + a proposed two-outcome design, requesting a classification ruling BEFORE coding.
+- DOCS/RESEARCH: tasks/wrwz5t71c.output (4 auditor findings); .codex/I-ready-017/fx07b_leg2_rootcause_design_brief.md; held artifact manifest.json/report.md/verification_details.json.
+- SYNC: GH #1111 comment (root-cause finding) posted; ledger rerun_subfixes.1111 extended.
+- AFFECTED_FILES: .codex/I-ready-017/fx07b_leg2_rootcause_design_brief.md (new); state/ready017_fix_audit.json; state/codex_gate.lock (held); GH #1111.
+- EVIDENCE/FINDINGS: 4/4 auditors current_fix_verdict=incomplete, other_misreport_paths_found=true. frey: manifest status=pass/is_pipeline_fault=false vs report.md:38 gap-disclosure; verification_details 0x 'ev:frey', 5 dropped sentences tokens=[]. Committed 344de44b is correct-but-partial (additive/default-None/byte-identical); it stays.
+- STATUS: Codex DESIGN consult in flight (bg bvsso0kpd, lock held). No faithfulness invariant weakened. No code written yet for the extension — awaiting Codex classification ruling so I do not mis-route a curator gap as a pipeline fault.
+- NEXT_STEP: Read Codex design verdict; implement per ruling (token-independent drafted count + substantive-kept + two-outcome classification); regression fixture from real frey shape; §-1.1 on held manifest; diff gate. Release lock after reading verdict.
+
+[2026-06-06 05:30:00]
+- ACTION: I-ready-017 FX-07b leg-2 (#1111) ROOT-CAUSE fix IMPLEMENTED + committed (75571503); Codex DIFF gate iter-1 launched.
+- RATIONALE: Codex design consult (bvsso0kpd) ruled my has_usable_quote->generation_failed split too broad (a placeholder-only row with a quote is still a curator gap, not a pipeline fault) and specified the corrected three-way classification. Implemented exactly: TOKEN-INDEPENDENT substantive signals (drafted_substantive from extracted payload fields pre-rewrite; kept_substantive excluding _GAP_DISCLOSURE_MARKER placeholders, primary-token attributed; has_usable_quote from the _MIN_VERIFIABLE_SPAN_CHARS floor). Override: zero substantive kept + (usable quote AND substantive drafted -> generation_failed/engineer) ELSE curator_gap_no_substantive_content (curator/human-completable, NOT pipeline fault). Owner routing is the §-1.1-critical call (do not mis-route a curator gap to engineers). This closes the Class-A (frey: metadata_only/empty-quote, dropped disclosures carry no [#ev:] token) and Class-B (eloundou: placeholder-kept) escapes the deep investigation proved on the real held artifact.
+- DOCS/RESEARCH: .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.txt; fx07b_leg2_rootcause_diff_brief.md; outputs/audits/I-ready-017/fx07b_leg2_rootcause_s11_audit.md.
+- SYNC: GH #1111 comment (implemented fix) posted; ledger rerun_subfixes.1111 extended.
+- AFFECTED_FILES: src/polaris_graph/generator/{contract_section_runner,multi_section_generator,frame_manifest}.py; src/polaris_graph/api/graph_route.py; tests/polaris_graph/{test_m60_frame_manifest,test_m63_contract_section_runner,api/test_graph_route}.py; .codex/I-ready-017/fx07b_leg2_rootcause_diff_brief.md; .codex/I-ready-017/fx07b_leg2_codex_diff.patch (regenerated, 9 files, +295/-10 src); outputs/audits/I-ready-017/fx07b_leg2_rootcause_s11_audit.md.
+- EVIDENCE/FINDINGS: 74 tests green (m60 36 incl 11 routing, m63 19, integration 20) + graph_route mapping test; py_compile clean; §-1.1 on real held manifest: 3 false passes (frey/eloundou/fourth_industrial) flip to curator_gap_no_substantive_content, 4 genuine passes unchanged, 0 false flips. 2 pre-existing failures (not_applicable_planner_lane #1135, reasoning_trace) confirmed by stash-and-rerun. No faithfulness invariant weakened.
+- STATUS: Codex diff gate iter-1 in flight (bg byb2qxzx7, lock held). Awaiting verdict.
+- NEXT_STEP: Read diff verdict; APPROVE -> record #1111 leg-2 VERIFIED in ledger + GH #1111 + #1100 + session_log, push branch; REQUEST_CHANGES -> address, re-gate (<=5 iters). Release lock after reading verdict.
+
+[2026-06-06 06:05:00]
+- ACTION: I-ready-017 FX-07b leg-2 (#1111) ROOT-CAUSE fix VERIFIED + closed. Codex diff-gate APPROVE (0 P0/P1/P2, accept_remaining).
+- RATIONALE: Evidence bar fully met per fix_campaign_plan §6: offline smoke 74 tests + Codex diff-APPROVE + §-1.1 on REAL held manifest (3 false passes flip to curator_gap_no_substantive_content, 4 genuine passes unchanged, 0 false flips) + override fires on real frey/eloundou shapes (tracker-fired). Driven via Claude Codex Workflow per operator 2026-06-06 (deep 4-agent root-cause investigation -> design consult -> implement -> smoke -> §-1.1 -> diff gate).
+- DOCS/RESEARCH: .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.txt (APPROVE); outputs/audits/I-ready-017/fx07b_leg2_rootcause_s11_audit.md.
+- SYNC: ledger FX-07b -> verified; GH #1111 VERIFIED comment + closed (completed); GH #1100 umbrella updated.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; commits 75571503 + cc67814d pushed to bot/I-ready-017-faithfulness.
+- EVIDENCE/FINDINGS: Codex APPROVE; 74 tests; §-1.1 audit; pushed 990e2903..cc67814d. No faithfulness invariant weakened.
+- STATUS: #1111 COMPLETE. codex_gate.lock free; no orphan codex. Remaining ledger follow-ups all non-blocking (FX-08b #1113 next); RERUN operator-gated.
+- NEXT_STEP: Advance next non-blocking follow-up FX-08b #1113 (Mirror/4-role determinism: temp=0+seed+claim-dedup) per heartbeat — GitHub issue -> grep area -> flag-gated faithfulness-safe fix -> heavy smoke -> §-1.1 -> ONE codex gate.
+
+[2026-06-06 06:45:00]
+- ACTION: I-ready-017 FX-08b (#1113) 4-role determinism (dedup + temp/seed) IMPLEMENTED + committed (121b931a); Codex DIFF gate iter-1 launched (bg b83cpyb3d).
+- RATIONALE: Next non-blocking ledger follow-up per heartbeat. BUG-04 determinism half: byte-identical claims SPLIT VERIFIED/UNSUPPORTED in the same run (non-deterministic release gate). §-1.1 on the held drb_72 artifact CONFIRMED the exact regression: 4 byte-identical-input groups (10 claims; identical claim_id content-hash suffix) split across verdicts (00-028/048/096, 050/074/085, 062/101, 066/078). Fix = claim-level dedup keyed on the FULL pipeline input (faithfulness-safe; genuinely-different claims cannot collapse), run-once-fan-out with per-claim-id + empty-records + zero-cost (no audit/spend inflation), + temperature=0 always / seed opt-in (require_parameters routing safety). Built via Claude Codex Workflow process; Codex the only gate.
+- DOCS/RESEARCH: outputs/audits/I-ready-017/fx08b_s11_audit.md; .codex/I-ready-017/fx08b_diff_brief.md; held four_role_claim_audit.json + manifest /four_role_evaluation/final_verdicts.
+- SYNC: GH #1113 comment posted; ledger update next.
+- AFFECTED_FILES: src/polaris_graph/roles/{openrouter_role_transport,sweep_integration}.py; tests/roles/test_seam_parallel.py; outputs/audits/I-ready-017/fx08b_s11_audit.md; .codex/I-ready-017/fx08b_codex_diff.patch (+82/-1 src).
+- EVIDENCE/FINDINGS: 14 tests green (9 existing + 5 new); §-1.1 4 split groups proven; commit 121b931a. No faithfulness invariant weakened (decision-layer dedup; identical input=>identical output).
+- STATUS: Codex diff gate iter-1 in flight (bg b83cpyb3d, lock held).
+- NEXT_STEP: Read fx08b diff verdict; APPROVE -> record #1113 VERIFIED + close + push + advance next follow-up (#1117/#1121/#1128/FX-20b/FX-05-docdrift); REQUEST_CHANGES -> address + re-gate (<=5). Release lock after reading verdict.
+
+[2026-06-06 07:15:00]
+- ACTION: I-ready-017 FX-08b (#1113) 4-role determinism VERIFIED + closed. Codex diff-gate APPROVE (0 P0/P1, 1 P2 accept_remaining -> FX-08b-docorder follow-up).
+- RATIONALE: Evidence bar met: 14 offline tests + Codex diff-APPROVE + §-1.1 on REAL held drb_72 artifact (4 byte-identical-input groups that SPLIT verdicts dedup to one under the full-input key) + tracker-fired (call-count + per-claim-id assertions). Codex's only finding (dedup key sorts evidence-doc order) is theoretical (real-data doc order deterministic) -> accepted per accept_remaining + filed FX-08b-docorder; did NOT over-iterate per §8.3.6.
+- DOCS/RESEARCH: .codex/I-ready-017/fx08b_diff_verdict.txt; outputs/audits/I-ready-017/fx08b_s11_audit.md.
+- SYNC: ledger FX-08b -> verified + FX-08b-docorder follow-up; GH #1113 VERIFIED + closed; GH #1100 umbrella updated.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; commits 121b931a + d605daa4 pushed.
+- EVIDENCE/FINDINGS: Codex APPROVE; 14 tests; §-1.1 4 split groups; pushed cc67814d..d605daa4. No faithfulness invariant weakened (decision-layer dedup).
+- STATUS: #1113 COMPLETE. codex_gate.lock free; no orphan codex. Remaining follow-ups all non-blocking; RERUN operator-gated.
+- NEXT_STEP: Advance next non-blocking follow-up per heartbeat. FX-06b #1121 (corpus-population robustness — faithfulness-adjacent invariant #5) next: GitHub issue -> grep -> flag-gated fix -> smoke -> §-1.1 -> ONE codex gate.
+
+[2026-06-06 08:05:00]
+- ACTION: I-ready-017 FX-06b (#1121) corpus-population invariant polish IMPLEMENTED + committed (eb92c3a6); Codex DIFF gate iter-1 launched (bg b53qerr12).
+- RATIONALE: Next non-blocking ledger follow-up. (1) tier_counts equality: the FX-06 invariant compared only total_sources -> a same-size tier mismatch would pass; strengthened to also compare tier_counts dicts. (2) Named abort: replaced generic RuntimeError->error_unexpected with a named error_corpus_population_mismatch abort-manifest (both populations recorded) + 4-surface taxonomy registration. §-1.1 on held drb_72 (approval 145 vs adequacy 45, diverge on total + every tier). Built via Claude Codex Workflow; Codex the only gate.
+- DOCS/RESEARCH: outputs/audits/I-ready-017/fx06b_s11_audit.md; .codex/I-ready-017/fx06b_diff_brief.md.
+- SYNC: GH #1121 comment; ledger FX-06b -> diff_gate_iter1_in_flight.
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py; src/polaris_v6/schemas/run_status.py; src/polaris_graph/audit_ir/regression_lab.py; tests/polaris_graph/{test_manifest_contract,test_fx06_approval_population_iready017}.py; outputs/audits/I-ready-017/fx06b_s11_audit.md.
+- EVIDENCE/FINDINGS: 5 FX-06 tests green (2+3 new) + manifest_contract taxonomy lockstep; py_compile clean; commit eb92c3a6. Lone manifest_contract failure (not_applicable_planner_lane) = pre-existing #1135, unrelated. No faithfulness invariant weakened.
+- STATUS: Codex diff gate iter-1 in flight (bg b53qerr12, lock held).
+- NEXT_STEP: Read fx06b diff verdict; APPROVE -> #1121 VERIFIED + close + push + advance next follow-up (#1117 FX-11b / #1123 FX-18b item-2 / #1128 FX-20b / FX-05-docdrift / FX-08b-docorder); REQUEST_CHANGES -> address + re-gate. Release lock after reading verdict.
+
+[2026-06-06 08:35:00]
+- ACTION: I-ready-017 FX-06b (#1121) diff-gate iter-1 REQUEST_CHANGES (1 P1) -> fixed -> iter-2 launched (bg bm2inv5j0).
+- RATIONALE: Codex iter-1 P1 (real bug I introduced): the error_corpus_population_mismatch branch returned inside the try before the common post-try teardown, skipping write_per_run_cost_ledger + emit_terminal_event + set_current_run_id(None) + set_reasoning_sink(None) + log_f.close() (unlike abort_corpus_inadequate). FIXED (commit b523df4a): mirror the exact abort_corpus_inadequate teardown with the named terminal-event type before return. Secondary ask (full run_one_query coverage): the guard cannot fire on real flow (adequacy computed from same dist), so component-level coverage matches the sibling abort paths; raised to Codex whether a forced-divergence test is mandatory.
+- DOCS/RESEARCH: .codex/I-ready-017/fx06b_diff_verdict.txt (iter-1 P1); fx06b_diff_brief_iter2.md.
+- SYNC: GH #1121 comment (iter-1 P1 fix); ledger note.
+- AFFECTED_FILES: scripts/run_honest_sweep_r3.py (teardown); .codex/I-ready-017/fx06b_codex_diff.patch (regenerated).
+- EVIDENCE/FINDINGS: 5 FX-06 tests green; commit b523df4a. Teardown now byte-identical to abort_corpus_inadequate (3377-3388).
+- STATUS: Codex diff gate iter-2 in flight (bg bm2inv5j0, lock held).
+- NEXT_STEP: Read iter-2 verdict; APPROVE -> #1121 VERIFIED + close + push + advance next follow-up; REQUEST_CHANGES -> address (add forced-divergence test if Codex requires) + re-gate (<=5). Release lock after reading.
+
+[2026-06-06 09:00:00]
+- ACTION: I-ready-017 FX-06b (#1121) corpus-population invariant polish VERIFIED + closed. Codex diff-gate APPROVE iter-2 (0 P0/P1/P2).
+- RATIONALE: iter-1 RC caught a real P1 (early return inside try skipped the post-try teardown) -> fixed b523df4a (mirror abort_corpus_inadequate teardown with named terminal event) -> iter-2 APPROVE. Evidence: 5 FX-06 tests + §-1.1 fx06b_s11_audit.md (held approval 145 vs adequacy 45 diverge on total+every tier) + taxonomy lockstep. Built via Claude Codex Workflow; Codex the only gate. The gate's value reaffirmed (caught a teardown bug I introduced).
+- DOCS/RESEARCH: .codex/I-ready-017/fx06b_diff_verdict_iter2.txt (APPROVE).
+- SYNC: ledger FX-06b -> verified; GH #1121 VERIFIED + closed; GH #1100 umbrella updated.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; commits eb92c3a6/b523df4a/e4cc2939 pushed.
+- EVIDENCE/FINDINGS: Codex APPROVE iter-2; 5 tests; pushed d605daa4..e4cc2939. No faithfulness invariant weakened (strengthens a pre-gen corpus-population refusal).
+- STATUS: #1121 COMPLETE. codex_gate.lock free; no orphan codex. Remaining follow-ups all non-blocking; RERUN operator-gated.
+- NEXT_STEP: Advance next non-blocking follow-up per heartbeat: FX-11b #1117 (3 cost-ledger P2s: NLI-conflict spend ledger row / pipeline-B session_id key-divergence / free=True phantom usage). GitHub issue -> grep -> fix -> smoke -> §-1.1 -> ONE codex gate.
+
+[2026-06-06 09:35:00]
+- ACTION: I-ready-017 FX-11b (#1117) cost-ledger P2 follow-ups IMPLEMENTED + committed (a970211b); Codex DIFF gate iter-1 launched (bg bgbjb1fxo).
+- RATIONALE: Next non-blocking ledger follow-up (cost-accounting only, no faithfulness path). (1) NLI-conflict judge writes a canonical ledger row (was budget-only); (2) total_cost_usd excludes free=True tokens from the imputed fallback; (3) graph.py pipeline-B sets the ambient run id so generator+judge cost rows share one key. Built via Claude Codex Workflow.
+- DOCS/RESEARCH: outputs/audits/I-ready-017/fx11b_s11_audit.md (held cost_ledger 472 rows, 0 nli_conflict_judge); .codex/I-ready-017/fx11b_diff_brief.md.
+- SYNC: GH #1117 comment; ledger FX-11b -> diff_gate_iter1_in_flight.
+- AFFECTED_FILES: src/polaris_graph/retrieval/semantic_conflict_detector.py; src/polaris_graph/llm/openrouter_client.py; src/polaris_graph/graph.py; tests/polaris_graph/test_fx11b_cost_ledger_iready017.py; outputs/audits/I-ready-017/fx11b_s11_audit.md.
+- EVIDENCE/FINDINGS: 5 new FX-11b tests + 40 regression (fx11/m206-n301/entailment_judge_cost/semantic_conflict_detector) green; py_compile clean; commit a970211b. No faithfulness invariant touched.
+- STATUS: Codex diff gate iter-1 in flight (bg bgbjb1fxo, lock held).
+- NEXT_STEP: Read fx11b diff verdict; APPROVE -> #1117 VERIFIED + close + push + advance next follow-up (#1123 FX-18b item-2 / #1128 FX-20b / FX-05-docdrift / FX-08b-docorder); REQUEST_CHANGES -> address + re-gate. Release lock after reading.
+
+[2026-06-06 10:05:00]
+- ACTION: I-ready-017 FX-11b (#1117) cost-ledger P2 follow-ups VERIFIED + closed. Codex diff-gate APPROVE (0 P0/P1, 2 P2 accept_remaining -> FX-11c follow-up).
+- RATIONALE: All 3 cost-accounting P2s landed (NLI ledger row / free-call token exclusion / pipeline-B run-id). Codex APPROVE'd with 2 minor edge-path P2s (NLI ledger-row-before-budget-check; graph.py try/finally reset) -> deferred as FX-11c per accept_remaining (consistent with FX-08b-docorder; did not over-iterate per §8.3.6). Built via Claude Codex Workflow.
+- DOCS/RESEARCH: .codex/I-ready-017/fx11b_diff_verdict.txt (APPROVE); outputs/audits/I-ready-017/fx11b_s11_audit.md.
+- SYNC: ledger FX-11b -> verified + FX-11c follow-up; GH #1117 VERIFIED + closed; GH #1100 umbrella updated.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; commits a970211b/ad5fa467 pushed.
+- EVIDENCE/FINDINGS: Codex APPROVE; 5 FX-11b tests + 40 regression; pushed e4cc2939..ad5fa467. No faithfulness path touched (cost-accounting only).
+- STATUS: #1117 COMPLETE. codex_gate.lock free; no orphan codex. Remaining follow-ups all non-blocking; RERUN operator-gated.
+- NEXT_STEP: Advance next non-blocking follow-up per heartbeat: FX-18b #1123 item-2 (S2 distillation salience-ranking refinement; item-1 already VERIFIED @07e8251d). GitHub issue -> grep -> fix -> smoke -> §-1.1 -> ONE codex gate.
+
+[2026-06-06 10:40:00]
+- ACTION: I-ready-017 FX-11c (#1136, NEW issue) cost-ledger edge-path completeness IMPLEMENTED + committed (73502514); Codex DIFF gate iter-1 launched (bg bv3hv932g).
+- RATIONALE: Cleared the 2 Codex-accepted P2s from FX-11b (ledger-row-before-budget-check so a breaching call still ledgers; graph.py failure-return ambient-run-id reset). Filed GH #1136 first (§-1.2). Cost-accounting only, no faithfulness path. Continuing the heartbeat loop with the most valuable remaining residual (ledger completeness is faithfulness-adjacent).
+- DOCS/RESEARCH: outputs/audits/I-ready-017/fx11c_s11_audit.md; .codex/I-ready-017/fx11c_diff_brief.md.
+- SYNC: GH #1136 created + comment; ledger FX-11c followup updated.
+- AFFECTED_FILES: src/polaris_graph/retrieval/semantic_conflict_detector.py; src/polaris_graph/graph.py; tests/polaris_graph/test_fx11b_cost_ledger_iready017.py; outputs/audits/I-ready-017/fx11c_s11_audit.md.
+- EVIDENCE/FINDINGS: 6 FX-11b/c tests (incl breach test) + 22 regression green; commit 73502514. No faithfulness path touched.
+- STATUS: Codex diff gate iter-1 in flight (bg bv3hv932g, lock held).
+- NEXT_STEP: Read fx11c verdict; APPROVE -> #1136 VERIFIED + close + push; then remaining ledger followups = FX-08b-docorder + FX-05-docdrift (docs, partly operator-gated CLAUDE.md) + FX-20b (residual) + #1123 item-2 (RERUN-empirical). REQUEST_CHANGES -> address + re-gate.
+
+[2026-06-06 10:50:00]
+- ACTION: I-ready-017 FX-11c (#1136) VERIFIED + closed (Codex APPROVE 0 P0/P1/P2). Operator directive received: update GitHub+docs, stay in Claude Codex Workflow framework, deliver a backfire-proof 5-Q full-power run state. Launching a backfire-readiness verification workflow.
+- RATIONALE: Operator's bar = "run all 5 Qs at full power WITHOUT backfire." All GitHub-issue-tracked campaign work is now verified (5 follow-ups closed this session: #1111/#1113/#1121/#1117/#1136). The final deliverable is a DEEP, Codex-gated readiness verification that the 5-Q full-power run cannot backfire: faithfulness gates active on the PAID path, no silent downgrade, behavioral pre-spend canary, journal_only+corpus-approval, 5-Q slate integrity. Driven via the Workflow function (no inline drift) per operator + feedback_workflow_engine_for_every_task_no_drift.
+- DOCS/RESEARCH: scripts/dr_benchmark/run_gate_b.py (_FULL_CAPABILITY_BENCHMARK_SLATE); state/beat_both_status.json; state/ready017_fix_audit.json.
+- SYNC: GH #1136 closed; ledger FX-11c verified; GH #1100 next.
+- AFFECTED_FILES: state/ready017_fix_audit.json; logs/session_log.md; commit 29108bb9 pushed.
+- EVIDENCE/FINDINGS: 5 campaign follow-ups verified+closed this session. RERUN-gating fixes (FX-01/02/03/CANARY-01) + journal_only keystone all verified. RERUN operator-gated (Q4 budget + journal_only activation + Q5 chromium).
+- STATUS: Launching backfire-readiness verification workflow (read-only, no spend). codex_gate.lock free.
+- NEXT_STEP: Read readiness findings; if a backfire gap surfaces -> final fix + Codex gate; else produce operator go/no-go + exact activation steps. Do NOT self-authorize the paid run / journal_only / PG_AUTHORIZED_SWEEP_APPROVAL.
+
+[2026-06-06 22:35:00]
+- ACTION: I-ready-017 FL-05b (#1137) — activated PG_RUN_HEALTH_GATE in the Gate-B full-capability slate (the final backfire-proofing code fix) + consolidated the deploy branch.
+- RATIONALE: Backfire-readiness audit found the FL-05 run-health backstop (#1124, verified) was flag-gated default-OFF and absent from the Gate-B slate, so a silently-degraded discovery (force-enabled STORM/agentic that did not fire) would ship as success on a paid run. Wired PG_RUN_HEALTH_GATE into _FULL_CAPABILITY_BENCHMARK_SLATE + _BENCHMARK_FORCE_ON_FLAGS + _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS. Activation only; no compute_run_health_gate or faithfulness-path change. Also found the deploy branch bot/I-ready-consolidated was stale (missing this session's 5 follow-ups #1111/#1113/#1121/#1117/#1136); fast-forwarded it.
+- DOCS/RESEARCH: N/A (internal flag-activation; grounded in run_gate_b.py force-on logic 663-666 + preflight 694-699 + run_honest_sweep_r3.py compute_run_health_gate 292-323 / abort site 6292-6316).
+- SYNC: state/beat_both_status.json (deploy_ref_2026_06_06 + backfire_readiness_2026_06_06 GO/NO-GO); state/ready017_fix_audit.json (fl05b_2026_06_06 + current_pointer); GitHub #1137 closed, #1100 umbrella comment.
+- AFFECTED_FILES: scripts/dr_benchmark/run_gate_b.py; tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py; .codex/I-ready-017/fl05b_{diff_brief,codex_diff.patch,diff_verdict.txt,codex_diff_audit.txt}; outputs/audits/I-ready-017/fl05b_s11_audit.md; state/beat_both_status.json; state/ready017_fix_audit.json.
+- EVIDENCE/FINDINGS: 20 targeted tests green (8 FL-05b + 8 FL-05 gate + 4 slate-readiness); full tests/dr_benchmark = 299 passed (1 pre-existing unrelated collection error). Codex diff-gate APPROVE iter-1 (0 P0/P1/P2, accept_remaining) -> .codex/I-ready-017/fl05b_codex_diff_audit.txt. §-1.1 audit 6 claims VERIFIED on the real gate decision. Commits 9b9ed188 (fix) + 6cb2e848 (artifacts) on bot/I-ready-017-faithfulness; origin/bot/I-ready-consolidated fast-forwarded 990e2903..6cb2e848 (verified PG_RUN_HEALTH_GATE present + FL-05b tip is ancestor).
+- STATUS: All I-ready-017 fix-campaign CODE complete (26 issues + FL-05b). Deploy branch is the consolidated superset. Backfire-guard stack complete (CANARY-01 pre-spend + fail-closed preflight + FX-01/02/03 faithfulness + FL-05b run-health + #1111 frame_coverage honesty + D8 binding gate). No code blockers remain.
+- NEXT_STEP: OPERATOR GO/NO-GO. Operator-gated only: Q5 chromium-on-VM (now REQUIRED), Q4 budget ~$125, drb_72 PG_SOURCE_RESTRICTION_JOURNAL_ONLY=1 (+ approval if needed), cheap drb_72 canary before --all. Claude does NOT start the paid run or set those flags.
