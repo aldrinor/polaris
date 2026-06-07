@@ -18,6 +18,7 @@ import os
 import re
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,6 +144,24 @@ def set_reasoning_call_context(**ctx: object) -> None:
 
 def current_reasoning_call_context() -> dict | None:
     return _REASONING_CALL_CTX.get()
+
+
+# I-obs-001 #1141 AC3: run-scoped raw LLM I/O forensic sink (duck-typed LlmIoSink exposing
+# record(*, call_id, call_type, role, request, raw_response, duration_ms, status)). Set by the runner
+# ONLY when PG_CAPTURE_RAW_LLM_IO is on; None (default) => no capture, byte-unchanged. The verifier
+# role transports + the two evaluator judges read it via current_raw_io_sink() (cycle-safe lazy import).
+_RAW_IO_SINK_CTX: contextvars.ContextVar[object | None] = contextvars.ContextVar(
+    "_RAW_IO_SINK", default=None,
+)
+
+
+def set_raw_io_sink(sink: object | None) -> None:
+    """Register (or clear, with None) the run-scoped raw LLM I/O forensic sink."""
+    _RAW_IO_SINK_CTX.set(sink)
+
+
+def current_raw_io_sink() -> object | None:
+    return _RAW_IO_SINK_CTX.get()
 
 
 def _capture_reasoning_trace(
@@ -1779,6 +1798,18 @@ class OpenRouterClient:
                     # FIX-QWEN-2: Detect provider errors in non-streaming response
                     if data.get("error") and not data.get("choices"):
                         err = data["error"]
+                        # I-obs-001 #1141 AC3: provider-error 200 capture (duration_ms not yet computed).
+                        _io_sink = current_raw_io_sink()
+                        if _io_sink is not None:
+                            try:
+                                _io_sink.record(
+                                    call_id=uuid.uuid4().hex, call_type=call_type,
+                                    role=_pathb_capture.current_llm_role(),
+                                    request={**body, "messages": sanitized_messages},
+                                    raw_response=data, duration_ms=None, status="provider_error",
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
                         raise RuntimeError(
                             f"Provider error (code={err.get('code', '?')}): "
                             f"{err.get('message', str(err))[:200]}"
@@ -1860,6 +1891,23 @@ class OpenRouterClient:
                             "Body: %s",
                             self.model, _structural, attempt + 1, MAX_RETRIES + 1, _body_text[:200],
                         )
+                        # I-obs-001 #1141 AC3: dead-discovery 404 capture — the NAMED §-1.1 forensic
+                        # target (structural no-endpoint). No parsed `data`; capture status + body text.
+                        _io_sink = current_raw_io_sink()
+                        if _io_sink is not None:
+                            try:
+                                _io_sink.record(
+                                    call_id=uuid.uuid4().hex, call_type=call_type,
+                                    role=_pathb_capture.current_llm_role(),
+                                    request={**body, "messages": sanitized_messages},
+                                    raw_response={
+                                        "status_code": exc.response.status_code,
+                                        "body_text": (_body_text or "")[:4000],
+                                    },
+                                    duration_ms=None, status="no_endpoint",
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
                         raise NoEndpointError(
                             f"OpenRouter 404 'No endpoints found' for model {self.model}: the "
                             f"requested parameters match no provider (structural={_structural}). "
@@ -1938,6 +1986,18 @@ class OpenRouterClient:
         choices = data.get("choices", [])
         if not choices:
             self.usage.total_errors += 1
+            # I-obs-001 #1141 AC3: empty-choices capture (duration_ms computed at :1983, in scope).
+            _io_sink = current_raw_io_sink()
+            if _io_sink is not None:
+                try:
+                    _io_sink.record(
+                        call_id=uuid.uuid4().hex, call_type=call_type,
+                        role=_pathb_capture.current_llm_role(),
+                        request={**body, "messages": sanitized_messages},
+                        raw_response=data, duration_ms=duration_ms, status="empty_choices",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             raise ValueError(
                 f"API returned no choices in response for {call_type} "
                 f"(model={data.get('model', '?')})"
@@ -2040,6 +2100,19 @@ class OpenRouterClient:
                 data.get("model", self.model),
                 input_tokens,
             )
+            # I-obs-001 #1141 AC3: FIX-H2 empty-content+empty-reasoning capture (the drb_72-class
+            # 0-token degenerate response — a PRIMARY §-1.1 forensic signal). duration_ms in scope.
+            _io_sink = current_raw_io_sink()
+            if _io_sink is not None:
+                try:
+                    _io_sink.record(
+                        call_id=uuid.uuid4().hex, call_type=call_type,
+                        role=_pathb_capture.current_llm_role(),
+                        request={**body, "messages": sanitized_messages},
+                        raw_response=data, duration_ms=duration_ms, status="empty",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             raise ValueError(
                 f"LLM returned no usable content for {call_type} "
                 f"(model={data.get('model', '?')}, input_tokens={input_tokens})"
@@ -2099,6 +2172,26 @@ class OpenRouterClient:
                     messages=sanitized_messages,
                     raw_response=data,
                 )
+
+        # I-obs-001 #1141 AC3: raw LLM I/O forensic capture (success path). INDEPENDENT of the
+        # role-gated pathB block above (which fires only for tagged report/evaluator calls), so the
+        # untagged scope/STORM/agentic/inductor calls are captured too. Default-OFF (sink None) =>
+        # no-op, byte-unchanged. request = the FINAL mutated body (incl. provider chain) with the
+        # already-sanitized messages so no raw evidence is duplicated. Never raises.
+        _io_sink = current_raw_io_sink()
+        if _io_sink is not None:
+            try:
+                _io_sink.record(
+                    call_id=uuid.uuid4().hex,
+                    call_type=call_type,
+                    role=_pathb_capture.current_llm_role(),
+                    request={**body, "messages": sanitized_messages},
+                    raw_response=data,
+                    duration_ms=duration_ms,
+                    status="ok",
+                )
+            except Exception:  # noqa: BLE001 — forensic capture must never perturb the run
+                pass
 
         logger.info(
             "[polaris graph] %s completed: %d in/%d out/%d reasoning tokens, "
