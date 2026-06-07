@@ -1,3 +1,34 @@
+## ⚡ RESUME NOW (2026-06-07) — observability COMPLETE; Q1 paid run prepped ONE go-ahead away (operator asleep, autonomous, do NOT launch paid spend)
+
+**I-obs-001 (#1141) full-run observability is COMPLETE** — AC1 heartbeat / AC2 retrieval-trace / AC3 raw-LLM-IO all Codex diff-gate APPROVE; 113/113 §5.2 faithfulness-guard + obs unit tests green (faithfulness untouched); commits `c8bc5ef5`..`2e247098` pushed to `origin/bot/I-ready-017-faithfulness`. Ledger `state/iobs001_observability.json`.
+
+**Run-gating P0s already fixed+active on branch (verified, NOT re-done):** #1070 evidence-drop (`PG_LIVE_MAX_EV_TO_GEN=150` + preflight floor + capped dedup), #1071 verifier fail-open (`judge_error_rate>0.10 → abort_verifier_degraded`). Both OPEN pending the operator-gated live-run §-1.1 audit.
+
+**Q1 (drb_72) paid run = ONE operator go-ahead away.** Exact launch sequence: `state/q1_run_prep_one_go_ahead.md`. **DO NOT** launch Step 2, DO NOT self-set `PG_AUTHORIZED_SWEEP_APPROVAL`/budget/journal-only. Overnight heartbeat cron `0c6a34c7` armed (every 12 min). Only halt on faithfulness-invariant risk or CHARTER/canonical-pin mismatch.
+
+**On morning go-ahead:** run the NO-SPEND `--list` preview first → operator sets the auth env vars → `python -m scripts.dr_benchmark.run_gate_b --only drb_72_ai_labor` (built-in canary + $25 cap) → monitor via `tail -f state/run_status.json` + `<run_dir>/retrieval_trace.jsonl` every 15 min, update GitHub → §-1.1 line-by-line audit of `report.md` vs cited spans, then vs in-repo Q72 ChatGPT/Gemini outputs.
+
+---
+
+### PRIOR CONTEXT (2026-06-06) — I-ready-017 drb_72 FIX CAMPAIGN (superseded by the observability work above; campaign artifacts retained)
+
+**The paid drb_72 smoke (#1098) completed: HELD at coverage 0.286, $7.86.** Forensic + missed-bugs + SOTA-research workflows produced a **Codex-APPROVED fix-campaign plan** (operator signed off 2026-06-06).
+
+- **Plan:** `outputs/audits/I-ready-017/fix_campaign_plan.md` (plan-gate iter-2 APPROVE).
+- **Ledger / wall-pin (THE resume anchor):** `state/ready017_fix_audit.json` — `current_pointer` + per-issue `phase_step`. Read this FIRST.
+- **Bugs:** `outputs/audits/I-ready-017/missed_bugs_audit.md` (15, Codex-confirmed) + `forensic_root_cause.md`. Umbrella GH **#1100**; keystone PR #1101; fail-loud #1102.
+- **Heartbeat cron:** job `62ef3e0a` (every 10 min, session-only) re-invokes the loop; if the session died, RE-ARM it (CronCreate, the runbook prompt in the plan §4) on resume.
+
+**ON RESUME:**
+1. Read `state/ready017_fix_audit.json` → `current_pointer` + the next `phase_step=todo` issue.
+2. Continue the per-issue loop (plan §5): GitHub issue → fix (flag-gated, faithfulness-safe) → heavy smoke → **§-1.1 line-by-line audit on a REAL micro-run output** → ONE codex gate at a time via `state/codex_gate.lock` (5-iter cap). Evidence bar (plan §9): smoke PASS + Codex diff-APPROVE + §-1.1 audit table + tracker-fired proof. "Tests green" is NOT evidence.
+3. Sequence (plan §6): PHASE 0 finish #1102 (FL-01 graph wrappers + FL-02 planner) → PHASE 1 faithfulness P0s (FX-01/FX-02/FX-03) + CANARY-01 → PHASE 2 P1 gates → PHASE 3 breadth → PHASE 4 telemetry → PHASE 5 **RERUN (HARD-gated behind FX-01+FX-02+FX-03+CANARY-01 + operator budget Q4)**.
+4. **Update GitHub #1100 + the per-issue + the ledger + `logs/session_log.md` in REAL TIME.** Announce each codex launch + read each verdict inline (operator BLIND).
+5. **Operator-only decisions pending:** Q5 chromium-on-VM (Phase 2 / FX-16), Q4 re-run budget (Phase 5).
+6. **Only halt on:** a faithfulness-invariant risk (provenance/strict_verify/4-role) or a CHARTER/canonical pin mismatch. API errors are NOT a halt — back off + resume (§8.4, PID-scoped cleanup, NEVER name-global process kill).
+
+---
+
 # Restart Instructions — issue-driven workflow (post 2026-05-05 restart)
 
 ## Boot ritual (mandatory per CLAUDE.md §10)
