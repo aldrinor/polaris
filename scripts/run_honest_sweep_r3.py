@@ -1763,7 +1763,10 @@ async def run_one_query(
         retrieval_trace_records as _retrieval_trace_records,
         start_retrieval_trace as _start_retrieval_trace,
     )
-    _start_retrieval_trace()
+    # I-obs-001 #1141 AC2: pass the run_dir path so each retrieval record live-appends as it happens
+    # (tail -f safe DURING retrieval). The end-of-retrieval "w" flush below stays the reconciling
+    # final writer, so the final file is byte-identical on every normal exit.
+    _start_retrieval_trace(run_dir / "retrieval_trace.jsonl")
 
     def _flush_retrieval_trace() -> None:
         try:

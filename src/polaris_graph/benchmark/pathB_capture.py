@@ -25,6 +25,8 @@ import contextvars
 import hashlib
 import json
 import logging
+import threading
+from pathlib import Path
 from typing import Iterator
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,16 @@ _RETRIEVAL: contextvars.ContextVar[set | None] = contextvars.ContextVar("_PATHB_
 _RETRIEVAL_TRACE: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "_PATHB_RETRIEVAL_TRACE", default=None,
 )
+# I-obs-001 #1141 AC2: optional path for LIVE-APPEND of each retrieval record as it happens, so
+# retrieval_trace.jsonl is `tail -f | jq`-safe DURING retrieval (today the file only materializes at
+# the end-of-retrieval flush). None (the default; every no-path caller / unit test) => zero file I/O,
+# in-memory list + artifacts byte-identical. The recorders run single-threaded on the main context
+# (verified call sites); the lock is future-proofing only (ThreadPoolExecutor fetch workers do NOT
+# inherit contextvars, so a stray worker call CV-gets None and no-ops).
+_RETRIEVAL_TRACE_PATH: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "_PATHB_RETRIEVAL_TRACE_PATH", default=None,
+)
+_RETRIEVAL_TRACE_LOCK = threading.Lock()
 # I-bug-946 (#932): per-role resolved provider (e.g. {"generator":"Fireworks","evaluator":"Novita"}).
 # Populated by gate_around_question() after preflight resolves each role's actual served provider
 # via GET /api/v1/models/<id>/endpoints. openrouter_client and entailment_judge read this to force
@@ -79,6 +91,7 @@ def clear_pathB_capture() -> None:
     _ROLE.set(None)
     _RETRIEVAL.set(None)
     _RETRIEVAL_TRACE.set(None)
+    _RETRIEVAL_TRACE_PATH.set(None)  # I-obs-001 #1141 AC2: never leak the live path past run end
     _ROLE_PROVIDER.set(None)
 
 
@@ -173,28 +186,55 @@ def attempted_backends() -> set:
 
 
 # ── I-meta-002-q1d (#945): per-call retrieval trace (best-effort, no-op when not started) ──────────
-def start_retrieval_trace() -> None:
+def start_retrieval_trace(path: "Path | str | None" = None) -> None:
     """Begin a FRESH retrieval trace for the current query (P2 lifecycle hygiene, Codex brief-gate):
     a new list so a prior query's records can never leak into a later run_dir flush. Call once at the
-    top of run_one_query, before retrieval."""
+    top of run_one_query, before retrieval.
+
+    I-obs-001 #1141 AC2: if ``path`` is given, each record is ALSO live-appended to it as it happens
+    (tail -f safe). Default None => no file I/O (in-memory list only) so every no-path caller / unit
+    test stays byte-unchanged."""
     _RETRIEVAL_TRACE.set([])
+    _RETRIEVAL_TRACE_PATH.set(Path(path) if path else None)
+
+
+def _live_append(rec: dict) -> None:
+    """I-obs-001 #1141 AC2: best-effort APPEND of one record to the live retrieval_trace.jsonl.
+
+    No-op when no path was supplied to start_retrieval_trace (every unit test / non-benchmark caller).
+    NEVER raises (module contract: capture never raises). Append mode keeps the file a valid JSONL
+    prefix even on a mid-run kill; the end-of-retrieval ``"w"`` flush stays the reconciling final
+    writer, so final content/order is byte-identical on every normal exit."""
+    path = _RETRIEVAL_TRACE_PATH.get()
+    if path is None:
+        return
+    try:
+        with _RETRIEVAL_TRACE_LOCK:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 — capture NEVER raises (module contract, lines 11-12)
+        logger.warning("retrieval_trace live-append failed", exc_info=True)
 
 
 def record_retrieval_query(backend: str, query: str, urls: list[str]) -> None:
     """Record one search/fetch backend call: backend, query text, return count, returned URLs."""
     trace = _RETRIEVAL_TRACE.get()
     if trace is not None:
-        trace.append({
+        rec = {
             "kind": "query", "backend": backend, "query": query,
             "return_count": len(urls), "urls": list(urls),
-        })
+        }
+        trace.append(rec)
+        _live_append(rec)  # I-obs-001 #1141 AC2: same dict object as the in-memory record
 
 
 def record_retrieval_kept(url: str, backend: str) -> None:
     """Record that a fetched source was KEPT into the evidence pool, with its originating backend."""
     trace = _RETRIEVAL_TRACE.get()
     if trace is not None:
-        trace.append({"kind": "kept", "url": url, "backend": backend})
+        rec = {"kind": "kept", "url": url, "backend": backend}
+        trace.append(rec)
+        _live_append(rec)  # I-obs-001 #1141 AC2
 
 
 def record_retrieval_drop(url: str, reason: str) -> None:
@@ -202,7 +242,9 @@ def record_retrieval_drop(url: str, reason: str) -> None:
     offtopic | rerank_not_selected | ...)."""
     trace = _RETRIEVAL_TRACE.get()
     if trace is not None:
-        trace.append({"kind": "drop", "url": url, "reason": reason})
+        rec = {"kind": "drop", "url": url, "reason": reason}
+        trace.append(rec)
+        _live_append(rec)  # I-obs-001 #1141 AC2
 
 
 def retrieval_trace_records() -> list[dict]:
