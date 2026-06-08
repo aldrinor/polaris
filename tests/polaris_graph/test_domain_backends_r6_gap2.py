@@ -14,6 +14,7 @@ from src.polaris_graph.retrieval.domain_backends import (
     _parse_arxiv_feed,
     europe_pmc_search,
     run_domain_backends,
+    sec_edgar_search,
 )
 from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
     SearchCandidate,
@@ -258,3 +259,110 @@ def test_europe_pmc_fails_open_on_empty_or_error() -> None:
         side_effect=RuntimeError("network down"),
     ):
         assert europe_pmc_search("q") == []
+
+
+# --- I-fetch-001 (#1167): SEC EDGAR full-text CIK comes from `ciks`, NOT `_id` -----------
+def _edgar_payload(*hits):
+    return {"hits": {"hits": list(hits)}}
+
+
+def _edgar_hit(_id, *, adsh, ciks, form="10-K",
+              display="Tesla, Inc.  (TSLA)", filed="2024-01-29"):
+    return {
+        "_id": _id,
+        "_source": {
+            "adsh": adsh,
+            "ciks": ciks,
+            "form": form,
+            "display_names": [display],
+            "file_date": filed,
+        },
+    }
+
+
+def test_sec_edgar_cik_from_ciks_array_not_id() -> None:
+    # The full-text `_id` is `<accession>:<primary_doc>`. The OLD code split
+    # `_id` on ":" and fed the dash-bearing accession to int() → ValueError
+    # on EVERY hit (zero SEC candidates). The CIK must come from `ciks`.
+    payload = _edgar_payload(_edgar_hit(
+        "0001234567-24-000123:tsla-10k.htm",
+        adsh="0001234567-24-000123",
+        ciks=["0001318605"],
+    ))
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        return_value=payload,
+    ):
+        out = sec_edgar_search("Tesla 10-K")
+    assert len(out) >= 1
+    cand = out[0]
+    assert cand.source == "sec_edgar"
+    # CIK is the int-normalized (leading-zero-stripped) value from `ciks`.
+    assert cand.metadata["cik"] == "0001318605"
+    assert "/data/1318605/" in cand.url
+    assert "000123456724000123" in cand.url
+    assert cand.metadata["adsh"] == "0001234567-24-000123"
+
+
+def test_sec_edgar_does_not_raise_on_realistic_response() -> None:
+    # Regression guard: a realistic full-text response must NOT raise.
+    payload = _edgar_payload(_edgar_hit(
+        "0001234567-24-000123:tsla-10k.htm",
+        adsh="0001234567-24-000123",
+        ciks=["0001318605"],
+    ))
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        return_value=payload,
+    ):
+        # Must not raise ValueError.
+        sec_edgar_search("Tesla 10-K")
+
+
+def test_sec_edgar_skips_hit_with_missing_cik_keeps_rest() -> None:
+    # A single bad hit (empty/missing ciks) is SKIPPED, not crash-the-backend;
+    # the good hit still contributes (fail-loud per hit, fail-open per backend).
+    payload = _edgar_payload(
+        _edgar_hit(
+            "0001234567-24-000123:bad.htm",
+            adsh="0001234567-24-000123",
+            ciks=[],  # missing CIK → skip this hit
+        ),
+        _edgar_hit(
+            "0007654321-24-000999:msft-10k.htm",
+            adsh="0007654321-24-000999",
+            ciks=["0000789019"],
+            display="MICROSOFT CORP  (MSFT)",
+        ),
+    )
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        return_value=payload,
+    ):
+        out = sec_edgar_search("Microsoft 10-K")
+    assert len(out) == 1
+    assert out[0].metadata["cik"] == "0000789019"
+    assert "/data/789019/" in out[0].url
+
+
+def test_sec_edgar_skips_non_numeric_cik() -> None:
+    # A non-numeric CIK must be skipped (never reach int()).
+    payload = _edgar_payload(_edgar_hit(
+        "0001234567-24-000123:tsla-10k.htm",
+        adsh="0001234567-24-000123",
+        ciks=["not-a-number"],
+    ))
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        return_value=payload,
+    ):
+        out = sec_edgar_search("q")
+    assert out == []
+
+
+def test_sec_edgar_fails_open_on_empty() -> None:
+    with patch(
+        "src.polaris_graph.retrieval.domain_backends._http_get_json",
+        return_value=None,
+    ):
+        assert sec_edgar_search("q") == []

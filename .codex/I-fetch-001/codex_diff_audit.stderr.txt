@@ -1,0 +1,556 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ea8ec-0cf3-73e0-a135-155dde1a87e7
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Output schema (machine-parseable; loose prose is rejected):
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+---
+
+Review this `sec_edgar` CIK-parse fix: the backend read CIK from `_id.split(':')[0]` (the accession number) and threw `ValueError` on every hit; the fix takes CIK from the `ciks` array. Verify: (a) the CIK now comes from the `ciks` field, (b) a missing/empty `ciks` hit is skipped not crashed, (c) the document-URL build still works, (d) the regression test actually reproduces the old failure shape and passes now, (e) no other backend touched. End with 'verdict: APPROVE' or 'verdict: REQUEST_CHANGES' then bullets.
+
+---
+
+## Staged diff (`git diff --cached -- src/polaris_graph/retrieval/domain_backends.py tests/polaris_graph/test_domain_backends_r6_gap2.py`)
+
+```diff
+diff --git a/src/polaris_graph/retrieval/domain_backends.py b/src/polaris_graph/retrieval/domain_backends.py
+index 3185ed10..bdddb02b 100644
+--- a/src/polaris_graph/retrieval/domain_backends.py
++++ b/src/polaris_graph/retrieval/domain_backends.py
+@@ -304,16 +304,28 @@ def sec_edgar_search(
+     for h in hits[:limit]:
+         src = h.get("_source", {}) or {}
+         adsh = src.get("adsh", "")
+-        cik = (h.get("_id", "").split(":")[0]
+-               if ":" in h.get("_id", "")
+-               else src.get("ciks", [""])[0])
++        # I-fetch-001 (#1167): the EDGAR full-text `_id` is
++        # `<accession>:<primary_doc>` — splitting it on ":" yields the
++        # dash-bearing accession number, NOT the CIK, so `int(cik)` below
++        # raised ValueError on EVERY hit (zero SEC candidates returned).
++        # The CIK lives in the `ciks` array on `_source`; take it from
++        # there and skip (fail-loud per hit, not per backend) any hit
++        # whose CIK is missing or non-numeric.
++        ciks = src.get("ciks") or []
++        cik = (ciks[0] or "").strip() if ciks else ""
+         form = src.get("form", "")
+         display_name = src.get("display_names", [""])[0] or ""
+         filed = src.get("file_date", "")
+         if not adsh:
+             continue
++        if not cik.isdigit():
++            logger.debug(
++                "sec_edgar_search: skipping hit %r with non-numeric "
++                "cik %r", h.get("_id", ""), cik,
++            )
++            continue
+         # Construct a filing URL
+-        cik_no_leading_zero = str(int(cik)) if cik else ""
++        cik_no_leading_zero = str(int(cik))
+         adsh_no_dash = adsh.replace("-", "")
+         url = (
+             f"https://www.sec.gov/Archives/edgar/data/"
+diff --git a/tests/polaris_graph/test_domain_backends_r6_gap2.py b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+index 89403f62..e82a031e 100644
+--- a/tests/polaris_graph/test_domain_backends_r6_gap2.py
++++ b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+@@ -14,6 +14,7 @@ from src.polaris_graph.retrieval.domain_backends import (
+     _parse_arxiv_feed,
+     europe_pmc_search,
+     run_domain_backends,
++    sec_edgar_search,
+ )
+ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+     SearchCandidate,
+@@ -258,3 +259,110 @@ def test_europe_pmc_fails_open_on_empty_or_error() -> None:
+         side_effect=RuntimeError("network down"),
+     ):
+         assert europe_pmc_search("q") == []
++
++
++# --- I-fetch-001 (#1167): SEC EDGAR full-text CIK comes from `ciks`, NOT `_id` -----------
++def _edgar_payload(*hits):
++    return {"hits": {"hits": list(hits)}}
++
++
++def _edgar_hit(_id, *, adsh, ciks, form="10-K",
++              display="Tesla, Inc.  (TSLA)", filed="2024-01-29"):
++    return {
++        "_id": _id,
++        "_source": {
++            "adsh": adsh,
++            "ciks": ciks,
++            "form": form,
++            "display_names": [display],
++            "file_date": filed,
++        },
++    }
++
++
++def test_sec_edgar_cik_from_ciks_array_not_id() -> None:
++    # The full-text `_id` is `<accession>:<primary_doc>`. The OLD code split
++    # `_id` on ":" and fed the dash-bearing accession to int() → ValueError
++    # on EVERY hit (zero SEC candidates). The CIK must come from `ciks`.
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["0001318605"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("Tesla 10-K")
++    assert len(out) >= 1
++    cand = out[0]
++    assert cand.source == "sec_edgar"
++    # CIK is the int-normalized (leading-zero-stripped) value from `ciks`.
++    assert cand.metadata["cik"] == "0001318605"
++    assert "/data/1318605/" in cand.url
++    assert "000123456724000123" in cand.url
++    assert cand.metadata["adsh"] == "0001234567-24-000123"
++
++
++def test_sec_edgar_does_not_raise_on_realistic_response() -> None:
++    # Regression guard: a realistic full-text response must NOT raise.
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["0001318605"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        # Must not raise ValueError.
++        sec_edgar_search("Tesla 10-K")
++
++
++def test_sec_edgar_skips_hit_with_missing_cik_keeps_rest() -> None:
++    # A single bad hit (empty/missing ciks) is SKIPPED, not crash-the-backend;
++    # the good hit still contributes (fail-loud per hit, fail-open per backend).
++    payload = _edgar_payload(
++        _edgar_hit(
++            "0001234567-24-000123:bad.htm",
++            adsh="0001234567-24-000123",
++            ciks=[],  # missing CIK → skip this hit
++        ),
++        _edgar_hit(
++            "0007654321-24-000999:msft-10k.htm",
++            adsh="0007654321-24-000999",
++            ciks=["0000789019"],
++            display="MICROSOFT CORP  (MSFT)",
++        ),
++    )
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("Microsoft 10-K")
++    assert len(out) == 1
++    assert out[0].metadata["cik"] == "0000789019"
++    assert "/data/789019/" in out[0].url
++
++
++def test_sec_edgar_skips_non_numeric_cik() -> None:
++    # A non-numeric CIK must be skipped (never reach int()).
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["not-a-number"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("q")
++    assert out == []
++
++
++def test_sec_edgar_fails_open_on_empty() -> None:
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=None,
++    ):
++        assert sec_edgar_search("q") == []
+
+```
+
+codex
+I’ll verify the staged patch against the actual workspace and run the focused regression tests so the review is based on the repository state, not just the pasted diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def sec_edgar_search|ciks|sec_edgar" src/polaris_graph/retrieval/domain_backends.py tests/polaris_graph/test_domain_backends_r6_gap2.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/retrieval/domain_backends.py tests/polaris_graph/test_domain_backends_r6_gap2.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --name-only' in C:\POLARIS
+ succeeded in 2660ms:
+diff --git a/src/polaris_graph/retrieval/domain_backends.py b/src/polaris_graph/retrieval/domain_backends.py
+index 3185ed10..bdddb02b 100644
+--- a/src/polaris_graph/retrieval/domain_backends.py
++++ b/src/polaris_graph/retrieval/domain_backends.py
+@@ -304,16 +304,28 @@ def sec_edgar_search(
+     for h in hits[:limit]:
+         src = h.get("_source", {}) or {}
+         adsh = src.get("adsh", "")
+-        cik = (h.get("_id", "").split(":")[0]
+-               if ":" in h.get("_id", "")
+-               else src.get("ciks", [""])[0])
++        # I-fetch-001 (#1167): the EDGAR full-text `_id` is
++        # `<accession>:<primary_doc>` — splitting it on ":" yields the
++        # dash-bearing accession number, NOT the CIK, so `int(cik)` below
++        # raised ValueError on EVERY hit (zero SEC candidates returned).
++        # The CIK lives in the `ciks` array on `_source`; take it from
++        # there and skip (fail-loud per hit, not per backend) any hit
++        # whose CIK is missing or non-numeric.
++        ciks = src.get("ciks") or []
++        cik = (ciks[0] or "").strip() if ciks else ""
+         form = src.get("form", "")
+         display_name = src.get("display_names", [""])[0] or ""
+         filed = src.get("file_date", "")
+         if not adsh:
+             continue
++        if not cik.isdigit():
++            logger.debug(
++                "sec_edgar_search: skipping hit %r with non-numeric "
++                "cik %r", h.get("_id", ""), cik,
++            )
++            continue
+         # Construct a filing URL
+-        cik_no_leading_zero = str(int(cik)) if cik else ""
++        cik_no_leading_zero = str(int(cik))
+         adsh_no_dash = adsh.replace("-", "")
+         url = (
+             f"https://www.sec.gov/Archives/edgar/data/"
+diff --git a/tests/polaris_graph/test_domain_backends_r6_gap2.py b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+index 89403f62..e82a031e 100644
+--- a/tests/polaris_graph/test_domain_backends_r6_gap2.py
++++ b/tests/polaris_graph/test_domain_backends_r6_gap2.py
+@@ -14,6 +14,7 @@ from src.polaris_graph.retrieval.domain_backends import (
+     _parse_arxiv_feed,
+     europe_pmc_search,
+     run_domain_backends,
++    sec_edgar_search,
+ )
+ from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+     SearchCandidate,
+@@ -258,3 +259,110 @@ def test_europe_pmc_fails_open_on_empty_or_error() -> None:
+         side_effect=RuntimeError("network down"),
+     ):
+         assert europe_pmc_search("q") == []
++
++
++# --- I-fetch-001 (#1167): SEC EDGAR full-text CIK comes from `ciks`, NOT `_id` -----------
++def _edgar_payload(*hits):
++    return {"hits": {"hits": list(hits)}}
++
++
++def _edgar_hit(_id, *, adsh, ciks, form="10-K",
++              display="Tesla, Inc.  (TSLA)", filed="2024-01-29"):
++    return {
++        "_id": _id,
++        "_source": {
++            "adsh": adsh,
++            "ciks": ciks,
++            "form": form,
++            "display_names": [display],
++            "file_date": filed,
++        },
++    }
++
++
++def test_sec_edgar_cik_from_ciks_array_not_id() -> None:
++    # The full-text `_id` is `<accession>:<primary_doc>`. The OLD code split
++    # `_id` on ":" and fed the dash-bearing accession to int() → ValueError
++    # on EVERY hit (zero SEC candidates). The CIK must come from `ciks`.
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["0001318605"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("Tesla 10-K")
++    assert len(out) >= 1
++    cand = out[0]
++    assert cand.source == "sec_edgar"
++    # CIK is the int-normalized (leading-zero-stripped) value from `ciks`.
++    assert cand.metadata["cik"] == "0001318605"
++    assert "/data/1318605/" in cand.url
++    assert "000123456724000123" in cand.url
++    assert cand.metadata["adsh"] == "0001234567-24-000123"
++
++
++def test_sec_edgar_does_not_raise_on_realistic_response() -> None:
++    # Regression guard: a realistic full-text response must NOT raise.
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["0001318605"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        # Must not raise ValueError.
++        sec_edgar_search("Tesla 10-K")
++
++
++def test_sec_edgar_skips_hit_with_missing_cik_keeps_rest() -> None:
++    # A single bad hit (empty/missing ciks) is SKIPPED, not crash-the-backend;
++    # the good hit still contributes (fail-loud per hit, fail-open per backend).
++    payload = _edgar_payload(
++        _edgar_hit(
++            "0001234567-24-000123:bad.htm",
++            adsh="0001234567-24-000123",
++            ciks=[],  # missing CIK → skip this hit
++        ),
++        _edgar_hit(
++            "0007654321-24-000999:msft-10k.htm",
++            adsh="0007654321-24-000999",
++            ciks=["0000789019"],
++            display="MICROSOFT CORP  (MSFT)",
++        ),
++    )
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("Microsoft 10-K")
++    assert len(out) == 1
++    assert out[0].metadata["cik"] == "0000789019"
++    assert "/data/789019/" in out[0].url
++
++
++def test_sec_edgar_skips_non_numeric_cik() -> None:
++    # A non-numeric CIK must be skipped (never reach int()).
++    payload = _edgar_payload(_edgar_hit(
++        "0001234567-24-000123:tsla-10k.htm",
++        adsh="0001234567-24-000123",
++        ciks=["not-a-number"],
++    ))
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=payload,
++    ):
++        out = sec_edgar_search("q")
++    assert out == []
++
++
++def test_sec_edgar_fails_open_on_empty() -> None:
++    with patch(
++        "src.polaris_graph.retrieval.domain_backends._http_get_json",
++        return_value=None,
++    ):
++        assert sec_edgar_search("q") == []
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 4380ms:
+docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md
+scripts/run_honest_sweep_r3.py
+src/polaris_graph/generator/contract_section_runner.py
+src/polaris_graph/generator/multi_section_generator.py
+src/polaris_graph/generator/quantified_analysis.py
+src/polaris_graph/retrieval/domain_backends.py
+src/polaris_graph/synthesis/credibility_pass.py
+tests/polaris_graph/generator/test_disclosure_failloud_wiring_icred008b.py
+tests/polaris_graph/generator/test_disclosure_resolve_sites_icred008b.py
+tests/polaris_graph/synthesis/test_disclosure_apply_icred008b.py
+tests/polaris_graph/test_claim_disclosure_artifact_icred008b.py
+tests/polaris_graph/test_domain_backends_r6_gap2.py
+tests/polaris_graph/test_manifest_contract.py
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 6198ms:
+src/polaris_graph/retrieval/domain_backends.py:286:def sec_edgar_search(
+src/polaris_graph/retrieval/domain_backends.py:311:        # The CIK lives in the `ciks` array on `_source`; take it from
+src/polaris_graph/retrieval/domain_backends.py:314:        ciks = src.get("ciks") or []
+src/polaris_graph/retrieval/domain_backends.py:315:        cik = (ciks[0] or "").strip() if ciks else ""
+src/polaris_graph/retrieval/domain_backends.py:323:                "sec_edgar_search: skipping hit %r with non-numeric "
+src/polaris_graph/retrieval/domain_backends.py:338:            source="sec_edgar",
+src/polaris_graph/retrieval/domain_backends.py:585:        _run("sec_edgar", sec_edgar_search)
+tests/polaris_graph/test_domain_backends_r6_gap2.py:17:    sec_edgar_search,
+tests/polaris_graph/test_domain_backends_r6_gap2.py:113:        "src.polaris_graph.retrieval.domain_backends.sec_edgar_search",
+tests/polaris_graph/test_domain_backends_r6_gap2.py:117:            snippet="", source="sec_edgar",
+tests/polaris_graph/test_domain_backends_r6_gap2.py:125:    assert all(c.source == "sec_edgar" for c in result.candidates)
+tests/polaris_graph/test_domain_backends_r6_gap2.py:264:# --- I-fetch-001 (#1167): SEC EDGAR full-text CIK comes from `ciks`, NOT `_id` -----------
+tests/polaris_graph/test_domain_backends_r6_gap2.py:269:def _edgar_hit(_id, *, adsh, ciks, form="10-K",
+tests/polaris_graph/test_domain_backends_r6_gap2.py:275:            "ciks": ciks,
+tests/polaris_graph/test_domain_backends_r6_gap2.py:283:def test_sec_edgar_cik_from_ciks_array_not_id() -> None:
+tests/polaris_graph/test_domain_backends_r6_gap2.py:286:    # on EVERY hit (zero SEC candidates). The CIK must come from `ciks`.
+tests/polaris_graph/test_domain_backends_r6_gap2.py:290:        ciks=["0001318605"],
+tests/polaris_graph/test_domain_backends_r6_gap2.py:296:        out = sec_edgar_search("Tesla 10-K")
+tests/polaris_graph/test_domain_backends_r6_gap2.py:299:    assert cand.source == "sec_edgar"
+tests/polaris_graph/test_domain_backends_r6_gap2.py:300:    # CIK is the int-normalized (leading-zero-stripped) value from `ciks`.
+tests/polaris_graph/test_domain_backends_r6_gap2.py:307:def test_sec_edgar_does_not_raise_on_realistic_response() -> None:
+tests/polaris_graph/test_domain_backends_r6_gap2.py:312:        ciks=["0001318605"],
+tests/polaris_graph/test_domain_backends_r6_gap2.py:319:        sec_edgar_search("Tesla 10-K")
+tests/polaris_graph/test_domain_backends_r6_gap2.py:322:def test_sec_edgar_skips_hit_with_missing_cik_keeps_rest() -> None:
+tests/polaris_graph/test_domain_backends_r6_gap2.py:323:    # A single bad hit (empty/missing ciks) is SKIPPED, not crash-the-backend;
+tests/polaris_graph/test_domain_backends_r6_gap2.py:329:            ciks=[],  # missing CIK → skip this hit
+tests/polaris_graph/test_domain_backends_r6_gap2.py:334:            ciks=["0000789019"],
+tests/polaris_graph/test_domain_backends_r6_gap2.py:342:        out = sec_edgar_search("Microsoft 10-K")
+tests/polaris_graph/test_domain_backends_r6_gap2.py:348:def test_sec_edgar_skips_non_numeric_cik() -> None:
+tests/polaris_graph/test_domain_backends_r6_gap2.py:353:        ciks=["not-a-number"],
+tests/polaris_graph/test_domain_backends_r6_gap2.py:359:        out = sec_edgar_search("q")
+tests/polaris_graph/test_domain_backends_r6_gap2.py:363:def test_sec_edgar_fails_open_on_empty() -> None:
+tests/polaris_graph/test_domain_backends_r6_gap2.py:368:        assert sec_edgar_search("q") == []
+
+codex
+The staged set contains other unrelated files, but within the retrieval backend surface the patch appears confined to `domain_backends.py`. I’m checking the surrounding URL/metadata code and running the focused test file now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/retrieval/domain_backends.py | ForEach-Object { $i++; if ($i -ge 286 -and $i -le 350) { '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --name-only -- src/polaris_graph/retrieval' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest -q tests/polaris_graph/test_domain_backends_r6_gap2.py' in C:\POLARIS
+ succeeded in 2502ms:
+src/polaris_graph/retrieval/domain_backends.py
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 4235ms:
+286:def sec_edgar_search(
+287:    query: str, limit: int = PG_DOMAIN_MAX_HITS,
+288:) -> list[SearchCandidate]:
+289:    """Full-text search SEC EDGAR for 10-K / 10-Q / 8-K / DEF 14A.
+290:
+291:    No API key required. Fail-open.
+292:    """
+293:    params = {
+294:        "q": query,
+295:        "dateRange": "custom",
+296:        "startdt": "2019-01-01",
+297:        "forms": "10-K,10-Q,8-K,DEF 14A,S-1",
+298:    }
+299:    data = _http_get_json(_SEC_SEARCH_URL, params=params)
+300:    if not data:
+301:        return []
+302:    hits = data.get("hits", {}).get("hits", []) or []
+303:    out: list[SearchCandidate] = []
+304:    for h in hits[:limit]:
+305:        src = h.get("_source", {}) or {}
+306:        adsh = src.get("adsh", "")
+307:        # I-fetch-001 (#1167): the EDGAR full-text `_id` is
+308:        # `<accession>:<primary_doc>` — splitting it on ":" yields the
+309:        # dash-bearing accession number, NOT the CIK, so `int(cik)` below
+310:        # raised ValueError on EVERY hit (zero SEC candidates returned).
+311:        # The CIK lives in the `ciks` array on `_source`; take it from
+312:        # there and skip (fail-loud per hit, not per backend) any hit
+313:        # whose CIK is missing or non-numeric.
+314:        ciks = src.get("ciks") or []
+315:        cik = (ciks[0] or "").strip() if ciks else ""
+316:        form = src.get("form", "")
+317:        display_name = src.get("display_names", [""])[0] or ""
+318:        filed = src.get("file_date", "")
+319:        if not adsh:
+320:            continue
+321:        if not cik.isdigit():
+322:            logger.debug(
+323:                "sec_edgar_search: skipping hit %r with non-numeric "
+324:                "cik %r", h.get("_id", ""), cik,
+325:            )
+326:            continue
+327:        # Construct a filing URL
+328:        cik_no_leading_zero = str(int(cik))
+329:        adsh_no_dash = adsh.replace("-", "")
+330:        url = (
+331:            f"https://www.sec.gov/Archives/edgar/data/"
+332:            f"{cik_no_leading_zero}/{adsh_no_dash}/{adsh}-index.htm"
+333:        )
+334:        out.append(SearchCandidate(
+335:            url=url,
+336:            title=f"{display_name} — {form} filed {filed}",
+337:            snippet=(src.get("display_names", [""])[0] or "")[:200],
+338:            source="sec_edgar",
+339:            metadata={"form": form, "cik": cik, "adsh": adsh},
+340:        ))
+341:    return out
+342:
+343:
+344:# ─────────────────────────────────────────────────────────────────────────────
+345:# GitHub (technical docs) — optional, no auth
+346:# ─────────────────────────────────────────────────────────────────────────────
+347:
+348:_GITHUB_SEARCH = "https://api.github.com/search/repositories"
+349:
+350:
+
+2026-06-08T20:29:03.016471Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7.4 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/test_domain_backends_r6_gap2.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 7449ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/test_domain_backends_r6_gap2.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m retrying through the Python module entrypoint. The surrounding function confirms the URL still uses the normalized CIK and dash-stripped accession path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest -q tests/polaris_graph/test_domain_backends_r6_gap2.py' in C:\POLARIS
+ succeeded in 8388ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 20 items
+
+tests\polaris_graph\test_domain_backends_r6_gap2.py .................... [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 20 passed, 1 warning in 3.03s ========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+14,282

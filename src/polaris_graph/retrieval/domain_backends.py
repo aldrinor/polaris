@@ -304,16 +304,28 @@ def sec_edgar_search(
     for h in hits[:limit]:
         src = h.get("_source", {}) or {}
         adsh = src.get("adsh", "")
-        cik = (h.get("_id", "").split(":")[0]
-               if ":" in h.get("_id", "")
-               else src.get("ciks", [""])[0])
+        # I-fetch-001 (#1167): the EDGAR full-text `_id` is
+        # `<accession>:<primary_doc>` — splitting it on ":" yields the
+        # dash-bearing accession number, NOT the CIK, so `int(cik)` below
+        # raised ValueError on EVERY hit (zero SEC candidates returned).
+        # The CIK lives in the `ciks` array on `_source`; take it from
+        # there and skip (fail-loud per hit, not per backend) any hit
+        # whose CIK is missing or non-numeric.
+        ciks = src.get("ciks") or []
+        cik = (ciks[0] or "").strip() if ciks else ""
         form = src.get("form", "")
         display_name = src.get("display_names", [""])[0] or ""
         filed = src.get("file_date", "")
         if not adsh:
             continue
+        if not cik.isdigit():
+            logger.debug(
+                "sec_edgar_search: skipping hit %r with non-numeric "
+                "cik %r", h.get("_id", ""), cik,
+            )
+            continue
         # Construct a filing URL
-        cik_no_leading_zero = str(int(cik)) if cik else ""
+        cik_no_leading_zero = str(int(cik))
         adsh_no_dash = adsh.replace("-", "")
         url = (
             f"https://www.sec.gov/Archives/edgar/data/"
