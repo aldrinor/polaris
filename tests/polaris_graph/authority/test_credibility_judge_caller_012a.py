@@ -129,6 +129,43 @@ def test_pathb_capture_raw_io_and_ledger_recorded(monkeypatch):
     assert seen["raw_io"]["call_type"] == "credibility_judge" and seen["raw_io"]["role"] == "evaluator"
 
 
+def test_raw_io_labels_malformed_envelope_as_judge_error(monkeypatch):
+    # I-cred-012a iter-4 P2: a served-but-malformed (no choices) response must be raw-IO-labeled
+    # "judge_error", not transport-"ok" (it becomes a judge_error when the content extract fails).
+    class _NoChoicesResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"usage": {"cost": 0.001}}  # well-formed HTTP 200 but NO choices envelope
+
+    class _NoChoicesClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            return _NoChoicesResp()
+
+    monkeypatch.setattr(httpx, "Client", _NoChoicesClient)
+    seen = {}
+
+    class _Sink:
+        def record(self, **kw):
+            seen["status"] = kw.get("status")
+
+    monkeypatch.setattr(_orc, "current_raw_io_sink", lambda: _Sink())
+    caller = make_openrouter_credibility_caller()
+    with pytest.raises(Exception):  # the content extract on an empty envelope fails -> judge_error upstream
+        caller("hi")
+    assert seen["status"] == "judge_error"
+
+
 def test_caller_to_judge_to_p2_end_to_end(monkeypatch):
     captured = {}
     monkeypatch.setattr(httpx, "Client", _fake_client(

@@ -123,7 +123,11 @@ def make_openrouter_credibility_caller(
                 io_sink.record(
                     call_id=uuid.uuid4().hex, call_type="credibility_judge", role="evaluator",
                     request=json_body, raw_response=data,
-                    duration_ms=(time.monotonic() - started) * 1000.0, status="ok",
+                    duration_ms=(time.monotonic() - started) * 1000.0,
+                    # I-cred-012a iter-4 P2: label by the SERVED envelope — a malformed response (no
+                    # choices) is the judge_error outcome (the content extract below will fail), not
+                    # transport-"ok". Observability fidelity; does not change the abort behavior.
+                    status=("ok" if (data.get("choices") or []) else "judge_error"),
                 )
         except Exception:  # noqa: BLE001
             pass
