@@ -124,6 +124,15 @@ from src.polaris_graph.nodes.corpus_approval_gate import (  # noqa: E402
     compute_tier_distribution,
     save_approval_decision,
 )
+from src.polaris_graph.nodes.weighted_corpus_gate import (  # noqa: E402
+    # I-cred-006b (#1170): replace the tier-COUNT/material-deviation corpus REFUSAL with
+    # PROCEED + a credibility-weighted disclosure. Default-OFF byte-identical.
+    build_corpus_credibility_disclosure,
+    disclosure_to_dict,
+    has_usable_corpus,
+    weighted_corpus_gate_enabled,
+    weighted_corpus_proceeds,
+)
 from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
 # M-INT-4: OpenRouter ScopeAffinityLLM in production scope-gate path
 from src.polaris_graph.audit_ir.scope_classifier_llm import (  # noqa: E402
@@ -3547,8 +3556,30 @@ async def run_one_query(
         # sufficiency gate). The journal_only adequacy FLOOR, however, is a HARD
         # corpus-quality gate that must abort in BOTH modes — so OR in
         # `_jo_force_inadequate`.
+        # I-cred-006b (#1170): the weighted-corpus gate REPLACES the tier-COUNT adequacy REFUSAL with
+        # PROCEED + a credibility-weighted disclosure (operator directive 2026-06-08: "we shall NOT
+        # have gate here, we shall WEIGHT the source"). The tier-count adequacy abort is the
+        # §-1.1-banned metadata proxy (it verifies no individual claim). When the flag is ON we do NOT
+        # abort on the domain-keyed adequacy decision — UNLESS `_jo_force_inadequate` is set: the
+        # journal-only adequacy FLOOR (distinct-journal count + S1 anchors) is a SEPARATE mode with its
+        # own fix (#1146) and must still abort. The legitimate corpus-ZERO floor (abort_no_sources
+        # upstream + has_usable_corpus here) also still aborts. strict_verify + the 4-role D8 release
+        # decision (the per-claim faithfulness floor) are UNTOUCHED. Default-OFF byte-identical.
+        _weighted_corpus_on = weighted_corpus_gate_enabled()
+        _wc_disclosure_dict: dict | None = None  # set on the weighted-gate proceed path (manifest field)
         if adequacy.decision == "abort" and (
             not _use_research_planner or _jo_force_inadequate
+        ) and not (
+            _weighted_corpus_on and not _jo_force_inadequate
+            # I-cred-006b iter-2 (Codex P0): the weighted gate suppresses the tier-COUNT adequacy
+            # refusal ONLY when there is real evidence to generate from. Generation consumes
+            # retrieval.evidence_rows (cited rows with spans), which can be empty even when
+            # classified_sources is non-empty (content-starved rows skipped). With the planner — and
+            # its downstream plan-sufficiency gate — OFF, suppressing the abort with zero evidence rows
+            # would reach generation with nothing. So only suppress when evidence_rows is non-empty;
+            # an empty pool still aborts (the "cannot synthesize from nothing" floor), regardless of
+            # the flag.
+            and bool(retrieval.evidence_rows)
         ):
             _log(f"[ABORT]       Corpus inadequate for confident synthesis. "
                  f"Refusing to ship a misleading short report.")
@@ -3628,7 +3659,26 @@ async def run_one_query(
         # The old canned note defeated the rubber-stamp guard and billed a
         # material-deviation corpus. `note` below is descriptive/audit only.
         authorization = authorization_from_env()
-        if dist.has_material_deviation:
+        # I-cred-006b (#1170): when the weighted-corpus gate is ON, a material deviation is NOT a
+        # REFUSAL — the corpus is ACCEPTED and its credibility is DISCLOSED (weighted, domain-aware).
+        # We record an HONEST approval (approved=True, all sources approved, the persisted decision is
+        # NOT a dishonest approved=False+rejected-all) whose basis is the weighted-corpus disclosure,
+        # NOT a structured PG_AUTHORIZED_SWEEP_APPROVAL and NOT a free-text note. The legitimate
+        # corpus-ZERO floor still aborts (has_usable_corpus + the upstream abort_no_sources). The
+        # per-claim faithfulness floor (strict_verify + 4-role D8) is unchanged.
+        _weighted_corpus_approve = weighted_corpus_proceeds(
+            flag_on=_weighted_corpus_on,
+            has_material_deviation=dist.has_material_deviation,
+            classified_sources=retrieval.classified_sources,
+            # I-cred-006b iter-2 (Codex P0): require >=1 usable evidence row, not just a classified
+            # source — generation consumes evidence_rows; an empty pool falls through to the unchanged
+            # approval logic (material deviation + no structured authorization -> abort), never proceeds.
+            evidence_rows=retrieval.evidence_rows,
+        )
+        if _weighted_corpus_approve:
+            approved = True
+            approval_error = ""
+        elif dist.has_material_deviation:
             ok, err = check_auto_approve_allowed(dist, authorization)
             approved = ok
             approval_error = err
@@ -3637,8 +3687,13 @@ async def run_one_query(
             approval_error = ""
         note = (
             f"R-3 sweep. Domain={q['domain']}. "
-            + ("structured authorization present"
-               if authorization is not None else "no structured authorization")
+            + (
+                "weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE): corpus accepted with a "
+                "credibility-weighted disclosure (no tier-count refusal)"
+                if _weighted_corpus_approve
+                else ("structured authorization present"
+                      if authorization is not None else "no structured authorization")
+            )
         )
         decision = CorpusApprovalDecision(
             run_id=run_id,
@@ -3651,6 +3706,49 @@ async def run_one_query(
             report=dist, protocol_sha256=scope.protocol_sha256,
         )
         save_approval_decision(decision, run_dir)
+
+        # I-cred-006b (#1170): when the weighted-corpus gate is ON, attach the deterministic,
+        # domain-aware credibility-weighting disclosure (the corpus is ACCEPTED + DISCLOSED, not refused
+        # on tier-mix). PURE — no LLM/judge/network/spend; the per-source weight is the deterministic
+        # authority_score already computed upstream. Written on EVERY weighted-gate proceed path so the
+        # run honestly discloses that lower-tier sources are lower-credibility. The per-claim
+        # faithfulness floor (strict_verify + 4-role D8) is untouched.
+        if _weighted_corpus_on and has_usable_corpus(
+            retrieval.classified_sources, retrieval.evidence_rows
+        ):
+            # Deterministic url -> authority_score join from the evidence rows (where the NUMERIC
+            # authority actually lives in planner mode; run_honest_sweep_r3.py:3034). Empty when no row
+            # carries authority_score (legacy mode) — the disclosure then weights by the per-tier prior.
+            # Read-only; no row mutation, no network, no spend.
+            _wc_authority_by_url: dict[str, float] = {}
+            for _row in (retrieval.evidence_rows or []):
+                _u = str(_row.get("source_url") or _row.get("url") or "")
+                _a = _row.get("authority_score")
+                if _u and _a is not None and _u not in _wc_authority_by_url:
+                    _wc_authority_by_url[_u] = _a
+            _wc_disclosure = build_corpus_credibility_disclosure(
+                classified_sources=retrieval.classified_sources,
+                tier_counts=dist.tier_counts,
+                tier_fractions=dist.tier_fractions,
+                total_sources=dist.total_sources,
+                had_material_deviation=dist.has_material_deviation,
+                domain=q["domain"],
+                research_question=q["question"],
+                authority_by_url=_wc_authority_by_url,
+            )
+            _wc_disclosure_dict = disclosure_to_dict(_wc_disclosure)
+            (run_dir / "corpus_credibility_disclosure.json").write_text(
+                json.dumps(_wc_disclosure_dict, indent=2, sort_keys=True,
+                           default=str) + "\n",
+                encoding="utf-8",
+            )
+            _log(
+                f"[weighted_corpus] gate ON: corpus ACCEPTED + credibility-disclosed "
+                f"(total={_wc_disclosure.total_sources}, weighted_mean="
+                f"{_wc_disclosure.weighted_credibility_mean:.2f}, "
+                f"had_material_deviation={_wc_disclosure.had_material_deviation}); "
+                f"no tier-count refusal. strict_verify + 4-role D8 unchanged."
+            )
 
         # Codex round 1 B-2: ENFORCE the corpus-approval gate. Previously
         # the orchestrator wrote corpus_approval.json and then proceeded
@@ -6047,6 +6145,14 @@ async def run_one_query(
             # of the dedup behavior survives into manifest.json.
             "fact_dedup": getattr(multi, "fact_dedup_telemetry", {}),
         }
+
+        # I-cred-006b (#1170): surface the weighted-corpus credibility disclosure in the per-run
+        # manifest (ON-mode only — the key is ABSENT when the flag is off, preserving the legacy
+        # manifest shape byte-for-byte, matching the other ON-mode keys below). The full per-source
+        # breakdown lives in corpus_credibility_disclosure.json; the manifest carries the summary so a
+        # downstream audit sees the corpus was ACCEPTED + credibility-disclosed (not tier-refused).
+        if _wc_disclosure_dict is not None:
+            manifest["corpus_credibility_disclosure"] = _wc_disclosure_dict
 
         # I-meta-005 Phase 1 (#985, P1-8): record the SHA-pinned ResearchPlan
         # in the manifest (gap #19 extension). ON-mode only — the key is absent

@@ -1,0 +1,20 @@
+**Findings**
+
+P0: The weighted ON path can proceed with zero usable evidence rows. `has_usable_corpus()` only checks `classified_sources`, but generation consumes `evidence_rows`/selected rows with spans. Live retrieval can append a `CorpusSource` before skipping content-starved/no-content evidence rows, so `classified_sources=[...]` with `evidence_rows=[]` is possible. With the flag ON, the adequacy abort that includes `evidence_rows` is suppressed, Gate-B does not force `PG_USE_RESEARCH_PLANNER`, and `generate_multi_section_report()` can be reached with `evidence_for_gen=[]`. This violates the “cannot synthesize from nothing” floor. See [weighted_corpus_gate.py](C:/POLARIS/src/polaris_graph/nodes/weighted_corpus_gate.py:119), [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:2818), [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:3570), [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:4909), and [live_retriever.py](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:2958).
+
+P2: The new tests pass, but they do not behaviorally cover the critical execution shape above or true OFF byte-identity through `run_one_query`; several sweep assertions are string-presence checks. Add an integration/unit harness with non-empty `classified_sources`, empty `evidence_rows`, flag ON, planner OFF, and assert an abort before generation.
+
+Verified: the staged diff does not edit `strict_verify`, provenance verification, or the 4-role D8 release implementation. The Gate-B slate force-on/required wiring is present and `python -m pytest tests/polaris_graph/test_weighted_corpus_gate_icred006b.py -q` passes.
+
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0:
+  - "Weighted ON path can bypass the evidence-row adequacy floor and reach generation with classified sources but zero usable evidence rows."
+continuing_p0: []
+p1: []
+p2:
+  - "Tests rely on string-presence for run_one_query wiring and miss the zero-evidence-row ON-path regression."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Require at least one usable evidence row/selected generation row before weighted proceed, or keep the non-tier evidence_rows adequacy abort under the flag."
+```

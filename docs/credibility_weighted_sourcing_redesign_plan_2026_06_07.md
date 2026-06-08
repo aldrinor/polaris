@@ -289,3 +289,18 @@ transparent evidence weight + independent-origin count + the cited spans — **a
 forewarning finding favors always-visible over expand-on-demand), neutral language (no "fringe"/"warning"
 framing), one click from every aggregate to its `[#ev:id:start-end]` span and VERIFIED/PARTIAL verdict.
 The user judges; POLARIS discloses weight honestly rather than picking a winner.
+
+---
+
+## 2026-06-08 — I-cred-006b (#1170): remove the tier-COUNT corpus REFUSAL gate (the keystone the redesign was missing)
+
+**Trigger:** the drb_72 measured dry-run (after the throttle/breadth fixes landed) proved breadth is fixed — 3,137 candidates → 151 sources, STORM fired across many personas (vs 40 URLs / 5 queries before). But the run still **aborted `abort_corpus_approval_denied`**: the corpus had 151 sources yet 50% were tier-4, `material_deviation=True`, and the corpus_approval gate refused to synthesize without a structured `PG_AUTHORIZED_SWEEP_APPROVAL`.
+
+**Root disconnect (operator, repeat-flagged + furious):** the credibility-WEIGHTING system is built but only **advisory disclosure**. The OLD corpus_approval (material-deviation) + corpus_adequacy (tier-count floors, max T5/T6 fraction) **REFUSAL** gates still sit in front of generation and reject a tier-skewed-but-rich corpus. On an **economics** question, tier-4 working papers (NBER, Acemoglu/Restrepo) are legitimate primary sources — so this is a **domain-blind tier-COUNT refusal**, the §-1.1-banned metadata proxy. *"We shall not have gate here, we shall weight the source."*
+
+**Fix (faithfulness-critical, flag `PG_SWEEP_WEIGHTED_CORPUS_GATE`, default-OFF byte-identical, slate-activated):**
+- REPLACE the corpus-level tier-count / material-deviation REFUSAL with PROCEED + credibility-weighted disclosure (domain-aware; lower-tier sources disclosed as lower-credibility, not refused).
+- KEEP BINDING + untouched: per-claim `strict_verify` (every sentence must match its cited span) and the 4-role D8 release decision — the REAL faithfulness floor. Removing a corpus-level metadata proxy does NOT enable fabrication, because each claim is still verified against its cited span.
+- KEEP the legitimate zero-usable-source abort (cannot synthesize from nothing).
+
+Workflow `wuxel5j8r`; Codex is the only gate. After APPROVE+commit → re-run the drb_72 dry-run to confirm it proceeds (no `abort_corpus_approval_denied`) and read the report content line-by-line → then the full beat-both run.

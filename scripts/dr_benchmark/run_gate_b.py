@@ -565,6 +565,16 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # (post-validator) queries — a thin-corpus collapse that would otherwise ship green. Discovery-health
     # only (faithfulness-neutral). Read at the run_honest_sweep_r3.py compute_run_health_gate call site.
     "PG_STORM_MIN_EFFECTIVE_QUERIES": "12",
+    # I-cred-006b (#1170): REPLACE the corpus-level tier-COUNT / material-deviation REFUSAL with PROCEED
+    # + a credibility-weighted disclosure (operator directive 2026-06-08: "we shall NOT have gate here,
+    # we shall WEIGHT the source"). The drb_72 dry-run aborted abort_corpus_approval_denied because 50%
+    # of 151 sources were T4 on an ECONOMICS question where NBER/Acemoglu working papers are legitimate
+    # primary sources — a §-1.1-banned domain-blind tier-count refusal. ON: the corpus is accepted +
+    # credibility-disclosed (weighted, domain-aware); the per-claim faithfulness floor (strict_verify +
+    # 4-role D8) is UNCHANGED; the corpus-ZERO floor still aborts. Force-on + required below so a stray
+    # operator =0 cannot survive the setdefault slate and silently restore the tier-count refusal on the
+    # paid beat-both run (the I-cap-005 P1-1 force-on pattern).
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -624,6 +634,11 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
     # on the VM — the 2026-06-05 drb_72 smoke) ship as success. Fail closed if it is not active.
     "PG_RUN_HEALTH_GATE",
+    # I-cred-006b (#1170): the weighted-corpus gate must be ON for the beat-both run — OFF restores the
+    # §-1.1-banned tier-count / material-deviation corpus REFUSAL that aborted the drb_72 dry-run
+    # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
+    # is not active so a tier-mix refusal can never silently reach the paid run.
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -664,6 +679,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # PG_RUN_HEALTH_GATE=0 cannot survive the setdefault slate and silently restore the
     # ship-green-on-degraded-discovery behavior (the I-cap-005 P1-1 force-on pattern).
     "PG_RUN_HEALTH_GATE",
+    # I-cred-006b (#1170): force-on the weighted-corpus gate so an explicit operator
+    # PG_SWEEP_WEIGHTED_CORPUS_GATE=0 cannot survive the setdefault slate and silently restore the
+    # §-1.1-banned tier-count corpus REFUSAL on the paid beat-both run (the I-cap-005 P1-1 pattern).
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
