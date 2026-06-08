@@ -1,0 +1,22 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P8 is ordered too late for the current code path. `resolve_provenance_to_citations` runs inside `multi_section_generator` before `generate_multi_section_report` returns, so a post-generation populate step will not render unless sections are re-resolved before `sections_concat` is built. Hook P8 before citation resolution, or explicitly re-resolve `SectionResult.verified_text` before report assembly."
+  - "The credibility pass hook cannot be literally after the first `run_live_retrieval` call. The runner mutates the corpus afterward via expansion/deepener/agentic merges, journal_only filtering, V30/upload prepends, saturation reselect, and finding-dedup. The pass must define whether it analyzes final retrieved corpus, final generator-visible `evidence_for_gen`, or both, and must refresh after any dissent gap-round."
+  - "Fail-loud is not guaranteed by wrapping P2 alone: `score_source_credibility` catches judge failures and returns `judge_error=True` priors-only judgments. The activation orchestrator must convert judge_error under the master slate into `abort_credibility_pass_error` or equivalent, otherwise a dead production judge silently becomes a false-green advisory pass."
+  - "P10 cannot simply reuse the existing saturation loop as-is. `run_saturation_loop` is currently ResearchPlan/plan-sufficiency driven; a dissent-only gap round outside that path could bypass `PG_SATURATION_MAX_ROUNDS` / `PG_SATURATION_MAX_RETRIEVAL_CALLS`. Either require the planner saturation path for activation or add a bounded dissent round that shares the same budget accounting and telemetry."
+p2:
+  - "Q1: yes, prefer a pure `synthesis/credibility_pass.py` orchestrator, but call it from the runner at explicit final-corpus/final-billed-set hook points, not inside `live_retriever`."
+  - "Q2: master `PG_SWEEP_CREDIBILITY_REDESIGN` plus sub-flags is the right slate shape. Gate-B preflight should force master plus all required sub-flags and fail closed if any are off."
+  - "P3 needs an explicit downstream contract. `supersession_adjustment(row)` currently returns a result, but the brief does not say whether it annotates rows, post-multiplies credibility judgments, or only writes telemetry."
+  - "P7 is acceptable only as disclosure text that D8/native claim extraction ignores. Place it after verified prose but outside release-scored prose, or ensure evaluator/D8 inputs cannot treat its numeric weights as ungated report claims."
+  - "P4 has no visible per-module enabled helper like the other modules. Master gating is enough for byte identity, but the per-module sub-switch/preflight story should either add a P4 sub-flag or explicitly document master-only gating for P4."
+remaining_blockers_for_execution:
+  - "Define exact call sites for: pre-dissent analysis, post-dissent re-analysis, P8 population/render, and P7 append."
+  - "Define the row universe for each product: P10 over corpus, P6/P7 over contested corpus or generator-visible set, P8 over every evidence_id that strict_verify can cite."
+  - "Add fail-closed activation checks for P2 judge_error and for master/sub-flag mismatch."
+  - "Bind dissent retrieval to existing saturation budget counters or make planner saturation a required activation precondition."
+convergence_call: continue
+```

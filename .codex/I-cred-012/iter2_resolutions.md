@@ -1,0 +1,20 @@
+## ITER-2 RESOLUTIONS (supersede iter-1; lock the live-generator integration precisely)
+
+Codex iter-2 found the live generator has MULTIPLE resolve paths + internal evidence mutation + a specific D8 input source. All resolved precisely:
+
+**P1-1 — ONE central P8 disclosure wrapper at EVERY resolve site (FIXED):** P8 is a single function `populate_disclosure_for_section(kept_sentences, credibility_by_evidence, origin_by_evidence) -> kept_sentences'` invoked IMMEDIATELY BEFORE every `resolve_provenance_to_citations(...)` call that can feed `SectionResult.verified_text` / `kept_sentences_pre_resolve`:
+- `multi_section_generator.py:2264` (legacy per-section),
+- `multi_section_generator.py:4910`/`:4949` (fact-dedup re-verify/re-resolve),
+- `contract_section_runner.py:181`/`:845` (V30 contract sections),
+- plus M44/M47 regen resolve paths.
+NOT only the first site. The 008b test renders a fact-dedup-rewritten sentence + a contract-section sentence and asserts BOTH carry the populated disclosure fields (no stale/missing disclosures).
+
+**P1-2 — analysis universe = the generator's EFFECTIVE evidence pool + cited-token coverage assertion (FIXED):** the credibility pass runs over the generator's EFFECTIVE evidence pool — i.e. AFTER the M-52 primary-row pull from `live_corpus` into the internal `evidence_pool` (`multi_section_generator.py:4628`), not only the pre-generation `evidence_for_gen`. Implementation: hoist the M-52 pull (or replicate its selection) before the credibility pass so the pass sees every row the generator can cite. **Hard assertion (fail-loud):** after generation, EVERY cited kept token's `evidence_id` (across all resolve sites) MUST have origin + credibility coverage; a cited token with no coverage → `abort_credibility_coverage_gap` (no claim renders without its disclosure). This is the activation analogue of the silent-downgrade guard.
+
+**P2 refinements:**
+- **P10 external bounded dissent round:** add a bounded dissent-round API that shares the EXISTING `preflight_round_budget` counters + telemetry and can fire EVEN WHEN plan-sufficiency already passed (`run_saturation_loop` exits on `verdict=proceed`, so dissent cannot ride it). The round is budget-ledgered; the fail-closed preflight asserts the dissent round is accounted.
+- **P4 merge contract:** P4 returns assignments and does NOT mutate caller rows; the orchestrator builds COPIED annotated rows carrying `origin_cluster_id` + `is_canonical_origin`, and FAILS LOUD if any evidence row lacks `evidence_id` or canonical metadata after annotation (`abort_independence_annotation_gap`).
+- **P3 order:** compute P3 (supersession) + P2 (reliability×relevance); the FINAL `credibility_by_evidence[eid]` = P2_weight × P3_multiplier (after P3 certainty-downgrade applied). Downstream consumers (P6 mass disclosure, P8 fields) use the POST-P3 credibility weight, never the raw pre-P3 P2 weight.
+- **P7 D8 isolation (pinned):** the native Gate-B / D8 input builder reads `multi.sections[*].kept_sentences_pre_resolve` (NOT `report.md`), so the both-sides appendix (appended to the assembled report, never to `kept_sentences_pre_resolve`) is structurally excluded from release scoring. The 007b test pins this: it asserts the D8 input set excludes the both-sides block on BOTH the live path and the static-input path.
+
+**Net (locked):** retrieve+mutate → hoist M-52 effective pool → credibility_pass over the EFFECTIVE pool [P4 copied-annotated rows (fail-loud on missing eid/canonical) → P2 score (FAIL-LOUD on judge_error) → P3 multiplier → credibility = P2×P3 → P5 edges → P6 mass] → if edges: P10 external bounded dissent round (shared budget ledger) → re-run pass on enlarged effective pool → generate (M-52 pull already reflected) → strict_verify (BINDING) → at EVERY resolve site: P8 central wrapper populates before resolve → assert every cited token has coverage (else abort_credibility_coverage_gap) → 4-role D8 over kept_sentences_pre_resolve (BINDING, both-sides appendix excluded) → assemble [P8 fields rendered + P7 appendix].
