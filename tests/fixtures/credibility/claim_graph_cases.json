@@ -1,0 +1,51 @@
+{
+  "_comment": "Offline fixture for the L4 claim-graph (Phase 5 / I-cred-005). LAW VI: no live data, no network. Every row is a hand-authored evidence-row shaped like the live pipeline (evidence_id + direct_quote + source_url + tier). Cases cover: equivalence clustering (conservative-singleton), non-clinical field-agnostic coverage, numeric contradiction edges, qualitative present-vs-absent edges, and the conservative-singleton never-over-merge invariant.",
+
+  "equivalent_clinical_numeric": {
+    "_label": "Two rows assert the SAME clinical finding (semaglutide 14.9% weight loss) from two independent hosts. They MUST share one claim_cluster_id.",
+    "rows": [
+      {"evidence_id": "e_equiv_1", "direct_quote": "In the trial, semaglutide achieved 14.9% weight loss at week 68.", "source_url": "https://nejm.org/a", "tier": "T1"},
+      {"evidence_id": "e_equiv_2", "direct_quote": "Semaglutide produced 14.9% weight loss at week 68 in the pivotal study.", "source_url": "https://thelancet.com/b", "tier": "T1"}
+    ]
+  },
+
+  "distinct_clinical_numeric": {
+    "_label": "Two rows assert DIFFERENT findings on the same predicate (semaglutide 14.9% vs tirzepatide 22.5%). Distinct subjects/values MUST NOT over-merge: two separate clusters.",
+    "rows": [
+      {"evidence_id": "e_distinct_1", "direct_quote": "Semaglutide achieved 14.9% weight loss at week 68.", "source_url": "https://nejm.org/a", "tier": "T1"},
+      {"evidence_id": "e_distinct_2", "direct_quote": "Tirzepatide achieved 22.5% weight loss at week 72.", "source_url": "https://jamanetwork.com/c", "tier": "T1"}
+    ]
+  },
+
+  "non_clinical_numeric": {
+    "_label": "Field-agnostic coverage: non-clinical numeric rows (GDP growth, emissions). finding_dedup would return NOTHING here; the claim-graph must still produce one atomic claim per row (raw fallback) so nothing is dropped.",
+    "rows": [
+      {"evidence_id": "e_econ_1", "direct_quote": "The economy posted 3.1% GDP growth in the fourth quarter.", "source_url": "https://imf.org/x", "tier": "T2"},
+      {"evidence_id": "e_econ_2", "direct_quote": "National emissions fell by 7% relative to the 2005 baseline.", "source_url": "https://iea.org/y", "tier": "T2"}
+    ]
+  },
+
+  "numeric_contradiction": {
+    "_label": "Two sources contradict on semaglutide weight loss (14.9% vs 17.4%) at the same dose-less predicate. RECALL-FIRST: a numeric contradiction edge MUST be emitted.",
+    "rows": [
+      {"evidence_id": "e_contra_1", "direct_quote": "Semaglutide achieved 14.9% weight loss from baseline.", "source_url": "https://nejm.org/step1", "tier": "T1"},
+      {"evidence_id": "e_contra_2", "direct_quote": "Semaglutide achieved 17.4% weight loss from baseline.", "source_url": "https://thelancet.com/step5", "tier": "T1"}
+    ]
+  },
+
+  "qualitative_present_vs_absent": {
+    "_label": "Present-vs-absent clinical-safety conflict (drug X contraindicated in pregnancy vs not contraindicated). NO number — invisible to the numeric path. RECALL-FIRST: a qualitative conflict edge MUST be emitted, never silently dropped.",
+    "rows": [
+      {"evidence_id": "e_qual_1", "direct_quote": "Warfarin is contraindicated in pregnancy.", "source_url": "https://fda.gov/label1", "tier": "T1"},
+      {"evidence_id": "e_qual_2", "direct_quote": "Warfarin has no contraindication in pregnancy and may be used.", "source_url": "https://example-blog.com/post", "tier": "T5"}
+    ]
+  },
+
+  "no_conflict_corpus": {
+    "_label": "A corpus with no contradictions: two agreeing rows. Must produce zero contradiction edges (no fabricated conflict).",
+    "rows": [
+      {"evidence_id": "e_agree_1", "direct_quote": "Metformin is first-line therapy for type 2 diabetes.", "source_url": "https://diabetes.org/g", "tier": "T1"},
+      {"evidence_id": "e_agree_2", "direct_quote": "Metformin remains the recommended first-line therapy for type 2 diabetes.", "source_url": "https://nice.org.uk/h", "tier": "T1"}
+    ]
+  }
+}
