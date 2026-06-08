@@ -4702,12 +4702,34 @@ async def run_one_query(
                 f"generator rows are citeable journal articles"
             )
 
+        # I-cred-012a (#1164): under the master slate, thread the production credibility judge +
+        # gov_suffixes into generation. default-OFF => both None => byte-identical. FAIL-CLOSED: master-on
+        # requires non-empty gov_suffixes + a callable judge, surfaced HERE before the paid generation call
+        # (the generator carries the same guard as defense-in-depth).
+        _cred_judge = None
+        _cred_gov = None
+        if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
+            from src.polaris_graph.authority.data_loader import load_authority_data as _load_auth
+            from src.polaris_graph.authority.credibility_judge import make_credibility_judge as _mk_judge
+            from src.polaris_graph.authority.credibility_judge_caller import (
+                make_openrouter_credibility_caller as _mk_caller,
+            )
+            _cred_gov = tuple(_load_auth().get("psl_gov_suffixes") or ())
+            if not _cred_gov:
+                raise RuntimeError(
+                    "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but "
+                    "psl_gov_suffixes is empty (fail-closed preflight)"
+                )
+            _cred_judge = _mk_judge(_mk_caller())
+
         _pathb_gen_tok = _pathb.set_role("generator")
         try:
             multi = await generate_multi_section_report(
                 research_question=q["question"],
                 evidence=evidence_for_gen,
                 prior_verified_context=_prior_verified_context,
+                credibility_pass_judge=_cred_judge,
+                credibility_pass_gov_suffixes=_cred_gov,
                 section_temperature=0.3,
             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
             # match the upstream default. V19 had 3 / V20 had 2

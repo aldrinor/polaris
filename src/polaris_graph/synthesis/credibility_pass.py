@@ -104,14 +104,17 @@ def run_credibility_analysis(
             "judge; refusing to run priors-only (a false-green advisory). Wire the production judge or "
             "leave PG_SWEEP_CREDIBILITY_REDESIGN off."
         )
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
     try:
         return _run_chain(
             research_question, rows,
             gov_suffixes=gov_suffixes, domain=domain, judge=judge, now_year=now_year,
         )
-    except CredibilityPassError:
+    except (CredibilityPassError, BudgetExceededError):
+        # CredibilityPassError = fail-loud abort; BudgetExceededError (Codex #012a P1-2) must reach the
+        # sweep's budget-abort path cleanly, NOT be masked as a generic credibility-pass error.
         raise
-    except Exception as exc:  # ANY wired-module failure → fail-loud abort, never a silent false-green
+    except Exception as exc:  # ANY OTHER wired-module failure → fail-loud abort, never a silent false-green
         raise CredibilityPassError(
             f"abort_credibility_pass_error: a wired credibility module failed "
             f"({type(exc).__name__}): {exc}"

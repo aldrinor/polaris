@@ -108,9 +108,12 @@ def make_credibility_judge(call_llm: Callable[[str], str]) -> Callable[[str, dic
         raise ValueError("make_credibility_judge requires an injected call_llm(prompt) -> text")
 
     def judge(research_question: str, payload: dict) -> dict:
+        from src.polaris_graph.llm.openrouter_client import BudgetExceededError
         prompt = build_credibility_prompt(research_question, payload)
         try:
             text = call_llm(prompt)
+        except BudgetExceededError:
+            raise  # Codex #012a P1-2: a budget-cap breach MUST abort the sweep, never be masked as judge_error
         except Exception:
             return {}  # transport failure for this row => P2 judge_error (isolated, bounded)
         return parse_credibility_response(text)

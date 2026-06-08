@@ -292,6 +292,9 @@ class MultiSectionResult:
     limitations_text: str = ""
     limitations_input_tokens: int = 0
     limitations_output_tokens: int = 0
+    # I-cred-012a (#1164): CredibilityAnalysis from the activated pass (None when the master flag is off
+    # => byte-identical). 008b consumes it for per-claim disclosure rendering.
+    credibility_analysis: Any = None
     # I-ready-017 FX-07b leg-2 (#1111): per-(slot_id, entity_id) strict_verify
     # telemetry aggregated from every contract SectionResult.slot_strict_verify,
     # keyed (slot_id, entity_id) -> {sentences_kept, sentences_generated_content,
@@ -4386,6 +4389,10 @@ async def generate_multi_section_report(
     # mechanically matched to THIS question's corpus). Passed through to the UNVERIFIED analyst layer
     # only; None/[] => no change. Never reaches the verified generator/strict_verify path.
     prior_verified_context: list[dict[str, Any]] | None = None,
+    # I-cred-012a (#1164): credibility-analysis pass inputs. Both None/empty => the pass is NOT run =>
+    # byte-identical. Threaded by the sweep runner ONLY when PG_SWEEP_CREDIBILITY_REDESIGN is on.
+    credibility_pass_judge: Any = None,
+    credibility_pass_gov_suffixes: tuple[str, ...] | None = None,
     model: Optional[str] = None,
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
@@ -4673,6 +4680,25 @@ async def generate_multi_section_report(
                     injected_count, swapped_count,
                     len(m44_primary_by_anchor),
                 )
+
+    # I-cred-012a (#1164): ADVISORY credibility-analysis pass over the EFFECTIVE evidence_pool (after the
+    # M-52/M-44 effective-pool assembly above; evidence_pool is the {evidence_id: row} the report cites).
+    # default-OFF master flag => credibility_analysis stays None => byte-identical. FAIL-LOUD: master-on
+    # but no production judge/gov_suffixes threaded => abort, never a priors-only false-green. READ-ONLY:
+    # the pass annotates row COPIES; evidence_pool is unchanged (no capability downgrade / pool shrink).
+    credibility_analysis = None
+    if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
+        from ..synthesis import credibility_pass as _credibility_pass  # gated import: inert when flag OFF
+        if credibility_pass_judge is None or not credibility_pass_gov_suffixes:
+            raise _credibility_pass.CredibilityPassError(
+                "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
+                "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
+            )
+        credibility_analysis = _credibility_pass.run_credibility_analysis(
+            research_question, list(evidence_pool.values()),
+            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=None,
+            judge=credibility_pass_judge,
+        )
 
     # Stage 2: per-section generation (bounded parallelism)
     sem = asyncio.Semaphore(max_parallel_sections)
@@ -5712,6 +5738,8 @@ async def generate_multi_section_report(
         limitations_text=lim_text,
         limitations_input_tokens=lim_in_tok,
         limitations_output_tokens=lim_out_tok,
+        # I-cred-012a (#1164): advisory credibility analysis (None when the master flag is off)
+        credibility_analysis=credibility_analysis,
         # I-bug-105 two-layer report
         analyst_synthesis_text=analyst_synth_text,
         analyst_synthesis_input_tokens=analyst_synth_in_tok,

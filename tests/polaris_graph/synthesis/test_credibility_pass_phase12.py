@@ -85,3 +85,16 @@ def test_no_mutation_of_input_rows():
     rows = [_row("e1", "https://www.nature.com/a"), _row("e2", "https://www.who.int/b")]
     run_credibility_analysis("q", rows, gov_suffixes=GOV, judge=_good_judge)
     assert "origin_cluster_id" not in rows[0] and "is_canonical_origin" not in rows[0]
+
+
+def test_budget_breach_escapes_as_budget_error_not_credibility_error():
+    # Codex #012a iter-3 P1: a cap breach in the judge must propagate ALL THE WAY OUT as
+    # BudgetExceededError (-> sweep abort_budget_exceeded), NOT be masked into judge_error/CredibilityPassError.
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+
+    def budget_judge(question, payload):
+        raise BudgetExceededError("cap breached")
+
+    rows = [_row("e1", "https://www.nature.com/a")]
+    with pytest.raises(BudgetExceededError):
+        run_credibility_analysis("q", rows, gov_suffixes=GOV, judge=budget_judge)

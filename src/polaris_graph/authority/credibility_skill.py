@@ -190,9 +190,14 @@ def _apply_judge(
 ) -> CredibilityJudgment:
     """Run the injected judge for ONE source; fall back to priors on ANY error / malformed output
     (isolated to this row — recall-first, fail-loud-but-bounded)."""
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
     payload = _build_judge_payload(research_question, row, domain)
     try:
         raw = judge(research_question, payload)
+    except BudgetExceededError:
+        # Codex #012a iter-3 P1: a budget-cap breach MUST escape this per-row handler to the sweep's
+        # budget-abort path — NOT be masked as a per-row judge_error/priors-only fallback.
+        raise
     except Exception:
         fallback = _priors_only_judgment(row)
         fallback.judge_error = True

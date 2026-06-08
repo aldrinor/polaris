@@ -1,0 +1,11 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Activated runner path is not wired. The #1164 brief requires the runner to pass the production credibility judge plus gov_suffixes, but `scripts/run_honest_sweep_r3.py:4707` and `scripts/run_honest_on_prerebuild_corpus.py:293` still call `generate_multi_section_report` without `credibility_pass_judge` or `credibility_pass_gov_suffixes`. With `PG_SWEEP_CREDIBILITY_REDESIGN` on, `multi_section_generator.py:4691-4696` deterministically aborts before Stage 2, so the live activation path cannot execute."
+p2:
+  - "The new generator wiring tests are mostly signature/source-shape checks. `test_effective_pool_is_values_not_dict` asserts substrings in source instead of executing the activated hook with a patched `run_credibility_analysis`; add a behavioral offline test once runner threading is fixed."
+  - "The import is lazy but not gated: `credibility_pass` is imported at `multi_section_generator.py:4690` before checking the master flag. This is not a current output blocker, but it weakens the claimed inert/off posture."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Thread `credibility_pass_judge` and `credibility_pass_gov_suffixes` from the production runner under `PG_SWEEP_CREDIBILITY_REDESIGN`, with fail-closed preflight and an offline activation test."
