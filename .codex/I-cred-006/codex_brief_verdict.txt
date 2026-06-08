@@ -1,0 +1,19 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-1
+    finding: "Q2 must be closed as a hard precondition, not optional/fail-soft. The aggregator cannot safely infer the canonical origin from rows that only carry origin_cluster_id. Require P4 canonical metadata explicitly: either take IndependenceCollapseResult/assignments as required input, or require merged row fields with exactly one is_canonical_origin per origin_cluster_id and fail-loud on missing/duplicate canonical metadata. Otherwise a copy can become the fallback mass carrier and violate the copy-zero invariant."
+    call: "Prefer (i): accept P4 IndependenceCollapseResult or its assignment list. It is still pure and matches P4's emitted contract."
+p2:
+  - id: Q1
+    finding: "Scope split confirmed: ship only the pure aggregator now. Defer journal-floor removal, corpus-adequacy wiring, and clinical per-claim veto to I-cred-006b with their own flag/brief."
+  - id: Q3
+    finding: "Confirmed: no P2 judgment should use credibility_weight=1.0, preserving mass as pure authority rather than dropping the origin."
+  - id: P2-1
+    finding: "AC2 overstates copy equality. P4's approved all-undated conservative-min rule can lower mass if a lower-authority copied member becomes canonical; the binding invariant is no inflation. Keep equality for dated/unchanged-canonical/high-authority-copy fixtures, and phrase the general invariant as weight_mass must not increase under copy additions."
+  - id: P2-2
+    finding: "Add an explicit AC for copy-only support: if a claim cluster is supported by a derivative row, mass must still use the global P4 canonical row for that origin, not the copy's own authority/credibility."
+remaining_blockers_for_execution:
+  - "Resolve Q2 by making canonical-origin metadata a required, validated input contract."
+convergence_call: continue

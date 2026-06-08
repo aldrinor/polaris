@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/synthesis/weight_mass.py:137: If Phase 4 canonical flags are missing for a clustered origin, fallback selects `sorted(members)[0]` by evidence_id, not the plan's conservative-min canonical for all-undated clusters. Valid Phase 4 output already emits exactly one canonical, so this is not an execution blocker, but the fail-soft fallback can inflate mass on malformed/unmerged inputs and should either fail loud or choose lowest authority."
+  - "src/polaris_graph/synthesis/weight_mass.py:149: `copy_count=max(0, len(members)-1)` undercounts when a claim is supported only by derivative copies while the canonical row exists globally but is not one of the claim rows. Mass remains correct, but disclosure metadata can say 0 copies for one derivative support row."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

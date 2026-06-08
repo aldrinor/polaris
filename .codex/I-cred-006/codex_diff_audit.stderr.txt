@@ -1,0 +1,2336 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ea735-2068-77f1-a8a7-5b86f15e701a
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5. Front-load ALL real findings; reserve P0/P1 for real execution blockers; classify cosmetic as P2/P3. APPROVE iff zero P0 AND zero P1.
+
+# DIFF GATE — credibility redesign build phase (umbrella I-ready-021 #1148)
+
+Review the NEW-MODULE diff below for code correctness against its plan-phase spec
+(`docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md`). This is faithfulness-adjacent code.
+
+## HARD CONSTRAINTS (operator-locked)
+- **Default-OFF byte-identical:** the module must be inert unless explicitly invoked by a flag/caller; turning it OFF (or not wiring it) leaves existing behavior byte-identical. No production path is changed in this phase.
+- **Faithfulness gates UNTOUCHED:** strict_verify (`provenance_generator.py`), 4-role D8, two-family segregation, corpus_approval are NOT edited or weakened. This phase is a NEW module only.
+- **LAW VI:** no hardcoded thresholds/paths — config/env; snake_case; no magic numbers; no live data in unit tests (fixtures only).
+
+## VERIFY SPECIFICALLY
+1. The module implements its plan-phase spec correctly (read the named layer/phase in the plan).
+2. **The phase invariant is actually enforced AND tested** (e.g. P4: a copied row joining a cluster — even higher-authority — cannot change the cluster set / canonical origin; P5: recall-first contradictions + conservative-singleton never over-merges; P3: retraction hard-penalty + config thresholds).
+3. The unit tests are MEANINGFUL (not assertion-relaxed to pass) and the attached SMOKE result is green.
+4. No faithfulness gate is touched; nothing in the production path changes with the module un-wired.
+
+## SMOKE EVIDENCE (attached below the diff — the offline pytest result is the evidence, not a self-report)
+
+## OUTPUT SCHEMA (YAML)
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+============ THE DIFF + SMOKE EVIDENCE ============
+## PHASE: P6 weight-mass aggregator (#1155) — DIFF gate iter 1 (brief in parallel review). PURE aggregator only (gate-touching journal-floor removal / corpus-adequacy wiring / clinical veto deferred to I-cred-006b). Contract: aggregate_weight_mass(claims, rows, judgments) -> list[ClaimWeightMass]; per claim cluster, group supporting rows by origin_cluster_id; cluster_mass = authority_score(canonical_origin) x credibility_weight(canonical) (1.0 if no P2 judgment); COPIES contribute ZERO (only copy_count); weight_mass = sum once per independent origin. Design choice (Q2): rows carry is_canonical_origin + origin_cluster_id (Phase-4 merged) so P6 stays a pure dict-in function; an uncollapsed row is its own origin. ADVISORY only — D8 4-role + strict_verify untouched; default-OFF PG_SWEEP_WEIGHT_MASS; pure, no row mutation, fail-soft (missing authority/NaN -> 0.0). SMOKE: 14 passed incl. the vax invariant (adding copies of ANY authority leaves weight_mass unchanged) + higher-authority-copy-contributes-zero.
+```diff
+diff --git a/src/polaris_graph/synthesis/weight_mass.py b/src/polaris_graph/synthesis/weight_mass.py
+new file mode 100644
+index 00000000..aa9d5f3c
+--- /dev/null
++++ b/src/polaris_graph/synthesis/weight_mass.py
+@@ -0,0 +1,158 @@
++"""I-cred-006 (Phase 6, L5) — origin-cluster weight-mass aggregator (pure module).
++
++Aggregate, per claim cluster, a **weight-mass** = Σ over INDEPENDENT origin clusters of
++``cluster_mass``, where ``cluster_mass = authority_score(canonical_origin) × credibility_weight(
++canonical_origin)`` and every derivative copy contributes ZERO. This is the executable form of plan
++§148: 50 copies of one press release count ONCE, at the origin's authority — the vax-defense.
++
++POSTURE (binding):
++  * ADVISORY ONLY. Weight-mass is a DISCLOSED side-output. The 4-role D8 release policy
++    (``roles/release_policy.py``) stays the single binding release gate; ``strict_verify``'s six
++    checks stay the only binding faithfulness gate. This module touches neither.
++  * DEFAULT-OFF byte-identical: ``PG_SWEEP_WEIGHT_MASS`` (no production caller; pure library).
++  * Copies contribute ZERO to the mass; adding a copy of ANY authority cannot inflate the mass
++    (origin-cluster invariant — copies are excluded, the canonical origin alone carries the mass).
++  * PURE: no row mutation, no network, no faithfulness-file import; LAW VI env-overridable; snake_case.
++
++This issue ships ONLY the pure aggregator. Removing the journal count-floor, wiring weight-mass into
++``corpus_adequacy_gate``, and the per-claim clinical source-type veto are the gate-touching follow-up
++(I-cred-006b) with their own flag — they modify faithfulness-adjacent gates.
++
++INPUT join (all on the stable per-evidence ``evidence_id``):
++  * ``rows``: evidence rows, each carrying ``evidence_id``, ``origin_cluster_id`` + ``is_canonical_origin``
++    (Phase-4 assignment merged onto the row by the caller), and ``authority_score``. A row with no
++    ``origin_cluster_id`` is treated as its OWN independent origin (it was never flagged a copy).
++  * ``claims``: Phase-5 atomic claims (``claim_cluster_id`` + ``evidence_id``).
++  * ``judgments``: Phase-2 credibility judgments (``evidence_id`` -> ``credibility_weight``); a canonical
++    with NO judgment uses ``credibility_weight = 1.0`` (mass = pure authority).
++"""
++from __future__ import annotations
++
++import math
++import os
++from dataclasses import dataclass
++from typing import Any
++
++_FLAG = "PG_SWEEP_WEIGHT_MASS"
++_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
++
++
++def weight_mass_enabled() -> bool:
++    """True unless ``PG_SWEEP_WEIGHT_MASS`` is unset/falsey (default OFF => byte-identical)."""
++    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
++
++
++def _num(value: Any) -> float:
++    """Coerce to a finite float; non-numeric / NaN / inf -> 0.0 (fail-soft on a disclosure signal)."""
++    try:
++        x = float(value)
++    except (TypeError, ValueError):
++        return 0.0
++    return 0.0 if (math.isnan(x) or math.isinf(x)) else x
++
++
++def _clamp01(value: Any) -> float:
++    x = _num(value)
++    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
++
++
++@dataclass
++class OriginContribution:
++    """One independent origin's contribution to a claim cluster's weight-mass."""
++
++    origin_cluster_id: str
++    canonical_evidence_id: str
++    authority_score: float       # of the canonical origin
++    credibility_weight: float    # Phase-2 weight of the canonical origin (1.0 if none)
++    cluster_mass: float          # = authority_score * credibility_weight
++    copy_count: int              # derivative copies attributed to this origin (disclosure)
++
++
++@dataclass
++class ClaimWeightMass:
++    """A claim cluster's aggregated, copy-uninflatable weight-mass + its origin breakdown."""
++
++    claim_cluster_id: str
++    weight_mass: float
++    independent_origin_count: int
++    contributions: list
++
++
++def _origin_id_for_row(row: dict[str, Any]) -> str:
++    ocid = str(row.get("origin_cluster_id", "") or "").strip()
++    # An uncollapsed row (never flagged a copy) is its OWN independent origin.
++    return ocid if ocid else f"origin::{row.get('evidence_id', '')}"
++
++
++def aggregate_weight_mass(
++    claims: list,
++    rows: list[dict[str, Any]],
++    judgments: list,
++) -> list[ClaimWeightMass]:
++    """Aggregate per-claim-cluster origin-cluster weight-mass — ADVISORY, pure, no row mutation.
++
++    For each claim cluster, group its supporting rows by ``origin_cluster_id``; for each origin use the
++    CANONICAL origin's ``authority_score × credibility_weight`` as the cluster mass; copies contribute
++    ZERO (only ``copy_count`` for disclosure). The claim weight-mass is the sum once per origin cluster.
++    """
++    rows = list(rows or [])
++    row_by_eid = {str(r.get("evidence_id", "")): r for r in rows}
++    cred_by_eid: dict[str, float] = {}
++    for judgment in (judgments or []):
++        eid = str(getattr(judgment, "evidence_id", "") or "")
++        if eid:
++            cred_by_eid[eid] = _clamp01(getattr(judgment, "credibility_weight", None))
++
++    # The canonical row per origin cluster (global across all rows), so a claim supported only by
++    # COPIES still attributes the mass to the origin's authority, never a copy's.
++    canonical_by_origin: dict[str, dict[str, Any]] = {}
++    for row in rows:
++        ocid = _origin_id_for_row(row)
++        if row.get("is_canonical_origin") and ocid not in canonical_by_origin:
++            canonical_by_origin[ocid] = row
++    for row in rows:  # uncollapsed singletons are their own canonical
++        ocid = _origin_id_for_row(row)
++        if not str(row.get("origin_cluster_id", "") or "").strip():
++            canonical_by_origin.setdefault(ocid, row)
++
++    claim_eids: dict[str, list] = {}
++    for claim in (claims or []):
++        ccid = str(getattr(claim, "claim_cluster_id", "") or "")
++        eid = str(getattr(claim, "evidence_id", "") or "")
++        if ccid:
++            claim_eids.setdefault(ccid, []).append(eid)
++
++    out: list[ClaimWeightMass] = []
++    for ccid in sorted(claim_eids):
++        members_by_origin: dict[str, set] = {}
++        for eid in claim_eids[ccid]:
++            row = row_by_eid.get(eid)
++            if row is None:
++                continue
++            members_by_origin.setdefault(_origin_id_for_row(row), set()).add(eid)
++
++        contributions: list[OriginContribution] = []
++        for ocid in sorted(members_by_origin):
++            members = members_by_origin[ocid]
++            # Prefer the global canonical; fall back to a deterministic member if Phase 4 did not
++            # mark one (fail-soft — never crashes a disclosure aggregate).
++            canonical = canonical_by_origin.get(ocid) or row_by_eid.get(sorted(members)[0])
++            canon_eid = str(canonical.get("evidence_id", "")) if canonical else ""
++            authority = _clamp01(canonical.get("authority_score")) if canonical else 0.0
++            credibility = cred_by_eid.get(canon_eid, 1.0)  # no judgment => neutral 1.0
++            contributions.append(OriginContribution(
++                origin_cluster_id=ocid,
++                canonical_evidence_id=canon_eid,
++                authority_score=authority,
++                credibility_weight=credibility,
++                cluster_mass=authority * credibility,
++                copy_count=max(0, len(members) - 1),
++            ))
++
++        out.append(ClaimWeightMass(
++            claim_cluster_id=ccid,
++            weight_mass=sum(c.cluster_mass for c in contributions),
++            independent_origin_count=len(contributions),
++            contributions=contributions,
++        ))
++    return out
+diff --git a/tests/polaris_graph/synthesis/test_weight_mass_phase6.py b/tests/polaris_graph/synthesis/test_weight_mass_phase6.py
+new file mode 100644
+index 00000000..f554da72
+--- /dev/null
++++ b/tests/polaris_graph/synthesis/test_weight_mass_phase6.py
+@@ -0,0 +1,121 @@
++"""I-cred-006 (Phase 6) — origin-cluster weight-mass aggregator. Offline, deterministic, no network.
++Each test maps to a brief acceptance criterion (AC-1..AC-8)."""
++from __future__ import annotations
++
++import copy
++
++import pytest
++
++from src.polaris_graph.synthesis.weight_mass import (
++    ClaimWeightMass,
++    OriginContribution,
++    aggregate_weight_mass,
++    weight_mass_enabled,
++)
++
++
++def _claim(ccid, eid):
++    return type("C", (), {"claim_cluster_id": ccid, "evidence_id": eid})()
++
++
++def _judg(eid, weight):
++    return type("J", (), {"evidence_id": eid, "credibility_weight": weight})()
++
++
++def _row(eid, ocid, canonical, authority):
++    return {
++        "evidence_id": eid,
++        "origin_cluster_id": ocid,
++        "is_canonical_origin": canonical,
++        "authority_score": authority,
++    }
++
++
++# ── AC-1 ──────────────────────────────────────────────────────────────────────
++def test_flag_default_off(monkeypatch):
++    monkeypatch.delenv("PG_SWEEP_WEIGHT_MASS", raising=False)
++    assert weight_mass_enabled() is False
++
++
++@pytest.mark.parametrize("on", ["1", "true", "on", "yes", "TRUE"])
++def test_flag_on(monkeypatch, on):
++    monkeypatch.setenv("PG_SWEEP_WEIGHT_MASS", on)
++    assert weight_mass_enabled() is True
++
++
++# ── AC-2: single origin + the vax invariant (copies cannot inflate) ───────────
++def test_single_origin_copies_uninflatable():
++    rows = [
++        _row("e0", "o1", True, 0.8),    # canonical
++        _row("e1", "o1", False, 0.3),   # copy
++        _row("e2", "o1", False, 0.9),   # copy with HIGHER authority
++    ]
++    claims = [_claim("c1", "e0"), _claim("c1", "e1"), _claim("c1", "e2")]
++    out = aggregate_weight_mass(claims, rows, [_judg("e0", 0.5)])
++    assert len(out) == 1
++    cm = out[0]
++    assert cm.independent_origin_count == 1
++    assert abs(cm.weight_mass - 0.4) < 1e-9   # 0.8 * 0.5, canonical ONLY
++    assert cm.contributions[0].copy_count == 2
++
++    # Add MORE copies of ANY authority -> weight_mass is UNCHANGED (the vax-defense).
++    rows2 = rows + [_row("e3", "o1", False, 0.99), _row("e4", "o1", False, 0.99)]
++    claims2 = claims + [_claim("c1", "e3"), _claim("c1", "e4")]
++    out2 = aggregate_weight_mass(claims2, rows2, [_judg("e0", 0.5)])
++    assert abs(out2[0].weight_mass - 0.4) < 1e-9
++    assert out2[0].independent_origin_count == 1
++
++
++# ── AC-3: two independent origins sum ─────────────────────────────────────────
++def test_two_independent_origins_sum():
++    rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
++    claims = [_claim("c1", "e0"), _claim("c1", "e1")]
++    cm = aggregate_weight_mass(claims, rows, [])[0]
++    assert cm.independent_origin_count == 2
++    assert abs(cm.weight_mass - 1.4) < 1e-9  # 0.8*1.0 + 0.6*1.0
++
++
++# ── AC-4: a higher-authority copy contributes ZERO ────────────────────────────
++def test_higher_authority_copy_contributes_zero():
++    rows = [_row("e0", "o1", True, 0.2), _row("e1", "o1", False, 0.99)]
++    claims = [_claim("c1", "e0"), _claim("c1", "e1")]
++    cm = aggregate_weight_mass(claims, rows, [])[0]
++    assert abs(cm.weight_mass - 0.2) < 1e-9  # canonical 0.2, never the 0.99 copy
++
++
++# ── AC-5: canonical with no judgment uses neutral 1.0 ─────────────────────────
++def test_canonical_no_judgment_uses_neutral_one():
++    cm = aggregate_weight_mass([_claim("c1", "e0")], [_row("e0", "o1", True, 0.7)], [])[0]
++    assert abs(cm.weight_mass - 0.7) < 1e-9  # 0.7 * 1.0
++
++
++# ── AC-6: distinct claim clusters aggregate independently ─────────────────────
++def test_distinct_claim_clusters_independent():
++    rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
++    claims = [_claim("c1", "e0"), _claim("c2", "e1")]
++    by = {c.claim_cluster_id: c for c in aggregate_weight_mass(claims, rows, [])}
++    assert abs(by["c1"].weight_mass - 0.8) < 1e-9
++    assert abs(by["c2"].weight_mass - 0.6) < 1e-9
++
++
++# ── AC-7: missing authority on the canonical -> 0.0, no crash ─────────────────
++def test_missing_authority_is_zero_no_crash():
++    rows = [{"evidence_id": "e0", "origin_cluster_id": "o1", "is_canonical_origin": True}]
++    cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
++    assert cm.weight_mass == 0.0
++
++
++# ── AC-8: purity — no row mutation ────────────────────────────────────────────
++def test_no_row_mutation():
++    rows = [_row("e0", "o1", True, 0.8)]
++    before = copy.deepcopy(rows)
++    aggregate_weight_mass([_claim("c1", "e0")], rows, [_judg("e0", 0.5)])
++    assert rows == before
++
++
++def test_uncollapsed_row_is_its_own_origin():
++    """A row with no origin_cluster_id is treated as its OWN independent origin (never a copy)."""
++    rows = [{"evidence_id": "e0", "authority_score": 0.5, "is_canonical_origin": False}]
++    cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
++    assert cm.independent_origin_count == 1
++    assert abs(cm.weight_mass - 0.5) < 1e-9
+```
+
+codex
+I’ll verify the Phase 6 contract in the plan, then cross-check the new module and tests against that contract and the “default-off/no gate edits” constraints.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/synthesis/weight_mass.py | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat; git diff --name-only' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/synthesis/test_weight_mass_phase6.py | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "Phase 6|weight[-_ ]mass|§148|origin cluster|authority_score|credibility_weight" docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md' in C:\POLARIS
+ succeeded in 2764ms:
+"""I-cred-006 (Phase 6) — origin-cluster weight-mass aggregator. Offline, deterministic, no network.
+Each test maps to a brief acceptance criterion (AC-1..AC-8)."""
+from __future__ import annotations
+
+import copy
+
+import pytest
+
+from src.polaris_graph.synthesis.weight_mass import (
+    ClaimWeightMass,
+    OriginContribution,
+    aggregate_weight_mass,
+    weight_mass_enabled,
+)
+
+
+def _claim(ccid, eid):
+    return type("C", (), {"claim_cluster_id": ccid, "evidence_id": eid})()
+
+
+def _judg(eid, weight):
+    return type("J", (), {"evidence_id": eid, "credibility_weight": weight})()
+
+
+def _row(eid, ocid, canonical, authority):
+    return {
+        "evidence_id": eid,
+        "origin_cluster_id": ocid,
+        "is_canonical_origin": canonical,
+        "authority_score": authority,
+    }
+
+
+# ── AC-1 ──────────────────────────────────────────────────────────────────────
+def test_flag_default_off(monkeypatch):
+    monkeypatch.delenv("PG_SWEEP_WEIGHT_MASS", raising=False)
+    assert weight_mass_enabled() is False
+
+
+@pytest.mark.parametrize("on", ["1", "true", "on", "yes", "TRUE"])
+def test_flag_on(monkeypatch, on):
+    monkeypatch.setenv("PG_SWEEP_WEIGHT_MASS", on)
+    assert weight_mass_enabled() is True
+
+
+# ── AC-2: single origin + the vax invariant (copies cannot inflate) ───────────
+def test_single_origin_copies_uninflatable():
+    rows = [
+        _row("e0", "o1", True, 0.8),    # canonical
+        _row("e1", "o1", False, 0.3),   # copy
+        _row("e2", "o1", False, 0.9),   # copy with HIGHER authority
+    ]
+    claims = [_claim("c1", "e0"), _claim("c1", "e1"), _claim("c1", "e2")]
+    out = aggregate_weight_mass(claims, rows, [_judg("e0", 0.5)])
+    assert len(out) == 1
+    cm = out[0]
+    assert cm.independent_origin_count == 1
+    assert abs(cm.weight_mass - 0.4) < 1e-9   # 0.8 * 0.5, canonical ONLY
+    assert cm.contributions[0].copy_count == 2
+
+    # Add MORE copies of ANY authority -> weight_mass is UNCHANGED (the vax-defense).
+    rows2 = rows + [_row("e3", "o1", False, 0.99), _row("e4", "o1", False, 0.99)]
+    claims2 = claims + [_claim("c1", "e3"), _claim("c1", "e4")]
+    out2 = aggregate_weight_mass(claims2, rows2, [_judg("e0", 0.5)])
+    assert abs(out2[0].weight_mass - 0.4) < 1e-9
+    assert out2[0].independent_origin_count == 1
+
+
+# ── AC-3: two independent origins sum ─────────────────────────────────────────
+def test_two_independent_origins_sum():
+    rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
+    claims = [_claim("c1", "e0"), _claim("c1", "e1")]
+    cm = aggregate_weight_mass(claims, rows, [])[0]
+    assert cm.independent_origin_count == 2
+    assert abs(cm.weight_mass - 1.4) < 1e-9  # 0.8*1.0 + 0.6*1.0
+
+
+# ── AC-4: a higher-authority copy contributes ZERO ────────────────────────────
+def test_higher_authority_copy_contributes_zero():
+    rows = [_row("e0", "o1", True, 0.2), _row("e1", "o1", False, 0.99)]
+    claims = [_claim("c1", "e0"), _claim("c1", "e1")]
+    cm = aggregate_weight_mass(claims, rows, [])[0]
+    assert abs(cm.weight_mass - 0.2) < 1e-9  # canonical 0.2, never the 0.99 copy
+
+
+# ── AC-5: canonical with no judgment uses neutral 1.0 ─────────────────────────
+def test_canonical_no_judgment_uses_neutral_one():
+    cm = aggregate_weight_mass([_claim("c1", "e0")], [_row("e0", "o1", True, 0.7)], [])[0]
+    assert abs(cm.weight_mass - 0.7) < 1e-9  # 0.7 * 1.0
+
+
+# ── AC-6: distinct claim clusters aggregate independently ─────────────────────
+def test_distinct_claim_clusters_independent():
+    rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
+    claims = [_claim("c1", "e0"), _claim("c2", "e1")]
+    by = {c.claim_cluster_id: c for c in aggregate_weight_mass(claims, rows, [])}
+    assert abs(by["c1"].weight_mass - 0.8) < 1e-9
+    assert abs(by["c2"].weight_mass - 0.6) < 1e-9
+
+
+# ── AC-7: missing authority on the canonical -> 0.0, no crash ─────────────────
+def test_missing_authority_is_zero_no_crash():
+    rows = [{"evidence_id": "e0", "origin_cluster_id": "o1", "is_canonical_origin": True}]
+    cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
+    assert cm.weight_mass == 0.0
+
+
+# ── AC-8: purity — no row mutation ────────────────────────────────────────────
+def test_no_row_mutation():
+    rows = [_row("e0", "o1", True, 0.8)]
+    before = copy.deepcopy(rows)
+    aggregate_weight_mass([_claim("c1", "e0")], rows, [_judg("e0", 0.5)])
+    assert rows == before
+
+
+def test_uncollapsed_row_is_its_own_origin():
+    """A row with no origin_cluster_id is treated as its OWN independent origin (never a copy)."""
+    rows = [{"evidence_id": "e0", "authority_score": 0.5, "is_canonical_origin": False}]
+    cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
+    assert cm.independent_origin_count == 1
+    assert abs(cm.weight_mass - 0.5) < 1e-9
+
+ succeeded in 4606ms:
+"""I-cred-006 (Phase 6, L5) — origin-cluster weight-mass aggregator (pure module).
+
+Aggregate, per claim cluster, a **weight-mass** = Σ over INDEPENDENT origin clusters of
+``cluster_mass``, where ``cluster_mass = authority_score(canonical_origin) × credibility_weight(
+canonical_origin)`` and every derivative copy contributes ZERO. This is the executable form of plan
+§148: 50 copies of one press release count ONCE, at the origin's authority — the vax-defense.
+
+POSTURE (binding):
+  * ADVISORY ONLY. Weight-mass is a DISCLOSED side-output. The 4-role D8 release policy
+    (``roles/release_policy.py``) stays the single binding release gate; ``strict_verify``'s six
+    checks stay the only binding faithfulness gate. This module touches neither.
+  * DEFAULT-OFF byte-identical: ``PG_SWEEP_WEIGHT_MASS`` (no production caller; pure library).
+  * Copies contribute ZERO to the mass; adding a copy of ANY authority cannot inflate the mass
+    (origin-cluster invariant — copies are excluded, the canonical origin alone carries the mass).
+  * PURE: no row mutation, no network, no faithfulness-file import; LAW VI env-overridable; snake_case.
+
+This issue ships ONLY the pure aggregator. Removing the journal count-floor, wiring weight-mass into
+``corpus_adequacy_gate``, and the per-claim clinical source-type veto are the gate-touching follow-up
+(I-cred-006b) with their own flag — they modify faithfulness-adjacent gates.
+
+INPUT join (all on the stable per-evidence ``evidence_id``):
+  * ``rows``: evidence rows, each carrying ``evidence_id``, ``origin_cluster_id`` + ``is_canonical_origin``
+    (Phase-4 assignment merged onto the row by the caller), and ``authority_score``. A row with no
+    ``origin_cluster_id`` is treated as its OWN independent origin (it was never flagged a copy).
+  * ``claims``: Phase-5 atomic claims (``claim_cluster_id`` + ``evidence_id``).
+  * ``judgments``: Phase-2 credibility judgments (``evidence_id`` -> ``credibility_weight``); a canonical
+    with NO judgment uses ``credibility_weight = 1.0`` (mass = pure authority).
+"""
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+from typing import Any
+
+_FLAG = "PG_SWEEP_WEIGHT_MASS"
+_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+
+
+def weight_mass_enabled() -> bool:
+    """True unless ``PG_SWEEP_WEIGHT_MASS`` is unset/falsey (default OFF => byte-identical)."""
+    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+
+
+def _num(value: Any) -> float:
+    """Coerce to a finite float; non-numeric / NaN / inf -> 0.0 (fail-soft on a disclosure signal)."""
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if (math.isnan(x) or math.isinf(x)) else x
+
+
+def _clamp01(value: Any) -> float:
+    x = _num(value)
+    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+
+@dataclass
+class OriginContribution:
+    """One independent origin's contribution to a claim cluster's weight-mass."""
+
+    origin_cluster_id: str
+    canonical_evidence_id: str
+    authority_score: float       # of the canonical origin
+    credibility_weight: float    # Phase-2 weight of the canonical origin (1.0 if none)
+    cluster_mass: float          # = authority_score * credibility_weight
+    copy_count: int              # derivative copies attributed to this origin (disclosure)
+
+
+@dataclass
+class ClaimWeightMass:
+    """A claim cluster's aggregated, copy-uninflatable weight-mass + its origin breakdown."""
+
+    claim_cluster_id: str
+    weight_mass: float
+    independent_origin_count: int
+    contributions: list
+
+
+def _origin_id_for_row(row: dict[str, Any]) -> str:
+    ocid = str(row.get("origin_cluster_id", "") or "").strip()
+    # An uncollapsed row (never flagged a copy) is its OWN independent origin.
+    return ocid if ocid else f"origin::{row.get('evidence_id', '')}"
+
+
+def aggregate_weight_mass(
+    claims: list,
+    rows: list[dict[str, Any]],
+    judgments: list,
+) -> list[ClaimWeightMass]:
+    """Aggregate per-claim-cluster origin-cluster weight-mass — ADVISORY, pure, no row mutation.
+
+    For each claim cluster, group its supporting rows by ``origin_cluster_id``; for each origin use the
+    CANONICAL origin's ``authority_score × credibility_weight`` as the cluster mass; copies contribute
+    ZERO (only ``copy_count`` for disclosure). The claim weight-mass is the sum once per origin cluster.
+    """
+    rows = list(rows or [])
+    row_by_eid = {str(r.get("evidence_id", "")): r for r in rows}
+    cred_by_eid: dict[str, float] = {}
+    for judgment in (judgments or []):
+        eid = str(getattr(judgment, "evidence_id", "") or "")
+        if eid:
+            cred_by_eid[eid] = _clamp01(getattr(judgment, "credibility_weight", None))
+
+    # The canonical row per origin cluster (global across all rows), so a claim supported only by
+    # COPIES still attributes the mass to the origin's authority, never a copy's.
+    canonical_by_origin: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        ocid = _origin_id_for_row(row)
+        if row.get("is_canonical_origin") and ocid not in canonical_by_origin:
+            canonical_by_origin[ocid] = row
+    for row in rows:  # uncollapsed singletons are their own canonical
+        ocid = _origin_id_for_row(row)
+        if not str(row.get("origin_cluster_id", "") or "").strip():
+            canonical_by_origin.setdefault(ocid, row)
+
+    claim_eids: dict[str, list] = {}
+    for claim in (claims or []):
+        ccid = str(getattr(claim, "claim_cluster_id", "") or "")
+        eid = str(getattr(claim, "evidence_id", "") or "")
+        if ccid:
+            claim_eids.setdefault(ccid, []).append(eid)
+
+    out: list[ClaimWeightMass] = []
+    for ccid in sorted(claim_eids):
+        members_by_origin: dict[str, set] = {}
+        for eid in claim_eids[ccid]:
+            row = row_by_eid.get(eid)
+            if row is None:
+                continue
+            members_by_origin.setdefault(_origin_id_for_row(row), set()).add(eid)
+
+        contributions: list[OriginContribution] = []
+        for ocid in sorted(members_by_origin):
+            members = members_by_origin[ocid]
+            # Prefer the global canonical; fall back to a deterministic member if Phase 4 did not
+            # mark one (fail-soft — never crashes a disclosure aggregate).
+            canonical = canonical_by_origin.get(ocid) or row_by_eid.get(sorted(members)[0])
+            canon_eid = str(canonical.get("evidence_id", "")) if canonical else ""
+            authority = _clamp01(canonical.get("authority_score")) if canonical else 0.0
+            credibility = cred_by_eid.get(canon_eid, 1.0)  # no judgment => neutral 1.0
+            contributions.append(OriginContribution(
+                origin_cluster_id=ocid,
+                canonical_evidence_id=canon_eid,
+                authority_score=authority,
+                credibility_weight=credibility,
+                cluster_mass=authority * credibility,
+                copy_count=max(0, len(members) - 1),
+            ))
+
+        out.append(ClaimWeightMass(
+            claim_cluster_id=ccid,
+            weight_mass=sum(c.cluster_mass for c in contributions),
+            independent_origin_count=len(contributions),
+            contributions=contributions,
+        ))
+    return out
+
+ succeeded in 6651ms:
+8:**Revision log — Codex plan-gate iter-1 (REQUEST_CHANGES) addressed inline:** P1-1 added the §6b competitor systems (Claude Research/Anthropic Citations API, MS Copilot Researcher, Grok); P1-2 specified the **origin-cluster weight-mass invariant** (copied rows cannot inflate claim-side mass); P1-3 **wired the clinical source-type veto** to the clinical adequacy floor (not a slogan); P2-4 made the drb_72 fixture audit-conditional; P2-5 corrected the `evidence_selector` anchor; P2-6 named the voter/arbiter integration point. **Iter-2 (REQUEST_CHANGES) addressed:** P1-2-continuing — replaced the row-level/averaging formula with the EXECUTABLE origin-cluster invariant (one `max(authority_score)` per `origin_cluster_id`, summed once per cluster; L3 emits `origin_cluster_id`); P2 — Phase 1 bibliography keys render only when the flag is ON (OFF byte-identical); P2 — split the clinical-veto test (Phase 6 = veto fires / not weight-adequate; Phase 7 = ABSTAIN/fringe rendering). **Iter-3 (REQUEST_CHANGES) addressed:** P1-2 made mathematically closed — `cluster_mass = authority(canonical origin)`, copies excluded, so a higher-authority copier joining a cluster cannot raise mass (+ copy-invariance fixture); Phase 4a emitted-contract made explicit (`origin_cluster_id` + canonical designation + copy flag, with a P6-groupability test); drb_72 Verification bullet made audit-conditional; Phase 6 clinical-veto bullet emits a signal (rendering moved to Phase 7); Phase 10 adds the `SENTINEL_ORIGINS` (`plan_sufficiency_gate.py`) update + fallback test. **Iter-4 (REQUEST_CHANGES) addressed:** replaced every remaining normative `max(authority_score)` with `authority_score(canonical_origin)` (§3 L3/L5 rows + Phase 4a scope) so the formula is consistent everywhere; tightened the clinical-veto wording (Phase 6 owns the `clinical_source_type_veto` emission, Phase 7 only renders); removed the duplicate `Files:` bullets in Phase 4a + Phase 7. **Iter-5: APPROVE** (Codex binding plan-gate, 0 P0 / 0 P1, convergence=accept_remaining). One P2 residual — keep the per-claim clinical source-type veto distinct from the corpus clinical adequacy floor — noted inline in Phase 6 for the implementation brief.
+44:| L1 | **Score — two-axis, domain-conditional, article+claim** (§4 L1 + §6c-1) | Reliability × Relevance, primary axis chosen by domain; article-level (author/venue/method/funding/date/corrections) AND claim-specific relevance, not just host prior | `authority_model.py` signals A–E (scalar blend); `tier_classifier.py:135-142` additive fields `authority_score`/`corroboration_count`/`authority_confidence`; `scope_templates/` for domain | second **relevance** axis; domain-conditional rubric selector; article-level + claim-level decomposition (real BUILD — current blend is one field-agnostic scalar) |
+48:| L5 | **Aggregate by weight, auditable non-averaging** (§4 L3) | Weighted Majority Voting over post-collapse independent origins; inverse-variance for quantitative; GRADE "lowest-among-critical" for multi-part certainty | `plan_sufficiency_gate.py` already uses `authority_score` as a numeric GATE (`:50`, `:301`) | replace COUNT aggregation (`plan_sufficiency_gate.py:313` `covered_count >= target`; journal `DEFAULT_MIN_DISTINCT_JOURNALS=12` `journal_only_filter.py:531`) with **origin-cluster weight-mass** (one weight per independent-origin cluster; copied rows cannot inflate mass — Phase 6 invariant) |
+50:| L7 | **Per-claim disclosure** (§4 L5 + §6c-1 claim-level) | Each verified sentence carries {span-verdict, credibility_weight, independent_origin_count, certainty_label}; rendered in bibliography; "Proof Replay" SUPPORTS-not-EXISTS UX | `SentenceVerification` additive-field precedent (`soft_warnings` `:427`, `judge_error` `:433`); `resolve_provenance_to_citations` `:1881` render point | four optional fields + bibliography render + certainty-label scoring fn |
+58:- **`plan_sufficiency_gate.py`** already treats `authority_score` as a numeric gate — converting its COUNT aggregation to WEIGHT-MASS is a small, surgical re-wire.
+67:| L1 two-axis score | scalar `authority_score` blend A–E (`authority_model.py:159-170`); domain in `scope_templates` | **relevance** axis + domain-conditional rubric + article/claim decomposition | add `relevance_score` to `AuthorityResult` (`source_class.py:75`); new `credibility_prior.py` selecting rubric off detected domain; emit on rows in `tier_classifier.py:2035-2038` |
+69:| L3 independence-collapse | host eTLD+1 collapse (`corroboration.py:58-64`); finding-clustering (`finding_dedup.py:121`) | **content-copy** TF-IDF ≥0.85 + ownership/funding/authorship | new `independence_collapse.py`; emits a stable `origin_cluster_id` + membership per row (NOT just `independent_origin_count`); runs BEFORE L5 (which takes `authority_score(canonical_origin)` once per origin cluster; derivative copies contribute zero) |
+71:| L5 weighted aggregate | COUNT thresholds (`plan_sufficiency_gate.py:313`); journal COUNT floor (`journal_only_filter.py:531,596`) | origin-cluster weight-mass = Σ over origin clusters of `authority_score(canonical_origin)` (one mass per `origin_cluster_id` = its canonical origin's authority; derivative copies contribute zero; NO row-level term, NO max-over-copies — Phase 6 invariant) | replace `covered_count >= target` with `weight_mass >= weight_target` (`plan_sufficiency_gate.py:312-317`); add `assess_journal_only_adequacy` weight path (`journal_only_filter.py:543-607`); consumes L3 `origin_cluster_id` |
+73:| L7 per-claim disclose | `SentenceVerification` fields; bibliography render | 4 new optional fields + render | add `span_verdict`/`credibility_weight`/`independent_origin_count`/`certainty_label` to `SentenceVerification` (`provenance_generator.py:419-433`); extend bibliography dict (`:1897-1903`) |
+90:- **Scope:** Add four optional fields to `SentenceVerification` (dataclass-only inert plumbing). The bibliography render is NOT changed here — the four keys are emitted ONLY when the credibility-disclosure flag is ON (Phase 8), so OFF stays byte-identical (Codex iter-2 P2: extra empty keys would break byte-identity). NO population yet (defaults: `span_verdict=""`, `credibility_weight=None`, `independent_origin_count=None`, `certainty_label=""`).
+120:- **Scope:** `independence_collapse.py` — TF-IDF cosine ≥0.85 near-duplicate clustering over the retrieved corpus, layered on the existing host-collapse primitive. Curated acceptable-mirror handling (arXiv/SSRN/PMC) to bound false positives. **Emits a stable `origin_cluster_id` + canonical-origin designation + cluster membership per row** (L5 takes one `authority_score(canonical_origin)` mass per cluster — derivative copies contribute zero — Codex iter-3), not merely a scalar `independent_origin_count`.
+147:### Phase 6 — Weighted aggregation (replace count with weight-mass). [L5]
+148:- **Scope:** Replace COUNT aggregation with **origin-cluster weight-mass**, computed by this EXECUTABLE invariant (Codex iter-2 P1-2): group every supporting row by `(claim_cluster_id, origin_cluster_id)`; for each origin cluster L3 designates exactly ONE **canonical origin** (the syndication root / earliest independent publication; the other members are derivative copies — genuinely-INDEPENDENT corroboration has different content and forms its OWN cluster, it does not join an existing one). `cluster_mass = authority_score(canonical origin)`; copy/derivative members are attributed for disclosure ("N copies → 1 origin") but contribute ZERO to the mass. The claim-side weight-mass = Σ of `cluster_mass`, once per origin cluster within the claim cluster. **No row-level term, no averaging, no max-over-copies.** A row joins an existing `origin_cluster_id` only because L3 flagged it a copy of that cluster's canonical origin — so it adds NOTHING to the mass **even if its own `authority_score` is higher than the canonical origin's** (a high-authority verbatim republisher is still derivative; only its own *independent* content would form a new cluster). **Binding invariant (Codex iter-3 + #1161):** for a DATED origin cluster (canonical = earliest publication date) `weight_mass(rows + copied_row) == weight_mass(rows)` for ANY copier authority (strict copy-equality). For an ALL-UNDATED cluster the canonical is the LOWEST-`authority_score` member (conservative-min): the mass is MONOTONICALLY NON-INCREASING under copy additions — a higher-authority copy can NEVER inflate it (the binding no-inflation property), and a lower-authority copy can only LOWER it (honest, never inflating). Either way a copied row can NEVER inflate the false majority. This requires **L3 to emit a stable `origin_cluster_id`, the canonical-origin designation, and membership** (NOT merely an `independent_origin_count` scalar) and L4 to emit `claim_cluster_id`, both BEFORE L5. Without it, copied rows re-inflate the false majority and the vax test fails. Applies in plan-sufficiency AND journal-only adequacy. Per-facet weighting preserved.
+150:- **Clinical source-type veto (Codex iter-1 P1-3 — wired, not a slogan):** a clinical-domain claim requires ≥1 **independent clinical-tier source (T1/T2 clinical)** in its origin-clustered support; if absent, Phase 6 emits a **`not_weight_adequate` / `clinical_source_type_veto`** signal REGARDLESS of news/commercial weight-mass; **Phase 7 (L6) consumes that signal to render ABSTAIN/fringe** (the rendering is Phase 7, not here). Wired to the existing clinical adequacy floor (`corpus_adequacy_gate.py` `_DEFAULT_DOMAIN_THRESHOLDS['clinical']`: `min_t1_count=3`, `min_t1_plus_t2=5`) The source-type veto is OWNED and EMITTED at Phase 6 (the `clinical_source_type_veto` signal); web/news/commercial weight can NEVER substitute for the clinical-tier floor; Phase 7 only RENDERS the resulting ABSTAIN/fringe. **Brief-time note (Codex iter-5 P2):** the per-claim source-type VETO (a claim needs ≥1 independent clinical-tier source) is DISTINCT from the corpus-level clinical adequacy FLOOR (`min_t1_count=3`, `min_t1_plus_t2=5`) — the Phase-6 implementation brief must keep them separate (the veto is a per-claim absence-check; the floor is a corpus threshold). They are not the same gate and must not be conflated.
+151:- **Offline tests:** **the vax adversarial test** (N independent-LOOKING-but-copied low-cred sources vs few high-cred — naive count flips to the false majority, weight+collapse picks the high-cred side); **copy-invariance fixture (Codex iter-3): a copier whose own `authority_score` is HIGHER than the cluster's canonical origin joins that origin cluster → `weight_mass` is UNCHANGED (the copier is derivative, excluded from the cluster mass)**; drb_72 regression **(CONDITIONAL on the journal-only audit, Decision #4)** — assert weight-floor passage for drb_72 ONLY if the audit confirms journal-only was an implementation choice, not a protocol requirement; otherwise assert on a non-protocol-pinned fixture (a protocol-pinned `source_restriction: journal_only` keeps its hard T1+T2 filter); corpus_approval still blocks material-deviation auto-approve even when weight-adequate (AuthorizedSweep still required); **clinical veto test (adequacy-level, Codex iter-2)** — a clinical claim with only news/commercial support is **NOT weight-adequate** / the clinical source-type veto fires (the T1/T2 clinical-tier floor is empty), even at high weight-mass. The ABSTAIN/fringe *rendering* is asserted in Phase 7 (L6 composition), not here.
+152:- **Verification:** the count→weight flip is reproducible on the vax fixture (naive count picks the false majority; weight-mass + independence-collapse does not); drb_72 regression **(CONDITIONAL on Decision #4 / the journal-only audit)** passes adequacy at the weight-floor ONLY if the audit confirms journal-only was implementation-only (else assert on a non-protocol-pinned fixture); OFF byte-identity smoke confirms the legacy count path is unchanged with the flag off; corpus_approval still fires on the material-deviation fixture.
+165:- **Offline tests:** end-to-end populates `credibility_weight` + `independent_origin_count` ("N sources → M origins") + `certainty_label` + `span_verdict`; bibliography renders all four; OFF byte-identity retained.
+267:   the deterministic `signals_cited` it reasoned from (`authority_score`, `source_class`,
+279:  any weighted tally; origin-cluster weight-mass stays uninflatable by copies.
+
+ succeeded in 8757ms:
+ logs/session_log.md | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+logs/session_log.md
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/session_log.md', LF will be replaced by CRLF the next time Git touches it
+
+codex
+The plan’s Phase 6 text is stricter than the brief in one important edge case: for all-undated origin clusters, canonical selection must be conservative-min so copied rows cannot inflate mass even when Phase 4 has not supplied a dated canonical. I’m checking whether the implementation enforces that or only documents the happy path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_SWEEP_WEIGHT_MASS|aggregate_weight_mass|weight_mass_enabled|ClaimWeightMass|weight_mass" src tests docs -g "!src/polaris_graph/synthesis/weight_mass.py" -g "!tests/polaris_graph/synthesis/test_weight_mass_phase6.py"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/synthesis/weight_mass.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -First 190' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/polaris_graph/synthesis/test_weight_mass_phase6.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -First 170' in C:\POLARIS
+ succeeded in 3246ms:
+ M logs/session_log.md
+A  src/polaris_graph/synthesis/weight_mass.py
+A  tests/polaris_graph/synthesis/test_weight_mass_phase6.py
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-cred-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-ready-017/cluster_faithfulness_core_fix_plan.md
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+ succeeded in 5282ms:
+docs\credibility_weighted_sourcing_redesign_plan_2026_06_07.md:71:| L5 weighted aggregate | COUNT thresholds (`plan_sufficiency_gate.py:313`); journal COUNT floor (`journal_only_filter.py:531,596`) | origin-cluster weight-mass = Σ over origin clusters of `authority_score(canonical_origin)` (one mass per `origin_cluster_id` = its canonical origin's authority; derivative copies contribute zero; NO row-level term, NO max-over-copies — Phase 6 invariant) | replace `covered_count >= target` with `weight_mass >= weight_target` (`plan_sufficiency_gate.py:312-317`); add `assess_journal_only_adequacy` weight path (`journal_only_filter.py:543-607`); consumes L3 `origin_cluster_id` |
+docs\credibility_weighted_sourcing_redesign_plan_2026_06_07.md:148:- **Scope:** Replace COUNT aggregation with **origin-cluster weight-mass**, computed by this EXECUTABLE invariant (Codex iter-2 P1-2): group every supporting row by `(claim_cluster_id, origin_cluster_id)`; for each origin cluster L3 designates exactly ONE **canonical origin** (the syndication root / earliest independent publication; the other members are derivative copies — genuinely-INDEPENDENT corroboration has different content and forms its OWN cluster, it does not join an existing one). `cluster_mass = authority_score(canonical origin)`; copy/derivative members are attributed for disclosure ("N copies → 1 origin") but contribute ZERO to the mass. The claim-side weight-mass = Σ of `cluster_mass`, once per origin cluster within the claim cluster. **No row-level term, no averaging, no max-over-copies.** A row joins an existing `origin_cluster_id` only because L3 flagged it a copy of that cluster's canonical origin — so it adds NOTHING to the mass **even if its own `authority_score` is higher than the canonical origin's** (a high-authority verbatim republisher is still derivative; only its own *independent* content would form a new cluster). **Binding invariant (Codex iter-3 + #1161):** for a DATED origin cluster (canonical = earliest publication date) `weight_mass(rows + copied_row) == weight_mass(rows)` for ANY copier authority (strict copy-equality). For an ALL-UNDATED cluster the canonical is the LOWEST-`authority_score` member (conservative-min): the mass is MONOTONICALLY NON-INCREASING under copy additions — a higher-authority copy can NEVER inflate it (the binding no-inflation property), and a lower-authority copy can only LOWER it (honest, never inflating). Either way a copied row can NEVER inflate the false majority. This requires **L3 to emit a stable `origin_cluster_id`, the canonical-origin designation, and membership** (NOT merely an `independent_origin_count` scalar) and L4 to emit `claim_cluster_id`, both BEFORE L5. Without it, copied rows re-inflate the false majority and the vax test fails. Applies in plan-sufficiency AND journal-only adequacy. Per-facet weighting preserved.
+docs\credibility_weighted_sourcing_redesign_plan_2026_06_07.md:151:- **Offline tests:** **the vax adversarial test** (N independent-LOOKING-but-copied low-cred sources vs few high-cred — naive count flips to the false majority, weight+collapse picks the high-cred side); **copy-invariance fixture (Codex iter-3): a copier whose own `authority_score` is HIGHER than the cluster's canonical origin joins that origin cluster → `weight_mass` is UNCHANGED (the copier is derivative, excluded from the cluster mass)**; drb_72 regression **(CONDITIONAL on the journal-only audit, Decision #4)** — assert weight-floor passage for drb_72 ONLY if the audit confirms journal-only was an implementation choice, not a protocol requirement; otherwise assert on a non-protocol-pinned fixture (a protocol-pinned `source_restriction: journal_only` keeps its hard T1+T2 filter); corpus_approval still blocks material-deviation auto-approve even when weight-adequate (AuthorizedSweep still required); **clinical veto test (adequacy-level, Codex iter-2)** — a clinical claim with only news/commercial support is **NOT weight-adequate** / the clinical source-type veto fires (the T1/T2 clinical-tier floor is empty), even at high weight-mass. The ABSTAIN/fringe *rendering* is asserted in Phase 7 (L6 composition), not here.
+
+ succeeded in 7198ms:
+   1: """I-cred-006 (Phase 6, L5) — origin-cluster weight-mass aggregator (pure module).
+   2: 
+   3: Aggregate, per claim cluster, a **weight-mass** = Σ over INDEPENDENT origin clusters of
+   4: ``cluster_mass``, where ``cluster_mass = authority_score(canonical_origin) × credibility_weight(
+   5: canonical_origin)`` and every derivative copy contributes ZERO. This is the executable form of plan
+   6: §148: 50 copies of one press release count ONCE, at the origin's authority — the vax-defense.
+   7: 
+   8: POSTURE (binding):
+   9:   * ADVISORY ONLY. Weight-mass is a DISCLOSED side-output. The 4-role D8 release policy
+  10:     (``roles/release_policy.py``) stays the single binding release gate; ``strict_verify``'s six
+  11:     checks stay the only binding faithfulness gate. This module touches neither.
+  12:   * DEFAULT-OFF byte-identical: ``PG_SWEEP_WEIGHT_MASS`` (no production caller; pure library).
+  13:   * Copies contribute ZERO to the mass; adding a copy of ANY authority cannot inflate the mass
+  14:     (origin-cluster invariant — copies are excluded, the canonical origin alone carries the mass).
+  15:   * PURE: no row mutation, no network, no faithfulness-file import; LAW VI env-overridable; snake_case.
+  16: 
+  17: This issue ships ONLY the pure aggregator. Removing the journal count-floor, wiring weight-mass into
+  18: ``corpus_adequacy_gate``, and the per-claim clinical source-type veto are the gate-touching follow-up
+  19: (I-cred-006b) with their own flag — they modify faithfulness-adjacent gates.
+  20: 
+  21: INPUT join (all on the stable per-evidence ``evidence_id``):
+  22:   * ``rows``: evidence rows, each carrying ``evidence_id``, ``origin_cluster_id`` + ``is_canonical_origin``
+  23:     (Phase-4 assignment merged onto the row by the caller), and ``authority_score``. A row with no
+  24:     ``origin_cluster_id`` is treated as its OWN independent origin (it was never flagged a copy).
+  25:   * ``claims``: Phase-5 atomic claims (``claim_cluster_id`` + ``evidence_id``).
+  26:   * ``judgments``: Phase-2 credibility judgments (``evidence_id`` -> ``credibility_weight``); a canonical
+  27:     with NO judgment uses ``credibility_weight = 1.0`` (mass = pure authority).
+  28: """
+  29: from __future__ import annotations
+  30: 
+  31: import math
+  32: import os
+  33: from dataclasses import dataclass
+  34: from typing import Any
+  35: 
+  36: _FLAG = "PG_SWEEP_WEIGHT_MASS"
+  37: _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+  38: 
+  39: 
+  40: def weight_mass_enabled() -> bool:
+  41:     """True unless ``PG_SWEEP_WEIGHT_MASS`` is unset/falsey (default OFF => byte-identical)."""
+  42:     return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+  43: 
+  44: 
+  45: def _num(value: Any) -> float:
+  46:     """Coerce to a finite float; non-numeric / NaN / inf -> 0.0 (fail-soft on a disclosure signal)."""
+  47:     try:
+  48:         x = float(value)
+  49:     except (TypeError, ValueError):
+  50:         return 0.0
+  51:     return 0.0 if (math.isnan(x) or math.isinf(x)) else x
+  52: 
+  53: 
+  54: def _clamp01(value: Any) -> float:
+  55:     x = _num(value)
+  56:     return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+  57: 
+  58: 
+  59: @dataclass
+  60: class OriginContribution:
+  61:     """One independent origin's contribution to a claim cluster's weight-mass."""
+  62: 
+  63:     origin_cluster_id: str
+  64:     canonical_evidence_id: str
+  65:     authority_score: float       # of the canonical origin
+  66:     credibility_weight: float    # Phase-2 weight of the canonical origin (1.0 if none)
+  67:     cluster_mass: float          # = authority_score * credibility_weight
+  68:     copy_count: int              # derivative copies attributed to this origin (disclosure)
+  69: 
+  70: 
+  71: @dataclass
+  72: class ClaimWeightMass:
+  73:     """A claim cluster's aggregated, copy-uninflatable weight-mass + its origin breakdown."""
+  74: 
+  75:     claim_cluster_id: str
+  76:     weight_mass: float
+  77:     independent_origin_count: int
+  78:     contributions: list
+  79: 
+  80: 
+  81: def _origin_id_for_row(row: dict[str, Any]) -> str:
+  82:     ocid = str(row.get("origin_cluster_id", "") or "").strip()
+  83:     # An uncollapsed row (never flagged a copy) is its OWN independent origin.
+  84:     return ocid if ocid else f"origin::{row.get('evidence_id', '')}"
+  85: 
+  86: 
+  87: def aggregate_weight_mass(
+  88:     claims: list,
+  89:     rows: list[dict[str, Any]],
+  90:     judgments: list,
+  91: ) -> list[ClaimWeightMass]:
+  92:     """Aggregate per-claim-cluster origin-cluster weight-mass — ADVISORY, pure, no row mutation.
+  93: 
+  94:     For each claim cluster, group its supporting rows by ``origin_cluster_id``; for each origin use the
+  95:     CANONICAL origin's ``authority_score × credibility_weight`` as the cluster mass; copies contribute
+  96:     ZERO (only ``copy_count`` for disclosure). The claim weight-mass is the sum once per origin cluster.
+  97:     """
+  98:     rows = list(rows or [])
+  99:     row_by_eid = {str(r.get("evidence_id", "")): r for r in rows}
+ 100:     cred_by_eid: dict[str, float] = {}
+ 101:     for judgment in (judgments or []):
+ 102:         eid = str(getattr(judgment, "evidence_id", "") or "")
+ 103:         if eid:
+ 104:             cred_by_eid[eid] = _clamp01(getattr(judgment, "credibility_weight", None))
+ 105: 
+ 106:     # The canonical row per origin cluster (global across all rows), so a claim supported only by
+ 107:     # COPIES still attributes the mass to the origin's authority, never a copy's.
+ 108:     canonical_by_origin: dict[str, dict[str, Any]] = {}
+ 109:     for row in rows:
+ 110:         ocid = _origin_id_for_row(row)
+ 111:         if row.get("is_canonical_origin") and ocid not in canonical_by_origin:
+ 112:             canonical_by_origin[ocid] = row
+ 113:     for row in rows:  # uncollapsed singletons are their own canonical
+ 114:         ocid = _origin_id_for_row(row)
+ 115:         if not str(row.get("origin_cluster_id", "") or "").strip():
+ 116:             canonical_by_origin.setdefault(ocid, row)
+ 117: 
+ 118:     claim_eids: dict[str, list] = {}
+ 119:     for claim in (claims or []):
+ 120:         ccid = str(getattr(claim, "claim_cluster_id", "") or "")
+ 121:         eid = str(getattr(claim, "evidence_id", "") or "")
+ 122:         if ccid:
+ 123:             claim_eids.setdefault(ccid, []).append(eid)
+ 124: 
+ 125:     out: list[ClaimWeightMass] = []
+ 126:     for ccid in sorted(claim_eids):
+ 127:         members_by_origin: dict[str, set] = {}
+ 128:         for eid in claim_eids[ccid]:
+ 129:             row = row_by_eid.get(eid)
+ 130:             if row is None:
+ 131:                 continue
+ 132:             members_by_origin.setdefault(_origin_id_for_row(row), set()).add(eid)
+ 133: 
+ 134:         contributions: list[OriginContribution] = []
+ 135:         for ocid in sorted(members_by_origin):
+ 136:             members = members_by_origin[ocid]
+ 137:             # Prefer the global canonical; fall back to a deterministic member if Phase 4 did not
+ 138:             # mark one (fail-soft — never crashes a disclosure aggregate).
+ 139:             canonical = canonical_by_origin.get(ocid) or row_by_eid.get(sorted(members)[0])
+ 140:             canon_eid = str(canonical.get("evidence_id", "")) if canonical else ""
+ 141:             authority = _clamp01(canonical.get("authority_score")) if canonical else 0.0
+ 142:             credibility = cred_by_eid.get(canon_eid, 1.0)  # no judgment => neutral 1.0
+ 143:             contributions.append(OriginContribution(
+ 144:                 origin_cluster_id=ocid,
+ 145:                 canonical_evidence_id=canon_eid,
+ 146:                 authority_score=authority,
+ 147:                 credibility_weight=credibility,
+ 148:                 cluster_mass=authority * credibility,
+ 149:                 copy_count=max(0, len(members) - 1),
+ 150:             ))
+ 151: 
+ 152:         out.append(ClaimWeightMass(
+ 153:             claim_cluster_id=ccid,
+ 154:             weight_mass=sum(c.cluster_mass for c in contributions),
+ 155:             independent_origin_count=len(contributions),
+ 156:             contributions=contributions,
+ 157:         ))
+ 158:     return out
+
+ succeeded in 9087ms:
+   1: """I-cred-006 (Phase 6) — origin-cluster weight-mass aggregator. Offline, deterministic, no network.
+   2: Each test maps to a brief acceptance criterion (AC-1..AC-8)."""
+   3: from __future__ import annotations
+   4: 
+   5: import copy
+   6: 
+   7: import pytest
+   8: 
+   9: from src.polaris_graph.synthesis.weight_mass import (
+  10:     ClaimWeightMass,
+  11:     OriginContribution,
+  12:     aggregate_weight_mass,
+  13:     weight_mass_enabled,
+  14: )
+  15: 
+  16: 
+  17: def _claim(ccid, eid):
+  18:     return type("C", (), {"claim_cluster_id": ccid, "evidence_id": eid})()
+  19: 
+  20: 
+  21: def _judg(eid, weight):
+  22:     return type("J", (), {"evidence_id": eid, "credibility_weight": weight})()
+  23: 
+  24: 
+  25: def _row(eid, ocid, canonical, authority):
+  26:     return {
+  27:         "evidence_id": eid,
+  28:         "origin_cluster_id": ocid,
+  29:         "is_canonical_origin": canonical,
+  30:         "authority_score": authority,
+  31:     }
+  32: 
+  33: 
+  34: # ── AC-1 ──────────────────────────────────────────────────────────────────────
+  35: def test_flag_default_off(monkeypatch):
+  36:     monkeypatch.delenv("PG_SWEEP_WEIGHT_MASS", raising=False)
+  37:     assert weight_mass_enabled() is False
+  38: 
+  39: 
+  40: @pytest.mark.parametrize("on", ["1", "true", "on", "yes", "TRUE"])
+  41: def test_flag_on(monkeypatch, on):
+  42:     monkeypatch.setenv("PG_SWEEP_WEIGHT_MASS", on)
+  43:     assert weight_mass_enabled() is True
+  44: 
+  45: 
+  46: # ── AC-2: single origin + the vax invariant (copies cannot inflate) ───────────
+  47: def test_single_origin_copies_uninflatable():
+  48:     rows = [
+  49:         _row("e0", "o1", True, 0.8),    # canonical
+  50:         _row("e1", "o1", False, 0.3),   # copy
+  51:         _row("e2", "o1", False, 0.9),   # copy with HIGHER authority
+  52:     ]
+  53:     claims = [_claim("c1", "e0"), _claim("c1", "e1"), _claim("c1", "e2")]
+  54:     out = aggregate_weight_mass(claims, rows, [_judg("e0", 0.5)])
+  55:     assert len(out) == 1
+  56:     cm = out[0]
+  57:     assert cm.independent_origin_count == 1
+  58:     assert abs(cm.weight_mass - 0.4) < 1e-9   # 0.8 * 0.5, canonical ONLY
+  59:     assert cm.contributions[0].copy_count == 2
+  60: 
+  61:     # Add MORE copies of ANY authority -> weight_mass is UNCHANGED (the vax-defense).
+  62:     rows2 = rows + [_row("e3", "o1", False, 0.99), _row("e4", "o1", False, 0.99)]
+  63:     claims2 = claims + [_claim("c1", "e3"), _claim("c1", "e4")]
+  64:     out2 = aggregate_weight_mass(claims2, rows2, [_judg("e0", 0.5)])
+  65:     assert abs(out2[0].weight_mass - 0.4) < 1e-9
+  66:     assert out2[0].independent_origin_count == 1
+  67: 
+  68: 
+  69: # ── AC-3: two independent origins sum ─────────────────────────────────────────
+  70: def test_two_independent_origins_sum():
+  71:     rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
+  72:     claims = [_claim("c1", "e0"), _claim("c1", "e1")]
+  73:     cm = aggregate_weight_mass(claims, rows, [])[0]
+  74:     assert cm.independent_origin_count == 2
+  75:     assert abs(cm.weight_mass - 1.4) < 1e-9  # 0.8*1.0 + 0.6*1.0
+  76: 
+  77: 
+  78: # ── AC-4: a higher-authority copy contributes ZERO ────────────────────────────
+  79: def test_higher_authority_copy_contributes_zero():
+  80:     rows = [_row("e0", "o1", True, 0.2), _row("e1", "o1", False, 0.99)]
+  81:     claims = [_claim("c1", "e0"), _claim("c1", "e1")]
+  82:     cm = aggregate_weight_mass(claims, rows, [])[0]
+  83:     assert abs(cm.weight_mass - 0.2) < 1e-9  # canonical 0.2, never the 0.99 copy
+  84: 
+  85: 
+  86: # ── AC-5: canonical with no judgment uses neutral 1.0 ─────────────────────────
+  87: def test_canonical_no_judgment_uses_neutral_one():
+  88:     cm = aggregate_weight_mass([_claim("c1", "e0")], [_row("e0", "o1", True, 0.7)], [])[0]
+  89:     assert abs(cm.weight_mass - 0.7) < 1e-9  # 0.7 * 1.0
+  90: 
+  91: 
+  92: # ── AC-6: distinct claim clusters aggregate independently ─────────────────────
+  93: def test_distinct_claim_clusters_independent():
+  94:     rows = [_row("e0", "o1", True, 0.8), _row("e1", "o2", True, 0.6)]
+  95:     claims = [_claim("c1", "e0"), _claim("c2", "e1")]
+  96:     by = {c.claim_cluster_id: c for c in aggregate_weight_mass(claims, rows, [])}
+  97:     assert abs(by["c1"].weight_mass - 0.8) < 1e-9
+  98:     assert abs(by["c2"].weight_mass - 0.6) < 1e-9
+  99: 
+ 100: 
+ 101: # ── AC-7: missing authority on the canonical -> 0.0, no crash ─────────────────
+ 102: def test_missing_authority_is_zero_no_crash():
+ 103:     rows = [{"evidence_id": "e0", "origin_cluster_id": "o1", "is_canonical_origin": True}]
+ 104:     cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
+ 105:     assert cm.weight_mass == 0.0
+ 106: 
+ 107: 
+ 108: # ── AC-8: purity — no row mutation ────────────────────────────────────────────
+ 109: def test_no_row_mutation():
+ 110:     rows = [_row("e0", "o1", True, 0.8)]
+ 111:     before = copy.deepcopy(rows)
+ 112:     aggregate_weight_mass([_claim("c1", "e0")], rows, [_judg("e0", 0.5)])
+ 113:     assert rows == before
+ 114: 
+ 115: 
+ 116: def test_uncollapsed_row_is_its_own_origin():
+ 117:     """A row with no origin_cluster_id is treated as its OWN independent origin (never a copy)."""
+ 118:     rows = [{"evidence_id": "e0", "authority_score": 0.5, "is_canonical_origin": False}]
+ 119:     cm = aggregate_weight_mass([_claim("c1", "e0")], rows, [])[0]
+ 120:     assert cm.independent_origin_count == 1
+ 121:     assert abs(cm.weight_mass - 0.5) < 1e-9
+
+codex
+The new module is unreferenced outside its own tests, so the default-off production-path constraint looks intact. I’m running the targeted offline test now and probing the conservative-min edge directly because that is the only spec-critical gap I see.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest -q tests/polaris_graph/synthesis/test_weight_mass_phase6.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
+
+def claim(ccid, eid):
+    return type('C', (), {'claim_cluster_id': ccid, 'evidence_id': eid})()
+rows1 = [
+    {'evidence_id': 'z_high', 'origin_cluster_id': 'o1', 'is_canonical_origin': False, 'authority_score': 0.9},
+]
+rows2 = rows1 + [
+    {'evidence_id': 'a_low', 'origin_cluster_id': 'o1', 'is_canonical_origin': False, 'authority_score': 0.1},
+]
+print(aggregate_weight_mass([claim('c1','z_high')], rows1, [])[0])
+print(aggregate_weight_mass([claim('c1','z_high'), claim('c1','a_low')], rows2, [])[0])
+'@ | python -" in C:\POLARIS
+2026-06-08T12:29:52.884904Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/synthesis/test_weight_mass_phase6.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 5964ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/synthesis/test_weight_mass_phase6.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ succeeded in 7179ms:
+ClaimWeightMass(claim_cluster_id='c1', weight_mass=0.9, independent_origin_count=1, contributions=[OriginContribution(origin_cluster_id='o1', canonical_evidence_id='z_high', authority_score=0.9, credibility_weight=1.0, cluster_mass=0.9, copy_count=0)])
+ClaimWeightMass(claim_cluster_id='c1', weight_mass=0.1, independent_origin_count=1, contributions=[OriginContribution(origin_cluster_id='o1', canonical_evidence_id='a_low', authority_score=0.1, credibility_weight=1.0, cluster_mass=0.1, copy_count=1)])
+
+codex
+`pytest` is not on PATH in this shell, so I’m using the module form next. The direct probe confirmed one nuanced behavior: when no canonical is marked, fallback is lexicographic by evidence id, which can be conservative or not depending on IDs rather than authority.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest -q tests/polaris_graph/synthesis/test_weight_mass_phase6.py' in C:\POLARIS
+ succeeded in 10060ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 14 items
+
+tests\polaris_graph\synthesis\test_weight_mass_phase6.py ..............  [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 14 passed, 1 warning in 3.09s ========================
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
+
+def claim(ccid, eid):
+    return type('C', (), {'claim_cluster_id': ccid, 'evidence_id': eid})()
+rows1 = [{'evidence_id': 'z_low', 'origin_cluster_id': 'o1', 'is_canonical_origin': False, 'authority_score': 0.1}]
+rows2 = [{'evidence_id': 'a_high', 'origin_cluster_id': 'o1', 'is_canonical_origin': False, 'authority_score': 0.9}] + rows1
+print(aggregate_weight_mass([claim('c1','z_low')], rows1, [])[0].weight_mass)
+print(aggregate_weight_mass([claim('c1','z_low'), claim('c1','a_high')], rows2, [])[0].weight_mass)
+'@ | python -" in C:\POLARIS
+ succeeded in 4043ms:
+0.1
+0.9
+
+codex
+One more implementation detail is worth checking before I finalize: whether callers in this codebase model claims/judgments as objects or dict-like records, since the new tests use dynamic objects for both. That affects whether the aggregate would silently ignore real credibility weights.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class .*Judg|credibility_weight|evidence_id.*claim_cluster_id|claim_cluster_id" src/polaris_graph -g "*.py"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "credibility_weight|claim_cluster_id|is_canonical_origin|origin_cluster_id" tests/polaris_graph -g "*.py"' in C:\POLARIS
+ succeeded in 2769ms:
+src/polaris_graph\benchmark\fact_scorer.py:48:class JudgeVerdict:
+src/polaris_graph\evaluator\live_judge.py:64:class LiveJudgeResult:
+src/polaris_graph\evaluator\external_evaluator.py:423:class LLMJudgmentAxis:
+src/polaris_graph\authority\credibility_skill.py:98:class CredibilityJudgment:
+src/polaris_graph\authority\credibility_skill.py:102:    directness to the question (unknown => 1.0, multiplicative-neutral); ``credibility_weight`` is
+src/polaris_graph\authority\credibility_skill.py:111:    credibility_weight: float
+src/polaris_graph\authority\credibility_skill.py:177:        credibility_weight=reliability,  # == clamp01(reliability * 1.0)
+src/polaris_graph\authority\credibility_skill.py:228:        credibility_weight=weight if weight is not None else 0.0,
+src/polaris_graph\llm\entailment_judge.py:99:class _EntailmentJudge:
+src/polaris_graph\roles\judge_contract.py:34:class JudgeEnumError(ValueError):
+src/polaris_graph\retrieval\semantic_conflict_detector.py:320:class _SemanticContradictionJudge:
+src/polaris_graph\generator\provenance_generator.py:439:    credibility_weight: float | None = None      # the source's disclosed credibility weight
+src/polaris_graph\synthesis\claim_graph.py:6:under one ``claim_cluster_id`` so a downstream vote runs over clustered-equivalent
+src/polaris_graph\synthesis\claim_graph.py:20:     claims share a ``claim_cluster_id`` ONLY when their conservative normalized key
+src/polaris_graph\synthesis\claim_graph.py:33:DETERMINISM: ``claim_cluster_id`` is a stable SHA-1 hash of the conservative
+src/polaris_graph\synthesis\claim_graph.py:35:runs and downstream P6 can join on ``(claim_cluster_id, origin_cluster_id)``. NO
+src/polaris_graph\synthesis\claim_graph.py:133:    ``claim_cluster_id`` groups EQUIVALENT claims (assigned by
+src/polaris_graph\synthesis\claim_graph.py:148:    claim_cluster_id: str = ""     # set by cluster_equivalent_claims
+src/polaris_graph\synthesis\claim_graph.py:156:    produced the edge. ``claim_cluster_ids`` is the (sorted) pair of cluster ids the
+src/polaris_graph\synthesis\claim_graph.py:165:    claim_cluster_ids: tuple       # sorted pair of claim_cluster_id endpoints
+src/polaris_graph\synthesis\claim_graph.py:174:    # claim_cluster_id -> the indices (into ``claims``) of its member claims
+src/polaris_graph\synthesis\claim_graph.py:269:        ``list[AtomicClaim]`` with ``claim_cluster_id`` still "" (assigned by
+src/polaris_graph\synthesis\claim_graph.py:349:def _claim_cluster_id(normalized_key: tuple) -> str:
+src/polaris_graph\synthesis\claim_graph.py:355:    ``(claim_cluster_id, origin_cluster_id)``.
+src/polaris_graph\synthesis\claim_graph.py:365:    """Group EQUIVALENT atomic claims under one stable ``claim_cluster_id``.
+src/polaris_graph\synthesis\claim_graph.py:370:    claims NEVER over-merge. MUTATES each claim's ``claim_cluster_id`` in place (the
+src/polaris_graph\synthesis\claim_graph.py:373:    Returns ``{claim_cluster_id: [member indices into ``claims``]}``.
+src/polaris_graph\synthesis\claim_graph.py:377:        cid = _claim_cluster_id(claim.normalized_key)
+src/polaris_graph\synthesis\claim_graph.py:378:        claim.claim_cluster_id = cid
+src/polaris_graph\synthesis\claim_graph.py:387:    """Map evidence_id -> the set of claim_cluster_ids its claims belong to (fallback only)."""
+src/polaris_graph\synthesis\claim_graph.py:390:        out.setdefault(claim.evidence_id, set()).add(claim.claim_cluster_id)
+src/polaris_graph\synthesis\claim_graph.py:395:    """Map ``(evidence_id, subject)`` -> claim_cluster_ids.
+src/polaris_graph\synthesis\claim_graph.py:406:        out.setdefault(sig, set()).add(claim.claim_cluster_id)
+src/polaris_graph\synthesis\claim_graph.py:416:    """Sorted claim_cluster_ids of the SUBJECT-matching claims on the endpoint rows.
+src/polaris_graph\synthesis\claim_graph.py:459:    drop a real conflict. Endpoints are attached to their ``claim_cluster_id`` via the
+src/polaris_graph\synthesis\claim_graph.py:485:            claim_cluster_ids=_edge_cluster_pair(
+src/polaris_graph\synthesis\independence_collapse.py:4:``docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md`` Phase 4a.
+src/polaris_graph\synthesis\weight_mass.py:4:``cluster_mass``, where ``cluster_mass = authority_score(canonical_origin) × credibility_weight(
+src/polaris_graph\synthesis\weight_mass.py:25:  * ``claims``: Phase-5 atomic claims (``claim_cluster_id`` + ``evidence_id``).
+src/polaris_graph\synthesis\weight_mass.py:26:  * ``judgments``: Phase-2 credibility judgments (``evidence_id`` -> ``credibility_weight``); a canonical
+src/polaris_graph\synthesis\weight_mass.py:27:    with NO judgment uses ``credibility_weight = 1.0`` (mass = pure authority).
+src/polaris_graph\synthesis\weight_mass.py:66:    credibility_weight: float    # Phase-2 weight of the canonical origin (1.0 if none)
+src/polaris_graph\synthesis\weight_mass.py:67:    cluster_mass: float          # = authority_score * credibility_weight
+src/polaris_graph\synthesis\weight_mass.py:75:    claim_cluster_id: str
+src/polaris_graph\synthesis\weight_mass.py:95:    CANONICAL origin's ``authority_score × credibility_weight`` as the cluster mass; copies contribute
+src/polaris_graph\synthesis\weight_mass.py:104:            cred_by_eid[eid] = _clamp01(getattr(judgment, "credibility_weight", None))
+src/polaris_graph\synthesis\weight_mass.py:120:        ccid = str(getattr(claim, "claim_cluster_id", "") or "")
+src/polaris_graph\synthesis\weight_mass.py:147:                credibility_weight=credibility,
+src/polaris_graph\synthesis\weight_mass.py:153:            claim_cluster_id=ccid,
+
+ succeeded in 4460ms:
+tests/polaris_graph\authority\test_credibility_skill_phase2.py:50:    assert out[0].credibility_weight == 0.7 and out[0].judge_error is False
+tests/polaris_graph\authority\test_credibility_skill_phase2.py:62:    assert abs(j.credibility_weight - 0.4) < 1e-9
+tests/polaris_graph\authority\test_credibility_skill_phase2.py:152:    assert a[0].credibility_weight == b[0].credibility_weight  # identical control flow + result
+tests/polaris_graph\authority\test_credibility_skill_phase2.py:191:                "junk_class", "predatory_oa", "origin_cluster_id", "domain_hint"):
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:18:    return type("C", (), {"claim_cluster_id": ccid, "evidence_id": eid})()
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:22:    return type("J", (), {"evidence_id": eid, "credibility_weight": weight})()
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:28:        "origin_cluster_id": ocid,
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:29:        "is_canonical_origin": canonical,
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:96:    by = {c.claim_cluster_id: c for c in aggregate_weight_mass(claims, rows, [])}
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:103:    rows = [{"evidence_id": "e0", "origin_cluster_id": "o1", "is_canonical_origin": True}]
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:117:    """A row with no origin_cluster_id is treated as its OWN independent origin (never a copy)."""
+tests/polaris_graph\synthesis\test_weight_mass_phase6.py:118:    rows = [{"evidence_id": "e0", "authority_score": 0.5, "is_canonical_origin": False}]
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:84:    """Two independent rows asserting the SAME finding cluster to ONE claim_cluster_id."""
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:86:    cids = {c.claim_cluster_id for c in graph.claims}
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:100:    cids = {c.claim_cluster_id for c in graph.claims}
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:112:        _claim_cluster_id,
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:123:    assert _claim_cluster_id(key_a) != _claim_cluster_id(key_b)
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:152:    cluster_equivalent_claims(claims)  # assigns each claim_cluster_id
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:158:    warfarin_cid = next(c.claim_cluster_id for c in claims if c.subject == "warfarin")
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:159:    aspirin_cids = {c.claim_cluster_id for c in claims if c.subject == "aspirin"}
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:181:    assert len({c.claim_cluster_id for c in numeric}) == 2, (
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:192:    assert len({c.claim_cluster_id for c in raw}) == 2, "raw claims are distinct singletons"
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:232:    assert len(edge.claim_cluster_ids) == 2
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:302:# ── determinism: claim_cluster_id is stable + reproducible ─────────────────────
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:305:def test_claim_cluster_id_is_deterministic_across_runs():
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:306:    """Same input -> same claim_cluster_id (no uuid/random/time). Required for the
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:307:    downstream P6 join on (claim_cluster_id, origin_cluster_id)."""
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:311:    ids1 = [c.claim_cluster_id for c in g1.claims]
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:312:    ids2 = [c.claim_cluster_id for c in g2.claims]
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:318:    """The clusters mapping is internally consistent: each claim_cluster_id maps to
+tests/polaris_graph\synthesis\test_claim_graph_phase5.py:323:            assert graph.claims[idx].claim_cluster_id == cid
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:19:    assert sv.credibility_weight is None
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:29:    assert sv.span_verdict == "" and sv.credibility_weight is None
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:37:        span_verdict="SUPPORTS", credibility_weight=0.9,
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:61:    assert sv.span_verdict == "" and sv.credibility_weight is None
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:75:    assert sv.span_verdict == "" and sv.credibility_weight is None
+tests/polaris_graph\test_credibility_disclosure_schema_icred001.py:93:        sv, span_verdict="SUPPORTS", credibility_weight=0.9,
+tests/polaris_graph\test_independence_collapse.py:90:    assert a.is_canonical_origin is True
+tests/polaris_graph\test_independence_collapse.py:105:        assert a.is_canonical_origin != a.is_derivative_copy
+tests/polaris_graph\test_independence_collapse.py:285:    assert high.is_canonical_origin is False
+tests/polaris_graph\test_independence_collapse.py:286:    # The stable origin_cluster_id is UNCHANGED by the copy addition.
+tests/polaris_graph\test_independence_collapse.py:287:    assert cluster.origin_cluster_id == base_cluster.origin_cluster_id
+tests/polaris_graph\test_independence_collapse.py:311:    origin_cluster_id stays stable."""
+tests/polaris_graph\test_independence_collapse.py:313:    base_id = _collapse([seed]).clusters[0].origin_cluster_id
+tests/polaris_graph\test_independence_collapse.py:321:    assert cluster.origin_cluster_id == base_id
+tests/polaris_graph\test_independence_collapse.py:353:def test_origin_cluster_id_stable_under_prepended_copy() -> None:
+tests/polaris_graph\test_independence_collapse.py:354:    """Codex iter-2 P2 regression: origin_cluster_id derives from the canonical row's
+tests/polaris_graph\test_independence_collapse.py:359:    base_id = _collapse([origin]).clusters[0].origin_cluster_id
+tests/polaris_graph\test_independence_collapse.py:369:    assert cluster.origin_cluster_id == base_id
+tests/polaris_graph\test_independence_collapse.py:448:# ── Emitted-contract groupability (Phase 6 can group by origin_cluster_id) ──
+tests/polaris_graph\test_independence_collapse.py:451:def test_origin_cluster_id_is_stable_and_groupable() -> None:
+tests/polaris_graph\test_independence_collapse.py:452:    """Every row carries a stable origin_cluster_id; grouping assignments by
+tests/polaris_graph\test_independence_collapse.py:462:        grouped.setdefault(a.origin_cluster_id, []).append(a.row_index)
+tests/polaris_graph\test_independence_collapse.py:466:        assert sorted(grouped[cluster.origin_cluster_id]) == sorted(
+tests/polaris_graph\test_independence_collapse.py:473:            if a.origin_cluster_id == cluster.origin_cluster_id
+tests/polaris_graph\test_independence_collapse.py:474:            and a.is_canonical_origin
+tests/polaris_graph\test_independence_collapse.py:521:    assert rows == snapshot  # no origin_cluster_id/flags written onto inputs
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/authority/credibility_skill.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -First 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/synthesis/claim_graph.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 120 -First 40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/synthesis/independence_collapse.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -First 180' in C:\POLARIS
+ succeeded in 3406ms:
+ 121:         return float(os.environ.get(name, "") or default)
+ 122:     except (TypeError, ValueError):
+ 123:         return default
+ 124: 
+ 125: 
+ 126: # ── atomic claim + normalized key ────────────────────────────────────────────
+ 127: 
+ 128: 
+ 129: @dataclass
+ 130: class AtomicClaim:
+ 131:     """One field-agnostic atomic claim extracted + normalized from one evidence row.
+ 132: 
+ 133:     ``claim_cluster_id`` groups EQUIVALENT claims (assigned by
+ 134:     ``cluster_equivalent_claims``); it is "" until clustering runs. ``normalized_key``
+ 135:     is the conservative grouping key (the per-claim sentinel for an ``unknown``
+ 136:     subject / a raw-text claim — never mergeable). ``kind`` records which extractor
+ 137:     produced the claim (``numeric`` / ``qualitative`` / ``raw``) for audit.
+ 138:     """
+ 139: 
+ 140:     evidence_id: str
+ 141:     kind: str                      # "numeric" | "qualitative" | "raw"
+ 142:     subject: str
+ 143:     predicate: str
+ 144:     normalized_key: tuple          # conservative grouping key (see _normalized_key_*)
+ 145:     text: str                      # original snippet / quote for display
+ 146:     source_url: str = ""
+ 147:     source_tier: str = ""
+ 148:     claim_cluster_id: str = ""     # set by cluster_equivalent_claims
+ 149: 
+ 150: 
+ 151: @dataclass
+ 152: class ContradictionEdge:
+ 153:     """A contradiction / refutation edge between two atomic claims (recall-first).
+ 154: 
+ 155:     ``source`` is one of ``numeric`` / ``qualitative`` / ``semantic`` — which detector
+ 156:     produced the edge. ``claim_cluster_ids`` is the (sorted) pair of cluster ids the
+ 157:     two sides belong to. ``severity`` is the producing detector's own severity label.
+ 158:     The two endpoints are kept as evidence ids so an edge survives serialization.
+ 159:     """
+ 160: 
+
+ succeeded in 5556ms:
+   1: """I-cred-002 (Phase 2, L1 / §9.1) — adaptive LLM credibility skill (reliability × relevance).
+   2: 
+   3: ONE generic, domain-agnostic credibility skill. Per research question it scores EACH candidate
+   4: source on RELIABILITY × RELEVANCE with a written, inspectable rationale, consuming POLARIS's
+   5: already-computed deterministic authority signals (``authority_score`` / ``source_class`` /
+   6: ``corroboration_count`` / ``authority_confidence`` / ``signal_scores`` / ``junk_class`` /
+   7: ``predatory_oa``) as its PRIORS. There are NO fixed domain rubrics: the detected ``domain`` is a
+   8: single HINT field the judge reasons over, never a branch that swaps rubrics — so this scales to any
+   9: field (operator directive 2026-06-08, plan §9.1).
+  10: 
+  11: FAITHFULNESS POSTURE (binding):
+  12:   * ADVISORY ONLY. This never becomes a faithfulness gate — ``strict_verify``'s six per-sentence
+  13:     checks (``generator/provenance_generator.py``) remain the ONLY binding gate. A credibility
+  14:     weight/rationale is a side-output to disclose, never a reason to keep or drop a sentence.
+  15:   * DEFAULT-OFF byte-identical: ``PG_SWEEP_CREDIBILITY_SKILL`` (no production caller is added here).
+  16:   * The LLM call is DEPENDENCY-INJECTED (``judge``); with no judge → no network, no client, no spend
+  17:     (mirrors ``retrieval/semantic_conflict_detector``). The production judge is wired by the caller,
+  18:     never constructed in this pure library.
+  19:   * NO row mutation, NO faithfulness-file import. Pure functions, snake_case, explicit imports.
+  20:   * LAW VI: every threshold is an env-overridable named constant (no magic numbers, no hardcoded
+  21:     model/endpoint).
+  22: 
+  23: ANTI-FABRICATION (the LOW/thin guardrail): for a LOW-confidence or thin-signal source the judge's
+  24: reliability is capped at ``clamp01(authority_score) + PG_CREDIBILITY_MAX_UPLIFT`` — the model cannot
+  25: invent authority that the deterministic signals do not support. The judge MAY freely DOWN-rate any
+  26: source below its prior (a high-authority but irrelevant/weak source can score low); the prior is NOT
+  27: a lower bound. The deterministic priors-only judgment is the fallback ONLY on a judge error / no
+  28: judge, never a universal floor.
+  29: """
+  30: from __future__ import annotations
+  31: 
+  32: import math
+  33: import os
+  34: from dataclasses import dataclass, field
+  35: from typing import Any, Callable, Optional
+  36: 
+  37: # ── flag (default OFF — matches supersession.py / claim_graph.py) ─────────────
+  38: _FLAG = "PG_SWEEP_CREDIBILITY_SKILL"
+  39: _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+  40: 
+  41: # ── env knobs (LAW VI: named, env-overridable, no magic numbers) ──────────────
+  42: _ENV_MAX_UPLIFT = "PG_CREDIBILITY_MAX_UPLIFT"
+  43: _ENV_SNIPPET_CHARS = "PG_CREDIBILITY_SNIPPET_CHARS"
+  44: _DEFAULT_MAX_UPLIFT = 0.15
+  45: _DEFAULT_SNIPPET_CHARS = 1200
+  46: 
+  47: # The deterministic prior-signal names the judge may cite (anti-hallucination: a
+  48: # ``signals_cited`` entry that is not one of these AND present on the row is dropped).
+  49: _PRIOR_SIGNAL_KEYS = (
+  50:     "authority_score",
+  51:     "source_class",
+  52:     "corroboration_count",
+  53:     "authority_confidence",
+  54:     "signal_scores",
+  55:     "junk_class",
+  56:     "predatory_oa",
+  57:     "origin_cluster_id",  # Phase-4 independence signal (present once Phase 6 wires P4 -> P2)
+  58: )
+  59: 
+  60: 
+  61: def credibility_skill_enabled() -> bool:
+  62:     """True unless ``PG_SWEEP_CREDIBILITY_SKILL`` is unset/falsey (default OFF => byte-identical).
+  63: 
+  64:     Caller kill-switch: no production caller invokes this library while OFF, so the rendered report
+  65:     + manifest are unchanged. The pure functions below do NOT read the flag — they are total +
+  66:     offline-testable; the caller gates invocation.
+  67:     """
+  68:     return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+  69: 
+  70: 
+  71: def _float_env(name: str, default: float) -> float:
+  72:     try:
+  73:         return float(os.environ.get(name, "") or default)
+  74:     except (TypeError, ValueError):
+  75:         return default
+  76: 
+  77: 
+  78: def _int_env(name: str, default: int) -> int:
+  79:     try:
+  80:         return int(os.environ.get(name, "") or default)
+  81:     except (TypeError, ValueError):
+  82:         return default
+  83: 
+  84: 
+  85: def _clamp01(value: Any) -> float | None:
+  86:     """Clamp a numeric to [0, 1]. Returns ``None`` for non-numeric / NaN / inf (the caller treats
+  87:     that as a judge error — never a NaN weight, never a crash)."""
+  88:     try:
+  89:         x = float(value)
+  90:     except (TypeError, ValueError):
+  91:         return None
+  92:     if math.isnan(x) or math.isinf(x):
+  93:         return None
+  94:     return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+  95: 
+  96: 
+  97: @dataclass
+  98: class CredibilityJudgment:
+  99:     """One source's advisory credibility judgment (a side-output, never a verdict input).
+ 100: 
+ 101:     ``reliability_score`` is AFTER the anti-fabrication cap; ``relevance_score`` is the judged
+ 102:     directness to the question (unknown => 1.0, multiplicative-neutral); ``credibility_weight`` is
+ 103:     the FIXED product ``clamp01(reliability * relevance)``. ``signals_cited`` is the subset of the
+ 104:     deterministic prior signals the judge reasoned from. ``judge_error`` is True iff the injected
+ 105:     judge raised / returned malformed output for THIS source (isolated; priors-only fallback used).
+ 106:     """
+ 107: 
+ 108:     evidence_id: str
+ 109:     reliability_score: float
+ 110:     relevance_score: float
+ 111:     credibility_weight: float
+ 112:     rationale: str
+ 113:     signals_cited: list[str] = field(default_factory=list)
+ 114:     query_need: str = ""
+ 115:     judge_error: bool = False
+ 116: 
+ 117: 
+ 118: def _present_signals(row: dict[str, Any]) -> list[str]:
+ 119:     """The deterministic prior signals actually present (non-empty) on this row."""
+ 120:     return [k for k in _PRIOR_SIGNAL_KEYS if row.get(k) not in (None, "", {}, [])]
+ 121: 
+ 122: 
+ 123: def _row_snippet(row: dict[str, Any], max_chars: int) -> str:
+ 124:     text = str(row.get("direct_quote") or row.get("statement") or row.get("text") or "")
+ 125:     return text[:max_chars]
+ 126: 
+ 127: 
+ 128: def _build_judge_payload(
+ 129:     research_question: str, row: dict[str, Any], domain: str | None
+ 130: ) -> dict[str, Any]:
+ 131:     """Pure: assemble the judge payload for ONE source. Does NOT mutate ``row``.
+ 132: 
+ 133:     Carries source identity + bounded descriptors (title / url / snippet — so RELEVANCE is actually
+ 134:     judgeable) + the deterministic authority priors + the ``domain_hint`` (a single string field,
+ 135:     NOT a branch / rubric table). The judge sees ONLY this payload.
+ 136:     """
+ 137:     snippet_chars = _int_env(_ENV_SNIPPET_CHARS, _DEFAULT_SNIPPET_CHARS)
+ 138:     return {
+ 139:         "research_question": research_question,
+ 140:         "evidence_id": str(row.get("evidence_id", "")),
+
+ succeeded in 7335ms:
+   1: """Phase 4a (L3, §6c-4) — independence-collapse by content near-duplication.
+   2: 
+   3: Credibility-weighted sourcing redesign, plan
+   4: ``docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md`` Phase 4a.
+   5: 
+   6: WHAT THIS DOES
+   7: ==============
+   8: Given a list of generator-visible evidence rows, cluster the near-DUPLICATE
+   9: content copies (syndication / press-release rehash / verbatim republication)
+  10: into ``origin clusters`` so a later weighted tally (L5, Phase 6) counts each
+  11: independent ORIGIN exactly once and cannot be inflated by copies.
+  12: 
+  13: The collapse is layered on the existing host-collapse primitive
+  14: (``authority.corroboration``: ``count_independent_hosts`` /
+  15: ``registrable_domain``). Two rows join the same origin cluster when EITHER
+  16: 
+  17:   1. they share a registrable domain (eTLD+1 host-collapse — the existing
+  18:      primitive; subdomains of one institution are the same origin), OR
+  19:   2. their text content is a near-duplicate: TF-IDF cosine >= the configured
+  20:      similarity threshold (default ``DEFAULT_SIMILARITY_THRESHOLD`` = 0.85),
+  21: 
+  22: EXCEPT a curated acceptable-mirror allowlist (arXiv / SSRN / PMC by default)
+  23: is NOT collapsed on content alone across DIFFERENT registrable domains — a
+  24: legitimate mirror of the same paper on two scholarly hosts stays two
+  25: independent origins rather than being falsely flagged a copy (the
+  26: echo-collapse false-positive bound, plan §6 RISKS).
+  27: 
+  28: CANONICAL-ORIGIN INVARIANT (the load-bearing safety property)
+  29: =============================================================
+  30: Each cluster designates exactly ONE **canonical origin**. When ANY member
+  31: carries a parseable publication date, the canonical is the EARLIEST-dated
+  32: member and ``authority_score`` is NOT consulted — a DATED cluster keeps
+  33: STRICT copy-invariance (adding a same/later/undated copy of ANY authority
+  34: leaves the canonical + cluster_mass unchanged). When EVERY member is undated
+  35: there is no date to identify the seed, so the canonical is the LOWEST-
+  36: ``authority_score`` member (conservative-min, Codex #1161): a higher-authority
+  37: copy can NEVER become canonical or inflate cluster_mass, and the worst a copy
+  38: can do is LOWER the mass (monotonic non-increase) — never inflate.
+  39: 
+  40: Therefore: adding a copied row to an existing cluster — **even a copy whose
+  41: own ``authority_score`` is HIGHER than the cluster's canonical origin** —
+  42: does NOT change the cluster set nor its canonical origin nor inflate its
+  43: mass. A high-authority verbatim republisher is still derivative; only its own
+  44: *independent* content
+  45: would form a new cluster. This is exactly what lets the L5 weighted tally
+  46: (``cluster_mass = authority_score(canonical_origin)``, copies contribute
+  47: zero) be uninflatable by copies. The invariant is proven by
+  48: ``test_independence_collapse.py``.
+  49: 
+  50: OUTPUT (per the Phase-4a emitted contract)
+  51: ==========================================
+  52: ``collapse_independent_origins`` returns an :class:`IndependenceCollapseResult`
+  53: carrying, for every input row (by index):
+  54:   - a stable ``origin_cluster_id`` (deterministic, derived from the canonical
+  55:     member so it is stable under copy-additions),
+  56:   - the canonical-origin row index for that cluster,
+  57:   - an ``is_canonical_origin`` / ``is_derivative_copy`` flag,
+  58: and an ``independent_origin_count`` = number of distinct origin clusters.
+  59: 
+  60: PURITY / SAFETY
+  61: ===============
+  62: Pure: constructs no client, opens no network, loads no model, calls no LLM,
+  63: mutates none of the caller's rows (membership/flags are emitted in a fresh
+  64: structure). snake_case, explicit imports, no host/TLD literals in code (the
+  65: PSL ``gov_suffixes`` and the mirror allowlist are passed in by the caller).
+  66: 
+  67: DEFAULT-OFF: this module is inert library code. Nothing in the production
+  68: pipeline imports or invokes it; it acts ONLY when a flagged caller calls
+  69: ``collapse_independent_origins``. It touches NO faithfulness gate
+  70: (strict_verify / 4-role / two-family / corpus_approval are untouched) and
+  71: NEVER drops a source — it only annotates duplicated corroboration.
+  72: """
+  73: from __future__ import annotations
+  74: 
+  75: import datetime
+  76: import math
+  77: import re
+  78: from dataclasses import dataclass, field
+  79: from typing import Any
+  80: from urllib.parse import urlparse
+  81: 
+  82: from src.polaris_graph.authority.corroboration import registrable_domain
+  83: 
+  84: # ── Module constants (LAW VI — named, not magic numbers) ────────────────────
+  85: # Cosine-similarity threshold at/above which two texts are a content copy.
+  86: DEFAULT_SIMILARITY_THRESHOLD: float = 0.85
+  87: # Curated acceptable-mirror domains: legitimate cross-host mirrors of the same
+  88: # scholarly artefact that must NOT be over-collapsed on content alone (plan §6
+  89: # echo-collapse false-positive bound). Passed-in overrides win; this is only
+  90: # the documented default.
+  91: #
+  92: # IMPORTANT: these are compared against each row's REGISTRABLE DOMAIN (the
+  93: # eTLD+1 produced by ``corroboration.registrable_domain``), so they MUST be
+  94: # written in eTLD+1 form. PMC lives at ``ncbi.nlm.nih.gov``, whose eTLD+1
+  95: # (without a multi-level PSL suffix match) collapses to ``nih.gov`` — so the
+  96: # allowlist entry for PMC is ``nih.gov`` (the registrable-domain key actually
+  97: # seen at comparison time), NOT the full ``ncbi.nlm.nih.gov`` host. Writing the
+  98: # full host here would silently never match and re-open the false-positive.
+  99: DEFAULT_ACCEPTABLE_MIRROR_DOMAINS: tuple[str, ...] = (
+ 100:     "arxiv.org",   # arXiv preprint mirror
+ 101:     "ssrn.com",    # SSRN working-paper mirror
+ 102:     "nih.gov",     # PMC (ncbi.nlm.nih.gov) eTLD+1 -> nih.gov
+ 103: )
+ 104: # Row keys consulted for the row's text, in priority order. First non-empty
+ 105: # wins. Mirrors finding_dedup's row-shape expectations.
+ 106: _TEXT_KEYS: tuple[str, ...] = ("direct_quote", "statement", "text", "snippet")
+ 107: # Row keys consulted for an explicit publication-order signal, in priority
+ 108: # order. First parseable value wins; absence falls back to corpus order.
+ 109: _ORDER_KEYS: tuple[str, ...] = (
+ 110:     "published_date",
+ 111:     "publication_date",
+ 112:     "published",
+ 113:     "date",
+ 114: )
+ 115: # A token is a maximal run of word characters; lowercased. Pure-stdlib
+ 116: # tokeniser — no model, no network.
+ 117: _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+ 118: 
+ 119: 
+ 120: @dataclass
+ 121: class OriginCluster:
+ 122:     """One cluster of rows that share a single independent origin."""
+ 123: 
+ 124:     origin_cluster_id: str
+ 125:     canonical_index: int            # input row index of the canonical origin
+ 126:     member_indices: list[int]       # all input row indices in the cluster
+ 127:     copy_indices: list[int]         # derivative-copy members (canonical excluded)
+ 128:     member_hosts: list[str]         # sorted unique registrable-domains present
+ 129: 
+ 130: 
+ 131: @dataclass
+ 132: class RowOriginAssignment:
+ 133:     """Per-row origin assignment (emitted contract — one per input row)."""
+ 134: 
+ 135:     row_index: int
+ 136:     origin_cluster_id: str
+ 137:     canonical_index: int
+ 138:     is_canonical_origin: bool
+ 139:     is_derivative_copy: bool
+ 140: 
+ 141: 
+ 142: @dataclass
+ 143: class IndependenceCollapseResult:
+ 144:     """Result of :func:`collapse_independent_origins`."""
+ 145: 
+ 146:     clusters: list[OriginCluster]
+ 147:     assignments: list[RowOriginAssignment]  # ordered by input row index
+ 148:     raw_row_count: int
+ 149:     independent_origin_count: int            # == number of distinct clusters
+ 150:     similarity_threshold: float = field(default=DEFAULT_SIMILARITY_THRESHOLD)
+ 151: 
+ 152: 
+ 153: # ── Pure helpers ────────────────────────────────────────────────────────────
+ 154: 
+ 155: 
+ 156: def _host_of(url: str) -> str:
+ 157:     """Bare hostname (lowercased, ``www.`` stripped) from a URL; ``""`` if none.
+ 158: 
+ 159:     ``registrable_domain`` expects a HOST, not a full URL, so this reduction
+ 160:     must run first (mirrors ``finding_dedup._host_of``).
+ 161:     """
+ 162:     if not url:
+ 163:         return ""
+ 164:     host = (urlparse(url).hostname or "").lower().strip()
+ 165:     if host.startswith("www."):
+ 166:         host = host[4:]
+ 167:     return host
+ 168: 
+ 169: 
+ 170: def _row_text(row: dict[str, Any]) -> str:
+ 171:     """First non-empty text field of a row (priority order ``_TEXT_KEYS``)."""
+ 172:     for key in _TEXT_KEYS:
+ 173:         value = row.get(key)
+ 174:         if isinstance(value, str) and value.strip():
+ 175:             return value
+ 176:     return ""
+ 177: 
+ 178: 
+ 179: def _row_domain(row: dict[str, Any], gov_suffixes: tuple[str, ...]) -> str:
+ 180:     """Registrable domain (eTLD+1) for a row's ``source_url``; ``""`` if none."""
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"canonical|LOWEST|authority_score|conservative|min\\(\" src/polaris_graph/synthesis/independence_collapse.py tests/polaris_graph/test_independence_collapse.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/polaris_graph/test_independence_collapse.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 250 -First 130' in C:\POLARIS
+ succeeded in 3148ms:
+tests/polaris_graph/test_independence_collapse.py:7:``authority_score`` is HIGHER than the cluster's canonical origin — does NOT
+tests/polaris_graph/test_independence_collapse.py:9:over canonical origins (``cluster_mass = authority_score(canonical_origin)``)
+tests/polaris_graph/test_independence_collapse.py:11:``test_added_high_authority_copy_does_not_change_cluster_set_or_canonical``
+tests/polaris_graph/test_independence_collapse.py:12:and ``test_canonical_never_chosen_by_authority``.
+tests/polaris_graph/test_independence_collapse.py:56:    authority_score: float | None = None,
+tests/polaris_graph/test_independence_collapse.py:64:    if authority_score is not None:
+tests/polaris_graph/test_independence_collapse.py:65:        row["authority_score"] = authority_score
+tests/polaris_graph/test_independence_collapse.py:85:def test_single_row_is_its_own_canonical_origin() -> None:
+tests/polaris_graph/test_independence_collapse.py:90:    assert a.is_canonical_origin is True
+tests/polaris_graph/test_independence_collapse.py:92:    assert a.canonical_index == 0
+tests/polaris_graph/test_independence_collapse.py:103:    # Partition check: canonical + copy flags are mutually exclusive & total.
+tests/polaris_graph/test_independence_collapse.py:105:        assert a.is_canonical_origin != a.is_derivative_copy
+tests/polaris_graph/test_independence_collapse.py:145:    assert cluster.canonical_index == 0  # earliest by corpus order
+tests/polaris_graph/test_independence_collapse.py:159:    assert result.clusters[0].canonical_index == 0
+tests/polaris_graph/test_independence_collapse.py:244:# ── THE INVARIANT: copies cannot change the cluster set or canonical ────────
+tests/polaris_graph/test_independence_collapse.py:247:def test_added_high_authority_copy_does_not_change_cluster_set_or_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:250:    Baseline: one canonical origin (low authority) + one copy.
+tests/polaris_graph/test_independence_collapse.py:251:    Then add ANOTHER copy whose own authority_score is far HIGHER than the
+tests/polaris_graph/test_independence_collapse.py:252:    canonical's. The cluster set and the canonical origin MUST be unchanged,
+tests/polaris_graph/test_independence_collapse.py:253:    so a weight tally over canonical origins cannot be inflated by the copy.
+tests/polaris_graph/test_independence_collapse.py:257:             authority_score=0.20),
+tests/polaris_graph/test_independence_collapse.py:259:             authority_score=0.30),
+tests/polaris_graph/test_independence_collapse.py:264:    base_canonical_eid = base[base_cluster.canonical_index]["evidence_id"]
+tests/polaris_graph/test_independence_collapse.py:265:    assert base_canonical_eid == "origin"
+tests/polaris_graph/test_independence_collapse.py:270:             authority_score=0.99),
+tests/polaris_graph/test_independence_collapse.py:278:    assert with_high_authority_copy[cluster.canonical_index]["evidence_id"] == "origin"
+tests/polaris_graph/test_independence_collapse.py:279:    # The high-authority copier is flagged derivative, not canonical.
+tests/polaris_graph/test_independence_collapse.py:285:    assert high.is_canonical_origin is False
+tests/polaris_graph/test_independence_collapse.py:290:def test_canonical_never_chosen_by_authority() -> None:
+tests/polaris_graph/test_independence_collapse.py:292:    cluster, the canonical is the earliest/seed member, never the highest
+tests/polaris_graph/test_independence_collapse.py:293:    authority. Authority is not consulted for the canonical choice."""
+tests/polaris_graph/test_independence_collapse.py:296:             authority_score=0.10),                    # earliest, low authority
+tests/polaris_graph/test_independence_collapse.py:298:             authority_score=1.00),                    # later, top authority
+tests/polaris_graph/test_independence_collapse.py:303:    assert rows[cluster.canonical_index]["evidence_id"] == "seed"
+tests/polaris_graph/test_independence_collapse.py:307:def test_undated_prepended_higher_authority_copy_cannot_steal_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:308:    """Codex iter-4 P1 regression: when EVERY member is undated, the canonical is the
+tests/polaris_graph/test_independence_collapse.py:309:    LOWEST-authority member (not the first by input index), so an undated higher-authority
+tests/polaris_graph/test_independence_collapse.py:310:    copy PREPENDED before the seed cannot become canonical or inflate cluster_mass, and the
+tests/polaris_graph/test_independence_collapse.py:312:    seed = _row("seed", "https://origin.com/r", _PRESS_RELEASE, authority_score=0.10)
+tests/polaris_graph/test_independence_collapse.py:314:    high_copy = _row("loud", "https://loud.com/r", _SYNDICATED_COPY, authority_score=0.99)
+tests/polaris_graph/test_independence_collapse.py:320:    assert rows[cluster.canonical_index]["evidence_id"] == "seed"
+tests/polaris_graph/test_independence_collapse.py:326:def test_undated_high_authority_copy_cannot_outrank_dated_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:327:    """Codex iter-1 P1 regression: a DATED canonical origin + an UNDATED copy
+tests/polaris_graph/test_independence_collapse.py:329:    canonical (an undated row can never outrank a dated origin), so the cluster
+tests/polaris_graph/test_independence_collapse.py:330:    mass over the canonical is uninflatable."""
+tests/polaris_graph/test_independence_collapse.py:333:             authority_score=0.15, published_date="2024-02-01"),
+tests/polaris_graph/test_independence_collapse.py:335:    assert _collapse(base).clusters[0].canonical_index == 0
+tests/polaris_graph/test_independence_collapse.py:339:             authority_score=0.99),
+tests/polaris_graph/test_independence_collapse.py:345:    assert rows[cluster.canonical_index]["evidence_id"] == "dated_origin"
+tests/polaris_graph/test_independence_collapse.py:354:    """Codex iter-2 P2 regression: origin_cluster_id derives from the canonical row's
+tests/polaris_graph/test_independence_collapse.py:355:    EVIDENCE IDENTITY, not its input position — so a copy added BEFORE the canonical
+tests/polaris_graph/test_independence_collapse.py:356:    (prepended) does not change the cluster id even though the canonical's index shifts."""
+tests/polaris_graph/test_independence_collapse.py:363:    rows = [copy, origin]  # PREPEND the derivative copy before the canonical origin
+tests/polaris_graph/test_independence_collapse.py:368:    assert rows[cluster.canonical_index]["evidence_id"] == "origin"
+tests/polaris_graph/test_independence_collapse.py:372:def test_malformed_non_iso_date_copy_cannot_become_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:375:    the canonical's real ISO date and steal canonical."""
+tests/polaris_graph/test_independence_collapse.py:384:    assert rows[cluster.canonical_index]["evidence_id"] == "origin"
+tests/polaris_graph/test_independence_collapse.py:391:def test_invalid_calendar_date_copy_cannot_become_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:394:    2024-03-01 origin and steal canonical (it would have, since (2024,2,31) < (2024,3,1))."""
+tests/polaris_graph/test_independence_collapse.py:403:    assert rows[cluster.canonical_index]["evidence_id"] == "origin"
+tests/polaris_graph/test_independence_collapse.py:406:def test_canonical_uses_explicit_publication_order_when_present() -> None:
+tests/polaris_graph/test_independence_collapse.py:407:    """When a publication-date key is present, the EARLIEST date is canonical
+tests/polaris_graph/test_independence_collapse.py:413:             authority_score=0.90, published_date="2025-06-01"),
+tests/polaris_graph/test_independence_collapse.py:414:        # Earlier date, appears second, lower authority -> should be canonical.
+tests/polaris_graph/test_independence_collapse.py:416:             authority_score=0.10, published_date="2025-01-15"),
+tests/polaris_graph/test_independence_collapse.py:421:    assert rows[cluster.canonical_index]["evidence_id"] == "earlier_pub"
+tests/polaris_graph/test_independence_collapse.py:424:def test_copy_addition_is_order_independent_for_canonical() -> None:
+tests/polaris_graph/test_independence_collapse.py:426:    canonical (the seed) nor the cluster set."""
+tests/polaris_graph/test_independence_collapse.py:428:                authority_score=0.10, published_date="2024-01-01")
+tests/polaris_graph/test_independence_collapse.py:430:                  authority_score=0.95, published_date="2024-05-01")
+tests/polaris_graph/test_independence_collapse.py:432:                  authority_score=0.99, published_date="2024-09-01")
+tests/polaris_graph/test_independence_collapse.py:439:        [seed, copy_a, copy_b][r1.clusters[0].canonical_index]["evidence_id"]
+tests/polaris_graph/test_independence_collapse.py:443:        [copy_b, seed, copy_a][r2.clusters[0].canonical_index]["evidence_id"]
+tests/polaris_graph/test_independence_collapse.py:469:    # Each cluster has exactly one canonical row.
+tests/polaris_graph/test_independence_collapse.py:471:        canonicals = [
+tests/polaris_graph/test_independence_collapse.py:474:            and a.is_canonical_origin
+tests/polaris_graph/test_independence_collapse.py:476:        assert len(canonicals) == 1
+tests/polaris_graph/test_independence_collapse.py:477:        assert canonicals[0].row_index == cluster.canonical_index
+tests/polaris_graph/test_independence_collapse.py:516:        _row("e0", "https://a.com/r", _PRESS_RELEASE, authority_score=0.2),
+tests/polaris_graph/test_independence_collapse.py:517:        _row("e1", "https://b.com/r", _SYNDICATED_COPY, authority_score=0.9),
+tests/polaris_graph/test_independence_collapse.py:536:    """Codex #1161: a canonical row without evidence_id raises (no position-relative fallback
+tests/polaris_graph/test_independence_collapse.py:545:    assert raised, "a canonical row missing evidence_id must fail loud, not fall back to an index id"
+src/polaris_graph/synthesis/independence_collapse.py:30:Each cluster designates exactly ONE **canonical origin**. When ANY member
+src/polaris_graph/synthesis/independence_collapse.py:31:carries a parseable publication date, the canonical is the EARLIEST-dated
+src/polaris_graph/synthesis/independence_collapse.py:32:member and ``authority_score`` is NOT consulted — a DATED cluster keeps
+src/polaris_graph/synthesis/independence_collapse.py:34:leaves the canonical + cluster_mass unchanged). When EVERY member is undated
+src/polaris_graph/synthesis/independence_collapse.py:35:there is no date to identify the seed, so the canonical is the LOWEST-
+src/polaris_graph/synthesis/independence_collapse.py:36:``authority_score`` member (conservative-min, Codex #1161): a higher-authority
+src/polaris_graph/synthesis/independence_collapse.py:37:copy can NEVER become canonical or inflate cluster_mass, and the worst a copy
+src/polaris_graph/synthesis/independence_collapse.py:41:own ``authority_score`` is HIGHER than the cluster's canonical origin** —
+src/polaris_graph/synthesis/independence_collapse.py:42:does NOT change the cluster set nor its canonical origin nor inflate its
+src/polaris_graph/synthesis/independence_collapse.py:46:(``cluster_mass = authority_score(canonical_origin)``, copies contribute
+src/polaris_graph/synthesis/independence_collapse.py:54:  - a stable ``origin_cluster_id`` (deterministic, derived from the canonical
+src/polaris_graph/synthesis/independence_collapse.py:56:  - the canonical-origin row index for that cluster,
+src/polaris_graph/synthesis/independence_collapse.py:57:  - an ``is_canonical_origin`` / ``is_derivative_copy`` flag,
+src/polaris_graph/synthesis/independence_collapse.py:125:    canonical_index: int            # input row index of the canonical origin
+src/polaris_graph/synthesis/independence_collapse.py:127:    copy_indices: list[int]         # derivative-copy members (canonical excluded)
+src/polaris_graph/synthesis/independence_collapse.py:137:    canonical_index: int
+src/polaris_graph/synthesis/independence_collapse.py:138:    is_canonical_origin: bool
+src/polaris_graph/synthesis/independence_collapse.py:190:    lexically outrank a real ISO date and steal the canonical origin (Codex iter-2 P1).
+src/polaris_graph/synthesis/independence_collapse.py:208:        # outrank a genuine date and steal the canonical origin (Codex iter-3 P1).
+src/polaris_graph/synthesis/independence_collapse.py:216:    """Deterministic canonical-selection order key (canonical = ``min`` over members).
+src/polaris_graph/synthesis/independence_collapse.py:219:    wins and ``authority_score`` is NEVER consulted (so a higher-authority but later-dated
+src/polaris_graph/synthesis/independence_collapse.py:220:    copy can never steal the canonical origin). Same-date ties break on the STABLE
+src/polaris_graph/synthesis/independence_collapse.py:225:    positionally, so the canonical is the LOWEST-``authority_score`` member: a higher-
+src/polaris_graph/synthesis/independence_collapse.py:226:    authority copy can then never become the canonical origin and inflate ``cluster_mass``
+src/polaris_graph/synthesis/independence_collapse.py:241:    authority = row.get("authority_score")
+src/polaris_graph/synthesis/independence_collapse.py:320:            # Attach the higher-index root under the lower so the canonical
+src/polaris_graph/synthesis/independence_collapse.py:321:            # (lowest order-key) tends to stay near the root; canonical choice
+src/polaris_graph/synthesis/independence_collapse.py:344:            and an optional ``authority_score`` (NOT used for clustering or
+src/polaris_graph/synthesis/independence_collapse.py:345:            canonical choice — only carried through by the caller).
+src/polaris_graph/synthesis/independence_collapse.py:408:    canonical_of: dict[int, int] = {}      # member index -> canonical index
+src/polaris_graph/synthesis/independence_collapse.py:414:        # cluster the LOWEST-authority member (conservative-min, no inflation — Codex #1161).
+src/polaris_graph/synthesis/independence_collapse.py:415:        canonical_index = min(
+src/polaris_graph/synthesis/independence_collapse.py:418:        # Stable, copy-immune id: derived from the canonical row's EVIDENCE IDENTITY, NOT its
+src/polaris_graph/synthesis/independence_collapse.py:419:        # input position — so a copy added BEFORE the canonical (prepended) does not shift the
+src/polaris_graph/synthesis/independence_collapse.py:422:        canonical_eid = str(rows[canonical_index].get("evidence_id", "") or "").strip()
+src/polaris_graph/synthesis/independence_collapse.py:423:        if not canonical_eid:
+src/polaris_graph/synthesis/independence_collapse.py:425:                "independence_collapse: canonical row is missing 'evidence_id'; a stable "
+src/polaris_graph/synthesis/independence_collapse.py:429:        origin_cluster_id = f"origin::{canonical_eid}"
+src/polaris_graph/synthesis/independence_collapse.py:430:        copy_indices = [i for i in member_indices if i != canonical_index]
+src/polaris_graph/synthesis/independence_collapse.py:435:                canonical_index=canonical_index,
+src/polaris_graph/synthesis/independence_collapse.py:442:            canonical_of[i] = canonical_index
+src/polaris_graph/synthesis/independence_collapse.py:445:    clusters.sort(key=lambda c: c.canonical_index)
+src/polaris_graph/synthesis/independence_collapse.py:451:            canonical_index=canonical_of[i],
+src/polaris_graph/synthesis/independence_collapse.py:452:            is_canonical_origin=(canonical_of[i] == i),
+src/polaris_graph/synthesis/independence_collapse.py:453:            is_derivative_copy=(canonical_of[i] != i),
+
+ succeeded in 5065ms:
+ 251:     Then add ANOTHER copy whose own authority_score is far HIGHER than the
+ 252:     canonical's. The cluster set and the canonical origin MUST be unchanged,
+ 253:     so a weight tally over canonical origins cannot be inflated by the copy.
+ 254:     """
+ 255:     base = [
+ 256:         _row("origin", "https://wire.com/release", _PRESS_RELEASE,
+ 257:              authority_score=0.20),
+ 258:         _row("copy1", "https://reprint1.com/s", _SYNDICATED_COPY,
+ 259:              authority_score=0.30),
+ 260:     ]
+ 261:     base_result = _collapse(base)
+ 262:     assert base_result.independent_origin_count == 1
+ 263:     base_cluster = base_result.clusters[0]
+ 264:     base_canonical_eid = base[base_cluster.canonical_index]["evidence_id"]
+ 265:     assert base_canonical_eid == "origin"
+ 266: 
+ 267:     # Add a HIGHER-authority verbatim republisher.
+ 268:     with_high_authority_copy = base + [
+ 269:         _row("copy2_high_auth", "https://bigsite.com/s", _SYNDICATED_COPY,
+ 270:              authority_score=0.99),
+ 271:     ]
+ 272:     result = _collapse(with_high_authority_copy)
+ 273: 
+ 274:     # Still exactly ONE independent origin.
+ 275:     assert result.independent_origin_count == 1
+ 276:     cluster = result.clusters[0]
+ 277:     # Canonical origin is STILL the original low-authority seed.
+ 278:     assert with_high_authority_copy[cluster.canonical_index]["evidence_id"] == "origin"
+ 279:     # The high-authority copier is flagged derivative, not canonical.
+ 280:     high = next(
+ 281:         a for a in result.assignments
+ 282:         if with_high_authority_copy[a.row_index]["evidence_id"] == "copy2_high_auth"
+ 283:     )
+ 284:     assert high.is_derivative_copy is True
+ 285:     assert high.is_canonical_origin is False
+ 286:     # The stable origin_cluster_id is UNCHANGED by the copy addition.
+ 287:     assert cluster.origin_cluster_id == base_cluster.origin_cluster_id
+ 288: 
+ 289: 
+ 290: def test_canonical_never_chosen_by_authority() -> None:
+ 291:     """Even if a derivative copy has the single highest authority in the
+ 292:     cluster, the canonical is the earliest/seed member, never the highest
+ 293:     authority. Authority is not consulted for the canonical choice."""
+ 294:     rows = [
+ 295:         _row("seed", "https://origin.com/r", _PRESS_RELEASE,
+ 296:              authority_score=0.10),                    # earliest, low authority
+ 297:         _row("loud_copy", "https://loud.com/r", _SYNDICATED_COPY,
+ 298:              authority_score=1.00),                    # later, top authority
+ 299:     ]
+ 300:     result = _collapse(rows)
+ 301:     assert result.independent_origin_count == 1
+ 302:     cluster = result.clusters[0]
+ 303:     assert rows[cluster.canonical_index]["evidence_id"] == "seed"
+ 304:     assert cluster.copy_indices == [1]
+ 305: 
+ 306: 
+ 307: def test_undated_prepended_higher_authority_copy_cannot_steal_canonical() -> None:
+ 308:     """Codex iter-4 P1 regression: when EVERY member is undated, the canonical is the
+ 309:     LOWEST-authority member (not the first by input index), so an undated higher-authority
+ 310:     copy PREPENDED before the seed cannot become canonical or inflate cluster_mass, and the
+ 311:     origin_cluster_id stays stable."""
+ 312:     seed = _row("seed", "https://origin.com/r", _PRESS_RELEASE, authority_score=0.10)
+ 313:     base_id = _collapse([seed]).clusters[0].origin_cluster_id
+ 314:     high_copy = _row("loud", "https://loud.com/r", _SYNDICATED_COPY, authority_score=0.99)
+ 315:     rows = [high_copy, seed]  # PREPEND the undated higher-authority copy before the seed
+ 316:     result = _collapse(rows)
+ 317:     assert result.independent_origin_count == 1
+ 318:     cluster = result.clusters[0]
+ 319:     # Canonical is the lowest-authority seed, NOT the prepended high-authority copy.
+ 320:     assert rows[cluster.canonical_index]["evidence_id"] == "seed"
+ 321:     assert cluster.origin_cluster_id == base_id
+ 322:     loud = next(a for a in result.assignments if rows[a.row_index]["evidence_id"] == "loud")
+ 323:     assert loud.is_derivative_copy is True
+ 324: 
+ 325: 
+ 326: def test_undated_high_authority_copy_cannot_outrank_dated_canonical() -> None:
+ 327:     """Codex iter-1 P1 regression: a DATED canonical origin + an UNDATED copy
+ 328:     whose own authority is far higher. The undated copy must NOT become the
+ 329:     canonical (an undated row can never outrank a dated origin), so the cluster
+ 330:     mass over the canonical is uninflatable."""
+ 331:     base = [
+ 332:         _row("dated_origin", "https://wire.com/release", _PRESS_RELEASE,
+ 333:              authority_score=0.15, published_date="2024-02-01"),
+ 334:     ]
+ 335:     assert _collapse(base).clusters[0].canonical_index == 0
+ 336: 
+ 337:     rows = base + [
+ 338:         _row("undated_high_auth", "https://bigsite.com/s", _SYNDICATED_COPY,
+ 339:              authority_score=0.99),
+ 340:     ]
+ 341:     result = _collapse(rows)
+ 342:     assert result.independent_origin_count == 1
+ 343:     cluster = result.clusters[0]
+ 344:     # Canonical is STILL the dated origin, never the undated high-authority copy.
+ 345:     assert rows[cluster.canonical_index]["evidence_id"] == "dated_origin"
+ 346:     undated = next(
+ 347:         a for a in result.assignments
+ 348:         if rows[a.row_index]["evidence_id"] == "undated_high_auth"
+ 349:     )
+ 350:     assert undated.is_derivative_copy is True
+ 351: 
+ 352: 
+ 353: def test_origin_cluster_id_stable_under_prepended_copy() -> None:
+ 354:     """Codex iter-2 P2 regression: origin_cluster_id derives from the canonical row's
+ 355:     EVIDENCE IDENTITY, not its input position — so a copy added BEFORE the canonical
+ 356:     (prepended) does not change the cluster id even though the canonical's index shifts."""
+ 357:     origin = _row("origin", "https://wire.com/release", _PRESS_RELEASE,
+ 358:                   published_date="2024-02-01")
+ 359:     base_id = _collapse([origin]).clusters[0].origin_cluster_id
+ 360:     assert base_id == "origin::origin"
+ 361: 
+ 362:     copy = _row("copycat", "https://aggregator.com/x", _SYNDICATED_COPY)
+ 363:     rows = [copy, origin]  # PREPEND the derivative copy before the canonical origin
+ 364:     result = _collapse(rows)
+ 365:     assert result.independent_origin_count == 1
+ 366:     cluster = result.clusters[0]
+ 367:     # Canonical is still the dated origin (its index is now 1), and the id is unchanged.
+ 368:     assert rows[cluster.canonical_index]["evidence_id"] == "origin"
+ 369:     assert cluster.origin_cluster_id == base_id
+ 370: 
+ 371: 
+ 372: def test_malformed_non_iso_date_copy_cannot_become_canonical() -> None:
+ 373:     """Codex iter-2 P1 regression: a derivative copy whose published_date is malformed /
+ 374:     non-ISO (day-first '01/01/2099') is treated as UNDATED — it can NOT lexically outrank
+ 375:     the canonical's real ISO date and steal canonical."""
+ 376:     origin = _row("origin", "https://wire.com/release", _PRESS_RELEASE,
+ 377:                   published_date="2024-01-01")
+ 378:     copy = _row("copycat", "https://aggregator.com/x", _SYNDICATED_COPY,
+ 379:                 published_date="01/01/2099")  # day-first, NOT ISO -> treated as undated
+ 380:     rows = [origin, copy]
+
+codex
+The existing Phase 4 module already enforces the conservative canonical assignment and emits `is_canonical_origin`, so the P6 happy path is coherent when fed valid Phase 4 rows. The remaining concern is the P6 fallback path and a disclosure-count edge case; neither touches production gates.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/synthesis/independence_collapse.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 208 -First 40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "credibility_weight|relevance_score|cluster_mass|weight_target|weighted" docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/synthesis/independence_collapse.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ } | Select-Object -Skip 400 -First 60' in C:\POLARIS
+ succeeded in 3318ms:
+8:**Revision log — Codex plan-gate iter-1 (REQUEST_CHANGES) addressed inline:** P1-1 added the §6b competitor systems (Claude Research/Anthropic Citations API, MS Copilot Researcher, Grok); P1-2 specified the **origin-cluster weight-mass invariant** (copied rows cannot inflate claim-side mass); P1-3 **wired the clinical source-type veto** to the clinical adequacy floor (not a slogan); P2-4 made the drb_72 fixture audit-conditional; P2-5 corrected the `evidence_selector` anchor; P2-6 named the voter/arbiter integration point. **Iter-2 (REQUEST_CHANGES) addressed:** P1-2-continuing — replaced the row-level/averaging formula with the EXECUTABLE origin-cluster invariant (one `max(authority_score)` per `origin_cluster_id`, summed once per cluster; L3 emits `origin_cluster_id`); P2 — Phase 1 bibliography keys render only when the flag is ON (OFF byte-identical); P2 — split the clinical-veto test (Phase 6 = veto fires / not weight-adequate; Phase 7 = ABSTAIN/fringe rendering). **Iter-3 (REQUEST_CHANGES) addressed:** P1-2 made mathematically closed — `cluster_mass = authority(canonical origin)`, copies excluded, so a higher-authority copier joining a cluster cannot raise mass (+ copy-invariance fixture); Phase 4a emitted-contract made explicit (`origin_cluster_id` + canonical designation + copy flag, with a P6-groupability test); drb_72 Verification bullet made audit-conditional; Phase 6 clinical-veto bullet emits a signal (rendering moved to Phase 7); Phase 10 adds the `SENTINEL_ORIGINS` (`plan_sufficiency_gate.py`) update + fallback test. **Iter-4 (REQUEST_CHANGES) addressed:** replaced every remaining normative `max(authority_score)` with `authority_score(canonical_origin)` (§3 L3/L5 rows + Phase 4a scope) so the formula is consistent everywhere; tightened the clinical-veto wording (Phase 6 owns the `clinical_source_type_veto` emission, Phase 7 only renders); removed the duplicate `Files:` bullets in Phase 4a + Phase 7. **Iter-5: APPROVE** (Codex binding plan-gate, 0 P0 / 0 P1, convergence=accept_remaining). One P2 residual — keep the per-claim clinical source-type veto distinct from the corpus clinical adequacy floor — noted inline in Phase 6 for the implementation brief.
+46:| L3 | **Independence-collapse — beyond near-duplicate** (§4 L2 + §6c-4) | Collapse content-copying / syndication / common-ownership / common-funding / shared-authorship / citation-chain / paraphrase clusters to ~1 origin BEFORE any weighted vote | `corroboration.py` eTLD+1 PSL host-collapse (`count_independent_hosts`, `registrable_domain`); `finding_dedup.py` already clusters by finding + counts independent registrable-domains (`dedup_by_finding`, host-based) | TF-IDF cosine ≥0.85 **content-copy detector** + ownership/funding/authorship signals on top of the host primitive (real BUILD — current collapse is host-based only) |
+50:| L7 | **Per-claim disclosure** (§4 L5 + §6c-1 claim-level) | Each verified sentence carries {span-verdict, credibility_weight, independent_origin_count, certainty_label}; rendered in bibliography; "Proof Replay" SUPPORTS-not-EXISTS UX | `SentenceVerification` additive-field precedent (`soft_warnings` `:427`, `judge_error` `:433`); `resolve_provenance_to_citations` `:1881` render point | four optional fields + bibliography render + certainty-label scoring fn |
+67:| L1 two-axis score | scalar `authority_score` blend A–E (`authority_model.py:159-170`); domain in `scope_templates` | **relevance** axis + domain-conditional rubric + article/claim decomposition | add `relevance_score` to `AuthorityResult` (`source_class.py:75`); new `credibility_prior.py` selecting rubric off detected domain; emit on rows in `tier_classifier.py:2035-2038` |
+71:| L5 weighted aggregate | COUNT thresholds (`plan_sufficiency_gate.py:313`); journal COUNT floor (`journal_only_filter.py:531,596`) | origin-cluster weight-mass = Σ over origin clusters of `authority_score(canonical_origin)` (one mass per `origin_cluster_id` = its canonical origin's authority; derivative copies contribute zero; NO row-level term, NO max-over-copies — Phase 6 invariant) | replace `covered_count >= target` with `weight_mass >= weight_target` (`plan_sufficiency_gate.py:312-317`); add `assess_journal_only_adequacy` weight path (`journal_only_filter.py:543-607`); consumes L3 `origin_cluster_id` |
+73:| L7 per-claim disclose | `SentenceVerification` fields; bibliography render | 4 new optional fields + render | add `span_verdict`/`credibility_weight`/`independent_origin_count`/`certainty_label` to `SentenceVerification` (`provenance_generator.py:419-433`); extend bibliography dict (`:1897-1903`) |
+90:- **Scope:** Add four optional fields to `SentenceVerification` (dataclass-only inert plumbing). The bibliography render is NOT changed here — the four keys are emitted ONLY when the credibility-disclosure flag is ON (Phase 8), so OFF stays byte-identical (Codex iter-2 P2: extra empty keys would break byte-identity). NO population yet (defaults: `span_verdict=""`, `credibility_weight=None`, `independent_origin_count=None`, `certainty_label=""`).
+98:- **Scope:** Add a second `relevance_score` axis to `AuthorityResult`; a `credibility_prior.py` that selects the primary axis off the detected domain (clinical/econ-policy/qualitative) from `scope_templates`. Flag-gated; OFF ⇒ legacy scalar unchanged.
+148:- **Scope:** Replace COUNT aggregation with **origin-cluster weight-mass**, computed by this EXECUTABLE invariant (Codex iter-2 P1-2): group every supporting row by `(claim_cluster_id, origin_cluster_id)`; for each origin cluster L3 designates exactly ONE **canonical origin** (the syndication root / earliest independent publication; the other members are derivative copies — genuinely-INDEPENDENT corroboration has different content and forms its OWN cluster, it does not join an existing one). `cluster_mass = authority_score(canonical origin)`; copy/derivative members are attributed for disclosure ("N copies → 1 origin") but contribute ZERO to the mass. The claim-side weight-mass = Σ of `cluster_mass`, once per origin cluster within the claim cluster. **No row-level term, no averaging, no max-over-copies.** A row joins an existing `origin_cluster_id` only because L3 flagged it a copy of that cluster's canonical origin — so it adds NOTHING to the mass **even if its own `authority_score` is higher than the canonical origin's** (a high-authority verbatim republisher is still derivative; only its own *independent* content would form a new cluster). **Binding invariant (Codex iter-3 + #1161):** for a DATED origin cluster (canonical = earliest publication date) `weight_mass(rows + copied_row) == weight_mass(rows)` for ANY copier authority (strict copy-equality). For an ALL-UNDATED cluster the canonical is the LOWEST-`authority_score` member (conservative-min): the mass is MONOTONICALLY NON-INCREASING under copy additions — a higher-authority copy can NEVER inflate it (the binding no-inflation property), and a lower-authority copy can only LOWER it (honest, never inflating). Either way a copied row can NEVER inflate the false majority. This requires **L3 to emit a stable `origin_cluster_id`, the canonical-origin designation, and membership** (NOT merely an `independent_origin_count` scalar) and L4 to emit `claim_cluster_id`, both BEFORE L5. Without it, copied rows re-inflate the false majority and the vax test fails. Applies in plan-sufficiency AND journal-only adequacy. Per-facet weighting preserved.
+165:- **Offline tests:** end-to-end populates `credibility_weight` + `independent_origin_count` ("N sources → M origins") + `certainty_label` + `span_verdict`; bibliography renders all four; OFF byte-identity retained.
+210:| **Single-source authority capture** (low weight_target lets one high-authority source clear the bar) | corpus_approval tier-distribution backstop runs independently AFTER weight-adequacy; `independent_origin_count` multiplier requires multiple independent origins, not just a high scalar. Both gates sequential. |
+215:| **Two-axis weight tuning** (no published numeric thresholds; our blend is not inverse-variance) | weight_target/weight_per_facet are config (LAW VI), domain-calibrated; left as an OPEN DECISION (§8) for operator policy; calibration harness (P11) validates against the vax fixture before any spend. |
+235:1. **Domain weighting policy.** Confirm the three primary-axis rubrics: clinical → RCT+peer-review+RoB; econ/policy → design-validity over venue (NBER natural experiment can be near-apex); qualitative → CERQual coherence/adequacy. Are there additional domains (regulatory, legal) that need their own rubric? And the numeric `weight_target` / `weight_per_facet` defaults — set by operator policy + P11 calibration, or deferred to a calibration-driven default?
+279:  any weighted tally; origin-cluster weight-mass stays uninflatable by copies.
+
+ succeeded in 5094ms:
+ 209:         datetime.date(year, month, day)
+ 210:     except ValueError:
+ 211:         return None
+ 212:     return (year, month, day)
+ 213: 
+ 214: 
+ 215: def _order_key(row: dict[str, Any], row_index: int) -> tuple:
+ 216:     """Deterministic canonical-selection order key (canonical = ``min`` over members).
+ 217: 
+ 218:     A DATED row sorts before any undated row; among dated rows the earliest CALENDAR date
+ 219:     wins and ``authority_score`` is NEVER consulted (so a higher-authority but later-dated
+ 220:     copy can never steal the canonical origin). Same-date ties break on the STABLE
+ 221:     evidence_id, then the input index. Codex iter-1/2/3 fixes: dated-beats-undated;
+ 222:     malformed/non-ISO and non-calendar dates are treated as undated.
+ 223: 
+ 224:     When EVERY member of a cluster is undated there is no date to identify the seed
+ 225:     positionally, so the canonical is the LOWEST-``authority_score`` member: a higher-
+ 226:     authority copy can then never become the canonical origin and inflate ``cluster_mass``
+ 227:     (the load-bearing copy-invariance invariant — Codex iter-4 P1). The evidence_id breaks
+ 228:     authority ties (NOT the input index), so a prepended copy cannot win on position. A
+ 229:     later-added LOWER-authority copy may relabel the cluster to itself, but that only ever
+ 230:     LOWERS the mass — monotonically non-increasing under additions, never inflatable.
+ 231: 
+ 232:     Returns a 5-tuple ``(has_no_date, (y, m, d), auth_rank, evidence_id, row_index)``; the
+ 233:     ``auth_rank`` slot is a constant ``0.0`` for DATED rows (date decides) and the real
+ 234:     authority for undated rows (lowest wins).
+ 235:     """
+ 236:     eid = str(row.get("evidence_id", "") or "")
+ 237:     for key in _ORDER_KEYS:
+ 238:         parsed = _parse_order_date(row.get(key))
+ 239:         if parsed is not None:
+ 240:             return (0, parsed, 0.0, eid, row_index)
+ 241:     authority = row.get("authority_score")
+ 242:     auth_rank = float(authority) if isinstance(authority, (int, float)) else 0.0
+ 243:     return (1, (9999, 12, 31), auth_rank, eid, row_index)
+ 244: 
+ 245: 
+ 246: def _tokenize(text: str) -> list[str]:
+ 247:     """Lowercased word-character tokens. Pure stdlib; deterministic."""
+ 248:     return [t.lower() for t in _TOKEN_RE.findall(text)]
+
+ succeeded in 7116ms:
+ 401: 
+ 402:     # Group members by union-find root.
+ 403:     members_by_root: dict[int, list[int]] = {}
+ 404:     for i in range(n):
+ 405:         members_by_root.setdefault(uf.find(i), []).append(i)
+ 406: 
+ 407:     clusters: list[OriginCluster] = []
+ 408:     canonical_of: dict[int, int] = {}      # member index -> canonical index
+ 409:     cluster_id_of: dict[int, str] = {}     # member index -> origin_cluster_id
+ 410: 
+ 411:     for member_indices in members_by_root.values():
+ 412:         member_indices = sorted(member_indices)
+ 413:         # Canonical = earliest-dated origin (authority not consulted), or for an all-undated
+ 414:         # cluster the LOWEST-authority member (conservative-min, no inflation — Codex #1161).
+ 415:         canonical_index = min(
+ 416:             member_indices, key=lambda idx: _order_key(rows[idx], idx)
+ 417:         )
+ 418:         # Stable, copy-immune id: derived from the canonical row's EVIDENCE IDENTITY, NOT its
+ 419:         # input position — so a copy added BEFORE the canonical (prepended) does not shift the
+ 420:         # index and change the id (Codex iter-2 P2). A missing evidence_id is a FAIL-LOUD data
+ 421:         # error (Codex #1161), never a position-relative fallback.
+ 422:         canonical_eid = str(rows[canonical_index].get("evidence_id", "") or "").strip()
+ 423:         if not canonical_eid:
+ 424:             raise ValueError(
+ 425:                 "independence_collapse: canonical row is missing 'evidence_id'; a stable "
+ 426:                 "origin_cluster_id requires every evidence row to carry evidence_id "
+ 427:                 "(Codex #1161 — a positional fallback id is not copy-stable)."
+ 428:             )
+ 429:         origin_cluster_id = f"origin::{canonical_eid}"
+ 430:         copy_indices = [i for i in member_indices if i != canonical_index]
+ 431:         member_hosts = sorted({domains[i] for i in member_indices} - {""})
+ 432:         clusters.append(
+ 433:             OriginCluster(
+ 434:                 origin_cluster_id=origin_cluster_id,
+ 435:                 canonical_index=canonical_index,
+ 436:                 member_indices=member_indices,
+ 437:                 copy_indices=copy_indices,
+ 438:                 member_hosts=member_hosts,
+ 439:             )
+ 440:         )
+ 441:         for i in member_indices:
+ 442:             canonical_of[i] = canonical_index
+ 443:             cluster_id_of[i] = origin_cluster_id
+ 444: 
+ 445:     clusters.sort(key=lambda c: c.canonical_index)
+ 446: 
+ 447:     assignments = [
+ 448:         RowOriginAssignment(
+ 449:             row_index=i,
+ 450:             origin_cluster_id=cluster_id_of[i],
+ 451:             canonical_index=canonical_of[i],
+ 452:             is_canonical_origin=(canonical_of[i] == i),
+ 453:             is_derivative_copy=(canonical_of[i] != i),
+ 454:         )
+ 455:         for i in range(n)
+ 456:     ]
+ 457: 
+ 458:     return IndependenceCollapseResult(
+ 459:         clusters=clusters,
+ 460:         assignments=assignments,
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/synthesis/weight_mass.py:137: If Phase 4 canonical flags are missing for a clustered origin, fallback selects `sorted(members)[0]` by evidence_id, not the plan's conservative-min canonical for all-undated clusters. Valid Phase 4 output already emits exactly one canonical, so this is not an execution blocker, but the fail-soft fallback can inflate mass on malformed/unmerged inputs and should either fail loud or choose lowest authority."
+  - "src/polaris_graph/synthesis/weight_mass.py:149: `copy_count=max(0, len(members)-1)` undercounts when a claim is supported only by derivative copies while the canonical row exists globally but is not one of the claim rows. Mass remains correct, but disclosure metadata can say 0 copies for one derivative support row."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+114,173
