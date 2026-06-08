@@ -27,16 +27,21 @@ echo-collapse false-positive bound, plan §6 RISKS).
 
 CANONICAL-ORIGIN INVARIANT (the load-bearing safety property)
 =============================================================
-Each cluster designates exactly ONE **canonical origin** — the earliest /
-seed member — using ONLY an order signal: an explicit publication-date key
-when present and parseable, else the corpus order (lowest input index).
-The per-row ``authority_score`` is DELIBERATELY NOT consulted for the
-canonical choice or for cluster membership.
+Each cluster designates exactly ONE **canonical origin**. When ANY member
+carries a parseable publication date, the canonical is the EARLIEST-dated
+member and ``authority_score`` is NOT consulted — a DATED cluster keeps
+STRICT copy-invariance (adding a same/later/undated copy of ANY authority
+leaves the canonical + cluster_mass unchanged). When EVERY member is undated
+there is no date to identify the seed, so the canonical is the LOWEST-
+``authority_score`` member (conservative-min, Codex #1161): a higher-authority
+copy can NEVER become canonical or inflate cluster_mass, and the worst a copy
+can do is LOWER the mass (monotonic non-increase) — never inflate.
 
 Therefore: adding a copied row to an existing cluster — **even a copy whose
 own ``authority_score`` is HIGHER than the cluster's canonical origin** —
-does NOT change the cluster set nor its canonical origin. A high-authority
-verbatim republisher is still derivative; only its own *independent* content
+does NOT change the cluster set nor its canonical origin nor inflate its
+mass. A high-authority verbatim republisher is still derivative; only its own
+*independent* content
 would form a new cluster. This is exactly what lets the L5 weighted tally
 (``cluster_mass = authority_score(canonical_origin)``, copies contribute
 zero) be uninflatable by copies. The invariant is proven by
@@ -405,18 +410,23 @@ def collapse_independent_origins(
 
     for member_indices in members_by_root.values():
         member_indices = sorted(member_indices)
-        # Canonical = earliest/seed by the order key (authority NOT consulted).
+        # Canonical = earliest-dated origin (authority not consulted), or for an all-undated
+        # cluster the LOWEST-authority member (conservative-min, no inflation — Codex #1161).
         canonical_index = min(
             member_indices, key=lambda idx: _order_key(rows[idx], idx)
         )
-        # Stable, copy-immune id: derived from the canonical row's EVIDENCE IDENTITY, NOT
-        # its input position — so a copy added BEFORE the canonical (prepended) does not
-        # shift the index and change the id (Codex iter-2 P2). Only when the canonical row
-        # carries no evidence_id do we fall back to the index.
+        # Stable, copy-immune id: derived from the canonical row's EVIDENCE IDENTITY, NOT its
+        # input position — so a copy added BEFORE the canonical (prepended) does not shift the
+        # index and change the id (Codex iter-2 P2). A missing evidence_id is a FAIL-LOUD data
+        # error (Codex #1161), never a position-relative fallback.
         canonical_eid = str(rows[canonical_index].get("evidence_id", "") or "").strip()
-        origin_cluster_id = (
-            f"origin::{canonical_eid}" if canonical_eid else f"origin::idx{canonical_index}"
-        )
+        if not canonical_eid:
+            raise ValueError(
+                "independence_collapse: canonical row is missing 'evidence_id'; a stable "
+                "origin_cluster_id requires every evidence row to carry evidence_id "
+                "(Codex #1161 — a positional fallback id is not copy-stable)."
+            )
+        origin_cluster_id = f"origin::{canonical_eid}"
         copy_indices = [i for i in member_indices if i != canonical_index]
         member_hosts = sorted({domains[i] for i in member_indices} - {""})
         clusters.append(

@@ -530,3 +530,16 @@ def test_empty_text_rows_do_not_falsely_collapse() -> None:
     ]
     result = _collapse(rows)
     assert result.independent_origin_count == 2
+
+
+def test_missing_evidence_id_fails_loud() -> None:
+    """Codex #1161: a canonical row without evidence_id raises (no position-relative fallback
+    id). Real evidence rows always carry evidence_id; a missing one is a data bug, fail-loud."""
+    rows = [{"source_url": "https://x.com/a", "direct_quote": _PRESS_RELEASE}]  # no evidence_id
+    raised = False
+    try:
+        _collapse(rows)
+    except ValueError as exc:
+        raised = True
+        assert "evidence_id" in str(exc)
+    assert raised, "a canonical row missing evidence_id must fail loud, not fall back to an index id"

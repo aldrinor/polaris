@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/synthesis/independence_collapse.py:40: Docstring still overstates the all-undated conservative-min case: a lower-authority undated copy can intentionally change canonical/id and lower mass, so 'does NOT change ... canonical origin' should be narrowed to dated or higher-authority-copy cases."
+  - "src/polaris_graph/synthesis/independence_collapse.py:420: Missing evidence_id fail-loud is canonical-only, while the error text says every evidence row must carry evidence_id. Acceptable for the positional fallback fix, but either enforce all rows or narrow the wording."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
