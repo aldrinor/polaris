@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Optional cleanup only: `workforce.yaml` and journal-only module comments still carry the old drb_72 journal-only rationale. Runtime is dormant because the env flag is cleared, so this is not an execution blocker."
+  - "Operational caveat only: the unchanged general `corpus_approval` gate may still abort on material tier deviation without structured authorization. That is intended and not a regression from removing journal-only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

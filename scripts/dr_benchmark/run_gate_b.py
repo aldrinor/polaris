@@ -812,19 +812,22 @@ def preflight_import_time_constants() -> None:
             )
 
 
-# I-ready-017 FIX-JO (#1100/#1134): the PER-QUESTION journal_only benchmark slugs. The drb_72
-# AI-labor question is a LITERATURE REVIEW that explicitly instructs "only cites high-quality,
-# English-language journal articles", so its corpus contract is journal_only. This is a NAMED
-# slug set (the SAME hardcoded-slug-tuple pattern as LOCKED_BENCHMARK_SLUGS above — LAW VI:
-# a named module constant, not a magic value). It is deliberately PER-SLUG, NOT keyed on the
-# domain template: workforce.yaml declares `source_restriction: journal_only` at the TEMPLATE
-# (domain) level, so EVERY workforce-domain slug loads the same journal_only protocol — keying
-# the flag on the template would over-activate for a non-lit-review workforce query and silently
-# kill the generic T3 statistical-agency path. journal_only_active() requires BOTH this runtime
-# flag AND the protocol field, so a clinical slug (no journal_only template) stays inert even if
-# the flag were ever stale. A future journal-only benchmark question is added by appending its
-# slug here (and giving its domain template a journal_only profile).
-JOURNAL_ONLY_BENCHMARK_SLUGS: frozenset[str] = frozenset({"drb_72_ai_labor"})
+# I-ready-019 (#1146): EMPTY per the operator credibility-model directive (2026-06-07). FIX-JO
+# (I-ready-017 #1100/#1134) originally placed drb_72_ai_labor here because that AI-labor LITERATURE
+# REVIEW question's text says "only cites high-quality, English-language journal articles". The
+# operator REVERSED that: "many things are not journal, but still credibility — mainstream news,
+# gov, some credible sites; why you have tendency to make yourself into tunnel view." No benchmark
+# question is journal-only. Credibility is multi-source and domain-aware (peer-reviewed journals +
+# government statistics + working papers (NBER/IZA) + reputable institutes + quality news);
+# faithfulness is enforced by the verify gates (strict_verify / 4-role D8 / provenance / two-family),
+# NOT by source-type purity. The drb_72 paid re-run proved the harm: the GENERAL corpus was adequate
+# ("adequacy=proceed uncovered=0"), but the journal-only distinct-journal COUNT floor (5<12 — itself a
+# §-1.1-banned metadata-as-quality proxy) starved it and forced abort_corpus_inadequate.
+# The NAMED-constant + apply_journal_only_for_slug() mechanism is KEPT but dormant (LAW VI): a future
+# DELIBERATE, operator-approved journal-only question is re-enabled by appending its slug here (and
+# giving its domain template a journal_only profile). journal_only_active() still requires BOTH this
+# runtime flag AND the protocol field, so with an empty set nothing activates.
+JOURNAL_ONLY_BENCHMARK_SLUGS: frozenset[str] = frozenset()
 
 
 def apply_journal_only_for_slug(slug: str) -> bool:
@@ -942,13 +945,12 @@ async def run_gate_b_query(
     os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
-    # I-ready-017 FIX-JO (#1100/#1134): per-QUESTION journal_only corpus-quality activation. Set the
-    # journal_only runtime flag ON for drb_72 (the AI-labor LITERATURE REVIEW whose contract is
-    # journal_only) and DETERMINISTICALLY clear it for every other slug — NOT in the always-on global
-    # slate, so the generic T3 statistical-agency path survives for non-lit-review workforce queries.
-    # The downstream consumer (run_honest_sweep_r3.run_one_query -> _jo_active) reads this flag AND
-    # requires the protocol's source_restriction:journal_only, so a clinical slug stays inert. Default
-    # non-journal runs are byte-identical (the flag is removed, never set). Per-slug, never blanket.
+    # I-ready-019 (#1146): journal_only is DISABLED for the whole benchmark (empty
+    # JOURNAL_ONLY_BENCHMARK_SLUGS) per the operator credibility-model directive (2026-06-07). With an
+    # empty set this call DETERMINISTICALLY CLEARS the runtime flag for every slug, so no question is
+    # journal-only and the broad credibility corpus + general adequacy govern (the drb_72 re-run showed
+    # the general adequacy returns "proceed"; the journal-only COUNT floor had wrongly aborted it). The
+    # mechanism stays so a future operator-approved journal-only question just appends a slug above.
     apply_journal_only_for_slug(q["slug"])
     # I-cap-005 (#1068) KEYSTONE: FAIL CLOSED here — AFTER every cap+flag is applied, BEFORE a single
     # token is spent. If any effective retrieval cap is below the full-capability floor, or any required
