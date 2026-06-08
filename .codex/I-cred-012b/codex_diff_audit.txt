@@ -1,0 +1,11 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/authority/credibility_judge.py:21-50: The production judge prompt drops most deterministic P2 signals required by the plan. Plan §9.1 requires the judge to reason from/cite authority_score, source_class, corroboration_count, signal_scores, junk_class/predatory_oa, and origin_cluster_id; _build_judge_payload provides them, but this prompt only includes title/url/snippet/authority_score/domain_hint. Once wired, the judge cannot perform the specified source-analysis step or cite those required signals. Add the missing payload fields to the prompt and test their presence."
+p2:
+  - "src/polaris_graph/authority/credibility_judge.py:53-64: parse_credibility_response claims to parse the first JSON object, but the greedy regex captures from the first '{' to the last '}', so prose or multiple objects after the JSON can make an otherwise valid first object fail. Not a blocker because failure is bounded as judge_error, but the parser/test should match the stated tolerance."
+  - "tests/polaris_graph/authority/test_credibility_judge_phase12b.py:44-46: Prompt-content coverage is too weak; it only checks question/title/url, so it missed the missing required deterministic signal surface. Targeted smoke is green: 9 passed."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Expose and test the full plan-required P2 deterministic signal payload in build_credibility_prompt before approving execution."

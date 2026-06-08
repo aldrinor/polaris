@@ -1,0 +1,1622 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ea816-7e51-7812-b713-3b46f509b304
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5. Front-load ALL real findings; reserve P0/P1 for real execution blockers; classify cosmetic as P2/P3. APPROVE iff zero P0 AND zero P1.
+
+# DIFF GATE — credibility redesign build phase (umbrella I-ready-021 #1148)
+
+Review the NEW-MODULE diff below for code correctness against its plan-phase spec
+(`docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md`). This is faithfulness-adjacent code.
+
+## HARD CONSTRAINTS (operator-locked)
+- **Default-OFF byte-identical:** the module must be inert unless explicitly invoked by a flag/caller; turning it OFF (or not wiring it) leaves existing behavior byte-identical. No production path is changed in this phase.
+- **Faithfulness gates UNTOUCHED:** strict_verify (`provenance_generator.py`), 4-role D8, two-family segregation, corpus_approval are NOT edited or weakened. This phase is a NEW module only.
+- **LAW VI:** no hardcoded thresholds/paths — config/env; snake_case; no magic numbers; no live data in unit tests (fixtures only).
+
+## VERIFY SPECIFICALLY
+1. The module implements its plan-phase spec correctly (read the named layer/phase in the plan).
+2. **The phase invariant is actually enforced AND tested** (e.g. P4: a copied row joining a cluster — even higher-authority — cannot change the cluster set / canonical origin; P5: recall-first contradictions + conservative-singleton never over-merges; P3: retraction hard-penalty + config thresholds).
+3. The unit tests are MEANINGFUL (not assertion-relaxed to pass) and the attached SMOKE result is green.
+4. No faithfulness gate is touched; nothing in the production path changes with the module un-wired.
+
+## SMOKE EVIDENCE (attached below the diff — the offline pytest result is the evidence, not a self-report)
+
+## OUTPUT SCHEMA (YAML)
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+============ THE DIFF + SMOKE EVIDENCE ============
+## PHASE: I-cred-012b (#1165) — production credibility JUDGE factory diff. make_credibility_judge(call_llm)->judge(question,payload)->dict for P2 score_source_credibility. PURE prompt-format (build_credibility_prompt) + JSON-parse (parse_credibility_response, tolerates code-fence/prose, non-dict/no-JSON => {}). call_llm DEPENDENCY-INJECTED (runner binds open-weight model + OpenRouter in 012a; tests inject a stub). Transport raise => {} => P2 bounded per-row judge_error. Contract verified to match credibility_skill._apply_judge (reliability_score required, relevance defaults 1.0). NO network in the module; spend only when 012a threads it under PG_SWEEP_CREDIBILITY_REDESIGN. SMOKE: 9 passed (parse/fence/non-dict/transport-fail/flows-through-P2-nonerror/malformed-judge_error/prompt-content).
+```diff
+diff --git a/src/polaris_graph/authority/credibility_judge.py b/src/polaris_graph/authority/credibility_judge.py
+new file mode 100644
+index 00000000..2882b521
+--- /dev/null
++++ b/src/polaris_graph/authority/credibility_judge.py
+@@ -0,0 +1,85 @@
++"""I-cred-012b — production credibility JUDGE factory (LLM-backed) for the P2 credibility skill.
++
++Builds the injected ``judge(research_question, payload) -> dict`` that
++``credibility_skill.score_source_credibility`` consumes per source. The factory is PURE prompt-format +
++JSON-parse; the LLM call is DEPENDENCY-INJECTED (``call_llm``) so it is offline-testable and the model /
++client live entirely in the caller the sweep runner supplies (012a). Open-weight model ONLY (the certified
++voter slate) — the caller binds the model.
++
++Robustness contract (matches `credibility_skill._apply_judge`): on ANY malformed LLM output the judge
++returns a dict missing/!=reliability_score (or ``{}``), which P2 isolates as a per-row ``judge_error``
++(recall-first, fail-loud-but-bounded). It NEVER raises into P2 (P2 catches, but we keep it clean).
++"""
++from __future__ import annotations
++
++import json
++import re
++from typing import Any, Callable
++
++# The judge sees ONLY the bounded payload (source identity + title/url/snippet + authority prior +
++# domain_hint) — same payload `credibility_skill._build_judge_payload` assembles. No rubric branch.
++_PROMPT = (
++    "You are a source-credibility judge for ONE source against ONE research question. Judge only this "
++    "source, for this question.\n"
++    "QUESTION: {question}\n"
++    "SOURCE:\n"
++    "  title: {title}\n"
++    "  url: {url}\n"
++    "  snippet: {snippet}\n"
++    "  authority_score (deterministic prior, 0..1): {authority_score}\n"
++    "  domain_hint: {domain_hint}\n\n"
++    "Return STRICT JSON only, no prose, no code fence:\n"
++    '{{"reliability_score": <0..1: how reliable/authoritative this source is FOR THIS QUESTION>, '
++    '"relevance_score": <0..1: how on-topic this source is>, '
++    '"rationale": "<one sentence>", '
++    '"signals_cited": [<signal names you relied on>], '
++    '"query_need": "<a follow-up query if this source is thin, else empty>"}}'
++)
++
++
++def build_credibility_prompt(research_question: str, payload: dict[str, Any]) -> str:
++    """Pure: render the per-source judging prompt from the P2 payload."""
++    payload = payload or {}
++    return _PROMPT.format(
++        question=research_question,
++        title=payload.get("title", ""),
++        url=payload.get("url", ""),
++        snippet=payload.get("snippet", ""),
++        authority_score=payload.get("authority_score", ""),
++        domain_hint=payload.get("domain_hint", ""),
++    )
++
++
++def parse_credibility_response(text: str) -> dict[str, Any]:
++    """Best-effort: parse the first JSON object in the LLM text. Non-dict / no-JSON => {} (=> judge_error)."""
++    if not text or not isinstance(text, str):
++        return {}
++    match = re.search(r"\{.*\}", text, re.DOTALL)  # tolerate code fences / leading prose
++    if not match:
++        return {}
++    try:
++        obj = json.loads(match.group(0))
++    except (ValueError, TypeError):
++        return {}
++    return obj if isinstance(obj, dict) else {}
++
++
++def make_credibility_judge(call_llm: Callable[[str], str]) -> Callable[[str, dict], dict]:
++    """Return ``judge(research_question, payload) -> dict`` for ``score_source_credibility``.
++
++    ``call_llm(prompt) -> text`` is injected — the sweep runner (012a) binds the open-weight model + the
++    OpenRouter client; tests inject a deterministic stub. The judge formats the prompt, calls the LLM, and
++    parses JSON; a malformed/empty response yields ``{}`` so P2 records a bounded per-row ``judge_error``.
++    """
++    if call_llm is None:
++        raise ValueError("make_credibility_judge requires an injected call_llm(prompt) -> text")
++
++    def judge(research_question: str, payload: dict) -> dict:
++        prompt = build_credibility_prompt(research_question, payload)
++        try:
++            text = call_llm(prompt)
++        except Exception:
++            return {}  # transport failure for this row => P2 judge_error (isolated, bounded)
++        return parse_credibility_response(text)
++
++    return judge
+diff --git a/tests/polaris_graph/authority/test_credibility_judge_phase12b.py b/tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+new file mode 100644
+index 00000000..b30b9fa7
+--- /dev/null
++++ b/tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+@@ -0,0 +1,66 @@
++"""I-cred-012b — production credibility judge factory. Offline, deterministic, no network."""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.authority.credibility_judge import (
++    build_credibility_prompt,
++    make_credibility_judge,
++    parse_credibility_response,
++)
++from src.polaris_graph.authority.credibility_skill import score_source_credibility
++
++
++def test_requires_call_llm():
++    with pytest.raises(ValueError):
++        make_credibility_judge(None)
++
++
++def test_happy_path_parses_json():
++    judge = make_credibility_judge(
++        lambda p: '{"reliability_score": 0.8, "relevance_score": 0.9, "rationale": "ok"}'
++    )
++    out = judge("q", {"title": "t", "url": "u"})
++    assert out["reliability_score"] == 0.8 and out["relevance_score"] == 0.9
++
++
++def test_code_fence_and_prose_tolerated():
++    judge = make_credibility_judge(lambda p: 'Sure:\n```json\n{"reliability_score": 0.5}\n```')
++    assert judge("q", {})["reliability_score"] == 0.5
++
++
++def test_malformed_returns_empty_dict():
++    assert make_credibility_judge(lambda p: "no json here")("q", {}) == {}
++    assert make_credibility_judge(lambda p: "[1,2,3]")("q", {}) == {}  # non-dict JSON
++
++
++def test_transport_failure_returns_empty():
++    def boom(prompt):
++        raise RuntimeError("503 upstream")
++
++    assert make_credibility_judge(boom)("q", {}) == {}
++
++
++def test_prompt_includes_question_and_source():
++    p = build_credibility_prompt("does X work?", {"title": "Study A", "url": "http://a", "snippet": "snip"})
++    assert "does X work?" in p and "Study A" in p and "http://a" in p
++
++
++def test_parse_helper_direct():
++    assert parse_credibility_response('{"a": 1}') == {"a": 1}
++    assert parse_credibility_response("") == {}
++    assert parse_credibility_response("nope") == {}
++
++
++def test_flows_through_p2_as_non_error_judgment():
++    judge = make_credibility_judge(lambda p: '{"reliability_score": 0.7, "relevance_score": 1.0}')
++    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
++    out = score_source_credibility("q", rows, judge=judge)[0]
++    assert out.judge_error is False and out.reliability_score == 0.7
++
++
++def test_malformed_judge_marks_p2_judge_error():
++    judge = make_credibility_judge(lambda p: "garbage, no json")
++    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
++    out = score_source_credibility("q", rows, judge=judge)[0]
++    assert out.judge_error is True
+```
+
+codex
+I’ll verify this against the plan doc and the existing P2 contract, then check whether the new module is actually isolated from production paths.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "I-cred-012b|012b|production credibility JUDGE|credibility judge|make_credibility_judge|P2 score_source_credibility|score_source_credibility|_apply_judge|PG_SWEEP_CREDIBILITY_REDESIGN" docs src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files docs src tests | rg "credibility|authority|provenance_generator|corpus_approval|d8|segregation"' in C:\POLARIS
+ succeeded in 3528ms:
+docs\frontier_credibility_intelligence_2026_06_07.md
+docs\credibility_weighted_sourcing_redesign_plan_2026_06_07.md
+docs\credibility_redesign_architecture_diagram.md
+docs\credibility_adaptive_weighting_and_bothsides_recs_2026_06_08.md
+docs\md8_phase1_threat_model.md
+tests\polaris_graph\test_credibility_disclosure_schema_icred001.py
+tests\polaris_graph\test_corpus_approval_gate.py
+tests\polaris_graph\test_bug771_tier_authority_and_oa_ceiling.py
+tests\polaris_graph\test_b2_corpus_approval_enforcement.py
+tests\polaris_graph\test_md8_phase1_parallel_fetch.py
+tests\polaris_graph\synthesis\test_credibility_pass_phase12.py
+tests\fixtures\credibility\claim_graph_cases.json
+src\polaris_graph\synthesis\credibility_pass.py
+tests\polaris_graph\test_provenance_generator_entailment.py
+tests\polaris_graph\test_provenance_generator.py
+tests\polaris_graph\test_openalex_authority_tier_t7.py
+tests\fixtures\authority\s2_confusion_matrix.json
+src\polaris_graph\authority\__init__.py
+src\polaris_graph\authority\supersession.py
+src\polaris_graph\authority\source_class.py
+src\polaris_graph\authority\recency.py
+src\polaris_graph\authority\junk_detection.py
+src\polaris_graph\authority\institutional.py
+src\polaris_graph\authority\data_loader.py
+src\polaris_graph\authority\credibility_skill.py
+src\polaris_graph\authority\credibility_judge.py
+src\polaris_graph\authority\corroboration.py
+src\polaris_graph\authority\clinical_view.py
+src\polaris_graph\authority\citation_graph.py
+src\polaris_graph\authority\authority_model.py
+tests\fixtures\authority\junk\self_interest.json
+tests\fixtures\authority\junk\press_release.json
+tests\fixtures\authority\junk\login_wall.json
+tests\fixtures\authority\junk\control_primary.json
+tests\fixtures\authority\junk\blog.json
+tests\fixtures\authority\cross_field_50_urls.jsonl
+tests\fixtures\authority\clinical_tier_baseline_off.json
+tests\fixtures\authority\clinical_200_urls.jsonl
+tests\fixtures\authority\adversarial_thin_field.jsonl
+src\polaris_graph\generator\provenance_generator.py
+tests\polaris_graph\generator\test_credibility_pass_wiring_012a.py
+tests\polaris_graph\authority\__init__.py
+tests\polaris_graph\authority\test_zero_host_literal_in_authority_code.py
+tests\polaris_graph\authority\test_thin_field_honest_low_confidence.py
+tests\polaris_graph\authority\test_signal_units.py
+tests\polaris_graph\authority\test_kill_switch_off_byte_identical.py
+tests\polaris_graph\authority\test_junk_detection.py
+tests\polaris_graph\authority\test_jsonld_survives_strip_html_p1c.py
+tests\polaris_graph\authority\test_determinism_and_fail_loud.py
+tests\polaris_graph\authority\test_credibility_skill_phase2.py
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py
+tests\polaris_graph\authority\test_authority_reproduces_clinical_tier_view.py
+tests\polaris_graph\authority\test_authority_cross_field_sane.py
+tests\polaris_graph\authority\test_adequacy_selector_on_vs_off_integration.py
+src\polaris_graph\nodes\corpus_approval_gate.py
+tests\crown_jewels\test_cj_001_two_family_segregation.py
+tests\crown_jewels\test_cj_005_corpus_approval.py
+
+ succeeded in 6491ms:
+src\polaris_graph\generator\multi_section_generator.py:4393:    # byte-identical. Threaded by the sweep runner ONLY when PG_SWEEP_CREDIBILITY_REDESIGN is on.
+src\polaris_graph\generator\multi_section_generator.py:4694:                "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
+src\polaris_graph\generator\multi_section_generator.py:4695:                "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
+src\polaris_graph\authority\credibility_skill.py:185:def _apply_judge(
+src\polaris_graph\authority\credibility_skill.py:236:def score_source_credibility(
+src\polaris_graph\authority\credibility_skill.py:252:    return [_apply_judge(research_question, row, domain, judge) for row in (rows or [])]
+src\polaris_graph\authority\credibility_judge.py:1:"""I-cred-012b — production credibility JUDGE factory (LLM-backed) for the P2 credibility skill.
+src\polaris_graph\authority\credibility_judge.py:4:``credibility_skill.score_source_credibility`` consumes per source. The factory is PURE prompt-format +
+src\polaris_graph\authority\credibility_judge.py:9:Robustness contract (matches `credibility_skill._apply_judge`): on ANY malformed LLM output the judge
+src\polaris_graph\authority\credibility_judge.py:22:    "You are a source-credibility judge for ONE source against ONE research question. Judge only this "
+src\polaris_graph\authority\credibility_judge.py:67:def make_credibility_judge(call_llm: Callable[[str], str]) -> Callable[[str, dict], dict]:
+src\polaris_graph\authority\credibility_judge.py:68:    """Return ``judge(research_question, payload) -> dict`` for ``score_source_credibility``.
+src\polaris_graph\authority\credibility_judge.py:75:        raise ValueError("make_credibility_judge requires an injected call_llm(prompt) -> text")
+src\polaris_graph\synthesis\credibility_pass.py:6:``PG_SWEEP_CREDIBILITY_REDESIGN``; OFF ⇒ not invoked ⇒ byte-identical. ADVISORY only: ``strict_verify`` +
+src\polaris_graph\synthesis\credibility_pass.py:27:from src.polaris_graph.authority.credibility_skill import score_source_credibility
+src\polaris_graph\synthesis\credibility_pass.py:33:_MASTER_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
+src\polaris_graph\synthesis\credibility_pass.py:94:    production credibility judge (injected); None ⇒ priors-only, which the runner forbids under activation.
+src\polaris_graph\synthesis\credibility_pass.py:105:            "leave PG_SWEEP_CREDIBILITY_REDESIGN off."
+src\polaris_graph\synthesis\credibility_pass.py:156:    judgments = score_source_credibility(research_question, annotated, domain=domain, judge=judge)
+src\polaris_graph\synthesis\credibility_pass.py:160:            f"abort_credibility_pass_error: the production credibility judge failed for "
+tests\polaris_graph\synthesis\test_credibility_pass_phase12.py:32:    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+tests\polaris_graph\synthesis\test_credibility_pass_phase12.py:38:    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", on)
+tests\fixtures\authority\clinical_tier_baseline_off.json:16251:    "url": "https://www.semanticscholar.org/paper/8219ac717ec1c6b3fadca012b5dfdd9ade60cc3c",
+tests\polaris_graph\generator\test_credibility_pass_wiring_012a.py:29:    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+docs\credibility_weighted_sourcing_redesign_plan_2026_06_07.md:276:- The credibility judge is **advisory only**; `strict_verify`'s six per-sentence checks remain the binding
+docs\credibility_redesign_architecture_diagram.md:3:**Umbrella I-ready-021 (#1148).** Master flag `PG_SWEEP_CREDIBILITY_REDESIGN` — **OFF ⇒ the pipeline is byte-for-byte identical**. The whole chain is **ADVISORY**; the only gates that keep/drop a sentence or block release are `strict_verify` and the 4-role D8 panel (shown double-boxed).
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:1:"""I-cred-012b — production credibility judge factory. Offline, deterministic, no network."""
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:8:    make_credibility_judge,
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:11:from src.polaris_graph.authority.credibility_skill import score_source_credibility
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:16:        make_credibility_judge(None)
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:20:    judge = make_credibility_judge(
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:28:    judge = make_credibility_judge(lambda p: 'Sure:\n```json\n{"reliability_score": 0.5}\n```')
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:33:    assert make_credibility_judge(lambda p: "no json here")("q", {}) == {}
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:34:    assert make_credibility_judge(lambda p: "[1,2,3]")("q", {}) == {}  # non-dict JSON
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:41:    assert make_credibility_judge(boom)("q", {}) == {}
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:56:    judge = make_credibility_judge(lambda p: '{"reliability_score": 0.7, "relevance_score": 1.0}')
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:58:    out = score_source_credibility("q", rows, judge=judge)[0]
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:63:    judge = make_credibility_judge(lambda p: "garbage, no json")
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py:65:    out = score_source_credibility("q", rows, judge=judge)[0]
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:13:    score_source_credibility,
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:47:    out = score_source_credibility("q", rows)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:60:    j = score_source_credibility("q", rows, judge=judge)[0]
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:72:    out = score_source_credibility("q", rows, judge=overclaim)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:81:    out = score_source_credibility("q", rows, judge=downrate)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:92:    out = score_source_credibility("q", rows, judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:102:    out = score_source_credibility("q", rows, judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:112:    out = score_source_credibility("q", rows, judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:121:    out = score_source_credibility("q", rows, judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:136:    out = score_source_credibility("q", rows, judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:150:    a = score_source_credibility("q", rows, domain="clinical", judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:151:    b = score_source_credibility("q", rows, domain="policy", judge=judge)
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:164:    assert abs(score_source_credibility("q", low, judge=overclaim)[0].reliability_score - 0.35) < 1e-9
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:166:    assert score_source_credibility("q", hi, judge=overclaim)[0].reliability_score == 0.99  # unaffected
+tests\polaris_graph\authority\test_credibility_skill_phase2.py:178:    score_source_credibility("q", [row], judge=judge)
+
+ succeeded in 9601ms:
+ M logs/session_log.md
+A  src/polaris_graph/authority/credibility_judge.py
+M  src/polaris_graph/generator/multi_section_generator.py
+A  tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+A  tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-cred-012a/codex_diff_audit.stderr.txt
+?? .codex/I-cred-012a/codex_diff_audit.txt
+?? .codex/I-cred-012a/codex_diff_gate_input.md
+?? .codex/I-cred-012b/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-ready-017/cluster_faithfulness_core_fix_plan.md
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+codex
+The workspace contains the new judge module plus other credibility wiring files, but I’m treating the submitted 012b diff as the review target and checking isolation against the surrounding contracts. Next I’m reading the plan’s P2/012b text and the existing `_apply_judge` behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 4 "P2|score_source_credibility|judge|LLM|012b|production credibility" docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 5 "def _apply_judge|def _build_judge_payload|def score_source_credibility|relevance_score|reliability_score|judge_error" src/polaris_graph/authority/credibility_skill.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 3 "credibility_judge|make_credibility_judge|PG_SWEEP_CREDIBILITY_REDESIGN|credibility_pass|production_credibility_judge" src/polaris_graph/generator/multi_section_generator.py src/polaris_graph/synthesis/credibility_pass.py tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py' in C:\POLARIS
+ succeeded in 2244ms:
+2-
+3-**Document class:** Architecture plan, operator-approval-gated (no code is written until the operator signs off on this document).
+4-**Author:** Claude (lead architect). **Date:** 2026-06-07.
+5-**Primary input:** `docs/frontier_credibility_intelligence_2026_06_07.md` (read in full — §3 honest gap, §4 six layers, and §6 the binding completeness addendum).
+6:**Grounding note (honesty):** the task referenced "six subsystem maps." Only **two** structured JSON maps were supplied (Evidence-selection/adequacy, and Conflict-detection/disclosure). The remaining four subsystems were grounded by reading the actual source files directly (`authority_model.py`, `corroboration.py`, `finding_dedup.py`, `tier_classifier.py`, `provenance_generator.py`, `corpus_approval_gate.py`, `plan_sufficiency_gate.py`, `journal_only_filter.py`, `evidence_selector.py`). Every file:line reference below was verified against the working tree **or the supplied subsystem maps** (the `semantic_conflict_detector.py:346` family-segregation anchor came from a JSON map; the `evidence_selector.py` diversity anchor was map-sourced and Codex iter-1 P2-5 corrected it to `:532-704` + `:1513-1542` — fixed inline; all other anchors were read/grepped and spot-verified).
+7-
+8:**Revision log — Codex plan-gate iter-1 (REQUEST_CHANGES) addressed inline:** P1-1 added the §6b competitor systems (Claude Research/Anthropic Citations API, MS Copilot Researcher, Grok); P1-2 specified the **origin-cluster weight-mass invariant** (copied rows cannot inflate claim-side mass); P1-3 **wired the clinical source-type veto** to the clinical adequacy floor (not a slogan); P2-4 made the drb_72 fixture audit-conditional; P2-5 corrected the `evidence_selector` anchor; P2-6 named the voter/arbiter integration point. **Iter-2 (REQUEST_CHANGES) addressed:** P1-2-continuing — replaced the row-level/averaging formula with the EXECUTABLE origin-cluster invariant (one `max(authority_score)` per `origin_cluster_id`, summed once per cluster; L3 emits `origin_cluster_id`); P2 — Phase 1 bibliography keys render only when the flag is ON (OFF byte-identical); P2 — split the clinical-veto test (Phase 6 = veto fires / not weight-adequate; Phase 7 = ABSTAIN/fringe rendering). **Iter-3 (REQUEST_CHANGES) addressed:** P1-2 made mathematically closed — `cluster_mass = authority(canonical origin)`, copies excluded, so a higher-authority copier joining a cluster cannot raise mass (+ copy-invariance fixture); Phase 4a emitted-contract made explicit (`origin_cluster_id` + canonical designation + copy flag, with a P6-groupability test); drb_72 Verification bullet made audit-conditional; Phase 6 clinical-veto bullet emits a signal (rendering moved to Phase 7); Phase 10 adds the `SENTINEL_ORIGINS` (`plan_sufficiency_gate.py`) update + fallback test. **Iter-4 (REQUEST_CHANGES) addressed:** replaced every remaining normative `max(authority_score)` with `authority_score(canonical_origin)` (§3 L3/L5 rows + Phase 4a scope) so the formula is consistent everywhere; tightened the clinical-veto wording (Phase 6 owns the `clinical_source_type_veto` emission, Phase 7 only renders); removed the duplicate `Files:` bullets in Phase 4a + Phase 7. **Iter-5: APPROVE** (Codex binding plan-gate, 0 P0 / 0 P1, convergence=accept_remaining). One P2 residual — keep the per-claim clinical source-type veto distinct from the corpus clinical adequacy floor — noted inline in Phase 6 for the implementation brief.
+9-
+10-**Binding acceptance gate (READ FIRST).** The source doc does not stop at §4's six layers. Its §6 ends with:
+11-> `proceed_to_plan: yes, CONDITIONAL on the plan incorporating 6a (no overstatement), 6b (added systems/benchmarks), and ALL of 6c (the 8 required layers).`
+12-§6 is **authoritative over §4** where they differ. This plan therefore delivers against **all 8 of §6c**, honors §6a (no overstatement), and pulls §6b's systems/benchmarks into the test strategy. A clean six-layer plan that ignores §6c would *feel* complete and still fail this gate.
+--
+45-| L2 | **Temporal / supersession** (§6c-2) | Downgrade stale-but-authoritative evidence (old guidelines, superseded regs/datasets, retracted/corrected) even when the source is high-authority | Signal E recency `recency.py` / `authority_model.py:138-145`; `is_retracted` in journal sidecar `journal_only_filter.py:237` | supersession rules (guideline/reg/dataset version), retraction → **hard** penalty surfaced per claim |
+46-| L3 | **Independence-collapse — beyond near-duplicate** (§4 L2 + §6c-4) | Collapse content-copying / syndication / common-ownership / common-funding / shared-authorship / citation-chain / paraphrase clusters to ~1 origin BEFORE any weighted vote | `corroboration.py` eTLD+1 PSL host-collapse (`count_independent_hosts`, `registrable_domain`); `finding_dedup.py` already clusters by finding + counts independent registrable-domains (`dedup_by_finding`, host-based) | TF-IDF cosine ≥0.85 **content-copy detector** + ownership/funding/authorship signals on top of the host primitive (real BUILD — current collapse is host-based only) |
+47-| L4 | **Claim-graph BEFORE aggregation** (§6c-3, NEW sub-layer) | atomic-claim extraction → normalization → stance clustering → contradiction/refutation detection → span entailment, so equivalent claims are clustered before any vote | `finding_dedup.py` numeric-finding clustering (seed, clinical-numeric only); `semantic_conflict_detector.py` + `qualitative_conflict_detector.py` + numeric `contradiction_detector.py` (stance/contradiction seeds); entailment path in `verify_sentence_provenance` | field-agnostic atomic-claim extractor + normalization + stance-cluster graph (real BUILD — finding_dedup is numeric-only and inert on non-clinical) |
+48-| L5 | **Aggregate by weight, auditable non-averaging** (§4 L3) | Weighted Majority Voting over post-collapse independent origins; inverse-variance for quantitative; GRADE "lowest-among-critical" for multi-part certainty | `plan_sufficiency_gate.py` already uses `authority_score` as a numeric GATE (`:50`, `:301`) | replace COUNT aggregation (`plan_sufficiency_gate.py:313` `covered_count >= target`; journal `DEFAULT_MIN_DISTINCT_JOURNALS=12` `journal_only_filter.py:531`) with **origin-cluster weight-mass** (one weight per independent-origin cluster; copied rows cannot inflate mass — Phase 6 invariant) |
+49:| L6 | **Contested-topic composition — weight-and-disclose-with-forewarning** (§4 L4 + §6c-8 multi-position) | Consensus side at high weight AND minority **attributed** at low weight, with explicit **forewarning** (the N=887 finding: forewarning works, outnumbering does not). Multi-position, not binary. Medical misinfo = low-weight/fringe. ABSTAIN over fabricated balance | cross-lineage multi-judge agreement via the EXISTING 4-role adjudication — integration point `roles/role_pipeline.py` + `honest_sweep_integration.py` (REUSE, do NOT build a parallel adjudication path); existing refuse/unresolved behavior; retraction flag | forewarning composition rule + multi-position (>2 side) disclosure policy + clinical-fringe down-weight |
+50:| L7 | **Per-claim disclosure** (§4 L5 + §6c-1 claim-level) | Each verified sentence carries {span-verdict, credibility_weight, independent_origin_count, certainty_label}; rendered in bibliography; "Proof Replay" SUPPORTS-not-EXISTS UX | `SentenceVerification` additive-field precedent (`soft_warnings` `:427`, `judge_error` `:433`); `resolve_provenance_to_citations` `:1881` render point | four optional fields + bibliography render + certainty-label scoring fn |
+51-| L8 | **Additive verifier strengthening** (§6c-7) | NLI/QA entailment + unit/table/quantity checks + contradiction-sensitive verification **ON TOP of** strict_verify's six (never weakening) | existing NLI advisory path; `semantic_conflict_detector.py`; numeric checks in `verify_sentence_provenance` | wire the advisory NLI/contradiction checks as additive fail-closed gates (flag-gated, ON-mode only) |
+52-| Lx | **Calibration + audit** (§6c-5) + **adversarial benchmark** (§4 L6) | Brier/ECE reliability curves on the weights; blinded per-claim faithfulness eval; ablations per layer; SourceBench/DeepTRACE/ReportBench suites | existing manifest telemetry; `outputs/audits/` §-1.1 harness | calibration metric script + adversarial vax fixture + benchmark harness (test infra, not pipeline) |
+53-
+54-**Reuse vs build, in one honest sentence each:**
+--
+79----
+80-
+81-## 4. PHASED DELIVERY
+82-
+83:**Phasing spine (the codebase's own proven pattern).** Every new layer ships behind a flag, **default-OFF byte-identical**, activated only in the Gate-B slate — exactly how `journal_only_active(protocol)`, `judge_error`, and `quantified_models=None` already behave. This single discipline yields: ≤200-LOC self-contained Codex-gated phases, "no silent downgrade," AND a trivially-true faithfulness-safety argument per phase (OFF ⇒ byte-identical output + identical rendered artifacts). The disclosure SCHEMA ships first as inert plumbing; independence-collapse populates it later (per the JSON map's own warning: do not deploy *populated* per-claim disclosure until independence-collapse exists).
+84-
+85-Each phase below = one GitHub Issue, one brief → Codex APPROVE → one diff → Codex APPROVE on the Red-Team checklist (the standard §3.0 triple). Phases are ordered by dependency and risk; the claim-graph (L4) and two-axis rescore (L1) are explicitly decomposed because neither fits in a single ≤200-LOC unit.
+86-
+87:> **Honest sizing note:** L4 claim-graph and L1 two-axis are NOT one ≤200-LOC phase each. They are split (P4a/P4b, P2a/P2b). Where a phase legitimately exceeds 200 LOC, it requests a documented §3.0 LOC exemption in the brief rather than being split into incoherent halves.
+88-
+89-### Phase 1 — Disclosure schema (inert plumbing). [L7, lowest risk]
+90:- **Scope:** Add four optional fields to `SentenceVerification` (dataclass-only inert plumbing). The bibliography render is NOT changed here — the four keys are emitted ONLY when the credibility-disclosure flag is ON (Phase 8), so OFF stays byte-identical (Codex iter-2 P2: extra empty keys would break byte-identity). NO population yet (defaults: `span_verdict=""`, `credibility_weight=None`, `independent_origin_count=None`, `certainty_label=""`).
+91-- **Files:** `provenance_generator.py:419-433` (dataclass only). The bibliography dict (`:1897-1903`) is touched in Phase 8 (flag-gated render), NOT here.
+92-- **Change:** add the four fields with safe defaults; NO bibliography-render change (preserves OFF byte-identity); token grammar + `is_verified` untouched.
+93-- **Offline tests:** backward-compat (old callers read new objects); OFF byte-identity of rendered report + bibliography; the six strict_verify checks unchanged.
+94-- **Verification:** diff shows only additive fields; smoke run produces byte-identical `report.md` with empty new fields.
+--
+146-
+147-### Phase 6 — Weighted aggregation (replace count with weight-mass). [L5]
+148-- **Scope:** Replace COUNT aggregation with **origin-cluster weight-mass**, computed by this EXECUTABLE invariant (Codex iter-2 P1-2): group every supporting row by `(claim_cluster_id, origin_cluster_id)`; for each origin cluster L3 designates exactly ONE **canonical origin** (the syndication root / earliest independent publication; the other members are derivative copies — genuinely-INDEPENDENT corroboration has different content and forms its OWN cluster, it does not join an existing one). `cluster_mass = authority_score(canonical origin)`; copy/derivative members are attributed for disclosure ("N copies → 1 origin") but contribute ZERO to the mass. The claim-side weight-mass = Σ of `cluster_mass`, once per origin cluster within the claim cluster. **No row-level term, no averaging, no max-over-copies.** A row joins an existing `origin_cluster_id` only because L3 flagged it a copy of that cluster's canonical origin — so it adds NOTHING to the mass **even if its own `authority_score` is higher than the canonical origin's** (a high-authority verbatim republisher is still derivative; only its own *independent* content would form a new cluster). **Binding invariant (Codex iter-3 + #1161):** for a DATED origin cluster (canonical = earliest publication date) `weight_mass(rows + copied_row) == weight_mass(rows)` for ANY copier authority (strict copy-equality). For an ALL-UNDATED cluster the canonical is the LOWEST-`authority_score` member (conservative-min): the mass is MONOTONICALLY NON-INCREASING under copy additions — a higher-authority copy can NEVER inflate it (the binding no-inflation property), and a lower-authority copy can only LOWER it (honest, never inflating). Either way a copied row can NEVER inflate the false majority. This requires **L3 to emit a stable `origin_cluster_id`, the canonical-origin designation, and membership** (NOT merely an `independent_origin_count` scalar) and L4 to emit `claim_cluster_id`, both BEFORE L5. Without it, copied rows re-inflate the false majority and the vax test fails. Applies in plan-sufficiency AND journal-only adequacy. Per-facet weighting preserved.
+149-- **Files:** `plan_sufficiency_gate.py:312-317` (verdict math), `journal_only_filter.py:543-607` (`assess_journal_only_adequacy` weight path; demote `DEFAULT_MIN_DISTINCT_JOURNALS=12` count-floor to a weight-floor when journal-only is NOT protocol-pinned).
+150:- **Clinical source-type veto (Codex iter-1 P1-3 — wired, not a slogan):** a clinical-domain claim requires ≥1 **independent clinical-tier source (T1/T2 clinical)** in its origin-clustered support; if absent, Phase 6 emits a **`not_weight_adequate` / `clinical_source_type_veto`** signal REGARDLESS of news/commercial weight-mass; **Phase 7 (L6) consumes that signal to render ABSTAIN/fringe** (the rendering is Phase 7, not here). Wired to the existing clinical adequacy floor (`corpus_adequacy_gate.py` `_DEFAULT_DOMAIN_THRESHOLDS['clinical']`: `min_t1_count=3`, `min_t1_plus_t2=5`) The source-type veto is OWNED and EMITTED at Phase 6 (the `clinical_source_type_veto` signal); web/news/commercial weight can NEVER substitute for the clinical-tier floor; Phase 7 only RENDERS the resulting ABSTAIN/fringe. **Brief-time note (Codex iter-5 P2):** the per-claim source-type VETO (a claim needs ≥1 independent clinical-tier source) is DISTINCT from the corpus-level clinical adequacy FLOOR (`min_t1_count=3`, `min_t1_plus_t2=5`) — the Phase-6 implementation brief must keep them separate (the veto is a per-claim absence-check; the floor is a corpus threshold). They are not the same gate and must not be conflated.
+151-- **Offline tests:** **the vax adversarial test** (N independent-LOOKING-but-copied low-cred sources vs few high-cred — naive count flips to the false majority, weight+collapse picks the high-cred side); **copy-invariance fixture (Codex iter-3): a copier whose own `authority_score` is HIGHER than the cluster's canonical origin joins that origin cluster → `weight_mass` is UNCHANGED (the copier is derivative, excluded from the cluster mass)**; drb_72 regression **(CONDITIONAL on the journal-only audit, Decision #4)** — assert weight-floor passage for drb_72 ONLY if the audit confirms journal-only was an implementation choice, not a protocol requirement; otherwise assert on a non-protocol-pinned fixture (a protocol-pinned `source_restriction: journal_only` keeps its hard T1+T2 filter); corpus_approval still blocks material-deviation auto-approve even when weight-adequate (AuthorizedSweep still required); **clinical veto test (adequacy-level, Codex iter-2)** — a clinical claim with only news/commercial support is **NOT weight-adequate** / the clinical source-type veto fires (the T1/T2 clinical-tier floor is empty), even at high weight-mass. The ABSTAIN/fringe *rendering* is asserted in Phase 7 (L6 composition), not here.
+152-- **Verification:** the count→weight flip is reproducible on the vax fixture (naive count picks the false majority; weight-mass + independence-collapse does not); drb_72 regression **(CONDITIONAL on Decision #4 / the journal-only audit)** passes adequacy at the weight-floor ONLY if the audit confirms journal-only was implementation-only (else assert on a non-protocol-pinned fixture); OFF byte-identity smoke confirms the legacy count path is unchanged with the flag off; corpus_approval still fires on the material-deviation fixture.
+153-- **Faithfulness-safety:** **both gates run sequentially** — weight-based adequacy + the independent corpus_approval tier-distribution backstop. A single high-authority source OR a news pile-up cannot clear the bar alone (independence multiplier + tier-distribution range). corpus_approval is untouched.
+154-
+--
+168-
+169-### Phase 9 — Additive verifier strengthening. [L8, §6c-7] — **HIGHEST FAITHFULNESS RISK; the only phase that edits `verify_sentence_provenance`.**
+170-- **Scope:** Wire NLI/QA entailment + unit/table/quantity + contradiction-sensitive checks as **additive fail-closed gates** invoked AFTER the six strict_verify checks. ON-mode flag-gated.
+171-- **Files:** new `generator/additive_verifiers.py`; a single call site appended AFTER the six checks in `verify_sentence_provenance` (`provenance_generator.py:1156`).
+172:- **Offline tests:** the six checks are byte-identical with the flag OFF; ON-mode a span that passes the six but fails NLI is dropped (fail-closed); a sentence that PASSES the six is NEVER relaxed into a fail by the off path; the existing `judge_error` fail-closed contract is preserved.
+173-- **Verification:** the six-check regression suite passes byte-identical with the flag OFF (this is the gating assertion); ON-mode adds drops, never adds passes; CI runs the full faithfulness-guard suite (the 113-test guard) against this diff.
+174-- **Faithfulness-safety:** **flagged as the single highest-risk phase** — it is the only diff that touches the faithfulness-critical `verify_sentence_provenance`. The new checks are STRICTLY ADDITIVE and fail-closed (they can only DROP a sentence, never admit one the six rejected, and never relax one the six accepted). Warrants the hardest Codex scrutiny and its own explicit operator sign-off line in the brief; recommend it ship LAST among the verifier-adjacent phases. OFF ⇒ the six checks are byte-identical.
+175-
+176-### Phase 10 — Dissent-recall retrieval + source-type stratification. [L0, §6c-6]
+--
+186-- **Offline tests:** calibration runs and emits a reliability curve; ablation shows each layer's marginal contribution; weight-beats-count is proven on the vax fixture.
+187-- **Verification:** the harness is test/script infra only (no pipeline edit) — its presence is byte-neutral to the production path; the vax-fixture assertion (count flips, weight+collapse does not) is the load-bearing pass/fail.
+188-- **Faithfulness-safety:** offline measurement infrastructure; touches no production faithfulness gate. Any live eval steps are spend-gated behind `PG_AUTHORIZED_SWEEP_APPROVAL`.
+189-
+190:**Dependency order:** P1 (schema) → P2a/P2b (score) → P3 (temporal) → P4a/P4b (independence) → P5a/P5b (claim-graph) → P6 (aggregate) → P7 (compose) → P8 (populate disclosure) → P9 (verifier) → P10 (retrieval) → P11 (calibration). P10 is upstream conceptually but ships late because it depends on the scoring/collapse machinery to evaluate dissent-recall quality; P1 ships first as inert plumbing.
+191-
+192----
+193-
+194-## 5. TEST + VERIFY STRATEGY
+195-
+196-1. **Unit (per phase):** every new module is a PURE function with fixtures in `tests/fixtures/credibility/` (LAW VI — no live data in unit tests). Backward-compat + OFF byte-identity asserted on every phase.
+197-2. **Integration:** end-to-end smoke that the layers compose (score → collapse → claim-graph → aggregate → compose → disclose) and that **corpus_approval still gates** when weight-adequate.
+198-3. **The adversarial vax fixture (the load-bearing test, §4 L6):** a labeled `tests/fixtures/credibility/vax_volume_vs_weight.json` — N independent-LOOKING-but-content-copied low-credibility sources vs a few high-credibility independent ones. **Assert:** naive count picks the false majority; weight + independence-collapse picks the high-credibility side; per-claim disclosure shows the forewarning. This is the concrete proof that **weight beats count** and **independence-collapse works**.
+199:4. **Blinded per-claim faithfulness eval (§4 L6):** POLARIS's own blinded eval (not self-graded LLM scores — the Exa circular-eval / Co-STORM marketing-gap risk). Run claim-by-claim vs the cited span per §-1.1, against Scholar QA / OpenScholar as the honest BEAT-BOTH baseline.
+200-5. **AuthorityBench-style adversarial benchmark + §6b suite:** wire SourceBench, DeepResearch Bench, DRBench, BrowseComp-Plus, ResearchRubrics, DeepTRACE, ReportBench as offline eval targets. **Per §6a, AuthorityBench is used as an authority-PERCEPTION benchmark only**, not a volume-vulnerability one. **Competitor head-to-head (Codex iter-1 P1-1)** must cover the added §6b deployed systems — OpenAI / Gemini / Perplexity Deep Research PLUS Claude Research (+ Anthropic Citations API), Microsoft 365 Copilot Researcher, and Grok DeepSearch — none of which discloses a credibility weight; POLARIS is scored against all on per-claim faithfulness + the weight/origin-count/certainty disclosure they lack.
+201-6. **Calibration (§6c-5):** Brier score / ECE / reliability curves on the credibility weights; ablations isolating retrieve/score/collapse/aggregate so we can show each layer's marginal contribution.
+202-7. **Proving independence-collapse:** the vax fixture + a false-positive bound test (legitimate parallel reporting and arXiv/PMC mirrors must NOT over-collapse).
+203-
+--
+245-**Supersedes** §8 Decision 1 (fixed domain rubrics) and §8 Decision 2 (default dissent visibility).
+246-Driven by `docs/credibility_adaptive_weighting_and_bothsides_recs_2026_06_08.md` (Layer-1/Layer-6
+247-research) and `docs/frontier_credibility_intelligence_2026_06_07.md`. Operator decisions, verbatim
+248-intent: (1) NO fixed domain rubrics — they assume a small scope, but users ask 10,000+ fields; use the
+249:LLM's reasoning as a generic credibility *skill / guardrail*, primed by the question, researched-best-
+250-practice first. (2) Show both sides as legitimate world-views (NOT "warning/fringe" — that is bias),
+251:each with its evidence weight, in a friendly artifact, and let the user judge. (4) Journal-only was never
+252-a requirement — remove it. (5) Build + smoke + Codex-APPROVE everything offline; operator approves
+253-budget only after Codex approves.
+254-
+255-### 9.1 LAYER 1 (Phase 2 scorer) — REBUILT: one adaptive credibility skill, not three fixed rubrics
+--
+272-stated reason and may NOT fabricate authority where `authority_confidence=LOW`.
+273-
+274-### 9.2 Invariants preserved (binding — the rebuild does not weaken any)
+275-
+276:- The credibility judge is **advisory only**; `strict_verify`'s six per-sentence checks remain the binding
+277-  faithfulness gate (`provenance_generator.py`). A rationale is a claim to verify, not ground truth.
+278-- Weight is **evidence quality/tier, never headcount**; independence-collapse (Phase 4) still runs before
+279-  any weighted tally; origin-cluster weight-mass stays uninflatable by copies.
+280-- Every layer **flag-gated, default-OFF byte-identical**, fail-loud on missing inputs.
+--
+286-On a contested claim (vaccine/UFO/politics/AI-jobs), show **each side as a legitimate position** with its
+287-transparent evidence weight + independent-origin count + the cited spans — **always visible** (the N=887
+288-forewarning finding favors always-visible over expand-on-demand), neutral language (no "fringe"/"warning"
+289-framing), one click from every aggregate to its `[#ev:id:start-end]` span and VERIFIED/PARTIAL verdict.
+290:The user judges; POLARIS discloses weight honestly rather than picking a winner.
+
+ succeeded in 3542ms:
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-9-import inspect
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-10-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-11-import src.polaris_graph.generator.multi_section_generator as m
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py:12:from src.polaris_graph.synthesis import credibility_pass as cp
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-13-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-14-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-15-def test_generate_has_additive_credibility_params_default_none():
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-16-    sig = inspect.signature(m.generate_multi_section_report)
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py:17:    assert sig.parameters["credibility_pass_judge"].default is None
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py:18:    assert sig.parameters["credibility_pass_gov_suffixes"].default is None
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-19-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-20-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-21-def test_result_carries_credibility_analysis_field_default_none():
+--
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-26-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-27-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-28-def test_master_flag_off_by_default(monkeypatch):
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py:29:    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-30-    assert cp.credibility_redesign_enabled() is False
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-31-
+tests/polaris_graph/generator/test_credibility_pass_wiring_012a.py-32-
+--
+src/polaris_graph/synthesis/credibility_pass.py-3-Pure orchestrator that runs the committed P4→P3→P2→P5→P6 redesign chain over the generator's EFFECTIVE
+src/polaris_graph/synthesis/credibility_pass.py-4-evidence pool and returns the disclosure inputs (``credibility_by_evidence``, ``origin_by_evidence``,
+src/polaris_graph/synthesis/credibility_pass.py-5-``claims``, ``edges``, ``weight_mass``). The sweep runner calls it under the master slate
+src/polaris_graph/synthesis/credibility_pass.py:6:``PG_SWEEP_CREDIBILITY_REDESIGN``; OFF ⇒ not invoked ⇒ byte-identical. ADVISORY only: ``strict_verify`` +
+src/polaris_graph/synthesis/credibility_pass.py-7-the 4-role D8 release policy stay the ONLY binding gates — nothing here keeps/drops a sentence or flips
+src/polaris_graph/synthesis/credibility_pass.py-8-release.
+src/polaris_graph/synthesis/credibility_pass.py-9-
+--
+src/polaris_graph/synthesis/credibility_pass.py-30-from src.polaris_graph.synthesis.independence_collapse import collapse_independent_origins
+src/polaris_graph/synthesis/credibility_pass.py-31-from src.polaris_graph.synthesis.weight_mass import aggregate_weight_mass
+src/polaris_graph/synthesis/credibility_pass.py-32-
+src/polaris_graph/synthesis/credibility_pass.py:33:_MASTER_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
+src/polaris_graph/synthesis/credibility_pass.py-34-_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+src/polaris_graph/synthesis/credibility_pass.py-35-
+src/polaris_graph/synthesis/credibility_pass.py-36-
+--
+src/polaris_graph/synthesis/credibility_pass.py-68-    eid = str((row or {}).get("evidence_id") or "").strip()
+src/polaris_graph/synthesis/credibility_pass.py-69-    if not eid:
+src/polaris_graph/synthesis/credibility_pass.py-70-        raise CredibilityPassError(
+src/polaris_graph/synthesis/credibility_pass.py:71:            f"abort_credibility_pass_error: evidence row {index} has no evidence_id (cannot disclose a "
+src/polaris_graph/synthesis/credibility_pass.py-72-            f"claim whose source can't be identified)"
+src/polaris_graph/synthesis/credibility_pass.py-73-        )
+src/polaris_graph/synthesis/credibility_pass.py-74-    return eid
+--
+src/polaris_graph/synthesis/credibility_pass.py-100-        # priors-only with judge_error=False, so a miswired master-on run would ship a false-green advisory.
+src/polaris_graph/synthesis/credibility_pass.py-101-        # The orchestrator is only ever called under activation, so a missing judge is fail-closed.
+src/polaris_graph/synthesis/credibility_pass.py-102-        raise CredibilityPassError(
+src/polaris_graph/synthesis/credibility_pass.py:103:            "abort_credibility_pass_error: the activated credibility pass requires a callable production "
+src/polaris_graph/synthesis/credibility_pass.py-104-            "judge; refusing to run priors-only (a false-green advisory). Wire the production judge or "
+src/polaris_graph/synthesis/credibility_pass.py:105:            "leave PG_SWEEP_CREDIBILITY_REDESIGN off."
+src/polaris_graph/synthesis/credibility_pass.py-106-        )
+src/polaris_graph/synthesis/credibility_pass.py-107-    try:
+src/polaris_graph/synthesis/credibility_pass.py-108-        return _run_chain(
+--
+src/polaris_graph/synthesis/credibility_pass.py-113-        raise
+src/polaris_graph/synthesis/credibility_pass.py-114-    except Exception as exc:  # ANY wired-module failure → fail-loud abort, never a silent false-green
+src/polaris_graph/synthesis/credibility_pass.py-115-        raise CredibilityPassError(
+src/polaris_graph/synthesis/credibility_pass.py:116:            f"abort_credibility_pass_error: a wired credibility module failed "
+src/polaris_graph/synthesis/credibility_pass.py-117-            f"({type(exc).__name__}): {exc}"
+src/polaris_graph/synthesis/credibility_pass.py-118-        ) from exc
+src/polaris_graph/synthesis/credibility_pass.py-119-
+--
+src/polaris_graph/synthesis/credibility_pass.py-157-    errored = [j.evidence_id for j in judgments if getattr(j, "judge_error", False)]
+src/polaris_graph/synthesis/credibility_pass.py-158-    if errored:
+src/polaris_graph/synthesis/credibility_pass.py-159-        raise CredibilityPassError(
+src/polaris_graph/synthesis/credibility_pass.py:160:            f"abort_credibility_pass_error: the production credibility judge failed for "
+src/polaris_graph/synthesis/credibility_pass.py-161-            f"{len(errored)} source(s) (e.g. {errored[:5]}); refusing to ship a priors-only false-green"
+src/polaris_graph/synthesis/credibility_pass.py-162-        )
+src/polaris_graph/synthesis/credibility_pass.py-163-
+--
+src/polaris_graph/generator/multi_section_generator.py-4390-    # only; None/[] => no change. Never reaches the verified generator/strict_verify path.
+src/polaris_graph/generator/multi_section_generator.py-4391-    prior_verified_context: list[dict[str, Any]] | None = None,
+src/polaris_graph/generator/multi_section_generator.py-4392-    # I-cred-012a (#1164): credibility-analysis pass inputs. Both None/empty => the pass is NOT run =>
+src/polaris_graph/generator/multi_section_generator.py:4393:    # byte-identical. Threaded by the sweep runner ONLY when PG_SWEEP_CREDIBILITY_REDESIGN is on.
+src/polaris_graph/generator/multi_section_generator.py:4394:    credibility_pass_judge: Any = None,
+src/polaris_graph/generator/multi_section_generator.py:4395:    credibility_pass_gov_suffixes: tuple[str, ...] | None = None,
+src/polaris_graph/generator/multi_section_generator.py-4396-    model: Optional[str] = None,
+src/polaris_graph/generator/multi_section_generator.py-4397-    outline_temperature: float = 0.2,
+src/polaris_graph/generator/multi_section_generator.py-4398-    section_temperature: float = 0.3,
+--
+src/polaris_graph/generator/multi_section_generator.py-4687-    # but no production judge/gov_suffixes threaded => abort, never a priors-only false-green. READ-ONLY:
+src/polaris_graph/generator/multi_section_generator.py-4688-    # the pass annotates row COPIES; evidence_pool is unchanged (no capability downgrade / pool shrink).
+src/polaris_graph/generator/multi_section_generator.py-4689-    credibility_analysis = None
+src/polaris_graph/generator/multi_section_generator.py:4690:    from ..synthesis import credibility_pass as _credibility_pass
+src/polaris_graph/generator/multi_section_generator.py:4691:    if _credibility_pass.credibility_redesign_enabled():
+src/polaris_graph/generator/multi_section_generator.py:4692:        if credibility_pass_judge is None or not credibility_pass_gov_suffixes:
+src/polaris_graph/generator/multi_section_generator.py:4693:            raise _credibility_pass.CredibilityPassError(
+src/polaris_graph/generator/multi_section_generator.py:4694:                "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
+src/polaris_graph/generator/multi_section_generator.py-4695-                "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
+src/polaris_graph/generator/multi_section_generator.py-4696-            )
+src/polaris_graph/generator/multi_section_generator.py:4697:        credibility_analysis = _credibility_pass.run_credibility_analysis(
+src/polaris_graph/generator/multi_section_generator.py-4698-            research_question, list(evidence_pool.values()),
+src/polaris_graph/generator/multi_section_generator.py:4699:            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=None,
+src/polaris_graph/generator/multi_section_generator.py:4700:            judge=credibility_pass_judge,
+src/polaris_graph/generator/multi_section_generator.py-4701-        )
+src/polaris_graph/generator/multi_section_generator.py-4702-
+src/polaris_graph/generator/multi_section_generator.py-4703-    # Stage 2: per-section generation (bounded parallelism)
+
+ succeeded in 4827ms:
+96-
+97-@dataclass
+98-class CredibilityJudgment:
+99-    """One source's advisory credibility judgment (a side-output, never a verdict input).
+100-
+101:    ``reliability_score`` is AFTER the anti-fabrication cap; ``relevance_score`` is the judged
+102-    directness to the question (unknown => 1.0, multiplicative-neutral); ``credibility_weight`` is
+103-    the FIXED product ``clamp01(reliability * relevance)``. ``signals_cited`` is the subset of the
+104:    deterministic prior signals the judge reasoned from. ``judge_error`` is True iff the injected
+105-    judge raised / returned malformed output for THIS source (isolated; priors-only fallback used).
+106-    """
+107-
+108-    evidence_id: str
+109:    reliability_score: float
+110:    relevance_score: float
+111-    credibility_weight: float
+112-    rationale: str
+113-    signals_cited: list[str] = field(default_factory=list)
+114-    query_need: str = ""
+115:    judge_error: bool = False
+116-
+117-
+118-def _present_signals(row: dict[str, Any]) -> list[str]:
+119-    """The deterministic prior signals actually present (non-empty) on this row."""
+120-    return [k for k in _PRIOR_SIGNAL_KEYS if row.get(k) not in (None, "", {}, [])]
+--
+123-def _row_snippet(row: dict[str, Any], max_chars: int) -> str:
+124-    text = str(row.get("direct_quote") or row.get("statement") or row.get("text") or "")
+125-    return text[:max_chars]
+126-
+127-
+128:def _build_judge_payload(
+129-    research_question: str, row: dict[str, Any], domain: str | None
+130-) -> dict[str, Any]:
+131-    """Pure: assemble the judge payload for ONE source. Does NOT mutate ``row``.
+132-
+133-    Carries source identity + bounded descriptors (title / url / snippet — so RELEVANCE is actually
+--
+170-    neutral (1.0). Never fabricates relevance it cannot judge."""
+171-    auth = _clamp01(row.get("authority_score"))
+172-    reliability = auth if auth is not None else 0.0
+173-    return CredibilityJudgment(
+174-        evidence_id=str(row.get("evidence_id", "")),
+175:        reliability_score=reliability,
+176:        relevance_score=1.0,
+177-        credibility_weight=reliability,  # == clamp01(reliability * 1.0)
+178-        rationale="no judge wired — deterministic priors only",
+179-        signals_cited=_present_signals(row),
+180-        query_need="",
+181:        judge_error=False,
+182-    )
+183-
+184-
+185:def _apply_judge(
+186-    research_question: str,
+187-    row: dict[str, Any],
+188-    domain: str | None,
+189-    judge: Callable[[str, dict], dict],
+190-) -> CredibilityJudgment:
+--
+193-    payload = _build_judge_payload(research_question, row, domain)
+194-    try:
+195-        raw = judge(research_question, payload)
+196-    except Exception:
+197-        fallback = _priors_only_judgment(row)
+198:        fallback.judge_error = True
+199-        return fallback
+200-    if not isinstance(raw, dict):
+201-        fallback = _priors_only_judgment(row)
+202:        fallback.judge_error = True
+203-        return fallback
+204-
+205:    reliability = _clamp01(raw.get("reliability_score"))
+206-    if reliability is None:  # missing / NaN / inf reliability => judge error for this row
+207-        fallback = _priors_only_judgment(row)
+208:        fallback.judge_error = True
+209-        return fallback
+210:    relevance = _clamp01(raw.get("relevance_score"))
+211-    if relevance is None:  # unknown / malformed relevance => multiplicative-neutral
+212-        relevance = 1.0
+213-
+214-    # Anti-fabrication cap: a LOW/thin source's reliability cannot exceed prior + max_uplift.
+215-    if _is_low_or_thin(row):
+--
+221-    present = set(_present_signals(row))
+222-    cited = [s for s in (raw.get("signals_cited") or []) if s in present]
+223-    weight = _clamp01(reliability * relevance)
+224-    return CredibilityJudgment(
+225-        evidence_id=str(row.get("evidence_id", "")),
+226:        reliability_score=reliability,
+227:        relevance_score=relevance,
+228-        credibility_weight=weight if weight is not None else 0.0,
+229-        rationale=str(raw.get("rationale", "")),
+230-        signals_cited=cited,
+231-        query_need=str(raw.get("query_need", "")),
+232:        judge_error=False,
+233-    )
+234-
+235-
+236:def score_source_credibility(
+237-    research_question: str,
+238-    rows: list[dict[str, Any]],
+239-    *,
+240-    domain: str | None = None,
+241-    judge: Optional[Callable[[str, dict], dict]] = None,
+
+codex
+The relevant plan text says the judge is advisory only, default-off, and P2’s scorer treats missing or malformed `reliability_score` as a bounded per-row `judge_error`. The current factory is consistent with that core contract; I’m checking edge cases in parsing and whether any import/wiring could spend or alter behavior while off.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/authority/credibility_judge.py | ForEach-Object { $i++; '"'{0}: {1}' -f "'$i, $_ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md | ForEach-Object { $i++; if ($i -ge 255 -and $i -le 273) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/authority/credibility_skill.py | ForEach-Object { $i++; if ($i -ge 128 -and $i -le 252) { '"'{0}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path tests/polaris_graph/authority/test_credibility_judge_phase12b.py | ForEach-Object { $i++; '"'{0}: {1}' -f "'$i, $_ }' in C:\POLARIS
+ succeeded in 2195ms:
+1: """I-cred-012b — production credibility JUDGE factory (LLM-backed) for the P2 credibility skill.
+2: 
+3: Builds the injected ``judge(research_question, payload) -> dict`` that
+4: ``credibility_skill.score_source_credibility`` consumes per source. The factory is PURE prompt-format +
+5: JSON-parse; the LLM call is DEPENDENCY-INJECTED (``call_llm``) so it is offline-testable and the model /
+6: client live entirely in the caller the sweep runner supplies (012a). Open-weight model ONLY (the certified
+7: voter slate) — the caller binds the model.
+8: 
+9: Robustness contract (matches `credibility_skill._apply_judge`): on ANY malformed LLM output the judge
+10: returns a dict missing/!=reliability_score (or ``{}``), which P2 isolates as a per-row ``judge_error``
+11: (recall-first, fail-loud-but-bounded). It NEVER raises into P2 (P2 catches, but we keep it clean).
+12: """
+13: from __future__ import annotations
+14: 
+15: import json
+16: import re
+17: from typing import Any, Callable
+18: 
+19: # The judge sees ONLY the bounded payload (source identity + title/url/snippet + authority prior +
+20: # domain_hint) — same payload `credibility_skill._build_judge_payload` assembles. No rubric branch.
+21: _PROMPT = (
+22:     "You are a source-credibility judge for ONE source against ONE research question. Judge only this "
+23:     "source, for this question.\n"
+24:     "QUESTION: {question}\n"
+25:     "SOURCE:\n"
+26:     "  title: {title}\n"
+27:     "  url: {url}\n"
+28:     "  snippet: {snippet}\n"
+29:     "  authority_score (deterministic prior, 0..1): {authority_score}\n"
+30:     "  domain_hint: {domain_hint}\n\n"
+31:     "Return STRICT JSON only, no prose, no code fence:\n"
+32:     '{{"reliability_score": <0..1: how reliable/authoritative this source is FOR THIS QUESTION>, '
+33:     '"relevance_score": <0..1: how on-topic this source is>, '
+34:     '"rationale": "<one sentence>", '
+35:     '"signals_cited": [<signal names you relied on>], '
+36:     '"query_need": "<a follow-up query if this source is thin, else empty>"}}'
+37: )
+38: 
+39: 
+40: def build_credibility_prompt(research_question: str, payload: dict[str, Any]) -> str:
+41:     """Pure: render the per-source judging prompt from the P2 payload."""
+42:     payload = payload or {}
+43:     return _PROMPT.format(
+44:         question=research_question,
+45:         title=payload.get("title", ""),
+46:         url=payload.get("url", ""),
+47:         snippet=payload.get("snippet", ""),
+48:         authority_score=payload.get("authority_score", ""),
+49:         domain_hint=payload.get("domain_hint", ""),
+50:     )
+51: 
+52: 
+53: def parse_credibility_response(text: str) -> dict[str, Any]:
+54:     """Best-effort: parse the first JSON object in the LLM text. Non-dict / no-JSON => {} (=> judge_error)."""
+55:     if not text or not isinstance(text, str):
+56:         return {}
+57:     match = re.search(r"\{.*\}", text, re.DOTALL)  # tolerate code fences / leading prose
+58:     if not match:
+59:         return {}
+60:     try:
+61:         obj = json.loads(match.group(0))
+62:     except (ValueError, TypeError):
+63:         return {}
+64:     return obj if isinstance(obj, dict) else {}
+65: 
+66: 
+67: def make_credibility_judge(call_llm: Callable[[str], str]) -> Callable[[str, dict], dict]:
+68:     """Return ``judge(research_question, payload) -> dict`` for ``score_source_credibility``.
+69: 
+70:     ``call_llm(prompt) -> text`` is injected — the sweep runner (012a) binds the open-weight model + the
+71:     OpenRouter client; tests inject a deterministic stub. The judge formats the prompt, calls the LLM, and
+72:     parses JSON; a malformed/empty response yields ``{}`` so P2 records a bounded per-row ``judge_error``.
+73:     """
+74:     if call_llm is None:
+75:         raise ValueError("make_credibility_judge requires an injected call_llm(prompt) -> text")
+76: 
+77:     def judge(research_question: str, payload: dict) -> dict:
+78:         prompt = build_credibility_prompt(research_question, payload)
+79:         try:
+80:             text = call_llm(prompt)
+81:         except Exception:
+82:             return {}  # transport failure for this row => P2 judge_error (isolated, bounded)
+83:         return parse_credibility_response(text)
+84: 
+85:     return judge
+
+ succeeded in 3641ms:
+1: """I-cred-012b — production credibility judge factory. Offline, deterministic, no network."""
+2: from __future__ import annotations
+3: 
+4: import pytest
+5: 
+6: from src.polaris_graph.authority.credibility_judge import (
+7:     build_credibility_prompt,
+8:     make_credibility_judge,
+9:     parse_credibility_response,
+10: )
+11: from src.polaris_graph.authority.credibility_skill import score_source_credibility
+12: 
+13: 
+14: def test_requires_call_llm():
+15:     with pytest.raises(ValueError):
+16:         make_credibility_judge(None)
+17: 
+18: 
+19: def test_happy_path_parses_json():
+20:     judge = make_credibility_judge(
+21:         lambda p: '{"reliability_score": 0.8, "relevance_score": 0.9, "rationale": "ok"}'
+22:     )
+23:     out = judge("q", {"title": "t", "url": "u"})
+24:     assert out["reliability_score"] == 0.8 and out["relevance_score"] == 0.9
+25: 
+26: 
+27: def test_code_fence_and_prose_tolerated():
+28:     judge = make_credibility_judge(lambda p: 'Sure:\n```json\n{"reliability_score": 0.5}\n```')
+29:     assert judge("q", {})["reliability_score"] == 0.5
+30: 
+31: 
+32: def test_malformed_returns_empty_dict():
+33:     assert make_credibility_judge(lambda p: "no json here")("q", {}) == {}
+34:     assert make_credibility_judge(lambda p: "[1,2,3]")("q", {}) == {}  # non-dict JSON
+35: 
+36: 
+37: def test_transport_failure_returns_empty():
+38:     def boom(prompt):
+39:         raise RuntimeError("503 upstream")
+40: 
+41:     assert make_credibility_judge(boom)("q", {}) == {}
+42: 
+43: 
+44: def test_prompt_includes_question_and_source():
+45:     p = build_credibility_prompt("does X work?", {"title": "Study A", "url": "http://a", "snippet": "snip"})
+46:     assert "does X work?" in p and "Study A" in p and "http://a" in p
+47: 
+48: 
+49: def test_parse_helper_direct():
+50:     assert parse_credibility_response('{"a": 1}') == {"a": 1}
+51:     assert parse_credibility_response("") == {}
+52:     assert parse_credibility_response("nope") == {}
+53: 
+54: 
+55: def test_flows_through_p2_as_non_error_judgment():
+56:     judge = make_credibility_judge(lambda p: '{"reliability_score": 0.7, "relevance_score": 1.0}')
+57:     rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
+58:     out = score_source_credibility("q", rows, judge=judge)[0]
+59:     assert out.judge_error is False and out.reliability_score == 0.7
+60: 
+61: 
+62: def test_malformed_judge_marks_p2_judge_error():
+63:     judge = make_credibility_judge(lambda p: "garbage, no json")
+64:     rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
+65:     out = score_source_credibility("q", rows, judge=judge)[0]
+66:     assert out.judge_error is True
+
+ succeeded in 4977ms:
+255: ### 9.1 LAYER 1 (Phase 2 scorer) — REBUILT: one adaptive credibility skill, not three fixed rubrics
+256: 
+257: Phase 2a/2b no longer selects a domain rubric. There is **one generic, domain-agnostic credibility
+258: skill**; the detected `scope_template` domain is passed in as a **hint the skill reasons over**, not a
+259: branch that swaps rubrics. Mechanism (JudgeRank-style 3-step, each step inspectable + the audit template):
+260: 
+261: 1. **Query analysis** — what does THIS question need; what would count as strong evidence for it.
+262: 2. **Source analysis** — query-aware, applying GENERIC SIFT + lateral-reading + provenance heuristics
+263:    (prefer primary/official over aggregator/SEO; original paper over secondary summary; corroborate
+264:    laterally; weigh incentives/track record; downgrade stale/superseded/retracted — wires to the Phase-3
+265:    `supersession.py` signal already built).
+266: 3. **Two-axis judgment** — emit, per source, **reliability × relevance** with a written `rationale` and
+267:    the deterministic `signals_cited` it reasoned from (`authority_score`, `source_class`,
+268:    `corroboration_count`, `signal_scores`, `junk_class`/`predatory_oa`, `origin_cluster_id`).
+269: 
+270: Output is a visible, revisable rationale string — **never a hidden scalar, never a fine-tuned weight.**
+271: The skill's priors ARE the deterministic `authority_model` signals; it may up/down-weight them only with a
+272: stated reason and may NOT fabricate authority where `authority_confidence=LOW`.
+273: 
+
+ succeeded in 6249ms:
+128: def _build_judge_payload(
+129:     research_question: str, row: dict[str, Any], domain: str | None
+130: ) -> dict[str, Any]:
+131:     """Pure: assemble the judge payload for ONE source. Does NOT mutate ``row``.
+132: 
+133:     Carries source identity + bounded descriptors (title / url / snippet — so RELEVANCE is actually
+134:     judgeable) + the deterministic authority priors + the ``domain_hint`` (a single string field,
+135:     NOT a branch / rubric table). The judge sees ONLY this payload.
+136:     """
+137:     snippet_chars = _int_env(_ENV_SNIPPET_CHARS, _DEFAULT_SNIPPET_CHARS)
+138:     return {
+139:         "research_question": research_question,
+140:         "evidence_id": str(row.get("evidence_id", "")),
+141:         "title": str(row.get("title", "") or ""),
+142:         "url": str(row.get("source_url", "") or row.get("url", "") or ""),
+143:         "snippet": _row_snippet(row, snippet_chars),
+144:         "authority_score": row.get("authority_score"),
+145:         "source_class": row.get("source_class"),
+146:         "corroboration_count": row.get("corroboration_count"),
+147:         "authority_confidence": row.get("authority_confidence"),
+148:         "signal_scores": dict(row.get("signal_scores") or {}),
+149:         "junk_class": row.get("junk_class", ""),
+150:         "predatory_oa": row.get("predatory_oa", False),
+151:         "origin_cluster_id": row.get("origin_cluster_id"),  # Phase-4 independence signal (None pre-wiring)
+152:         "domain_hint": domain or "",
+153:     }
+154: 
+155: 
+156: def _is_low_or_thin(row: dict[str, Any]) -> bool:
+157:     """A source is LOW/thin (subject to the anti-fabrication cap) when its authority_confidence is
+158:     LOW, or it has no authority_score, or it has no signal_scores."""
+159:     if str(row.get("authority_confidence") or "").strip().upper() == "LOW":
+160:         return True
+161:     if row.get("authority_score") is None:
+162:         return True
+163:     if not (row.get("signal_scores") or {}):
+164:         return True
+165:     return False
+166: 
+167: 
+168: def _priors_only_judgment(row: dict[str, Any]) -> CredibilityJudgment:
+169:     """The deterministic fallback (no judge / judge error): reliability from the prior, relevance
+170:     neutral (1.0). Never fabricates relevance it cannot judge."""
+171:     auth = _clamp01(row.get("authority_score"))
+172:     reliability = auth if auth is not None else 0.0
+173:     return CredibilityJudgment(
+174:         evidence_id=str(row.get("evidence_id", "")),
+175:         reliability_score=reliability,
+176:         relevance_score=1.0,
+177:         credibility_weight=reliability,  # == clamp01(reliability * 1.0)
+178:         rationale="no judge wired — deterministic priors only",
+179:         signals_cited=_present_signals(row),
+180:         query_need="",
+181:         judge_error=False,
+182:     )
+183: 
+184: 
+185: def _apply_judge(
+186:     research_question: str,
+187:     row: dict[str, Any],
+188:     domain: str | None,
+189:     judge: Callable[[str, dict], dict],
+190: ) -> CredibilityJudgment:
+191:     """Run the injected judge for ONE source; fall back to priors on ANY error / malformed output
+192:     (isolated to this row — recall-first, fail-loud-but-bounded)."""
+193:     payload = _build_judge_payload(research_question, row, domain)
+194:     try:
+195:         raw = judge(research_question, payload)
+196:     except Exception:
+197:         fallback = _priors_only_judgment(row)
+198:         fallback.judge_error = True
+199:         return fallback
+200:     if not isinstance(raw, dict):
+201:         fallback = _priors_only_judgment(row)
+202:         fallback.judge_error = True
+203:         return fallback
+204: 
+205:     reliability = _clamp01(raw.get("reliability_score"))
+206:     if reliability is None:  # missing / NaN / inf reliability => judge error for this row
+207:         fallback = _priors_only_judgment(row)
+208:         fallback.judge_error = True
+209:         return fallback
+210:     relevance = _clamp01(raw.get("relevance_score"))
+211:     if relevance is None:  # unknown / malformed relevance => multiplicative-neutral
+212:         relevance = 1.0
+213: 
+214:     # Anti-fabrication cap: a LOW/thin source's reliability cannot exceed prior + max_uplift.
+215:     if _is_low_or_thin(row):
+216:         auth = _clamp01(row.get("authority_score")) or 0.0
+217:         cap = _clamp01(auth + _float_env(_ENV_MAX_UPLIFT, _DEFAULT_MAX_UPLIFT))
+218:         if cap is not None:
+219:             reliability = min(reliability, cap)
+220: 
+221:     present = set(_present_signals(row))
+222:     cited = [s for s in (raw.get("signals_cited") or []) if s in present]
+223:     weight = _clamp01(reliability * relevance)
+224:     return CredibilityJudgment(
+225:         evidence_id=str(row.get("evidence_id", "")),
+226:         reliability_score=reliability,
+227:         relevance_score=relevance,
+228:         credibility_weight=weight if weight is not None else 0.0,
+229:         rationale=str(raw.get("rationale", "")),
+230:         signals_cited=cited,
+231:         query_need=str(raw.get("query_need", "")),
+232:         judge_error=False,
+233:     )
+234: 
+235: 
+236: def score_source_credibility(
+237:     research_question: str,
+238:     rows: list[dict[str, Any]],
+239:     *,
+240:     domain: str | None = None,
+241:     judge: Optional[Callable[[str, dict], dict]] = None,
+242: ) -> list[CredibilityJudgment]:
+243:     """Score each source on reliability × relevance — ADVISORY ONLY, pure, no row mutation.
+244: 
+245:     With ``judge=None`` returns one priors-only judgment per row (no network, total + offline). With
+246:     an injected ``judge(research_question, payload) -> dict`` runs it PER SOURCE so a judge error is
+247:     isolated to one row. ``domain`` is forwarded only as the ``domain_hint`` payload field — there is
+248:     no domain-keyed branch or rubric table (operator: no fixed rubrics).
+249:     """
+250:     if judge is None:
+251:         return [_priors_only_judgment(row) for row in (rows or [])]
+252:     return [_apply_judge(research_question, row, domain, judge) for row in (rows or [])]
+
+codex
+I found one substantive spec mismatch: the factory says it consumes the P2 bounded payload, but the prompt only renders a subset of that payload. I’m running the targeted smoke now so the final verdict can distinguish “tests pass” from “tests don’t cover the missing signal surface.”
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/authority/test_credibility_judge_phase12b.py -q' in C:\POLARIS
+ succeeded in 8101ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 9 items
+
+tests\polaris_graph\authority\test_credibility_judge_phase12b.py ....... [ 77%]
+..                                                                       [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 9 passed, 1 warning in 2.69s =========================
+
+codex
+The targeted smoke matches the attachment: 9 passed. The failing point is not runtime, it is coverage/spec completeness: the tests assert prompt basics but not that every deterministic signal required by the plan is visible to the production judge.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "source_class|corroboration_count|authority_confidence|signal_scores|junk_class|predatory_oa|origin_cluster_id|evidence_id" src/polaris_graph/authority/credibility_judge.py tests/polaris_graph/authority/test_credibility_judge_phase12b.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --name-only -- src/polaris_graph/authority/credibility_judge.py tests/polaris_graph/authority/test_credibility_judge_phase12b.py src/polaris_graph/generator/provenance_generator.py src/polaris_graph/nodes/corpus_approval_gate.py src/polaris_graph/generator/multi_section_generator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "strict_verify|verify_sentence_provenance|corpus_approval|D8|two_family|two-family|role_pipeline|provenance_generator" src/polaris_graph/authority/credibility_judge.py tests/polaris_graph/authority/test_credibility_judge_phase12b.py' in C:\POLARIS
+ succeeded in 2132ms:
+tests/polaris_graph/authority/test_credibility_judge_phase12b.py:57:    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
+tests/polaris_graph/authority/test_credibility_judge_phase12b.py:64:    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
+
+ succeeded in 4532ms:
+2026-06-08T16:37:04.233393Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.9 seconds
+Output:
+
+ exited 1 in 5885ms:
+codex
+The grep confirms the new factory prompt only exposes `authority_score` and `domain_hint` from the deterministic signal set; the other required P2 signals are absent from the module and the tests. I’m doing one final staged-diff check for gate-touch evidence.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached --name-only -- src/polaris_graph/authority/credibility_judge.py tests/polaris_graph/authority/test_credibility_judge_phase12b.py src/polaris_graph/generator/provenance_generator.py src/polaris_graph/nodes/corpus_approval_gate.py src/polaris_graph/generator/multi_section_generator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/authority/credibility_judge.py tests/polaris_graph/authority/test_credibility_judge_phase12b.py | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/generator/provenance_generator.py src/polaris_graph/nodes/corpus_approval_gate.py' in C:\POLARIS
+ succeeded in 2238ms:
+src/polaris_graph/authority/credibility_judge.py
+src/polaris_graph/generator/multi_section_generator.py
+tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 3632ms:
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 5038ms:
+diff --git a/src/polaris_graph/authority/credibility_judge.py b/src/polaris_graph/authority/credibility_judge.py
+new file mode 100644
+index 00000000..2882b521
+--- /dev/null
++++ b/src/polaris_graph/authority/credibility_judge.py
+@@ -0,0 +1,85 @@
++"""I-cred-012b — production credibility JUDGE factory (LLM-backed) for the P2 credibility skill.
++
++Builds the injected ``judge(research_question, payload) -> dict`` that
++``credibility_skill.score_source_credibility`` consumes per source. The factory is PURE prompt-format +
++JSON-parse; the LLM call is DEPENDENCY-INJECTED (``call_llm``) so it is offline-testable and the model /
++client live entirely in the caller the sweep runner supplies (012a). Open-weight model ONLY (the certified
++voter slate) — the caller binds the model.
++
++Robustness contract (matches `credibility_skill._apply_judge`): on ANY malformed LLM output the judge
++returns a dict missing/!=reliability_score (or ``{}``), which P2 isolates as a per-row ``judge_error``
++(recall-first, fail-loud-but-bounded). It NEVER raises into P2 (P2 catches, but we keep it clean).
++"""
++from __future__ import annotations
++
++import json
++import re
++from typing import Any, Callable
++
++# The judge sees ONLY the bounded payload (source identity + title/url/snippet + authority prior +
++# domain_hint) — same payload `credibility_skill._build_judge_payload` assembles. No rubric branch.
++_PROMPT = (
++    "You are a source-credibility judge for ONE source against ONE research question. Judge only this "
++    "source, for this question.\n"
++    "QUESTION: {question}\n"
++    "SOURCE:\n"
++    "  title: {title}\n"
++    "  url: {url}\n"
++    "  snippet: {snippet}\n"
++    "  authority_score (deterministic prior, 0..1): {authority_score}\n"
++    "  domain_hint: {domain_hint}\n\n"
++    "Return STRICT JSON only, no prose, no code fence:\n"
++    '{{"reliability_score": <0..1: how reliable/authoritative this source is FOR THIS QUESTION>, '
++    '"relevance_score": <0..1: how on-topic this source is>, '
++    '"rationale": "<one sentence>", '
++    '"signals_cited": [<signal names you relied on>], '
++    '"query_need": "<a follow-up query if this source is thin, else empty>"}}'
++)
++
++
++def build_credibility_prompt(research_question: str, payload: dict[str, Any]) -> str:
++    """Pure: render the per-source judging prompt from the P2 payload."""
++    payload = payload or {}
++    return _PROMPT.format(
++        question=research_question,
++        title=payload.get("title", ""),
++        url=payload.get("url", ""),
++        snippet=payload.get("snippet", ""),
++        authority_score=payload.get("authority_score", ""),
++        domain_hint=payload.get("domain_hint", ""),
++    )
++
++
++def parse_credibility_response(text: str) -> dict[str, Any]:
++    """Best-effort: parse the first JSON object in the LLM text. Non-dict / no-JSON => {} (=> judge_error)."""
++    if not text or not isinstance(text, str):
++        return {}
++    match = re.search(r"\{.*\}", text, re.DOTALL)  # tolerate code fences / leading prose
++    if not match:
++        return {}
++    try:
++        obj = json.loads(match.group(0))
++    except (ValueError, TypeError):
++        return {}
++    return obj if isinstance(obj, dict) else {}
++
++
++def make_credibility_judge(call_llm: Callable[[str], str]) -> Callable[[str, dict], dict]:
++    """Return ``judge(research_question, payload) -> dict`` for ``score_source_credibility``.
++
++    ``call_llm(prompt) -> text`` is injected — the sweep runner (012a) binds the open-weight model + the
++    OpenRouter client; tests inject a deterministic stub. The judge formats the prompt, calls the LLM, and
++    parses JSON; a malformed/empty response yields ``{}`` so P2 records a bounded per-row ``judge_error``.
++    """
++    if call_llm is None:
++        raise ValueError("make_credibility_judge requires an injected call_llm(prompt) -> text")
++
++    def judge(research_question: str, payload: dict) -> dict:
++        prompt = build_credibility_prompt(research_question, payload)
++        try:
++            text = call_llm(prompt)
++        except Exception:
++            return {}  # transport failure for this row => P2 judge_error (isolated, bounded)
++        return parse_credibility_response(text)
++
++    return judge
+diff --git a/tests/polaris_graph/authority/test_credibility_judge_phase12b.py b/tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+new file mode 100644
+index 00000000..b30b9fa7
+--- /dev/null
++++ b/tests/polaris_graph/authority/test_credibility_judge_phase12b.py
+@@ -0,0 +1,66 @@
++"""I-cred-012b — production credibility judge factory. Offline, deterministic, no network."""
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.authority.credibility_judge import (
++    build_credibility_prompt,
++    make_credibility_judge,
++    parse_credibility_response,
++)
++from src.polaris_graph.authority.credibility_skill import score_source_credibility
++
++
++def test_requires_call_llm():
++    with pytest.raises(ValueError):
++        make_credibility_judge(None)
++
++
++def test_happy_path_parses_json():
++    judge = make_credibility_judge(
++        lambda p: '{"reliability_score": 0.8, "relevance_score": 0.9, "rationale": "ok"}'
++    )
++    out = judge("q", {"title": "t", "url": "u"})
++    assert out["reliability_score"] == 0.8 and out["relevance_score"] == 0.9
++
++
++def test_code_fence_and_prose_tolerated():
++    judge = make_credibility_judge(lambda p: 'Sure:\n```json\n{"reliability_score": 0.5}\n```')
++    assert judge("q", {})["reliability_score"] == 0.5
++
++
++def test_malformed_returns_empty_dict():
++    assert make_credibility_judge(lambda p: "no json here")("q", {}) == {}
++    assert make_credibility_judge(lambda p: "[1,2,3]")("q", {}) == {}  # non-dict JSON
++
++
++def test_transport_failure_returns_empty():
++    def boom(prompt):
++        raise RuntimeError("503 upstream")
++
++    assert make_credibility_judge(boom)("q", {}) == {}
++
++
++def test_prompt_includes_question_and_source():
++    p = build_credibility_prompt("does X work?", {"title": "Study A", "url": "http://a", "snippet": "snip"})
++    assert "does X work?" in p and "Study A" in p and "http://a" in p
++
++
++def test_parse_helper_direct():
++    assert parse_credibility_response('{"a": 1}') == {"a": 1}
++    assert parse_credibility_response("") == {}
++    assert parse_credibility_response("nope") == {}
++
++
++def test_flows_through_p2_as_non_error_judgment():
++    judge = make_credibility_judge(lambda p: '{"reliability_score": 0.7, "relevance_score": 1.0}')
++    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
++    out = score_source_credibility("q", rows, judge=judge)[0]
++    assert out.judge_error is False and out.reliability_score == 0.7
++
++
++def test_malformed_judge_marks_p2_judge_error():
++    judge = make_credibility_judge(lambda p: "garbage, no json")
++    rows = [{"evidence_id": "e1", "authority_score": 0.6, "authority_confidence": "HIGH", "signal_scores": {"x": 1}}]
++    out = score_source_credibility("q", rows, judge=judge)[0]
++    assert out.judge_error is True
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/authority/credibility_judge.py:21-50: The production judge prompt drops most deterministic P2 signals required by the plan. Plan §9.1 requires the judge to reason from/cite authority_score, source_class, corroboration_count, signal_scores, junk_class/predatory_oa, and origin_cluster_id; _build_judge_payload provides them, but this prompt only includes title/url/snippet/authority_score/domain_hint. Once wired, the judge cannot perform the specified source-analysis step or cite those required signals. Add the missing payload fields to the prompt and test their presence."
+p2:
+  - "src/polaris_graph/authority/credibility_judge.py:53-64: parse_credibility_response claims to parse the first JSON object, but the greedy regex captures from the first '{' to the last '}', so prose or multiple objects after the JSON can make an otherwise valid first object fail. Not a blocker because failure is bounded as judge_error, but the parser/test should match the stated tolerance."
+  - "tests/polaris_graph/authority/test_credibility_judge_phase12b.py:44-46: Prompt-content coverage is too weak; it only checks question/title/url, so it missed the missing required deterministic signal surface. Targeted smoke is green: 9 passed."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Expose and test the full plan-required P2 deterministic signal payload in build_credibility_prompt before approving execution."
+tokens used
+42,300
