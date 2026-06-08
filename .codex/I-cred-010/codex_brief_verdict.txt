@@ -1,0 +1,18 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "The brief says dissent-recall targets the MINORITY side, but the proposed inputs cannot identify minority. Phase-5 ContradictionEdge only carries subject/predicate/evidence_ids/sorted claim_cluster_ids/severity, and claim_cluster_ids are explicitly sorted, not stance- or weight-ordered (src/polaris_graph/synthesis/claim_graph.py:152). AtomicClaim text can enrich phrasing, but it does not provide Phase-6 weight_mass, independent-origin count, or current side coverage. AC-3 would pass with generic 'no effect/contrary' queries even when that is already the majority side, so I-cred-010b could append queries that fail the core execution goal while appearing accepted. Fix by either adding a pure side signal input (e.g. cluster weight/coverage/minority_cluster_id) and testing minority targeting, or explicitly scope v1 to symmetric contrary recall instead of minority recall."
+p2:
+  - "The brief signature uses max_queries: int = 8 while AC-4 requires PG_DISSENT_QUERIES_MAX to affect omitted max_queries. Specify max_queries: int | None = None or a DEFAULT_MAX_QUERIES env-read pattern so the contract and tests align."
+  - "AC-6 should define the stratification output shape and budget rule more concretely. 'Sane budget' is currently subjective; define whether the dict is backend->quota, how contested_count scales it, and how duplicate/unknown available_backends are handled."
+  - "AC-8 should assert no retrieval/scoring/gate imports or calls by behavior/import surface, not only no obvious network client. Include live_retriever/evidence_selector/tier_classifier/authority_model/strict_verify as forbidden dependencies for this pure builder."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Resolve the minority-side signal mismatch or rename/scope the feature to contrary-side recall."
+q_answers:
+  Q1: "Confirmed: pure builder now; saturation wiring at retrieval/saturation.py:377/425 belongs in I-cred-010b."
+  Q2: "Deterministic templates are acceptable for v1; keep the LLM generator out of scope behind query_fn. But the templates must not claim minority targeting unless the side signal is added."
+  Q3: "Yes, stratification should remain advisory only, never a hard quota override that can starve consensus retrieval or bypass existing gates."
+```

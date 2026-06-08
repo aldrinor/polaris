@@ -1,0 +1,12 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/retrieval/dissent_recall_builder.py:106: `max_queries` is only checked after appending, so `max_queries=0` or `PG_DISSENT_QUERIES_MAX=0` still emits one query. That violates the contract that output is capped at `max_queries` and weakens the ON-path spend/recall control. Add an early `if max_queries <= 0: return []` and test both direct and env-zero cases."
+p2:
+  - "src/polaris_graph/retrieval/dissent_recall_builder.py:50: fallback text truncation uses hardcoded `80`; if LAW VI is applied strictly, make this a named/env-backed config value."
+  - "src/polaris_graph/retrieval/dissent_recall_builder.py:23: unused `Any` import."
+  - "Phase 10 full plan items (`live_retriever.py` wiring and `dissent_seed`/`SENTINEL_ORIGINS` fallback eligibility) are intentionally deferred by this builder brief; keep them as required coverage for I-cred-010b."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix and test zero/negative query-cap handling before wiring this into any spend-bearing retrieval path."
