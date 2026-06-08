@@ -1,0 +1,1155 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019ea714-d3d1-7ac1-a226-df9357a6c0a3
+--------
+user
+# I-cred-002 (#1151) — Phase 2: adaptive LLM credibility skill (reliability × relevance) — BRIEF for Codex review
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+You are reviewing a DESIGN BRIEF (acceptance-criteria correctness), not a diff. Judge: is this the right module contract, are the faithfulness invariants preserved, are the acceptance criteria sufficient and testable, and is anything missing that would make the eventual diff unsafe?
+
+## 0. HARD CONSTRAINTS (operator-locked — NOT relaxable, do not offer the relaxed option)
+
+- **Advisory only.** The credibility skill NEVER becomes a faithfulness gate. `strict_verify`'s six per-sentence checks in `src/polaris_graph/generator/provenance_generator.py` remain the ONLY binding faithfulness gate. A credibility weight/rationale is a side-output to disclose, never a reason to keep or drop a sentence.
+- **Default-OFF byte-identical.** Gated by `PG_SWEEP_CREDIBILITY_SKILL`. Flag-off (and no caller wiring) ⇒ production output byte-identical. No production caller is added in this phase.
+- **NO fixed domain rubrics.** Per operator (2026-06-08, plan §9.1): users ask 10,000+ fields; there is ONE generic credibility skill; the detected domain is a HINT the skill reasons over, NOT a branch that swaps rubrics.
+- **Weight = evidence quality, never headcount.** The skill scores a single source's reliability×relevance; it does not count sources.
+- **No network in off-mode / no judge.** The LLM call is dependency-injected; with no injected judge, zero httpx client, zero spend. Mirrors `semantic_conflict_detector`.
+- **No row mutation, no faithfulness-file edit.** Returns a separate result object; does not mutate evidence rows or touch provenance_generator / strict_verify / 4-role / two-family / corpus_approval.
+- **Pure, snake_case, explicit imports, LAW VI** (every threshold env-overridable named constant, no magic numbers, no hardcoded model/endpoint).
+
+## 1. Goal
+
+Build `src/polaris_graph/authority/credibility_skill.py`: one generic, domain-agnostic LLM "credibility skill" that, per research question, scores EACH candidate source on **reliability × relevance** with a written, inspectable rationale, consuming POLARIS's already-computed deterministic authority signals as its priors. This is the Layer-1 scorer of the credibility-weighted sourcing redesign (`docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md` §9.1, research `docs/credibility_adaptive_weighting_and_bothsides_recs_2026_06_08.md`).
+
+## 2. Mechanism (JudgeRank-style 3-step, each step inspectable = the audit template)
+
+The injected judge is asked, for the question + one source at a time (or a small batch), to produce:
+1. **query_need** — what THIS question needs; what would count as strong evidence for it (string).
+2. **source_assessment** — query-aware, applying GENERIC SIFT + lateral-reading + provenance heuristics (prefer primary/official over aggregator/SEO; original over secondary summary; corroborate laterally; weigh incentives/track record; downgrade stale/superseded/retracted). NOT a domain table.
+3. **two-axis judgment** — `reliability_score ∈ [0,1]` (internal validity/method given the signals) × `relevance_score ∈ [0,1]` (directness to this question), a `credibility_weight` (their product, clamped), a `rationale` string, and `signals_cited` (the deterministic signal names it reasoned from).
+
+The skill's PRIORS are the deterministic `authority_model` signals. It may up/down-weight them only with a stated reason; it MAY NOT fabricate authority where `authority_confidence == "LOW"` (a thin-signal source stays honestly low — this is an explicit guardrail in the prompt AND asserted by a test with a deterministic fake judge that tries to over-claim).
+
+## 3. Module contract (the diff will implement exactly this)
+
+```python
+PG_SWEEP_CREDIBILITY_SKILL  # flag; credibility_skill_enabled() helper, _OFF_VALUES frozenset (match supersession.py / claim_graph.py)
+
+@dataclass
+class CredibilityJudgment:
+    evidence_id: str
+    reliability_score: float        # [0,1]
+    relevance_score: float          # [0,1]
+    credibility_weight: float       # [0,1], = clamp(reliability * relevance), env-tunable combiner
+    rationale: str                  # the written, checkable reason
+    signals_cited: list[str]        # deterministic signal names the judge reasoned from
+    query_need: str                 # step-1 output (audit context)
+    judge_error: bool = False       # True iff the injected judge errored for this source (fail-loud-but-isolated)
+
+def score_source_credibility(
+    research_question: str,
+    rows: list[dict],               # evidence rows carrying authority_score / source_class / corroboration_count / authority_confidence / signal_scores / junk_class / predatory_oa
+    *,
+    domain: str | None = None,      # HINT only (from run_scope_gate / run_live_retrieval); never a branch
+    judge: Callable[[str, dict], dict] | None = None,  # injected (question, source_signals_dict) -> judgment dict; None => no call, returns priors-only judgments
+) -> list[CredibilityJudgment]:
+    ...
+```
+
+- `judge=None` ⇒ NO network: return a priors-only judgment per row (reliability seeded from `authority_score`, relevance unknown→neutral, rationale="no judge wired", `signals_cited` from present signals). This keeps the function pure + offline-testable AND makes off-mode a no-op.
+- When a judge IS injected: per-source call; a judge error sets `judge_error=True` for THAT source and falls back to the priors-only judgment for it (fail-loud via the flag, never silently fabricate). The deterministic priors are the floor.
+- The judge callable is wired by the CALLER (a future phase), exactly like `get_default_judge()` in `semantic_conflict_detector.py`; this pure library constructs no client. Model/endpoint/key come from env (`OPENROUTER_API_KEY`, a `PG_CREDIBILITY_SKILL_MODEL` knob), never hardcoded.
+- The judge's returned scores are CLAMPED to [0,1] and its `signals_cited` are intersected with the signals actually present on the row (it cannot cite a signal that wasn't given — anti-hallucination).
+
+## 4. Acceptance criteria (each maps to a test, offline, deterministic fake judge — no network, no live data)
+
+1. Flag default-OFF: `credibility_skill_enabled()` False when unset; truthy values flip it on (parametrized off/on values, case/space-insensitive) — matches supersession/claim_graph.
+2. `judge=None` ⇒ priors-only: returns one judgment per row, no exception, reliability seeded from `authority_score`, `judge_error=False`, no network (assert no httpx import path hit — structurally guaranteed since no client is built).
+3. Injected fake judge ⇒ its reliability/relevance/rationale flow through; `credibility_weight == clamp(reliability*relevance)`.
+4. Anti-fabrication guardrail: a fake judge that returns reliability=0.99 for a row whose `authority_confidence == "LOW"` and whose signals are thin is CLAMPED/floored per the guardrail (the high score does not survive unchecked) — assert the documented behaviour.
+5. `signals_cited` is a SUBSET of the signals present on the row (a cited-but-absent signal is dropped).
+6. Out-of-range judge scores (`reliability=1.7`, `-0.2`) are clamped to [0,1].
+7. A judge that raises for one row sets `judge_error=True` for THAT row only and falls back to priors; other rows are unaffected (isolation, recall-first).
+8. Domain is a HINT: passing `domain="clinical"` vs `domain="policy"` does NOT change the code path / dataclass shape (same fields), proving no fixed-rubric branch.
+9. Score-combiner thresholds are env-overridable (a `PG_CREDIBILITY_*` knob changes the combiner) — LAW VI.
+10. Purity: no faithfulness file imported; `score_source_credibility` mutates no input row (assert input rows unchanged by identity/content).
+
+## 5. Files I have ALSO checked and they're clean (substrate scan — please VERIFY rather than re-discover)
+
+- `src/polaris_graph/authority/source_class.py:71-90` — `AuthorityResult` fields: `authority_score: float`, `source_class: SourceClass`, `corroboration_count: int`, `authority_confidence: AuthorityConfidence`, `reasons: list[str]`, `signal_scores: dict` (keys signal_a_scholarly..signal_e_recency), `junk_class: str = ""`, `predatory_oa: bool = False`. These are the priors P2 consumes.
+- `src/polaris_graph/authority/authority_model.py:84-205` — `score_source_authority(signals, *, corpus_ctx=None) -> AuthorityResult` (the producer; P2 does not change it).
+- `src/polaris_graph/retrieval/tier_classifier.py:2030-2040` — evidence rows carry `authority_score / source_class / corroboration_count / authority_confidence` as additive row keys. P2 reads these keys; if a key is absent it degrades to priors-unknown, never crashes.
+- `src/polaris_graph/nodes/scope_gate.py:192-220, 387-413` — `run_scope_gate(..., domain=DEFAULT_DOMAIN, ...)` + `load_scope_template(domain)`; domain is an EXPLICIT caller param, never inferred. P2 takes it as an optional hint string.
+- `src/polaris_graph/retrieval/semantic_conflict_detector.py:208-272, 320-487` — the injected-judge precedent: `detect_semantic_conflicts(pairs, judge, ...)`, `get_default_judge()` lazy singleton, `OPENROUTER_API_KEY` read only at construct time, off-mode never builds a client. P2 mirrors this injection contract.
+- `src/polaris_graph/authority/supersession.py:21-67` — `SupersessionResult` dataclass-result precedent + `PG_SWEEP_SUPERSESSION` flag + `_env_float/_env_int` helpers. P2 follows the same shape.
+- `src/polaris_graph/synthesis/claim_graph.py:75-109` — `PG_SWEEP_CLAIM_GRAPH` + `_OFF_VALUES` frozenset + `claim_graph_enabled()`; P2's flag matches byte-for-byte in shape.
+- No existing code scores sources by reliability×relevance (grepped credibility/reliability/relevance/weight under `src/polaris_graph/`): authority_model is domain-AGNOSTIC signal scoring, supersession is TEMPORAL, claim_graph is STANCE. P2 is orthogonal — it REUSES authority signals, does not duplicate them.
+
+## 6. Output schema (return this YAML)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## 7. Specific questions for you
+
+1. Is the `judge=None ⇒ priors-only` no-op the right off-mode contract, or should off-mode raise/return empty? (I chose priors-only so the function is total + offline-testable; flag-off means no caller invokes it anyway.)
+2. Is the anti-fabrication guardrail (clamp/floor a high reliability when `authority_confidence == LOW` + thin signals) sufficient, or does it need a harder rule (e.g. cap reliability at the deterministic `authority_score` + a bounded delta)? I lean toward a bounded delta: `reliability ≤ authority_score + PG_CREDIBILITY_MAX_UPLIFT`. Confirm.
+3. Per-source vs small-batch judge calls — any faithfulness/cost reason to prefer one? (Per-source is simpler + isolates judge errors per AC-7; batching is a later cost optimization.)
+4. Anything that makes this unsafe to land default-OFF on the run branch before its consumer (Phase 6 weight-mass) exists?
+
+codex
+I’ll verify the cited substrate first, then review the brief as a module contract and acceptance-test target rather than treating it like an implementation diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_SWEEP_SUPERSESSION|_OFF_VALUES|def supersession|def _env_float|def _env_int|SupersessionResult" src/polaris_graph/authority/supersession.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "class AuthorityResult|authority_score|signal_scores|junk_class|predatory_oa|def score_source_authority" src/polaris_graph/authority/source_class.py src/polaris_graph/authority/authority_model.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "authority_score|source_class|corroboration_count|authority_confidence" src/polaris_graph/retrieval/tier_classifier.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_SWEEP_CLAIM_GRAPH|_OFF_VALUES|def claim_graph_enabled" src/polaris_graph/synthesis/claim_graph.py' in C:\POLARIS
+ succeeded in 2522ms:
+139:    authority_score: float | None = None
+140:    source_class: str | None = None
+141:    corroboration_count: int | None = None
+142:    authority_confidence: str | None = None
+1981:# authority_confidence -> a representative numeric confidence for the legacy
+2023:        authority_result.authority_confidence.value, 0.5
+2035:        authority_score=authority_result.authority_score,
+2036:        source_class=authority_result.source_class.value,
+2037:        corroboration_count=authority_result.corroboration_count,
+2038:        authority_confidence=authority_result.authority_confidence.value,
+
+ succeeded in 3994ms:
+38:DEFAULT-OFF + LAW VI: the whole layer is gated by ``PG_SWEEP_CLAIM_GRAPH`` (default
+75:_FLAG = "PG_SWEEP_CLAIM_GRAPH"
+76:_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+102:def claim_graph_enabled() -> bool:
+103:    """True unless ``PG_SWEEP_CLAIM_GRAPH`` is unset/falsey.
+109:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+
+ succeeded in 5458ms:
+22:_FLAG = "PG_SWEEP_SUPERSESSION"
+36:def _env_float(name: str, default: float) -> float:
+46:def _env_int(name: str, default: int) -> int:
+56:def supersession_enabled() -> bool:
+62:class SupersessionResult:
+95:def supersession_adjustment(row: dict, *, now_year: int | None = None) -> SupersessionResult:
+112:        return SupersessionResult(
+121:        return SupersessionResult(
+136:            return SupersessionResult(
+147:    return SupersessionResult(multiplier=1.0, hard_penalty=False, soft_warning=None, certainty_downgrade=False)
+
+ succeeded in 6771ms:
+src/polaris_graph/authority/source_class.py:72:class AuthorityResult:
+src/polaris_graph/authority/source_class.py:75:    authority_score: float                    # [0, 1]
+src/polaris_graph/authority/source_class.py:81:    signal_scores: dict = field(default_factory=dict)
+src/polaris_graph/authority/source_class.py:83:    # SIGNAL-DRIVEN demotions (no host list). `junk_class` is the fine-grained
+src/polaris_graph/authority/source_class.py:85:    # "self_interest"); "" when no junk fired. `predatory_oa` is True when the
+src/polaris_graph/authority/source_class.py:88:    junk_class: str = ""
+src/polaris_graph/authority/source_class.py:89:    predatory_oa: bool = False
+src/polaris_graph/authority/authority_model.py:5:    authority_score = clamp01( sum_signal(w * score) ) * junk_cap * corroboration
+src/polaris_graph/authority/authority_model.py:84:def score_source_authority(
+src/polaris_graph/authority/authority_model.py:108:    signal_scores: dict[str, float] = {}
+src/polaris_graph/authority/authority_model.py:112:    signal_scores["signal_a_scholarly"] = a.score
+src/polaris_graph/authority/authority_model.py:122:    signal_scores["signal_b_institutional"] = b.score
+src/polaris_graph/authority/authority_model.py:133:    signal_scores["signal_c_structural"] = 0.0 if junk.fired else 1.0
+src/polaris_graph/authority/authority_model.py:143:    signal_scores["signal_e_recency"] = e.score
+src/polaris_graph/authority/authority_model.py:156:    signal_scores["signal_d_corroboration"] = d.score
+src/polaris_graph/authority/authority_model.py:164:        + sw["signal_c_structural"] * signal_scores["signal_c_structural"]
+src/polaris_graph/authority/authority_model.py:195:        authority_score=score,
+src/polaris_graph/authority/authority_model.py:200:        signal_scores=signal_scores,
+src/polaris_graph/authority/authority_model.py:203:        junk_class=junk.junk_class if junk.fired else "",
+src/polaris_graph/authority/authority_model.py:204:        predatory_oa=a.predatory,
+
+codex
+The cited authority and flag precedents line up at a high level. I’m checking the judge-injection precedent and any existing credibility surface now so the review can focus on actual contract risks.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def detect_semantic_conflicts|def get_default_judge|OPENROUTER_API_KEY|httpx|judge" src/polaris_graph/retrieval/semantic_conflict_detector.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "credibility|reliability|relevance|credibility_weight|authority_weight" src/polaris_graph docs | Select-Object -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/synthesis/claim_graph.py -TotalCount 125' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/authority/supersession.py -TotalCount 90' in C:\POLARIS
+ succeeded in 2909ms:
+docs\clinical_rag_sota_deepest_research_2026_05_27.md:38:2. **Abstention discipline (refusal templates when no atom can be cited).** MedHallu (Feb 2025) [^medhallu] empirically demonstrated that **"adding an 'abstention / not sure' option enhances precision by up to 15% for larger models; GPT-4o achieves 79.5% F1 with this feature."** POLARIS's 44.4% refusal rate is the system correctly exercising the abstention discipline; the academic literature treats this as a feature, not a bug. The Carney pitch should frame refusal rate as a safety credibility lever, not apologise for it.
+docs\clinical_rag_sota_deepest_research_2026_05_27.md:442:With one engineer + Codex review cycles + POLARIS's existing infrastructure, **the first three phases (10 weeks) produce a defensibly SOTA system**. Phases 4-5 are polish that improves Carney-pitch credibility but doesn't change the core capability.
+src/polaris_graph\adequacy\plan_sufficiency_gate.py:30:The relevance MAPPING is shared with the generator's on-mode
+src/polaris_graph\adequacy\plan_sufficiency_gate.py:50:# ELIGIBLE: their relevance is decided by content-word overlap against a
+src/polaris_graph\adequacy\plan_sufficiency_gate.py:149:    Authority is NOT applied here — relevance is provenance/overlap only; the
+src/polaris_graph\authority\supersession.py:3:Pure-function credibility adjustment for time-sensitive evidence. It downgrades stale-but-authoritative
+src/polaris_graph\authority\supersession.py:24:# Source types whose credibility is TIME-SENSITIVE (a stale one is downgraded). Everything else
+src/polaris_graph\authority\supersession.py:63:    multiplier: float            # multiply the source's credibility weight by this (1.0 = no change)
+src/polaris_graph\authority\supersession.py:96:    """Return the temporal/supersession credibility adjustment for one source row.
+src/polaris_graph\authority\supersession.py:115:            soft_warning="retracted/withdrawn source — hard credibility penalty applied",
+src/polaris_graph\agents\analyzer.py:144:4. Rate relevance to the SPECIFIC research question on 0.0-1.0:
+src/polaris_graph\agents\analyzer.py:149:   Each fact must get a UNIQUE relevance score. No two facts from the same source should have identical scores.
+src/polaris_graph\agents\analyzer.py:200:{"analyses": [{"source_url": "https://example.com", "source_title": "Study Title", "source_type": "journal_article", "source_quality": 0.8, "overall_relevance": 0.7, "year": 2024, "authors": ["Smith J"], "venue": "Water Research", "doi": "", "atomic_facts": [{"statement": "E. coli was detected in 30% of tested filters after 6 months", "direct_quote": "E. coli presence in 30% of tested POU filters", "fact_category": "statistic", "relevance_score": 0.9, "confidence": 0.8, "perspective": "Scientific"}], "evidence_summary": "Bacterial contamination in POU water filters"}]}"""
+src/polaris_graph\agents\analyzer.py:209:# domains formerly in blocked_domains are now in low_credibility_domains
+src/polaris_graph\agents\analyzer.py:251:    The multiplier is applied to relevance_score before tier assignment,
+src/polaris_graph\agents\analyzer.py:281:                # Blog/student content → LOW credibility (below gate threshold)
+src/polaris_graph\agents\analyzer.py:320:    # Low-credibility consumer domains (from config)
+src/polaris_graph\agents\analyzer.py:321:    for domain in _cfg.low_credibility_domains:
+src/polaris_graph\agents\analyzer.py:383:    # topic relevance and keeps embedding fast.
+src/polaris_graph\agents\analyzer.py:1026:    # FIX-QM26: Unified embedding pass — embed once, use for both relevance
+src/polaris_graph\agents\analyzer.py:1176:                relevance_score=e.get("relevance_score", 0.0),
+src/polaris_graph\agents\analyzer.py:1262:        # Emit individual evidence detail (top 50 by tier+relevance)
+src/polaris_graph\agents\analyzer.py:1265:            e.get("relevance_score", 0),
+src/polaris_graph\agents\analyzer.py:1276:                "relevance": round(e.get("relevance_score", 0), 3),
+src/polaris_graph\agents\analyzer.py:1315:                    "relevance": 0.95,
+src/polaris_graph\agents\analyzer.py:2146:                    relevance_score=fact.relevance_score,
+src/polaris_graph\agents\analyzer.py:2167:                # If not, the LLM likely embellished — penalize relevance.
+src/polaris_graph\agents\analyzer.py:2182:                        # Penalize relevance for unverifiable quotes
+src/polaris_graph\agents\analyzer.py:2183:                        piece["relevance_score"] = max(
+src/polaris_graph\agents\analyzer.py:2184:                            0.0, piece.get("relevance_score", 0.5) - 0.2,
+src/polaris_graph\agents\analyzer.py:2256:                        relevance_score=fact.relevance_score,
+src/polaris_graph\agents\analyzer.py:2294:    # Sort each pool by its own relevance
+src/polaris_graph\agents\analyzer.py:2348:def _apply_embedding_relevance(
+src/polaris_graph\agents\analyzer.py:2352:    """IMP-2: Replace LLM-assigned relevance with embedding-based cosine similarity.
+src/polaris_graph\agents\analyzer.py:2356:    Original LLM score is preserved as ``llm_relevance_score`` for debugging.
+src/polaris_graph\agents\analyzer.py:2410:            e["llm_relevance_score"] = e.get("relevance_score", 0.5)
+src/polaris_graph\agents\analyzer.py:2412:            e["relevance_score"] = float(round(similarities[i], 4))
+src/polaris_graph\agents\analyzer.py:2416:        scores = [e["relevance_score"] for e in evidence]
+src/polaris_graph\agents\analyzer.py:2420:                "[polaris graph] IMP-2: Embedding relevance applied to %d evidence. "
+src/polaris_graph\agents\analyzer.py:2428:            # OBS-4: Trace relevance scoring
+src/polaris_graph\agents\analyzer.py:2432:                    "analyze", "relevance_scored", len(evidence),
+src/polaris_graph\agents\analyzer.py:2434:                    mean_relevance=round(mean_rel, 4),
+src/polaris_graph\agents\analyzer.py:2440:            "keeping LLM relevance scores"
+src/polaris_graph\agents\analyzer.py:2444:            "[polaris graph] IMP-2: Embedding relevance failed: %s — "
+src/polaris_graph\agents\analyzer.py:2475:    the single-factor domain_authority * LLM_relevance had no secondary
+src/polaris_graph\agents\analyzer.py:2539:def _compute_embedding_relevance(ev: dict) -> float:
+src/polaris_graph\agents\analyzer.py:2540:    """FIX-048-K2: Get embedding-based relevance score.
+src/polaris_graph\agents\analyzer.py:2542:    Uses the pre-computed relevance_score from _unified_embedding_pass() when
+src/polaris_graph\agents\analyzer.py:2543:    available (set by IMP-2). Falls back to llm_relevance_score.
+src/polaris_graph\agents\analyzer.py:2545:    # After _unified_embedding_pass(), relevance_score = embedding cosine similarity.
+src/polaris_graph\agents\analyzer.py:2546:    # Before that, relevance_score = LLM-assigned score.
+src/polaris_graph\agents\analyzer.py:2547:    emb_score = ev.get("relevance_score", 0.0)
+src/polaris_graph\agents\analyzer.py:2550:    return float(ev.get("llm_relevance_score", 0.5))
+src/polaris_graph\agents\analyzer.py:2558:    BRONZE to EPA cost data (#19) because only domain_authority * LLM_relevance
+src/polaris_graph\agents\analyzer.py:2572:    NRC-6: Blog/commercial source types get relevance penalty.
+src/polaris_graph\agents\analyzer.py:2575:    w_relevance = float(os.getenv("PG_TIER_W_RELEVANCE", "0.25"))
+src/polaris_graph\agents\analyzer.py:2610:        relevance = e.get("relevance_score", 0.5)
+src/polaris_graph\agents\analyzer.py:2612:            relevance = relevance * _blog_penalty
+src/polaris_graph\agents\analyzer.py:2613:            e["relevance_score"] = relevance
+src/polaris_graph\agents\analyzer.py:2617:        sig_relevance = _compute_embedding_relevance(e)
+src/polaris_graph\agents\analyzer.py:2662:        e["sig_relevance"] = sig_relevance
+src/polaris_graph\agents\analyzer.py:2670:            w_relevance * sig_relevance
+src/polaris_graph\agents\analyzer.py:2721:        # authority gate at PG_AUTHORITY_GATE filters low-credibility sources
+src/polaris_graph\agents\analyzer.py:2763:        signal_names = ["sig_relevance", "sig_authority", "sig_density", "sig_freshness", "sig_grounding"]
+src/polaris_graph\agents\analyzer.py:2783:                "sig_relevance": round(e.get("sig_relevance", 0), 4),
+src/polaris_graph\agents\analyzer.py:2937:    """FIX-QM26: Single embedding pass for both relevance scoring and off-topic filtering.
+src/polaris_graph\agents\analyzer.py:2939:    Previously, _apply_embedding_relevance() and _filter_offtopic_evidence() each
+src/polaris_graph\agents\analyzer.py:2942:    2. Uses cosine similarities for relevance scoring (IMP-2)
+src/polaris_graph\agents\analyzer.py:2999:        # --- IMP-2: Apply embedding relevance scores ---
+src/polaris_graph\agents\analyzer.py:3002:            e["llm_relevance_score"] = e.get("relevance_score", 0.5)
+src/polaris_graph\agents\analyzer.py:3003:            e["relevance_score"] = float(round(similarities[i], 4))
+src/polaris_graph\agents\analyzer.py:3006:        scores = [e["relevance_score"] for e in evidence]
+src/polaris_graph\agents\analyzer.py:3009:                "[polaris graph] IMP-2: Embedding relevance applied to %d evidence. "
+src/polaris_graph\agents\analyzer.py:3020:                    "analyze", "relevance_scored", len(evidence),
+src/polaris_graph\agents\analyzer.py:3022:                    mean_relevance=round(float(np.mean(scores)), 4),
+src/polaris_graph\agents\analyzer.py:3154:            "IMP-2 embedding relevance DISABLED. "
+src/polaris_graph\agents\analyzer.py:3275:                # Sort by relevance_score descending, keep top N
+src/polaris_graph\agents\analyzer.py:3278:                    key=lambda i: evidence[i].get("relevance_score", 0.0),
+src/polaris_graph\agents\analyzer.py:3521:                        e.get("relevance_score", 0.0),
+src/polaris_graph\agents\analyzer.py:3545:                        e.get("relevance_score", 0.0),
+src/polaris_graph\agents\analyzer.py:3589:                    e.get("relevance_score", 0.0),
+src/polaris_graph\authority\source_class.py:17:    """Field-agnostic credibility class (NOT a clinical tier).
+docs\compliance\eu_ai_act_template.md:99:| ms-marco-MiniLM-L-6-v2 | Cross-encoder relevance reranking | 22M | Apache 2.0 | Local CPU/GPU inference |
+docs\compliance\eu_ai_act_template.md:147:| Semantic Scholar API returns off-topic academic papers | Medium | Low | Academic result cap (50/query, 500 total); interleave 60/40 web/academic; embedding-based relevance filter |
+src/polaris_graph\agents\evidence_deepener.py:611:    # Filter by relevance to query
+src/polaris_graph\agents\evidence_deepener.py:613:        all_papers = _filter_by_query_relevance(all_papers, query)
+src/polaris_graph\agents\evidence_deepener.py:776:        # Filter by relevance
+src/polaris_graph\agents\evidence_deepener.py:778:            papers = _filter_by_query_relevance(papers, query)
+src/polaris_graph\agents\evidence_deepener.py:864:    # Filter by relevance to original query — mechanism queries diverge
+src/polaris_graph\agents\evidence_deepener.py:868:        all_papers = _filter_by_query_relevance(all_papers, query)
+src/polaris_graph\agents\evidence_deepener.py:948:def _filter_by_query_relevance(papers: list[dict], query: str) -> list[dict]:
+src/polaris_graph\agents\searcher.py:185:        f"&sort=relevance_score:desc"
+src/polaris_graph\agents\searcher.py:412:    # IMP-3: Pass query for embedding-based relevance filtering
+src/polaris_graph\agents\searcher.py:2341:        chased_results = _filter_chased_by_relevance(chased_results, query)
+src/polaris_graph\agents\searcher.py:2346:def _filter_chased_by_relevance(
+docs\clinical_rag_validation_sota_2026_05_26.md:111:**What they do.** Take long-form generated text, decompose into atomic claims, verify each independently against retrieved evidence [^factscore_safe]. FactScore: GPT-based decomposition + per-claim verification. SAFE: claim extraction → claim revision → relevance check → verification. VeriScore: extract only *verifiable* claims, verify via Google Search. **VeriFastScore (May 2025)**: single-pass decomposition+verification using Llama 3.1 8B fine-tune, 6.6× speedup over VeriScore with r=0.80 example-level correlation [^verifast_2025].
+docs\clinical_rag_validation_sota_2026_05_26.md:129:**MedHELM.** Multi-scenario benchmark for clinical workflows (diagnostic reasoning, longitudinal context, triage safety, documentation integrity) [^medhelm]. Stanford CRFM lineage. Useful for benchmarking the POLARIS pipeline end-to-end as a Carney demo credibility lever — score POLARIS on a MedHELM subset before the demo.
+docs\clinical_rag_validation_sota_2026_05_26.md:155:**Perplexity (Sonar models + Deep Research).** Real-time web grounding, cites 50 sources per Deep Research report, achieves **93.9% on SimpleQA, 21.1% on Humanity's Last Exam** [^perplexity_2026]. **Critically: Perplexity does NOT independently fact-check the sources it cites — it relies entirely on source credibility, propagating bias from top search results into output** [^perplexity_2026]. Citation hallucination rate per the Columbia Journalism Review audit: 37% (lowest among major search platforms — but still >1 in 3 citations potentially fabricated or misdirected) [^perplexity_2026]. **This is the key competitive insight: Perplexity is fast and source-rich, but its faithfulness layer is weaker than POLARIS's atom-grounded design when POLARIS is working correctly.**
+docs\clinical_rag_validation_sota_2026_05_26.md:377:[^factscore_safe]: Aman's AI Journal, [Primers — Factuality in LLMs](https://aman.ai/primers/ai/factuality-in-LLMs/). FactScore decomposes into atomic claims; SAFE uses GPT-4 with claim extraction → revision → relevance check → verification pipeline.
+docs\clinical_rag_validation_sota_2026_05_26.md:395:[^perplexity_2026]: Suprmind, [Perplexity AI 2026: Models, Features, Pricing, and Citation Accuracy](https://suprmind.ai/hub/perplexity/). 93.9% SimpleQA. CJR audit: 37% citation hallucination (lowest among major platforms). "Deep Research cites 50 sources per report, but it doesn't independently fact-check those sources — it relies entirely on their credibility."
+src/polaris_graph\agents\storm_interviews.py:769:        query: Original research question for relevance context.
+src/polaris_graph\agents\planner.py:353:                f"{s.get('total_evidence', 0)} evidence, relevance {s.get('avg_relevance', 0):.2f}"
+src/polaris_graph\agents\nli_verifier.py:338:# Selects top-N pairs by relevance score (embedding similarity) rather than
+src/polaris_graph\agents\nli_verifier.py:340:# counts (171, 139) were dropping ~70% of candidates. With top-N-by-relevance
+src/polaris_graph\agents\nli_verifier.py:464:    selecting top-N by relevance score to prioritize high-quality verification.
+src/polaris_graph\agents\nli_verifier.py:493:    # Prepare cross-source verification pairs with relevance scores
+src/polaris_graph\agents\nli_verifier.py:497:    cross_relevance: list[float] = []  # BUG-092: Track relevance for sorting
+src/polaris_graph\agents\nli_verifier.py:522:            cross_relevance.append(sim_score)
+src/polaris_graph\agents\nli_verifier.py:525:    # Select top-N pairs by relevance score (embedding similarity) instead
+src/polaris_graph\agents\nli_verifier.py:526:    # of arbitrary truncation. Higher-relevance pairs are more likely to
+src/polaris_graph\agents\nli_verifier.py:531:            "to %d (selecting top-N by relevance score)",
+src/polaris_graph\agents\nli_verifier.py:534:        # Build index-sorted list by relevance descending, take top max_pairs
+src/polaris_graph\agents\nli_verifier.py:536:            range(len(cross_relevance)),
+src/polaris_graph\agents\nli_verifier.py:537:            key=lambda k: cross_relevance[k],
+src/polaris_graph\agents\nli_verifier.py:545:        cross_relevance = [cross_relevance[k] for k in sorted_pair_indices]
+src/polaris_graph\agents\nli_verifier.py:652:    RC-5: When research_query is provided, pre-checks source topic relevance.
+src/polaris_graph\agents\nli_verifier.py:658:        research_query: Research query for topic relevance check.
+src/polaris_graph\agents\nli_verifier.py:678:    # RC-5: Pre-compute query keywords for topic relevance check.
+src/polaris_graph\agents\nli_verifier.py:712:        # RC-5: Topic relevance pre-check. If source has ZERO query keywords
+src/polaris_graph\agents\verifier.py:1318:    to avoid O(n^2) scaling. Sorts by tier+relevance and takes top N.
+
+ succeeded in 4430ms:
+15:     pre-filter bounds the O(n^2) judge cost; the judge provides precision.
+18:  3. judges each pair (claim A vs claim B -> contradict/entail/neutral) and keeps
+22:  * ADDITIVE + fail-open: a detector / judge / import / budget error logs and
+25:  * Default OFF (``PG_SWEEP_NLI_CONFLICT``): flag-off is byte-identical — no judge
+27:  * The judge is INJECTED (a ``(claim_a, claim_b) -> (label, confidence)``
+29:    production judge (``get_default_judge``) reuses the family-segregated,
+31:    default) — the same two-family evaluator the strict_verify entailment judge
+57:_ENV_MAX_PAIRS = "PG_SWEEP_NLI_CONFLICT_MAX_PAIRS"          # default 60 judged pairs
+82:# Tier ordering: highest-evidence pairs judged first (so the pair cap keeps the
+107:    is byte-identical (no judge constructed, no network)."""
+208:def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = None) -> list:
+211:    ``judge`` is a ``(claim_a, claim_b) -> (label, confidence)`` callable, label in
+213:      * a per-pair judge error skips THAT pair (never fabricates a conflict);
+225:            label, confidence = judge(text_a, text_b)
+229:                "stopping judge calls (fail-open, keep-partial).", len(records),
+233:            logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
+242:        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
+275:def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
+276:    """End-to-end convenience: cluster -> pairs -> judge. Used by the sweep block.
+278:    If ``judge`` is None the production default judge is lazily constructed
+279:    (``get_default_judge``). Returns ``list[SemanticConflictRecord]``.
+291:    if judge is None:
+292:        judge = get_default_judge()
+294:        pairs, judge,
+299:# --- production judge (isolated; reuses the openrouter cost/family substrate) ---
+301:_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
+306:- NEUTRAL: the claims are about different things, or could both be true (different populations, endpoints, doses, or time points), or there is not enough overlap to judge a conflict.
+321:    """Synchronous httpx wrapper around a cross-document contradiction call.
+323:    Mirrors ``llm.entailment_judge._EntailmentJudge`` (same two-family evaluator
+331:        import httpx
+335:        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+337:            raise RuntimeError("PG_SWEEP_NLI_CONFLICT requires OPENROUTER_API_KEY")
+344:        # Two-family invariant (§9.1.1): the conflict judge is an evaluator-family
+347:        self._client = httpx.Client(timeout=_JUDGE_TIMEOUT_S)
+349:    def judge(self, claim_a: str, claim_b: str) -> tuple:
+379:            # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
+386:                    call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+417:            # NLI-conflict judge call. It already feeds the run BUDGET via
+421:            # judge/role writers use, so all rows of one run share one accumulator.
+432:                    call_type="nli_conflict_judge",
+457:            logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
+458:            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
+466:                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+469:                        duration_ms=None, status="judge_error",
+479:def get_default_judge():
+480:    """Lazy singleton production judge callable ``(a, b) -> (label, confidence)``.
+483:    never instantiates it (no network, no httpx client)."""
+487:    return _JUDGE_SINGLETON.judge
+
+ succeeded in 5921ms:
+"""Claim-graph (L4 / §6c-3) — Phase 5 of the credibility-weighted sourcing redesign.
+
+Field-agnostic atomic-claim extraction + normalization, then stance clustering
+(equivalent-claim grouping) plus contradiction/refutation edge construction. This
+sits BEFORE the weighted aggregation (L5, Phase 6): equivalent claims are grouped
+under one ``claim_cluster_id`` so a downstream vote runs over clustered-equivalent
+claims, and contradictory claims carry an explicit edge so a conflict can never be
+silently picked over.
+
+WHY this is a real BUILD (not a rewire of ``finding_dedup``):
+    ``finding_dedup.dedup_by_finding`` clusters by the clinical-pattern-tuned
+    ``extract_numeric_claims`` extractor only — it is INERT on non-clinical numerics
+    (GDP, emissions, model-accuracy) and on prose-only assertions. This module is
+    FIELD-AGNOSTIC: it composes several extractors (clinical-numeric +
+    qualitative-assertion) AND falls back to a conservative raw-text claim so EVERY
+    evidence row yields at least one atomic claim. Nothing is silently dropped.
+
+TWO INVARIANTS, pointing in OPPOSITE directions (each proven by its own test):
+  1. CONSERVATIVE-SINGLETON / under-merge (clinical-lethal if violated). Two atomic
+     claims share a ``claim_cluster_id`` ONLY when their conservative normalized key
+     is equal AND that key is not the per-claim ``unknown`` sentinel. Any unknown
+     subject, any field mismatch, or a raw-text claim keeps the claim a SEPARATE
+     singleton cluster. The default on ambiguity is ALWAYS "keep separate" — we
+     never over-merge two distinct claims. (Mirrors ``finding_dedup``'s
+     ``_finding_key`` discipline: merge only when subject is KNOWN and equal.)
+  2. RECALL-FIRST on contradictions / over-detect (a missed refutation is the lethal
+     error per §4 L4). The contradiction/refutation edges are sourced from the three
+     existing detectors used as edge sources; a real conflict is emitted and NEVER
+     silently dropped. The injected NLI judge's fail-open (a judge ERROR skips that
+     pair) only affects the LLM-pair path — the deterministic numeric + qualitative
+     rule edges this module controls are recall-first and never suppressed.
+
+DETERMINISM: ``claim_cluster_id`` is a stable SHA-1 hash of the conservative
+normalized key (per-claim sentinel for ``unknown``), so it is reproducible across
+runs and downstream P6 can join on ``(claim_cluster_id, origin_cluster_id)``. NO
+uuid / random / time input feeds the id.
+
+DEFAULT-OFF + LAW VI: the whole layer is gated by ``PG_SWEEP_CLAIM_GRAPH`` (default
+OFF — flag-off, no caller invokes this and the production output is byte-identical).
+The module itself is a pure library of functions: it constructs no client, makes no
+network call, and reads no config beyond what the reused detectors already read
+(the qualitative lexicon yaml). Every threshold is a named, env-overridable module
+constant — no magic numbers. The edge-source detectors are dependency-INJECTED
+(real defaults, overridable with fakes in tests), so the module is fully
+offline-testable; the semantic NLI judge is injected as a
+``(claim_a, claim_b) -> (label, confidence)`` callable exactly like
+``semantic_conflict_detector.detect_semantic_conflicts`` expects.
+
+Pure functions; snake_case; explicit imports; no faithfulness gate is touched.
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+from src.polaris_graph.retrieval.contradiction_detector import (
+    ExtractedNumericClaim,
+    detect_contradictions,
+    extract_numeric_claims,
+)
+from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+    QualitativeAssertion,
+    detect_qualitative_conflicts,
+    extract_qualitative_assertions,
+)
+from src.polaris_graph.retrieval.semantic_conflict_detector import (
+    cluster_candidate_rows,
+    detect_semantic_conflicts,
+    extract_pairs,
+)
+
+# ── configuration (LAW VI: every knob env-overridable, no magic numbers) ──────
+_FLAG = "PG_SWEEP_CLAIM_GRAPH"
+_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+
+# The subject sentinel the numeric extractor returns when it cannot identify the
+# entity nearest the value. Such claims are NEVER mergeable (per-claim singleton).
+_UNKNOWN_SUBJECT = "unknown"
+
+# Stable id derivation. SHA-1 of the normalized key text, truncated. A NAMED
+# constant (no inline magic) — widening only lowers an already-negligible
+# collision chance and never changes which claims are grouped (grouping is by the
+# exact key tuple; the id is a label ON the group, not the grouping criterion).
+_CLAIM_ID_HASH_LEN = 16
+_CLAIM_ID_PREFIX = "clm_"
+
+# Recall-first stance/edge knobs for the semantic (NLI) edge source. Defaults
+# mirror the semantic detector's own env defaults so behavior is consistent.
+_ENV_NLI_MIN_OVERLAP = "PG_CLAIM_GRAPH_NLI_MIN_OVERLAP"
+_ENV_NLI_MAX_ROWS = "PG_CLAIM_GRAPH_NLI_MAX_ROWS"
+_ENV_NLI_MAX_PAIRS = "PG_CLAIM_GRAPH_NLI_MAX_PAIRS"
+_ENV_NLI_MIN_CONFIDENCE = "PG_CLAIM_GRAPH_NLI_MIN_CONFIDENCE"
+
+_DEFAULT_NLI_MIN_OVERLAP = 2
+_DEFAULT_NLI_MAX_ROWS = 200
+_DEFAULT_NLI_MAX_PAIRS = 60
+_DEFAULT_NLI_MIN_CONFIDENCE = 0.7
+
+
+def claim_graph_enabled() -> bool:
+    """True unless ``PG_SWEEP_CLAIM_GRAPH`` is unset/falsey.
+
+    Default OFF — flag-off is byte-identical: no production caller invokes the
+    claim-graph, so the rendered report + manifest are unchanged. This helper is
+    the single kill-switch the eventual Gate-B slate flips ON.
+    """
+    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+
+ succeeded in 7633ms:
+"""I-cred-003 (Phase 3, L2 / §6c-2) — temporal / supersession + retraction hard penalty.
+
+Pure-function credibility adjustment for time-sensitive evidence. It downgrades stale-but-authoritative
+sources (old guidelines, superseded datasets/regulations) and applies a HARD penalty to
+retracted/withdrawn sources, plus a per-claim ``soft_warning`` and a ``certainty_downgrade`` signal.
+
+Default-OFF: this is inert library code — nothing in the production path imports or invokes it, so OFF
+behaviour is byte-identical by construction. It acts only when a flagged caller (the Phase-2 scorer)
+calls ``supersession_adjustment``; ``supersession_enabled()`` gates that wiring. It edits no
+faithfulness-critical file (provenance_generator / strict_verify / 4-role / two-family / corpus_approval
+are untouched). LAW VI: every threshold is an env-overridable named constant — no hardcoded magic
+numbers, snake_case, explicit imports, no network, no live data.
+"""
+
+from __future__ import annotations
+
+import datetime
+import os
+from dataclasses import dataclass
+
+# Runtime flag (default OFF). Both this and a caller invocation are needed for any effect.
+_FLAG = "PG_SWEEP_SUPERSESSION"
+
+# Source types whose credibility is TIME-SENSITIVE (a stale one is downgraded). Everything else
+# (e.g. a foundational-theory paper) is NOT downgraded for age alone. Env-overridable (LAW VI).
+_TIME_SENSITIVE_TYPES = frozenset(
+    t.strip().lower()
+    for t in os.getenv(
+        "PG_SUPERSESSION_TIME_SENSITIVE_TYPES",
+        "guideline,regulation,dataset,statistics,news,advisory",
+    ).split(",")
+    if t.strip()
+)
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def supersession_enabled() -> bool:
+    """True iff the supersession layer is wired ON (default OFF => byte-identical)."""
+    return os.getenv(_FLAG, "0") == "1"
+
+
+@dataclass
+class SupersessionResult:
+    multiplier: float            # multiply the source's credibility weight by this (1.0 = no change)
+    hard_penalty: bool           # True iff retracted/withdrawn (a near-zero multiplier)
+    soft_warning: str | None     # surfaced per claim; None when no adjustment was made
+    certainty_downgrade: bool    # True iff the claim's certainty label should drop
+
+
+def _is_truthy(row: dict, *keys: str) -> bool:
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, bool) and value:
+            return True
+        if isinstance(value, str) and value.strip().lower() in (
+            "1", "true", "yes", "retracted", "withdrawn", "superseded",
+        ):
+            return True
+    return False
+
+
+def _publication_year(row: dict) -> int | None:
+    for key in ("year", "publication_year", "pub_year"):
+        value = row.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    for key in ("date", "published", "publication_date"):
+        value = row.get(key)
+        if isinstance(value, str) and len(value) >= 4 and value[:4].isdigit():
+
+codex
+The main contract issues are in the brief itself, not the substrate: the existing code supports an additive pure module. I’m checking enum/value details before assigning severities.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/authority/source_class.py -TotalCount 115' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/semantic_conflict_detector.py -TotalCount 510 | Select-Object -Skip 200 -First 300' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/tier_classifier.py -TotalCount 2060 | Select-Object -Skip 2015 -First 35' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "evidence_id|source_id|url|title|snippet|abstract|summary|content|text" src/polaris_graph/retrieval/tier_classifier.py src/polaris_graph/agents/analyzer.py | Select-Object -First 120' in C:\POLARIS
+ succeeded in 4130ms:
+    # Preserve appearance order in row A for readability.
+    ordered = [w for w in re.findall(r"[a-z0-9]+", _row_text(row_a).lower()) if w in shared]
+    seen: set = set()
+    uniq = [w for w in ordered if not (w in seen or seen.add(w))]
+    return " ".join(uniq[:4]) if uniq else "cross-document claim"
+
+
+def detect_semantic_conflicts(pairs, judge, *, min_confidence: float | None = None) -> list:
+    """Judge each pair; keep ``contradict`` pairs above ``min_confidence``.
+
+    ``judge`` is a ``(claim_a, claim_b) -> (label, confidence)`` callable, label in
+    {"contradict","entail","neutral"}. Fail-open:
+      * a per-pair judge error skips THAT pair (never fabricates a conflict);
+      * a ``BudgetExceededError`` stops judging, KEEPS records found so far, and
+        propagates as a clean stop signal (caught by the caller's fail-open block)
+        — it never aborts mid-record.
+    """
+    from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+
+    min_confidence = _DEFAULT_MIN_CONFIDENCE if min_confidence is None else min_confidence
+    records: list = []
+    for row_a, row_b in pairs:
+        text_a, text_b = _row_text(row_a), _row_text(row_b)
+        try:
+            label, confidence = judge(text_a, text_b)
+        except BudgetExceededError:
+            logger.warning(
+                "[semantic-conflict] budget exceeded after %d record(s); "
+                "stopping judge calls (fail-open, keep-partial).", len(records),
+            )
+            break
+        except Exception as exc:  # noqa: BLE001 — per-pair fail-open; never fabricate a conflict
+            logger.warning("[semantic-conflict] judge error on a pair (skipped): %s", exc)
+            continue
+        if str(label).strip().lower() != "contradict":
+            continue
+        try:
+            conf = float(confidence)
+        except (TypeError, ValueError):
+            conf = 0.0
+        # Codex diff-gate P2: reject non-finite / out-of-range confidence. A NaN/inf from a
+        # malformed judge response must NOT pass the threshold and fabricate a phantom conflict
+        # — a phantom contradiction would falsely abort a legitimate run via PT08. (NaN < x is
+        # False, so a bare `conf < min_confidence` would let NaN slip through; guard explicitly.)
+        if not math.isfinite(conf) or not (0.0 <= conf <= 1.0):
+            logger.warning("[semantic-conflict] dropping pair with non-finite/out-of-range "
+                           "confidence %r (fail-safe, never fabricate a conflict)", confidence)
+            continue
+        if conf < min_confidence:
+            continue
+        subject = _shared_subject(row_a, row_b)
+        predicate = "cross-document directional disagreement"
+        # Each claim carries evidence_id + predicate + a finite value (0.0) so a
+        # contradictions.json holding a semantic record stays loadable by
+        # audit_ir.loader._parse_contradiction_claim (which REQUIRES those three keys
+        # and does float(value)). Semantic conflicts are prose-only — there is no
+        # numeric value — so value is the finite sentinel 0.0; the `type:"semantic"`
+        # discriminator + `nli_label` distinguish them from numeric records downstream.
+        records.append(SemanticConflictRecord(
+            subject=subject,
+            predicate=predicate,
+            claims=[
+                {"evidence_id": str(row_a.get("evidence_id") or ""), "predicate": predicate,
+                 "value": 0.0, "text": text_a, "tier": str(row_a.get("tier") or ""),
+                 "nli_label": "contradict"},
+                {"evidence_id": str(row_b.get("evidence_id") or ""), "predicate": predicate,
+                 "value": 0.0, "text": text_b, "tier": str(row_b.get("tier") or ""),
+                 "nli_label": "contradict"},
+            ],
+            nli_confidence=conf,
+        ))
+    return records
+
+
+def detect_semantic_conflicts_for_rows(evidence_rows, judge=None) -> list:
+    """End-to-end convenience: cluster -> pairs -> judge. Used by the sweep block.
+
+    If ``judge`` is None the production default judge is lazily constructed
+    (``get_default_judge``). Returns ``list[SemanticConflictRecord]``.
+    """
+    clusters = cluster_candidate_rows(
+        evidence_rows,
+        min_overlap=_int_env(_ENV_MIN_OVERLAP, _DEFAULT_MIN_OVERLAP),
+        max_rows=_int_env(_ENV_MAX_ROWS, _DEFAULT_MAX_ROWS),
+    )
+    if not clusters:
+        return []
+    pairs = extract_pairs(clusters, max_pairs=_int_env(_ENV_MAX_PAIRS, _DEFAULT_MAX_PAIRS))
+    if not pairs:
+        return []
+    if judge is None:
+        judge = get_default_judge()
+    return detect_semantic_conflicts(
+        pairs, judge,
+        min_confidence=_float_env(_ENV_MIN_CONFIDENCE, _DEFAULT_MIN_CONFIDENCE),
+    )
+
+
+# --- production judge (isolated; reuses the openrouter cost/family substrate) ---
+
+_CONTRADICTION_PROMPT = """You are a strict cross-document contradiction judge. You are given two independent CLAIMS, each from a different source document, about a related subject. Decide their logical relation.
+
+Rules:
+- CONTRADICT: the two claims cannot both be true for the same population/endpoint — one asserts something the other explicitly denies or reverses (e.g. "improved overall survival" vs "no overall survival benefit"; "first-line therapy" vs "reserved for refractory cases").
+- ENTAIL: the claims agree, or one restates / refines the other.
+- NEUTRAL: the claims are about different things, or could both be true (different populations, endpoints, doses, or time points), or there is not enough overlap to judge a conflict.
+
+Be conservative: only answer CONTRADICT when the disagreement is direct and on the same subject. Return STRICT JSON only, no prose:
+{{"verdict": "CONTRADICT" | "ENTAIL" | "NEUTRAL", "confidence": <number 0.0-1.0>}}
+
+CLAIM A:
+{claim_a}
+
+CLAIM B:
+{claim_b}
+
+JSON:"""
+
+
+class _SemanticContradictionJudge:
+    """Synchronous httpx wrapper around a cross-document contradiction call.
+
+    Mirrors ``llm.entailment_judge._EntailmentJudge`` (same two-family evaluator
+    model, the same ``openrouter_client`` cost/budget helpers, family segregation
+    enforced at construction) but with a CONTRADICTION prompt and a (label,
+    confidence) return. Kept SEPARATE from ``_EntailmentJudge`` so the
+    faithfulness-critical strict_verify entailment path is never touched.
+    """
+
+    def __init__(self) -> None:
+        import httpx
+
+        from src.polaris_graph.llm.openrouter_client import check_family_segregation
+
+        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("PG_SWEEP_NLI_CONFLICT requires OPENROUTER_API_KEY")
+        self._api_key = api_key
+        base_url = os.environ.get(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        ).rstrip("/")
+        self._endpoint = f"{base_url}/chat/completions"
+        self._model = os.environ.get("PG_ENTAILMENT_MODEL", _DEFAULT_ENTAILMENT_MODEL)
+        # Two-family invariant (§9.1.1): the conflict judge is an evaluator-family
+        # call and MUST differ from the generator family — raises at construction.
+        check_family_segregation(evaluator_model=self._model)
+        self._client = httpx.Client(timeout=_JUDGE_TIMEOUT_S)
+
+    def judge(self, claim_a: str, claim_b: str) -> tuple:
+        """Return ``(label, confidence)`` with label in {contradict,entail,neutral}.
+
+        Fail-open on API/parse error → ("neutral", 0.0) so a transient outage never
+        FABRICATES a conflict. ``BudgetExceededError`` is re-raised (the caller
+        stops + keeps partial) — never masked as a neutral result.
+        """
+        from src.polaris_graph.llm import openrouter_client as _orc
+
+        prompt = _CONTRADICTION_PROMPT.format(claim_a=claim_a, claim_b=claim_b)
+        json_body: dict = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 60,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
+        except Exception:
+            _gate_provider = None
+        if _gate_provider:
+            json_body["provider"] = {
+                "order": [_gate_provider],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+            }
+        def _emit_raw_io(status: str, raw_response) -> None:
+            # I-obs-001 #1141 AC3 (gate iter-1 P1): ONE raw-IO record per call tagged by its TRUE
+            # outcome — "ok" only after a parsed verdict; "judge_error" on parse-failure / fail-open.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is None:
+                    return
+                import uuid as _uuid
+                _io_sink.record(
+                    call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+                    request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                    raw_response=raw_response, duration_ms=None, status=status,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
+        # the served response (post ok, parse failed) over the exception string.
+        try:
+            response = self._client.post(
+                self._endpoint,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=json_body,
+            )
+            response.raise_for_status()
+            data = response.json()
+            usage = data.get("usage", {}) or {}
+            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            output_tokens = int(usage.get("completion_tokens", 0) or 0)
+            api_cost = float(usage.get("cost", 0) or 0)
+            actual_cost = api_cost or _orc._impute_cost_from_tokens(
+                self._model, input_tokens, output_tokens, 0,
+            )
+            if actual_cost == 0 and not usage:
+                actual_cost = _orc._impute_cost_from_tokens(self._model, 400, 60, 0)
+            _orc._add_run_cost(actual_cost)
+            # FX-11b (#1117): also write the canonical cost-ledger ROW for this
+            # NLI-conflict judge call. It already feeds the run BUDGET via
+            # _add_run_cost above, but without a ledger row the persisted ledger
+            # total trails the run-budget total whenever PG_SWEEP_NLI_CONFLICT is
+            # on. Route through the same canonical writer + ambient-run-id key the
+            # judge/role writers use, so all rows of one run share one accumulator.
+            # append_cost_ledger_row bumps the SEPARATE ledger accumulator (not
+            # _RUN_COST_CTX), so this does NOT double-count the run budget.
+            # FX-11c (#1136): write the row BEFORE check_run_budget — a
+            # budget-BREACHING call is already billed to the accumulator by
+            # _add_run_cost, so it must also land in the ledger; if check_run_budget
+            # raised first the breaching call would be billed-but-unledgered (the
+            # exact ledger<budget drift FX-11/FX-11b exist to eliminate).
+            try:
+                _orc.append_cost_ledger_row(
+                    session_id=_orc.current_run_id() or "",
+                    call_type="nli_conflict_judge",
+                    cost_usd=actual_cost,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            except Exception:  # noqa: BLE001 — ledger I/O must never abort detection
+                pass
+            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            verdict = str(parsed.get("verdict", "")).strip().upper()
+            confidence = float(parsed.get("confidence", 0.0) or 0.0)
+            label = {"CONTRADICT": "contradict", "ENTAIL": "entail",
+                     "NEUTRAL": "neutral"}.get(verdict, "neutral")
+            # Parsed verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+            _emit_raw_io("ok", data)
+            return label, confidence
+        except Exception:
+            # BudgetExceededError is a subclass-free RuntimeError in openrouter_client;
+            # re-raise it explicitly so the caller's keep-partial path fires.
+            from src.polaris_graph.llm.openrouter_client import BudgetExceededError
+            import sys
+            exc = sys.exc_info()[1]
+            if isinstance(exc, BudgetExceededError):
+                raise
+            logger.warning("[semantic-conflict] judge call failed (fail-open neutral): %s", exc)
+            # I-obs-001 #1141 AC3: capture the fail-OPEN judge_error — like the entailment judge, this
+            # silently drops a possible real conflict on a transient/parse failure (drb_72-class
+            # signal). Prefer the bound served `data`. Default-OFF; never raises.
+            try:
+                _io_sink = _orc.current_raw_io_sink()
+                if _io_sink is not None:
+                    import uuid as _uuid
+                    _io_sink.record(
+                        call_id=_uuid.uuid4().hex, call_type="nli_conflict_judge", role="evaluator",
+                        request={**json_body, "messages": [{"role": "user", "content": prompt}]},
+                        raw_response=(data if data is not None else {"error": str(exc)}),
+                        duration_ms=None, status="judge_error",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
+            return "neutral", 0.0
+
+
+_JUDGE_SINGLETON = None
+
+
+def get_default_judge():
+    """Lazy singleton production judge callable ``(a, b) -> (label, confidence)``.
+
+    Constructed only when ``PG_SWEEP_NLI_CONFLICT`` is ON and first used — off-mode
+    never instantiates it (no network, no httpx client)."""
+    global _JUDGE_SINGLETON
+    if _JUDGE_SINGLETON is None:
+        _JUDGE_SINGLETON = _SemanticContradictionJudge()
+    return _JUDGE_SINGLETON.judge
+
+ succeeded in 5498ms:
+src/polaris_graph/retrieval/tier_classifier.py:43:    T6 — News / blog / non-peer-reviewed web content (mainstream news,
+src/polaris_graph/retrieval/tier_classifier.py:45:    T7 — Abstract-only / conference abstract / Semantic Scholar stub
+src/polaris_graph/retrieval/tier_classifier.py:46:          (content < 1000 chars) / paper behind paywall where only title
+src/polaris_graph/retrieval/tier_classifier.py:47:          + abstract were retrieved
+src/polaris_graph/retrieval/tier_classifier.py:66:from urllib.parse import urlparse
+src/polaris_graph/retrieval/tier_classifier.py:88:    url: str = ""
+src/polaris_graph/retrieval/tier_classifier.py:89:    fetched_content_length: int = 0  # chars of body fetched
+src/polaris_graph/retrieval/tier_classifier.py:106:    # Free text for future keyword rules (e.g., title keywords)
+src/polaris_graph/retrieval/tier_classifier.py:107:    title: str = ""
+src/polaris_graph/retrieval/tier_classifier.py:111:    # fetched content contains article-type metadata or SR/MA/case-
+src/polaris_graph/retrieval/tier_classifier.py:113:    # title-only decisions when body evidence contradicts.
+src/polaris_graph/retrieval/tier_classifier.py:157:# journal aggregators — T1/T2/T4 based on content, NOT T3 regulatory.
+src/polaris_graph/retrieval/tier_classifier.py:185:# journal content; route through the peer-review journal rule, not
+src/polaris_graph/retrieval/tier_classifier.py:195:# manufacturer-controlled pages; peer-reviewed content from the same
+src/polaris_graph/retrieval/tier_classifier.py:288:# are user-generated content, not primary research, full stop.
+src/polaris_graph/retrieval/tier_classifier.py:290:    # User-generated content
+src/polaris_graph/retrieval/tier_classifier.py:309:# T5 / T6 content but MUST NOT be T1.
+src/polaris_graph/retrieval/tier_classifier.py:374:# content, not T1 primary research.
+src/polaris_graph/retrieval/tier_classifier.py:396:# one congressional-report URL -> R11; article+journal on an MLR URL whose title
+src/polaris_graph/retrieval/tier_classifier.py:439:# Pass-10 addition (BUG-M-10): SEO/"best-X" web guides and content
+src/polaris_graph/retrieval/tier_classifier.py:503:    # a similarly-titled review the site was reporting on. It's a
+src/polaris_graph/retrieval/tier_classifier.py:525:    # Affiliate / content-farm markers
+src/polaris_graph/retrieval/tier_classifier.py:556:# whose genuine full-title systematic reviews / meta-analyses remain T2 (Codex
+src/polaris_graph/retrieval/tier_classifier.py:589:# guideline-authority domain, these NARROW clinical-guideline title markers also
+src/polaris_graph/retrieval/tier_classifier.py:596:#      clinical guidelines are year-dated society documents whose title reads
+src/polaris_graph/retrieval/tier_classifier.py:600:#      signal. This catches main-title-only forms (Codex P2: no "for the"
+src/polaris_graph/retrieval/tier_classifier.py:617:# Primary-study / commentary titles that MENTION guidelines but are NOT
+src/polaris_graph/retrieval/tier_classifier.py:636:# scope phrase contains a verb mid-title (e.g. "Guideline for the Evaluation of
+src/polaris_graph/retrieval/tier_classifier.py:650:def _title_signals_clinical_guideline(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:652:    title for the guideline-authority promotion in Rule 8c. Exclusions checked
+src/polaris_graph/retrieval/tier_classifier.py:657:    _detect_guideline_or_explainer_title (which fires on explainer/policy titles
+src/polaris_graph/retrieval/tier_classifier.py:659:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:661:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:708:def _has_peer_reviewed_doi_prefix(url: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:711:    if not url:
+src/polaris_graph/retrieval/tier_classifier.py:713:    u = url.lower()
+src/polaris_graph/retrieval/tier_classifier.py:725:def _is_low_quality_oa(domain: str, url: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:731:    u = (url or "").lower()
+src/polaris_graph/retrieval/tier_classifier.py:763:# Abstract-only / stub-content domains where typical content is just a
+src/polaris_graph/retrieval/tier_classifier.py:764:# title + abstract. Used as a hint; falls through to content-length check.
+src/polaris_graph/retrieval/tier_classifier.py:779:def _normalize_domain(url: str) -> str:
+src/polaris_graph/retrieval/tier_classifier.py:781:    if not url:
+src/polaris_graph/retrieval/tier_classifier.py:784:        parsed = urlparse(url if "://" in url else f"https://{url}")
+src/polaris_graph/retrieval/tier_classifier.py:806:def _detect_systematic_review_from_title(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:807:    """Heuristic: title contains 'systematic review' / 'meta-analysis'."""
+src/polaris_graph/retrieval/tier_classifier.py:808:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:810:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:818:def _detect_narrative_review_from_title(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:819:    """Heuristic: title contains 'review' but not systematic / meta."""
+src/polaris_graph/retrieval/tier_classifier.py:820:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:822:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:823:    if "review" in t and not _detect_systematic_review_from_title(title):
+src/polaris_graph/retrieval/tier_classifier.py:832:def _detect_conference_abstract(title: str, url: str = "") -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:833:    """Heuristic: title / URL signals a conference abstract.
+src/polaris_graph/retrieval/tier_classifier.py:836:    - explicit keywords (conference abstract, poster, oral presentation)
+src/polaris_graph/retrieval/tier_classifier.py:837:    - "1745-P:" / "82-OR:" / "P-123:" abstract-number prefixes commonly
+src/polaris_graph/retrieval/tier_classifier.py:841:      / "SAT-56" / "SUN-78" that prefix supplement abstracts.
+src/polaris_graph/retrieval/tier_classifier.py:842:    - URLs containing "/Supplement_" or "/abstract/" or journal-issue
+src/polaris_graph/retrieval/tier_classifier.py:845:    if title:
+src/polaris_graph/retrieval/tier_classifier.py:846:        t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:848:            "conference abstract", "poster", "oral presentation",
+src/polaris_graph/retrieval/tier_classifier.py:849:            "abstract p", "abstract po",
+src/polaris_graph/retrieval/tier_classifier.py:852:        # Numbered abstract prefix (e.g., "1745-P: Long-Term Safety...")
+src/polaris_graph/retrieval/tier_classifier.py:853:        if re.match(r"^\s*\d+-[A-Z]+:", title):
+src/polaris_graph/retrieval/tier_classifier.py:856:        if re.match(r"^\s*P-\d+", title):
+src/polaris_graph/retrieval/tier_classifier.py:860:        # digits, optionally with hyphen. Must be at title start.
+src/polaris_graph/retrieval/tier_classifier.py:863:            title, re.IGNORECASE,
+src/polaris_graph/retrieval/tier_classifier.py:866:        # Pass-16: abstract-ID-like prefixes commonly seen on JES/JCEM
+src/polaris_graph/retrieval/tier_classifier.py:868:        if re.match(r"^\s*OR\d+-\d+\b", title, re.IGNORECASE):
+src/polaris_graph/retrieval/tier_classifier.py:870:    if url:
+src/polaris_graph/retrieval/tier_classifier.py:871:        u = url.lower()
+src/polaris_graph/retrieval/tier_classifier.py:905:    # These must fire even when the title also contains "randomized".
+src/polaris_graph/retrieval/tier_classifier.py:915:# primary RCT titles (e.g., NEJM "X as Compared with Y for the
+src/polaris_graph/retrieval/tier_classifier.py:942:def _detect_narrative_flavor_from_title(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:952:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:954:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:955:    if _detect_narrative_review_from_title(title):
+src/polaris_graph/retrieval/tier_classifier.py:961:    if _detect_primary_study_signal(title):
+src/polaris_graph/retrieval/tier_classifier.py:966:# Pass-10 addition (BUG-M-10): title markers that indicate guideline,
+src/polaris_graph/retrieval/tier_classifier.py:967:# explainer, or policy-brief content even when OpenAlex says the host
+src/polaris_graph/retrieval/tier_classifier.py:968:# is a journal (e.g., PMC hosting a policy paper titled "Predetermined
+src/polaris_graph/retrieval/tier_classifier.py:969:# Change Control Plans: Guiding Principles" or a guideline titled
+src/polaris_graph/retrieval/tier_classifier.py:971:# narrative / analytical content, not T1 primary studies.
+src/polaris_graph/retrieval/tier_classifier.py:1001:    "clinical overview", "clinical summary",
+src/polaris_graph/retrieval/tier_classifier.py:1006:def _detect_guideline_or_explainer_title(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:1007:    """Return True if the title signals guideline / explainer / policy-
+src/polaris_graph/retrieval/tier_classifier.py:1008:    brief content. Used by R9 to demote T1 for titles that OpenAlex
+src/polaris_graph/retrieval/tier_classifier.py:1009:    classified as 'article' in 'journal' but whose content is
+src/polaris_graph/retrieval/tier_classifier.py:1012:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:1014:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:1022:# body-signal override only fires when the title is NOT already
+src/polaris_graph/retrieval/tier_classifier.py:1023:# diagnostic. When the title already carries article-type evidence,
+src/polaris_graph/retrieval/tier_classifier.py:1024:# we trust the title (R9/R10 path) and log the body signal as
+src/polaris_graph/retrieval/tier_classifier.py:1043:    # Conference abstract markers in title
+src/polaris_graph/retrieval/tier_classifier.py:1044:    " abstract ", "[abstract]", "(abstract)",
+src/polaris_graph/retrieval/tier_classifier.py:1051:def _title_is_diagnostic_for_article_type(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:1052:    """Return True if the title already contains explicit article-type
+src/polaris_graph/retrieval/tier_classifier.py:1056:    override the title-based classification. When the title is
+src/polaris_graph/retrieval/tier_classifier.py:1058:    advisory; when the title is non-diagnostic (truncated, generic,
+src/polaris_graph/retrieval/tier_classifier.py:1061:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:1063:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:1070:# found that truncated Serper snippet titles hid SR/MA suffixes, so
+src/polaris_graph/retrieval/tier_classifier.py:1114:def _detect_primary_study_signal(title: str) -> bool:
+src/polaris_graph/retrieval/tier_classifier.py:1115:    """Return True if the title contains a positive primary-research
+src/polaris_graph/retrieval/tier_classifier.py:1120:    if not title:
+src/polaris_graph/retrieval/tier_classifier.py:1122:    t = title.lower()
+src/polaris_graph/retrieval/tier_classifier.py:1164:    domain = _normalize_domain(signals.url)
+src/polaris_graph/retrieval/tier_classifier.py:1169:        "content_length": signals.fetched_content_length,
+src/polaris_graph/retrieval/tier_classifier.py:1185:    # content so that Facebook/Twitter/Reddit pages are classified by
+src/polaris_graph/retrieval/tier_classifier.py:1186:    # domain authority, not by how much text happened to be fetched.
+src/polaris_graph/retrieval/tier_classifier.py:1195:            f"portal. User-generated or aggregator content; never T1 "
+src/polaris_graph/retrieval/tier_classifier.py:1196:            f"primary research regardless of content length or OpenAlex "
+src/polaris_graph/retrieval/tier_classifier.py:1198:            f"laundered via large body text."
+src/polaris_graph/retrieval/tier_classifier.py:1202:    # ── Rule 1 (T7 stub): Tiny content = stub regardless of venue
+src/polaris_graph/retrieval/tier_classifier.py:1204:    # abstract is effectively a stub for evaluator purposes.
+src/polaris_graph/retrieval/tier_classifier.py:1205:    if signals.fetched_content_length and signals.fetched_content_length < T7_STUB_CONTENT_CHARS:
+src/polaris_graph/retrieval/tier_classifier.py:1208:        result.matched_rules.append("R1_stub_content_length")
+src/polaris_graph/retrieval/tier_classifier.py:1210:            f"Fetched body is {signals.fetched_content_length} chars "
+src/polaris_graph/retrieval/tier_classifier.py:1212:            f"regardless of venue. Full-text retrieval would be needed "
+src/polaris_graph/retrieval/tier_classifier.py:1248:    # User-generated content and aggregator portals are never T1.
+
+ succeeded in 6867ms:
+            fetched_content_length=signals.fetched_content_length,
+            title=signals.title,
+            authority=authority_result,
+        )
+    )
+    tier = TierLevel(tier_str)
+    confidence = _AUTHORITY_CONFIDENCE_TO_FLOAT.get(
+        authority_result.authority_confidence.value, 0.5
+    )
+
+    result = ClassificationResult(
+        tier=tier,
+        confidence=confidence,
+        reasons=list(authority_result.reasons),
+        matched_rules=["authority_model"],
+        signals_used={
+            "domain": _normalize_domain(signals.url),
+            "authority": asdict(authority_result),
+        },
+        authority_score=authority_result.authority_score,
+        source_class=authority_result.source_class.value,
+        corroboration_count=authority_result.corroboration_count,
+        authority_confidence=authority_result.authority_confidence.value,
+    )
+    return result
+
+ succeeded in 8391ms:
+"""SourceClass / AuthorityConfidence enums + AuthoritySignals + AuthorityResult.
+
+Phase 0a (GH #983). Field-agnostic computed source-authority primitives.
+
+These types are the stable schema emitted by the authority model. They are
+additive: nothing here references a host name, a suffix, or a platform. All
+source knowledge lives in versioned DATA under ``config/authority/*`` and is
+read via :mod:`src.polaris_graph.authority.data_loader`.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+class SourceClass(str, Enum):
+    """Field-agnostic credibility class (NOT a clinical tier).
+
+    The clinical T1-T7 view is rendered FROM these primitives by
+    ``clinical_view.py``; this enum is domain-general.
+    """
+
+    PRIMARY_OFFICIAL = "PRIMARY_OFFICIAL"     # government / regulator / healthcare-regulator
+    PRIMARY_SCHOLARLY = "PRIMARY_SCHOLARLY"   # peer-reviewed primary scholarship
+    SECONDARY = "SECONDARY"                   # narrative / unreviewed secondary
+    COMMENTARY = "COMMENTARY"                 # commentary / marketing / blog
+    PRESS_RELEASE = "PRESS_RELEASE"           # press / news release
+    UGC = "UGC"                               # user-generated / social / login-walled
+    UNKNOWN = "UNKNOWN"                        # could not classify
+
+
+class AuthorityConfidence(str, Enum):
+    """Honest confidence in the computed authority result.
+
+    LOW when the OpenAlex/ROR coverage feeding the signals is thin — the
+    contract requires this be honest, never silently HIGH (S4 / brief §5).
+    """
+
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+@dataclass
+class AuthoritySignals:
+    """ADDITIVE optional payload carrying the OpenAlex/ROR fields the authority
+    model needs (brief ADDENDUM C1).
+
+    Every field is optional; an absent/partial payload drives the model to
+    ``AuthorityConfidence.LOW`` (fail-honest, never fabricate authority).
+    Wired end-to-end via the LIVE path (brief ADDENDUM C5):
+    ``live_retriever._openalex_enrich`` populates this -> carried at
+    ``live_retriever.py:1751`` -> attached to ``ClassificationSignals`` -> read
+    by ``score_source_authority``.
+    """
+
+    # Signal A — scholarly graph (OpenAlex /works + /sources).
+    cited_by_count: int | None = None
+    source_id: str = ""                       # OpenAlex source id (venue)
+    venue_summary_stats: dict | None = None   # {h_index, 2yr_mean_citedness}
+    is_core: bool | None = None               # venue is_core (CWTS)
+    is_in_doaj: bool | None = None            # venue listed in DOAJ
+    apc_prices: list | None = None            # venue APC price entries
+    publication_year: int | None = None
+    # Signal B — institutional (OpenAlex ROR).
+    ror_id: str = ""                          # first resolved institution ROR id
+    institution_type: str = ""                # ROR/OpenAlex institution type
+    country_code: str = ""                    # ISO-2 country of the institution
+
+
+@dataclass
+class AuthorityResult:
+    """Computed field-agnostic authority result (brief §4 blend output)."""
+
+    authority_score: float                    # [0, 1]
+    source_class: SourceClass
+    corroboration_count: int                  # independent-host agreement count
+    authority_confidence: AuthorityConfidence
+    reasons: list[str] = field(default_factory=list)
+    # Per-signal sub-scores, surfaced for the shadow harness / audit trail.
+    signal_scores: dict = field(default_factory=dict)
+    # ── Diff-gate P1-B additive fields — let the clinical VIEW render
+    # SIGNAL-DRIVEN demotions (no host list). `junk_class` is the fine-grained
+    # structural junk-class that fired (e.g. "press_release"/"self_published_blog"/
+    # "self_interest"); "" when no junk fired. `predatory_oa` is True when the
+    # scholarly-graph signal detected the predatory-OA smell (not in DOAJ AND
+    # high APC) — used to suppress an auto-T1 for a low-quality OA primary.
+    junk_class: str = ""
+    predatory_oa: bool = False
+
+codex
+I’ve got enough substrate context. The review hinges on two contract ambiguities that would let a future implementation pass the listed tests while failing the intended scorer behavior.
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-1
+    finding: "Brief §3/§4 leaves the anti-fabrication rule undefined and internally inconsistent: the judge may 'up/down-weight' priors, but deterministic priors are also called the 'floor', and AC-4 says 'clamped/floored' without a formula. This is not testable enough for the LOW-confidence guardrail."
+    required_change: "Define the exact rule. I agree with the bounded-delta approach: for LOW/thin sources, final reliability must be capped at clamp(authority_score) + PG_CREDIBILITY_MAX_UPLIFT, then clamped to [0,1]. Also clarify that priors are the fallback on judge error, not a universal lower bound that prevents judge down-rating."
+  - id: P1-2
+    finding: "The judge input contract does not require enough source context to judge relevance. A fake judge can pass all current ACs even if the real judge only receives authority_score/source_class and has no title/url/snippet/abstract/source text to assess query relevance."
+    required_change: "Specify the deterministic judge payload shape: source identity plus bounded source descriptors/text fields, authority priors, signal_scores, junk/predatory flags, and domain_hint. Add a fake-judge test that captures the payload and asserts those fields are present without mutating the row."
+
+p2:
+  - "Q1: judge=None => priors-only is the right total/offline contract. Pin unknown-neutral relevance to 1.0 if credibility_weight remains multiplicative; 0.5 would halve authority and is not neutral."
+  - "Q3: per-source calls are the right Phase-2 default because they preserve AC-7 error isolation and simpler audit records. Batching can wait, but must preserve per-row errors and stable row-to-judgment mapping."
+  - "Q4: default-OFF library-only landing is safe after the P1 contract fixes, assuming no production caller, no faithfulness imports, no client construction, and no row mutation."
+  - "AC-6 should also cover NaN/inf and malformed judge dicts, not only numeric out-of-range values."
+  - "AC-8 is too weak as written: same dataclass shape does not prove absence of fixed domain rubrics. Require domain to be passed only as a hint field/prompt variable, with no domain-specific rubric tables or branch-swapped scoring logic."
+  - "AC-9 conflicts with AC-3 unless scoped: either keep product fixed and make only thresholds env-overridable, or define the default product formula plus the exact env knobs that alter it."
+
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and test the LOW/thin anti-fabrication cap with PG_CREDIBILITY_MAX_UPLIFT."
+  - "Define and test the judge payload shape so relevance is actually judgeable."
+```
+tokens used
+32,479

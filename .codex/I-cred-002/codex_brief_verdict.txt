@@ -1,0 +1,25 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-1
+    finding: "Brief §3/§4 leaves the anti-fabrication rule undefined and internally inconsistent: the judge may 'up/down-weight' priors, but deterministic priors are also called the 'floor', and AC-4 says 'clamped/floored' without a formula. This is not testable enough for the LOW-confidence guardrail."
+    required_change: "Define the exact rule. I agree with the bounded-delta approach: for LOW/thin sources, final reliability must be capped at clamp(authority_score) + PG_CREDIBILITY_MAX_UPLIFT, then clamped to [0,1]. Also clarify that priors are the fallback on judge error, not a universal lower bound that prevents judge down-rating."
+  - id: P1-2
+    finding: "The judge input contract does not require enough source context to judge relevance. A fake judge can pass all current ACs even if the real judge only receives authority_score/source_class and has no title/url/snippet/abstract/source text to assess query relevance."
+    required_change: "Specify the deterministic judge payload shape: source identity plus bounded source descriptors/text fields, authority priors, signal_scores, junk/predatory flags, and domain_hint. Add a fake-judge test that captures the payload and asserts those fields are present without mutating the row."
+
+p2:
+  - "Q1: judge=None => priors-only is the right total/offline contract. Pin unknown-neutral relevance to 1.0 if credibility_weight remains multiplicative; 0.5 would halve authority and is not neutral."
+  - "Q3: per-source calls are the right Phase-2 default because they preserve AC-7 error isolation and simpler audit records. Batching can wait, but must preserve per-row errors and stable row-to-judgment mapping."
+  - "Q4: default-OFF library-only landing is safe after the P1 contract fixes, assuming no production caller, no faithfulness imports, no client construction, and no row mutation."
+  - "AC-6 should also cover NaN/inf and malformed judge dicts, not only numeric out-of-range values."
+  - "AC-8 is too weak as written: same dataclass shape does not prove absence of fixed domain rubrics. Require domain to be passed only as a hint field/prompt variable, with no domain-specific rubric tables or branch-swapped scoring logic."
+  - "AC-9 conflicts with AC-3 unless scoped: either keep product fixed and make only thresholds env-overridable, or define the default product formula plus the exact env knobs that alter it."
+
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Define and test the LOW/thin anti-fabrication cap with PG_CREDIBILITY_MAX_UPLIFT."
+  - "Define and test the judge payload shape so relevance is actually judgeable."
+```
