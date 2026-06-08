@@ -69,27 +69,25 @@ expected_tier_distribution:
       Narrative reviews of workforce trends.
 
 # -------------------------------------------------------------------
-# source_restriction: journal_only — PROSPECTIVE per-question-type profile
-# (I-ready-017 #1134, Codex direction + design APPROVE). Gated by the runtime
-# flag PG_SOURCE_RESTRICTION_JOURNAL_ONLY (default OFF). Both must hold for any
-# effect; default-OFF is byte-identical.
+# source_restriction: journal_only — DORMANT prospective per-question-type profile.
+# Gated by the runtime flag PG_SOURCE_RESTRICTION_JOURNAL_ONLY (default OFF); both this
+# protocol field AND the flag must hold for any effect. NO benchmark question currently
+# activates it (JOURNAL_ONLY_BENCHMARK_SLUGS is empty in scripts/dr_benchmark/run_gate_b.py),
+# so this profile is inert and default runs are byte-identical.
 #
-# WHY a distinct profile: the drb_72 benchmark question is a LITERATURE REVIEW
-# that explicitly instructs "only cites high-quality, English-language journal
-# articles." For that question the generic workforce expectation above (T3
-# statistical agencies 35-65%) is the WRONG contract — statistical-agency data
-# portals are not journal articles and would violate the question's own source
-# restriction. When journal_only is active the citeable corpus is restricted to
-# peer-reviewed journal articles (T1/T2), and the bands below + the adequacy
-# floor become the binding corpus-quality gate. This STRENGTHENS the contract
-# (it aligns the gate to the question's explicit instruction); it is NOT a
-# post-hoc relaxation. General (non-journal-restricted) workforce questions are
-# unaffected because the flag stays OFF for them.
+# HISTORY (I-ready-019 #1146): I-ready-017 FIX-JO (#1134) had activated journal_only for
+# drb_72 because that AI-labor LITERATURE REVIEW question's text says "only cites high-quality,
+# English-language journal articles." The operator REVERSED that (2026-06-07): "many things are
+# not journal, but still credibility — mainstream news, gov, some credible sites; don't
+# tunnel-vision." The drb_72 paid re-run proved the harm: the GENERAL corpus was adequate
+# ("adequacy=proceed uncovered=0"), but the journal-only distinct-journal COUNT floor (5<12 — a
+# §-1.1-banned metadata-as-quality proxy) starved it and forced abort_corpus_inadequate. So
+# drb_72 (and every question) now uses the broad credibility corpus; faithfulness is enforced by
+# the verify gates (strict_verify / 4-role D8 / provenance / two-family), NOT by source-type purity.
 #
-# NOTE the binding gates under journal_only are the no-leak invariant + the
-# corpus_adequacy.journal_only floor below; the distribution bands are
-# satisfied by construction once the citeability partition has run (the
-# measured set is ~100% T1/T2), so they are intentionally permissive.
+# This profile (the field below + tier bands + adequacy floor) is RETAINED but dormant so a future
+# DELIBERATE, operator-approved journal-only question can be re-enabled by appending its slug to
+# JOURNAL_ONLY_BENCHMARK_SLUGS. It is NOT used by any current question.
 source_restriction: journal_only
 
 journal_only_tier_distribution:
