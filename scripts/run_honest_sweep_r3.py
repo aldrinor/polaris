@@ -407,6 +407,7 @@ def compute_run_health_gate(
     *,
     unified_status: str,
     gate_on: bool,
+    storm_min_effective_queries: int = 0,
 ) -> dict[str, Any]:
     """FL-05 (#1124): run-health backstop DECISION (pure, no I/O — testable). A FORCE-ENABLED
     discovery feature (``enabled`` True) whose ``firing_status`` is in ``_FL05_DEGRADED_FIRING``
@@ -415,22 +416,52 @@ def compute_run_health_gate(
     force-enabled feature AND the run is otherwise success-bound. NEVER overrides a partial_/abort_/
     error_ status (those are more specific) — only a would-be ``success``. This promotes
     ``feature_firing_warning`` from advisory to gating (CANARY-01 is the pre-spend gate; FL-05 is the
-    mid/post-run regression backstop)."""
+    mid/post-run regression backstop).
+
+    I-fetch-002 (#1168): STORM UNDER-fire (post-validator collapse). The classic FL-05 path above only
+    catches a TOTAL no-fire (firing_status attempted_empty/error). A run where STORM force-on FIRED
+    (firing_status=fired) but produced FEWER than ``storm_min_effective_queries`` EFFECTIVE queries
+    (``effective_query_count``) is a thin-corpus collapse that would otherwise ship green. Such a
+    feature is ADDED to the degraded set (same abort path, same release-withhold). The check requires
+    ``effective_query_count`` to be PRESENT and not None (never treats an absent field as 0), so a
+    feature that does not publish the count — e.g. agentic, which publishes urls_discovered — never
+    trips it. ``storm_min_effective_queries`` defaults to 0 (disabled): with the default, ``count < 0``
+    never fires, so every pre-existing caller/test is byte-unchanged. Discovery-health only (no
+    faithfulness path touched)."""
     degraded = [
         t for t in discovery_telemetries
         if t.get("enabled") and t.get("firing_status") in _FL05_DEGRADED_FIRING
     ]
+    # I-fetch-002 (#1168): UNDER-fire — fired but below the effective-query floor. Mutually exclusive
+    # with the TOTAL no-fire set above (firing_status=fired vs attempted_empty/error), so no double-count.
+    under_fired = [
+        t for t in discovery_telemetries
+        if (
+            t.get("enabled")
+            and t.get("firing_status") == "fired"
+            and t.get("effective_query_count") is not None
+            and int(t.get("effective_query_count")) < storm_min_effective_queries
+        )
+    ]
+    all_degraded = degraded + under_fired
     override = (
         "abort_discovery_degraded"
-        if (gate_on and degraded and unified_status == "success")
+        if (gate_on and all_degraded and unified_status == "success")
         else None
     )
     return {
-        "discovery_llm_degraded": bool(degraded),
-        "discovery_rounds_on_fallback": len(degraded),
+        "discovery_llm_degraded": bool(all_degraded),
+        "discovery_rounds_on_fallback": len(all_degraded),
         "degraded_features": [
             {"feature": t.get("feature"), "firing_status": t.get("firing_status")}
             for t in degraded
+        ] + [
+            {
+                "feature": t.get("feature"),
+                "firing_status": "under_fired",
+                "effective_query_count": int(t.get("effective_query_count")),
+            }
+            for t in under_fired
         ],
         "override_status": override,
     }
@@ -2632,6 +2663,10 @@ async def run_one_query(
                 _storm_telemetry.update({
                     "fired": len(_storm_added) > 0,
                     "questions_added": len(_storm_added),
+                    # I-fetch-002 (#1168): effective (post-dedup/validator) STORM query count — the hook
+                    # the run-health gate's UNDER-fire floor reads. == questions_added (the deduped queries
+                    # actually appended to _amplified_effective; nothing downstream re-filters them).
+                    "effective_query_count": len(_storm_added),
                     "interviews": len(_storm_out.get("storm_conversations", [])),
                     "firing_status": "fired" if _storm_added else "attempted_empty",
                 })
@@ -6587,10 +6622,21 @@ async def run_one_query(
         # would-be SUCCESS (partial_* already signals degradation; aborts/errors are more specific).
         # Codex iter-1 P2: robust truthy parse for this DEFAULT-OFF flag (so PG_RUN_HEALTH_GATE=false
         # / empty does NOT accidentally enable it, unlike the bare `!= "0"` default-ON pattern).
+        # I-fetch-002 (#1168): the STORM UNDER-fire floor (post-validator collapse). 0/absent = disabled
+        # (the classic FL-05 TOTAL no-fire path is unchanged); the Gate-B slate sets it to 12. Fail-loud
+        # on a non-int env so a typo cannot silently disable the floor.
+        try:
+            _storm_min_eff = int(os.getenv("PG_STORM_MIN_EFFECTIVE_QUERIES", "0"))
+        except ValueError as _eff_exc:
+            raise RuntimeError(
+                f"PG_STORM_MIN_EFFECTIVE_QUERIES={os.getenv('PG_STORM_MIN_EFFECTIVE_QUERIES')!r} "
+                f"is not an int"
+            ) from _eff_exc
         _fl05 = compute_run_health_gate(
             [_storm_telemetry, _agentic_telemetry],
             unified_status=unified_status,
             gate_on=os.getenv("PG_RUN_HEALTH_GATE", "0").strip().lower() in {"1", "true", "yes", "on"},
+            storm_min_effective_queries=_storm_min_eff,
         )
         manifest["discovery_llm_degraded"] = _fl05["discovery_llm_degraded"]
         manifest["discovery_rounds_on_fallback"] = _fl05["discovery_rounds_on_fallback"]

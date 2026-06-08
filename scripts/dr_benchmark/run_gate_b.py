@@ -424,8 +424,21 @@ def write_four_role_stage_marker(out_root: Path) -> Path:
 # is `setdefault` so an explicit operator override still wins (LAW VI). The slate is applied BEFORE the
 # sweep is imported so import-time module constants (caps/timeouts) also see the full values.
 _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+    # I-fetch-002 (#1168): the WHOLE run fetches ~1000 sites TOTAL per question, NOT 1000 + additive
+    # lanes. The operator's ~1000 budget is SPLIT across the four real fetch lanes so they SUM to ~1000
+    # (the prior 1000 here was the MAIN lane alone, on top of which agentic/deepener/R-6 each added more
+    # — silently overshooting the budget). The four lanes, FLOOR-applied below (max(existing, slate)):
+    #   PG_SWEEP_FETCH_CAP            800  main Serper/S2/OpenAlex lane (total URLs after dedup, /query)
+    #   PG_AGENTIC_BENCHMARK_URL_CAP  100  agentic-discovery harvest (run_honest_sweep_r3.py:3162)
+    #   PG_SWEEP_DEEPENER_URL_CAP      60  citation-snowball deepener (run_honest_sweep_r3.py:3038)
+    #   PG_R6_EXPAND_FETCH_CAP         40  R-6 completeness re-expansion (run_honest_sweep_r3.py:2961)
+    #   --------------------------------------------------------------------------------------------
+    #   SUM                          1000  ≈ the ~1000-site/question budget (operator no-overshoot)
+    # NOTE: PG_STORM_MAX_BENCHMARK_QUERIES (30) and PG_MAX_SUBQUERIES (15) below are QUERY-BREADTH
+    # counts (how many search queries are issued), NOT URLs — they are deliberately NOT part of the
+    # ~1000-URL sum. .env has no override for any of these (checked I-fetch-002), so the floor lands.
     # Retrieval breadth — the REAL run_one_query knobs (PG_SWEEP_*, default 12/12/40). NOT PG_LIVE_*.
-    "PG_SWEEP_FETCH_CAP": "1000",   # total URLs fetched+classified per query (operator: ~1000)
+    "PG_SWEEP_FETCH_CAP": "800",   # MAIN lane: total URLs fetched+classified per query (budget lane 1/4)
     "PG_SWEEP_MAX_SERPER": "100",
     "PG_SWEEP_MAX_S2": "100",
     # FX-17 (#1126): Serper `num` is a PAGE size (max ~20); breadth needs the new PAGINATION budget.
@@ -465,7 +478,22 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_R6_EXPAND_QUERY_CAP": "12",
     "PG_R6_EXPAND_MAX_SERPER": "20",
     "PG_R6_EXPAND_MAX_S2": "20",
-    "PG_R6_EXPAND_FETCH_CAP": "60",
+    # I-fetch-002 (#1168): budget lane 4/4 — R-6 completeness re-expansion fetch cap. Lowered 60->40 so
+    # the four fetch lanes SUM to ~1000 (read at run_honest_sweep_r3.py:2961, code default 15).
+    "PG_R6_EXPAND_FETCH_CAP": "40",
+    # I-fetch-002 (#1168): budget lane 2/4 — agentic-discovery URL harvest cap (read at
+    # run_honest_sweep_r3.py:3162, code default 100). Explicit in the slate so it cannot silently drift.
+    "PG_AGENTIC_BENCHMARK_URL_CAP": "100",
+    # I-fetch-002 (#1168): budget lane 3/4 — citation-snowball deepener URL cap. Previously an UNGUARDED
+    # default of 20 (run_honest_sweep_r3.py:3038); pin it to 60 so the lane is part of the ~1000 budget
+    # and cannot silently drift below it.
+    "PG_SWEEP_DEEPENER_URL_CAP": "60",
+    # I-fetch-002 (#1168): two un-guarded QUERY-BREADTH knobs, pinned explicitly so they cannot silently
+    # drift (NOT part of the ~1000-URL sum — these count search queries, not URLs). STORM benchmark-query
+    # cap (read at run_honest_sweep_r3.py:2626) + sub-query decomposition cap (query_decomposer.py:39).
+    # Both floor-guarded in _BENCHMARK_PREFLIGHT_FLOORS below.
+    "PG_STORM_MAX_BENCHMARK_QUERIES": "30",
+    "PG_MAX_SUBQUERIES": "15",
     # Agentic per-round web breadth (was stuck at 6 via the PG_WEB_PER_ROUND typo).
     "PG_AGENTIC_WEB_PER_ROUND": "10",
     # Budget cap (spend ceiling enforced per run).
@@ -531,6 +559,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # ship green. Force-on + required below (an explicit operator =0 must not survive the slate). Pairs
     # with CANARY-01 (pre-spend); FL-05 is the mid/post-run regression backstop.
     "PG_RUN_HEALTH_GATE": "1",
+    # I-fetch-002 (#1168): STORM UNDER-fire floor. FL-05 (#1124) aborts only when a force-enabled
+    # discovery feature TOTALLY no-fires (firing_status attempted_empty/error). This floor extends the
+    # SAME gate to the UNDER-fire case: STORM force-on FIRED but produced FEWER than this many effective
+    # (post-validator) queries — a thin-corpus collapse that would otherwise ship green. Discovery-health
+    # only (faithfulness-neutral). Read at the run_honest_sweep_r3.py compute_run_health_gate call site.
+    "PG_STORM_MIN_EFFECTIVE_QUERIES": "12",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -545,6 +579,11 @@ _BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
     # MAX_PAGES>=2 lets the budget be reached.
     "PG_SERPER_TOTAL_PER_QUERY": 40,
     "PG_SERPER_MAX_PAGES": 2,
+    # I-fetch-002 (#1168): floor-guard the two un-guarded QUERY-BREADTH knobs so a conservative .env/
+    # operator value cannot silently shrink the search-query fan-out below full capability. These are
+    # query counts, NOT part of the ~1000-URL fetch sum. Floors == the slate values (30/15).
+    "PG_STORM_MAX_BENCHMARK_QUERIES": 30,
+    "PG_MAX_SUBQUERIES": 15,
 }
 # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
 # Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an

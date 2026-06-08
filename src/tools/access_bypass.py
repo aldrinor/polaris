@@ -78,12 +78,32 @@ _crawl4ai_available: "bool | None" = None
 # ---------------------------------------------------------------------------
 _crawl4ai_consecutive_failures: int = 0
 _crawl4ai_circuit_open_until: float = 0.0
+# I-fetch-002 (#1168): raise 3->6 so a couple of TRANSIENT subprocess crashes (EPIPE under concurrent
+# load) do not trip the breaker and disable crawl4ai for the whole run. Pairs with the new concurrency
+# semaphore below — fewer concurrent browsers means fewer crashes in the first place.
 _CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD = int(
-    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD", "3")
+    os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_THRESHOLD", "6")
 )
 _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
     os.getenv("PG_CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN", "120.0")
 )
+
+# I-fetch-002 (#1168): crawl4ai launches a Playwright browser subprocess PER URL; under the ~1000-URL
+# benchmark fan-out, many concurrent browsers exhaust the OS and crash (EPIPE), which then trips the
+# circuit breaker and disables crawl4ai run-wide. Bound the number of concurrently-LIVE browsers with a
+# semaphore (mirrors the PG_JINA_CONCURRENCY=2 pattern). Lazy-init so it binds to the running loop.
+_crawl4ai_semaphore: "asyncio.Semaphore | None" = None
+
+
+def _get_crawl4ai_semaphore() -> "asyncio.Semaphore":
+    """I-fetch-002 (#1168): lazy-init the crawl4ai browser-concurrency gate on the running loop.
+    Default 2 concurrent browsers (env PG_CRAWL4AI_CONCURRENCY)."""
+    global _crawl4ai_semaphore
+    if _crawl4ai_semaphore is None:
+        _crawl4ai_semaphore = asyncio.Semaphore(
+            int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
+        )
+    return _crawl4ai_semaphore
 
 # ---------------------------------------------------------------------------
 # Firecrawl free-plan hardening: rate limiter + credit tracker
@@ -1105,51 +1125,58 @@ class AccessBypass:
                 timeout_seconds,
             )
 
-            # Step 1: Start the browser subprocess.
-            # FIX-EPIPE: Separate try for __aenter__ to catch startup failures.
-            try:
-                crawler = AsyncWebCrawler(config=browser_config)
-                await crawler.__aenter__()
-            except (BrokenPipeError, ConnectionError, OSError) as enter_err:
-                logger.warning(
-                    "[polaris graph] CRAWL4AI: FIX-EPIPE browser startup "
-                    "pipe/OS error for %s: %s: %s",
-                    _safe_log_str(url, 60),
-                    type(enter_err).__name__,
-                    _safe_log_str(str(enter_err)),
-                )
-                _crawl4ai_track_failure()
-                return _crawl4ai_failure_result(
-                    url,
-                    f"Browser startup failed: {type(enter_err).__name__}: "
-                    f"{str(enter_err)}",
-                )
-            except Exception as enter_err:
-                logger.warning(
-                    "[polaris graph] CRAWL4AI: FIX-EPIPE browser init "
-                    "exception for %s: %s: %s",
-                    _safe_log_str(url, 60),
-                    type(enter_err).__name__,
-                    _safe_log_str(str(enter_err)),
-                )
-                _crawl4ai_track_failure()
-                return _crawl4ai_failure_result(
-                    url,
-                    f"Browser init failed: {type(enter_err).__name__}: "
-                    f"{str(enter_err)}",
-                )
+            # I-fetch-002 (#1168): hold a crawl4ai concurrency slot ONLY for the browser-active region
+            # (startup -> crawl -> close). The extraction (Step 4, trafilatura — CPU-bound) and the
+            # cheap config build above run OUTSIDE the slot so a browser slot is never pinned by
+            # non-browser work. `result` is assigned inside and read after the `async with` (it persists
+            # in the enclosing scope). The inner early-returns release the slot cleanly on `async with`
+            # exit. At most PG_CRAWL4AI_CONCURRENCY browsers are live at once.
+            async with _get_crawl4ai_semaphore():
+                # Step 1: Start the browser subprocess.
+                # FIX-EPIPE: Separate try for __aenter__ to catch startup failures.
+                try:
+                    crawler = AsyncWebCrawler(config=browser_config)
+                    await crawler.__aenter__()
+                except (BrokenPipeError, ConnectionError, OSError) as enter_err:
+                    logger.warning(
+                        "[polaris graph] CRAWL4AI: FIX-EPIPE browser startup "
+                        "pipe/OS error for %s: %s: %s",
+                        _safe_log_str(url, 60),
+                        type(enter_err).__name__,
+                        _safe_log_str(str(enter_err)),
+                    )
+                    _crawl4ai_track_failure()
+                    return _crawl4ai_failure_result(
+                        url,
+                        f"Browser startup failed: {type(enter_err).__name__}: "
+                        f"{str(enter_err)}",
+                    )
+                except Exception as enter_err:
+                    logger.warning(
+                        "[polaris graph] CRAWL4AI: FIX-EPIPE browser init "
+                        "exception for %s: %s: %s",
+                        _safe_log_str(url, 60),
+                        type(enter_err).__name__,
+                        _safe_log_str(str(enter_err)),
+                    )
+                    _crawl4ai_track_failure()
+                    return _crawl4ai_failure_result(
+                        url,
+                        f"Browser init failed: {type(enter_err).__name__}: "
+                        f"{str(enter_err)}",
+                    )
 
-            # Step 2: Run the crawl with timeout guard.
-            try:
-                result = await asyncio.wait_for(
-                    crawler.arun(url=url, config=crawler_config),
-                    timeout=timeout_seconds + 10,
-                )
-            finally:
-                # Step 3: Close browser via _safe_close_crawler which catches
-                # ALL exceptions from __aexit__ independently.
-                await _safe_close_crawler(crawler, url)
-                crawler = None  # Prevent double-close in outer finally
+                # Step 2: Run the crawl with timeout guard.
+                try:
+                    result = await asyncio.wait_for(
+                        crawler.arun(url=url, config=crawler_config),
+                        timeout=timeout_seconds + 10,
+                    )
+                finally:
+                    # Step 3: Close browser via _safe_close_crawler which catches
+                    # ALL exceptions from __aexit__ independently.
+                    await _safe_close_crawler(crawler, url)
+                    crawler = None  # Prevent double-close in outer finally
 
             # Step 4: Process the crawl result.
             # If we reached here, the subprocess survived (reset breaker).

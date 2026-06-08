@@ -27,6 +27,7 @@ import pytest
 
 from scripts.dr_benchmark.run_gate_b import (
     _BENCHMARK_FORCE_ON_FLAGS,
+    _BENCHMARK_PREFLIGHT_FLOORS,
     _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
     _FULL_CAPABILITY_BENCHMARK_SLATE,
     apply_full_capability_benchmark_slate,
@@ -150,3 +151,89 @@ def test_activated_gate_passes_a_clean_run():
     out = compute_run_health_gate([storm, agentic], unified_status="success", gate_on=True)
     assert out["override_status"] is None
     assert out["discovery_llm_degraded"] is False
+
+
+# --------------------------------------------------------------------------- I-fetch-002 (#1168)
+# Lane budget: the four fetch lanes SUM to ~1000 sites/question (NOT 1000 + additive lanes).
+
+_LANE_KNOBS = (
+    "PG_SWEEP_FETCH_CAP",            # main Serper/S2/OpenAlex lane
+    "PG_AGENTIC_BENCHMARK_URL_CAP",  # agentic-discovery harvest
+    "PG_SWEEP_DEEPENER_URL_CAP",     # citation-snowball deepener
+    "PG_R6_EXPAND_FETCH_CAP",        # R-6 completeness re-expansion
+)
+
+
+def test_four_fetch_lanes_sum_to_about_1000():
+    """The operator budget: the WHOLE run fetches ~1000 sites/question, split across four lanes that
+    SUM to ~1000 — never 1000 (main) + additive agentic/deepener/R-6 on top."""
+    vals = {k: int(_FULL_CAPABILITY_BENCHMARK_SLATE[k]) for k in _LANE_KNOBS}
+    total = sum(vals.values())
+    assert total == 1000, f"four-lane fetch budget must sum to ~1000, got {total} from {vals}"
+    # And the exact split documented in the slate comment.
+    assert vals == {
+        "PG_SWEEP_FETCH_CAP": 800,
+        "PG_AGENTIC_BENCHMARK_URL_CAP": 100,
+        "PG_SWEEP_DEEPENER_URL_CAP": 60,
+        "PG_R6_EXPAND_FETCH_CAP": 40,
+    }
+
+
+def test_query_breadth_knobs_present_and_floor_guarded():
+    """The two previously un-guarded QUERY-BREADTH knobs are pinned in the slate AND floor-guarded so
+    they cannot silently drift. They are query counts — NOT part of the ~1000-URL fetch sum."""
+    for knob, expected in (("PG_STORM_MAX_BENCHMARK_QUERIES", "30"), ("PG_MAX_SUBQUERIES", "15")):
+        assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(knob) == expected
+        assert _BENCHMARK_PREFLIGHT_FLOORS.get(knob) == int(expected)
+
+
+def test_query_breadth_knobs_excluded_from_url_sum():
+    """Guard the comment's arithmetic claim: the query-breadth knobs are NOT lanes in the URL sum."""
+    assert "PG_STORM_MAX_BENCHMARK_QUERIES" not in _LANE_KNOBS
+    assert "PG_MAX_SUBQUERIES" not in _LANE_KNOBS
+
+
+def test_lane_floors_land_with_no_env_override():
+    """With no operator/.env override (the I-fetch-002 baseline), the floor-applied slate lands the
+    lowered lane values exactly (800/40), so the budget is honored, not silently masked-up."""
+    for knob in _LANE_KNOBS:
+        os.environ.pop(knob, None)
+    apply_full_capability_benchmark_slate()
+    assert int(os.environ["PG_SWEEP_FETCH_CAP"]) == 800
+    assert int(os.environ["PG_R6_EXPAND_FETCH_CAP"]) == 40
+    assert int(os.environ["PG_AGENTIC_BENCHMARK_URL_CAP"]) == 100
+    assert int(os.environ["PG_SWEEP_DEEPENER_URL_CAP"]) == 60
+
+
+# --------------------------------------------------------------------------- I-fetch-002 (#1168)
+# STORM UNDER-fire floor knob in the slate + behavioral wiring.
+
+_STORM_MIN_FLAG = "PG_STORM_MIN_EFFECTIVE_QUERIES"
+
+
+def test_storm_min_effective_queries_in_slate():
+    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "12"
+
+
+def test_storm_min_effective_queries_floor_applied():
+    """Floor semantics: a HIGHER operator value is kept, a missing/lower one is raised to 12."""
+    os.environ.pop(_STORM_MIN_FLAG, None)
+    apply_full_capability_benchmark_slate()
+    assert int(os.environ[_STORM_MIN_FLAG]) >= 12
+
+
+def test_slate_storm_min_drives_under_fire_abort():
+    """§-1.1 behavioral: with the slate floor (12), a force-on STORM that FIRED but produced only 4
+    effective queries (post-validator collapse) overrides a would-be success to abort_discovery_degraded
+    — proving the knob is wired to real gate behavior, not just a string in the slate."""
+    storm = make_feature_telemetry(
+        "storm", enabled=True, fired=True, firing_status="fired", effective_query_count=4
+    )
+    out = compute_run_health_gate(
+        [storm],
+        unified_status="success",
+        gate_on=True,
+        storm_min_effective_queries=int(_FULL_CAPABILITY_BENCHMARK_SLATE[_STORM_MIN_FLAG]),
+    )
+    assert out["override_status"] == "abort_discovery_degraded"
+    assert out["discovery_llm_degraded"] is True

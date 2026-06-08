@@ -99,3 +99,92 @@ def test_disabled_feature_is_not_degraded():
     )
     assert out["override_status"] is None
     assert out["discovery_llm_degraded"] is False
+
+
+# --------------------------------------------------------------------------- I-fetch-002 (#1168)
+# STORM UNDER-fire: force-on STORM FIRED but produced fewer than the effective-query floor (post-
+# validator collapse / thin corpus). The classic FL-05 path above only catches a TOTAL no-fire.
+
+
+def _storm_fired(effective_query_count):
+    t = _feat("storm", True, "fired")
+    t["effective_query_count"] = effective_query_count
+    return t
+
+
+def test_storm_under_fire_below_floor_overrides_success():
+    # FIRED but 5 effective queries < floor 12 → abort_discovery_degraded (gated, would-be success).
+    out = compute_run_health_gate(
+        [_storm_fired(5), _feat("agentic_search", True, "fired")],
+        unified_status="success",
+        gate_on=True,
+        storm_min_effective_queries=12,
+    )
+    assert out["override_status"] == "abort_discovery_degraded"
+    assert out["discovery_llm_degraded"] is True
+    assert out["discovery_rounds_on_fallback"] == 1
+    assert out["degraded_features"] == [
+        {"feature": "storm", "firing_status": "under_fired", "effective_query_count": 5}
+    ]
+
+
+def test_storm_at_or_above_floor_not_overridden():
+    # 12 effective queries == floor 12 → healthy, no override (>= floor passes).
+    out = compute_run_health_gate(
+        [_storm_fired(12), _feat("agentic_search", True, "fired")],
+        unified_status="success",
+        gate_on=True,
+        storm_min_effective_queries=12,
+    )
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is False
+
+
+def test_under_fire_floor_default_disabled_is_byte_compatible():
+    # Default floor (0): a FIRED feature with a tiny effective_query_count is NOT flagged, so every
+    # pre-existing caller (which never passes the kwarg) is unchanged. count < 0 never fires.
+    out = compute_run_health_gate(
+        [_storm_fired(1)],
+        unified_status="success",
+        gate_on=True,
+    )
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is False
+
+
+def test_under_fire_absent_count_never_false_aborts():
+    # A FIRED feature that does NOT publish effective_query_count (e.g. agentic publishes
+    # urls_discovered, not effective_query_count) must NEVER trip the floor — absent != 0.
+    agentic = _feat("agentic_search", True, "fired")  # no effective_query_count key
+    out = compute_run_health_gate(
+        [agentic],
+        unified_status="success",
+        gate_on=True,
+        storm_min_effective_queries=12,
+    )
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is False
+
+
+def test_under_fire_not_overridden_when_gate_off():
+    # Same as the TOTAL-no-fire path: with the gate off, the under-fire is OBSERVED but never aborts.
+    out = compute_run_health_gate(
+        [_storm_fired(3)],
+        unified_status="success",
+        gate_on=False,
+        storm_min_effective_queries=12,
+    )
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is True  # surfaced for the operator
+
+
+def test_under_fire_never_overrides_non_success():
+    # Only a would-be success is overridden; a more-specific held/abort status is left alone.
+    out = compute_run_health_gate(
+        [_storm_fired(2)],
+        unified_status="partial_thin_corpus",
+        gate_on=True,
+        storm_min_effective_queries=12,
+    )
+    assert out["override_status"] is None
+    assert out["discovery_llm_degraded"] is True
