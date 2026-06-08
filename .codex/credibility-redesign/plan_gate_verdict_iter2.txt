@@ -1,0 +1,17 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-2-continuing
+    finding: "Iter-1 P1-1, P1-3, P2-4, P2-5, and P2-6 are resolved. P1-2 is only textually resolved: Phase 6 says one max-authority weight per independent-origin cluster, but then says 'equivalently each row contributes authority_score / cluster_size' and the gap table says 'Σ(authority×independent_origin)'. That row-level formula is not equivalent and can change or inflate mass when copied rows join an existing cluster."
+    required_change: "Delete the row-level equivalence. Define the executable invariant as: group by (claim_cluster_id, origin_cluster_id); compute exactly one cluster_mass, e.g. max(authority_score) for that origin cluster; sum cluster_mass once per claim cluster. Require L3 to emit stable origin_cluster_id/membership, not just independent_origin_count."
+p2:
+  - id: P2-new-phase1-byte-identity
+    finding: "Phase 1 says to extend/render bibliography fields while also requiring OFF byte-identical bibliography. Extra empty keys would break byte identity."
+    required_change: "State that new bibliography keys are omitted unless the credibility-disclosure flag is ON, or limit Phase 1 OFF verification to dataclass-only plumbing with no rendered artifact change."
+  - id: P2-new-clinical-veto-phase-boundary
+    finding: "Phase 6 clinical-veto tests assert ABSTAIN/fringe via the L6 composition path, but L6 composition ships in Phase 7."
+    required_change: "Split the assertion: Phase 6 proves 'not weight-adequate / clinical source-type veto fires'; Phase 7 proves ABSTAIN/fringe rendering."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix the Phase 6 weight-mass formula so copied/non-independent rows cannot change claim-side mass."

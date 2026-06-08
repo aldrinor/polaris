@@ -1,0 +1,34 @@
+```yaml
+verdict: NEEDS_ADDITIONS
+
+missed_systems_or_methods:
+  - "P1: SourceBench is a major 2026 omission. It benchmarks cited web-source quality across 100 real queries and 3,996 cited sources, directly relevant to credibility scoring and validation. Source: https://arxiv.org/abs/2602.16942"
+  - "P1: Claude Research / Claude web search / Anthropic Citations API are missing from deployed frontier competitors. They do not appear to disclose credibility weights, but the 'frontier products' claim is incomplete without them. Sources: https://www.anthropic.com/news/research and https://www.claude.com/blog/web-search-api"
+  - "P1: Microsoft 365 Copilot Researcher / Analyst are missing. Researcher explicitly combines OpenAI deep research with Microsoft orchestration/search, so it affects competitor mapping. Source: https://www.microsoft.com/en-us/microsoft-365/blog/2025/03/25/introducing-researcher-and-analyst-in-microsoft-365-copilot/"
+  - "P2: Grok DeepSearch/DeeperSearch should be included as a deployed research/search agent competitor, even if evidence on credibility weighting is thin."
+  - "P2: DeepResearch Bench, DRBench, BrowseComp-Plus, ResearchRubrics should be promoted from background mentions into the validation plan. They may not change the credibility architecture, but they change benchmark coverage."
+
+factual_concerns:
+  - "P1: AuthorityBench is mischaracterized. The paper evaluates authority perception using DomainAuth, EntityAuth, and RAGAuth; I did not verify the synthesis terms 'volume vulnerability' or 'credibility ignorance' in the paper. Reframe as authority perception and authority-guided filtering, not an echo-chamber/volume benchmark. Source: https://arxiv.org/abs/2603.25092"
+  - "P1: DeepTRACE numbers are mostly correct, including Perplexity(DR) 97.5% unsupported statements and 5.5% source necessity, but the interpretation '94.5% decorative links' is overstated. Source necessity is a minimum-cover metric, not a direct decorative-link rate; DeepTRACE also relies on LLM-judge support labels with only moderate human correlation. Source: https://ar5iv.labs.arxiv.org/html/2509.04499v1"
+  - "P1: RA-RAG is useful but over-described. It is not clearly Dawid-Skene/EM in the paper; it uses iterative reliability estimation and weighted majority voting. It does not explicitly solve or explicitly discuss copied-source dependence; its benchmark constructs sources independently. Source: https://arxiv.org/abs/2410.22954"
+  - "P1: The 'GPT-5.4 79% -> 17% as tool calls scale 2 -> 150' claim was not verified from the abstract. The primary abstract supports 39-77% factual accuracy and an average ~42% fact-check drop across two frontier models, not that exact model-specific collapse. Source: https://arxiv.org/abs/2605.06635"
+  - "P2: CAG is a 2024 EMNLP method, not 2025. Its 'credibility' labels are often relevance/timeliness/noise annotations, not source authority. The 0.917 figure is exact-match on EvolvingTempQA at noise_ratio 0.8, not general accuracy. Source: https://arxiv.org/abs/2404.06809"
+  - "P2: RAGRank is overgeneralized. It is a CTI PageRank proof-of-concept against poisoning, not a validated general web echo-chamber or source-independence detector. Source: https://arxiv.org/abs/2510.20768"
+  - "P2: Community Notes claims need separation. PNAS supports reductions after notes attach/display, but the '<12.5% display' and '25-34%' claims need their own primary citations before use. Source: https://pmc.ncbi.nlm.nih.gov/articles/PMC12478135/"
+  - "P2: Elicit's 81.4% vs 86.7% and 100% agreement-as-validity are supported in the Hilkenmeier study, but the '6% hallucinations / fabricated control groups' claim needs a separate primary citation before being treated as settled. Source: https://journals.sagepub.com/doi/10.1177/08944393251404052"
+  - "P3: GRADE/CERQual descriptions are broadly sound. Minor update: distinguish classic GRADE upgrade domains from newer Core GRADE guidance, which narrows rating-up reasons. CERQual's four components are correct. Source: https://www.cerqual.org/overall-confidence-in-the-evidence/"
+  - "P3: 'Citation visibility is inversely related to citation validity' is too broad. Say Perplexity is a strong counterexample to citation-chip trust, not that the market relation is proven generally."
+
+technique_gaps:
+  - "P1: Add article-level and claim-level quality scoring. Source-level priors alone are insufficient; credibility must include author, venue, method, funding/conflicts, date, corrections, retractions, and claim-specific relevance."
+  - "P1: Add temporal/supersession logic. High-credibility stale guidelines, old datasets, outdated regulations, or superseded medical claims must be downgraded even if the source is authoritative."
+  - "P1: Add a claim graph layer before weighted voting: atomic claim extraction, claim normalization, stance clustering, contradiction/refutation detection, and span entailment. Weighted majority only works after equivalent claims are clustered."
+  - "P1: Independence collapse must go beyond near-duplicate TF-IDF: syndication, press-release origin, common ownership, common funding, shared authorship, citation chains, semantic paraphrases, and generated-copy clusters."
+  - "P1: Add calibration and audit metrics: Brier/ECE or reliability curves for credibility weights, blinded human audits, ablations for retrieve/score/collapse/aggregate, plus SourceBench/DeepTRACE/ReportBench/AuthorityBench-style suites."
+  - "P2: Retrieval needs source-type stratification and dissent recall. Scoring cannot fix a pipeline that never retrieves the strongest contrary evidence or the best evidence for a minority view."
+  - "P2: strict_verify based on numeric match plus two content words is too weak as the final verifier. Add NLI/QA entailment, unit/table/quantity checks, and contradiction-sensitive verification."
+  - "P2: The 'both-sides' UX needs a policy for multi-position disputes, not just binary pro/con. Medical misinformation should be disclosed as low-weight/fringe evidence, not normalized as an equal side."
+
+proceed_to_plan: no
+```

@@ -1,0 +1,17 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Binding §6b gap: the plan incorporates the added benchmark suite, but not the added competitor systems Claude Research/Citations API, MS Copilot Researcher, and Grok. Those are explicitly required by docs/frontier_credibility_intelligence_2026_06_07.md:329-343, so the plan is not yet complete against the operator gate."
+  - "Weighted aggregation contract is underspecified and can still count copied volume. P4 says duplicated sources collapse to independent_origin_count≈1, but P6 defines weight_mass as Σ(authority_score × independent_origin_count) without requiring aggregation over one row per origin/cluster or fractional per-row origin weights. If every copied row carries count=1, the vax case still false-majority flips. Require an explicit origin-cluster aggregation invariant: adding copied rows must not increase claim-side weight mass."
+  - "Clinical safety is asserted but not wired to a concrete gate. The repo already has clinical adequacy floors in src/polaris_graph/nodes/corpus_adequacy_gate.py:71-78, while corpus_approval_gate.py mainly checks protocol distribution deviation, not absence-of-clinical-evidence adequacy. P6 must specify the clinical evidence floor/source-type veto that makes news/commercial weight unable to clear a clinical claim without independent clinical evidence; otherwise the hard domain-aware constraint rests on a test slogan, not architecture."
+p2:
+  - "Phase 6's drb_72 regression test conflicts with the protocol-pinned journal_only invariant. Current journal_only_filter.py:67-83 activates only when source_restriction=journal_only, and the plan says protocol-pinned journal_only stays hard, but P6 also expects drb_72 to pass with fewer distinct journals via weight floor. Make that fixture conditional on the journal-only audit or replace it with a non-protocol-pinned fixture."
+  - "Most file anchors are plausible, but evidence_selector.py:1108-1243 is stale/misleading for the cited diversity passes; current subquery/domain diversity logic is around src/polaris_graph/retrieval/evidence_selector.py:552-704 and 1513-1542."
+  - "Voter/arbiter reuse is conceptually named but not concretely mapped. Add the intended integration point in src/polaris_graph/roles/role_pipeline.py or sweep_integration.py so L6 does not accidentally build a parallel adjudication path."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Add the missing §6b competitor systems to the plan's comparison/test/acceptance strategy."
+  - "Define P4/P6 aggregation over origin clusters, with an invariant that duplicated copies cannot increase weight mass."
+  - "Specify the clinical adequacy/source-type gate that enforces no clinical evidence => abstain/fringe, never weight-adequate."
+  - "Resolve the drb_72 journal_only protocol conflict before making it a P6 acceptance test."

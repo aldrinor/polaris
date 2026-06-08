@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Phase 6 clinical-veto wording still mixes two thresholds: it says clinical claims require >=1 independent clinical-tier source, then references the existing clinical floor of min_t1_count=3 and min_t1_plus_t2=5. This is not an execution blocker because the invariant needed for this gate is absence-veto/no-news-substitution, but the implementation brief should distinguish the source-type veto from the full clinical adequacy floor."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

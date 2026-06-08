@@ -1,0 +1,11 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1-2-continuing: the stale max-over-cluster formula still appears in normative sections. §3 L3 says L5 sums one `max(authority_score)` per origin cluster; §3 L5 defines weight-mass as `Σ max(authority_score)`; Phase 4a Scope says L5 aggregates one `max(authority_score)` mass. That contradicts Phase 6's canonical-origin invariant and would let a higher-authority copier raise mass, failing the copy-invariance fixture. Replace every normative `max(authority_score)` reference with `authority_score(canonical_origin)` / canonical-origin authority only, with derivative copies contributing zero."
+p2:
+  - "Phase 6 clinical-veto wording still says the per-claim source-type veto is in the L6 composition path. The split is otherwise correct, but tighten wording so Phase 6 owns `not_weight_adequate` / `clinical_source_type_veto` emission and Phase 7 only renders ABSTAIN/fringe."
+  - "Duplicate `Files:` bullets remain in Phase 4a and Phase 7. Editorial only, but remove before execution briefs to avoid stale scope copying."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Eliminate the remaining normative `max(authority_score)` formula and make canonical-origin authority the only cluster_mass definition everywhere outside historical revision-log context."

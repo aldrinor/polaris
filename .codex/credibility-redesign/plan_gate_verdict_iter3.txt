@@ -1,0 +1,23 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - id: P1-2-continuing
+    finding: "The copied-row invariant is still not mathematically closed. `cluster_mass = max(authority_score)` can increase when a copied/non-independent row joins an existing `origin_cluster_id` with a higher `authority_score`, so `weight_mass(rows + copied_row) == weight_mass(rows)` is false as written."
+    required_change: "Define cluster mass from a canonical/frozen origin representative, or from eligible origin rows excluding downstream copies, or add an explicit proof constraint that copied rows cannot raise the cluster max. Add a fixture where a higher-authority copier joins an existing origin cluster and must not change mass."
+  - id: P1-2-continuing-phase4a-contract
+    finding: "Phase 4a still has a stale acceptance bullet saying the output is only per-row `independent_origin_count` consumed in P6/P8, despite Scope requiring stable `origin_cluster_id` + membership. A Phase 4a implementer could pass the phase while leaving P6 impossible."
+    required_change: "Replace the Phase 4a Verification bullet with an explicit requirement to emit stable `origin_cluster_id`, cluster membership, and `independent_origin_count`, with tests asserting P6 can group by `(claim_cluster_id, origin_cluster_id)`."
+p2:
+  - id: P2-drb72-conditional-stale-verification
+    finding: "Phase 6 tests make drb_72 audit-conditional, but the Verification bullet still states unconditionally that the drb_72 regression passes at the weight floor."
+    required_change: "Make the Verification bullet conditional too, or move drb_72 to a non-protocol-pinned fixture unless the audit confirms journal-only was implementation-only."
+  - id: P2-clinical-veto-phase-language
+    finding: "The Phase 6 clinical-veto bullet still says the claim `ABSTAINS / is disclosed fringe`, which is rendering behavior assigned to Phase 7."
+    required_change: "State Phase 6 emits `not_weight_adequate` / `clinical_source_type_veto`; Phase 7 consumes that signal to render ABSTAIN/fringe."
+  - id: P2-dissent-seed-file-list
+    finding: "Phase 10 says `dissent_seed` is fallback-eligible like `agentic_seed`/`deepener_seed`, but its Files list omits `plan_sufficiency_gate.py`, where `SENTINEL_ORIGINS` is actually defined."
+    required_change: "Add `plan_sufficiency_gate.py` sentinel update and a unit test proving `dissent_seed` rows are fallback-creditable."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Close P1-2 by making origin-cluster mass truly copy-invariant and making Phase 4a’s emitted contract unambiguous."
