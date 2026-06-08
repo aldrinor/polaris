@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/synthesis/disclosure_population.py:33-36: certainty bucket defaults are env-overridable, but the numeric fallback values are still embedded in code. Not a blocker for this unwired population module, but before ON/render use they should be operator-confirmed or moved to the project config surface for strict LAW VI cleanliness."
+  - "src/polaris_graph/synthesis/disclosure_population.py:96: explicit None origin IDs would be stringified to 'None' and grouped together, unlike truly missing origin-map entries which correctly become per-evidence singletons. If upstream can emit None for unknown origins, add normalization/test coverage; current behavior is conservative undercounting and advisory-only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

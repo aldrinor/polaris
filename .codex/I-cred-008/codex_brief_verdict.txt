@@ -1,0 +1,16 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Q5: `PG_SWEEP_CREDIBILITY_DISCLOSURE` is not currently defined in source/docs; Phase-1 only says 'credibility-disclosure flag'. Use `PG_SWEEP_CREDIBILITY_DISCLOSURE` as the canonical new helper name if operator confirms."
+  - "Keep `populate_disclosure` itself ungated and pure; add a separate default-OFF helper matching the existing module pattern. No production caller in this issue means OFF byte-identity is preserved."
+  - "Clarify `certainty_label` for `credibility_weight is None`: recommend `low`, not `moderate`, because unknown credibility should not inflate certainty."
+  - "Either remove `weight_by_origin` from this phase or document it as deliberately unused/reserved; the four stated fields do not need Phase-6 mass."
+  - "Implement without importing `provenance_generator` from the new pure module if possible; use duck-typed dataclass instances plus `dataclasses.replace` to avoid faithfulness-path coupling."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Q1 approve the split: population now, render in I-cred-008b. Q2 binary `SUPPORTS` / `UNSUPPORTED` is right for per-sentence post-`strict_verify`. Q3 use MIN over cited evidence. Q4 bucketing is advisory-only and acceptable with the `None => low` clarification.
