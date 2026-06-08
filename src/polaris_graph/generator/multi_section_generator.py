@@ -2078,6 +2078,7 @@ async def _run_section(
     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
+    credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
 ) -> SectionResult:
     """Run one section: generate, rewrite, verify, optionally regenerate.
 
@@ -2263,6 +2264,16 @@ async def _run_section(
     # count so section telemetry is honest about what the report
     # actually ships.
     report.total_kept = len(report_kept_after_m41c)
+
+    # I-cred-008b (#1162) SITE 1/4 (legacy per-section): populate the advisory per-claim
+    # disclosure on the kept SVs IMMEDIATELY BEFORE resolve, so the fields ride along into
+    # kept_sentences_pre_resolve (set from report.kept_sentences below). None => byte-identical
+    # (no populate, no coverage check). ADVISORY: never re-runs strict_verify / flips is_verified.
+    if credibility_analysis is not None:
+        from ..synthesis.credibility_pass import apply_disclosure_to_svs
+        report.kept_sentences = apply_disclosure_to_svs(
+            report.kept_sentences, credibility_analysis,
+        )
 
     verified_text, biblio_slice = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,
@@ -4785,6 +4796,8 @@ async def generate_multi_section_report(
                 section_result_cls=SectionResult,
                 strict_verify_fn=strict_verify,
                 rewrite_fn=_rewrite_draft_with_spans,
+                # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
+                credibility_analysis=credibility_analysis,
             )
             contract_slot_payloads.extend(payloads)
             return result
@@ -4818,6 +4831,8 @@ async def generate_multi_section_report(
                 # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
                 # resolved once above (closure-captured; "" OFF -> no append).
                 advisory_text=advisory_text,
+                # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
+                credibility_analysis=credibility_analysis,
             )
 
     # V33 unified dispatch helper for downstream (M-44 regen) callers
@@ -4971,6 +4986,14 @@ async def generate_multi_section_report(
                     elif s in accepted_rewrite_by_str:
                         final_svs.append(accepted_rewrite_by_str[s])
                     # else: drop (LLM rewrite failed strict_verify)
+                # I-cred-008b (#1162) SITE 2/4 (fact-dedup re-resolve): the dedup pass produces FRESH
+                # post-dedup SVs (originals + re-verified rewrites). Populate them BEFORE the local
+                # `_resolve(...)` ALIAS (a literal grep for resolve_provenance_to_citations( misses it)
+                # so the disclosure rides into kept_sentences_pre_resolve set from final_svs below.
+                # None => byte-identical.
+                if credibility_analysis is not None:
+                    from ..synthesis.credibility_pass import apply_disclosure_to_svs
+                    final_svs = apply_disclosure_to_svs(final_svs, credibility_analysis)
                 # Update SectionResult fields with deduped + re-verified content
                 from .provenance_generator import resolve_provenance_to_citations as _resolve
                 new_text, new_biblio = _resolve(final_svs, evidence_pool)
@@ -5012,6 +5035,13 @@ async def generate_multi_section_report(
                 fact_dedup_telemetry.get("n_drops", 0),
             )
     except Exception as exc:  # noqa: BLE001 — safe-degrade per Codex review
+        # I-cred-008b (#1162): the credibility-disclosure coverage gap MUST stay fail-loud.
+        # The fact-dedup pass safe-degrades on its own faults, but a CredibilityPassError raised
+        # by apply_disclosure_to_svs (a cited token with no credibility/origin coverage) is a
+        # faithfulness abort — NEVER swallow it into a silent "continuing without dedup".
+        from ..synthesis.credibility_pass import CredibilityPassError
+        if isinstance(exc, CredibilityPassError):
+            raise
         logger.warning(
             "[multi_section] GH#423 fact_dedup pass failed (%s); "
             "continuing without dedup", exc,
@@ -5114,6 +5144,12 @@ async def generate_multi_section_report(
             )
             for (idx, plan), regen_result in zip(regen_items, regen_results):
                 if isinstance(regen_result, Exception):
+                    # I-cred-008b (#1162): a credibility-disclosure coverage gap raised during M-44
+                    # regen MUST stay fail-loud — never swallowed into "continue without the regen".
+                    # return_exceptions=True captured it as a value; re-raise it here.
+                    from ..synthesis.credibility_pass import CredibilityPassError
+                    if isinstance(regen_result, CredibilityPassError):
+                        raise regen_result
                     logger.warning(
                         "[multi_section] M-44 regen raised for %s: %s",
                         plan.title, regen_result,
@@ -5303,6 +5339,13 @@ async def generate_multi_section_report(
                                     orig_max, regen_max, regen_passed,
                                 )
                         except Exception as exc:
+                            # I-cred-008b (#1162): a credibility-disclosure coverage gap raised during
+                            # M-47 regen MUST stay fail-loud — never swallowed into "continue without
+                            # the regen" (regen runs _bounded_run -> _run_section/run_contract_section,
+                            # which populate the disclosure under activation).
+                            from ..synthesis.credibility_pass import CredibilityPassError
+                            if isinstance(exc, CredibilityPassError):
+                                raise
                             logger.warning(
                                 "[multi_section] M-47 regen raised: %s",
                                 exc,

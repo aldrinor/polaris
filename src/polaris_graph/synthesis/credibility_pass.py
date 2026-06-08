@@ -200,3 +200,97 @@ def _run_chain(
         edges=graph.edges,
         weight_mass=weight_mass,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-cred-008b (#1162) — the SHARED per-claim disclosure populate+carrier+coverage
+# helper, called at ALL FOUR cited-prose resolve sites (legacy _run_section,
+# fact-dedup re-resolve, V30 contract runner, quantified-analysis). ONE copy of
+# this faithfulness-critical logic so it cannot drift across the four sites.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cited_evidence_ids_for_coverage(sv: Any) -> list[str]:
+    """The cited evidence_ids on a RESOLVER-EMITTED SentenceVerification (its tokens)."""
+    out: list[str] = []
+    for token in (getattr(sv, "tokens", None) or []):
+        eid = str(getattr(token, "evidence_id", "") or "")
+        if eid:
+            out.append(eid)
+    return out
+
+
+def apply_disclosure_to_svs(svs: list, analysis: "CredibilityAnalysis") -> list:
+    """Populate the four advisory disclosure fields on each resolver-emitted SV, then carry the
+    P3 certainty downgrade — ONE shared implementation for all four cited-prose resolve sites.
+
+    Steps (ADVISORY only — never re-runs strict_verify, never flips ``is_verified``):
+      1. COVERAGE ASSERTION (fail-LOUD): every cited token's evidence_id on these SVs MUST have
+         credibility + origin coverage in ``analysis`` (both maps are co-built per-row in
+         ``_run_chain``). A cited token with none ⇒ ``CredibilityPassError(abort_credibility_coverage_gap)``.
+         Scoped to RESOLVER-EMITTED cited SVs (the SVs handed to ``resolve_provenance_to_citations``),
+         NOT every ``[N]`` marker in deterministic tables/timelines — those never become SVs at the
+         resolve sites, so they are excluded for free (Codex I-cred-012 iter-5 P2-3).
+      2. POPULATE: the EvidenceCredibility→float adaptation
+         (``{eid: ec.credibility_weight}``) feeds ``populate_disclosure`` (which expects FLOAT weights,
+         not the EvidenceCredibility object), populating span_verdict / credibility_weight /
+         independent_origin_count / certainty_label.
+      3. P3 CERTAINTY CARRIER (Codex I-cred-012 iter-5 P2): ``populate_disclosure`` derives certainty
+         from credibility/origins ONLY; it does NOT see the P3 supersession downgrade. So for each
+         populated SV whose cited evidence carries ``certainty_downgrade=True``, cap its certainty_label
+         (never above "moderate") and surface the source's ``soft_warning`` on the SV's ``soft_warnings``.
+
+    Inputs are NOT mutated; ``populate_disclosure`` returns NEW SVs via ``dataclasses.replace``.
+    """
+    from src.polaris_graph.synthesis.disclosure_population import populate_disclosure
+
+    cred_by_ev = analysis.credibility_by_evidence or {}
+    origin_by_ev = analysis.origin_by_evidence or {}
+
+    # ── Step 1: coverage assertion (fail-loud BEFORE populate) ──
+    for sv in (svs or []):
+        for eid in _cited_evidence_ids_for_coverage(sv):
+            if eid not in cred_by_ev or eid not in origin_by_ev:
+                raise CredibilityPassError(
+                    "abort_credibility_coverage_gap: a cited evidence_id "
+                    f"({eid!r}) emitted by the resolver has no credibility/origin coverage "
+                    "in the credibility analysis; refusing to disclose a claim whose source "
+                    "the activated pass never scored (fail-loud, never a false-green advisory)"
+                )
+
+    # ── Step 2: EvidenceCredibility → FLOAT adaptation, then populate ──
+    cred_floats = {
+        eid: ec.credibility_weight for eid, ec in cred_by_ev.items()
+    }
+    populated = populate_disclosure(svs, cred_floats, origin_by_ev)
+
+    # ── Step 3: P3 certainty carrier (downgrade + soft_warning surface) ──
+    out: list = []
+    for sv in populated:
+        downgrade = False
+        warnings: list[str] = []
+        for eid in _cited_evidence_ids_for_coverage(sv):
+            ec = cred_by_ev.get(eid)
+            if ec is None:
+                continue
+            if bool(getattr(ec, "certainty_downgrade", False)):
+                downgrade = True
+                warn = getattr(ec, "soft_warning", None)
+                if warn:
+                    warnings.append(str(warn))
+        if not downgrade:
+            out.append(sv)
+            continue
+        # Cap certainty at "moderate" (never "high") when any cited source was P3-downgraded.
+        new_label = sv.certainty_label
+        if new_label == "high":
+            new_label = "moderate"
+        existing_warnings = list(getattr(sv, "soft_warnings", None) or [])
+        for w in warnings:
+            if w not in existing_warnings:
+                existing_warnings.append(w)
+        out.append(dataclasses.replace(
+            sv,
+            certainty_label=new_label,
+            soft_warnings=existing_warnings,
+        ))
+    return out

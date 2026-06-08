@@ -489,6 +489,7 @@ async def run_contract_section(
                                # circular import)
     strict_verify_fn: Any,     # strict_verify callable (injected)
     rewrite_fn: Any,           # _rewrite_draft_with_spans (injected)
+    credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
 ) -> tuple[Any, list[SlotFillPayload]]:
     """Run one contract SECTION. Returns (SectionResult,
     list[SlotFillPayload]). The payloads are threaded back to
@@ -817,6 +818,13 @@ async def run_contract_section(
     kept_sentences = (
         det_kept_sentences + reg_kept_sentences + narr_kept_sentences
     )
+    # I-cred-008b (#1162) SITE 3/4 (V30 contract): populate the advisory per-claim disclosure on the
+    # merged kept SVs BEFORE the resolve below — the contract runner then MANUALLY rebuilds prose from
+    # sv.sentence (the per-slot regroup), so populating here makes the four fields ride along into the
+    # SectionResult.kept_sentences_pre_resolve emitted at the end of this function. None => byte-identical.
+    if credibility_analysis is not None:
+        from ..synthesis.credibility_pass import apply_disclosure_to_svs
+        kept_sentences = apply_disclosure_to_svs(kept_sentences, credibility_analysis)
     rescued = det_rescued  # regulatory + narrative streams contribute no rescues
     # Combined raw + rewritten drafts (telemetry parity with pre-Fix-B).
     raw_draft = " ".join(

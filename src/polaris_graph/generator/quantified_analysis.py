@@ -310,6 +310,7 @@ async def run_quantified_section(
     *,
     spec_provider,
     run_dir: str | None = None,
+    credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
 ) -> tuple[str | None, dict[str, Any]]:
     """Sweep-facing orchestrator: Extract -> Model -> Execute -> Bind ->
     Verify(Regime C) -> verified "Quantified Trade-off" section.
@@ -376,6 +377,28 @@ async def run_quantified_section(
     telem["dropped_sentences"] = report.total_dropped
     if report.total_kept == 0:
         return None, telem
+
+    # I-cred-008b (#1162) SITE 4/4 (quantified trade-off): populate the advisory per-claim disclosure
+    # on the kept SVs BEFORE resolve. This path returns (section_md, telem) — it has NO SectionResult,
+    # so the populated SVs do NOT flow through kept_sentences_pre_resolve. To SURFACE them, we emit the
+    # per-claim disclosure rows in `telem["claim_disclosure"]` (the runner merges them into
+    # claim_disclosure.json). None => byte-identical (no populate, no telem key).
+    if credibility_analysis is not None:
+        from src.polaris_graph.synthesis.credibility_pass import apply_disclosure_to_svs
+        report.kept_sentences = apply_disclosure_to_svs(
+            report.kept_sentences, credibility_analysis,
+        )
+        telem["claim_disclosure"] = [
+            {
+                "sentence": getattr(_sv, "sentence", ""),
+                "span_verdict": getattr(_sv, "span_verdict", ""),
+                "credibility_weight": getattr(_sv, "credibility_weight", None),
+                "independent_origin_count": getattr(_sv, "independent_origin_count", None),
+                "certainty_label": getattr(_sv, "certainty_label", ""),
+                "soft_warnings": list(getattr(_sv, "soft_warnings", None) or []),
+            }
+            for _sv in report.kept_sentences
+        ]
 
     rendered, _biblio = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,

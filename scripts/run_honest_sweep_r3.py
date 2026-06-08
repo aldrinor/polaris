@@ -53,6 +53,10 @@ from src.polaris_graph.evaluator.live_judge import judge_report  # noqa: E402
 from src.polaris_graph.nodes.journal_only_filter import (  # noqa: E402  # I-ready-017 #1134
     JournalOnlyAbort as _JournalOnlyAbort,
 )
+# I-cred-008b (#1162): the credibility-disclosure coverage-gap abort (named manifest status).
+from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
+    CredibilityPassError as _CredPassErrForAbort,
+)
 # I-safety-002b (#925) PR-2: Path-B benchmark gate (preflight + capture + assert_post_run).
 from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
@@ -206,6 +210,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — a required report-contract slot is bound to a non-journal entity; refuse rather than cite a non-journal source in a journal-restricted review
     "error_journal_only_leak",       # I-ready-017 (#1134): journal_only — a non-journal row reached the generator past the source-filter (should never happen); fail-closed backstop, never synthesize
     "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
+    "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
@@ -248,6 +253,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "abort_journal_only_contract_conflict": "abort_journal_only_contract_conflict",
     "error_journal_only_leak": "error_journal_only_leak",
     "error_corpus_population_mismatch": "error_corpus_population_mismatch",
+    # I-cred-008b (#1162): credibility-disclosure coverage gap — fail-loud named abort.
+    "abort_credibility_coverage_gap": "abort_credibility_coverage_gap",
     "error": "error_unexpected",
 }
 
@@ -257,6 +264,65 @@ def to_unified_status(summary_status: str) -> str:
     manifest.status taxonomy. Unknown labels become error_unexpected
     (fail loudly for the reader; still a valid taxonomy value)."""
     return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+def _credibility_abort_status(exc: BaseException) -> str | None:
+    """I-cred-008b (#1162) — Codex #008b P1-1: classify an exception that reached run_one_query's handler.
+
+    Returns ``"abort_credibility_coverage_gap"`` for a credibility-disclosure COVERAGE-GAP
+    ``CredibilityPassError`` (a cited token with no credibility/origin coverage); returns ``None`` for
+    EVERYTHING ELSE — including a NON-coverage ``CredibilityPassError`` (judge_error / independence gap
+    raised by the pass itself), which the caller then routes to ``error_unexpected``. Pure + behavioral so
+    the routing is unit-testable on real exception objects (not a mirrored predicate), which is exactly
+    what the original sibling-``except`` re-raise missed.
+    """
+    # Codex #008b iter-2 P2: classify by message PREFIX (the coverage gap is always raised as
+    # CredibilityPassError("abort_credibility_coverage_gap: ...")) — a prefix match is less brittle than a
+    # substring scan for a manifest-status classifier.
+    if isinstance(exc, _CredPassErrForAbort) and str(exc).startswith("abort_credibility_coverage_gap"):
+        return "abort_credibility_coverage_gap"
+    return None
+
+
+def _build_claim_disclosure_doc(multi: Any, quantified_telemetry: Any) -> dict | None:
+    """I-cred-008b (#1162): serialize the per-claim CREDIBILITY DISCLOSURE for claim_disclosure.json.
+
+    Returns ``None`` (=> no artifact, byte-identical) when ``multi.credibility_analysis`` is absent
+    (master flag off). Otherwise returns ``{"sections": [{"title", "claims": [...]}, ...]}`` where each
+    claim row carries the six advisory disclosure fields. Sites 1-3 surface via
+    ``SectionResult.kept_sentences_pre_resolve``; the quantified path (site 4) has no SectionResult, so
+    its rows arrive in ``quantified_telemetry["claim_disclosure"]``. Pure (no IO) for testability.
+    """
+    if getattr(multi, "credibility_analysis", None) is None:
+        return None
+    sections: list[dict] = []
+    for sr in getattr(multi, "sections", None) or []:
+        if getattr(sr, "dropped_due_to_failure", False):
+            continue
+        kept = getattr(sr, "kept_sentences_pre_resolve", None) or []
+        if not kept:
+            continue
+        sections.append({
+            "title": getattr(sr, "title", ""),
+            "claims": [
+                {
+                    "sentence": getattr(sv, "sentence", ""),
+                    "span_verdict": getattr(sv, "span_verdict", ""),
+                    "credibility_weight": getattr(sv, "credibility_weight", None),
+                    "independent_origin_count": getattr(sv, "independent_origin_count", None),
+                    "certainty_label": getattr(sv, "certainty_label", ""),
+                    "soft_warnings": list(getattr(sv, "soft_warnings", None) or []),
+                }
+                for sv in kept
+            ],
+        })
+    q_rows = (
+        quantified_telemetry.get("claim_disclosure")
+        if isinstance(quantified_telemetry, dict) else None
+    )
+    if q_rows:
+        sections.append({"title": "Quantified Trade-off", "claims": list(q_rows)})
+    return {"sections": sections}
 
 
 def make_feature_telemetry(feature: str, **extra: Any) -> dict[str, Any]:
@@ -5116,6 +5182,9 @@ async def run_one_query(
                 _q_section_md, _quantified_telemetry = await run_quantified_section(
                     q["question"], _q_ev_pool,
                     spec_provider=_q_spec_provider, run_dir=str(run_dir),
+                    # I-cred-008b (#1162): thread the advisory credibility analysis from the
+                    # MultiSectionResult (None when the master flag is off => byte-identical).
+                    credibility_analysis=getattr(multi, "credibility_analysis", None),
                 )
                 if _q_section_md:
                     sections_concat += "\n\n" + _q_section_md
@@ -5130,6 +5199,15 @@ async def run_one_query(
                         f"(spec_produced={_quantified_telemetry.get('spec_produced')})"
                     )
             except Exception as _q_exc:  # never abort the run on quantified failure
+                # I-cred-008b (#1162): a credibility-disclosure coverage gap MUST stay fail-loud.
+                # The quantified block safe-degrades on its own faults, but a CredibilityPassError
+                # (a cited token with no credibility/origin coverage) is a faithfulness abort — let it
+                # propagate to the run_one_query handler, which maps it to abort_credibility_coverage_gap.
+                from src.polaris_graph.synthesis.credibility_pass import (
+                    CredibilityPassError as _CredPassErr,
+                )
+                if isinstance(_q_exc, _CredPassErr):
+                    raise
                 _log(f"[phase7]      quantified analysis skipped: {str(_q_exc)[:160]}")
                 _quantified_telemetry = {"enabled": True, "error": str(_q_exc)[:200]}
 
@@ -5601,6 +5679,17 @@ async def run_one_query(
             json.dumps(verif_details, indent=2, sort_keys=True, default=str) + "\n",
             encoding="utf-8",
         )
+        # I-cred-008b (#1162) DELIVERABLE 4: surface the populated per-claim CREDIBILITY DISCLOSURE.
+        # ONLY when the advisory credibility analysis is present (master flag on); None => no artifact,
+        # byte-identical. The populated SVs already flow out via SectionResult.kept_sentences_pre_resolve
+        # (sites 1-3); the quantified path (site 4) has no SectionResult, so its rows ride in
+        # _quantified_telemetry["claim_disclosure"]. ADVISORY: this is disclosure the user reads, never a gate.
+        _claim_disclosure_doc = _build_claim_disclosure_doc(multi, _quantified_telemetry)
+        if _claim_disclosure_doc is not None:
+            (run_dir / "claim_disclosure.json").write_text(
+                json.dumps(_claim_disclosure_doc, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
         # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): generation + per-sentence verification complete
         # (generation is one batched await with no mid-stream hook, spec §1.8, so this is the earliest
         # truthful "generation_done" point — right before the 4-role seam).
@@ -6625,9 +6714,24 @@ async def run_one_query(
             _log(f"[journal_only] abort manifest-write-also-failed: {_ja_mw}")
     except Exception as exc:
         tb = traceback.format_exc()
-        _log(f"[FATAL]       {exc}")
-        _log(tb)
-        summary["status"] = "error"
+        # I-cred-008b (#1162) — Codex #008b P1-1 fix: route the credibility-disclosure COVERAGE-GAP
+        # CredibilityPassError to its OWN named status, while ALL OTHER exceptions — INCLUDING a
+        # non-coverage CredibilityPassError (judge_error / independence-annotation gap raised by the
+        # pass itself) — fall through to error_unexpected. This branch MUST live in the SAME except
+        # block: a `raise` from a separate `except _CredPassErrForAbort` propagates OUT of run_one_query
+        # entirely (sibling excepts don't chain), so a non-coverage pass failure previously ESCAPED the
+        # error_unexpected manifest path. Folding the branch here closes that gap (still fail-loud, no
+        # false-green; only the STATUS label differs by exception kind).
+        _coverage_gap_status = _credibility_abort_status(exc)
+        if _coverage_gap_status is not None:
+            _unified_error_status = _coverage_gap_status
+            _log(f"[credibility]  ABORT: status={_coverage_gap_status} — {exc}")
+            summary["status"] = _coverage_gap_status
+        else:
+            _unified_error_status = "error_unexpected"
+            _log(f"[FATAL]       {exc}")
+            _log(tb)
+            summary["status"] = "error"
         summary["error"] = str(exc)[:300]
         # BUG-B-101 fix: previously the exception path wrote no
         # manifest, so a crashed run was indistinguishable from a
@@ -6640,7 +6744,7 @@ async def run_one_query(
                     "slug": q.get("slug", ""),
                     "domain": q.get("domain", ""),
                     "question": q.get("question", ""),
-                    "status": "error_unexpected",
+                    "status": _unified_error_status,
                     "error": str(exc)[:500],
                     "cost_usd": run_cost,
                     "budget_cap_usd": get_max_cost_per_run(),

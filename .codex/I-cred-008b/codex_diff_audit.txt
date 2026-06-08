@@ -1,0 +1,13 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: `scripts/run_honest_sweep_r3.py:6698` re-raises non-coverage `CredibilityPassError` from inside the specific `except`, so the generic `except Exception` below never handles it. Active pass failures like judge/missing-input errors can escape `run_one_query` without the intended `error_unexpected` manifest/status."
+  - "P1: Phase 8 plan requires Proof-Replay/bibliography surfacing of `span_verdict`, `credibility_weight`, `independent_origin_count`, and `certainty_label` (`docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md:162-166`). The diff does not extend `resolve_provenance_to_citations`; it only writes `claim_disclosure.json`, so the planned render surface is missing."
+p2:
+  - "Fail-loud tests are partly source-string inspections, and the run-handler test mirrors the faulty predicate instead of behaviorally exercising `run_one_query`; this missed the P1 status-routing bug."
+  - "Local targeted smoke rerun was not green in this sandbox: 19/20 passed, with the quantified disclosure test failing because the executor tried to write temp files under `C:\\Users\\msn\\AppData\\Local\\Temp` outside writable roots."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix `CredibilityPassError` routing so coverage gaps get the named abort while other credibility-pass failures are still converted to the normal fatal/error manifest path."
+  - "Implement and test the Phase 8 bibliography/Proof-Replay disclosure surface, or explicitly revise the plan before claiming this phase complete."
