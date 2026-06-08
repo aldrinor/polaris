@@ -431,6 +431,14 @@ class SentenceVerification:
     # to fail-closed. OFF byte-identity is defined over behavioral/output
     # fields + rendered artifacts, NOT raw dataclass asdict (Codex iter-3 P2).
     judge_error: bool = False
+    # I-cred-001 (Phase 1, L7) — per-claim CREDIBILITY DISCLOSURE side-outputs. Default-OFF inert
+    # plumbing: these are NEVER inputs to is_verified / the six strict_verify checks; they are
+    # populated + rendered only when the credibility-disclosure flag is ON (Phase 8), so OFF behaviour
+    # and the rendered report stay byte-identical. Additive, exactly like soft_warnings / judge_error.
+    span_verdict: str = ""                       # explicit per-claim verdict, e.g. "SUPPORTS" (not "EXISTS")
+    credibility_weight: float | None = None      # the source's disclosed credibility weight
+    independent_origin_count: int | None = None  # "N sources -> M independent origins" (post-collapse)
+    certainty_label: str = ""                    # e.g. "high" / "moderate" / "low"
 
 
 def parse_provenance_tokens(sentence: str) -> list[ProvenanceToken]:
