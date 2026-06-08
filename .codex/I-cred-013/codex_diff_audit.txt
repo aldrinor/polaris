@@ -1,0 +1,12 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "scripts/dr_benchmark/super_heavy_preflight.py:88-101 and :124-147 do not probe self-host verifiers in the production call shape. The real self-host transport posts to base_url + /v1/chat/completions and omits Authorization when PG_<ROLE>_API_KEY is unset (src/polaris_graph/roles/openai_compatible_transport.py:53, :474-489); the new probe posts to /chat/completions and always sends Authorization. A valid keyless vLLM self-host deployment can fail this preflight, and the phase invariant 'verifier slug alive in production call shape' is not actually enforced."
+  - "scripts/dr_benchmark/super_heavy_preflight.py:88-94 uses a generic minimal OpenRouter body rather than the OpenRouterRoleTransport production body, which carries role-specific provider routing / require_parameters / reasoning / token-budget semantics (src/polaris_graph/roles/openrouter_role_transport.py:484-567). This can pass a generic slug route while the actual verifier route used by Gate-B would fail."
+p2:
+  - "The tests cover simple injected 404/200 verifier leaves, but do not cover self_host mode or assert equivalence to the existing RoleTransport request construction."
+  - "The named plan document does not define I-cred-013 as a credibility layer phase; this diff is a Gate-B preflight adjunct. That is acceptable only if the operator treats #1163 as an explicit readiness adjunct, not as implementation of P3/P4/P5/P6 credibility-layer invariants."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Make verifier slug probing reuse the actual production transport request construction, or at minimum match endpoint/auth/provider/reasoning routing for both openrouter and self_host modes, then add self_host and production-body regression tests."

@@ -509,6 +509,13 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
     # drb_72 failure). Force-on + required below; the canary itself runs only on the live path.
     "PG_BEHAVIORAL_CANARY": "1",
+    # I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight MUST run on the real beat-both
+    # Gate-B run — it COMPOSES CANARY-01 with: EVERY model slug (generator + 3 verifiers + the
+    # credibility judge when active) ALIVE in its production call shape, STORM/discovery non-empty,
+    # host-local chromium present, and a RUNTIME re-assertion of the 5 recurring false-alarm regression
+    # locks. OFF would drop back to the lighter canary alone and let a dead verifier/STORM/browser tier
+    # ship a false-green paid run. Force-on + required below; the preflight runs only on the live path.
+    "PG_SUPER_HEAVY_PREFLIGHT": "1",
     # I-ready-017 FX-14 (#1129): force the custody-lane honesty marker ON so the paid run emits
     # custody_lane_status.json (not_applicable_planner_lane) instead of a silently-empty
     # v29_primary_custody.json / m44_primary_citation_telemetry.json when primary-trial seeds reach
@@ -566,6 +573,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
     # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
     "PG_BEHAVIORAL_CANARY",
+    # I-cred-013 (#1163): the super-heavy behavioral preflight must be ON for a paid beat-both run — OFF
+    # drops to the lighter canary alone and lets a dead verifier/STORM/credibility/browser tier or a
+    # resurfaced false alarm ship a false-green paid run. Fail closed if it is not active.
+    "PG_SUPER_HEAVY_PREFLIGHT",
     # I-ready-017 FX-14 (#1129): custody-lane honesty marker required — otherwise an explicit
     # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
     # run silently writes empty v29/m44 custody telemetry with no not_applicable disambiguation.
@@ -607,6 +618,9 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
     # survive the slate and let a dead-discovery run go green.
     "PG_BEHAVIORAL_CANARY",
+    # I-cred-013 (#1163): force-on the super-heavy behavioral preflight so an operator =0 cannot survive
+    # the slate and silently drop the paid run back to the lighter canary alone.
+    "PG_SUPER_HEAVY_PREFLIGHT",
     # I-ready-017 FL-05b (#1137): force-on the run-health backstop so an explicit operator
     # PG_RUN_HEALTH_GATE=0 cannot survive the setdefault slate and silently restore the
     # ship-green-on-degraded-discovery behavior (the I-cap-005 P1-1 force-on pattern).
@@ -964,12 +978,21 @@ async def run_gate_b_query(
         # cannot resolve — openrouter: a pinned slug missing from the catalog; self_host: a
         # missing PG_<ROLE>_BASE_URL; either: a 4-role family collision.
         preflight_four_role_transport()
-        # I-ready-017 CANARY-01 (#1108): BEHAVIORAL pre-spend canary — real call shapes (structured
-        # output on the searcher/generator slug = the FX-01-keystone 404 class + a 1-query live search
-        # returning >0 sources) must be ALIVE, or FAIL CLOSED before any sweep spend. Live-path only
-        # (transport injected = offline test, no real calls); gated by PG_BEHAVIORAL_CANARY (slate).
-        from scripts.dr_benchmark.pathB_run_gate import behavioral_canary
-        await behavioral_canary()
+        # I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight. COMPOSES the CANARY-01
+        # behavioral canary (#1108 — structured-output on the searcher/generator slug = the FX-01-keystone
+        # 404 class + a 1-query live search >0 sources) with the heavy pre-beat-both checks: EVERY model
+        # slug (generator + the 3 verifiers + the credibility judge when active) ALIVE in its production
+        # call shape, STORM/discovery non-empty, host-local chromium present, and a RUNTIME re-assertion
+        # of the 5 recurring false-alarm regression locks. FAIL CLOSED before any sweep spend. Live-path
+        # only (transport injected = offline test, no real calls); gated by PG_SUPER_HEAVY_PREFLIGHT
+        # (slate force-on + required). When PG_SUPER_HEAVY_PREFLIGHT is off, fall back to the CANARY-01
+        # behavioral canary alone (byte-unchanged from #1108).
+        if os.getenv("PG_SUPER_HEAVY_PREFLIGHT", "0").strip().lower() in ("1", "true"):
+            from scripts.dr_benchmark.super_heavy_preflight import super_heavy_preflight
+            await super_heavy_preflight()
+        else:
+            from scripts.dr_benchmark.pathB_run_gate import behavioral_canary
+            await behavioral_canary()
         active_transport = build_gate_b_transport()
         # P2 (I-meta-007d): record the machine-readable stage marker so a future gate/manifest
         # reader can tell this benchmark OpenRouter run apart from the sovereign self-host path.
