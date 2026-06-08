@@ -1,0 +1,17 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Contract should explicitly require n_bins / PG_CALIBRATION_BINS to resolve to a positive integer, and define fallback-or-raise behavior for invalid values. This is not a blocker for the stated metrics if tests cover the normal path, but it prevents ambiguity."
+  - "Because malformed pairs are silently dropped, the report should rely on n as the valid-pair count, as specified. If callers need data-quality auditing later, add a separate dropped_count outside this scoring-core contract."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Q1: Confirmed. The split is correct: this issue should ship only the pure offline calibration scoring core. The adversarial benchmark, competitor head-to-head harness, and any paid run that consumes these metrics belong in I-cred-011b.
+
+Q2: The coercion policy is acceptable for an offline post-hoc scorer: clamp confidence, binarize outcome at `>= 0.5`, and drop malformed/non-numeric rows. Strict validation would be better for a production ingestion boundary, but this module is the deterministic math core over possibly messy run exports. Silent dropping is fine as long as `n` is valid-pair count.
+
+Q3: Confirmed. Population-weighted ECE, `Σ(count/n) * gap`, is the standard expected calibration error definition for this use case. A debiased or fixed-bin-count variant would be a different metric and should not replace this contract.

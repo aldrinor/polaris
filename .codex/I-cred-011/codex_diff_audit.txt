@@ -1,0 +1,9 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/synthesis/calibration_metrics.py:41: malformed-pair handling does not reject non-finite numeric values. `float('nan')` in predicted confidence reaches `int(p * n_bins)` and raises `ValueError`; `brier_score` can return `nan`; `nan` outcome is silently coerced to `0.0`. This violates the stated malformed-drop contract for the offline scorer. Add `math.isfinite` filtering after float coercion and test NaN/inf predicted/outcome cases."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix non-finite malformed input handling and add a regression test. Supplied/local smoke is otherwise green: 9 passed."
