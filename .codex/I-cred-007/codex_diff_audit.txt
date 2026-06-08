@@ -1,0 +1,9 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/synthesis/both_sides.py:150: render_both_sides does not render the actual side/claim text. It captures SidePosition.predicate, but each bullet only shows weight, origin count, and cited IDs, so the markdown cannot tell the user what Position A vs Position B asserts. This violates plan §9.3's requirement to show each side as a legitimate position so the user can judge. tests/polaris_graph/synthesis/test_both_sides_phase7.py:68 only asserts neutral wording and weights, so this core invariant is untested. Add an opposing-predicate/text fixture and require the rendered disclosure to include each side's neutral claim statement."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Rendered disclosure must include the actual neutral side statements, with a meaningful test covering opposing positions."
