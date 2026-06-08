@@ -1,0 +1,15 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Q1: Confirm A. Generator-internal pass after M-52/M-44 is the least risky placement because it uses the exact dict the generator cites from."
+  - "Q2: Confirm optional keyword params defaulting to off/None. Existing keyword-only call sites keep behavior unchanged; avoid top-level side effects by lazy/gated import."
+  - "Q3: Runner preflight is required before calling generate_multi_section_report, because generator first-use after M-52 occurs after the paid outline call. Keep generator-side fail-closed as defense-in-depth."
+  - "Q4: Conditional yes. A sees dissent rows if 010b appends them to evidence_for_gen before the generator call. I did not find a live runner PG_SWEEP_DISSENT_RECALL hook in this checkout, so do not rely on that unless it is in your branch."
+  - "Q5: Confirm read-only/no-throttle. run_credibility_analysis copies rows before annotation and returns analysis; it must not feed a filtered/shrunken pool back into generation."
+  - "Threading note: carry analysis through explicit params/closures and MultiSectionResult, not globals, so concurrent reports cannot cross-contaminate."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
