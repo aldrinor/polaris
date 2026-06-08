@@ -21,8 +21,20 @@ and fails CLOSED (raises ``GateError``) before any token is spent:
          (make_openrouter_credibility_caller) on PG_CREDIBILITY_JUDGE_MODEL, but ONLY when the
          credibility redesign is active in this run (PG_SWEEP_CREDIBILITY_REDESIGN) — probe-alive
          must match production activation.
-  3. STORM/discovery is non-empty — a real, minimal STORM persona-discovery call returns >0 personas
-     (the discovery generate_structured path the drb_72 collapse silently killed).
+  3. STORM/discovery is non-empty — a real, minimal STORM persona-discovery call returns
+     >= PG_PREFLIGHT_MIN_STORM_PERSONAS personas (default 2 for the cheap probe). The discovery
+     generate_structured path the drb_72 collapse silently killed.
+  3b. RETRIEVAL BREADTH goes WIDE (I-preflight-002 #1169) — ONE real query through the PRODUCTION
+     discovery functions (`_serper_search` + `_s2_bulk_search`, the EXACT functions run_one_query drives
+     via run_live_retrieval) with the run's ACTUAL breadth budget (PG_SWEEP_MAX_SERPER /
+     PG_SWEEP_MAX_S2 + the PG_SERPER_TOTAL_PER_QUERY pagination budget — the LIVE PG_SWEEP_* knobs, NOT
+     the dead PG_LIVE_* names) returns >= PG_PREFLIGHT_MIN_BREADTH (default 100) UNIQUE candidate URLs.
+     If a silent throttle regression dropped the run back to ~40 URLs / single-page Serper, the union
+     collapses well below 100 -> GateError. This is the single most important new check: it proves the
+     1000-budget/STORM-wide path is ACTIVE, not silently throttled (the I-cap-005 / FX-17 throttle
+     class). It is the BEHAVIORAL counterpart to the config-level `_BENCHMARK_PREFLIGHT_FLOORS` floor in
+     run_gate_b — complementary defense-in-depth (real query + real count vs config-flag value), not a
+     duplicate. Cheap: TWO search-API calls (no fetch, no LLM generation, no classification spend).
   4. Playwright/chromium present on the run host — reuse the FX-16 fail-closed probe
      (pg_preflight.test_chromium_browser_available); FAIL -> GateError. HOST-LOCAL only (a local PASS
      does not prove the VM; the VM-side chromium install is FX-16's operator-gated step).
@@ -52,6 +64,21 @@ from scripts.dr_benchmark.pathB_run_gate import GateError, behavioral_canary
 _CREDIBILITY_REDESIGN_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
 # OFF tokens — identical to the runner's read (run_honest_sweep_r3.py:4711).
 _CREDIBILITY_OFF_TOKENS = ("", "0", "false", "off", "no")
+
+# I-preflight-002 (#1169) RETRIEVAL-BREADTH probe floor (LAW VI, env-overridable). The single real
+# query through the production discovery functions must return at least this many UNIQUE candidate URLs,
+# or a silent throttle regression (the run dropping back to ~40 URLs / single-page Serper) has occurred.
+# 100 is the wide-run floor: at the benchmark slate (PG_SWEEP_MAX_SERPER=100 / PG_SWEEP_MAX_S2=100 /
+# PG_SERPER_TOTAL_PER_QUERY=60) the serper(paginated ~60) + S2(~100) union clears 100 with margin, while
+# a throttled config (e.g. PG_SWEEP_MAX_S2=12, single-page Serper ~20) collapses the union to ~30-40.
+# UNCALIBRATED offline — may need tuning against the first real wide run (see I-preflight-002 caveats).
+_PREFLIGHT_MIN_BREADTH = int(os.getenv("PG_PREFLIGHT_MIN_BREADTH", "100"))
+
+# I-preflight-002 (#1169) STORM-FIRED floor (LAW VI, env-overridable). The cheap STORM probe requests
+# target_count=2 personas; require at least this many to fire. Default 2 — the probe is intentionally
+# cheap (the breadth probe is the real wide-run signal), so the STORM floor only proves the
+# persona-discovery generate_structured path produces its requested minimum, not a large count.
+_PREFLIGHT_MIN_STORM_PERSONAS = int(os.getenv("PG_PREFLIGHT_MIN_STORM_PERSONAS", "2"))
 
 
 def credibility_redesign_active() -> bool:
@@ -302,6 +329,49 @@ async def _default_storm_probe() -> int:
         await client.close()
 
 
+def _default_breadth_probe() -> int:
+    """I-preflight-002 (#1169): run ONE real query through the PRODUCTION discovery functions and return
+    the count of UNIQUE candidate URLs. This is the THROTTLE-REGRESSION signal — a wide run returns
+    >= _PREFLIGHT_MIN_BREADTH; a silently-throttled run (back to ~40 URLs / single-page Serper) returns
+    far fewer.
+
+    REUSES the EXACT production discovery functions the run drives — ``_serper_search`` and
+    ``_s2_bulk_search`` (the same functions ``run_one_query`` calls via ``run_live_retrieval``), with the
+    run's ACTUAL breadth budget read from the LIVE PG_SWEEP_* knobs (NOT the dead PG_LIVE_*-keyed
+    ``DEFAULT_MAX_SERPER`` / ``DEFAULT_MAX_S2`` module constants, default 20 — keying off those would
+    false-FAIL every wide run). Mirrors run_honest_sweep_r3.py:2271-2272 EXACTLY:
+      - serper: ``num = PG_SWEEP_MAX_SERPER`` (default 12). ``_serper_search`` internally honors the
+        ``PG_SERPER_TOTAL_PER_QUERY`` pagination budget from env, so passing the slate's MAX_SERPER
+        reflects the wide config automatically.
+      - S2: ``limit = PG_SWEEP_MAX_S2`` (default 12). ``_s2_bulk_search`` clamps to min(limit, 100).
+
+    NO fetch, NO LLM generation, NO classification: TWO search-API calls only (the canary already does
+    one serper call). Returns the size of the UNIONED unique-URL set across both backends; the caller
+    fails closed if it is below ``_PREFLIGHT_MIN_BREADTH``."""
+    from src.polaris_graph.retrieval.live_retriever import (
+        _s2_bulk_search,
+        _serper_search,
+    )
+
+    # Mirror run_honest_sweep_r3.py:2271-2272 — the LIVE breadth knobs, with the runner's defaults.
+    max_serper = int(os.getenv("PG_SWEEP_MAX_SERPER", "12"))
+    max_s2 = int(os.getenv("PG_SWEEP_MAX_S2", "12"))
+    # The same high-volume probe query the canary's live-search probe uses (proves the THROTTLE CONFIG is
+    # wide; it does not assert the run's actual question yields this many — that is the run's own corpus).
+    query = "metformin efficacy in type 2 diabetes"
+
+    urls: set[str] = set()
+    for hit in _serper_search(query, num=max_serper):
+        u = hit.get("url", "")
+        if u:
+            urls.add(u)
+    for hit in _s2_bulk_search(query, limit=max_s2):
+        u = hit.get("url", "")
+        if u:
+            urls.add(u)
+    return len(urls)
+
+
 async def _default_chromium_probe() -> None:
     """Reuse the FX-16 host-local fail-closed chromium probe (pg_preflight). FAIL -> GateError. A SKIP
     (DRY mode, or intentionally-disabled cascade) is treated per its reason: an intentionally-disabled
@@ -371,6 +441,7 @@ async def super_heavy_preflight(
     verifier_slug_probe: Callable[[], Mapping[str, str]] = _default_verifier_slug_probe,
     credibility_judge_probe: Callable[[], str | None] = _default_credibility_judge_probe,
     storm_probe: Callable[[], Awaitable[int]] = _default_storm_probe,
+    breadth_probe: Callable[[], int] = _default_breadth_probe,
     chromium_probe: Callable[[], Awaitable[None]] = _default_chromium_probe,
     false_alarm_asserts: Callable[[], list[str]] = _default_false_alarm_asserts,
 ) -> dict:
@@ -389,7 +460,11 @@ async def super_heavy_preflight(
       4. generator slug alive (generate_structured on PG_GENERATOR_MODEL).
       5. every verifier slug alive in its production call shape (mode-aware resolution).
       6. credibility judge slug alive (only when the redesign is active this run).
-      7. STORM/discovery non-empty (a real minimal persona-discovery call returns >0).
+      7. STORM/discovery fired (a real minimal persona-discovery call returns
+         >= PG_PREFLIGHT_MIN_STORM_PERSONAS).
+      8. retrieval breadth goes WIDE (I-preflight-002 #1169) — ONE real query through the production
+         discovery functions returns >= PG_PREFLIGHT_MIN_BREADTH unique candidate URLs (the
+         single most important new check: it proves the wide path is active, not silently throttled).
     """
     summary: dict = {}
 
@@ -476,12 +551,32 @@ async def super_heavy_preflight(
             f"super-heavy preflight: STORM discovery probe failed ({type(exc).__name__}: {exc}) — fail "
             f"closed BEFORE spend."
         )
-    if n_personas <= 0:
+    if n_personas < _PREFLIGHT_MIN_STORM_PERSONAS:
         raise GateError(
-            "super-heavy preflight: STORM persona-discovery returned 0 personas — discovery is degraded "
-            "(the drb_72 silent-collapse class). Aborting BEFORE spend."
+            f"super-heavy preflight: STORM persona-discovery returned {n_personas} personas "
+            f"(< {_PREFLIGHT_MIN_STORM_PERSONAS} required) — discovery is degraded (the drb_72 "
+            f"silent-collapse class). Aborting BEFORE spend."
         )
     summary["storm_personas"] = n_personas
+
+    # 8. retrieval breadth goes WIDE (I-preflight-002 #1169) — the throttle-regression signal --------
+    try:
+        n_candidates = breadth_probe()
+    except GateError:
+        raise
+    except Exception as exc:
+        raise GateError(
+            f"super-heavy preflight: retrieval-breadth probe failed ({type(exc).__name__}: {exc}) — "
+            f"fail closed BEFORE spend."
+        )
+    if n_candidates < _PREFLIGHT_MIN_BREADTH:
+        raise GateError(
+            f"super-heavy preflight: ONE real query through the production discovery path returned "
+            f"{n_candidates} unique candidate URLs (< {_PREFLIGHT_MIN_BREADTH} required) — the run is "
+            f"SILENTLY THROTTLED back to a narrow corpus (the ~40-URL / single-page-Serper regression "
+            f"class). The 1000-budget/STORM-wide path is NOT active. Aborting BEFORE spend."
+        )
+    summary["retrieval_breadth"] = n_candidates
 
     print("SUPER_HEAVY_PREFLIGHT_OK", flush=True)
     return summary

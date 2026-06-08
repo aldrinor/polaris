@@ -17,6 +17,8 @@ import pytest
 from scripts.dr_benchmark.pathB_run_gate import GateError
 from scripts.dr_benchmark.super_heavy_preflight import (
     _CREDIBILITY_REDESIGN_FLAG,
+    _PREFLIGHT_MIN_BREADTH,
+    _PREFLIGHT_MIN_STORM_PERSONAS,
     credibility_redesign_active,
     super_heavy_preflight,
 )
@@ -57,6 +59,10 @@ async def _storm_ok() -> int:
     return 2
 
 
+def _breadth_ok() -> int:
+    return 140  # the wide-run union (serper ~60 + S2 ~100, de-duped) clears the default floor of 100
+
+
 async def _chromium_ok() -> None:
     return None
 
@@ -72,6 +78,7 @@ def _all_green_kwargs(**overrides):
         verifier_slug_probe=_verifiers_ok,
         credibility_judge_probe=_cred_inactive,
         storm_probe=_storm_ok,
+        breadth_probe=_breadth_ok,
         chromium_probe=_chromium_ok,
         false_alarm_asserts=_false_alarms_ok,
     )
@@ -90,6 +97,7 @@ def test_super_heavy_preflight_all_green_returns_summary(capsys):
     assert summary["verifier_slugs_alive"]["sentinel"] == "minimax/minimax-m2"
     assert summary["credibility_judge"] == "inactive_this_run"
     assert summary["storm_personas"] == 2
+    assert summary["retrieval_breadth"] == 140
 
 
 def test_super_heavy_preflight_reports_active_credibility_slug():
@@ -186,6 +194,56 @@ def test_normalizes_arbitrary_storm_failure_to_gateerror():
         asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_boom)))
 
 
+def test_fails_closed_when_storm_under_threshold():
+    """I-preflight-002 (#1169): STORM returning FEWER than PG_PREFLIGHT_MIN_STORM_PERSONAS (default 2)
+    fails closed — not only the empty (0) case. A 1-persona return is under the cheap-probe floor."""
+    assert _PREFLIGHT_MIN_STORM_PERSONAS == 2  # the cheap-probe default
+
+    async def _storm_under() -> int:
+        return 1
+
+    with pytest.raises(GateError, match=r"1 personas \(< 2 required\)"):
+        asyncio.run(super_heavy_preflight(**_all_green_kwargs(storm_probe=_storm_under)))
+
+
+# --------------------------------------------------------------------------- I-preflight-002 BREADTH
+def test_fails_closed_when_breadth_too_low():
+    """I-preflight-002 (#1169) THE most important new check: a narrow candidate-URL count (the silent
+    ~40-URL / single-page-Serper throttle regression) fails closed BEFORE spend."""
+    def _breadth_throttled() -> int:
+        return 38  # the ~40-URL throttle-regression signal — below the default floor of 100
+
+    with pytest.raises(GateError, match=r"SILENTLY THROTTLED|unique candidate URLs"):
+        asyncio.run(super_heavy_preflight(**_all_green_kwargs(breadth_probe=_breadth_throttled)))
+
+
+def test_breadth_ok_passes():
+    """A wide-run breadth count (>= PG_PREFLIGHT_MIN_BREADTH) passes and is recorded in the summary."""
+    def _breadth_wide() -> int:
+        return _PREFLIGHT_MIN_BREADTH + 25
+
+    summary = asyncio.run(super_heavy_preflight(**_all_green_kwargs(breadth_probe=_breadth_wide)))
+    assert summary["retrieval_breadth"] == _PREFLIGHT_MIN_BREADTH + 25
+
+
+def test_breadth_exactly_at_floor_passes():
+    """Boundary: breadth EXACTLY at the floor passes (>= floor, not strictly greater)."""
+    def _breadth_at_floor() -> int:
+        return _PREFLIGHT_MIN_BREADTH
+
+    summary = asyncio.run(super_heavy_preflight(**_all_green_kwargs(breadth_probe=_breadth_at_floor)))
+    assert summary["retrieval_breadth"] == _PREFLIGHT_MIN_BREADTH
+
+
+def test_normalizes_arbitrary_breadth_failure_to_gateerror():
+    """A non-GateError breadth-probe exception is normalized to a fail-closed GateError."""
+    def _breadth_boom() -> int:
+        raise RuntimeError("serper exploded")
+
+    with pytest.raises(GateError, match="fail closed"):
+        asyncio.run(super_heavy_preflight(**_all_green_kwargs(breadth_probe=_breadth_boom)))
+
+
 # --------------------------------------------------------------------------- credibility-activation read
 def test_credibility_redesign_active_matches_runner_off_tokens():
     for off in ("", "0", "false", "off", "no", "FALSE", " Off "):
@@ -263,6 +321,46 @@ def test_default_credibility_probe_noop_when_redesign_off():
 
     os.environ.pop(_CREDIBILITY_REDESIGN_FLAG, None)
     assert m._default_credibility_judge_probe() is None
+
+
+def test_default_breadth_probe_unions_serper_and_s2_and_reads_live_knobs(monkeypatch):
+    """I-preflight-002 (#1169): the REAL _default_breadth_probe reuses the PRODUCTION discovery
+    functions (_serper_search + _s2_bulk_search), UNIONS+de-dups their URLs, and reads the LIVE
+    PG_SWEEP_MAX_SERPER / PG_SWEEP_MAX_S2 knobs (the run's real breadth budget) — NOT the dead
+    PG_LIVE_*-keyed module defaults. The two search functions are faked, so NO network."""
+    import src.polaris_graph.retrieval.live_retriever as lr
+
+    seen_serper_num: dict[str, int] = {}
+    seen_s2_limit: dict[str, int] = {}
+
+    def _fake_serper(query, num=10, api_calls=None):
+        seen_serper_num["num"] = num
+        return [{"url": f"https://serper/{i}"} for i in range(60)]
+
+    def _fake_s2(query, limit=20):
+        seen_s2_limit["limit"] = limit
+        # 100 S2 URLs, the last 10 DUPLICATE serper URLs to prove de-dup (union, not sum).
+        s2 = [{"url": f"https://s2/{i}"} for i in range(90)]
+        s2 += [{"url": f"https://serper/{i}"} for i in range(10)]
+        return s2
+
+    monkeypatch.setattr(lr, "_serper_search", _fake_serper)
+    monkeypatch.setattr(lr, "_s2_bulk_search", _fake_s2)
+    # The LIVE breadth knobs (the slate values) — must be the ones read.
+    os.environ["PG_SWEEP_MAX_SERPER"] = "100"
+    os.environ["PG_SWEEP_MAX_S2"] = "100"
+    # The DEAD PG_LIVE_* names must NOT be read; set them absurdly low to prove they are ignored.
+    os.environ["PG_LIVE_MAX_SERPER"] = "3"
+    os.environ["PG_LIVE_MAX_S2"] = "3"
+
+    import scripts.dr_benchmark.super_heavy_preflight as m
+    n = m._default_breadth_probe()
+
+    # union of 60 serper + 90 unique s2 (10 s2 duplicated serper) = 150 unique
+    assert n == 150
+    # read the LIVE knobs, not the dead defaults
+    assert seen_serper_num["num"] == 100
+    assert seen_s2_limit["limit"] == 100
 
 
 # --------------------------------------------------------------------------- slate wiring
