@@ -1,5 +1,19 @@
 # POLARIS Bug Log
 
+## Bug Forensic: Beat-both run-5 — ~54 bugs, 2 P0 roots (2026-06-09)
+
+**Status:** ACTIVE fix campaign. Full deduplicated ranked list in `outputs/audits/beatboth5/FULL_BUG_LIST.md` (7 Claude forensic lanes + Codex cross-check + synthesis, Workflow wt6x8lrjr). Source: the released 5-question beat-both run (drb_72/75/76/78/90) was §-1.1 dual-audited — NOT beat-both (POLARIS faithful + beats Gemini on all, does NOT beat gpt_5_5_pro; the gap is completeness).
+
+**Two P0 ROOTS (independent):**
+- **BB5-F01 (P0 faithfulness LEAK) — `I-faith-004` (#1174), FIXED + committed c790d627, Codex APPROVE.** report_redactor only redacted material S0/S1/S2; any claim covering no required entity defaulted to S3 "observe-only, never redacted" → 26/39 claims the 4-role seam marked UNSUPPORTED shipped as asserted prose (incl. drb_76 clinical-safety guidance). Fix: redaction is severity-independent (redact every non-VERIFIED verdict); S3 governs the release LATCH only.
+- **BB5-C01/C02 (P0 completeness ROOT, dominant lever) — `I-fetch-003` (#1175), IN PROGRESS.** parallel_fetch.py:420 anchors all 740 futures to ONE submit-time deadline with max_workers=8 → 85–92% batch-killed as TIMEOUT before running (queue starvation, errored=0) → evidence pool collapses to 9–34. Fix: anchor per-task deadline at task START + scale max_workers with candidate count.
+
+**Tail:** ~50 more (F02-F10 faithfulness, C03-C16 completeness, K01-K11 capability, S01-S03 stability, P01-P16 presentation). MANY are CONSEQUENCES of C01 — re-measure after the fetch fix, do NOT pre-fix. 6 by-design DO-NOT-TOUCH (BB5-D01 analyst-synthesis-off is CORRECT; re-enabling = faithfulness regression). Ordered fix sequence in FULL_BUG_LIST.md.
+
+**Process:** each fix = GitHub issue-first + Codex-gated brief + diff + Codex-gated diff (§-1.2 + §8.3.1 5-cap). Codex is the only gate. Branch bot/I-ready-017-faithfulness (beat-both deploy/run branch; PR deferred to beat-both).
+
+---
+
 ## Degradation Proposal: I-rdy-008 (#504) cannot complete as a frontend-only AuditIR migration (2026-05-18)
 
 **Status:** RESOLVED 2026-05-18 — routed to a Codex architecture consult

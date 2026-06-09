@@ -5140,3 +5140,61 @@
 - EVIDENCE/FINDINGS: per-fix Codex APPROVE verdicts in .codex/I-ready-018-fix/; offline smokes 9-119 green per fix; faithfulness gates untouched; drb_72 stays release_allowed=False by design.
 - STATUS: 7/7 fixes done + Codex-confirmed. Campaign marker=complete. NEXT = operator-gated canary re-run (waiting_on set). Zero paid spend.
 - NEXT_STEP: operator sets PG_AUTHORIZED_SWEEP_APPROVAL -> NO-SPEND --list -> drb_72 re-run -> fresh §-1.1 audit.
+
+[2026-06-07 drb_72 paid re-run outcome]
+- ACTION: Executed operator-authorized paid drb_72 re-run (bot/I-ready-017-faithfulness); monitored to terminal via Monitor.
+- RATIONALE: Validate #1100 7-fix campaign in a full-capability paid run; real acceptance = §-1.1 audit of the report.
+- DOCS/RESEARCH: state/q1_run_prep_one_go_ahead.md; this run's stdout log (bg task bycanetmo).
+- SYNC: beat_both_status.waiting_on cleared (run done); follow-up issue opened for root cause.
+- AFFECTED_FILES: outputs/ run artifacts, state/run_status.json, state/beat_both_status.json, logs/session_log.md.
+- EVIDENCE/FINDINGS: status=abort_corpus_inadequate, ~$3 (run_status mirror), ~20min, NO generation/4-role spend, NO fabrication. Authoritative stdout: "adequacy=proceed uncovered=0" (general corpus adequate); "[journal_only] evidence_rows 59->11 citeable (48 non-journal excluded); classified_sources 247->63"; "[journal_only] adequacy floor FAILED: too_few_distinct_journals:5<12"; AEA JEP PDFs aeaweb.org/.../doi/10.1257/jep* -> 1 char (paywall). Behavioral canary cleared (no dead-route collapse). NOTE: outputs/q1_run6 is a STALE June-2 dir (mtime 2026-06-02) — do NOT cite its manifest.
+- STATUS: drb_72 HELD correctly (fail-closed). Root cause = FIX-JO journal_only over-restriction on an adequate corpus + paywalled-journal fetch. #1100 fixes (A3/SLOT/GLM/RENDER) sound but address a different layer.
+- NEXT_STEP: Phase-0 investigation (research full-text-fetch best practice + journal_only domain-appropriateness + grep our journal_only/adequacy code) -> Codex-reviewable fix recommendation -> brief Codex. Do NOT self-remove the Codex-APPROVED FIX-JO (faithfulness-adjacent).
+
+[2026-06-07 #1146 operator directive + investigation synthesis]
+- ACTION: Synthesized operator directive (drop journal-only tunnel vision) + 2 parallel agent findings (research + code map); opened sibling fetch issue; set fix-campaign marker.
+- RATIONALE: drb_72 held only because journal-only over-restricted an adequate corpus; operator rejects journal-only as tunnel vision (credibility != journal: gov/news/working-papers/institutes count).
+- DOCS/RESEARCH: Unpaywall/CORE/OpenAlex/Semantic-Scholar (legal OA), Campbell Collaboration (social-policy evidence hierarchy), AEA JEP is publicly free.
+- SYNC: active_fix_campaign.json in_progress (#1146); #1146 comment posted; sibling fetch issue opened.
+- AFFECTED_FILES: .codex/I-ready-019/*, state/active_fix_campaign.json, logs/session_log.md.
+- EVIDENCE/FINDINGS: distinct-journal COUNT floor = §-1.1-banned metadata proxy; JEP 1-char = anti-bot block of FREE content (not paywall); code map: run_gate_b.py:827/952, journal_only_filter.py:208/531/543, run_honest_sweep_r3.py:2773/3252/3321.
+- STATUS: Plan set. FIX-CRED-01 (remove journal-only for drb_72) + FIX-FETCH-02 (legal OA recovery). Faithfulness gates untouched.
+- NEXT_STEP: author Codex brief for FIX-CRED-01 -> Codex brief-gate -> implement -> offline smoke -> Codex diff-gate -> (operator-gated) re-run.
+
+[2026-06-08 credibility redesign BUILD start]
+- ACTION: Operator approved the Codex-APPROVED plan + directed the build. Started Phase 1 (per-claim disclosure schema) via Claude Codex Workflow.
+- RATIONALE: Plan binding-gate APPROVE iter 5/5; Phase 1 is inert plumbing + decision-independent = safe first step.
+- SYNC: campaign marker -> BUILD in_progress; #1148 commented; Phase-1 issue opened.
+- AFFECTED_FILES: (pending) src/polaris_graph/generator/provenance_generator.py + new test.
+- EVIDENCE/FINDINGS: (pending smoke test — the Codex diff-gate evidence).
+- STATUS: Build phase 1 starting. Engine = Workflow function; Codex only gate; smoke = evidence; monitor 10-min.
+- NEXT_STEP: grep SentenceVerification consumers -> author brief -> launch Phase-1 Workflow.
+
+[2026-06-08 21:45:00]
+- ACTION: drb_72 measured dry-run executed + diagnosed; I-cred-006b deployed.
+- RATIONALE: dry-run validated the throttle/breadth fixes LIVE (3137 candidates -> 151 sources, STORM fired many personas, retrieval_breadth=849 in preflight) — the 40-URL/5-query throttle is dead. BUT drb_72 aborted abort_corpus_approval_denied: corpus 151 sources but 50% tier-4, material_deviation=True, refused without PG_AUTHORIZED_SWEEP_APPROVAL. Domain-blind tier-COUNT refusal on an ECONOMICS question (T4 working papers are legitimate) = the operator's repeat-flagged "stupid refusal" + the §-1.1-banned metadata proxy. The credibility-WEIGHTING is built but advisory; the OLD count/tier REFUSAL gate still fronts generation.
+- SYNC: state/active_fix_campaign.json updated; docs/credibility_weighted_sourcing_redesign_plan_2026_06_07.md Phase-6/adequacy note pending in the 006b workflow.
+- AFFECTED_FILES: outputs/honest_sweep_r3/workforce/drb_72_ai_labor/corpus_approval.json (approved=False); GH #1170.
+- EVIDENCE/FINDINGS: [corpus] total=151 T1=19% T2=11% T4=50% material_deviation=True; [ABORT] Corpus approval denied (material deviation without PG_AUTHORIZED_SWEEP_APPROVAL). Cost of dry-run trivial (aborted pre-generation).
+- STATUS: throttle/breadth FIXED + proven; corpus tier-count REFUSAL is the remaining blocker; 006b workflow wuxel5j8r building the removal (weight+disclose, keep per-claim strict_verify/4-role).
+- NEXT_STEP: 006b Codex APPROVE -> commit -> re-run drb_72 dry-run -> full beat-both run.
+
+[2026-06-09 00:00:00]
+- ACTION: Gathered OFFLINE campaign-regression evidence (campaign-FIX suite + #1172 entailment suite) on branch bot/I-ready-017-faithfulness.
+- RATIONALE: Subagent task — prove campaign bugs fixed (must PASS) and separately count the known #1172 qualitative-NLI gap failures.
+- DOCS/RESEARCH: GitHub issue #1172 (I-faith-003); test docstrings.
+- SYNC: N/A
+- AFFECTED_FILES: (read-only) tests/roles/test_report_redactor_iready017.py, tests/polaris_graph/test_manifest_contract.py, tests/polaris_graph/test_fl05_run_health_gate_iready017.py, tests/dr_benchmark/test_slate_run_health_gate_fl05b_iready017.py, tests/polaris_graph/test_breadth_collapse_beatboth_fix_000.py, tests/polaris_graph/test_scope_gate.py, tests/polaris_graph/test_provenance_generator_entailment.py
+- EVIDENCE/FINDINGS: Campaign-FIX suite = 105 passed, 0 failed (5.82s). Entailment suite under literal task cmd ERRORED at collection (line-19 bare 'polaris_graph' import needs src on path); under PYTHONPATH=src it collects 10 and 10 PASS (0 failed), INCLUDING the 4 tests #1172 documents as failing (test_enforce_keeps_legit_paraphrase, test_warn_mode_runs_judge_but_does_not_drop, test_enforce_drops_contradicted_verdict, test_telemetry_judge_error_routes_to_judge_error_counter). No #1172 fix commit on branch; verifier reaches entailment judge for number-free sentences (warn/paraphrase assert calls==1). Issue's "66 tests/4 failed" matches neither the named file (10) nor the mirror clinical_generator/test_strict_verify_entailment.py (28, all pass) — a broader combined count at filing.
+- STATUS: Campaign fixes GREEN. #1172 documented 4-fail NOT reproduced in the named production-verifier file on this branch (10/10 pass). Honest entailment_1172_failed = 0.
+- NEXT_STEP: Return structured result; honest count, not the issue's expected 4.
+
+[2026-06-09 11:40:00]
+- ACTION: Beat-both run-5 AUDIT + bug FORENSIC + fix-campaign start (F01 committed, C01/C02 in flight). NDA Fontis address baked.
+- RATIONALE: The released 5-Q run (drb_72/75/76/78/90, branch bot/I-ready-017-faithfulness @3fb48c3, #1173 judge-429 fix held on all 5) finished — all 4-role-complete, all coverage-held. Dual §-1.1 audit (Workflow ww7nhg9oj Claude+Codex per Q + completion w3z4om9wz, base64-stripped Gemini): POLARIS genuinely FAITHFUL (0 fabrications, source-fetched) + BEATS GEMINI on all 5; does NOT beat gpt_5_5_pro (genuinely careful, no fabrication; auditors SPLIT on Q72/Q75 — Codex credits beat-GPT on certainty-inflation, Claude stricter). NOT beat-both under both-agree. Lever = COMPLETENESS not faithfulness. Then 7-lane bug forensic (Workflow wt6x8lrjr + Codex cross-check) -> ~54 bugs -> 2 P0 ROOTS: F01 redactor S3-leak (26/39 UNSUPPORTED claims shipped) + C01 parallel_fetch global-deadline (85% fetch starvation). Engine: Workflow function for the fan-out phases; F01+C01-brief ran Codex-gated INLINE (drift from workflow-engine directive — correcting to Workflow-driven build for remaining fixes per operator flag 2026-06-09).
+- DOCS/RESEARCH: outputs/audits/beatboth5/FULL_BUG_LIST.md (deduped ranked list); §-1.1 standard; GH #1174 (I-faith-004), #1175 (I-fetch-003).
+- SYNC: state/beat_both_loop_state.json (phase=fix_campaign, ordered sequence); memory project_beatboth_audit_chatgpt_is_the_blocker_2026_06_09; docs/todo_list.md + logs/bug_log.md updated this entry; renamed #1174 prefix I-faith-003->I-faith-004 (collision w/ #1172/#1039).
+- AFFECTED_FILES: src/polaris_graph/roles/report_redactor.py + tests/roles/test_report_redactor_iready017.py (F01, commit c790d627); .codex/I-faith-003/* + .codex/I-fetch-003/brief.md; nda/build_nda_docx.py + NDA_Fontis_Telus_mutual.docx (Fontis address 2373 Bellevue Ave, West Vancouver BC V7V 1C9).
+- EVIDENCE/FINDINGS: F01 — redactor now redacts every non-VERIFIED 4-role verdict regardless of severity (S3 governs release LATCH only); 18/18 tests pass; Codex brief APPROVE + diff-gate APPROVE (0 P0/P1). Funnel (drb_72): 1385 discovered -> 740 candidates -> 109 in-deadline (631 TIMEOUT, errored=0) -> 36 usable -> 11 evidence -> 12 cited. C01 fix: anchor per-task deadline at task START (task_started_by_index), not submit; C02: scale max_workers w/ candidate count (env PG_LIVE_RETRIEVER_MAX_WORKERS, default 8 -> ~46).
+- STATUS: F01 (P0 faithfulness leak) CLOSED + committed + pushed. C01/C02 (P0 completeness root) brief Codex-gating (bskgiiqf8). ~52 bugs remain in the ordered FULL_BUG_LIST sequence; many are CONSEQUENCES of C01 (re-measure after fetch fix, do not pre-fix). 6 by-design DO-NOT-TOUCH (incl analyst-synthesis-off = correct).
+- NEXT_STEP: C01 brief APPROVE -> Workflow-driven build (deadline re-anchor + worker scaling + offline test) -> Codex diff-gate -> commit. Then S02/S03, C05, C06/C07; then RE-RUN 5-Q on VM + re-audit dual §-1.1; loop until beat-both.

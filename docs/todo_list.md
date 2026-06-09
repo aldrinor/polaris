@@ -1,6 +1,25 @@
 # POLARIS — todo / active scope (RE-PRIORITIZED 2026-05-20)
 
-## ⭐ CURRENT PRIORITY (2026-05-28, operator-flagged): I-safety-002b (#925) — proper DR head-to-head benchmark
+## ⭐⭐ CURRENT PRIORITY (2026-06-09, operator autonomous loop): BEAT-BOTH fix campaign — never stop until beat-both
+
+The released 5-question beat-both run (drb_72/75/76/78/90, branch `bot/I-ready-017-faithfulness`) was §-1.1 dual-audited: POLARIS is genuinely faithful + **beats Gemini on all 5**, but does **NOT beat gpt_5_5_pro** (careful, no fabrication). Gap = **completeness, not faithfulness**. 7-lane bug forensic → ~54 bugs → 2 P0 roots. Full ranked list + ordered sequence: `outputs/audits/beatboth5/FULL_BUG_LIST.md`. Loop state: `state/beat_both_loop_state.json`. Mission: fix → re-deploy 5-Q on VM → re-audit dual §-1.1 → loop until beat-both (both auditors agree). Each fix = GitHub issue-first + Codex-gated brief + diff (§-1.2 + §8.3.1 5-cap); Codex the only gate.
+
+**Ordered fix sequence:**
+1. **BB5-F01 redactor S3-leak (P0 faithfulness) — `I-faith-004` #1174 — ✅ DONE (commit c790d627, Codex APPROVE).**
+2. **BB5-C01/C02 fetch global-deadline starvation (P0 completeness, dominant lever) — `I-fetch-003` #1175 — IN PROGRESS (brief Codex-gating).**
+3. F02 clinical overgeneralization (P1 faithfulness).
+4. S02/S03 abandoned-thread teardown + SIGSEGV subprocess isolation.
+5. C05 extractor fallback chain; C06/C07 stop forcing prefer-abstract + render dropped-section stubs.
+6. **RE-MEASURE consequences** (C03 must-cover / C04 pool / C08 coverage / C09 drop-rate) — do NOT pre-fix.
+7. S01 drb_90 stale pending_rewrite latch (flips one answer to released).
+8. K01/K02/K03 quantified-no-op + STORM seed injection + legal connector.
+9. P01/P02/P03 [REVIEW]-dump cap + semantic-dump trim + drb_90 dedup; P11 unify fetch ledger.
+10. P2/P3 sweep.
+**6 by-design DO-NOT-TOUCH** (BB5-D01 analyst-synthesis-off is CORRECT; re-enabling = faithfulness regression).
+
+---
+
+## ⭐ PRIOR PRIORITY (2026-05-28, operator-flagged): I-safety-002b (#925) — proper DR head-to-head benchmark
 Benchmark POLARIS **as a deep-research tool** vs ChatGPT/Gemini/Perplexity DR on the **5 GOLDEN DRB-EN questions** (NOT homegrown), POLARIS at MAX POWER, **per-run §-1.1 line-by-line dual audit** (Claude+Codex, claim → fetched cited span → verdict). Plan Codex-APPROVE'd iter 5: `.codex/I-safety-002b/execution_plan_pathB.md`. Active per `state/active_issue.json`.
 - **Questions LOCKED** (`.codex/I-safety-002b/golden_questions_locked.md`, Codex-confirmed `codex_lock5.txt`): DRB-EN **#75/#76/#78** (clinical) + **#72** (AI-labor lit review, journal-only citation constraint) + **#90** (ADAS liability, case law). Homegrown Q02–Q08 rejected as selection-biased. Honest label: *"DRB-EN high-stakes citation-faithfulness stress slice: 3 clinical + 2 source-critical"* — NOT "objectively hardest." Report clinical-3 + overall-5 SEPARATELY.
 - **Scorer**: pre-existing `beat_both_scorer.py`/`dimension_scorers.py` §-1.1-BANNED + rigged → discarded; rebuilt as `src/polaris_graph/benchmark/claim_audit_scorer.py` (two-lane: faithfulness + pre-registered rubric coverage ≥0.70). 12 fixtures green.
