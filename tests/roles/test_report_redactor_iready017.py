@@ -12,7 +12,9 @@ Proof obligations (per the leak design):
   (b) PRECISION — VERIFIED kept claims SURVIVE (no blanket recall cut);
   (c) gaps.json gains one redacted_unsupported entry per removed claim;
   (d) FAIL-CLOSED — a present-but-unlocatable material claim raises (no partial ship);
-  (e) S3 observe-only claims are NEVER redacted (scope guard);
+  (e) I-faith-003 #1174: redaction is SEVERITY-INDEPENDENT — an S3 claim flagged
+      non-VERIFIED IS redacted (the observe-only scope guard no longer exempts a leak);
+      an S3 VERIFIED claim still ships (no over-redaction);
   (f) runs on the HELD path (release_allowed=False) just like the shipped one.
 """
 
@@ -128,17 +130,42 @@ def test_real_drb90_absent_claim_is_safe_not_error():
     assert "02-000-3542bc50" not in {rc.claim_id for rc in res.redacted}
 
 
-def test_s3_observe_only_never_redacted():
-    """(e) Scope guard: an S3 observe-only claim flagged UNSUPPORTED is NOT redacted.
-    07-004 is UNSUPPORTED but S3 in the real audit map.
+def test_s3_unsupported_is_redacted_real_artifact():
+    """(e) I-faith-003 #1174 — the S3 leak is CLOSED (BB5-F01 regression on REAL artifacts).
+    07-004 is UNSUPPORTED + S3 in the real drb_90 audit map and its prose ('95-98% algorithm
+    efficiency') shipped before the fix because the S3 scope guard exempted it from redaction.
+    Redaction is now severity-independent, so it MUST be removed.
     """
     report, audit, final_verdicts = _load_real()
     assert final_verdicts["07-004-402b2ac8"] == "UNSUPPORTED"
     assert audit["07-004-402b2ac8"]["severity"] == "S3"
+    # Guard: prove the S3 leak was shipping before redaction.
+    assert "95–98% algorithm efficiency" in report
     res = reconcile_report_against_verdicts(report, final_verdicts, audit)
-    assert "07-004-402b2ac8" not in {rc.claim_id for rc in res.redacted}
-    # Its prose fragment (the 95-98% efficiency line) survives as disclosure-only.
-    assert "95–98% algorithm efficiency" in res.report_text
+    # Now redacted (the observe-only exemption is gone); recorded as a redaction.
+    assert "07-004-402b2ac8" in {rc.claim_id for rc in res.redacted}
+    assert "95–98% algorithm efficiency" not in res.report_text
+
+
+def test_s3_verified_still_ships_no_overredaction():
+    """Precision: S3 + VERIFIED still ships byte-identical — only a non-VERIFIED verdict
+    triggers redaction, never the severity itself."""
+    report = "An observed background figure of 12 units.[1]\n"
+    audit = {"x-s3v": {"sentence": "An observed background figure of 12 units [#ev:e:0-9].", "severity": "S3"}}
+    fv = {"x-s3v": "VERIFIED"}
+    res = reconcile_report_against_verdicts(report, fv, audit)
+    assert res.report_text == report
+    assert res.redacted == []
+
+
+def test_partial_verdict_at_s3_is_redacted():
+    """Codex brief P2-1: PARTIAL is non-VERIFIED and must redact at ANY severity (incl S3)."""
+    report = "A partially-supported claim about the thing.[1]\n"
+    audit = {"x-part": {"sentence": "A partially-supported claim about the thing [#ev:e:0-9].", "severity": "S3"}}
+    fv = {"x-part": "PARTIAL"}
+    res = reconcile_report_against_verdicts(report, fv, audit)
+    assert "A partially-supported claim about the thing" not in res.report_text
+    assert "x-part" in {rc.claim_id for rc in res.redacted}
 
 
 def test_fail_closed_on_present_but_unlocatable():

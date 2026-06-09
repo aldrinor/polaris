@@ -1,0 +1,15 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Clarify that non-VERIFIED means verdict != VERIFIED, including PARTIAL. The current code treats PARTIAL as non-VERIFIED; the fix must not narrow redaction to only UNSUPPORTED/FABRICATED/UNREACHABLE."
+  - "AC5 should explicitly update the existing S3 observe-only test expectation; leaving test_s3_observe_only_never_redacted unchanged contradicts AC1/AC4."
+convergence_call: continue
+remaining_blockers_for_execution: []
+```
+
+Q1: yes, redact UNREACHABLE too. It is not proven false, but it is still not verified, so it must not ship as asserted fact.
+
+Q2: no legitimate S3 non-VERIFIED class should ship as asserted prose. S3 VERIFIED still ships; gap/tombstone disclosures are separate and unaffected.

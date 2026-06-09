@@ -5,8 +5,8 @@ THE FAITHFULNESS LEAK this module closes
 ``scripts/run_honest_sweep_r3.py`` assembles ``report.md`` from strict_verify-KEPT
 sentences (L5780) BEFORE the authoritative 4-role D8 seam runs (L6407+). The seam
 re-judges every kept sentence with the stronger Mirror/Sentinel/Judge stack and can
-flip a strict_verify-kept sentence to a material non-VERIFIED verdict
-(UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at S0/S1/S2). Today the runner
+flip a strict_verify-kept sentence to a non-VERIFIED verdict
+(UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at ANY severity). Today the runner
 consumes that verdict ONLY as a manifest flag (``release_allowed=False`` +
 ``needs_rewrite``); it NEVER reconciles the assembled ``report.md`` against the
 verdicts. So a sentence the strongest verifier rejected still ships as asserted prose.
@@ -18,10 +18,12 @@ six of those sentences (e.g. the "$27,874 per violation" penalty figure, the
 
 WHAT THIS HELPER DOES (fail-closed)
 -----------------------------------
-For every claim whose 4-role ``final_verdict`` is material-non-VERIFIED, it locates the
+For every claim whose 4-role ``final_verdict`` is non-VERIFIED, it locates the
 claim's verbatim sentence in the rendered ``report.md`` and REPLACES it with the
 existing visible gap language ("did not survive verification; curator-actionable gap").
-S3 (observe-only) claims are NEVER redacted (scope guard — they ship as disclosure-only).
+Redaction is SEVERITY-INDEPENDENT (I-faith-003 #1174): a claim is redacted iff its verdict
+is non-VERIFIED, at ANY severity. S3 "observe-only" governs the release LATCH only
+(release_policy.py) — it never exempts an unverified claim from redaction.
 
 It is REFUSE-IN-PLACE, not a generative rewrite: no new spend, no new claims. The
 redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring designs
@@ -45,13 +47,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# Material = decision-relevant. Kept in lockstep with release_policy._MATERIAL_SEVERITIES
-# and config/architecture/d8_release_policy.yaml `material_severities`. S3 is observe-only
-# and is NEVER redacted (it ships disclosure-only per the BUG-11 scope guard).
-DEFAULT_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
-
-# A final_verdict in this set, at a material severity, is a leak if it ships as prose.
-# VERIFIED survives; PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE are non-VERIFIED.
+# REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
+# mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
+# regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
+# (a non-required-entity S3 claim does not BLOCK release), NEVER this redaction path: previously
+# the S3 "observe-only" scope guard wrongly let 26 UNSUPPORTED claims (incl. clinical-safety
+# guidance) ship across the 5 beat-both questions (BB5-F01). VERIFIED survives; every other
+# verdict is a leak if it ships as prose.
 _NON_VERIFIED_VERDICTS = frozenset(
     {"UNSUPPORTED", "FABRICATED", "UNREACHABLE", "PARTIAL"}
 )
@@ -139,26 +141,22 @@ def _normalize(text: str) -> str:
     return text.strip().rstrip(".").strip()
 
 
-def _is_material_non_verified(verdict: str, severity: str, material: tuple[str, ...]) -> bool:
-    # VERIFIED is not in _NON_VERIFIED_VERDICTS, so the first clause already excludes it.
-    return verdict in _NON_VERIFIED_VERDICTS and severity in material
-
-
 def reconcile_report_against_verdicts(
     report_text: str,
     final_verdicts: dict[str, str],
     audit_map: dict[str, dict],
-    *,
-    material_severities: tuple[str, ...] = DEFAULT_MATERIAL_SEVERITIES,
 ) -> RedactionResult:
-    """Remove every material non-VERIFIED claim's verbatim sentence from ``report_text``.
+    """Remove every non-VERIFIED claim's verbatim sentence from ``report_text``.
+
+    Redaction is severity-independent (I-faith-003 #1174): a claim is redacted iff its
+    4-role verdict is not VERIFIED, at ANY severity (S0..S3). Severity governs the release
+    latch in release_policy.py, never this redaction path.
 
     Args:
       report_text: the assembled report.md content.
       final_verdicts: claim_id -> 4-role final verdict (UNSUPPORTED/VERIFIED/...).
       audit_map: claim_id -> {"sentence": <verbatim>, "severity": <S0..S3>, ...}
                  (the persisted four_role_claim_audit.json structure).
-      material_severities: which severities gate (default S0/S1/S2; S3 is never redacted).
 
     Returns a RedactionResult with the redacted text + per-claim records.
 
@@ -183,8 +181,10 @@ def reconcile_report_against_verdicts(
             continue
 
         severity = str(meta.get("severity", ""))
-        if not _is_material_non_verified(verdict, severity, material_severities):
-            # VERIFIED survives; S3 observe-only ships disclosure-only (scope guard).
+        if verdict == _VERDICT_VERIFIED:
+            # VERIFIED survives at ANY severity. Every non-VERIFIED verdict is redacted
+            # regardless of severity (I-faith-003 #1174): S3 "observe-only" governs the
+            # release LATCH (release_policy.py), never this redaction path.
             continue
 
         sentence = str(meta.get("sentence", ""))
