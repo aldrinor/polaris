@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time as _time_module
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
@@ -104,6 +105,223 @@ def _get_crawl4ai_semaphore() -> "asyncio.Semaphore":
             int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
         )
     return _crawl4ai_semaphore
+
+
+# ---------------------------------------------------------------------------
+# BB5-S02 (#1177): cross-THREAD in-flight bypass-worker bound + leak gauge.
+#
+# `live_retriever._fetch_content` runs each `AccessBypass.fetch_with_bypass`
+# on a fresh daemon thread with its OWN `asyncio.run` loop, joined with a hard
+# timeout. On timeout the thread is ABANDONED (it keeps running, holding a live
+# Crawl4AI/Playwright browser subprocess mid-`arun`). Under the ~740-URL
+# benchmark fan-out, hundreds of abandoned threads + browser subprocesses
+# accumulate (the resource-exhaustion / segfault mechanism).
+#
+# `_get_crawl4ai_semaphore()` cannot bound this: it is lazy-bound to the
+# RUNNING loop, and every bypass worker thread has its OWN fresh loop — so it
+# only caps browsers WITHIN one thread. A `threading`-level BoundedSemaphore is
+# the only primitive that bounds the abandoned-thread FLEET across loops.
+#
+# Acquire at the TOP of the worker (in `live_retriever`), release in THAT
+# worker's `finally` — never in the outer join path (releasing on abandonment
+# would over-release; not releasing would leak the slot). Sized BELOW the
+# parallel `max_workers` so it creates back-pressure; no deadlock because the
+# inner per-backend wall-clocks guarantee every abandoned worker eventually
+# terminates and releases its slot.
+# ---------------------------------------------------------------------------
+
+# Default ceiling on concurrently-LIVE bypass worker threads (each may hold a
+# browser subprocess). Env-overridable. Below the live_retriever parallel
+# `max_workers` ceiling (48) so abandoned in-flight workers cannot fan out a
+# browser-per-candidate. Named constant (LAW VI — no magic numbers).
+_BYPASS_INFLIGHT_DEFAULT_LIMIT = 16
+PG_BYPASS_MAX_INFLIGHT_ENV = "PG_BYPASS_MAX_INFLIGHT"
+
+_bypass_inflight_semaphore: "threading.BoundedSemaphore | None" = None
+_bypass_inflight_semaphore_lock = threading.Lock()
+
+# BB5-S02 leaked-worker gauge: monotonically-incremented count of bypass worker
+# threads that were ABANDONED (outer join timed out while the worker was still
+# alive). A non-zero gauge is the auditable signal that orphan browser
+# subprocesses may have accumulated. Guarded by its own lock.
+_bypass_leaked_worker_count: int = 0
+_bypass_leaked_worker_lock = threading.Lock()
+
+
+def _get_bypass_inflight_semaphore() -> "threading.BoundedSemaphore":
+    """BB5-S02 (#1177): lazy-init the cross-thread in-flight bypass-worker
+    bound. A `threading.BoundedSemaphore` (NOT asyncio) — it must bound worker
+    threads across their independent per-thread event loops.
+
+    Limit from `PG_BYPASS_MAX_INFLIGHT` (positive int), else
+    `_BYPASS_INFLIGHT_DEFAULT_LIMIT`. A malformed/<=0 value falls back to the
+    default — a bad knob must never disable the bound (which would re-open the
+    abandoned-fleet leak)."""
+    global _bypass_inflight_semaphore
+    if _bypass_inflight_semaphore is None:
+        with _bypass_inflight_semaphore_lock:
+            if _bypass_inflight_semaphore is None:
+                raw = os.getenv(PG_BYPASS_MAX_INFLIGHT_ENV)
+                limit = _BYPASS_INFLIGHT_DEFAULT_LIMIT
+                if raw is not None and raw.strip():
+                    try:
+                        parsed = int(raw)
+                        if parsed > 0:
+                            limit = parsed
+                    except ValueError:
+                        limit = _BYPASS_INFLIGHT_DEFAULT_LIMIT
+                _bypass_inflight_semaphore = threading.BoundedSemaphore(limit)
+    return _bypass_inflight_semaphore
+
+
+def record_bypass_leaked_worker() -> int:
+    """BB5-S02 (#1177): increment + return the leaked-bypass-worker gauge. The
+    caller (live_retriever) invokes this when an outer fetch join times out
+    while the worker thread is still alive (abandoned → potential orphan
+    browser subprocess). Thread-safe; returns the new total for logging."""
+    global _bypass_leaked_worker_count
+    with _bypass_leaked_worker_lock:
+        _bypass_leaked_worker_count += 1
+        return _bypass_leaked_worker_count
+
+
+def bypass_leaked_worker_count() -> int:
+    """BB5-S02 (#1177): read the current leaked-bypass-worker gauge (auditable
+    orphan-subprocess signal). Thread-safe snapshot."""
+    with _bypass_leaked_worker_lock:
+        return _bypass_leaked_worker_count
+
+
+def reset_bypass_leak_state() -> None:
+    """BB5-S02 (#1177): reset the leak gauge + in-flight semaphore. For test
+    isolation ONLY — not called on the production path."""
+    global _bypass_leaked_worker_count, _bypass_inflight_semaphore
+    with _bypass_leaked_worker_lock:
+        _bypass_leaked_worker_count = 0
+    with _bypass_inflight_semaphore_lock:
+        _bypass_inflight_semaphore = None
+
+
+# ---------------------------------------------------------------------------
+# BB5-S03 (#1177): SIGSEGV-mitigated shared trafilatura extractor.
+#
+# `trafilatura.extract` runs libxml2 (a C extension). On a pathological /
+# malformed / adversarial document libxml2 can SIGSEGV (drb_76 exit 139) — a
+# C-level crash that is NOT a Python exception and CANNOT be caught by
+# `except Exception`. A try/except around the call is false confidence.
+#
+# True containment is a per-page hard-killable subprocess, but that is heavy at
+# hundreds of calls/run AND `resource` RLIMIT is Unix-only (no-op on win32).
+# So the DEFAULT is lean MITIGATION (not containment): size-bound the HTML and
+# prefer the caller's regex fallback for oversized/suspect docs, which never
+# enters libxml2 at all. An optional hard-killable subprocess path is gated
+# behind `PG_TRAFILATURA_SUBPROCESS=1` (OFF by default).
+#
+# Lives in access_bypass (NOT live_retriever): live_retriever already imports
+# access_bypass, so the reverse import would be circular. Both trafilatura
+# sites import this one guarded entrypoint.
+# ---------------------------------------------------------------------------
+
+# Upper bound (chars) on HTML handed to libxml2 via trafilatura. A document
+# larger than this is treated as suspect/oversized: we skip trafilatura and
+# signal the caller to use its regex fallback (which never enters the C
+# extension). Env-overridable. Named constant (LAW VI).
+_TRAFILATURA_MAX_HTML_CHARS = int(
+    os.getenv("PG_TRAFILATURA_MAX_HTML_CHARS", "3000000")
+)
+PG_TRAFILATURA_SUBPROCESS_ENV = "PG_TRAFILATURA_SUBPROCESS"
+# Hard wall-clock for the optional subprocess extractor path (seconds).
+_TRAFILATURA_SUBPROCESS_TIMEOUT = float(
+    os.getenv("PG_TRAFILATURA_SUBPROCESS_TIMEOUT_SECONDS", "20")
+)
+
+
+def _html_is_extract_safe(html: str) -> bool:
+    """BB5-S03 (#1177): cheap pre-validation gate. Returns False for an
+    oversized document (over `_TRAFILATURA_MAX_HTML_CHARS`) that should bypass
+    libxml2 entirely. Pure size check — no parsing, never itself crashes."""
+    if not html:
+        return False
+    if len(html) > _TRAFILATURA_MAX_HTML_CHARS:
+        return False
+    return True
+
+
+def _trafilatura_extract_subprocess(html: str, **kwargs: Any) -> "str | None":
+    """BB5-S03 (#1177): run `trafilatura.extract` in a hard-killable child
+    process so a libxml2 SIGSEGV takes down the child (exit 139) instead of the
+    sweep. Returns the extracted text, or None on timeout/crash/error.
+
+    Gated OFF by default (`PG_TRAFILATURA_SUBPROCESS=1` to enable) — true
+    containment is heavy at hundreds of calls/run. Best-effort: any failure
+    (spawn error, non-zero exit incl. -11/139 SIGSEGV, timeout) returns None so
+    the caller falls back to regex extraction. Never raises."""
+    import json
+    import subprocess
+
+    payload = json.dumps({"html": html, "kwargs": kwargs})
+    code = (
+        "import sys, json\n"
+        "data = json.loads(sys.stdin.read())\n"
+        "import trafilatura\n"
+        "out = trafilatura.extract(data['html'], **data['kwargs']) or ''\n"
+        "sys.stdout.write(out)\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=_TRAFILATURA_SUBPROCESS_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+        logger.warning(
+            "[ACCESS] BB5-S03 trafilatura subprocess failed (%s) — "
+            "regex fallback", type(exc).__name__,
+        )
+        return None
+    if proc.returncode != 0:
+        # A negative return code is a signal (e.g. -11 == SIGSEGV / exit 139):
+        # the child crashed on a pathological doc and the SWEEP survived.
+        logger.warning(
+            "[ACCESS] BB5-S03 trafilatura subprocess exited rc=%s "
+            "(SIGSEGV-class crash contained) — regex fallback",
+            proc.returncode,
+        )
+        return None
+    return proc.stdout or None
+
+
+def safe_trafilatura_extract(html: str, **kwargs: Any) -> "str | None":
+    """BB5-S03 (#1177): the ONE guarded trafilatura entrypoint used by every
+    extraction site (live_retriever `_strip_html`, access_bypass
+    `_try_crawl4ai`).
+
+    Contract:
+      - Returns extracted text (str) on success, or None when extraction is
+        unsafe/empty/failed (caller falls back to its own regex path).
+      - Honest MITIGATION, not containment, on the default in-process path:
+        an oversized/suspect doc skips libxml2 (returns None → regex fallback);
+        a SIGSEGV on a doc that passes the size gate is still uncatchable
+        in-process. Enable `PG_TRAFILATURA_SUBPROCESS=1` for true containment.
+      - Never raises (the C-extension SIGSEGV is the one thing it cannot
+        promise to catch on the in-process path — documented, not hidden)."""
+    if not _html_is_extract_safe(html):
+        return None
+    if os.getenv(PG_TRAFILATURA_SUBPROCESS_ENV, "0") == "1":
+        return _trafilatura_extract_subprocess(html, **kwargs)
+    try:
+        import trafilatura  # type: ignore
+        return trafilatura.extract(html, **kwargs) or None
+    except Exception as exc:  # noqa: BLE001 — Python-level errors only; a
+        # libxml2 SIGSEGV is NOT a Python exception and escapes this guard (by
+        # design — that is what PG_TRAFILATURA_SUBPROCESS=1 contains).
+        logger.debug(
+            "[ACCESS] BB5-S03 trafilatura in-process extract error (%s) — "
+            "regex fallback", type(exc).__name__,
+        )
+        return None
 
 # ---------------------------------------------------------------------------
 # Firecrawl free-plan hardening: rate limiter + credit tracker
@@ -1206,22 +1424,23 @@ class AccessBypass:
             # PruningContentFilter misses. Falls back to fit_markdown/raw.
             markdown_content = ""
             if result.html:
-                try:
-                    import trafilatura as _traf
-                    clean = _traf.extract(
-                        result.html,
-                        include_tables=True,
-                        include_links=False,
-                        output_format="txt",
+                # BB5-S03 (#1177): route through the SIGSEGV-mitigated shared
+                # extractor (size-bounds the HTML, optional subprocess
+                # containment) instead of a bare `trafilatura.extract` under
+                # `except Exception` — a libxml2 C-crash on Crawl4AI's raw HTML
+                # is not a catchable Python exception.
+                clean = safe_trafilatura_extract(
+                    result.html,
+                    include_tables=True,
+                    include_links=False,
+                    output_format="txt",
+                )
+                if clean and len(clean) > 500:
+                    markdown_content = clean
+                    logger.info(
+                        "[ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: %d chars",
+                        len(clean),
                     )
-                    if clean and len(clean) > 500:
-                        markdown_content = clean
-                        logger.info(
-                            "[ACCESS] PL: Trafilatura cleaned Crawl4AI HTML: %d chars",
-                            len(clean),
-                        )
-                except Exception:
-                    pass
 
             # Fallback: fit_markdown or raw markdown from Crawl4AI
             if not markdown_content:

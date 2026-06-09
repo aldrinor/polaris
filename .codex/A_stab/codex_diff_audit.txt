@@ -1,0 +1,25 @@
+**Findings**
+
+P1: S03 is still vulnerable on the oversized/suspect path. `safe_trafilatura_extract()` skips trafilatura for oversized HTML, but [_strip_html](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:1403) immediately calls [_readability_extract](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:1368), which also runs lxml via `Document(html).summary(...)`. That violates “prefer regex fallback for oversized/suspect docs” because the same document still enters a libxml2-backed parser. My adversarial probe with `_TRAFILATURA_MAX_HTML_CHARS=10` confirmed `_strip_html` still invoked readability on the oversized body.
+
+P1: S02 does not close/kill the abandoned AccessBypass worker or its browser context when the outer deadline fires. [_fetch_content](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:2019) joins the daemon thread, records a leak at [line 2025](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:2025), and returns fallback at [line 2039](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:2039). The worker keeps running until eventual completion; if it is blocked on [_inflight_sem.acquire()](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:1991), it can later acquire a slot and launch a stale browser fetch after the caller already timed out. This bounds concurrency but does not satisfy “CLOSE Crawl4AI/Playwright contexts in a finally even on timeout (no leaked browser subprocess).”
+
+P2: C05 telemetry is only added on the AccessBypass-success path. The naive/direct fallback strips raw HTML in [_fetch_content_httpx_naive](C:/POLARIS/src/polaris_graph/retrieval/live_retriever.py:1461) and returns `bool(content)` without emitting `fetched_200_but_empty_extract`, so AccessBypass-disabled/unavailable/timeout cases can still silently collapse a 200 body into a generic failure.
+
+Verification run:
+`python -m pytest -q tests/polaris_graph/test_lane_a_fetch_stability_bb5.py` passed.
+`python -m pytest -q tests/polaris_graph/test_fetch_access_bypass_wiring.py tests/polaris_graph/test_table_linearize.py` passed.
+These tests do not cover the two P1 production gaps above.
+
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - S03 oversized/suspect HTML still reaches readability-lxml after trafilatura is skipped.
+  - S02 outer timeout records abandonment but does not force closure/termination of the worker/browser context.
+p2:
+  - C05 empty-extract telemetry is missing on the naive/direct fallback path.
+```
+
+verdict: REQUEST_CHANGES

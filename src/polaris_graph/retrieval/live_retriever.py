@@ -113,6 +113,18 @@ _FETCH_SUCCESS_RATE_WARN_FLOOR = float(
     os.getenv("PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR", "0.5")
 )
 
+# BB5-C05 (#1177): "fetched-200-but-empty-extract" thresholds. A fetch counts
+# as this DISTINCT bucket when the backend returned a non-trivial raw body
+# (>= _EXTRACT_NONEMPTY_RAW_FLOOR chars) yet the extractor chain (trafilatura →
+# readability → regex) yielded fewer than _EXTRACT_EMPTY_FLOOR usable chars.
+# Named constants (LAW VI — no magic numbers); env-overridable.
+_EXTRACT_NONEMPTY_RAW_FLOOR = int(
+    os.getenv("PG_FETCH_NONEMPTY_RAW_FLOOR", "200")
+)
+_EXTRACT_EMPTY_FLOOR = int(
+    os.getenv("PG_FETCH_EMPTY_EXTRACT_FLOOR", "50")
+)
+
 
 @dataclass
 class LiveRetrievalResult:
@@ -1338,18 +1350,76 @@ def _extract_jsonld_blocks(raw_html: str) -> str:
         return ""
 
 
-def _strip_html(html: str) -> str:
-    """Extract visible text from HTML via basic regex (trafilatura if available), then APPEND table-aware
-    linearized rows (#954) so result-table cells survive with their column headers regardless of how the
-    base extractor flattened the tables. Default-ON; PG_FETCH_TABLE_LINEARIZE=0 disables the append."""
-    base = ""
+def _readability_extract(html: str) -> str:
+    """BB5-C05 (#1177): readability-lxml fallback extractor. trafilatura returns
+    empty trees on 30-50% of fetched pages; readability's article-detection
+    recovers many of them. Guarded import (skip-with-log when the optional dep
+    is absent — never break `_strip_html`). Returns extracted plain text or ""."""
+    if not html:
+        return ""
     try:
-        import trafilatura  # type: ignore
-        extracted = trafilatura.extract(html) or ""
+        from readability import Document  # type: ignore
+    except ImportError:
+        logger.debug(
+            "[live_retriever] BB5-C05 readability-lxml not installed — "
+            "skipping fallback extractor"
+        )
+        return ""
+    try:
+        summary_html = Document(html).summary(html_partial=True)
+    except Exception as exc:  # noqa: BLE001 — readability runs lxml; a parse
+        # error must never break the strip path. (A C-level SIGSEGV would still
+        # escape, but readability only runs AFTER trafilatura already declined,
+        # and on the SAME doc that passed the trafilatura size gate.)
+        logger.debug(
+            "[live_retriever] BB5-C05 readability extract error (%s)",
+            type(exc).__name__,
+        )
+        return ""
+    # readability returns cleaned HTML — strip residual tags to plain text.
+    no_tags = re.sub(r"<[^>]+>", " ", summary_html or "")
+    no_tags = re.sub(r"\s+", " ", no_tags)
+    return no_tags.strip()
+
+
+def _strip_html(html: str) -> str:
+    """Extract visible text from HTML via trafilatura (BB5-S03 SIGSEGV-guarded),
+    then a readability-lxml fallback (BB5-C05), then a regex fallback, then APPEND
+    table-aware linearized rows (#954) so result-table cells survive with their
+    column headers regardless of how the base extractor flattened the tables.
+    Default-ON; PG_FETCH_TABLE_LINEARIZE=0 disables the append."""
+    base = ""
+    # BB5-S03 (#1177): route trafilatura through the SIGSEGV-mitigated shared
+    # guard (size-bounds the HTML; optional subprocess containment) instead of a
+    # bare `trafilatura.extract` under `except Exception: pass` — a libxml2
+    # C-crash on a pathological doc is NOT a catchable Python exception.
+    try:
+        from src.tools.access_bypass import safe_trafilatura_extract
+        extracted = safe_trafilatura_extract(html) or ""
         if extracted:
             base = extracted
-    except Exception:
+    except Exception:  # noqa: BLE001 — import/guard failure must never break strip
         pass
+    if not base:
+        # BB5-C05 (#1177): trafilatura returned an empty tree — try the
+        # readability-lxml article extractor before the last-resort regex strip.
+        #
+        # BB5-S03 iter-2 (#1177, Codex P1-S03): readability-lxml ALSO parses via
+        # lxml/libxml2 — the SAME C-crash surface trafilatura was size-gated away
+        # from. An oversized/suspect doc that skipped trafilatura must therefore
+        # ALSO skip readability and go straight to the regex strip, or it just
+        # re-enters libxml2 by another door (same SIGSEGV risk). Gate on the
+        # SHARED size predicate. Import the FUNCTION (not the constant value) so
+        # the deploy-slate PG_TRAFILATURA_MAX_HTML_CHARS override + test monkey-
+        # patch are read at call time, keeping ONE source of truth for the bound.
+        _extract_safe = True
+        try:
+            from src.tools.access_bypass import _html_is_extract_safe
+            _extract_safe = _html_is_extract_safe(html)
+        except Exception:  # noqa: BLE001 — import/guard failure must never break strip
+            _extract_safe = True
+        if _extract_safe:
+            base = _readability_extract(html)
     if not base:
         # Fallback: strip tags + collapse whitespace
         no_tags = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
@@ -1405,6 +1475,34 @@ def _fetch_content_httpx_naive(
         # Diff-gate P1-C: capture raw ld+json BEFORE _strip_html removes <script>.
         jsonld = _extract_jsonld_blocks(raw)
         content = _strip_html(raw)[:max_chars]
+        # BB5-C05 iter-2 (#1177, Codex P2): mirror the parallel/AccessBypass
+        # path's "fetched-200-but-empty-extract" bucket on the NAIVE/DIRECT path
+        # too. A real 200 body (>= _EXTRACT_NONEMPTY_RAW_FLOOR raw chars) whose
+        # extractor chain (trafilatura → readability → regex) collapses below
+        # _EXTRACT_EMPTY_FLOOR usable chars is the SAME distinct failure class
+        # here as there — previously this naive path swallowed it silently as a
+        # generic empty fetch. Surface it as its own auditable telemetry bucket.
+        # Telemetry-only: the returned tuple is unchanged (control flow is byte-
+        # identical). Reuses the existing floors — no new constants.
+        if len(raw) >= _EXTRACT_NONEMPTY_RAW_FLOOR and len(content) < _EXTRACT_EMPTY_FLOOR:
+            logger.info(
+                "[live_retriever] fetched_200_but_empty_extract %s "
+                "(method=httpx_naive raw_chars=%d extracted_chars=%d)",
+                url[:80], len(raw), len(content),
+            )
+            # BB5-C05 iter-2 (#1177, Codex P2 reconcile): record ONLY the keyed
+            # _m45 reason here — NOT a second _trace_tool. The production naive
+            # path is reached via `_fallback_naive_fetch`, which already emits the
+            # SINGLE per-fetch `_trace_tool` (ok/fail) for this call; adding an
+            # `empty_extract` _trace_tool too would double-record one fetch into
+            # two contradictory buckets (empty_extract AND fail), whereas the
+            # parallel path emits exactly one. The _m45 reason is keyed by URL +
+            # last-write-wins, so it carries the distinct empty-extract signal
+            # without duplicating the trace. (Direct callers of this function —
+            # e.g. the M-45 diagnostics refetch — still get the _m45 reason.)
+            _m45_record_fetch_telemetry(
+                url, "httpx_naive", "fetched_200_but_empty_extract",
+            )
         return content, bool(content), extracted_title, body_type, jsonld
     except Exception as exc:
         logger.debug(
@@ -1915,16 +2013,91 @@ def _fetch_content(
     # async context (expansion path runs inside a live loop). Crawl4AI
     # leaves background tasks that make subsequent asyncio.run() in the
     # same thread fail with "cannot be called from a running event loop".
+    #
+    # BB5-S02 (#1177): import the cross-thread in-flight bound + leak gauge +
+    # the wedged-task-draining runner. The bound is acquired INSIDE the worker
+    # (so an abandoned worker holds its slot until it truly terminates) and
+    # released in the worker's OWN finally — never in the outer join path
+    # (releasing on abandonment over-releases; not releasing leaks the slot).
+    from src.tools.access_bypass import (
+        _get_bypass_inflight_semaphore,
+        polaris_asyncio_run,
+        record_bypass_leaked_worker,
+    )
     result_holder: dict[str, Any] = {}
+    _inflight_sem = _get_bypass_inflight_semaphore()
+    # BB5-S02 iter-3 (#1177, Codex P1 continuing): a per-worker ABANDONED flag.
+    # The outer join-timeout path SETS it; the worker CHECKS it twice — (a)
+    # immediately after acquiring the in-flight slot (closes the
+    # blocked-on-semaphore window: a worker that timed out while STILL queued on
+    # `_inflight_sem.acquire()` must NOT proceed to run AccessBypass / spawn a
+    # browser once the slot finally frees) and (b) right after publishing its
+    # loop (closes the narrow TOCTOU between passing check (a) and the outer path
+    # reading a not-yet-published loop). Under the GIL the handshake is closed:
+    # worker = publish-loop-then-check-flag; outer = set-flag-then-read-loop.
+    _abandoned = threading.Event()
 
     def _bypass_worker() -> None:
+        # BB5-S02: acquire a cross-thread in-flight slot. Bounds the number of
+        # concurrently-LIVE bypass workers (each may hold a browser subprocess)
+        # across all per-thread event loops — `_get_crawl4ai_semaphore` cannot,
+        # being lazy-bound to THIS thread's fresh loop only.
+        _inflight_sem.acquire()
         try:
+            # BB5-S02 iter-3 (#1177, Codex P1 continuing): if this worker was
+            # abandoned (outer join timed out) WHILE it was blocked here on
+            # `acquire()`, bail BEFORE constructing AccessBypass / publishing a
+            # loop / spawning a browser. The outer path could not cancel us (no
+            # loop was ever published), so the worker itself must self-abort —
+            # otherwise a stale fetch starts AFTER its caller already fell back,
+            # consuming a slot + browser resources. `return` here lets the
+            # existing `finally` perform the single in-flight-slot release (do
+            # NOT release explicitly — a BoundedSemaphore double-release raises).
+            if _abandoned.is_set():
+                return
             bypass = AccessBypass()
-            result_holder["value"] = asyncio.run(
-                bypass.fetch_with_bypass(url, prefer_legal=True)
+
+            async def _capture_loop_and_fetch() -> Any:
+                # BB5-S02 iter-2 (#1177, Codex P1-S02): publish THIS worker's
+                # running loop into the shared holder as the FIRST awaited step,
+                # BEFORE the (potentially wedging) fetch. The outer join path
+                # reads this loop to actively signal teardown on abandonment.
+                # Capturing here — inside the coro rather than by changing
+                # polaris_asyncio_run — keeps the drain-runner's signature (and
+                # its spy test) untouched.
+                result_holder["loop"] = asyncio.get_running_loop()
+                # BB5-S02 iter-3 (#1177): second abandonment check, AFTER the
+                # loop is published. Closes the TOCTOU where the worker passed
+                # the post-acquire check, then the outer path timed out and read
+                # `loop` as None (not yet published) → no teardown was sent.
+                # Raising CancelledError (vs returning) matches the worker's
+                # existing `except asyncio.CancelledError` handler and skips the
+                # fetch entirely, so no stale browser op starts.
+                if _abandoned.is_set():
+                    raise asyncio.CancelledError(
+                        "bypass worker abandoned before fetch start"
+                    )
+                return await bypass.fetch_with_bypass(url, prefer_legal=True)
+
+            # BB5-S02: polaris_asyncio_run (vs bare asyncio.run) force-drains
+            # wedged detached Playwright fetch tasks BEFORE the loop's
+            # cancel-all phase, so the loop teardown cannot hang on an
+            # un-cancellable browser op — closing the orphan-subprocess window
+            # for a worker that DOES eventually return.
+            result_holder["value"] = polaris_asyncio_run(_capture_loop_and_fetch())
+        except asyncio.CancelledError:
+            # BB5-S02 iter-2: the outer join path actively cancelled this loop's
+            # tasks on abandonment (active teardown). CancelledError is a
+            # BaseException — NOT caught by `except Exception` — so catch it
+            # explicitly here, or it escapes the daemon thread as a noisy
+            # traceback. The slot still releases in the finally below.
+            result_holder["error"] = result_holder.get("error") or RuntimeError(
+                "bypass worker cancelled on abandonment teardown"
             )
         except Exception as exc:  # noqa: BLE001
             result_holder["error"] = exc
+        finally:
+            _inflight_sem.release()
 
     worker = threading.Thread(target=_bypass_worker, daemon=True)
     worker.start()
@@ -1940,11 +2113,64 @@ def _fetch_content(
         deadline = 90.0
     worker.join(timeout=deadline if deadline > 0 else None)
     if worker.is_alive():
+        # BB5-S02 iter-3 (#1177, Codex P1 continuing): SET the abandoned flag
+        # FIRST — before the gauge/log/loop-read — so a worker about to wake
+        # from a blocked `_inflight_sem.acquire()` (or about to publish its
+        # loop) observes the abandonment ASAP and self-aborts WITHOUT starting
+        # AccessBypass. This closes the pre-loop window the active loop-cancel
+        # teardown below cannot reach (that teardown needs a published loop;
+        # a still-queued worker has none). The two mechanisms compose: this
+        # flag covers the never-started (pre-loop) case; the loop cancel below
+        # covers the in-flight (post-loop) case.
+        _abandoned.set()
+        # BB5-S02 (#1177): the worker is ABANDONED (still alive past the join
+        # deadline) — it holds its in-flight slot + possibly a live browser
+        # subprocess until it finally terminates. Record the leak gauge so the
+        # accumulated-orphan-subprocess signal is auditable (was silent before).
+        _leaked = record_bypass_leaked_worker()
         logger.warning(
             "[live_retriever] AccessBypass timed out after %.0fs for %s "
-            "— falling back to naive httpx (thread will continue as daemon)",
-            deadline, url[:80],
+            "— falling back to naive httpx (thread abandoned as daemon; "
+            "leaked_bypass_workers=%d)",
+            deadline, url[:80], _leaked,
         )
+        # BB5-S02 iter-2 (#1177, Codex P1-S02): the previous code only RECORDED
+        # the abandonment (gauge) — it never FORCED the wedged worker to release
+        # its browser. Here we ACTIVELY signal teardown: cancel every task on the
+        # abandoned worker's event loop. The fetch coro was created via
+        # `loop.create_task` inside polaris_asyncio_run, so cancelling it injects
+        # CancelledError at the wedged `await`, which runs _try_crawl4ai's
+        # `finally: await _safe_close_crawler(...)` — closing the Crawl4AI/
+        # Playwright browser context instead of orphaning it. `call_soon_thread-
+        # safe` is the ONLY thread-safe way to touch another loop; `all_tasks`
+        # then runs IN that loop thread where it is safe. Fire-and-forget — we do
+        # NOT join the worker, preserving the non-hang property of this fallback.
+        #
+        # Honest limitation (mirrors the trafilatura SIGSEGV mitigation note): a
+        # worker wedged in a synchronous C-level Playwright call observes the
+        # cancellation only when it next yields to its loop. This is inherent to
+        # cooperative cancellation and cannot be engineered past in-process; the
+        # signal is still sent so a cancellable wait tears down promptly.
+        _abandoned_loop = result_holder.get("loop")
+        if _abandoned_loop is not None:
+            try:
+                if not _abandoned_loop.is_closed():
+                    def _cancel_all_on_abandoned_loop(
+                        _loop: Any = _abandoned_loop,
+                    ) -> None:
+                        try:
+                            for _task in asyncio.all_tasks(_loop):
+                                _task.cancel()
+                        except Exception:  # noqa: BLE001 — best-effort teardown
+                            pass
+
+                    _abandoned_loop.call_soon_threadsafe(
+                        _cancel_all_on_abandoned_loop
+                    )
+            except RuntimeError:
+                # Loop closed/finished racing with the cancel request — the
+                # worker already returned on its own; nothing to tear down.
+                pass
         # M-45 pass-2: record AccessBypass timeout so diagnostics can
         # distinguish timeout from backend refusal.
         _m45_record_fetch_telemetry(
@@ -2054,6 +2280,30 @@ def _fetch_content(
     # cleaned text). _strip_html is a safety net for direct-HTTP path
     # which returns raw HTML.
     content = _strip_html(result.content)[:max_chars]
+    # BB5-C05 (#1177): "fetched-200-but-empty-extract" — the backend fetched
+    # real content (success + non-empty result.content) yet the extractor chain
+    # (trafilatura → readability → regex) collapsed it below the usable floor.
+    # This is a DISTINCT failure class from a network miss / paywall stub, and
+    # was previously swallowed silently (counted as a generic miss). Surface it
+    # as its own telemetry bucket so it is auditable, not silent.
+    _raw_len = len(result.content or "")
+    if _raw_len >= _EXTRACT_NONEMPTY_RAW_FLOOR and len(content) < _EXTRACT_EMPTY_FLOOR:
+        logger.info(
+            "[live_retriever] fetched_200_but_empty_extract %s "
+            "(method=%s raw_chars=%d extracted_chars=%d)",
+            url[:80], method, _raw_len, len(content),
+        )
+        _m45_record_fetch_telemetry(
+            url, method, "fetched_200_but_empty_extract",
+        )
+        _trace_tool(
+            "fetch_content", target=url, status="empty_extract",
+            latency_ms=(time.time() - _t0) * 1000.0,
+            backend_used=method, bytes_received=len(content),
+            content_length=len(content),
+            error="fetched_200_but_empty_extract",
+        )
+        return content, bool(content), extracted_title, body_type, jsonld
     logger.info(
         "[live_retriever] fetch_ok %s (method=%s chars=%d)",
         url[:80], method, len(content),
@@ -2898,6 +3148,16 @@ def run_live_retrieval(
         api_calls["parallel_fetch_timeout_count"] = (
             parallel_report.timeout_count
         )
+        # BB5-S02 (#1177): surface the leaked-bypass-worker gauge (abandoned
+        # in-flight workers that may hold orphan browser subprocesses) into the
+        # manifest so the resource-leak signal is auditable, not log-only.
+        try:
+            from src.tools.access_bypass import bypass_leaked_worker_count
+            api_calls["bypass_leaked_worker_count"] = (
+                bypass_leaked_worker_count()
+            )
+        except Exception:  # noqa: BLE001 — telemetry only; never break fetch
+            pass
         logger.info(
             "[live_retriever] M-INT-1 parallel_fetch: %d success, "
             "%d errored, %d timeout (max_workers=%d, "
