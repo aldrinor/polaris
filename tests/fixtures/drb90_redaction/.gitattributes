@@ -1,0 +1,6 @@
+# Real drb_90 forensic artifacts used by tests/roles/test_report_redactor_iready017.py.
+# Pin to byte-exact LF (no autocrlf rewrite) so the redaction tests are deterministic on every
+# platform/CI checkout — these are exact-content fixtures, not editable source.
+report.md -text
+four_role_claim_audit.json -text
+manifest.json -text

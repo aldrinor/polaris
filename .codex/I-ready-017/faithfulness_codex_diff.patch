@@ -1,0 +1,846 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 117ce67e..ff2d4ac7 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -221,6 +221,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+     "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
+     "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
+     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
++    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
+     # error — unhandled exception
+     "error_unexpected",
+@@ -249,6 +250,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
+     "four_role_released": "success",
+     "four_role_held": "abort_four_role_release_held",
++    # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
++    # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
++    "report_redaction_failed": "abort_report_redaction_failed",
+     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
+     # clean budget abort, NOT error_unexpected.
+     "abort_budget_exceeded": "abort_budget_exceeded",
+@@ -6615,6 +6619,127 @@ async def run_one_query(
+                 f"held_reasons={four_role_result.held_reasons}"
+             )
+ 
++            # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
++            # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
++            # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
++            # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
++            # report.md. So a sentence the strongest verifier rejected still ships as asserted
++            # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
++            # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
++            # redact every material non-VERIFIED claim's verbatim sentence to the existing
++            # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
++            # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
++            # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
++            # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
++            # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
++            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
++            # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
++            # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
++            if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
++                "0", "false", "False",
++            ):
++                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
++                    ReportRedactionError,
++                    reconcile_report_against_verdicts,
++                )
++                _redact_report_path = run_dir / "report.md"
++                _audit_map_path = run_dir / "four_role_claim_audit.json"
++                # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
++                # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
++                # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
++                # NOT be mislabeled abort_report_redaction_failed merely because the audit
++                # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
++                # claim's verbatim sentence.
++                _final_verdicts = four_role_result.final_verdicts or {}
++                _nonverified_verdicts = {
++                    cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
++                }
++                if not _nonverified_verdicts:
++                    _log(
++                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
++                        "reconciliation skipped (no-op)"
++                    )
++                elif not _redact_report_path.is_file():
++                    _log(
++                        "[redact]      report.md absent; nothing to reconcile (no shipped "
++                        "artifact can leak)"
++                    )
++                elif not _audit_map_path.is_file():
++                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
++                    # is missing -> fail closed rather than ship an unreconciled report.
++                    summary_status = "report_redaction_failed"
++                    unified_status = to_unified_status(summary_status)
++                    manifest["status"] = unified_status
++                    manifest["release_allowed"] = False
++                    manifest["report_redaction_error"] = (
++                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
++                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
++                    )
++                    _log(
++                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
++                        "verdicts -> abort_report_redaction_failed"
++                    )
++                else:
++                    _audit_map = json.loads(
++                        _audit_map_path.read_text(encoding="utf-8")
++                    )
++                    try:
++                        _redaction = reconcile_report_against_verdicts(
++                            _redact_report_path.read_text(encoding="utf-8"),
++                            _final_verdicts,
++                            _audit_map,
++                        )
++                    except ReportRedactionError as _redact_exc:
++                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
++                        # no audit row. Do NOT ship the report; take a terminal abort. The
++                        # unredacted report.md stays on disk for the curator to inspect.
++                        summary_status = "report_redaction_failed"
++                        unified_status = to_unified_status(summary_status)
++                        manifest["status"] = unified_status
++                        manifest["release_allowed"] = False
++                        manifest["report_redaction_error"] = str(_redact_exc)
++                        _log(
++                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
++                            "abort_report_redaction_failed"
++                        )
++                    else:
++                        # Write the reconciled body back BEFORE the V30 append so the disclosure
++                        # reflects the redacted report. Emit one redacted_unsupported gap per
++                        # removed claim into gaps.json (append; never overwrite curator gaps).
++                        _redact_report_path.write_text(
++                            _redaction.report_text, encoding="utf-8"
++                        )
++                        manifest["report_redaction"] = {
++                            "redacted_count": _redaction.redacted_count,
++                            "redacted_claim_ids": [
++                                rc.claim_id for rc in _redaction.redacted
++                            ],
++                            "already_absent_claim_ids": _redaction.already_absent,
++                        }
++                        if _redaction.redacted:
++                            _gaps_redact_path = run_dir / "gaps.json"
++                            _existing_gaps: list = []
++                            if _gaps_redact_path.is_file():
++                                try:
++                                    _loaded = json.loads(
++                                        _gaps_redact_path.read_text(encoding="utf-8")
++                                    )
++                                    if isinstance(_loaded, list):
++                                        _existing_gaps = _loaded
++                                except Exception:  # noqa: BLE001 — corrupt sidecar must not lose redaction gaps
++                                    _existing_gaps = []
++                            _existing_gaps.extend(_redaction.gaps_json())
++                            _gaps_redact_path.write_text(
++                                json.dumps(_existing_gaps, indent=2, sort_keys=True) + "\n",
++                                encoding="utf-8",
++                            )
++                        _log(
++                            f"[redact]      reconciled report.md vs 4-role verdicts: "
++                            f"redacted={_redaction.redacted_count} "
++                            f"already_absent={len(_redaction.already_absent)} "
++                            "(refuse-in-place; held-path safe)"
++                        )
++
+         # V30 Report Contract Architecture integration (Phase 1 of
+         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
+         # complete no-op — the runner doesn't even import the V30
+diff --git a/src/polaris_graph/audit_ir/regression_lab.py b/src/polaris_graph/audit_ir/regression_lab.py
+index 68da50c3..a5e73612 100644
+--- a/src/polaris_graph/audit_ir/regression_lab.py
++++ b/src/polaris_graph/audit_ir/regression_lab.py
+@@ -620,6 +620,10 @@ _STATUS_TIERS: dict[str, int] = {
+     # taxonomy. KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES (test_saturation_phase4 +
+     # test_md9_regression_lab). 4-role-held + user-cancel are terminal aborts (tier 2, no report).
+     "abort_four_role_release_held": 2,
+warning: in the working copy of 'src/polaris_graph/roles/report_redactor.py', LF will be replaced by CRLF the next time Git touches it
++    # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed — a
++    # material non-VERIFIED claim present in the body could not be redacted; no trustworthy
++    # report (tier 2). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
++    "abort_report_redaction_failed": 2,
+     "cancelled": 2,
+     # I-ready-017 (#1134): journal_only corpus-quality aborts. A required
+     # contract slot bound to a non-journal entity (tier 2, no trustworthy report);
+diff --git a/src/polaris_graph/roles/report_redactor.py b/src/polaris_graph/roles/report_redactor.py
+new file mode 100644
+index 00000000..ddea69ec
+--- /dev/null
++++ b/src/polaris_graph/roles/report_redactor.py
+@@ -0,0 +1,325 @@
++"""Post-gate report.md reconciliation against the 4-role D8 verdicts (I-beatboth-fix-000 #1171).
++
++THE FAITHFULNESS LEAK this module closes
++----------------------------------------
++``scripts/run_honest_sweep_r3.py`` assembles ``report.md`` from strict_verify-KEPT
++sentences (L5780) BEFORE the authoritative 4-role D8 seam runs (L6407+). The seam
++re-judges every kept sentence with the stronger Mirror/Sentinel/Judge stack and can
++flip a strict_verify-kept sentence to a material non-VERIFIED verdict
++(UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at S0/S1/S2). Today the runner
++consumes that verdict ONLY as a manifest flag (``release_allowed=False`` +
++``needs_rewrite``); it NEVER reconciles the assembled ``report.md`` against the
++verdicts. So a sentence the strongest verifier rejected still ships as asserted prose.
++
++drb_90 proof: ``needs_rewrite`` carried 7 material UNSUPPORTED claim_ids and at least
++six of those sentences (e.g. the "$27,874 per violation" penalty figure, the
++"UN Regulation No. 157 — ALKS" instrument line) were physically present in the shipped
++``report.md`` body and carried-up Key Findings.
++
++WHAT THIS HELPER DOES (fail-closed)
++-----------------------------------
++For every claim whose 4-role ``final_verdict`` is material-non-VERIFIED, it locates the
++claim's verbatim sentence in the rendered ``report.md`` and REPLACES it with the
++existing visible gap language ("did not survive verification; curator-actionable gap").
++S3 (observe-only) claims are NEVER redacted (scope guard — they ship as disclosure-only).
++
++It is REFUSE-IN-PLACE, not a generative rewrite: no new spend, no new claims. The
++redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring designs
++but the runner never wired.
++
++The mapping is NOT 1:1 with strict_verify-kept (run_honest_sweep_r3.py:5660-5669 in-tree
++caveat: downstream dedup/repair passes mutate the body). Two cases:
++  * The claim's prose IS in the rendered report -> redact it (the leak).
++  * The claim's prose is genuinely ABSENT from the rendered report -> already not
++    shipped; record ``already_absent`` and ship nothing extra (the SAFE state).
++FAIL-CLOSED contract: if a material non-VERIFIED claim's normalized prose IS present in
++the normalized full report but the helper cannot pin a discrete rendered sentence to
++replace, it RAISES ``ReportRedactionError`` so the caller can take the terminal
++``abort_report_redaction_failed`` status rather than ship an unredacted leak.
++
++Pure function (string ops only; no network, no I/O). The CALLER reads/writes report.md.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass, field
++
++# Material = decision-relevant. Kept in lockstep with release_policy._MATERIAL_SEVERITIES
++# and config/architecture/d8_release_policy.yaml `material_severities`. S3 is observe-only
++# and is NEVER redacted (it ships disclosure-only per the BUG-11 scope guard).
++DEFAULT_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
++
++# A final_verdict in this set, at a material severity, is a leak if it ships as prose.
++# VERIFIED survives; PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE are non-VERIFIED.
++_NON_VERIFIED_VERDICTS = frozenset(
++    {"UNSUPPORTED", "FABRICATED", "UNREACHABLE", "PARTIAL"}
++)
++_VERDICT_VERIFIED = "VERIFIED"
++
++# The visible gap sentence a redacted claim is replaced with. Mirrors the existing gap
++# language already used by contract_section_runner ("did not survive strict
++# verification; curator-actionable gap.") so a redacted body reads consistently.
++_GAP_REPLACEMENT = (
++    "A claim previously stated here did not survive 4-role verification and was "
++    "redacted; this is a curator-actionable gap."
++)
++
++# gaps.json kind for a post-gate redaction (mirrors release_policy._GAP_RESIDUAL_UNSUPPORTED
++# vocabulary but is distinct so the audit trail shows the redaction happened in report.md).
++GAP_KIND_REDACTED_UNSUPPORTED = "redacted_unsupported"
++
++# POLARIS provenance token: [#ev:evidence_id:start-end].
++_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
++# Rendered numbered citation marker: [1], [12]. The final report converts each provenance
++# token into one of these, so the stem matcher must ignore them on BOTH sides.
++_NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
++_WHITESPACE_RE = re.compile(r"\s+")
++
++
++class ReportRedactionError(RuntimeError):
++    """Raised when a material non-VERIFIED claim is present-but-unlocatable for a discrete
++    rendered-sentence replacement. The caller MUST fail closed (do NOT ship the report).
++    """
++
++
++@dataclass
++class RedactedClaim:
++    """One claim whose verbatim sentence was removed from report.md (-> gaps.json)."""
++
++    claim_id: str
++    severity: str
++    verdict: str
++    claim_text: str  # the verbatim sentence (with its original provenance token)
++
++
++@dataclass
++class RedactionResult:
++    """Outcome of reconciling report.md against the 4-role verdicts."""
++
++    report_text: str
++    redacted: list[RedactedClaim] = field(default_factory=list)
++    # Material non-VERIFIED claims whose prose was already absent from the rendered report
++    # (downstream dedup/repair had removed them) — recorded for the audit trail, not a leak.
++    already_absent: list[str] = field(default_factory=list)
++
++    @property
++    def redacted_count(self) -> int:
++        return len(self.redacted)
++
++    def gaps_json(self) -> list[dict]:
++        """Serialize the redactions as gaps.json entries (one per removed claim)."""
++        return [
++            {
++                "ref": rc.claim_id,
++                "kind": GAP_KIND_REDACTED_UNSUPPORTED,
++                "severity": rc.severity,
++                "note": (
++                    f"claim re-judged {rc.verdict} by the 4-role seam and removed from "
++                    "report.md (refuse-in-place); curator-actionable gap"
++                ),
++            }
++            for rc in self.redacted
++        ]
++
++
++def _prose_stem(text: str) -> str:
++    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose."""
++    text = _PROVENANCE_TOKEN_RE.sub("", text)
++    text = _NUMBERED_MARKER_RE.sub("", text)
++    return text
++
++
++def _normalize(text: str) -> str:
++    """Citation-insensitive, whitespace-insensitive prose for matching across the
++    provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
++    """
++    text = _prose_stem(text)
++    text = _WHITESPACE_RE.sub(" ", text)
++    return text.strip().rstrip(".").strip()
++
++
++def _is_material_non_verified(verdict: str, severity: str, material: tuple[str, ...]) -> bool:
++    # VERIFIED is not in _NON_VERIFIED_VERDICTS, so the first clause already excludes it.
++    return verdict in _NON_VERIFIED_VERDICTS and severity in material
++
++
++def reconcile_report_against_verdicts(
++    report_text: str,
++    final_verdicts: dict[str, str],
++    audit_map: dict[str, dict],
++    *,
++    material_severities: tuple[str, ...] = DEFAULT_MATERIAL_SEVERITIES,
++) -> RedactionResult:
++    """Remove every material non-VERIFIED claim's verbatim sentence from ``report_text``.
++
++    Args:
++      report_text: the assembled report.md content.
++      final_verdicts: claim_id -> 4-role final verdict (UNSUPPORTED/VERIFIED/...).
++      audit_map: claim_id -> {"sentence": <verbatim>, "severity": <S0..S3>, ...}
++                 (the persisted four_role_claim_audit.json structure).
++      material_severities: which severities gate (default S0/S1/S2; S3 is never redacted).
++
++    Returns a RedactionResult with the redacted text + per-claim records.
++
++    Raises:
++      ReportRedactionError — fail closed when a material non-VERIFIED claim's prose is
++      present in the report but cannot be pinned to a discrete sentence to replace.
++    """
++    result = RedactionResult(report_text=report_text)
++    working = report_text
++
++    for claim_id, verdict in sorted(final_verdicts.items()):
++        meta = audit_map.get(claim_id)
++        if meta is None:
++            # A verdict with no audit row is itself a fail-closed condition: we cannot
++            # know the claim_text to redact, and a material non-VERIFIED claim might be
++            # shipping. Only raise for non-VERIFIED verdicts (VERIFIED never redacts).
++            if verdict != _VERDICT_VERIFIED:
++                raise ReportRedactionError(
++                    f"claim {claim_id} has verdict {verdict} but no audit_map row; "
++                    "cannot locate its sentence to reconcile (fail-closed)."
++                )
++            continue
++
++        severity = str(meta.get("severity", ""))
++        if not _is_material_non_verified(verdict, severity, material_severities):
++            # VERIFIED survives; S3 observe-only ships disclosure-only (scope guard).
++            continue
++
++        sentence = str(meta.get("sentence", ""))
++        stem_norm = _normalize(sentence)
++        if not stem_norm:
++            # Defensive: an empty/whitespace-only claim sentence cannot be matched. A
++            # material non-VERIFIED claim with no usable text is a fail-closed condition.
++            raise ReportRedactionError(
++                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
++                "cannot reconcile (fail-closed)."
++            )
++
++        removed, working = _redact_sentence(working, stem_norm)
++        if removed:
++            result.redacted.append(
++                RedactedClaim(
++                    claim_id=claim_id,
++                    severity=severity,
++                    verdict=verdict,
++                    claim_text=sentence,
++                )
++            )
++            continue
++
++        # Not redacted: either genuinely absent (SAFE) or present-but-unlocatable (FAIL).
++        if stem_norm in _normalize(working):
++            raise ReportRedactionError(
++                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
++                "but could not be pinned to a discrete rendered sentence for redaction; "
++                "refusing to ship a partially-reconciled report (fail-closed). "
++                f"prose_stem={stem_norm[:120]!r}"
++            )
++        result.already_absent.append(claim_id)
++
++    result.report_text = working
++    return result
++
++
++def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
++    """Replace each rendered sentence whose normalized prose contains ``stem_norm`` with the
++    visible gap language. Returns (redacted_any, new_text).
++
++    Matching is done at the rendered-sentence granularity: each body line is split into
++    sentence spans (each span KEEPS its own trailing citation markers), normalized (citation +
++    whitespace insensitive), and a span is redacted iff its normalized prose CONTAINS the claim
++    stem with sufficient coverage. Every NON-matching sentence — and its [N] markers — is
++    preserved byte-for-byte, so redacting one sentence never strips citations off its VERIFIED
++    neighbors (Codex iter-1 P1). Robust to the provenance-token -> [N] render shift; never
++    matches across unrelated sentences.
++    """
++    redacted_any = False
++    out_lines: list[str] = []
++    for line in report_text.split("\n"):
++        # Never touch headings, bibliography rows, or already-gap lines.
++        stripped = line.lstrip()
++        if stripped.startswith("#") or stripped.startswith("[") or not stripped:
++            out_lines.append(line)
++            continue
++        new_line, hit = _redact_line(line, stem_norm)
++        redacted_any = redacted_any or hit
++        out_lines.append(new_line)
++    return redacted_any, "\n".join(out_lines)
++
++
++# A rendered-sentence boundary: a terminator [.!?], then any run of the sentence's OWN
++# trailing citation markers ([N], optionally space-separated), then the inter-sentence
++# whitespace, then the start of the next sentence. The trailing markers stay attached to the
++# sentence they cite (the LEFT side) — they are NOT consumed as a separator.
++#
++# Codex iter-1 P1 fix: the prior `re.split(r"(?<=[.!?])(?:\[\d+\])?\s+...")` discarded the
++# boundary marker (it was part of the matched, dropped separator), so redacting one sentence
++# stripped the [8]/[4] citation markers off its VERIFIED neighbors on the same line and turned
++# cited claims into uncited prose. The real drb_90 case: the VERIFIED 05-000 sentence renders
++# "...crashes.[8]" immediately before the UNSUPPORTED 05-001 sentence — the [8] belongs to
++# 05-000 and must survive redaction of 05-001.
++#
++# A decimal like "0.457" or "No. 157" is never a boundary: the lookahead demands whitespace +
++# a sentence-start char (uppercase/quote/open-paren/hash), never a digit.
++_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])")
++
++# The claim stem must cover at least this fraction of a rendered sentence to redact it. Guards
++# against a short non-VERIFIED claim whose normalized prose is a substring of a LONGER VERIFIED
++# sentence wrongly redacting that survivor (over-redaction). Internal matching-precision floor,
++# named per §9.4 (no magic numbers) — not an operator-tunable parameter.
++_MIN_REDACTION_COVERAGE = 0.6
++
++
++def _sentence_spans(line: str) -> list[tuple[int, int]]:
++    """(start, end) spans over ``line``, one per rendered sentence, each span INCLUDING the
++    sentence's trailing citation markers. The gaps between spans are pure inter-sentence
++    whitespace, which the caller preserves verbatim — so a redaction never disturbs a
++    neighbor's text or markers.
++    """
++    spans: list[tuple[int, int]] = []
++    start = 0
++    for m in _SENTENCE_BOUNDARY_RE.finditer(line):
++        # m.group() == terminator + markers + trailing whitespace; the sentence (with its
++        # markers) ends where that trailing whitespace begins.
++        sentence_end = m.start() + len(m.group().rstrip())
++        spans.append((start, sentence_end))
++        start = m.end()  # next sentence begins after the inter-sentence whitespace
++    spans.append((start, len(line)))
++    return spans
++
++
++def _sentence_matches_stem(sentence: str, stem_norm: str) -> bool:
++    """A rendered sentence IS the rejected claim iff its normalized prose contains the claim
++    stem AND the stem covers >= _MIN_REDACTION_COVERAGE of it (no short-substring false hit)."""
++    sent_norm = _normalize(sentence)
++    if not sent_norm or stem_norm not in sent_norm:
++        return False
++    return len(stem_norm) >= _MIN_REDACTION_COVERAGE * len(sent_norm)
++
++
++def _redact_line(line: str, stem_norm: str) -> tuple[str, bool]:
++    """Redact matching rendered sentences within a single body line, byte-preserving EVERY
++    non-matching sentence (its exact text + citation markers) and all inter-sentence
++    whitespace. Only the matching sentence span (including its own trailing markers) is
++    replaced with the gap language.
++    """
++    # Fast reject: if the normalized line does not contain the stem, nothing to do.
++    if stem_norm not in _normalize(line):
++        return line, False
++
++    out: list[str] = []
++    cursor = 0
++    hit = False
++    for (start, end) in _sentence_spans(line):
++        out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
++        sentence = line[start:end]
++        if _sentence_matches_stem(sentence, stem_norm):
++            out.append(_GAP_REPLACEMENT)
++            hit = True
++        else:
++            out.append(sentence)  # byte-identical — markers intact
++        cursor = end
++    out.append(line[cursor:])
++    return "".join(out), hit
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index b01cf8c8..6aa2b966 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -46,6 +46,7 @@ PipelineStatus = Literal[
+     "abort_discovery_degraded",      # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop) — must mirror UNIFIED_STATUS_VALUES or the actor 500s RunStatusResponse on an FL-05 abort
+     "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal before retrieval
+     "abort_four_role_release_held",  # 4-role D8 held release
++    "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation fail-closed — the v6 actor loads manifest.status into pipeline_status, so omitting this would 500 RunStatusResponse on a redaction-failure abort
+     "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — required contract slot bound to a non-journal entity
+     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
+     "error_unexpected",
+warning: in the working copy of 'tests/roles/test_report_redactor_iready017.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/tests/polaris_graph/test_manifest_contract.py b/tests/polaris_graph/test_manifest_contract.py
+index 92ff15ae..b0acd960 100644
+--- a/tests/polaris_graph/test_manifest_contract.py
++++ b/tests/polaris_graph/test_manifest_contract.py
+@@ -54,6 +54,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
+         "abort_discovery_degraded",    # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop)
+         "abort_safety_refused",        # I-ready-007 (#1072): input harm-refusal before retrieval
+         "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
++        "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed (material non-VERIFIED claim present-but-unredactable)
+         "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only required contract slot non-journal
+         "abort_credibility_coverage_gap",  # I-cred-008b (#1162): activated credibility-disclosure pass found an uncovered cited token
+         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
+@@ -80,6 +81,7 @@ def test_manifest_contract_partial_status_mapping() -> None:
+         ("abort_corpus_inadequate", "abort_corpus_inadequate"),
+         ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
+         ("abort_no_verified_sections", "abort_no_verified_sections"),
++        ("report_redaction_failed", "abort_report_redaction_failed"),  # I-beatboth-fix-000 (#1171)
+         ("error", "error_unexpected"),
+     ]
+     for legacy, unified in cases:
+diff --git a/tests/roles/test_report_redactor_iready017.py b/tests/roles/test_report_redactor_iready017.py
+new file mode 100644
+index 00000000..b8eb6d84
+--- /dev/null
++++ b/tests/roles/test_report_redactor_iready017.py
+@@ -0,0 +1,310 @@
++"""I-beatboth-fix-000 (#1171) — faithfulness leak closure: post-gate report.md
++reconciliation against the 4-role D8 verdicts.
++
++These tests use the REAL drb_90 forensic artifacts (report.md +
++four_role_claim_audit.json + manifest.four_role_evaluation.final_verdicts) — NOT a
++synthetic fixture — because the leak is a mapping problem (the assembled body is NOT
++1:1 with strict_verify-kept; provenance tokens render to [N] markers; downstream
++dedup/repair mutate the body). Only the real artifacts exercise that mapping.
++
++Proof obligations (per the leak design):
++  (a) each material-non-VERIFIED claim that ships as prose is REMOVED / replaced;
++  (b) PRECISION — VERIFIED kept claims SURVIVE (no blanket recall cut);
++  (c) gaps.json gains one redacted_unsupported entry per removed claim;
++  (d) FAIL-CLOSED — a present-but-unlocatable material claim raises (no partial ship);
++  (e) S3 observe-only claims are NEVER redacted (scope guard);
++  (f) runs on the HELD path (release_allowed=False) just like the shipped one.
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from src.polaris_graph.roles.report_redactor import (
++    ReportRedactionError,
++    reconcile_report_against_verdicts,
++)
++
++# Real drb_90 forensic artifacts, committed as a tracked fixture (CLAUDE.md §5 / LAW VI) so the
++# real-artifact tests are CI-portable — outputs/* is gitignored, so the source copies are not
++# tracked (Codex iter-3 P1). These three files (report.md + four_role_claim_audit.json +
++# manifest.json) are the genuine shipped drb_90 run, not synthetic — the leak is a render-mapping
++# problem only the real artifacts exercise.
++_FORENSIC = Path(__file__).resolve().parents[1] / "fixtures" / "drb90_redaction"
++
++
++def _load_real():
++    report = (_FORENSIC / "report.md").read_text(encoding="utf-8")
++    audit = json.loads((_FORENSIC / "four_role_claim_audit.json").read_text(encoding="utf-8"))
++    manifest = json.loads((_FORENSIC / "manifest.json").read_text(encoding="utf-8"))
++    final_verdicts = manifest["four_role_evaluation"]["final_verdicts"]
++    return report, audit, final_verdicts
++
++
++# The 7 material UNSUPPORTED claim_ids the 4-role seam flagged (manifest.needs_rewrite).
++_NEEDS_REWRITE = [
++    "01-000-2bfe564b",
++    "01-001-3f613b96",
++    "02-000-3542bc50",
++    "04-002-05b9f68e",
++    "05-001-cd82cb44",
++    "06-000-1fdcdae9",
++    "06-002-6189d1fa",
++]
++
++# Distinctive prose fragments that PROVE a flagged claim was shipping in report.md.
++_LEAK_FRAGMENTS = {
++    "06-002-6189d1fa": "$27,874 per violation",
++    "01-000-2bfe564b": "UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS)",
++    "06-000-1fdcdae9": "should not be assumed statistically representative",
++    "05-001-cd82cb44": "reported data may not be statistically representative",
++    "04-002-05b9f68e": "perform the entire dynamic driving task without driver involvement",
++}
++
++# VERIFIED kept claims that MUST survive (precision, not blanket recall).
++_VERIFIED_SURVIVORS = [
++    "OR 0.457",  # 05-000, VERIFIED
++    "0.171",
++    "six levels, from Level 0 (no automation) to Level 5",  # 04-000, VERIFIED
++    "The term “reporting entities” is defined to include only",  # 01-007 VERIFIED
++]
++
++
++def test_real_drb90_leak_fragments_present_before_redaction():
++    """Guard: prove the leak EXISTS in the real artifact before we close it."""
++    report, _, _ = _load_real()
++    for cid, frag in _LEAK_FRAGMENTS.items():
++        assert frag in report, f"{cid} fragment {frag!r} expected in pre-redaction report.md"
++
++
++def test_real_drb90_material_unsupported_redacted():
++    """(a) Every material-non-VERIFIED claim that ships as prose is removed/replaced."""
++    report, audit, final_verdicts = _load_real()
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    # The leak fragments must be GONE from the redacted body.
++    for cid, frag in _LEAK_FRAGMENTS.items():
++        assert frag not in res.report_text, (
++            f"{cid} fragment {frag!r} STILL present after redaction — leak not closed"
++        )
++    # Each present leak claim is recorded as redacted.
++    redacted_ids = {rc.claim_id for rc in res.redacted}
++    for cid in _LEAK_FRAGMENTS:
++        assert cid in redacted_ids, f"{cid} should be in redacted records"
++
++
++def test_real_drb90_verified_claims_survive():
++    """(b) PRECISION — VERIFIED kept claims survive; no blanket recall cut."""
++    report, audit, final_verdicts = _load_real()
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    for survivor in _VERIFIED_SURVIVORS:
++        assert survivor in res.report_text, (
++            f"VERIFIED survivor {survivor!r} was wrongly redacted (over-redaction)"
++        )
++
++
++def test_real_drb90_gaps_json_one_per_redaction():
++    """(c) gaps.json gains exactly one redacted_unsupported entry per removed claim."""
++    report, audit, final_verdicts = _load_real()
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    gaps = res.gaps_json()
++    assert len(gaps) == res.redacted_count
++    assert all(g["kind"] == "redacted_unsupported" for g in gaps)
++    # claim_id appears exactly once.
++    refs = [g["ref"] for g in gaps]
++    assert len(refs) == len(set(refs))
++
++
++def test_real_drb90_absent_claim_is_safe_not_error():
++    """02-000 ('Tesla, Inc') is material UNSUPPORTED but downstream dedup already removed
++    it from report.md. That is the SAFE state (not shipped) — it must be recorded as
++    already_absent, NOT raise.
++    """
++    report, audit, final_verdicts = _load_real()
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    assert "02-000-3542bc50" in res.already_absent
++    assert "02-000-3542bc50" not in {rc.claim_id for rc in res.redacted}
++
++
++def test_s3_observe_only_never_redacted():
++    """(e) Scope guard: an S3 observe-only claim flagged UNSUPPORTED is NOT redacted.
++    07-004 is UNSUPPORTED but S3 in the real audit map.
++    """
++    report, audit, final_verdicts = _load_real()
++    assert final_verdicts["07-004-402b2ac8"] == "UNSUPPORTED"
++    assert audit["07-004-402b2ac8"]["severity"] == "S3"
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    assert "07-004-402b2ac8" not in {rc.claim_id for rc in res.redacted}
++    # Its prose fragment (the 95-98% efficiency line) survives as disclosure-only.
++    assert "95–98% algorithm efficiency" in res.report_text
++
++
++def test_fail_closed_on_present_but_unlocatable():
++    """(d) FAIL-CLOSED: a material non-VERIFIED claim whose normalized prose IS present in
++    the report but cannot be pinned to a discrete sentence raises ReportRedactionError.
++
++    Simulate by handing a claim whose sentence is a fragment that appears mid-sentence in
++    a heading line (which the line-level redactor skips), so the stem is present in the
++    normalized report but unredactable -> must raise.
++    """
++    report = "# Heading mentioning the secret penalty figure inline\n\nBody line unrelated.\n"
++    audit = {
++        "99-000-deadbeef": {
++            "sentence": "the secret penalty figure [#ev:x:0-10].",
++            "severity": "S2",
++        }
++    }
++    final_verdicts = {"99-000-deadbeef": "UNSUPPORTED"}
++    with pytest.raises(ReportRedactionError):
++        reconcile_report_against_verdicts(report, final_verdicts, audit)
++
++
++def test_missing_audit_row_for_non_verified_fails_closed():
++    """A non-VERIFIED verdict with no audit_map row cannot be located -> fail closed."""
++    report = "Body line.\n"
++    audit: dict = {}
++    final_verdicts = {"01-000-x": "UNSUPPORTED"}
++    with pytest.raises(ReportRedactionError):
++        reconcile_report_against_verdicts(report, final_verdicts, audit)
++
++
++def test_all_verified_is_noop():
++    """A report whose every claim is VERIFIED is returned byte-identical (no redaction)."""
++    report, audit, final_verdicts = _load_real()
++    all_verified = {cid: "VERIFIED" for cid in final_verdicts}
++    res = reconcile_report_against_verdicts(report, all_verified, audit)
++    assert res.report_text == report
++    assert res.redacted == []
++
++
++def test_held_path_runs_identically():
++    """(f) The helper is a pure function of (report, verdicts, audit_map) — it does not
++    read release_allowed, so it runs identically on the HELD path. Assert the real
++    drb_90 case (release_allowed=False) still redacts.
++    """
++    report, audit, final_verdicts = _load_real()
++    manifest = json.loads((_FORENSIC / "manifest.json").read_text(encoding="utf-8"))
++    assert manifest["four_role_evaluation"]["release_allowed"] is False
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    assert res.redacted_count >= 5
++
++
++# ─────────────────────────────────────────────────────────────────
++# CITATION-MARKER PRESERVATION (Codex iter-1 P1): redacting one sentence must NOT strip the
++# [N] citation markers off the VERIFIED sentences around it on the same line, and must NOT
++# over-redact a longer VERIFIED sentence that merely shares words with a short rejected claim.
++# ─────────────────────────────────────────────────────────────────
++
++def test_redaction_preserves_neighbor_citation_markers():
++    """Unit P1 guard: a redacted middle sentence consumes only ITS OWN trailing marker; the
++    [8]/[7] markers of the verified sentences on either side survive byte-for-byte."""
++    report = (
++        "Alpha verified one.[8] Bravo bad claim sentence here.[4] Charlie verified two.[7]\n"
++    )
++    audit = {
++        "x-bravo": {
++            "sentence": "Bravo bad claim sentence here [#ev:e:0-9].",
++            "severity": "S1",
++        }
++    }
++    fv = {"x-bravo": "UNSUPPORTED"}
++    res = reconcile_report_against_verdicts(report, fv, audit)
++    assert "Alpha verified one.[8]" in res.report_text, "left neighbor lost its [8]"
++    assert "Charlie verified two.[7]" in res.report_text, "right neighbor lost its [7]"
++    assert "Bravo bad claim sentence here" not in res.report_text  # the claim is gone
++    assert "[4]" not in res.report_text  # the redacted claim's OWN marker is removed with it
++    assert "x-bravo" in {rc.claim_id for rc in res.redacted}
++
++
++def test_real_drb90_verified_survivor_citations_preserved():
++    """Real-artifact P1 regression (the exact Codex-reproduced defect): the VERIFIED 05-000
++    sentence renders '...crashes.[8]' immediately before the UNSUPPORTED 05-001 sentence on
++    the same body line. Redacting 05-001 must NOT strip [8] from the verified neighbor, and
++    the OR values + SAE-taxonomy verified sentence keep their cited prose."""
++    report, audit, final_verdicts = _load_real()
++    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
++    assert "crashes.[8]" in res.report_text, "verified 05-000 lost its [8] citation on redaction"
++    assert "(OR 0.457)" in res.report_text and "(OR 0.171)" in res.report_text
++    assert "Level 5 (full automation)" in res.report_text
++    # The VERIFIED 04-000 SAE-taxonomy sentence ends '...sustained basis.[4].[7]' and shares a
++    # line with the UNSUPPORTED 04-002 sentence; its [4] marker must survive (this is the exact
++    # marker Codex saw drop 21->16 under the bug; the fix keeps it, 21->17 = only redacted-claim [4]s).
++    assert "basis.[4]" in res.report_text, "verified 04-000 lost its [4] citation on redaction"
++    # No [8] is collateral-dropped: every [8] in the source is on the verified 05-000 sentence.
++    assert res.report_text.count("[8]") == report.count("[8]")
++
++
++def test_no_overredaction_of_verified_sentence_sharing_words():
++    """P2-2 guard: a SHORT UNSUPPORTED claim redacts only its own sentence, never a LONGER
++    sentence on the same line that merely contains the claim's words as a substring (the
++    coverage floor). The longer sentence keeps its [2] marker."""
++    report = (
++        "The model achieves high recall.[1] "
++        "It is well established in prior work that the model achieves high recall on every "
++        "held-out benchmark we examined.[2]\n"
++    )
++    audit = {"bad-1": {"sentence": "The model achieves high recall [#ev:e:0-9].", "severity": "S2"}}
++    fv = {"bad-1": "UNSUPPORTED"}
++    res = reconcile_report_against_verdicts(report, fv, audit)
++    assert "The model achieves high recall.[1]" not in res.report_text  # own sentence redacted
++    assert "every held-out benchmark we examined.[2]" in res.report_text  # longer one survives
++    assert "[2]" in res.report_text
++
++
++# ─────────────────────────────────────────────────────────────────
++# D8 RULING GUARD (Task 3): the D8 coverage gate is a LEGITIMATE fixed-denominator
++# semantic-coverage fraction, NOT a forbidden raw-count gate. This pins the ruling
++# (NO change to release_policy.py) by behavior: the denominator is fixed, so dropping a
++# claim can only LOWER the fraction — it is un-gameable in the forbidden direction.
++# ─────────────────────────────────────────────────────────────────
++
++def test_d8_coverage_gate_is_fixed_denominator_fraction():
++    from src.polaris_graph.roles.release_policy import CoverageLedger
++
++    # drb_90: 2 of 6 required entities covered by VERIFIED claims -> 0.333 < 0.70 threshold.
++    led = CoverageLedger(
++        required_element_ids=["e1", "e2", "e3", "e4", "e5", "e6"],
++        covered_element_ids={"e1", "e2"},
++    )
++    assert abs(led.fraction() - 1 / 3) < 1e-9
++    # Dropping/refusing a claim REMOVES it from the numerator; the denominator (required
++    # set) is fixed, so the fraction can only fall — never rise. This is why the gate is a
++    # completeness measure, not a §-1.1-banned count proxy (which would reward more rows).
++    led.covered_element_ids.discard("e2")
++    assert abs(led.fraction() - 1 / 6) < 1e-9
++    # An empty required set is vacuously complete (1.0) — no count can game it.
++    assert CoverageLedger(required_element_ids=[]).fraction() == 1.0
++
++
++# ─────────────────────────────────────────────────────────────────
++# v6 PipelineStatus MIRROR (Codex iter-2 P1): the new abort_report_redaction_failed status is
++# loaded into manifest.status -> the v6 actor stores it into pipeline_status -> RunStatusResponse
++# validates against the PipelineStatus Literal. Omitting it 500s the GET/list endpoint on a
++# redaction-failure abort instead of surfacing the fail-closed status. Mirror it, like
++# abort_discovery_degraded / abort_safety_refused / abort_four_role_release_held.
++# ─────────────────────────────────────────────────────────────────
++
++def test_abort_report_redaction_failed_in_v6_pipeline_status():
++    from typing import get_args
++
++    from src.polaris_v6.schemas.run_status import PipelineStatus
++
++    assert "abort_report_redaction_failed" in get_args(PipelineStatus)
++
++
++def test_run_status_response_accepts_redaction_failed_without_validationerror():
++    """Codex iter-2 repro: RunStatusResponse(..., pipeline_status='abort_report_redaction_failed')
++    must construct cleanly — not raise pydantic ValidationError on the API surface."""
++    from src.polaris_v6.schemas.run_status import RunStatusResponse
++
++    resp = RunStatusResponse(
++        run_id="deadbeef",
++        lifecycle_status="completed",
++        pipeline_status="abort_report_redaction_failed",
++        template="workforce",
++        question="q",
++        queued_at="2026-06-08T00:00:00Z",
++    )
++    assert resp.pipeline_status == "abort_report_redaction_failed"

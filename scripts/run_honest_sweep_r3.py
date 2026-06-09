@@ -221,6 +221,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
     "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
     "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
     "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
     # error — unhandled exception
     "error_unexpected",
@@ -249,6 +250,9 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
     "four_role_released": "success",
     "four_role_held": "abort_four_role_release_held",
+    # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
+    # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
+    "report_redaction_failed": "abort_report_redaction_failed",
     # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
     # clean budget abort, NOT error_unexpected.
     "abort_budget_exceeded": "abort_budget_exceeded",
@@ -6614,6 +6618,127 @@ async def run_one_query(
                 f"coverage={four_role_result.coverage_fraction:.3f} "
                 f"held_reasons={four_role_result.held_reasons}"
             )
+
+            # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+            # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+            # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
+            # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
+            # report.md. So a sentence the strongest verifier rejected still ships as asserted
+            # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+            # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+            # redact every material non-VERIFIED claim's verbatim sentence to the existing
+            # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+            # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+            # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+            # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+            # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+            # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+            # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+            if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+                "0", "false", "False",
+            ):
+                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                    ReportRedactionError,
+                    reconcile_report_against_verdicts,
+                )
+                _redact_report_path = run_dir / "report.md"
+                _audit_map_path = run_dir / "four_role_claim_audit.json"
+                # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+                # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+                # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+                # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+                # claim's verbatim sentence.
+                _final_verdicts = four_role_result.final_verdicts or {}
+                _nonverified_verdicts = {
+                    cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+                }
+                if not _nonverified_verdicts:
+                    _log(
+                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                        "reconciliation skipped (no-op)"
+                    )
+                elif not _redact_report_path.is_file():
+                    _log(
+                        "[redact]      report.md absent; nothing to reconcile (no shipped "
+                        "artifact can leak)"
+                    )
+                elif not _audit_map_path.is_file():
+                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+                    # is missing -> fail closed rather than ship an unreconciled report.
+                    summary_status = "report_redaction_failed"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    manifest["report_redaction_error"] = (
+                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                    )
+                    _log(
+                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                        "verdicts -> abort_report_redaction_failed"
+                    )
+                else:
+                    _audit_map = json.loads(
+                        _audit_map_path.read_text(encoding="utf-8")
+                    )
+                    try:
+                        _redaction = reconcile_report_against_verdicts(
+                            _redact_report_path.read_text(encoding="utf-8"),
+                            _final_verdicts,
+                            _audit_map,
+                        )
+                    except ReportRedactionError as _redact_exc:
+                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                        # no audit row. Do NOT ship the report; take a terminal abort. The
+                        # unredacted report.md stays on disk for the curator to inspect.
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _redact_report_path.write_text(
+                            _redaction.report_text, encoding="utf-8"
+                        )
+                        manifest["report_redaction"] = {
+                            "redacted_count": _redaction.redacted_count,
+                            "redacted_claim_ids": [
+                                rc.claim_id for rc in _redaction.redacted
+                            ],
+                            "already_absent_claim_ids": _redaction.already_absent,
+                        }
+                        if _redaction.redacted:
+                            _gaps_redact_path = run_dir / "gaps.json"
+                            _existing_gaps: list = []
+                            if _gaps_redact_path.is_file():
+                                try:
+                                    _loaded = json.loads(
+                                        _gaps_redact_path.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(_loaded, list):
+                                        _existing_gaps = _loaded
+                                except Exception:  # noqa: BLE001 — corrupt sidecar must not lose redaction gaps
+                                    _existing_gaps = []
+                            _existing_gaps.extend(_redaction.gaps_json())
+                            _gaps_redact_path.write_text(
+                                json.dumps(_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                        _log(
+                            f"[redact]      reconciled report.md vs 4-role verdicts: "
+                            f"redacted={_redaction.redacted_count} "
+                            f"already_absent={len(_redaction.already_absent)} "
+                            "(refuse-in-place; held-path safe)"
+                        )
 
         # V30 Report Contract Architecture integration (Phase 1 of
         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a

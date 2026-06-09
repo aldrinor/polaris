@@ -46,6 +46,7 @@ PipelineStatus = Literal[
     "abort_discovery_degraded",      # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop) — must mirror UNIFIED_STATUS_VALUES or the actor 500s RunStatusResponse on an FL-05 abort
     "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal before retrieval
     "abort_four_role_release_held",  # 4-role D8 held release
+    "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation fail-closed — the v6 actor loads manifest.status into pipeline_status, so omitting this would 500 RunStatusResponse on a redaction-failure abort
     "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — required contract slot bound to a non-journal entity
     "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
     "error_unexpected",

@@ -54,6 +54,7 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
         "abort_discovery_degraded",    # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop)
         "abort_safety_refused",        # I-ready-007 (#1072): input harm-refusal before retrieval
         "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
+        "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed (material non-VERIFIED claim present-but-unredactable)
         "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only required contract slot non-journal
         "abort_credibility_coverage_gap",  # I-cred-008b (#1162): activated credibility-disclosure pass found an uncovered cited token
         "cancelled",                   # I-ready-016 (#1086): user-cancel terminal manifest status
@@ -80,6 +81,7 @@ def test_manifest_contract_partial_status_mapping() -> None:
         ("abort_corpus_inadequate", "abort_corpus_inadequate"),
         ("abort_corpus_approval_denied", "abort_corpus_approval_denied"),
         ("abort_no_verified_sections", "abort_no_verified_sections"),
+        ("report_redaction_failed", "abort_report_redaction_failed"),  # I-beatboth-fix-000 (#1171)
         ("error", "error_unexpected"),
     ]
     for legacy, unified in cases:

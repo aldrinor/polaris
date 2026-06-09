@@ -1,0 +1,359 @@
+{
+  "01-000-2bfe564b": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Instrument: UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-001-3f613b96": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Doctrine: products liability [#ev:product_liability_doctrine:6400-7200].",
+    "severity": "S1"
+  },
+  "01-002-3583916a": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Defect categories: manufacturing defects; design defects; and inadequate instructions or warnings defects [#ev:product_liability_doctrine:7000-7800].",
+    "severity": "S1"
+  },
+  "01-003-20f18230": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The National Highway Traffic Safety Administration (NHTSA) issued a General Order that specifically addresses automated driving systems [#ev:nhtsa_ads_policy_framework:10600-11400].",
+    "severity": "S2"
+  },
+  "01-004-0ccbcb74": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "This order establishes reporting obligations for a defined set of parties [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-005-29ddf704": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Moreover, these entities must be specifically named in the General Order to fall within its requirements [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-006-ca554d7a": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Entities that are not named, even if they otherwise qualify as manufacturers, developers, or operators, are not covered [#ev:nhtsa_ads_policy_framework:12200-13000].",
+    "severity": "S2"
+  },
+  "01-007-86b73856": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The term \u201creporting entities\u201d is defined to include only those manufacturers, developers, and operators that are explicitly listed in the order [#ev:nhtsa_ads_policy_framework:12400-13200].",
+    "severity": "S2"
+  },
+  "01-008-012590dc": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The limitation ensures that only the identified manufacturers, developers, and operators bear the reporting burden [#ev:nhtsa_ads_policy_framework:12100-12900].",
+    "severity": "S2"
+  },
+  "01-009-78e28a1a": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "In summary, NHTSA\u2019s General Order imposes reporting obligations exclusively on the manufacturers, developers, and operators that are specifically named within it [#ev:nhtsa_ads_policy_framework:12700-13500].",
+    "severity": "S2"
+  },
+  "01-010-f644b8c8": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "This doctrine categorizes actionable defects into three distinct types: manufacturing defects, design defects, and inadequate instructions or warnings defects [#ev:product_liability_doctrine:7000-7800].",
+    "severity": "S1"
+  },
+  "02-000-3542bc50": {
+    "covered_element_ids": [
+      "adas_crash_case_law"
+    ],
+    "evidence_ids": [
+      "adas_crash_case_law"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Case_Law",
+    "sentence": "Tesla, Inc [#ev:adas_crash_case_law:400-1200].",
+    "severity": "S1"
+  },
+  "04-000-6cc20162": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework",
+      "ev_040"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The Society of Automotive Engineers (SAE) taxonomy classifies driving automation into six levels, from Level 0 (no automation) to Level 5 (full automation), based on the extent to which the system performs the dynamic driving task on a sustained basis [#ev:nhtsa_ads_policy_framework:10400-11200][#ev:ev_040:1700-2500].",
+    "severity": "S2"
+  },
+  "04-001-c5eaec31": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Level 2 advanced driver assistance systems (ADAS) provide partial automation, simultaneously supporting lane position, speed, and following distance, but require the human driver to continually monitor the driving environment and remain prepared to intervene at all times [#ev:nhtsa_ads_policy_framework:9600-10400].",
+    "severity": "S2"
+  },
+  "04-002-05b9f68e": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "In contrast, automated driving systems (ADS) at SAE Levels 3-5 are designed to perform the entire dynamic driving task without driver involvement within their defined operational design domain [#ev:nhtsa_ads_policy_framework:9900-10700].",
+    "severity": "S2"
+  },
+  "04-003-60fcb4c0": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_040"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Research indicates that driver take-over time from automated to manual control can range from 0.69 to 19.79 seconds, with most transitions occurring within 7 seconds [#ev:ev_040:3100-3900].",
+    "severity": "S3"
+  },
+  "04-004-3335cd14": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The General Order may not include some crashes involving Level 2 ADAS if the consumer did not state that the automation system was engaged within 30 seconds of the crash [#ev:nhtsa_ads_policy_framework:3000-3800]",
+    "severity": "S2"
+  },
+  "05-000-ca2e979d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_001"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "Conversely, the same study reported that ADS accidents had lower odds in rear-end (OR 0.457) and broadside (OR 0.171) collisions, suggesting that automation may reduce certain types of crashes [#ev:ev_001:5700-6500].",
+    "severity": "S3"
+  },
+  "05-001-cd82cb44": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "However, NHTSA cautions that the reported data may not be statistically representative due to variations in telemetry and reporting capabilities among manufacturers [#ev:nhtsa_ads_policy_framework:2100-2900].",
+    "severity": "S2"
+  },
+  "05-002-9405de55": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "The General Order on crash reporting mandates that reporting entities report crashes involving ADS and Level 2 ADAS, providing a dataset that can be used to identify potential safety defects and assist in evaluating safety [#ev:nhtsa_ads_policy_framework:11300-12100].",
+    "severity": "S2"
+  },
+  "06-000-1fdcdae9": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "NHTSA cautions that incident report data should not be assumed statistically representative, as entities with advanced telematics may report more crashes simply because they are aware of them, while crashes involving systems with limited telemetry may go unreported if the driver does not state that automation was engaged [#ev:nhtsa_ads_policy_framework:2700-3500].",
+    "severity": "S2"
+  },
+  "06-001-d350c4f7": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "Under the Restatement (Third) of Torts: Products Liability, defects are categorized as manufacturing, design, or inadequate warnings, each with distinct legal standards [#ev:product_liability_doctrine:7000-7800].",
+    "severity": "S1"
+  },
+  "06-002-6189d1fa": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "Violations of the NHTSA General Order can result in civil penalties of up to $27,874 per violation per day, with a maximum of $139,356,994 for a related series of violations [#ev:nhtsa_ads_policy_framework:15500-16300].",
+    "severity": "S2"
+  },
+  "07-000-5639e5a0": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Implications",
+    "sentence": "In the United States, NHTSA's Standing General Order mandates crash reporting for vehicles equipped with ADS or Level 2 ADAS when the system was active within 30 seconds of a crash resulting in specified outcomes such as a fatality, air bag deployment, or hospital transport [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "07-001-353e7e9d": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Implications",
+    "sentence": "However, the Order does not require reporting entities to submit vehicle counts or miles traveled, precluding normalization of incident rates by exposure [#ev:nhtsa_ads_policy_framework:6300-7100].",
+    "severity": "S2"
+  },
+  "07-002-10b33917": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Implications",
+    "sentence": "Moreover, data recording and telemetry capabilities vary widely, with Level 2 ADAS systems often having limited data recording and relying on consumer reports, which may delay or prevent manufacturer awareness of crashes [#ev:nhtsa_ads_policy_framework:1600-2400].",
+    "severity": "S2"
+  },
+  "07-003-f2ab1bdd": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_040"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Implications",
+    "sentence": "Additionally, the take-over time for drivers resuming control from automated systems ranges from 0.69 to 19.79 seconds, with most below 7 seconds, and secondary tasks with handheld devices impose a significant time penalty [#ev:ev_040:3300-4100].",
+    "severity": "S3"
+  },
+  "07-004-402b2ac8": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_040"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Implications",
+    "sentence": "One review notes that many developers are satisfied with 95\u201398% algorithm efficiency, whereas reliability of 99.9999% may be needed to match human safety levels, highlighting a gap between current engineering practices and safety goals [#ev:ev_040:9100-9900].",
+    "severity": "S3"
+  }
+}

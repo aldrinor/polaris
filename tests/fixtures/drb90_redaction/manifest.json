@@ -1,0 +1,2156 @@
+{
+  "adequacy": {
+    "critical_count": 0,
+    "decision": "proceed",
+    "findings_ok": 8,
+    "findings_total": 8
+  },
+  "agentic_search": {
+    "enabled": true,
+    "feature": "agentic_search",
+    "fired": true,
+    "firing_status": "fired",
+    "urls_discovered": 100,
+    "urls_selectable": 100
+  },
+  "analytical_depth_advisory": {
+    "advisory": true,
+    "aggregation_patterns": 0,
+    "challenge_markers": 1,
+    "comparison_markers": 4,
+    "deficient_sections": [
+      "Research report: Analyze the complex issue of liability allocation in accidents involving vehicles with advanced driver-assistance systems (ADAS) operating in a shared human-machine driving context. Your analysis should integrate technical principles of ADAS, existing legal frameworks, and relevant case law to systematically examine the boundaries of responsibility between the driver and the system. Conclude with proposed regulatory guidelines or recommendations.",
+      "Key Findings",
+      "Technical_Standard",
+      "SAE J3016 driving-automation levels and the human-machine boundary",
+      "Legal_Framework",
+      "UNECE WP.29 ALKS regulation (system-vs-driver responsibility)",
+      "NHTSA automated-driving-systems policy and crash-reporting order",
+      "Product-liability / negligence doctrine for ADAS manufacturers",
+      "Case_Law",
+      "Relevant ADAS / automated-feature crash-liability case law",
+      "Regulatory_Recommendations",
+      "Proposed regulatory guidelines and liability-allocation recommendations",
+      "Background",
+      "Key Findings",
+      "Evidence and Analysis",
+      "Implications",
+      "Limitations",
+      "Methods",
+      "Capability disclosures",
+      "Contradiction disclosures",
+      "Qualitative safety-conflict disclosures",
+      "Bibliography",
+      "V30 Phase-1 Retrieval Coverage Disclosure"
+    ],
+    "key_findings": 0,
+    "passed": false,
+    "surface": "benchmark_atx_split",
+    "tables": 0
+  },
+  "budget_cap_usd": 40.0,
+  "completeness": {
+    "completeness_state": "measured",
+    "covered_fraction": 1.0,
+    "notes": [],
+    "total_applicable": 6,
+    "total_covered": 6,
+    "total_uncovered": 0,
+    "uncovered_topic_ids": []
+  },
+  "contradictions_found": 1,
+  "corpus": {
+    "approved": true,
+    "count": 205,
+    "material_deviation": true,
+    "tier_fractions": {
+      "T1": 0.0244,
+      "T3": 0.0049,
+      "T4": 0.0439,
+      "T5": 0.0049,
+      "T6": 0.0293,
+      "T7": 0.0537,
+      "UNKNOWN": 0.839
+    }
+  },
+  "corpus_credibility_disclosure": {
+    "disclosure_note": "Weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE) ON: the corpus is ACCEPTED and its credibility is DISCLOSED (weighted, domain-aware) rather than refused on tier-mix. 205 source(s); source-weighted mean credibility 0.24. The corpus deviates from the pre-registered tier distribution; under the old gate this would have been refused (abort_corpus_approval_denied / abort_corpus_inadequate). That tier-COUNT refusal verified no individual claim \u2014 the per-claim faithfulness floor (strict_verify + the 4-role D8 release decision) remains the binding check and is unchanged. Lower-tier sources are disclosed as lower-credibility, not dropped.",
+    "domain": "policy",
+    "gate": "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    "had_material_deviation": true,
+    "per_source": [
+      {
+        "credibility_weight": 0.2,
+        "domain": "hurwitzfine.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.hurwitzfine.com/blog/liability-for-defective-advanced-driver-assistance-systems",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "pmc.ncbi.nlm.nih.gov",
+        "tier": "T4",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11189485/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "martinandjones.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.martinandjones.com/blog/who-is-liable-when-the-failure-of-advanced-driver-assistance-systems-cause-a-car-accident/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "tflcar.com",
+        "tier": "UNKNOWN",
+        "url": "https://tflcar.com/2025/03/how-advanced-driver-assistance-systems-adas-impact-liability/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "sciencedirect.com",
+        "tier": "T4",
+        "url": "https://www.sciencedirect.com/science/article/pii/S1369847818308556",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "americanbar.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.americanbar.org/content/dam/aba/publications/Jurimetrics/fall2023/the-awkward-middle-for-automated-vehicles-liability-attribution-rules-when-humans-and-computers-share-driving-responsibilities.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "shb.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.shb.com/-/media/files/professionals/l/lawhgrant/cdjul20-reprintshookglaw.pdf?rev=9ee08cb3114944178aa567db7441a672",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "wshblaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.wshblaw.com/publication-navigating-liability-in-the-age-of-autonomous-vehicles",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ilr.law.uiowa.edu",
+        "tier": "UNKNOWN",
+        "url": "https://ilr.law.uiowa.edu/sites/ilr.law.uiowa.edu/files/2024-05/ILR-109-BurkeRobertson_0.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "lwmpersonalinjurylawyers.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.lwmpersonalinjurylawyers.com/blog/impact-of-advanced-driver-assistance-systems-adas-on-florida-accident-claims/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3389/fpos.2023.1238461",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3956",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3958",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3955",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3964",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3963",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3959",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.33492/arsc-2019",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3960",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3957",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3962",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.58830/ozgur.pub944.c3961",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W191592692",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "tandfonline.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.tandfonline.com/doi/full/10.1080/14494035.2020.1787696",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "namic.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.namic.org/wp-content/uploads/legacy/publicpolicy/200611_av_liabilitystandards.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.95,
+        "domain": "pubmed.ncbi.nlm.nih.gov",
+        "tier": "T1",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/41338774/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "roadwaydynamics.com",
+        "tier": "UNKNOWN",
+        "url": "https://roadwaydynamics.com/adas-crash-analysis-liability-1/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "academic.oup.com",
+        "tier": "T4",
+        "url": "https://academic.oup.com/policyandsociety/article/40/2/250/6509329",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "agentpanel.cc",
+        "tier": "UNKNOWN",
+        "url": "https://agentpanel.cc/question/1476",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.5198/jtlu.2019.1405",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1155/2022/7632892",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/s23041963",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/electronics9122087",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/en16062925",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/s18114075",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1109/access.2019.2909114",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1145/3544548.3581564",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W1868451421",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1007/s44206-023-00066-y",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3389/frsc.2020.607054",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1145/3640334",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W180924904",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.7922/g2qc01rw",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.48550/arxiv.2211.13960",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/s23229104",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W2760699433",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/en17246271",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.22149/teee.v3i1.130",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W223740115",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.53759/7669/jmc202303047",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1002/ett.70133",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3384/9789179292720",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.6028/nist.ir.8527",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "uslegalsupport.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.uslegalsupport.com/blog/ai-governance-framework/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.95,
+        "domain": "sciencedirect.com",
+        "tier": "T1",
+        "url": "https://www.sciencedirect.com/science/article/pii/S2590198224000198",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "adalovelaceinstitute.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.adalovelaceinstitute.org/report/legal-mechanisms-data-stewardship/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "unesco.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.unesco.org/en/legal-affairs/recommendation-ethics-artificial-intelligence",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ada.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www.ada.gov/law-and-regs/regulations/title-ii-2010-regulations/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "law-ai.org",
+        "tier": "UNKNOWN",
+        "url": "https://law-ai.org/advanced-ai-gov-concepts/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "adanews.ada.org",
+        "tier": "UNKNOWN",
+        "url": "https://adanews.ada.org/ada-news/2025/february/what-are-the-standards-for-ai-use-in-dentistry/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "interface-eu.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.interface-eu.org/publications/ai-agent-classification",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/b978-0-12-818438-7.00012-5",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1007/s12559-023-10179-8",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1186/1472-6963-8-270",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/network3030018",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1145/3649451",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1186/s12911-016-0359-3",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/s23084117",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1007/s43681-021-00084-x",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1109/access.2022.3202902",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W2270705885",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1007/s10479-020-03912-1",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.31979/mti.2019.1705",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1007/s13347-022-00497-4",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/su11216018",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1109/access.2021.3135562",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.7551/mitpress/11805.001.0001",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.22336/rjo.2019.31",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1365/s43439-021-00022-x",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.xgen.2021.100029",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.techsoc.2024.102680",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1109/tiv.2022.3188340",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1080/09537287.2021.1993373",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W1569641405",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.ijinfomgt.2022.102588",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "virginialawreview.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.virginialawreview.org/wp-content/uploads/2020/12/A&R_Book.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "mdpi.com",
+        "tier": "T4",
+        "url": "https://www.mdpi.com/2032-6653/16/12/665",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "sciencedirect.com",
+        "tier": "T4",
+        "url": "https://www.sciencedirect.com/science/article/pii/S1071581924000442",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "repository.law.miami.edu",
+        "tier": "UNKNOWN",
+        "url": "https://repository.law.miami.edu/cgi/viewcontent.cgi?article=2243&context=fac_articles",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "digitalcommons.law.scu.edu",
+        "tier": "UNKNOWN",
+        "url": "https://digitalcommons.law.scu.edu/cgi/viewcontent.cgi?article=2731&context=lawreview",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "engineering.org.cn",
+        "tier": "UNKNOWN",
+        "url": "https://www.engineering.org.cn/engi/EN/10.1016/j.eng.2023.10.008",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "nhtsa.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www.nhtsa.gov/sites/nhtsa.gov/files/documents/13069a-ads2.0_090617_v9a_tag.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "langinolaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.langinolaw.com/articles/multiple-defendants-commercial-truck-collision-liability-north-carolina",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "law.justia.com",
+        "tier": "UNKNOWN",
+        "url": "https://law.justia.com/constitution/us/amendment-14/05-procedural-due-process-civil.html",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "bmv.de",
+        "tier": "UNKNOWN",
+        "url": "https://www.bmv.de/SharedDocs/EN/publications/report-ethics-commission.pdf?__blob=publicationFile",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1002/job.2170",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.rser.2018.10.014",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1186/1471-2288-11-100",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1002/smj.2464",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W2131643775",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1257/jep.12.4.73",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1257/jel.50.1.51",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1086/210356",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1186/s40991-018-0039-y",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1371/journal.pmed.0040297",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.inffus.2019.12.012",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.5194/bg-11-3547-2014",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.techfore.2020.120284",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "openalex.org",
+        "tier": "T7",
+        "url": "https://openalex.org/W44363201",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1109/tem.2022.3215727",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.2196/jmir.7332",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.jclepro.2017.11.063",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1111/ijmr.12049",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.hrmr.2008.09.001",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1111/j.1467-6486.2010.00950.x",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1111/joms.12244",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3310/hta15430",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1088/1748-9326/ab842a",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.3390/su12219167",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "doi.org",
+        "tier": "UNKNOWN",
+        "url": "https://doi.org/10.1016/j.ijinfomgt.2022.102542",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "aaafoundation.org",
+        "tier": "UNKNOWN",
+        "url": "https://aaafoundation.org/research/examining-the-safety-benefits-of-partial-vehicle-automation-technologies-in-an-uncertain-future/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "injuryfacts.nsc.org",
+        "tier": "UNKNOWN",
+        "url": "https://injuryfacts.nsc.org/motor-vehicle/occupant-protection/advanced-driver-assistance-systems/data-details/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ravidandassociates.com",
+        "tier": "UNKNOWN",
+        "url": "https://ravidandassociates.com/advanced-driver-assistance-systems-adas-and-liability-in-michigan-auto-accidents/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.75,
+        "domain": "tc.canada.ca",
+        "tier": "T3",
+        "url": "https://tc.canada.ca/en/road-transportation/innovative-technologies/connected-automated-vehicles/canada-s-safety-framework-connected-automated-vehicles-20",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "blg.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.blg.com/en/insights/2020/10/the-sensor-advanced-driving-assistance-systems",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "iihs.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.iihs.org/research-areas/advanced-driver-assistance",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "brookings.edu",
+        "tier": "T4",
+        "url": "https://www.brookings.edu/articles/setting-the-standard-of-liability-for-self-driving-cars/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "clausen.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.clausen.com/wp-content/uploads/2020/11/ClausenMiller_ApportionmentofVehicleLiabilityinAutonomousVehicleAccidents.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "linkedin.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.linkedin.com/posts/philip-koopman-0631a4116_utah-lawmakers-approve-legal-framework-for-activity-7442305442770247680-YpO3",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "teamjustice.com",
+        "tier": "UNKNOWN",
+        "url": "https://teamjustice.com/tesla-autopilot-accidents-legal-rights-liability/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "akdlawyers.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.akdlawyers.com/car-accident/liability-in-autonomous-vehicle-accidents/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "licznerskilaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.licznerskilaw.com/blog/2026/05/who-is-liable-when-a-self-driving-car-causes-an-accident/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "publish.illinois.edu",
+        "tier": "UNKNOWN",
+        "url": "https://publish.illinois.edu/illinoisblj/2016/01/07/automated-vehicles-strict-products-liability-negligence-liability-and-proliferation/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "leaders-in-law.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.leaders-in-law.com/liability-in-self-driving-car-accidents-whos-responsible/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "blog.ai-laws.org",
+        "tier": "UNKNOWN",
+        "url": "https://blog.ai-laws.org/liability-perspective-for-users-of-autonomous-vehicles-in-the-eu/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "digitalcommons.law.uidaho.edu",
+        "tier": "UNKNOWN",
+        "url": "https://digitalcommons.law.uidaho.edu/cgi/viewcontent.cgi?article=1034&context=idaho-law-review",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "scholar.smu.edu",
+        "tier": "UNKNOWN",
+        "url": "https://scholar.smu.edu/cgi/viewcontent.cgi?article=1370&context=scitech",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "kentpincinlaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.kentpincinlaw.com/self-driving-autonomous-vehicle-product-liability/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "leadersleague.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.leadersleague.com/en/news/liability-concerns-ai-enabled-autonomous-vehicle-systems-heuking",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "cms.law",
+        "tier": "UNKNOWN",
+        "url": "https://cms.law/en/int/expert-guides/cms-expert-guide-to-autonomous-vehicles-avs/germany",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "insuralex.com",
+        "tier": "UNKNOWN",
+        "url": "https://insuralex.com/civil-liability-accidents-caused-autonomous-vehicles-adas/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "group.mercedes-benz.com",
+        "tier": "UNKNOWN",
+        "url": "https://group.mercedes-benz.com/technology/autonomous-driving/driving/legal-framework.html",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "caatj.com",
+        "tier": "UNKNOWN",
+        "url": "https://caatj.com/index.php/country-area-adv-tech/article/download/5/10",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "simeonemiller.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.simeonemiller.com/blog/how-advanced-driver-assistance-systems-adas-affect-liability-in-auto-accidents/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "m-n-law.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.m-n-law.com/blog/who-is-liable-in-a-self-driving-car-accident/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "leeinjurylaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.leeinjurylaw.com/blog/2025/04/how-advanced-driver-assistance-systems-adas-impact-car-accident-liability/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "malmlegal.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.malmlegal.com/personal-injury/car-accidents/autonomous-self-driving-vehicle-accidents/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "chainlaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.chainlaw.com/bakersfield-auto-accident-lawyer-self-driving-car-crash/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "mblawfirm.com",
+        "tier": "UNKNOWN",
+        "url": "https://mblawfirm.com/insights/car-accidents/responsible-for-car-accidents-involving-self-driving-vehicles/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "researchgate.net",
+        "tier": "T6",
+        "url": "https://www.researchgate.net/publication/368003386_Who_Is_Liable_When_a_Driverless_Car_Crashes",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "digitalcommons.law.scu.edu",
+        "tier": "UNKNOWN",
+        "url": "https://digitalcommons.law.scu.edu/cgi/viewcontent.cgi?article=1675&context=chtlj",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "globalfinregblog.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.globalfinregblog.com/2025/10/us-banking-regulators-propose-to-refocus-supervision-on-material-risks-and-eliminate-use-of-reputation-risk/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "gao.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www.gao.gov/products/gao-24-106206",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "fdic.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www.fdic.gov/news/speeches/2026/update-reforms-regulatory-toolkit",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "regulations.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www.regulations.gov/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "goodwinlaw.com",
+        "tier": "T6",
+        "url": "https://www.goodwinlaw.com/en/insights/newsletters/2025/10/newsletters-finance-fs-roundup-101025",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "register.dls.virginia.gov",
+        "tier": "UNKNOWN",
+        "url": "https://register.dls.virginia.gov/process.shtml",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "cogr.edu",
+        "tier": "UNKNOWN",
+        "url": "https://www.cogr.edu/sites/default/files/Tips_For_Submitting_Effective_Comments.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.4,
+        "domain": "deloitte.com",
+        "tier": "T5",
+        "url": "https://www.deloitte.com/us/en/services/consulting/articles/banking-regulatory-outlook.html",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "optro.ai",
+        "tier": "UNKNOWN",
+        "url": "https://optro.ai/blog/regulatory-compliance",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ncontracts.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.ncontracts.com/nsight-blog/managing-new-regulatory-proposals-as-a-financial-institution",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "eureka.patsnap.com",
+        "tier": "UNKNOWN",
+        "url": "https://eureka.patsnap.com/blog/research-report/lidar-vs-radar-adas-weather-resolution-cost/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.95,
+        "domain": "sciencedirect.com",
+        "tier": "T1",
+        "url": "https://www.sciencedirect.com/science/article/pii/S2772586326000377",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "rosap.ntl.bts.gov",
+        "tier": "UNKNOWN",
+        "url": "http://rosap.ntl.bts.gov/view/dot/88134",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "linkedin.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.linkedin.com/posts/ahmed-mounir-37979415b_sensor-fusion-the-backbone-of-reliable-adas-activity-7373080335779135488-0YU-",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ti.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.ti.com/lit/pdf/SPRY353",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "gf.com",
+        "tier": "UNKNOWN",
+        "url": "https://gf.com/news-and-events/blog/sensor-fusion-in-action-how-cameras-and-lidar-integrate-with-radar-for-safer-driving/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "safed.vtti.vt.edu",
+        "tier": "UNKNOWN",
+        "url": "https://safed.vtti.vt.edu/wp-content/uploads/2022/05/Safe-D-Final-Research-Report-VTTI-00-025_final.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ml4ad.github.io",
+        "tier": "UNKNOWN",
+        "url": "https://ml4ad.github.io/files/papers/Radar%20and%20Camera%20Early%20Fusion%20for%20Vehicle%20Detection%20in%20Advanced%20Driver%20Assistance%20Systems.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.95,
+        "domain": "pmc.ncbi.nlm.nih.gov",
+        "tier": "T1",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7727794/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "neuvition.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.neuvition.com/media/blog/enhancing-roadway-efficiency-through-integration-of-adas-and-lidar.html",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "yellowscan.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.yellowscan.com/knowledge/how-weather-really-affects-lidar-performance/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "arxiv.org",
+        "tier": "T4",
+        "url": "https://arxiv.org/html/2606.00416v1",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.95,
+        "domain": "pmc.ncbi.nlm.nih.gov",
+        "tier": "T1",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10051412/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "jait.us",
+        "tier": "UNKNOWN",
+        "url": "https://www.jait.us/articles/2025/JAIT-V16N7-1009.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "lidarnews.com",
+        "tier": "UNKNOWN",
+        "url": "https://lidarnews.com/rain-lidar-sensor-effect-performance/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "www-nrd.nhtsa.dot.gov",
+        "tier": "UNKNOWN",
+        "url": "https://www-nrd.nhtsa.dot.gov/pdf/ESV/Proceedings/27/27ESV-000306.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "xyzhang.ucsd.edu",
+        "tier": "UNKNOWN",
+        "url": "https://xyzhang.ucsd.edu/papers/Kun.Qian_CVPR21_MVDNet.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "mdpi.com",
+        "tier": "T4",
+        "url": "https://www.mdpi.com/2072-4292/16/13/2407",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "alphaxiv.org",
+        "tier": "T7",
+        "url": "https://alphaxiv.org/abs/1906.07675",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "cris.vtt.fi",
+        "tier": "UNKNOWN",
+        "url": "https://cris.vtt.fi/ws/files/33650663/Automotive_LiDAR_performance.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "wshblaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.wshblaw.com/publication-benavides-v-tesla-a-defense-side-perspective-on-floridas-landmark-autopilot-verdict",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "advocatemagazine.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.advocatemagazine.com/article/2024-july/litigating-autopilot-products-liability-cases-against-tesla",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "lira.bc.edu",
+        "tier": "UNKNOWN",
+        "url": "https://lira.bc.edu/en/downloads/v3wnw-94c19/TESLA_AUTOPILOT_TORT.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "instagram.com",
+        "tier": "T6",
+        "url": "https://www.instagram.com/reel/DYFrEpEjAan/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "repository.law.umich.edu",
+        "tier": "UNKNOWN",
+        "url": "https://repository.law.umich.edu/cgi/viewcontent.cgi?article=1004&context=jlm",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "siddonslaw.com",
+        "tier": "UNKNOWN",
+        "url": "https://siddonslaw.com/tesla-accident-lawyer/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "scribd.com",
+        "tier": "T6",
+        "url": "https://www.scribd.com/document/888182762/Tesla-lawsuit",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.15,
+        "domain": "federalregister.gov",
+        "tier": "T7",
+        "url": "https://www.federalregister.gov/documents/2024/01/05/2023-27665/advanced-impaired-driving-prevention-technology",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "aamva.org",
+        "tier": "UNKNOWN",
+        "url": "https://www.aamva.org/getmedia/d67c7501-df04-4c7d-b454-5b59d0de0889/Guidelines-for-Testing-Drivers-in-Vehicles-with-ADAS.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "abdynamics.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.abdynamics.com/euro-ncap-2026-what-does-it-mean-for-adas-testing-and-development/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.6,
+        "domain": "mdpi.com",
+        "tier": "T4",
+        "url": "https://www.mdpi.com/1424-8220/25/2/562",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "liveviewgps.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.liveviewgps.com/blog/driver-monitoring-system/?srsltid=AfmBOoqhfppe6auWLhQ9J0_ak8CGtxEXBWMK7QcakW-p8R8f2LD7Xhjw",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "aaafoundation.org",
+        "tier": "UNKNOWN",
+        "url": "https://aaafoundation.org/research/understanding-the-impact-of-technology-do-advanced-driver-assistance-and-semi-automated-vehicle-systems-lead-to-improper-driving-behavior/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "trl.co.uk",
+        "tier": "UNKNOWN",
+        "url": "https://www.trl.co.uk/uploads/trl/documents/PPR2068-Driver-Fatigue-and-Attention-Monitoring_1.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "ataassociates.com",
+        "tier": "UNKNOWN",
+        "url": "https://ataassociates.com/articles/understanding-adas/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "cdn.euroncap.com",
+        "tier": "UNKNOWN",
+        "url": "https://cdn.euroncap.com/cars/assets/euro_ncap_protocol_overall_assessment_v100_24653aec0d.pdf",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "abdynamics.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.abdynamics.com/category/euro-ncap/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "avl.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.avl.com/en/blog/euro-ncap-2026-whats-changing-and-how-stay-compliant",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "facebook.com",
+        "tier": "T6",
+        "url": "https://www.facebook.com/Forsafercars/posts/-euro-ncap-announces-2026-protocol-changes-to-tackle-modern-driving-risks-euro-n/1294795729346860/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "vboxautomotive.co.uk",
+        "tier": "UNKNOWN",
+        "url": "https://www.vboxautomotive.co.uk/en/why-euro-ncap-is-shifting-the-rules-of-adas-testing-expert-insights-from-wesley-hulshof",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "xweather.com",
+        "tier": "UNKNOWN",
+        "url": "https://www.xweather.com/blog/how-euro-ncap-is-changing-the-standard-for-vehicle-safety",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.2,
+        "domain": "seeingmachines.com",
+        "tier": "UNKNOWN",
+        "url": "https://seeingmachines.com/prevalence-of-euro-ncap-defined-distraction-in-naturalistic-driving/",
+        "weight_basis": "tier_prior"
+      },
+      {
+        "credibility_weight": 0.3,
+        "domain": "researchgate.net",
+        "tier": "T6",
+        "url": "https://www.researchgate.net/publication/373257039_European_NCAP_Driver_State_Monitoring_Protocols_Prevalence_of_Distraction_in_Naturalistic_Driving",
+        "weight_basis": "tier_prior"
+      }
+    ],
+    "research_question": "Analyze the complex issue of liability allocation in accidents involving vehicles with advanced driver-assistance systems (ADAS) operating in a shared human-machine driving context. Your analysis should integrate technical principles of ADAS, existing legal frameworks, and relevant case law to systematically examine the boundaries of responsibility between the driver and the system. Conclude with proposed regulatory guidelines or recommendations.",
+    "tier_counts": {
+      "T1": 5,
+      "T3": 1,
+      "T4": 9,
+      "T5": 1,
+      "T6": 6,
+      "T7": 11,
+      "UNKNOWN": 172
+    },
+    "tier_fractions": {
+      "T1": 0.0244,
+      "T3": 0.0049,
+      "T4": 0.0439,
+      "T5": 0.0049,
+      "T6": 0.0293,
+      "T7": 0.0537,
+      "UNKNOWN": 0.839
+    },
+    "total_sources": 205,
+    "weighted_credibility_mean": 0.2398
+  },
+  "cost_usd": 5.09861787,
+  "discovery_funnel": {
+    "fetch_content": {
+      "attempted": 192,
+      "source": "tool_trace.status",
+      "succeeded": 133
+    },
+    "openalex_search": {
+      "calls": 15,
+      "requested": 1500,
+      "requested_source": "tool_trace.num_requested",
+      "returned": 89,
+      "returned_source": "tool_trace.result_count"
+    },
+    "s2": {
+      "calls": 15,
+      "requested": null,
+      "requested_source": "unrecorded",
+      "returned": 0,
+      "returned_source": "tool_trace.result_count"
+    },
+    "serper": {
+      "calls": 15,
+      "requested": 1500,
+      "requested_source": "tool_trace.num_requested",
+      "returned": 150,
+      "returned_source": "tool_trace.result_count"
+    }
+  },
+  "discovery_llm_degraded": false,
+  "discovery_rounds_on_fallback": 0,
+  "domain": "policy",
+  "evaluator_gate_advisory": {
+    "gate_class": "pass",
+    "judge_critical_axes": [],
+    "judge_parse_ok": true,
+    "reasons": [
+      "judge_skipped_d8_binding"
+    ],
+    "release_allowed": true,
+    "rule_blockers": []
+  },
+  "evaluator_rule_fail": 0,
+  "evaluator_rule_pass": 13,
+  "evidence_selection": {
+    "dropped_count": 0,
+    "evidence_selected": 6,
+    "evidence_total": 6,
+    "full_tier_counts": {
+      "T4": 2,
+      "UNKNOWN": 4
+    },
+    "notes": [
+      "pool_size<=max_rows (6/150)",
+      "m46_short_pool_ordered_selection",
+      "recency_tiebreak enabled epsilon=0.05 dated=0/6"
+    ],
+    "selected_tier_counts": {
+      "T4": 2,
+      "UNKNOWN": 4
+    },
+    "selection_strategy": "tier_balanced_v1_all_m46_ordered"
+  },
+  "fact_dedup": {
+    "n_drops": 0,
+    "n_groups": 0,
+    "n_redundants": 0,
+    "n_rewrites_applied": 0,
+    "n_rewrites_strict_verify_drop": 0,
+    "n_rewrites_strict_verify_pass": 0
+  },
+  "finding_dedup": {
+    "clusters": [
+      {
+        "corroboration_count": 1,
+        "finding_key": [
+          "__unknown__",
+          "ev_074",
+          0
+        ],
+        "member_hosts": [
+          "mdpi.com"
+        ]
+      },
+      {
+        "corroboration_count": 1,
+        "finding_key": [
+          "__unknown__",
+          "ev_001",
+          0
+        ],
+        "member_hosts": [
+          "nih.gov"
+        ]
+      },
+      {
+        "corroboration_count": 1,
+        "finding_key": [
+          "__unknown__",
+          "ev_040",
+          0
+        ],
+        "member_hosts": [
+          "doi.org"
+        ]
+      }
+    ],
+    "collapsed_row_count": 0,
+    "distinct_finding_count": 3,
+    "raw_row_count": 12
+  },
+  "four_role_evaluation": {
+    "coverage_fraction": 0.333,
+    "evaluator_agrees": {
+      "01-000-2bfe564b": false,
+      "01-001-3f613b96": false,
+      "01-002-3583916a": true,
+      "01-003-20f18230": true,
+      "01-004-0ccbcb74": true,
+      "01-005-29ddf704": true,
+      "01-006-ca554d7a": true,
+      "01-007-86b73856": true,
+      "01-008-012590dc": true,
+      "01-009-78e28a1a": true,
+      "01-010-f644b8c8": true,
+      "02-000-3542bc50": false,
+      "04-000-6cc20162": true,
+      "04-001-c5eaec31": true,
+      "04-002-05b9f68e": false,
+      "04-003-60fcb4c0": true,
+      "04-004-3335cd14": true,
+      "05-000-ca2e979d": true,
+      "05-001-cd82cb44": false,
+      "05-002-9405de55": true,
+      "06-000-1fdcdae9": false,
+      "06-001-d350c4f7": true,
+      "06-002-6189d1fa": false,
+      "07-000-5639e5a0": true,
+      "07-001-353e7e9d": true,
+      "07-002-10b33917": true,
+      "07-003-f2ab1bdd": true,
+      "07-004-402b2ac8": false
+    },
+    "fabricated_occurrence_latched": false,
+    "final_verdicts": {
+      "01-000-2bfe564b": "UNSUPPORTED",
+      "01-001-3f613b96": "UNSUPPORTED",
+      "01-002-3583916a": "VERIFIED",
+      "01-003-20f18230": "VERIFIED",
+      "01-004-0ccbcb74": "VERIFIED",
+      "01-005-29ddf704": "VERIFIED",
+      "01-006-ca554d7a": "VERIFIED",
+      "01-007-86b73856": "VERIFIED",
+      "01-008-012590dc": "VERIFIED",
+      "01-009-78e28a1a": "VERIFIED",
+      "01-010-f644b8c8": "VERIFIED",
+      "02-000-3542bc50": "UNSUPPORTED",
+      "04-000-6cc20162": "VERIFIED",
+      "04-001-c5eaec31": "VERIFIED",
+      "04-002-05b9f68e": "UNSUPPORTED",
+      "04-003-60fcb4c0": "VERIFIED",
+      "04-004-3335cd14": "VERIFIED",
+      "05-000-ca2e979d": "VERIFIED",
+      "05-001-cd82cb44": "UNSUPPORTED",
+      "05-002-9405de55": "VERIFIED",
+      "06-000-1fdcdae9": "UNSUPPORTED",
+      "06-001-d350c4f7": "VERIFIED",
+      "06-002-6189d1fa": "UNSUPPORTED",
+      "07-000-5639e5a0": "VERIFIED",
+      "07-001-353e7e9d": "VERIFIED",
+      "07-002-10b33917": "VERIFIED",
+      "07-003-f2ab1bdd": "VERIFIED",
+      "07-004-402b2ac8": "UNSUPPORTED"
+    },
+    "gaps": [
+      {
+        "kind": "coverage_shortfall",
+        "note": "required-element coverage 0.333 is below the 0.700 threshold (fixed required-set denominator)",
+        "ref": "__coverage__",
+        "severity": "S0"
+      }
+    ],
+    "held_reasons": [
+      "d8_unsupported_residual_below_coverage",
+      "d8_pending_rewrite"
+    ],
+    "kg_path": "outputs/honest_sweep_r3/verified_claim_graph_campaign.db",
+    "needs_rewrite": [
+      "01-000-2bfe564b",
+      "01-001-3f613b96",
+      "02-000-3542bc50",
+      "04-002-05b9f68e",
+      "05-001-cd82cb44",
+      "06-000-1fdcdae9",
+      "06-002-6189d1fa"
+    ],
+    "release_allowed": false
+  },
+  "frame_coverage_report": {
+    "by_status": {
+      "curator_gap_no_substantive_content": 2,
+      "pass": 4
+    },
+    "entries": [
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "sae_j3016_automation_levels",
+        "entity_type": "technical_standard",
+        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "standard_id",
+          "automation_levels_defined",
+          "human_role_per_level",
+          "fallback_responsibility"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.sae.org/standards/content/j3016_202104/"
+          }
+        ],
+        "section": "Technical_Standard",
+        "slot_id": "technical_sae_levels",
+        "status": "curator_gap_no_substantive_content",
+        "subsection_title": "SAE J3016 driving-automation levels and the human-machine boundary"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "unece_alks_regulation_framework",
+        "entity_type": "regulation",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "instrument",
+          "scope_of_automation",
+          "driver_obligations",
+          "system_obligations",
+          "transition_demand"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://unece.org/transport/documents/2021/03/standards/un-regulation-no-157-automated-lane-keeping-systems-alks"
+          }
+        ],
+        "section": "Legal_Framework",
+        "slot_id": "legal_framework_unece",
+        "status": "pass",
+        "subsection_title": "UNECE WP.29 ALKS regulation (system-vs-driver responsibility)"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "nhtsa_ads_policy_framework",
+        "entity_type": "agency_report",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "issuing_agency",
+          "scope",
+          "reporting_obligation",
+          "liability_relevance"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.nhtsa.gov/laws-regulations/standing-general-order-crash-reporting"
+          }
+        ],
+        "section": "Legal_Framework",
+        "slot_id": "legal_framework_nhtsa",
+        "status": "pass",
+        "subsection_title": "NHTSA automated-driving-systems policy and crash-reporting order"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "product_liability_doctrine",
+        "entity_type": "authoritative_source",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 2,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "doctrine",
+          "defect_categories",
+          "manufacturer_duty",
+          "driver_duty"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.ali.org/publications/restatement-law-third/torts-third"
+          }
+        ],
+        "section": "Legal_Framework",
+        "slot_id": "legal_framework_product_liability",
+        "status": "pass",
+        "subsection_title": "Product-liability / negligence doctrine for ADAS manufacturers"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "adas_crash_case_law",
+        "entity_type": "legal_case",
+        "failure_reason": null,
+        "human_completion_eligible": false,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 3,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "case_name",
+          "court",
+          "disposition",
+          "liability_holding",
+          "applicability_to_shared_control"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.courtlistener.com/docket/59932667/benavides-v-tesla-inc/"
+          }
+        ],
+        "section": "Case_Law",
+        "slot_id": "case_law_adas",
+        "status": "pass",
+        "subsection_title": "Relevant ADAS / automated-feature crash-liability case law"
+      },
+      {
+        "available_artifacts": [
+          "url_pattern_fetch",
+          "url_pattern"
+        ],
+        "doi": null,
+        "entity_id": "proposed_regulatory_guidelines",
+        "entity_type": "policy_report",
+        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+        "human_completion_eligible": true,
+        "human_curated_provenance": null,
+        "is_pipeline_fault": false,
+        "min_fields_for_completion": 1,
+        "pmid": null,
+        "provenance_class": "open_access",
+        "required_fields": [
+          "recommendation",
+          "allocation_principle",
+          "implementation_path"
+        ],
+        "retrieval_attempt_log": [
+          {
+            "attempt_index": 1,
+            "http_status": 200,
+            "outcome": "success",
+            "source": "access_bypass",
+            "url": "url_pattern:https://www.ntsb.gov/Advocacy/mwl/Pages/mwl-22-23/mwl-hs.aspx"
+          }
+        ],
+        "section": "Regulatory_Recommendations",
+        "slot_id": "recommendations_synthesis",
+        "status": "curator_gap_no_substantive_content",
+        "subsection_title": "Proposed regulatory guidelines and liability-allocation recommendations"
+      }
+    ],
+    "frame_gap_count": 2,
+    "partial_count": 0,
+    "pass_count": 4,
+    "pipeline_fault_count": 0,
+    "research_question": "Analyze the complex issue of liability allocation in accidents involving vehicles with advanced driver-assistance systems (ADAS) operating in a shared human-machine driving context. Your analysis should integrate technical principles of ADAS, existing legal frameworks, and relevant case law to systematically examine the boundaries of responsibility between the driver and the system. Conclude with proposed regulatory guidelines or recommendations.",
+    "schema_version": "v30.1",
+    "total_entities": 6,
+    "total_slots": 6
+  },
+  "generator": {
+    "analyst_synthesis_input_tokens": 0,
+    "analyst_synthesis_output_tokens": 0,
+    "analyst_synthesis_words": 0,
+    "limitations_words": 74,
+    "outline_sections": [
+      "Technical_Standard",
+      "Legal_Framework",
+      "Case_Law",
+      "Regulatory_Recommendations",
+      "Background",
+      "Key Findings",
+      "Evidence and Analysis",
+      "Implications",
+      "Limitations"
+    ],
+    "sections_kept": 8,
+    "sentences_dropped": 125,
+    "sentences_verified": 30,
+    "verified_words": 880,
+    "words": 880
+  },
+  "judge_verdicts": {
+    "superseded_by_four_role_seam": true
+  },
+  "nli_verification": {
+    "advisory": true,
+    "contradicted_count": 0,
+    "disputed": [
+      {
+        "evidence_id": "nhtsa_ads_policy_framework",
+        "reason": "The sentence is empty and contains no factual assertions to evaluate against the span.",
+        "section": "Legal_Framework",
+        "sentence": ".",
+        "verdict": "NEUTRAL"
+      }
+    ],
+    "disputed_count": 1,
+    "eligible_sentences": 30,
+    "entailed_count": 29,
+    "judge": "llm_entailment",
+    "judge_error_count": 0,
+    "judge_errors": [],
+    "model": "google/gemma-4-31b-it",
+    "neutral_count": 1,
+    "nli_status": "ok",
+    "sentences_checked": 30,
+    "sentences_scored": 30,
+    "skipped_no_span": 0
+  },
+  "protocol_sha256": "f581fb1098484165fec537a72acda2cba2821f85495f7bb5f68ea08302708f79",
+  "quantified_analysis": {
+    "conflicts": [],
+    "dropped_sentences": 0,
+    "enabled": true,
+    "execution_success": false,
+    "fired": false,
+    "modeled_inputs": 0,
+    "outputs": 0,
+    "sourced_inputs": 0,
+    "sourced_numbers_extracted": 91,
+    "spec_produced": false,
+    "verified_sentences": 0
+  },
+  "question": "Analyze the complex issue of liability allocation in accidents involving vehicles with advanced driver-assistance systems (ADAS) operating in a shared human-machine driving context. Your analysis should integrate technical principles of ADAS, existing legal frameworks, and relevant case law to systematically examine the boundaries of responsibility between the driver and the system. Conclude with proposed regulatory guidelines or recommendations.",
+  "reasoning_trace": {
+    "description": "raw model reasoning channel captured per generator LLM call; process-transparency evidence, NOT verified claims",
+    "file": "reasoning_trace.jsonl"
+  },
+  "release_allowed": false,
+  "retrieval": {
+    "api_calls": {
+      "fetch": 151,
+      "openalex": 0,
+      "openalex_search": 15,
+      "parallel_fetch_errored_count": 0,
+      "parallel_fetch_success_count": 76,
+      "parallel_fetch_timeout_count": 75,
+      "s2": 15,
+      "serper": 15,
+      "serper_policy": 1
+    },
+    "candidates_processed": 151,
+    "candidates_total": 151,
+    "corpus_truncated": false,
+    "failed": 109,
+    "fetched": 42,
+    "pre_filter": 151
+  },
+  "run_id": "SWEEP_policy_drb_90_adas_liability_1780967095",
+  "slug": "drb_90_adas_liability",
+  "status": "abort_four_role_release_held",
+  "storm_query_expansion": {
+    "effective_query_count": 18,
+    "enabled": true,
+    "feature": "storm_query_expansion",
+    "fired": true,
+    "firing_status": "fired",
+    "interviews": 8,
+    "questions_added": 18
+  },
+  "synthesis_n_scrub_alert": false,
+  "tool_utilization": {
+    "summary_by_tool": {
+      "fetch_content": {
+        "backends_used": [
+          "archive.org",
+          "direct",
+          "failed",
+          "jina_reader",
+          "oa_resolver",
+          "pdf_extract",
+          "pmc_bioc",
+          "trafilatura"
+        ],
+        "error_reasons": {
+          "no_content": 59
+        },
+        "fail_count": 59,
+        "latency_stats": {
+          "max_ms": 60161.92317008972,
+          "mean_ms": 4392.611624052127,
+          "min_ms": 54.89349365234375,
+          "p95_ms": 17471.91596031189
+        },
+        "ok_count": 133,
+        "success_rate": 0.6927083333333334,
+        "total_calls": 192
+      },
+      "openalex_search": {
+        "backends_used": [
+          "openalex_works_api"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 1493.85404586792,
+          "mean_ms": 557.6684474945068,
+          "min_ms": 132.32421875,
+          "p95_ms": 1493.85404586792
+        },
+        "ok_count": 15,
+        "success_rate": 1.0,
+        "total_calls": 15
+      },
+      "s2": {
+        "backends_used": [
+          "semantic_scholar_api"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 484.0996265411377,
+          "mean_ms": 328.8507302602132,
+          "min_ms": 200.77109336853027,
+          "p95_ms": 484.0996265411377
+        },
+        "ok_count": 15,
+        "success_rate": 1.0,
+        "total_calls": 15
+      },
+      "serper": {
+        "backends_used": [
+          "serper_api_v1"
+        ],
+        "error_reasons": {},
+        "fail_count": 0,
+        "latency_stats": {
+          "max_ms": 1793.8368320465088,
+          "mean_ms": 897.4656581878662,
+          "min_ms": 682.2423934936523,
+          "p95_ms": 1793.8368320465088
+        },
+        "ok_count": 15,
+        "success_rate": 1.0,
+        "total_calls": 15
+      }
+    },
+    "summary_file": "tool_summary.json",
+    "tool_success_rate": 0.7510548523206751,
+    "total_fail": 59,
+    "total_ok": 178,
+    "total_tool_calls": 237,
+    "trace_file": "tool_trace.jsonl"
+  },
+  "uploaded_documents_blocked": 0,
+  "uploaded_documents_used": 0,
+  "v30_enabled": true,
+  "v30_warnings": [
+    "phase1_retrieval_coverage_only: Phase-1 V30 manifest.frame_coverage_report reflects retrieval success only, NOT whether the legacy generator cited each entity in the verified report. Phase-2 (M-58 slot-bound generator integration) will populate the same key with true report-coverage semantics. See manifest.frame_coverage_report.entries[*].status = 'pass' only confirms M-56 fetched the entity."
+  ]
+}
