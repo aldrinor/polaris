@@ -1,0 +1,23 @@
+**Findings**
+- **P1 LCUX-P03-DUP-LIMITATIONS**: [scripts/run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:5847) still appends a fresh `### Limitations` unconditionally, and [dedup_identical_paragraphs](/C:/POLARIS/scripts/run_honest_sweep_r3.py:793) only removes identical paragraphs plus orphaned headers. The test at [test_lane_c_presentation_bb5_p01_p02_p03.py](/C:/POLARIS/tests/polaris_graph/test_lane_c_presentation_bb5_p01_p02_p03.py:204) explicitly preserves two distinct `### Limitations` headers, which conflicts with P03’s “suppress/merge the appended synthesized one” requirement. Real result: any report with an outline Limitations section plus unique synthesized limitations still renders duplicate headers.
+
+- **P2 LCUX-P01-DEDUP-KEY**: [scripts/run_honest_sweep_r3.py](/C:/POLARIS/scripts/run_honest_sweep_r3.py:642) dedups by `(subject, predicate, assertion_status, evidence_id)`, not by `(subject, predicate, status)` as requested. An adversarial probe with identical subject/predicate/status but different evidence IDs still counted as `2 review-flagged item(s)`. The test at [test_lane_c_presentation_bb5_p01_p02_p03.py](/C:/POLARIS/tests/polaris_graph/test_lane_c_presentation_bb5_p01_p02_p03.py:71) uses identical evidence IDs, so it does not exercise the requested dedup boundary.
+
+P02 appears to live in `scripts/run_honest_sweep_r3.py`; no extra module was needed. The semantic renderer strips bibliography/image/URL junk in the probe and keeps subject/predicate for PT08.
+
+Verification run: `python -m pytest -q tests/polaris_graph/test_lane_c_presentation_bb5_p01_p02_p03.py` passed `17/17`, with only a pytest cache permission warning. Bare `pytest` is not on PATH in this shell.
+
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - LCUX-P03-DUP-LIMITATIONS: duplicate Limitations headers remain for distinct outline/appended bodies, violating P03 merge/suppress.
+p2:
+  - LCUX-P01-DEDUP-KEY: qualitative dedup includes evidence_id, so it misses rows identical by subject/predicate/status.
+convergence_call: continue
+remaining_blockers_for_execution:
+  - Fix P03 to merge/suppress the appended Limitations header when an outline Limitations section already exists.
+```
+
+verdict: REQUEST_CHANGES

@@ -525,6 +525,420 @@ def compute_custody_lane_status(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Lane C (#1179) — presentation hygiene for the three conflict-disclosure blocks.
+#
+# BB5-P01: the qualitative present-vs-absent detector emits one `- [REVIEW] ...`
+# line per flagged pair, uncapped + un-deduped — 246 lines = 82% of drb_75's file
+# (Gemini: 0). Qualitative records are NOT passed to the PT08 evaluator gate
+# (run_external_evaluation receives numeric + semantic records only — see the
+# render site near the report-assembly block), so collapsing review-flags to a
+# count + sidecar pointer and gating the clinical-safety detector to the clinical
+# domain is PT08-safe.
+#
+# BB5-P02: the cross-document NLI "Semantic contradiction" block prints each
+# record's full scraped row text (bibliographies, figure-markdown, image URLs).
+# Semantic records ARE PT08-checked (subject + predicate substring must appear in
+# the report), so the helper KEEPS subject + predicate verbatim for every record
+# and only trims the QUOTE payload + caps the inline count; full pairs go to a
+# sidecar.
+#
+# BB5-P03: drb_90 ships a verbatim-duplicated Implications/Limitations paragraph
+# and two `### Limitations` headers (outline Limitations + appended synthesized
+# one). The helper suppresses the appended synthesized Limitations when the
+# outline already wrote one, and de-dups identical paragraphs.
+#
+# All knobs are env-overridable; OFF/empty inputs yield byte-identical output.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# BB5-P01 — env knob: render qualitative REVIEW-flag rows inline (default OFF —
+# they are advisory, not adjudicated conflicts, and the verbatim dump was 82% of
+# drb_75's file). When OFF, only auto-fired hard CONFLICT rows render in prose and
+# the review flags collapse to a one-line count + sidecar pointer.
+_QUAL_REVIEW_INLINE_ENV = "PG_SWEEP_QUAL_REVIEW_INLINE"
+_QUAL_SIDECAR_FILENAME = "contradictions.json"
+_TRUE_TOKENS = ("1", "true", "yes", "on")
+
+# BB5-P02 — env knobs: max semantic pairs rendered inline, and the per-quote trim
+# length. Excess pairs go to the sidecar; subject + predicate of EVERY record
+# still render inline (PT08 contract).
+_SEMANTIC_INLINE_CAP_ENV = "PG_SWEEP_SEMANTIC_INLINE_CAP"
+_SEMANTIC_INLINE_CAP_DEFAULT = 10
+_SEMANTIC_QUOTE_TRIM_ENV = "PG_SWEEP_SEMANTIC_QUOTE_TRIM"
+_SEMANTIC_QUOTE_TRIM_DEFAULT = 200
+
+# BB5-P02 — a scraped row's "claim" text often carries a numbered bibliography,
+# figure/image markdown, and bare URLs. Strip those to a short normalized claim
+# summary before trimming to the quote cap.
+_BIBLIO_LINE_RE = re.compile(r"^\s*(?:\[\d+\]|\d+[.)])\s+.*$", re.MULTILINE)
+_IMAGE_MARKDOWN_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_LINK_MARKDOWN_RE = re.compile(r"\[([^\]]*)\]\((?:https?://[^)]*)\)")
+_BARE_URL_RE = re.compile(r"https?://\S+")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+# BB5-P03 — env knob: when the outline already produced a Limitations section,
+# suppress the appended synthesized one (default ON — the duplicate header + the
+# verbatim-duplicated paragraph are the drb_90 defect). Citation markers are
+# stripped before the identical-paragraph comparison.
+_LIMITATIONS_DEDUP_ENV = "PG_SWEEP_LIMITATIONS_DEDUP"
+_CITATION_MARKER_RE = re.compile(r"\[#?ev:[^\]]*\]|\[\d+\]|\[CITE\]", re.IGNORECASE)
+
+
+def _env_flag(name: str, *, default: bool) -> bool:
+    """Parse an env flag with an explicit default (no magic strings at call sites)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUE_TOKENS
+
+
+def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
+    """BB5-P02: reduce a scraped row's raw text to a short, trimmed claim summary.
+
+    Strips numbered bibliographies, figure/image markdown, markdown links (keeps
+    the visible label), and bare URLs, collapses whitespace, then trims to
+    ``quote_trim`` chars (adding an ellipsis when truncated). Pure string op."""
+    if not text:
+        return ""
+    cleaned = _IMAGE_MARKDOWN_RE.sub(" ", text)
+    cleaned = _LINK_MARKDOWN_RE.sub(r"\1", cleaned)
+    cleaned = _BIBLIO_LINE_RE.sub(" ", cleaned)
+    cleaned = _BARE_URL_RE.sub(" ", cleaned)
+    cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
+    if quote_trim > 0 and len(cleaned) > quote_trim:
+        cleaned = cleaned[:quote_trim].rstrip() + "…"
+    return cleaned
+
+
+def render_qualitative_disclosure(
+    qualitative_records: list,
+    *,
+    is_clinical: bool,
+    review_inline: bool | None = None,
+    sidecar_filename: str = _QUAL_SIDECAR_FILENAME,
+) -> str:
+    """BB5-P01: render the qualitative present-vs-absent safety-conflict block.
+
+    - Gates the clinical-safety detector output to the clinical domain: on a
+      non-clinical question the detector mis-fires (drb_90 ADAS "drug_interaction"
+      rows; drb_72 labor eligibility flags), so this returns "" for non-clinical.
+    - Collapses identical (subject, predicate, status-signature) rows: drb_75's
+      246 lines were duplicate rows.
+    - Hard CONFLICT rows (severity high/medium) render inline (auto-fired,
+      adjudicated). REVIEW flags collapse to a one-line count + sidecar pointer
+      unless ``review_inline`` (env ``PG_SWEEP_QUAL_REVIEW_INLINE``) is ON.
+
+    Pure: takes the records list + the clinical flag; no I/O. Returns the markdown
+    block (possibly "") appended to the report Methods. Qualitative records are
+    NOT PT08-gated, so dropping/collapsing review rows is faithfulness-safe."""
+    if not qualitative_records or not is_clinical:
+        return ""
+    if review_inline is None:
+        review_inline = _env_flag(_QUAL_REVIEW_INLINE_ENV, default=False)
+
+    hard = [r for r in qualitative_records if getattr(r, "severity", "") in ("high", "medium")]
+    review = [r for r in qualitative_records if getattr(r, "severity", "") == "review"]
+
+    def _status_signature(record) -> tuple:
+        # BB5-P01 iter-2 (#1179, Codex P2): dedup on (subject, predicate, status)
+        # EXCLUDING evidence_id. drb_75's 246 duplicate rows shared
+        # (subject, predicate, assertion_status) but cited different evidence ids,
+        # so keying on evidence_id missed them. Qualitative records are NOT
+        # PT08-gated (see the module docstring + the gate call at line ~633), so
+        # collapsing rows that differ only by which evidence id they cite — for the
+        # hard-CONFLICT path as well as the [REVIEW] path — is faithfulness-safe.
+        statuses = tuple(
+            cl.get("assertion_status", "?")
+            for cl in getattr(record, "claims", []) or []
+        )
+        return (getattr(record, "subject", ""), getattr(record, "predicate", ""), statuses)
+
+    def _dedup(records: list) -> list:
+        seen: set = set()
+        out: list = []
+        for record in records:
+            sig = _status_signature(record)
+            if sig in seen:
+                continue
+            seen.add(sig)
+            out.append(record)
+        return out
+
+    hard = _dedup(hard)
+    review = _dedup(review)
+
+    if not hard and not review:
+        return ""
+
+    out = (
+        f"\n## Qualitative safety-conflict disclosures\n"
+        f"The qualitative detector flagged {len(hard)} present-vs-absent "
+        f"clinical-safety conflict(s) (contraindication / drug-interaction / "
+        f"eligibility / warning / adverse-event causation) and {len(review)} "
+        f"review-flagged item(s) requiring human adjudication. Status is shown as "
+        f"asserted PRESENT/ABSENT/INDETERMINATE, not a numeric value; review flags "
+        f"are NOT adjudicated conflicts.\n\n"
+    )
+    for r in hard:
+        statuses = " vs ".join(
+            f"{cl.get('assertion_status', '?')} "
+            f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
+            for cl in getattr(r, "claims", []) or []
+        )
+        out += (
+            f"- [CONFLICT] {getattr(r, 'subject', '')} / "
+            f"{getattr(r, 'predicate', '')}: {statuses} — "
+            f"{getattr(r, 'conflict_reason', '')}\n"
+        )
+    if review:
+        if review_inline:
+            for r in review:
+                statuses = " vs ".join(
+                    f"{cl.get('assertion_status', '?')} "
+                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
+                    for cl in getattr(r, "claims", []) or []
+                )
+                out += (
+                    f"- [REVIEW] {getattr(r, 'subject', '')} / "
+                    f"{getattr(r, 'predicate', '')}: {statuses} — "
+                    f"{getattr(r, 'conflict_reason', '')}\n"
+                )
+        else:
+            out += (
+                f"- {len(review)} review-flagged item(s) collapsed to keep the "
+                f"report readable; full per-flag rows are in the `{sidecar_filename}` "
+                f"sidecar (filter `type=\"qualitative\"`, `severity=\"review\"`).\n"
+            )
+    return out
+
+
+def render_semantic_disclosure(
+    semantic_records: list,
+    *,
+    inline_cap: int | None = None,
+    quote_trim: int | None = None,
+    sidecar_filename: str = _QUAL_SIDECAR_FILENAME,
+) -> str:
+    """BB5-P02: render the cross-document NLI semantic-contradiction block.
+
+    Semantic records ARE PT08-gated (subject + predicate substring must appear in
+    the report), so subject + predicate of EVERY record render inline. Only the
+    payload is trimmed: each side becomes a short normalized claim summary
+    (bibliographies / figure-markdown / image URLs stripped, trimmed to
+    ``quote_trim`` chars). Beyond ``inline_cap`` records, the remainder collapse to
+    a one-line pointer to the sidecar — but every subject/predicate is still
+    emitted so PT08 holds. Pure: no I/O."""
+    if not semantic_records:
+        return ""
+    if inline_cap is None:
+        inline_cap = _env_int(_SEMANTIC_INLINE_CAP_ENV, _SEMANTIC_INLINE_CAP_DEFAULT)
+    if quote_trim is None:
+        quote_trim = _env_int(_SEMANTIC_QUOTE_TRIM_ENV, _SEMANTIC_QUOTE_TRIM_DEFAULT)
+
+    out = (
+        f"\n## Semantic contradiction disclosures (cross-document NLI)\n"
+        f"An NLI pass over same-subject evidence pairs flagged {len(semantic_records)} "
+        f"prose-only directional contradiction(s) that carry no shared number and no "
+        f"rule-cue (and so are not caught by the numeric or qualitative detectors). "
+        f"Each is shown with a short normalized claim summary per side; full source "
+        f"text is in the `{sidecar_filename}` sidecar (filter `type=\"semantic\"`).\n\n"
+    )
+    # PT08 contract: subject + predicate of EVERY record must appear in the report.
+    # The first `inline_cap` render with trimmed quotes; the rest render
+    # subject/predicate only (still satisfying PT08) on a compact pointer line.
+    for idx, r in enumerate(semantic_records):
+        subject = getattr(r, "subject", "")
+        predicate = getattr(r, "predicate", "")
+        if idx < inline_cap:
+            claims = getattr(r, "claims", None) or []
+            summary = " VS ".join(
+                f"\"{_normalize_claim_summary(cl.get('text') or '', quote_trim=quote_trim)}\" "
+                f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
+                for cl in claims
+            )
+            out += (
+                f"- [SEMANTIC] {subject} / {predicate} "
+                f"(NLI confidence {getattr(r, 'nli_confidence', 0.0):.2f}): {summary}\n"
+            )
+        else:
+            out += (
+                f"- [SEMANTIC] {subject} / {predicate} "
+                f"(NLI confidence {getattr(r, 'nli_confidence', 0.0):.2f}) — full pair "
+                f"in `{sidecar_filename}`.\n"
+            )
+    return out
+
+
+def _env_int(name: str, default: int) -> int:
+    """Parse a non-negative int env knob; fall back to default on missing/invalid."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+def _strip_citation_markers(text: str) -> str:
+    """Normalize a paragraph for identical-content comparison (BB5-P03): drop
+    citation markers, collapse whitespace, lowercase. Pure string op."""
+    stripped = _CITATION_MARKER_RE.sub("", text or "")
+    return _WHITESPACE_RUN_RE.sub(" ", stripped).strip().lower()
+
+
+_MARKDOWN_HEADER_RE = re.compile(r"^#{1,6}\s")
+
+
+def _is_markdown_header(block: str) -> bool:
+    """True when a blank-line block is a single markdown header line (`#..######`)."""
+    stripped = block.strip()
+    return bool(stripped) and "\n" not in stripped and bool(_MARKDOWN_HEADER_RE.match(stripped))
+
+
+def dedup_identical_paragraphs(report_text: str) -> str:
+    """BB5-P03: drop later body paragraphs that are content-identical (after
+    citation-marker stripping + whitespace/case normalization) to an earlier
+    paragraph; remove any header left ORPHANED (a header immediately followed by
+    another header or end-of-document) by that drop; then MERGE any repeated header
+    so the report never renders two headers with the same text (e.g. two
+    '### Limitations'). Keeps the FIRST occurrence in every case.
+
+    Content-identity ONLY for the body drop — the title-based blanket suppress was
+    rejected because the outline 'Limitations' (verified prose) and the appended
+    synthesized ``limitations_text`` (corpus-skew / contradiction meta-disclosures) are
+    different content in the general case; suppressing by title silently drops the
+    latter's unique disclosure (the §-1.1 silent-downgrade the operator flagged).
+
+    Two real drb_90 shapes:
+      1. outline-Implications body == outline-Limitations body (citation NUMBERS
+         differ only) → pass 1 drops the duplicate body, pass 2 clears the now-empty
+         '### Limitations' header.
+      2. a second '### Limitations' carries a DISTINCT synthesized body (corpus-skew
+         disclosure) → pass 1/2 leave both, so pass 3 MERGES: the distinct body is
+         relocated under the first '### Limitations' and the duplicate header line is
+         dropped. The body is KEPT (no silent downgrade) — only the redundant header
+         disappears. This fires even when the two headers are non-adjacent (an
+         intervening Trial Summary / Analyst Synthesis / quantified block can sit
+         between the outline Limitations and the appended one — see lines ~5553-5847);
+         in the real drb_90 artifact they are adjacent, so pass 3 is defensive there
+         but correct in both layouts.
+
+    Exact-equality only (no fuzzy match): a paragraph that merely shares phrasing is
+    never dropped. Pure."""
+    if not report_text:
+        return report_text
+    blocks = report_text.split("\n\n")
+
+    # Pass 1 — drop content-identical body paragraphs (keep first). Headers and blank
+    # blocks are never deduped here (a header is collapsed only if orphaned in pass 2).
+    seen_paragraphs: set = set()
+    kept: list[str] = []
+    for block in blocks:
+        if _is_markdown_header(block) or not block.strip():
+            kept.append(block)
+            continue
+        normalized = _strip_citation_markers(block)
+        if normalized and normalized in seen_paragraphs:
+            continue
+        if normalized:
+            seen_paragraphs.add(normalized)
+        kept.append(block)
+
+    # Pass 2 — drop orphaned headers: a header block whose next non-blank block is
+    # another header or which has no following body (end-of-document).
+    def _next_nonblank_idx(blocks_in: list[str], start: int) -> int:
+        j = start + 1
+        while j < len(blocks_in) and not blocks_in[j].strip():
+            j += 1
+        return j
+
+    after_orphan: list[str] = []
+    for i, block in enumerate(kept):
+        if _is_markdown_header(block):
+            nxt = _next_nonblank_idx(kept, i)
+            if nxt >= len(kept) or _is_markdown_header(kept[nxt]):
+                continue  # orphaned header — drop
+        after_orphan.append(block)
+
+    # Pass 3 — merge repeated headers (relocate-to-first): when a header's normalized
+    # text was already KEPT, append THIS header's body block(s) under the first
+    # occurrence and drop the duplicate header line — never render two identical
+    # headers. "Record on KEEP, not on orphan-drop": a header dropped as orphaned in
+    # pass 2 never reaches here, so the byte-identical drb_90 case (one empty + one
+    # bodied Limitations) collapses to exactly one header rather than zero. Runs LAST
+    # so the orphan pass has already cleared empty duplicates. A report with no
+    # repeated header is returned byte-for-byte unchanged (the round-trip invariant).
+    kept_header_keys: set = set()
+    out_blocks: list[str] = []
+    i = 0
+    while i < len(after_orphan):
+        block = after_orphan[i]
+        if _is_markdown_header(block):
+            key = _strip_citation_markers(block)
+            if key in kept_header_keys:
+                # Duplicate header — relocate its body block(s) under the first
+                # occurrence's body, then skip the header line itself.
+                body_blocks = _collect_header_body_blocks(after_orphan, i)
+                _relocate_blocks_after_header(out_blocks, key, body_blocks)
+                i = _next_header_or_end_idx(after_orphan, i)
+                continue
+            kept_header_keys.add(key)
+        out_blocks.append(block)
+        i += 1
+    return "\n\n".join(out_blocks)
+
+
+def _collect_header_body_blocks(blocks_in: list[str], header_idx: int) -> list[str]:
+    """BB5-P03 pass-3 helper: the non-blank body blocks owned by the header at
+    ``header_idx`` — i.e. up to (but not including) the next header or end-of-doc.
+    Blank separator blocks are dropped (re-inserted on relocation). Pure."""
+    body: list[str] = []
+    j = header_idx + 1
+    while j < len(blocks_in) and not _is_markdown_header(blocks_in[j]):
+        if blocks_in[j].strip():
+            body.append(blocks_in[j])
+        j += 1
+    return body
+
+
+def _next_header_or_end_idx(blocks_in: list[str], header_idx: int) -> int:
+    """BB5-P03 pass-3 helper: index of the next header after ``header_idx`` (so the
+    duplicate header AND its body are skipped together), or ``len`` at end-of-doc."""
+    j = header_idx + 1
+    while j < len(blocks_in) and not _is_markdown_header(blocks_in[j]):
+        j += 1
+    return j
+
+
+def _relocate_blocks_after_header(
+    out_blocks: list[str], header_key: str, body_blocks: list[str]
+) -> None:
+    """BB5-P03 pass-3 helper: insert ``body_blocks`` into ``out_blocks`` immediately
+    after the LAST body block already filed under the first header whose normalized
+    text == ``header_key`` (so the relocated distinct body is merged under that one
+    header, in order). Mutates ``out_blocks`` in place. Pure logic (no I/O)."""
+    if not body_blocks:
+        return
+    # Find the first occurrence of the header.
+    header_pos = -1
+    for idx, block in enumerate(out_blocks):
+        if _is_markdown_header(block) and _strip_citation_markers(block) == header_key:
+            header_pos = idx
+            break
+    if header_pos < 0:  # defensive: header not found — append at end
+        for body in body_blocks:
+            out_blocks.append(body)
+        return
+    # Walk to the end of that header's existing body (stop at the next header).
+    insert_pos = header_pos + 1
+    while insert_pos < len(out_blocks) and not _is_markdown_header(out_blocks[insert_pos]):
+        insert_pos += 1
+    for offset, body in enumerate(body_blocks):
+        out_blocks.insert(insert_pos + offset, body)
+
+
 def _capped_finding_dedup_selection(
     *,
     base_rows: list[dict[str, Any]],
@@ -5519,6 +5933,12 @@ async def run_one_query(
                 _log(f"[phase7]      quantified analysis skipped: {str(_q_exc)[:160]}")
                 _quantified_telemetry = {"enabled": True, "error": str(_q_exc)[:200]}
 
+        # BB5-P03 (#1179): the appended synthesized Limitations is ALWAYS emitted (its corpus-skew /
+        # contradiction-count disclosure is unique content — suppressing it by title would silently
+        # drop a disclosure, the §-1.1 downgrade the operator flagged). The drb_90 duplicate (outline
+        # Implications body == outline Limitations body + the now-empty '### Limitations' header) is
+        # removed downstream by dedup_identical_paragraphs (content-identity + orphan-header pass),
+        # gated by PG_SWEEP_LIMITATIONS_DEDUP.
         if multi.limitations_text:
             sections_concat += f"\n\n### Limitations\n\n{multi.limitations_text}"
 
@@ -5727,25 +6147,12 @@ async def run_one_query(
         # Qualitative present-vs-absent safety-conflict disclosure (#944). Renders by ASSERTION
         # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric
         # value — and separates hard conflicts from review flags (Codex brief-gate iter-1 P1.5).
-        if qualitative_records:
-            _hard = [r for r in qualitative_records if r.severity in ("high", "medium")]
-            _review = [r for r in qualitative_records if r.severity == "review"]
-            methods += (
-                f"\n## Qualitative safety-conflict disclosures\n"
-                f"The qualitative detector flagged {len(_hard)} present-vs-absent clinical-safety "
-                f"conflict(s) (contraindication / drug-interaction / eligibility / warning / "
-                f"adverse-event causation) and {len(_review)} review-flagged item(s) requiring human "
-                f"adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a "
-                f"numeric value; review flags are NOT adjudicated conflicts.\n\n"
-            )
-            for r in _hard + _review:
-                _label = "CONFLICT" if r.severity in ("high", "medium") else "REVIEW"
-                _statuses = " vs ".join(
-                    f"{cl.get('assertion_status', '?')} "
-                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('source_tier', '')}]"
-                    for cl in r.claims
-                )
-                methods += f"- [{_label}] {r.subject} / {r.predicate}: {_statuses} — {r.conflict_reason}\n"
+        # BB5-P01 (#1179): collapse + dedup + clinical-gate via render_qualitative_disclosure. The
+        # raw per-pair dump was 82% of drb_75's file and mis-fired on non-clinical Qs. Qualitative
+        # records are NOT passed to the PT08 evaluator gate, so this trim is faithfulness-safe.
+        methods += render_qualitative_disclosure(
+            qualitative_records, is_clinical=_clinical_verified_only_surface,
+        )
 
         # Semantic/NLI cross-document contradiction disclosure (I-ready-012 #1079). Renders each
         # NLI-detected prose-only conflict (subject + predicate + the two conflicting claims with
@@ -5753,24 +6160,12 @@ async def run_one_query(
         # subject+predicate in report text) finds it. Distinct from the numeric renderer (no value
         # range) and the qualitative renderer (no assertion status); only present when the semantic
         # detector ran (default OFF) and found a conflict.
-        if semantic_records:
-            methods += (
-                f"\n## Semantic contradiction disclosures (cross-document NLI)\n"
-                f"An NLI pass over same-subject evidence pairs flagged {len(semantic_records)} "
-                f"prose-only directional contradiction(s) that carry no shared number and no "
-                f"rule-cue (and so are not caught by the numeric or qualitative detectors). Each "
-                f"is shown with both conflicting source claims for human adjudication.\n\n"
-            )
-            for r in semantic_records:
-                _claims = " VS ".join(
-                    f"\"{(cl.get('text') or '').strip()}\" "
-                    f"[ev={cl.get('evidence_id', '')}, tier={cl.get('tier', '')}]"
-                    for cl in r.claims
-                )
-                methods += (
-                    f"- [SEMANTIC] {r.subject} / {r.predicate} "
-                    f"(NLI confidence {r.nli_confidence:.2f}): {_claims}\n"
-                )
+        # BB5-P02 (#1179): the prior renderer dumped each record's full scraped row text
+        # (bibliographies, figure-markdown, image URLs) into the body. render_semantic_disclosure
+        # surfaces a short normalized claim summary per side (subject/predicate + ≤200-char trimmed
+        # quote), caps the inline count, and points to the sidecar for the rest. PT08-safe: subject
+        # + predicate of EVERY record still render inline (those are the substrings PT08 checks).
+        methods += render_semantic_disclosure(semantic_records)
 
         biblio_section = "\n\n## Bibliography\n"
         for b in multi.bibliography:
@@ -5792,6 +6187,12 @@ async def run_one_query(
             f"# Research report: {q['question']}\n\n"
             + _key_findings + sections_concat + methods + biblio_section
         )
+        # BB5-P03 (#1179): de-dup content-identical paragraphs (after citation-marker stripping) and
+        # drop any header orphaned by that drop, before render. Keeps the FIRST occurrence, so every
+        # subject/predicate a PT08-checked record disclosed survives — the evaluator below reads this
+        # same deduped text. Default ON via PG_SWEEP_LIMITATIONS_DEDUP; OFF leaves report byte-identical.
+        if _env_flag(_LIMITATIONS_DEDUP_ENV, default=True):
+            final_report = dedup_identical_paragraphs(final_report)
         (run_dir / "report.md").write_text(final_report, encoding="utf-8")
         (run_dir / "bibliography.json").write_text(
             json.dumps(multi.bibliography, indent=2, sort_keys=True) + "\n",
