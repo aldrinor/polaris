@@ -18,11 +18,20 @@ time is cheaper than fetching and discarding.
 DESIGN:
 - No new LLM call. Uses token overlap with protocol.research_question +
   PICO fields (intervention / population / outcome) as the anchor.
-- Drops any amplified query whose Jaccard similarity with the anchor
-  is below PG_AMPLIFIER_SCOPE_FLOOR (default 0.15).
+- Drops any amplified query whose similarity with the anchor is below
+  PG_AMPLIFIER_SCOPE_FLOOR (default 0.15).
 - ALWAYS keeps the verbatim research_question and direct PICO-term
   queries ("{intervention} {population}") as a safety net.
 - Logs drops so the user can see which amplifier variants were killed.
+
+SIMILARITY MEASURE (BB-001, I-beatboth-fix-000 #1171):
+- PG_SCOPE_SIM_MEASURE selects the measure: `jaccard` (default = byte-identical
+  OFF) or `containment`. Symmetric Jaccard (|q∩a|/|q∪a|) punishes a SHORT
+  on-topic query against a large anchor bag (tiny intersection over a huge
+  union) — the #1 retrieval-breadth chokepoint (40->5 kept on drb_72).
+  Containment/overlap-coefficient (|q∩a|/min(|q|,|a|)) normalises by the
+  smaller set so a short on-topic query clears while genuine drift still fails.
+  The GATE is KEPT either way (rerank against intent); only the measure changes.
 """
 
 from __future__ import annotations
@@ -65,12 +74,52 @@ def _tokenize(text: str) -> set[str]:
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:
-    """Jaccard similarity. Empty a or b -> 0.0."""
+    """Jaccard (symmetric) similarity |a∩b| / |a∪b|. Empty a or b -> 0.0."""
     if not a or not b:
         return 0.0
     union = a | b
     inter = a & b
     return len(inter) / len(union) if union else 0.0
+
+
+def _containment(a: set[str], b: set[str]) -> float:
+    """Containment / overlap-coefficient similarity |a∩b| / min(|a|, |b|).
+
+    BB-001 (I-beatboth-fix-000 #1171): the symmetric Jaccard punishes a SHORT
+    on-topic query against a LARGE anchor bag — a 4-6-token query has a tiny
+    intersection over a huge union, so its sim sits far below the floor and the
+    query is dropped before it ever issues a search (the #1 retrieval-breadth
+    chokepoint: 40->5 kept on drb_72). Containment normalises by the SMALLER set,
+    so a short query whose tokens are all in the anchor scores ~1.0 while a query
+    that drifts off-anchor still scores low — it KEEPS the gate (reranks against
+    intent) rather than removing it. Empty a or b -> 0.0; never raises.
+    """
+    if not a or not b:
+        return 0.0
+    inter = a & b
+    smaller = min(len(a), len(b))
+    return len(inter) / smaller if smaller else 0.0
+
+
+# BB-001 (I-beatboth-fix-000 #1171): the default is `jaccard` so the OFF path is
+# BYTE-IDENTICAL to the pre-fix behaviour; the Gate-B slate sets `containment`.
+_SIM_MEASURES = {"jaccard": _jaccard, "containment": _containment}
+
+
+def _select_sim_measure():
+    """Return the (name, fn) for the configured similarity measure.
+
+    Reads ``PG_SCOPE_SIM_MEASURE`` (default ``jaccard`` = byte-identical OFF).
+    An unrecognised value FAILS LOUD (LAW II) — a typo'd measure must not
+    silently fall back to a different gate behaviour on a paid benchmark run.
+    """
+    raw = os.getenv("PG_SCOPE_SIM_MEASURE", "jaccard").strip().lower()
+    if raw not in _SIM_MEASURES:
+        raise ValueError(
+            f"PG_SCOPE_SIM_MEASURE={raw!r} is not a recognised similarity measure "
+            f"(expected one of {sorted(_SIM_MEASURES)})."
+        )
+    return raw, _SIM_MEASURES[raw]
 
 
 @dataclass
@@ -148,6 +197,11 @@ def validate_amplified_queries(
     if floor is None:
         floor = float(os.getenv("PG_AMPLIFIER_SCOPE_FLOOR", "0.15"))
 
+    # BB-001 (#1171): default `jaccard` = byte-identical OFF; the Gate-B slate
+    # sets `containment` so short on-topic queries clear the floor. The gate is
+    # KEPT either way (off-anchor queries still fail) — only the MEASURE changes.
+    sim_name, sim_fn = _select_sim_measure()
+
     anchor_tokens = _build_anchor_tokens(protocol)
     anchor_tokens_sorted = sorted(anchor_tokens)
 
@@ -170,11 +224,17 @@ def validate_amplified_queries(
         if not q_tokens:
             dropped.append((q, 0.0, "empty_after_tokenization"))
             continue
-        sim = _jaccard(q_tokens, anchor_tokens)
+        sim = sim_fn(q_tokens, anchor_tokens)
         if sim >= floor:
             kept.append(q)
         else:
-            dropped.append((q, sim, f"below_scope_floor_{floor:.2f}"))
+            # BB-001 (#1171): on the default jaccard path the reason string is
+            # BYTE-IDENTICAL to the pre-fix value; the measure suffix is added
+            # only when a non-default measure (containment) is active.
+            _reason = f"below_scope_floor_{floor:.2f}"
+            if sim_name != "jaccard":
+                _reason = f"{_reason}_{sim_name}"
+            dropped.append((q, sim, _reason))
 
     # Safety net: always keep the verbatim research_question, even if
     # its own similarity was below floor (happens for very short PICO
@@ -184,8 +244,8 @@ def validate_amplified_queries(
             kept.insert(0, research_question)
 
     logger.info(
-        "[scope_validator] floor=%.2f kept=%d dropped=%d (anchor_tokens=%d)",
-        floor, len(kept), len(dropped), len(anchor_tokens),
+        "[scope_validator] measure=%s floor=%.2f kept=%d dropped=%d (anchor_tokens=%d)",
+        sim_name, floor, len(kept), len(dropped), len(anchor_tokens),
     )
     if dropped:
         sample = dropped[:3]

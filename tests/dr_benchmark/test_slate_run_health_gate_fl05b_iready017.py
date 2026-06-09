@@ -161,21 +161,25 @@ _LANE_KNOBS = (
     "PG_AGENTIC_BENCHMARK_URL_CAP",  # agentic-discovery harvest
     "PG_SWEEP_DEEPENER_URL_CAP",     # citation-snowball deepener
     "PG_R6_EXPAND_FETCH_CAP",        # R-6 completeness re-expansion
+    "PG_STORM_URL_FETCH_CAP",        # STORM web-results seed lane (I-beatboth-fix-000 BB-006)
 )
 
 
 def test_four_fetch_lanes_sum_to_about_1000():
-    """The operator budget: the WHOLE run fetches ~1000 sites/question, split across four lanes that
-    SUM to ~1000 — never 1000 (main) + additive agentic/deepener/R-6 on top."""
+    """The operator budget: the WHOLE run fetches ~1000 sites/question, split across the fetch lanes
+    that SUM to ~1000 — never 1000 (main) + additive lanes on top. I-beatboth-fix-000 (Codex P1)
+    trimmed the main lane 800->740 to ABSORB the new STORM web-results seed lane (BB-006) so the total
+    stays at the hard 1000 envelope (no ~1060 overshoot)."""
     vals = {k: int(_FULL_CAPABILITY_BENCHMARK_SLATE[k]) for k in _LANE_KNOBS}
     total = sum(vals.values())
-    assert total == 1000, f"four-lane fetch budget must sum to ~1000, got {total} from {vals}"
+    assert total == 1000, f"fetch budget must sum to ~1000, got {total} from {vals}"
     # And the exact split documented in the slate comment.
     assert vals == {
-        "PG_SWEEP_FETCH_CAP": 800,
+        "PG_SWEEP_FETCH_CAP": 740,
         "PG_AGENTIC_BENCHMARK_URL_CAP": 100,
         "PG_SWEEP_DEEPENER_URL_CAP": 60,
         "PG_R6_EXPAND_FETCH_CAP": 40,
+        "PG_STORM_URL_FETCH_CAP": 60,
     }
 
 
@@ -199,10 +203,11 @@ def test_lane_floors_land_with_no_env_override():
     for knob in _LANE_KNOBS:
         os.environ.pop(knob, None)
     apply_full_capability_benchmark_slate()
-    assert int(os.environ["PG_SWEEP_FETCH_CAP"]) == 800
+    assert int(os.environ["PG_SWEEP_FETCH_CAP"]) == 740
     assert int(os.environ["PG_R6_EXPAND_FETCH_CAP"]) == 40
     assert int(os.environ["PG_AGENTIC_BENCHMARK_URL_CAP"]) == 100
     assert int(os.environ["PG_SWEEP_DEEPENER_URL_CAP"]) == 60
+    assert int(os.environ["PG_STORM_URL_FETCH_CAP"]) == 60
 
 
 # --------------------------------------------------------------------------- I-fetch-002 (#1168)

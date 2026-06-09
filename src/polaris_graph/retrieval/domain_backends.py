@@ -473,6 +473,37 @@ def europe_pmc_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[Searc
 # S2 over the sub-queries, so this ADDS non-baseline scholarly-graph breadth.
 
 _OPENALEX_WORKS_SEARCH = "https://api.openalex.org/works"
+# BB-003 (#1171): the OpenAlex API per_page hard maximum (docs.openalex.org paging).
+_OPENALEX_PER_PAGE_MAX = 200
+
+
+def _openalex_per_page(limit: int) -> int:
+    """BB-003 (#1171): per-page size for the OpenAlex /works search.
+
+    Capped at the OpenAlex API maximum (200). DEFAULT 25 (PG_OPENALEX_PER_PAGE
+    unset) = byte-identical to the legacy ``max(1, min(limit, 25))``. The Gate-B
+    slate sets PG_OPENALEX_PER_PAGE=200 so one page covers up to 200 works.
+    A bad value FAILS LOUD (LAW II) rather than silently throttling to a default.
+    """
+    raw = os.getenv("PG_OPENALEX_PER_PAGE", "25").strip()
+    try:
+        cap = int(raw)
+    except ValueError:
+        raise ValueError(f"PG_OPENALEX_PER_PAGE={raw!r} is not an int")
+    cap = max(1, min(cap, _OPENALEX_PER_PAGE_MAX))
+    return max(1, min(limit, cap))
+
+
+def _openalex_max_pages() -> int:
+    """BB-003 (#1171): cursor-page count cap. DEFAULT 1 (PG_OPENALEX_MAX_PAGES
+    unset) = single page = byte-identical OFF. The slate raises it to cover the
+    requested ``limit``. A bad value FAILS LOUD."""
+    raw = os.getenv("PG_OPENALEX_MAX_PAGES", "1").strip()
+    try:
+        pages = int(raw)
+    except ValueError:
+        raise ValueError(f"PG_OPENALEX_MAX_PAGES={raw!r} is not an int")
+    return max(1, pages)
 
 
 def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchCandidate]:
@@ -481,42 +512,64 @@ def openalex_search(query: str, limit: int = PG_DOMAIN_MAX_HITS) -> list[SearchC
     Emits a resolvable primary-literature URL per work in DOI -> OpenAlex-id
     priority; a work with neither is SKIPPED. Candidates flow through the SAME
     fetch / tier / strict_verify chokepoint as Serper/S2. Fail-open.
+
+    BB-003 (#1171): per_page is raised to min(limit, PG_OPENALEX_PER_PAGE<=200)
+    and the search CURSOR-PAGES (cursor=* -> meta.next_cursor) up to ``limit`` or
+    PG_OPENALEX_MAX_PAGES — the legacy single page of 25 was the #3 breadth
+    chokepoint (env limit=100 reached the adapter but min(limit,25) capped it at
+    25/query). DEFAULT (per_page 25, max_pages 1) = byte-identical single page,
+    no cursor key in the request. Discovery-breadth only; faithfulness-neutral.
     """
     try:
-        data = _http_get_json(
-            _OPENALEX_WORKS_SEARCH,
-            params={
-                "search": query,
-                "per_page": max(1, min(limit, 25)),
-            },
-        )
-        if not data:
-            return []
-        results = data.get("results") or []
+        per_page = _openalex_per_page(limit)
+        max_pages = _openalex_max_pages()
         out: list[SearchCandidate] = []
-        for work in results:
-            doi = str(work.get("doi") or "").strip()
-            oa_id = str(work.get("id") or "").strip()
-            if doi:
-                # OpenAlex DOIs are full URLs (https://doi.org/...).
-                url = doi if doi.startswith("http") else f"https://doi.org/{doi}"
-            elif oa_id:
-                url = oa_id
-            else:
-                continue  # no resolvable id — skip
-            title = str(work.get("display_name") or "").strip()
-            out.append(SearchCandidate(
-                url=url,
-                title=title,
-                snippet="",
-                source="openalex_search",
-                metadata={
-                    "doi": doi or None,
-                    "openalex_id": oa_id or None,
-                    "year": work.get("publication_year"),
-                },
-            ))
-            if len(out) >= limit:
+        seen_ids: set[str] = set()
+        cursor = "*"
+        for _page in range(max_pages):
+            params: dict[str, Any] = {"search": query, "per_page": per_page}
+            # BYTE-IDENTICAL OFF: only add the cursor param when paging is enabled
+            # (max_pages > 1). A single-page run sends the exact legacy params.
+            if max_pages > 1:
+                params["cursor"] = cursor
+            data = _http_get_json(_OPENALEX_WORKS_SEARCH, params=params)
+            if not data:
+                break
+            results = data.get("results") or []
+            if not results:
+                break
+            for work in results:
+                doi = str(work.get("doi") or "").strip()
+                oa_id = str(work.get("id") or "").strip()
+                if doi:
+                    # OpenAlex DOIs are full URLs (https://doi.org/...).
+                    url = doi if doi.startswith("http") else f"https://doi.org/{doi}"
+                elif oa_id:
+                    url = oa_id
+                else:
+                    continue  # no resolvable id — skip
+                # Dedup across pages by the OpenAlex work id (or the url when absent).
+                _dedup_key = oa_id or url
+                if _dedup_key in seen_ids:
+                    continue
+                seen_ids.add(_dedup_key)
+                title = str(work.get("display_name") or "").strip()
+                out.append(SearchCandidate(
+                    url=url,
+                    title=title,
+                    snippet="",
+                    source="openalex_search",
+                    metadata={
+                        "doi": doi or None,
+                        "openalex_id": oa_id or None,
+                        "year": work.get("publication_year"),
+                    },
+                ))
+                if len(out) >= limit:
+                    return out
+            # Advance the cursor; stop when OpenAlex returns no next cursor.
+            cursor = str((data.get("meta") or {}).get("next_cursor") or "").strip()
+            if max_pages == 1 or not cursor:
                 break
         return out
     except Exception as exc:

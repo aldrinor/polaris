@@ -1,0 +1,24 @@
+**Findings**
+
+P1: The STORM URL seed lane breaks the hard ~1000 fetch envelope. The slate says this cluster must “NEVER raise total FETCH” and keeps the four lanes at `800 + 100 + 60 + 40 = 1000`, but it also adds `PG_STORM_URL_FETCH_CAP=60` as a separate additive lane in [run_gate_b.py](C:/POLARIS/scripts/dr_benchmark/run_gate_b.py:593). That cap is actually fetched after the existing lanes via `run_live_retrieval(seed_only=True)` in [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:3404). Net effect: Gate-B can fetch up to ~1060, contradicting the no-overshoot contract and the local fix design’s “do NOT push total FETCH >~1000” constraint. Make STORM URLs compete inside an existing lane/cap, or reduce another fetch lane by the STORM fetch allowance.
+
+P2: The offline smoke is mostly behavioral and passed, but BB-005 only tests `harvest_agentic_urls` directly. It does not prove the run-level decouple that matters: `urls_discovered_total` can rise to 800 while the seed list sent to `run_live_retrieval(seed_only=True)` remains capped at 100. The code appears to do this, but the smoke does not lock it.
+
+No P0 found. The staged diff does not include the verification-gate files, `harvest_storm_urls` reads only `rec["url"]`, and STORM seed rows are produced through the normal seed-only fetch path with `direct_quote` built from fetched content, not STORM snippets/answers/key findings.
+
+Test run: `python -m pytest -q tests/polaris_graph/test_breadth_collapse_beatboth_fix_000.py` -> 21 passed.
+
+verdict: REQUEST_CHANGES
+
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "STORM URL ingestion adds a separate 60-fetch lane, raising Gate-B above the hard ~1000 fetch envelope."
+p2:
+  - "BB-005 smoke does not prove run-level harvest/fetch decoupling, only the pure harvester cap."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Account STORM URL fetches inside the existing 1000-fetch budget before approval."
+```

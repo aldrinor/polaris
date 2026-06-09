@@ -279,6 +279,19 @@ def _serper_search(
         _max_pages = 3
     _n_pages = min(_max_pages, -(-_total // per_page))  # ceil(total/per_page)
 
+    # BB-002 (I-beatboth-fix-000 #1171): a sub-`per_page` page-1 count is NOT a reliable
+    # end-of-results signal for an OFFSET-paginated SERP API — Serper routinely returns
+    # 10 organic on page 1 even when page 2 has more, so the legacy `len(items) < per_page`
+    # break short-circuited before page 2 and the PG_SERPER_TOTAL_PER_QUERY budget was never
+    # reached (de-facto 10/query ceiling — chokepoint #4). When PG_SERPER_STOP_ON_ZERO_NEW=1
+    # the loop keeps offset-paging until (a) budget met, (b) a page returns 0 NEW (post-dedup)
+    # items, or (c) PG_SERPER_MAX_PAGES — the only RELIABLE end-of-results signals. DEFAULT OFF
+    # = byte-identical (the legacy short-page break is preserved). Discovery-breadth only; every
+    # new URL flows through the same fetch -> strict_verify -> 4-role chokepoint unchanged.
+    _stop_on_zero_new = os.getenv("PG_SERPER_STOP_ON_ZERO_NEW", "0").strip() in (
+        "1", "true", "True",
+    )
+
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     _pages_fetched = 0
@@ -310,14 +323,22 @@ def _serper_search(
                 seen.add(u)
                 out.append(it)
                 _new += 1
-        if len(out) >= _total or len(items) < per_page:
-            break  # budget met, or the provider has no more results for this query.
+        if len(out) >= _total:
+            break  # budget met.
+        if _stop_on_zero_new:
+            # BB-002 (#1171): keep paging past a short page; stop only when a page
+            # added 0 NEW (post-dedup) URLs — the reliable end-of-results signal.
+            if _new == 0:
+                break
+        elif len(items) < per_page:
+            break  # legacy (default OFF): short page -> assume no more results.
     _trace_tool(
         "serper", target=query, status="ok" if out or not _last_err else "fail",
         latency_ms=_last_latency, bytes_sent=len(query), bytes_received=_last_bytes,
         backend_used="serper_api_v1", result_count=len(out),
         pages_fetched=_pages_fetched, num_requested=num, per_page=per_page,
         page_max=_SERPER_PAGE_MAX, clamped=_clamped, total_budget=_total,
+        stop_on_zero_new=_stop_on_zero_new,   # BB-002 (#1171): which stop policy ran
     )
     _trace_query("serper", query, [o["url"] for o in out])
     return out
@@ -397,10 +418,22 @@ def _s2_bulk_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             "year": p.get("year"),
             "venue": p.get("venue"),
         })
+    # BB-004 (I-beatboth-fix-000 #1171): a HTTP-200 that yields ZERO usable papers
+    # (all lacked oa_pdf + DOI, or `data` was empty) is a DEAD-BACKEND signal — the
+    # legacy unconditional status="ok" reported it as success_rate=1.0 and masked the
+    # collapse (15 S2 calls -> 0 results on drb_90 still showed success). LAW II
+    # silent-downgrade fix: trace a DISTINCT "ok_zero" status + zero_yield=True so the
+    # discovery_funnel / run-health surfaces it LOUDLY instead of as a clean success.
+    # Telemetry/loudness ONLY — no evidence or verification path is touched; the
+    # returned list is unchanged (empty), so downstream control flow is identical.
+    _s2_zero_yield = len(out) == 0
     _trace_tool(
-        "s2", target=query, status="ok", latency_ms=_latency_ms,
+        "s2", target=query,
+        status="ok_zero" if _s2_zero_yield else "ok",
+        latency_ms=_latency_ms,
         bytes_received=_resp_content_len(r),
         backend_used="semantic_scholar_api", result_count=len(out),
+        zero_yield=_s2_zero_yield,
     )
     _trace_query("semantic_scholar", query, [o["url"] for o in out])
     return out
@@ -1578,6 +1611,12 @@ def refetch_for_extraction_with_diagnostics(
 #   PG_ENABLE_LIVE_OA_RESOLVER  default "1"  — master on/off switch.
 #   PG_UNPAYWALL_EMAIL          default placeholder — Unpaywall ToS email.
 # ─────────────────────────────────────────────────────────────────────────────
+# BB-007 (I-beatboth-fix-000 #1171): the placeholder Unpaywall email. The OA resolver treats this
+# (or an empty value) as "resolver unavailable" and fails LOUD (traces a distinct signal) rather than
+# issuing a doomed request that Unpaywall ToS rejects/throttles — a hidden cause of the fetch-fail rate.
+_UNPAYWALL_PLACEHOLDER_EMAIL = "polaris@example.org"
+
+
 def _oa_resolver_enabled() -> bool:
     """True iff the live OA resolver is enabled. Off iff the env var is set to
     a recognized falsey value ("0" / "false" / "no"); default ON."""
@@ -1669,7 +1708,26 @@ def _unpaywall_get_oa_urls(doi: str) -> list[str]:
             _parse_unpaywall_response,
         )
 
-        email = os.getenv("PG_UNPAYWALL_EMAIL", "polaris@example.org")
+        # BB-007 (I-beatboth-fix-000 #1171): Unpaywall ToS REQUIRES a real contact email; the
+        # placeholder polaris@example.org is rejected/throttled, so the resolver silently no-ops
+        # (a hidden cause of the 67-72% fetch-fail rate). FAIL LOUD instead of silent: if the email
+        # is the placeholder (or empty), trace a DISTINCT resolver-unavailable signal and return []
+        # without issuing the doomed request. The benchmark slate must supply a REAL PG_UNPAYWALL_EMAIL.
+        email = os.getenv("PG_UNPAYWALL_EMAIL", _UNPAYWALL_PLACEHOLDER_EMAIL).strip()
+        if not email or email.lower() == _UNPAYWALL_PLACEHOLDER_EMAIL:
+            logger.warning(
+                "[live_retriever] OA resolver UNAVAILABLE: PG_UNPAYWALL_EMAIL is the placeholder "
+                "%r — Unpaywall ToS requires a real contact email. Set a real PG_UNPAYWALL_EMAIL "
+                "to enable OA full-text resolution (doi=%s).",
+                _UNPAYWALL_PLACEHOLDER_EMAIL, doi,
+            )
+            _trace_tool(
+                "oa_resolver", target=doi, status="unavailable",
+                backend_used="unpaywall_v2",
+                error="placeholder_unpaywall_email",
+                resolver_unavailable=True,
+            )
+            return []
         endpoint = "https://api.unpaywall.org/v2/" + doi.strip()
         with _httpx.Client(timeout=10.0) as client:
             response = client.get(endpoint, params={"email": email})
@@ -2184,11 +2242,12 @@ def _lexical_relevance_score(candidate: "SearchCandidate", question_tokens: set[
 # lane. `primary_trial_doi` = #817 layer-4 direct primary-trial DOI seeds; `agentic_seed` =
 # agentic-discovered URLs; `deepener_seed` = citation-snowball deepener URLs (Codex iter-1 P1:
 # these are primary-trial-DERIVED but NOT direct DOI seeds, so they must not pollute
-# `primary_trial_doi` telemetry either). ALL are split out and prepended unranked; FX-15b later
-# makes the web-discovered classes droppable via the host-class filter (telemetry-correctness
-# here is the prerequisite).
+# `primary_trial_doi` telemetry either). BB-006 (#1171): `storm_seed` = STORM interview-search-result
+# URLs harvested URL-ONLY (the synthesized STORM text is NEVER ingested). ALL are split out and
+# prepended unranked; FX-15b later makes the web-discovered classes droppable via the host-class
+# filter (telemetry-correctness here is the prerequisite).
 _SEED_SOURCE_LABELS: frozenset[str] = frozenset(
-    {"primary_trial_doi", "agentic_seed", "deepener_seed"}
+    {"primary_trial_doi", "agentic_seed", "deepener_seed", "storm_seed"}
 )
 
 

@@ -1899,6 +1899,10 @@ async def run_one_query(
         "agentic_search", urls_discovered=0, urls_selectable=0,  # FX-15b (#1119): post-filter count
         enabled=_agentic_enabled, firing_status="enabled_not_reached" if _agentic_enabled else "not_enabled",
     )
+    # BB-006 (I-beatboth-fix-000 #1171): the STORM interview-search URLs harvested for the seed lane.
+    # Always defined (default empty) so the post-base-retrieval STORM seed-merge block below is a no-op
+    # when STORM URL ingestion is OFF or STORM did not run — byte-identical OFF.
+    _storm_seed_urls: list[str] = []
     # I-ready-005 (#1076) iter-4 P1-2: the ContextVar publish is GATED on at least one forced-ON
     # benchmark feature and lives INSIDE the outer try below (first statement). When both features
     # are OFF the ContextVar stays None, so _attach_tool_utilization adds no feature keys and the
@@ -2665,6 +2669,29 @@ async def run_one_query(
                 _storm_out.get("storm_conversations", []),
                 cap=int(os.getenv("PG_STORM_MAX_BENCHMARK_QUERIES", "30")),
             )
+            # BB-006 (I-beatboth-fix-000 #1171): ALSO harvest the STORM interview-search-result URLs
+            # (the 478/540 real web URLs in _storm_out['web_results'] + ['academic_results']) as SEED
+            # candidates — previously DISCARDED (only the synthesized interview QUESTIONS were re-used).
+            # URL-ONLY (HARD faithfulness contract): harvest_storm_urls reads only rec['url'], NEVER the
+            # STORM synthesized answer/key_findings/snippet text. The fetched-then-verified seed lane is
+            # built AFTER base retrieval (mirrors the agentic block) so the URLs flow through fetch +
+            # strict_verify + 4-role verbatim like any candidate. Default OFF = byte-identical (no seeds
+            # harvested). The fetch of these seeds is a SEPARATE, BOUNDED lane (PG_STORM_URL_FETCH_CAP)
+            # ADDITIVE to the four-lane budget — surfaced for the operator's ~1000-fetch accounting.
+            if os.getenv("PG_STORM_INGEST_WEB_RESULTS", "0").strip() in ("1", "true", "True"):
+                from src.polaris_graph.retrieval.agentic_url_harvester import (
+                    harvest_storm_urls,
+                )
+                _storm_seed_urls = harvest_storm_urls(
+                    _storm_out,
+                    cap=max(0, int(os.getenv("PG_STORM_URL_CAP", "200"))),
+                )
+                _storm_telemetry["web_result_urls_harvested"] = len(_storm_seed_urls)
+                if _storm_seed_urls:
+                    _log(
+                        f"[storm]       harvested {len(_storm_seed_urls)} interview-search-result "
+                        f"URLs as seed candidates (slug={q['slug']})"
+                    )
             if _storm_questions:
                 _seen_lower = {x.lower() for x in _amplified_effective}
                 _storm_added = [x for x in _storm_questions if x.lower() not in _seen_lower]
@@ -3203,7 +3230,23 @@ async def run_one_query(
             # envelope would breach the cap. This precedes the try, so it PROPAGATES (matches STORM) —
             # the fail-open except below must NEVER swallow a budget abort.
             _ag_check_budget(0)
+            # PG_AGENTIC_BENCHMARK_URL_CAP is the agentic FETCH lane (budget lane 2/4 of the
+            # operator's ~1000-fetch envelope: main 800 + agentic 100 + deepener 60 + R6 40 = 1000).
+            # There is NO global fetch counter — each lane caps independently — and in seed_only mode
+            # `run_live_retrieval` fetches EVERY seed (seeds bypass the fetch_cap rerank-slice), so the
+            # number of seed URLs IS the agentic fetch count. It therefore must NOT be raised above its
+            # budgeted value or the ~1000 total overshoots (operator no-overshoot directive).
             _ag_url_cap = max(0, int(os.getenv("PG_AGENTIC_BENCHMARK_URL_CAP", "100")))
+            # BB-005 (I-beatboth-fix-000 #1171): the agentic loop discovers ~1933 URLs but only the
+            # budgeted _ag_url_cap may be FETCHED. PG_AGENTIC_HARVEST_CAP lets the harvest read MORE
+            # of them for DISCOVERY TELEMETRY (urls_discovered_total below) — proving how many high-
+            # value URLs the recovery surfaced — while the FETCHED set stays truncated to _ag_url_cap
+            # so the fetch budget is untouched. DEFAULT == the fetch cap = byte-identical (no extra
+            # harvest, identical fetch). Telemetry-only widening; faithfulness- AND budget-neutral.
+            _ag_harvest_cap = max(
+                _ag_url_cap,
+                int(os.getenv("PG_AGENTIC_HARVEST_CAP", str(_ag_url_cap))),
+            )
             _ag_urls: list[str] = []
             # Create the client AFTER the budget precheck so a clean envelope-breach abort does not
             # leave an unclosed client.
@@ -3233,16 +3276,28 @@ async def run_one_query(
                     _ag_mod.execute_agentic_search(_ag_state, _ag_client),
                     context=_ag_ctx,
                 )
-                # Harvest URLs ONLY, then DISCARD the full result immediately so no notebook/summary
-                # field is in scope near the merge below (faithfulness defense-in-depth).
-                _ag_urls = harvest_agentic_urls(_ag_result, cap=_ag_url_cap)
+                # BB-005 (#1171): harvest URLs ONLY up to the (>=fetch) DISCOVERY cap, then DISCARD
+                # the full result immediately so no notebook/summary field is in scope near the merge
+                # below (faithfulness defense-in-depth). The discovered set proves recovery breadth;
+                # the FETCHED set is truncated to the budgeted _ag_url_cap just below so the ~1000
+                # fetch envelope is untouched.
+                _ag_discovered = harvest_agentic_urls(_ag_result, cap=_ag_harvest_cap)
                 del _ag_result
+                # FETCH only the budgeted subset (seed_only fetches every seed — cap the SEED list).
+                _ag_urls = _ag_discovered[:_ag_url_cap]
                 _agentic_telemetry.update({
                     "fired": len(_ag_urls) > 0,
                     "urls_discovered": len(_ag_urls),
+                    # BB-005 (#1171): how many URLs the recovery surfaced BEFORE the fetch-budget
+                    # truncation — the discovery-breadth signal (telemetry only; not fetched).
+                    "urls_discovered_total": len(_ag_discovered),
                     "firing_status": "fired" if _ag_urls else "attempted_empty",
                 })
-                _log(f"[agentic]     discovered {len(_ag_urls)} urls (cap={_ag_url_cap})")
+                _log(
+                    f"[agentic]     discovered {len(_ag_discovered)} urls "
+                    f"(harvest_cap={_ag_harvest_cap}); fetching {len(_ag_urls)} "
+                    f"(fetch_cap={_ag_url_cap})"
+                )
             except Exception as _ag_exc:  # noqa: BLE001 — agentic discovery faults never abort the run
                 _log(
                     f"[agentic]     agentic discovery failed: {_ag_exc} — "
@@ -3332,6 +3387,69 @@ async def run_one_query(
                          f"uncovered={completeness.total_uncovered}")
                 except Exception as _ag_merge_exc:  # noqa: BLE001 — fail-open
                     _log(f"[agentic]     merge FAILED (fail-open): {_ag_merge_exc}")
+
+        # BB-006 (I-beatboth-fix-000 #1171): STORM interview-search-result URL seed lane. Mirrors the
+        # agentic block EXACTLY (fetch verbatim -> strict_verify -> 4-role -> merge_seed_url_evidence),
+        # placed last so dist/completeness/adequacy already exist for the staged-corpus recompute. The
+        # URLs were harvested URL-ONLY above (no STORM synthesized text). seed_only=True fetches ONLY
+        # these URLs (no Serper/S2 fan-out); the fetch is a BOUNDED lane (PG_STORM_URL_FETCH_CAP),
+        # ADDITIVE to the four-lane budget and surfaced for the operator's ~1000-fetch accounting.
+        # Default OFF (PG_STORM_INGEST_WEB_RESULTS) -> _storm_seed_urls is empty -> this whole block is
+        # a no-op = byte-identical. Fail-open: any error leaves the pre-STORM corpus untouched.
+        if _storm_seed_urls:
+            try:
+                from src.polaris_graph.retrieval.agentic_url_harvester import (
+                    merge_seed_url_evidence,
+                )
+                _storm_fetch_cap = max(0, int(os.getenv("PG_STORM_URL_FETCH_CAP", "60")))
+                _storm_fetch_urls = _storm_seed_urls[:_storm_fetch_cap]
+                if _storm_fetch_urls:
+                    storm_retrieval = run_live_retrieval(
+                        research_question=q["question"],
+                        amplified_queries=[],
+                        protocol=protocol,
+                        fetch_cap=min(len(_storm_fetch_urls), _storm_fetch_cap),
+                        enable_openalex_enrich=True,
+                        # Seed-safe semantic filter (inert for the URL-only seed_only set), exactly as
+                        # the agentic lane: the structural defense is the empty-snippet URL-only seeds.
+                        enable_prefetch_filter=True,
+                        seed_urls=_storm_fetch_urls,
+                        seed_only=True,   # ONLY the STORM URLs — no Serper/S2/domain fan-out
+                        seed_source="storm_seed",
+                        seed_query_origin="storm_seed",
+                    )
+                    _st_sources, _st_rows, _st_acc_src, _st_acc_rows = merge_seed_url_evidence(
+                        retrieval.classified_sources,
+                        retrieval.evidence_rows,
+                        storm_retrieval.classified_sources,
+                        storm_retrieval.evidence_rows,
+                    )
+                    _st_dist = compute_tier_distribution(_st_sources, protocol)
+                    if not _use_research_planner:
+                        _st_completeness = check_completeness(
+                            domain=q["domain"],
+                            research_question=q["question"],
+                            evidence_rows=_st_rows,
+                        )
+                    else:
+                        _st_completeness = completeness
+                    _st_adequacy = assess_corpus_adequacy(
+                        tier_counts=_st_dist.tier_counts,
+                        evidence_row_count=len(_st_rows),
+                        domain=q["domain"],
+                        protocol=protocol,
+                    )
+                    retrieval.classified_sources = _st_sources
+                    retrieval.evidence_rows = _st_rows
+                    dist = _st_dist
+                    completeness = _st_completeness
+                    adequacy = _st_adequacy
+                    _storm_telemetry["web_result_rows_merged"] = _st_acc_rows
+                    _log(f"[storm]       merged +{_st_acc_rows} evidence rows from "
+                         f"+{_st_acc_src} STORM-URL sources (post-chokepoint); "
+                         f"adequacy={adequacy.decision} uncovered={completeness.total_uncovered}")
+            except Exception as _storm_merge_exc:  # noqa: BLE001 — fail-open
+                _log(f"[storm]       STORM-URL merge FAILED (fail-open): {_storm_merge_exc}")
 
         # I-meta-002-q1d (#945): all retrieval (base + R-6 + deepener) is complete here — flush the
         # retrieval_trace.jsonl now so EVERY exit path below (abort_corpus_inadequate, approval-denied,

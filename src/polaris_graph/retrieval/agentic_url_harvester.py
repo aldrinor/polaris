@@ -8,8 +8,11 @@ as a ``direct_quote`` would be a fabrication. So we read ONLY the discovered URL
 URLs are then fetched **verbatim** by ``live_retriever.run_live_retrieval(seed_urls=…, seed_only=True)``
 and verified by strict_verify + the 4-role seam, exactly like the rest of the corpus.
 
-Two pure, stdlib-light functions (no network, no LLM, no new dependency):
+Three pure, stdlib-light functions (no network, no LLM, no new dependency):
 - ``harvest_agentic_urls`` — ordered, canonical-deduped, capped list of discovered URLs (originals).
+- ``harvest_storm_urls`` — BB-006 (#1171): the same URL-ONLY harvest applied to a STORM-interview
+  result's ``web_results`` / ``academic_results`` streams (the 478/540 interview search-result URLs the
+  benchmark previously discarded). NEVER reads STORM's synthesized answer/key_findings/snippet text.
 - ``merge_seed_url_evidence`` — the deepener's dedup-by-URL + global evidence-id renumber core, factored
   out so it is unit-testable (and a future PR can repoint the deepener at it).
 """
@@ -68,6 +71,60 @@ def harvest_agentic_urls(
         if len(out) >= cap:
             return out
         _consider(url)
+    return out
+
+
+def harvest_storm_urls(
+    storm_result: dict[str, Any] | None,
+    cap: int = 200,
+) -> list[str]:
+    """BB-006 (I-beatboth-fix-000 #1171): return ONLY the discovered URLs from a STORM
+    ``run_storm_interviews`` result — the EXACT analogue of ``harvest_agentic_urls``.
+
+    STORM grounds its multi-perspective interviews in REAL internet search results. Those
+    URLs (``storm_result["web_results"]`` then ``["academic_results"]``, each a dict with
+    ``url``/``title``/``snippet``) are legitimate candidate sources — but the run previously
+    DISCARDED them, only re-using STORM's synthesized interview QUESTIONS as query strings.
+
+    HARD URL-ONLY CONTRACT (faithfulness): this reads ONLY ``rec["url"]``. It NEVER reads the
+    STORM-synthesized ``answer`` / ``key_findings`` / outline / conversation text, and NEVER
+    the per-record ``snippet`` — promoting any LLM-synthesized STORM text into the evidence
+    pool would be a fabrication path. The harvested URLs are then fetched VERBATIM by
+    ``live_retriever.run_live_retrieval(seed_urls=…, seed_only=True)`` and gated by
+    strict_verify + the 4-role seam exactly like every other candidate (empty direct_quote).
+
+    Order-preserving + DETERMINISTIC; de-duplicates by ``canonical_source_url`` but RETURNS the
+    original fetchable URL. Returns at most ``cap`` URLs. Robust to missing/empty keys (returns
+    ``[]`` rather than raising). ``cap <= 0`` -> ``[]``.
+    """
+    if cap <= 0:
+        return []
+    result = storm_result or {}
+    seen_canonical: set[str] = set()
+    out: list[str] = []
+
+    def _consider(raw: Any) -> None:
+        if len(out) >= cap:
+            return
+        url = (raw or "").strip() if isinstance(raw, str) else ""
+        if not url:
+            return
+        try:
+            key = canonical_source_url(url) or url
+        except Exception:  # noqa: BLE001 — a malformed URL must not abort discovery
+            key = url
+        if key in seen_canonical:
+            return
+        seen_canonical.add(key)
+        out.append(url)
+
+    # Ordered result streams (deterministic). URL key ONLY — never answer/key_findings/snippet.
+    for stream_key in ("web_results", "academic_results"):
+        for rec in result.get(stream_key, []) or []:
+            if len(out) >= cap:
+                return out
+            if isinstance(rec, dict):
+                _consider(rec.get("url"))
     return out
 
 
