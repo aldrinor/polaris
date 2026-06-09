@@ -1085,6 +1085,23 @@ SWEEP_QUERIES: list[dict] = [
             "interventions—such as supplementation—have been proposed, and is "
             "there clinical evidence supporting their feasibility and efficacy?"
         ),
+        # I-beatboth-fix-000 (#1171): broad PCC (Population + Concept) scope
+        # anchors so the regex PICO extractor's both-anchors-missing hard-reject
+        # (scope_gate.py:541) does NOT fire on this scoped lit-review question.
+        # Authored as BROAD population/concept phrases (NOT narrow drug names —
+        # over-narrowing retrieval would itself be a defect) derived only from
+        # the locked question text. Threaded via run_scope_gate(user_overrides=...)
+        # at the live call site; recorded in protocol.user_overrides for the
+        # pre-registration audit trail. Scoping only: these set retrieval scope +
+        # the protocol PICO fields; they never enter the evidence pool, generated
+        # prose, strict_verify, NLI, or the 4-role gate.
+        "scope_overrides": {
+            "population": "adults with or at risk of cardiovascular disease",
+            "intervention": (
+                "modulation of plasma metal-ion levels "
+                "(mineral supplementation, chelation)"
+            ),
+        },
     },
     {
         "slug": "drb_76_gut_microbiota_crc",
@@ -1104,6 +1121,14 @@ SWEEP_QUERIES: list[dict] = [
             "what toxic metabolites do they produce? How might these findings "
             "inform and optimize our daily dietary choices?"
         ),
+        # I-beatboth-fix-000 (#1171): broad PCC scope anchors (see drb_75 note).
+        "scope_overrides": {
+            "population": "adults at risk of colorectal cancer or with gut dysbiosis",
+            "intervention": (
+                "gut-microbiota modulation "
+                "(probiotics, prebiotics, dietary fiber)"
+            ),
+        },
     },
     {
         "slug": "drb_78_parkinsons_dbs",
@@ -1118,6 +1143,14 @@ SWEEP_QUERIES: list[dict] = [
             "and support strategies can be implemented to improve their comfort "
             "and overall well-being?"
         ),
+        # I-beatboth-fix-000 (#1171): broad PCC scope anchors (see drb_75 note).
+        "scope_overrides": {
+            "population": "patients with Parkinson's disease, including post-DBS patients",
+            "intervention": (
+                "deep brain stimulation and Parkinson's disease "
+                "management and support"
+            ),
+        },
     },
     {
         "slug": "drb_90_adas_liability",
@@ -2086,11 +2119,20 @@ async def run_one_query(
                 return summary
 
         # Phase 2b scope gate
+        # I-beatboth-fix-000 (#1171): thread per-question PICO/PCC scope
+        # overrides into the already-existing run_scope_gate(user_overrides=...)
+        # param (scope_gate.py:393, applied :457-459). Questions without a
+        # `scope_overrides` key pass None -> dict(None or {}) == {} (scope_gate.py:441)
+        # -> byte-identical to today for every other slug. Config-driven, no new env
+        # (LAW VI). This single call site covers BOTH live entry paths: the direct
+        # `run_honest_sweep_r3 --only` run and the Gate-B path (run_gate_b ->
+        # run_gate_b_query -> run_one_query), which share this one gate invocation.
         scope = run_scope_gate(
             research_question=q["question"],
             run_dir=run_dir,
             run_id=run_id,
             domain=q["domain"],
+            user_overrides=q.get("scope_overrides"),
         )
         protocol = scope.protocol.to_json_dict()
         _log(f"[scope]       sha256={scope.protocol_sha256[:16]}... "

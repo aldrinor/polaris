@@ -1,0 +1,23 @@
+**Findings**
+- P2: `drb_75` and `drb_76` population overrides add `adults`, but the locked question text has no demographic. This is not an execution blocker, but it is a scope-fidelity risk if the benchmark requires anchors derived only from the prompt. Prefer `people with or at risk of cardiovascular disease` and `people at risk of colorectal cancer or with gut dysbiosis`. References: `scripts/run_honest_sweep_r3.py:1099`, `scripts/run_honest_sweep_r3.py:1126`.
+
+**Verification**
+- No P0/P1 blockers found.
+- Runtime probe confirmed all three clinical slugs proceed with real `SWEEP_QUERIES` overrides and reject without overrides as `clinical_pico_unscoped`.
+- Unscoped/off-topic clinical probes still reject.
+- `drb_90` has no overrides and explicit `None` matches absent overrides.
+- Gate-B loader preserves `scope_overrides`; `run_gate_b_query` passes the same `q` into `run_one_query`.
+- Staged diff is limited to `scripts/run_honest_sweep_r3.py` and `tests/polaris_graph/test_scope_gate.py`; no strict_verify/NLI/4-role gate source files are staged.
+- `git diff --cached --check` passed. Full pytest was blocked by sandbox temp-directory `PermissionError`; direct runtime probes covered the new gate behavior.
+
+verdict: APPROVE
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Population overrides for drb_75 and drb_76 add an adult-only demographic not present in the locked prompts; non-blocking, but less faithful than people/patients wording."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
