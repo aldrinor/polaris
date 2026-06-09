@@ -1,0 +1,14 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/audit_ir/parallel_fetch.py:410-581: A timed-out started task is removed from remaining, but if it keeps occupying the worker thread or host semaphore, not-yet-started/semaphore-waiting futures retain +inf deadlines and can keep the harvest loop alive forever. This breaks the execution guarantee for per_task_timeout under a hung first task plus queued siblings."
+p2:
+  - "tests/polaris_graph/test_parallel_fetch_ifetch003.py:128-159: The claimed slow-sibling test is tautological: the 'slow' task is released immediately and the virtual clock never advances, so it does not exercise a slow sibling or a sibling-driven timeout boundary."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Ensure parallel_fetch terminates when timed-out in-flight workers are abandoned but remaining submitted tasks have not observed start, without labeling never-started tasks as TIMEOUT."
+```
+
+verdict: REQUEST_CHANGES

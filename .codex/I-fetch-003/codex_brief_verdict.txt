@@ -1,0 +1,16 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "C02 is incomplete: live_retriever creates every FetchTask with backend_id='default' at src/polaris_graph/retrieval/live_retriever.py:2815, while parallel_fetch applies DEFAULT_PER_BACKEND_LIMIT=4 at src/polaris_graph/audit_ir/parallel_fetch.py:226. Scaling max_workers to 46/64 will mostly create threads waiting on one semaphore and will not recover throughput. Fix by deriving backend_id from URL host/backend, or explicitly overriding per_backend_max_concurrent for the live fetch lane if another limiter already enforces host politeness."
+  - "The proposed all-+inf path can block indefinitely or miss per_task_timeout: if the harvest loop snapshots no started tasks and calls wait(timeout=None), later task-start writes do not wake concurrent.futures.wait. A slow/hung started-after-snapshot task may not be timed out until some future completes. Use a start-notification condition/event or bounded poll/recompute interval instead of an unbounded FIRST_COMPLETED wait."
+p2:
+  - "Q1: Keep the parallel-layer timeout as defense-in-depth, but make it start-anchored and wake on task-start transitions; relying only on _fetch_content weakens the generic substrate contract."
+  - "Q2: 64 is plausible for I/O only after the backend keying bug is fixed, but it is aggressive if _fetch_content can spawn AccessBypass/browser work. Prefer env override plus named ceiling, and consider 32-48 unless OVH telemetry supports 64."
+  - "AC3 caution: fetch_success_rate and worker:candidate ratio should not be stuffed into api_calls without widening its dict[str,int] contract; add separate retrieval diagnostics/manifest fields or update the schema/tests."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Make C02 effective despite DEFAULT_PER_BACKEND_LIMIT by fixing live FetchTask backend_id/per-backend limits."
+  - "Replace the all-+inf unbounded wait with a bounded or start-signaled timeout recomputation path."
+```

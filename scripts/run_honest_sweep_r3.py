@@ -670,6 +670,17 @@ def _retrieval_manifest_section(retrieval) -> dict:
         "corpus_truncated": bool(getattr(retrieval, "corpus_truncated", False)),
         "candidates_total": getattr(retrieval, "candidates_total", 0),
         "candidates_processed": getattr(retrieval, "candidates_processed", 0),
+        # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics,
+        # SIBLING fields (NOT folded into api_calls — that dict[str,int]
+        # contract stays unwidened). None when the parallel-fetch path did not
+        # run (serial fallback / no candidates); getattr defaults keep this
+        # backward compatible with pre-#1175 retrieval objects.
+        "fetch_success_rate": getattr(retrieval, "fetch_success_rate", None),
+        "parallel_completion_rate": getattr(
+            retrieval, "parallel_completion_rate", None,
+        ),
+        "fetch_workers": getattr(retrieval, "fetch_workers", None),
+        "distinct_hosts": getattr(retrieval, "distinct_hosts", None),
     }
 
 

@@ -1,3 +1,1960 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eadc7-e7dc-7dc1-a647-c840a0f18363
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+Output the §8.3.9 schema and a FINAL single line `verdict: APPROVE` or `verdict: REQUEST_CHANGES`:
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+Diff review I-fetch-003 (#1175): fetch-starvation fix, BRIEF APPROVED iter-3. VERIFY adversarially (retrieval throughput only — faithfulness gates untouched): (1) deadline is START-anchored + MONOTONIC; not-yet-started never TIMEOUT; harvest wait ALWAYS bounded (never timeout=None); a task is TIMEOUT iff IT exceeded its own budget. (2) round-robin submit-by-backend defeats worker-slot hoarding; result indexing maps back to the ORIGINAL index correctly. (3) backend_id=host gives per-host semaphores; per-host limit + max_workers env-overridable + named constants, no magic numbers. (4) new diag fields do NOT widen api_calls dict; existing parallel_fetch_* fields unchanged. (5) fail-closed + no faithfulness weakening. (6) the offline tests genuinely exercise the slow-sibling, own-budget-timeout, cross-host-concurrency, AND adversarial same-host-prefix-hoarding cases (not tautological). Output the §8.3.9 schema + a final 'verdict:' line.
+
+----- DIFF -----
+diff --git a/src/polaris_graph/audit_ir/parallel_fetch.py b/src/polaris_graph/audit_ir/parallel_fetch.py
+index 4a779fc7..70e04ec3 100644
+--- a/src/polaris_graph/audit_ir/parallel_fetch.py
++++ b/src/polaris_graph/audit_ir/parallel_fetch.py
+@@ -226,6 +226,58 @@ class ParallelFetcher(Protocol):
+ DEFAULT_PER_BACKEND_LIMIT = 4
+ 
+ 
++# ---------------------------------------------------------------------------
++# Harvest-loop poll interval (I-fetch-003 / BB5-C01)
++# ---------------------------------------------------------------------------
++
++
++# Upper bound on a single harvest-loop wait. The deadline is anchored at
++# each task's OBSERVED start (`task_started_monotonic_by_index`), not submit,
++# so a task that has not started yet can never be marked TIMEOUT. To detect
++# a task that STARTS after the previous snapshot (or one that hangs) within
++# a bounded delay of its own start-anchored budget, the harvest loop never
++# waits unbounded: it re-snapshots start-times + recomputes the expired set
++# at least this often. Small enough to be responsive, large enough to avoid
++# a busy-poll. The actual wait is `min(next_deadline - now, this)`.
++_HARVEST_POLL_INTERVAL_SECONDS = 2.0
++
++
++# ---------------------------------------------------------------------------
++# Round-robin submit ordering (I-fetch-003 / BB5-C02)
++# ---------------------------------------------------------------------------
++
++
++def _round_robin_indices(
++    tasks: Sequence[FetchTask],
++) -> list[int]:
++    """Return ORIGINAL task indices reordered into round-robin
++    `backend_id` order.
++
++    Group indices by `backend_id` (preserving first-seen group order
++    and intra-group input order), then emit one index per backend per
++    round until every group is exhausted. So the first ``len(groups)``
++    indices span distinct backends/hosts.
++
++    The result is a permutation of ``range(len(tasks))`` — every input
++    index appears exactly once — so callers map results back to the
++    ORIGINAL index unchanged. Pure / deterministic / allocation-light.
++    """
++    groups: dict[str, list[int]] = {}
++    for idx, task in enumerate(tasks):
++        groups.setdefault(task.backend_id, []).append(idx)
++
++    ordered: list[int] = []
++    group_queues = list(groups.values())
++    while group_queues:
++        next_round: list[list[int]] = []
++        for queue in group_queues:
++            ordered.append(queue.pop(0))
++            if queue:
++                next_round.append(queue)
++        group_queues = next_round
++    return ordered
++
++
+ # ---------------------------------------------------------------------------
+ # Public API
+ # ---------------------------------------------------------------------------
+@@ -342,7 +394,14 @@ def parallel_fetch(
+                 semaphores[backend_id] = sem
+             return sem
+ 
+-    task_started_by_index: dict[int, float] = {}
++    # I-fetch-003 (BB5-C01): the deadline is START-anchored, so we record the
++    # MONOTONIC start of each task (immune to wall-clock jumps) keyed by index
++    # under the lock. The wall-clock start is kept separately ONLY for the
++    # FetchResultRecord.started_at report field (AC7 — never used in deadline
++    # arithmetic). A not-yet-started index is absent from BOTH maps → +inf
++    # effective deadline → cannot TIMEOUT before it runs.
++    task_started_monotonic_by_index: dict[int, float] = {}
++    task_started_wall_by_index: dict[int, float] = {}
+     task_started_lock = threading.Lock()
+ 
+     def _run_task(
+@@ -351,8 +410,10 @@ def parallel_fetch(
+         sem = _get_semaphore(task.backend_id)
+         sem.acquire()
+         task_started = time.time()
++        task_started_mono = time.monotonic()
+         with task_started_lock:
+-            task_started_by_index[index] = task_started
++            task_started_monotonic_by_index[index] = task_started_mono
++            task_started_wall_by_index[index] = task_started
+         try:
+             try:
+                 result = fetcher.fetch(task)
+@@ -411,17 +472,33 @@ def parallel_fetch(
+     )
+     try:
+         future_to_index: dict[concurrent.futures.Future, int] = {}
+-        deadline_per_future: dict[concurrent.futures.Future, float] = {}
+-        submit_now = time.time()
+-        for idx, task in enumerate(deduped):
++        # I-fetch-003 (BB5-C02): submit in ROUND-ROBIN backend order so the
++        # first `max_workers` submissions span up to `max_workers` distinct
++        # backends/hosts. Without this, a clustered same-host candidate prefix
++        # makes the first workers all block on ONE host-semaphore (acquired
++        # inside `_run_task`), starving distinct-host tasks queued behind them.
++        # `_round_robin_indices` returns ORIGINAL deduped indices, so result
++        # indexing into `results_by_index` is unchanged (correctness preserved).
++        submit_order = _round_robin_indices(deduped)
++        for idx in submit_order:
++            task = deduped[idx]
+             fut = executor.submit(_run_task, idx, task)
+             future_to_index[fut] = idx
+-            if per_task_timeout is not None:
+-                deadline_per_future[fut] = submit_now + per_task_timeout
+ 
+         remaining: set[concurrent.futures.Future] = set(future_to_index)
+         protocol_error_to_raise: FetcherProtocolError | None = None
+ 
++        def _effective_deadline_monotonic(idx: int) -> float:
++            # I-fetch-003 (BB5-C01): START-anchored, MONOTONIC effective
++            # deadline. A not-yet-started index (absent from the start map)
++            # → +inf: it CANNOT TIMEOUT before it runs. A started index →
++            # its OWN observed start + per_task_timeout. Caller holds
++            # `task_started_lock`.
++            started = task_started_monotonic_by_index.get(idx)
++            if started is None:
++                return float("inf")
++            return started + per_task_timeout  # type: ignore[operator]
++
+         while remaining and protocol_error_to_raise is None:
+             if per_task_timeout is None:
+                 # No timeout — just wait for the next completion.
+@@ -430,10 +507,22 @@ def parallel_fetch(
+                     return_when=concurrent.futures.FIRST_COMPLETED,
+                 )
+             else:
+-                now = time.time()
+-                # Earliest deadline among still-running futures.
+-                next_deadline = min(deadline_per_future[f] for f in remaining)
+-                wait_timeout = max(0.0, next_deadline - now)
++                # I-fetch-003 (BB5-C01): BOUNDED-POLL harvest. The wait is
++                # ALWAYS bounded by `_HARVEST_POLL_INTERVAL_SECONDS`, never
++                # `timeout=None`, so a task that STARTS after this snapshot
++                # (or one that hangs) is re-checked against ITS OWN start-
++                # anchored deadline within the poll interval — the harvest
++                # never relies on a sibling completing to make progress.
++                now_mono = time.monotonic()
++                with task_started_lock:
++                    next_deadline = min(
++                        _effective_deadline_monotonic(future_to_index[f])
++                        for f in remaining
++                    )
++                wait_timeout = min(
++                    max(0.0, next_deadline - now_mono),
++                    _HARVEST_POLL_INTERVAL_SECONDS,
++                )
+                 done, _ = concurrent.futures.wait(
+                     remaining,
+                     timeout=wait_timeout,
+@@ -451,42 +540,45 @@ def parallel_fetch(
+                         break
+                     results_by_index[idx] = rec
+                     remaining.discard(fut)
+-                    deadline_per_future.pop(fut, None)
+-            else:
+-                # Wait expired with no completions — at least one
+-                # future has hit its deadline. Mark expired futures
+-                # as TIMEOUT and continue.
+-                now = time.time()
+-                expired = [
+-                    f for f in list(remaining)
+-                    if deadline_per_future.get(f, float("inf")) <= now
+-                ]
+-                if not expired:
+-                    # No expired but no completions either — defensive
+-                    # tiny-deadline race; loop again.
+-                    continue
+-                for fut in expired:
+-                    idx = future_to_index[fut]
+-                    task = deduped[idx]
+-                    fut.cancel()  # best-effort
+-                    with task_started_lock:
+-                        timeout_started_at = task_started_by_index.get(
+-                            idx, submit_now,
++
++            if protocol_error_to_raise is not None:
++                break
++
++            if per_task_timeout is not None:
++                # Recompute the expired set from CURRENT start-times after
++                # every wake (whether or not anything completed). A task is
++                # TIMEOUT iff IT exceeded ITS OWN start-anchored budget.
++                now_mono = time.monotonic()
++                with task_started_lock:
++                    expired = [
++                        f for f in list(remaining)
++                        if _effective_deadline_monotonic(
++                            future_to_index[f]
++                        ) <= now_mono
++                    ]
++                if expired:
++                    now_wall = time.time()
++                    for fut in expired:
++                        idx = future_to_index[fut]
++                        task = deduped[idx]
++                        fut.cancel()  # best-effort
++                        with task_started_lock:
++                            timeout_started_at = (
++                                task_started_wall_by_index.get(idx, now_wall)
++                            )
++                        results_by_index[idx] = FetchResultRecord(
++                            source_url=task.source_url,
++                            backend_id=task.backend_id,
++                            outcome=FetchOutcome.TIMEOUT,
++                            payload=None,
++                            content_type=None,
++                            fetch_status_code=None,
++                            error="per-task timeout exceeded",
++                            started_at=timeout_started_at,
++                            finished_at=now_wall,
++                            task_metadata=task.task_metadata,
+                         )
+-                    results_by_index[idx] = FetchResultRecord(
+-                        source_url=task.source_url,
+-                        backend_id=task.backend_id,
+-                        outcome=FetchOutcome.TIMEOUT,
+-                        payload=None,
+-                        content_type=None,
+-                        fetch_status_code=None,
+-                        error="per-task timeout exceeded",
+-                        started_at=timeout_started_at,
+-                        finished_at=now,
+-                        task_metadata=task.task_metadata,
+-                    )
+-                    remaining.discard(fut)
+-                    deadline_per_future.pop(fut, None)
++                        remaining.discard(fut)
+ 
+         if protocol_error_to_raise is not None:
+             for other_fut in remaining:
+diff --git a/src/polaris_graph/retrieval/live_retriever.py b/src/polaris_graph/retrieval/live_retriever.py
+index 874d5675..2d7dcc5f 100644
+--- a/src/polaris_graph/retrieval/live_retriever.py
++++ b/src/polaris_graph/retrieval/live_retriever.py
+@@ -34,7 +34,7 @@ import time
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ from typing import Any, Optional
+-from urllib.parse import urlparse
++from urllib.parse import urlparse, urlsplit
+ 
+ import httpx
+ 
+@@ -93,6 +93,26 @@ DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+ DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
+ DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+ 
++# I-fetch-003 (#1175 / BB5-C02): parallel-fetch worker-pool sizing. When
++# PG_LIVE_RETRIEVER_MAX_WORKERS is UNSET, the pool scales with the candidate
++# count: min(_CEILING, max(_FLOOR, len(candidates) // _PER_CANDIDATE)). Named
++# constants (LAW VI — no magic numbers). Floor keeps small corpora at the
++# legacy default of 8; ceiling caps the pool so a huge corpus cannot spawn an
++# unbounded thread count; per-candidate divisor sets the ramp.
++_FETCH_WORKERS_FLOOR = 8
++_FETCH_WORKERS_CEILING = 48
++_FETCH_WORKERS_PER_CANDIDATE = 16
++# Mirror of parallel_fetch.DEFAULT_PER_BACKEND_LIMIT (4) used as the default
++# per-HOST concurrency cap; imported as a named constant rather than hardcoded.
++from src.polaris_graph.audit_ir.parallel_fetch import (  # noqa: E402
++    DEFAULT_PER_BACKEND_LIMIT as _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
++)
++# I-fetch-003 (#1175 / AC3): WARN floor for the new fetch_success_rate
++# retrieval diagnostic. Env-overridable; below this, a loud warning fires.
++_FETCH_SUCCESS_RATE_WARN_FLOOR = float(
++    os.getenv("PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR", "0.5")
++)
++
+ 
+ @dataclass
+ class LiveRetrievalResult:
+@@ -117,6 +137,15 @@ class LiveRetrievalResult:
+     # source_type / is_peer_reviewed / is_retracted / doi / venue) that the
+     # citeability predicate needs; merged across retrieval stages by the sweep.
+     journal_metadata_sidecar: dict[str, Any] | None = None
++    # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics, emitted
++    # as SIBLING fields (NOT folded into api_calls: dict[str, int] — that
++    # contract stays unwidened). None when the parallel-fetch path did not run
++    # (serial fallback or no candidates). fetch_success_rate = usable / (usable
++    # + failed); parallel_completion_rate = completed-in-deadline / submitted.
++    fetch_success_rate: float | None = None
++    parallel_completion_rate: float | None = None
++    fetch_workers: int | None = None
++    distinct_hosts: int | None = None
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -2751,9 +2780,16 @@ def run_live_retrieval(
+     # element is the raw ld+json captured before _strip_html (Signal C input).
+     use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+     fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
++    # I-fetch-003 (#1175 / AC3): retrieval-throughput diagnostics. Stay None on
++    # the serial fallback / no-candidates path (no parallel_fetch report).
++    _fetch_success_rate: float | None = None
++    _parallel_completion_rate: float | None = None
++    _fetch_workers: int | None = None
++    _distinct_hosts: int | None = None
+ 
+     if use_parallel and candidates:
+         from src.polaris_graph.audit_ir.parallel_fetch import (
++            FetchOutcome,
+             FetchTask,
+             parallel_fetch,
+         )
+@@ -2790,12 +2826,25 @@ def run_live_retrieval(
+                 payload = (content or "").encode("utf-8", errors="replace")
+                 return (payload, "text/plain", 200 if ok else 502)
+ 
+-        try:
+-            max_workers = int(os.environ.get(
+-                "PG_LIVE_RETRIEVER_MAX_WORKERS", "8",
+-            ))
+-        except ValueError:
+-            max_workers = 8
++        # I-fetch-003 (#1175 / BB5-C02): scale max_workers with the candidate
++        # count instead of a flat default-8. Explicit env wins; when UNSET,
++        # min(_CEILING, max(_FLOOR, len(candidates) // _PER_CANDIDATE)). Named
++        # constants (LAW VI — no magic numbers). For ~740 candidates this
++        # yields ~46 workers; small corpora stay at the floor of 8.
++        _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
++        if _explicit_workers is not None:
++            try:
++                max_workers = max(1, int(_explicit_workers))
++            except ValueError:
++                max_workers = _FETCH_WORKERS_FLOOR
++        else:
++            max_workers = min(
++                _FETCH_WORKERS_CEILING,
++                max(
++                    _FETCH_WORKERS_FLOOR,
++                    len(candidates) // _FETCH_WORKERS_PER_CANDIDATE,
++                ),
++            )
+         try:
+             per_task_timeout = float(os.environ.get(
+                 "PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS", "120",
+@@ -2803,16 +2852,31 @@ def run_live_retrieval(
+         except ValueError:
+             per_task_timeout = 120.0
+ 
++        # I-fetch-003 (#1175 / BB5-C02): per-HOST politeness limit. The
++        # parallel_fetch semaphore is keyed by FetchTask.backend_id; keying it
++        # by the URL host (below) gives each host its own Semaphore so distinct
++        # hosts fetch concurrently while same-host stays capped. Env-overridable;
++        # default mirrors parallel_fetch DEFAULT_PER_BACKEND_LIMIT (4).
++        _per_host_limit = _env_int(
++            "PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT",
++            _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
++        )
++
+         fetch_tasks = []
++        _per_host_concurrent: dict[str, int] = {}
+         for idx, c in enumerate(candidates):
+             # I-meta-007c: carry the candidate's DOI/PMID hints into the
+             # FetchTask so _LiveContentParallelFetcher.fetch can pass them to
+             # _fetch_content for the OA resolver (default = parallel path).
+             _doi, _pmid = _candidate_oa_hints(getattr(c, "metadata", None))
++            # I-fetch-003 (#1175): key the rate-limit class by URL host so the
++            # parallel_fetch host-semaphore yields cross-host parallelism.
++            _host = urlsplit(c.url).hostname or "default"
++            _per_host_concurrent[_host] = _per_host_limit
+             fetch_tasks.append(
+                 FetchTask(
+                     source_url=c.url,
+-                    backend_id="default",
++                    backend_id=_host,
+                     task_metadata={"index": idx, "doi": _doi, "pmid": _pmid},
+                 )
+             )
+@@ -2820,6 +2884,7 @@ def run_live_retrieval(
+         parallel_report = parallel_fetch(
+             fetch_tasks, fetcher,
+             max_workers=max_workers,
++            per_backend_max_concurrent=_per_host_concurrent,
+             per_task_timeout=per_task_timeout,
+         )
+         # Run-log evidence: persist the substrate's report into
+@@ -2842,6 +2907,45 @@ def run_live_retrieval(
+             parallel_report.timeout_count,
+             max_workers, per_task_timeout,
+         )
++        # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics.
++        # fetch_success_rate = usable / (usable + failed): a SUCCESS outcome
++        # with a 2xx status is "usable"; an ERRORED/TIMEOUT or a non-2xx
++        # SUCCESS (the adapter returns 502 when _fetch_content reports not-ok)
++        # is "failed". parallel_completion_rate = completed-in-deadline /
++        # submitted (1 - timeout_fraction). These are SIBLING fields surfaced on
++        # LiveRetrievalResult; they are NOT folded into api_calls (contract
++        # stays unwidened, M-INT-1 fields above unchanged).
++        _usable_fetched = sum(
++            1 for r in parallel_report.results
++            if r.outcome is FetchOutcome.SUCCESS
++            and (r.fetch_status_code or 0) < 400
++        )
++        _failed_fetched = len(parallel_report.results) - _usable_fetched
++        _denom = _usable_fetched + _failed_fetched
++        _fetch_success_rate = (
++            _usable_fetched / _denom if _denom > 0 else None
++        )
++        _submitted = len(parallel_report.results)
++        _parallel_completion_rate = (
++            (_submitted - parallel_report.timeout_count) / _submitted
++            if _submitted > 0 else None
++        )
++        _fetch_workers = max_workers
++        _distinct_hosts = len(_per_host_concurrent)
++        if (
++            _fetch_success_rate is not None
++            and _fetch_success_rate < _FETCH_SUCCESS_RATE_WARN_FLOOR
++        ):
++            logger.warning(
++                "[live_retriever] I-fetch-003 LOW fetch_success_rate %.2f "
++                "(< floor %.2f): %d usable / %d submitted across %d hosts, "
++                "%d timeout — corpus may be starved; check per-host limit / "
++                "max_workers / per_task_timeout.",
++                _fetch_success_rate,
++                _FETCH_SUCCESS_RATE_WARN_FLOOR,
++                _usable_fetched, _submitted, _distinct_hosts,
++                parallel_report.timeout_count,
++            )
+ 
+     # #554 (I-bug-115): bound the synchronous post-fetch candidate loop so a
+     # wedged per-candidate operation can never hang the run with no terminal
+@@ -3109,4 +3213,8 @@ def run_live_retrieval(
+         candidates_total=_candidates_total,
+         candidates_processed=_candidates_processed,
+         journal_metadata_sidecar=(_journal_sidecar if _journal_only_on else None),
++        fetch_success_rate=_fetch_success_rate,
++        parallel_completion_rate=_parallel_completion_rate,
++        fetch_workers=_fetch_workers,
++        distinct_hosts=_distinct_hosts,
+     )
+diff --git a/tests/polaris_graph/test_parallel_fetch_ifetch003.py b/tests/polaris_graph/test_parallel_fetch_ifetch003.py
+new file mode 100644
+index 00000000..555ffdaf
+--- /dev/null
++++ b/tests/polaris_graph/test_parallel_fetch_ifetch003.py
+@@ -0,0 +1,369 @@
++"""I-fetch-003 (#1175 / BB5-C01/C02) — start-anchored, bounded-poll,
++round-robin parallel-fetch starvation fix.
++
++Offline + deterministic: NO network, NO spend. A mock fetcher plus a
++virtual monotonic clock (monkeypatched onto the parallel_fetch module)
++drive the start-anchored deadline arithmetic; `threading.Event`
++barriers make concurrency ordering deterministic without sleeping on
++the wall clock. The harvest poll interval is shrunk so the bounded
++poll wakes quickly instead of really blocking ~2s.
++
++Covers (per AC5):
++  (a) a single SLOW task does NOT time out fast/queued siblings under
++      start-anchoring + bounded poll (the C01 starvation root cause).
++  (b) a task exceeding ITS OWN start-anchored budget IS TIMEOUT even
++      when no sibling ever completes.
++  (c) two DISTINCT hosts run concurrently while same-host is capped at
++      the per-host limit (C02 host-keyed semaphore).
++  (d) ADVERSARIAL: >max_workers same-host tasks followed by a
++      different-host task — the other host STARTS before the same-host
++      prefix drains (round-robin submit defeats worker-slot hoarding).
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from dataclasses import dataclass, field
++
++import pytest
++
++import src.polaris_graph.audit_ir.parallel_fetch as pf_mod
++from src.polaris_graph.audit_ir.parallel_fetch import (
++    FetchOutcome,
++    FetchTask,
++    _round_robin_indices,
++    parallel_fetch,
++)
++
++
++# ---------------------------------------------------------------------------
++# Virtual monotonic clock — deterministic deadline arithmetic, no wall sleep
++# ---------------------------------------------------------------------------
++
++
++class _VirtualClock:
++    """A controllable monotonic clock. Worker threads advance it from
++    inside the mock fetcher (per-task), the harvest loop reads it for
++    deadline decisions. Thread-safe."""
++
++    def __init__(self) -> None:
++        self._now = 0.0
++        self._lock = threading.Lock()
++
++    def monotonic(self) -> float:
++        with self._lock:
++            return self._now
++
++    def advance(self, seconds: float) -> None:
++        with self._lock:
++            self._now += seconds
++
++
++# ---------------------------------------------------------------------------
++# Mock fetchers
++# ---------------------------------------------------------------------------
++
++
++@dataclass
++class _GatedFetcher:
++    """Per-URL gated fetcher. Each task records its start order, then
++    blocks on a per-URL `threading.Event` until the test releases it.
++    Optionally advances a virtual clock by `clock_advance` BEFORE
++    blocking so the harvest loop sees the task as having consumed time.
++    """
++
++    release_events: dict[str, threading.Event]
++    clock: _VirtualClock | None = None
++    clock_advance: float = 0.0
++    start_order: list[str] = field(default_factory=list)
++    started_events: dict[str, threading.Event] = field(default_factory=dict)
++    _lock: threading.Lock = field(default_factory=threading.Lock)
++
++    def fetch(self, task: FetchTask) -> tuple[bytes, str, int]:
++        with self._lock:
++            self.start_order.append(task.source_url)
++        ev = self.started_events.get(task.source_url)
++        if ev is not None:
++            ev.set()
++        if self.clock is not None and self.clock_advance:
++            self.clock.advance(self.clock_advance)
++        gate = self.release_events.get(task.source_url)
++        if gate is not None:
++            gate.wait(timeout=10.0)
++        return (task.source_url.encode("utf-8"), "text/plain", 200)
++
++
++# ---------------------------------------------------------------------------
++# (round-robin permutation correctness — submit-order primitive)
++# ---------------------------------------------------------------------------
++
++
++def test_round_robin_indices_is_a_permutation() -> None:
++    tasks = [
++        FetchTask("https://a/1", "host_a"),
++        FetchTask("https://a/2", "host_a"),
++        FetchTask("https://a/3", "host_a"),
++        FetchTask("https://b/1", "host_b"),
++    ]
++    order = _round_robin_indices(tasks)
++    # A permutation of range(len): every original index exactly once.
++    assert sorted(order) == [0, 1, 2, 3]
++    # First two submissions span the two distinct hosts (no hoarding).
++    assert {tasks[order[0]].backend_id, tasks[order[1]].backend_id} == {
++        "host_a", "host_b",
++    }
++
++
++def test_round_robin_indices_single_backend_preserves_order() -> None:
++    tasks = [FetchTask(f"https://a/{i}", "host_a") for i in range(5)]
++    assert _round_robin_indices(tasks) == [0, 1, 2, 3, 4]
++
++
++# ---------------------------------------------------------------------------
++# (a) slow task does NOT time out fast/queued siblings
++# ---------------------------------------------------------------------------
++
++
++def test_slow_task_does_not_timeout_fast_siblings(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """C01 root cause: ONE slow task must not drag fast (and not-yet-
++    started) siblings into a batch TIMEOUT. Start-anchoring means a
++    not-yet-started task has a +inf deadline; a fast task that runs
++    well inside its own budget SUCCEEDS."""
++    clock = _VirtualClock()
++    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
++    # Shrink the bounded poll so the harvest loop wakes fast (no real 2s).
++    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
++
++    urls = ["https://fast/1", "https://fast/2", "https://slow/1"]
++    release = {u: threading.Event() for u in urls}
++    # Release the two fast tasks immediately; the slow one stays gated
++    # but will finish WELL within its own budget (no clock advance).
++    release["https://fast/1"].set()
++    release["https://fast/2"].set()
++    release["https://slow/1"].set()
++    fetcher = _GatedFetcher(release_events=release, clock=clock)
++
++    tasks = [FetchTask(u, "default") for u in urls]
++    report = parallel_fetch(
++        tasks, fetcher,
++        max_workers=4,
++        per_backend_max_concurrent={"default": 4},
++        per_task_timeout=100.0,
++    )
++    # None timed out: every task ran inside its own start-anchored budget.
++    assert report.timeout_count == 0
++    assert report.success_count == 3
++    assert all(r.outcome is FetchOutcome.SUCCESS for r in report.results)
++
++
++# ---------------------------------------------------------------------------
++# (b) a task exceeding ITS OWN budget IS TIMEOUT even with no sibling done
++# ---------------------------------------------------------------------------
++
++
++def test_task_over_own_budget_is_timeout_without_sibling_completion(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """A single task that consumes MORE than its own start-anchored
++    budget is marked TIMEOUT — the bounded poll catches it within the
++    poll interval and does NOT rely on any sibling completing."""
++    clock = _VirtualClock()
++    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
++    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
++
++    # The single task starts, advances the virtual clock PAST its budget,
++    # then stays gated (never completes). The harvest loop must TIMEOUT it.
++    url = "https://hang/1"
++    release = {url: threading.Event()}  # never set -> never completes
++    started = {url: threading.Event()}
++    fetcher = _GatedFetcher(
++        release_events=release,
++        clock=clock,
++        clock_advance=5.0,  # > per_task_timeout below
++        started_events=started,
++    )
++
++    tasks = [FetchTask(url, "default")]
++    report = parallel_fetch(
++        tasks, fetcher,
++        max_workers=2,
++        per_task_timeout=1.0,
++    )
++    assert report.timeout_count == 1
++    rec = report.results[0]
++    assert rec.outcome is FetchOutcome.TIMEOUT
++    assert rec.error == "per-task timeout exceeded"
++    # The gated worker did start (proving the budget was START-anchored,
++    # not relabeled at submit time).
++    assert started[url].is_set()
++
++
++def test_not_yet_started_task_never_times_out_behind_a_slot_hog(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """With max_workers=1, a queued (not-yet-started) task has a +inf
++    effective deadline: even though wall time passes while the first
++    task hogs the only slot, the queued task is NOT batch-TIMEOUT'd —
++    it runs and SUCCEEDS once the slot frees. (Inverse of C01.)"""
++    clock = _VirtualClock()
++    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
++    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
++
++    first, second = "https://first/1", "https://second/1"
++    release = {first: threading.Event(), second: threading.Event()}
++    started = {first: threading.Event(), second: threading.Event()}
++    release[second].set()  # second completes instantly once it starts
++    fetcher = _GatedFetcher(
++        release_events=release, clock=clock, started_events=started,
++    )
++
++    tasks = [FetchTask(first, "default"), FetchTask(second, "default")]
++
++    def _run() -> pf_mod.ParallelFetchReport:
++        return parallel_fetch(
++            tasks, fetcher,
++            max_workers=1,  # second is QUEUED behind first
++            per_task_timeout=1.0,
++        )
++
++    holder: dict[str, object] = {}
++    runner = threading.Thread(target=lambda: holder.update(r=_run()))
++    runner.start()
++    # First task has started and is holding the only worker slot.
++    assert started[first].wait(timeout=5.0)
++    # Advance virtual time PAST first's budget. The QUEUED second task
++    # has no start yet (+inf deadline) -> must NOT be timed out.
++    clock.advance(10.0)
++    time.sleep(0.1)
++    assert not started[second].is_set()  # still queued, not started
++    # Release first inside its (virtual) budget consumption is moot — it
++    # already over-ran; it will TIMEOUT. Free the slot so second can run.
++    release[first].set()
++    runner.join(timeout=10.0)
++    report = holder["r"]  # type: ignore[assignment]
++
++    outcomes = {r.source_url: r.outcome for r in report.results}
++    # first over-ran its own budget -> TIMEOUT; second ran fresh -> SUCCESS.
++    assert outcomes[second] is FetchOutcome.SUCCESS
++    assert outcomes[first] is FetchOutcome.TIMEOUT
++
++
++# ---------------------------------------------------------------------------
++# (c) two distinct hosts concurrent; same-host capped at per-host limit
++# ---------------------------------------------------------------------------
++
++
++def test_distinct_hosts_run_concurrently_same_host_capped() -> None:
++    """Host-keyed backend_id (limit=1 per host): two tasks on DIFFERENT
++    hosts overlap; two tasks on the SAME host serialize."""
++
++    @dataclass
++    class _DelayFetcher:
++        delay: float
++
++        def fetch(self, task: FetchTask) -> tuple[bytes, str, int]:
++            time.sleep(self.delay)
++            return (task.source_url.encode(), "text/plain", 200)
++
++    same_host = [
++        FetchTask("https://h1/a", "host1"),
++        FetchTask("https://h1/b", "host1"),
++    ]
++    t0 = time.time()
++    rep_same = parallel_fetch(
++        same_host, _DelayFetcher(0.05),
++        max_workers=4,
++        per_backend_max_concurrent={"host1": 1},
++    )
++    same_elapsed = time.time() - t0
++    assert rep_same.success_count == 2
++    # limit=1 serializes -> ~2 * 0.05.
++    assert same_elapsed >= 0.09, (
++        f"same-host elapsed {same_elapsed} suggests cap=1 violated"
++    )
++
++    # Distinct hosts: overlap -> faster than serial.
++    diff_host = [
++        FetchTask("https://h1/a", "host1"),
++        FetchTask("https://h2/a", "host2"),
++    ]
++    t0 = time.time()
++    rep_diff = parallel_fetch(
++        diff_host, _DelayFetcher(0.05),
++        max_workers=4,
++        per_backend_max_concurrent={"host1": 1, "host2": 1},
++    )
++    diff_elapsed = time.time() - t0
++    assert rep_diff.success_count == 2
++    # Two distinct hosts run concurrently -> ~0.05, not ~0.10.
++    assert diff_elapsed < 0.09, (
++        f"distinct-host elapsed {diff_elapsed} suggests no cross-host "
++        "parallelism"
++    )
++
++
++# ---------------------------------------------------------------------------
++# (d) ADVERSARIAL — round-robin submit defeats worker-slot hoarding
++# ---------------------------------------------------------------------------
++
++
++def test_roundrobin_other_host_starts_before_same_host_prefix_drains() -> None:
++    """ADVERSARIAL: a clustered same-host prefix (more tasks than
++    max_workers, each on host_a capped at 1) followed by ONE host_b
++    task. Without round-robin submit the first max_workers workers all
++    block on host_a's single semaphore and host_b starves until the
++    prefix drains. With round-robin submit, host_b is submitted in the
++    first round and STARTS before the host_a prefix finishes.
++    """
++    n_same = 6  # > max_workers
++    max_workers = 4
++    same_urls = [f"https://host_a/{i}" for i in range(n_same)]
++    other_url = "https://host_b/1"
++
++    release = {u: threading.Event() for u in same_urls}
++    release[other_url] = threading.Event()
++    release[other_url].set()  # host_b completes immediately once started
++    started = {u: threading.Event() for u in same_urls}
++    started[other_url] = threading.Event()
++    fetcher = _GatedFetcher(
++        release_events=release, started_events=started,
++    )
++
++    # Same-host prefix THEN the other host (the hoarding-bait order).
++    tasks = [FetchTask(u, "host_a") for u in same_urls]
++    tasks.append(FetchTask(other_url, "host_b"))
++
++    holder: dict[str, object] = {}
++
++    def _run() -> None:
++        holder["r"] = parallel_fetch(
++            tasks, fetcher,
++            max_workers=max_workers,
++            # host_a capped at 1 -> only one host_a task runs at a time;
++            # the other 3 worker slots would be IDLE-but-blocked under a
++            # naive submit order. Round-robin must let host_b run.
++            per_backend_max_concurrent={"host_a": 1, "host_b": 1},
++            per_task_timeout=None,
++        )
++
++    runner = threading.Thread(target=_run)
++    runner.start()
++    # host_b must START while the host_a prefix is still gated (none of
++    # the host_a tasks have been released yet).
++    assert started[other_url].wait(timeout=5.0), (
++        "host_b did not start before the host_a prefix drained — "
++        "round-robin submit failed to defeat worker-slot hoarding"
++    )
++    # Confirm the host_a prefix is genuinely still blocked (proof the
++    # other host started CONCURRENTLY, not after the prefix completed).
++    assert not all(started[u].is_set() for u in same_urls[1:])
++
++    # Drain the host_a prefix so the run can finish cleanly.
++    for ev in release.values():
++        ev.set()
++    runner.join(timeout=10.0)
++    report = holder["r"]  # type: ignore[assignment]
++    assert report.success_count == n_same + 1
+
+codex
+I’m going to check the surrounding implementation and tests rather than relying only on the pasted diff, because the risky parts here are in executor shutdown, result accounting, and import behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/audit_ir/parallel_fetch.py -TotalCount 620' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/retrieval/live_retriever.py -TotalCount 3250' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "parallel_fetch_|api_calls|LiveRetrievalResult|DEFAULT_PER_BACKEND_LIMIT|PG_LIVE_RETRIEVER" src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_parallel_fetch_ifetch003.py' in C:\POLARIS
+ succeeded in 2662ms:
+"""M-D8 phase 1 v1 (Phase D): Parallel-fetch substrate.
+
+The existing live retrieval pipeline (`src/polaris_graph/
+retrieval/live_retriever.py`) issues one fetch at a time
+across heterogeneous backends (Serper, Semantic Scholar,
+DuckDuckGo, etc.). M-D8 phase 1 ships the **parallel-fetch
+substrate** that callers can wire up to those backends to
+fan out N fetches concurrently, with per-backend
+concurrency limits.
+
+## Why this milestone matters
+
+For predictable workloads where the URL list is known
+ahead of time (cache warming via M-D7 phase 2, batch
+audit re-runs, scheduled freshness checks), serial fetching
+pays first-byte latency on every URL. Phase 1 ships the
+substrate primitive that turns that serial loop into a
+concurrent fan-out with operator-controllable concurrency.
+
+Phase 1 does NOT integrate with `live_retriever.py` itself
+— that's phase 2 territory and requires touching production
+retrieval flow. v1 here is the deterministic substrate the
+integration will sit on top of.
+
+## What v1 ships
+
+  - `ParallelFetcher` Protocol — pluggable per-task fetcher
+  - `FetchTask` dataclass — source_url + backend_id
+  - `FetchOutcome` enum: SUCCESS | ERRORED | TIMEOUT
+  - `FetchResultRecord` per-task outcome (renamed from
+    FetchResult to avoid collision with M-D7 phase 2's
+    `cache_warming.FetchResult`)
+  - `ParallelFetchReport` aggregate
+  - `parallel_fetch(tasks, fetcher, *, max_workers,
+    per_backend_max_concurrent, per_task_timeout)` —
+    pure substrate
+
+## Substrate boundary
+
+Imports stdlib only (`concurrent.futures`, `threading`,
+`dataclasses`, `enum`). No HTTP client. No DB. No LLM. The
+Fetcher Protocol is the seam: caller code wires up actual
+HTTP / Crossref / Semantic Scholar clients.
+
+The substrate uses `ThreadPoolExecutor` for parallelism
+(stdlib, no async/await refactor on the caller side). Per-
+backend concurrency limits are enforced via
+`threading.Semaphore` instances keyed by `backend_id`.
+
+See `docs/md8_phase1_threat_model.md` for boundaries.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import threading
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Mapping, Protocol, Sequence
+
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
+class ParallelFetchError(ValueError):
+    """Raised on contract violations — empty tasks not actually
+    empty, bad fetcher Protocol, invalid concurrency limits."""
+
+
+class FetcherProtocolError(ParallelFetchError):
+    """Fetcher returned something other than a FetchResultRecord
+    payload tuple. Caller-side bug — surface loudly per LAW II."""
+
+
+# ---------------------------------------------------------------------------
+# Task + outcome types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FetchTask:
+    """One unit of work for the parallel fetcher.
+
+    `source_url` is the URL to fetch (caller's responsibility
+    to canonicalize if needed — substrate doesn't normalize).
+
+    `backend_id` is the rate-limit class — Serper, Semantic
+    Scholar, DuckDuckGo, etc. Per-backend concurrency limits
+    use this as the semaphore key. Tasks with no specific
+    backend should use a sentinel like `"default"`.
+
+    `task_metadata` is opaque caller-supplied metadata
+    surfaced back in `FetchResultRecord.task_metadata` for
+    correlation. Common usage: tier classification, domain
+    tag, request-id-for-tracing. The substrate doesn't read
+    or interpret this dict.
+    """
+
+    source_url: str
+    backend_id: str
+    task_metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+class FetchOutcome(str, Enum):
+    """Per-task outcome.
+
+    SUCCESS: fetcher returned a payload (regardless of HTTP
+       status code — caller's Fetcher decides what to raise on).
+    ERRORED: fetcher raised an exception.
+    TIMEOUT: per-task timeout fired before the fetcher returned.
+    """
+
+    SUCCESS = "success"
+    ERRORED = "errored"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class FetchResultRecord:
+    """One task's result.
+
+    `payload` is None unless `outcome == SUCCESS`. Type is
+    deliberately `bytes | None` — substrate doesn't dictate
+    whether the caller's Fetcher returns text/JSON/binary;
+    bytes is the lowest-common-denominator transport.
+
+    `content_type` and `fetch_status_code` are caller-supplied
+    metadata when SUCCESS; None otherwise.
+
+    `error` is None unless `outcome == ERRORED` or `TIMEOUT`,
+    in which case it carries `str(exc)` (ERRORED) or the
+    string `"per-task timeout exceeded"` (TIMEOUT). Exception
+    type is NOT preserved — callers wanting structured errors
+    should make their Fetcher catch + convert.
+
+    `started_at` / `finished_at` are UNIX epoch floats. For
+    SUCCESS / ERRORED they mark when the task began (after
+    backend semaphore acquired) and ended. For TIMEOUT,
+    `started_at` is best-effort actual task start if the
+    worker reached the fetch path; otherwise it falls back to
+    the submit-time timeout-budget anchor (a task can time out
+    before entering `fetcher.fetch` under contention).
+
+    `task_metadata` echoes the FetchTask's metadata for
+    correlation.
+    """
+
+    source_url: str
+    backend_id: str
+    outcome: FetchOutcome
+    payload: bytes | None
+    content_type: str | None
+    fetch_status_code: int | None
+    error: str | None
+    started_at: float
+    finished_at: float
+    task_metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ParallelFetchReport:
+    """Aggregate of all tasks in one parallel_fetch call.
+
+    `started_at` / `finished_at` are wall-clock bounds of the
+    full call (NOT sum of per-task times — they're concurrent).
+
+    `results` is one entry per UNIQUE (source_url, backend_id)
+    in the input. Duplicates collapse to first-occurrence
+    (the substrate doesn't fetch the same URL twice in one
+    call by design).
+
+    Counts sum to `len(results)`.
+    """
+
+    started_at: float
+    finished_at: float
+    results: tuple[FetchResultRecord, ...] = field(default_factory=tuple)
+    success_count: int = 0
+    errored_count: int = 0
+    timeout_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Fetcher Protocol
+# ---------------------------------------------------------------------------
+
+
+class ParallelFetcher(Protocol):
+    """Pluggable fetcher contract — single-task, called
+    concurrently by `parallel_fetch`.
+
+    Implementers MUST:
+      - Be thread-safe (concurrent invocations from worker
+        threads are the norm)
+      - Return a `tuple[bytes, str, int]` of (payload,
+        content_type, fetch_status_code) on success
+      - Raise an exception on transport / parse failure
+        (callers should NOT signal failure via a non-2xx
+        status code in the returned tuple — that IS a
+        successful fetch of an error response)
+
+    Implementers MUST NOT:
+      - Mutate any cache directly (that's caller orchestration)
+      - Block the calling thread indefinitely (use the
+        per-task timeout if your backend doesn't enforce one)
+    """
+
+    def fetch(
+        self, task: FetchTask
+    ) -> tuple[bytes, str, int]:
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Default per-backend limit
+# ---------------------------------------------------------------------------
+
+
+# Conservative default — any backend not explicitly configured
+# in `per_backend_max_concurrent` gets this limit. Operators
+# can tune for known backends (Semantic Scholar = 1 per their
+# docs; Serper = 10; etc.) by passing a dict.
+DEFAULT_PER_BACKEND_LIMIT = 4
+
+
+# ---------------------------------------------------------------------------
+# Harvest-loop poll interval (I-fetch-003 / BB5-C01)
+# ---------------------------------------------------------------------------
+
+
+# Upper bound on a single harvest-loop wait. The deadline is anchored at
+# each task's OBSERVED start (`task_started_monotonic_by_index`), not submit,
+# so a task that has not started yet can never be marked TIMEOUT. To detect
+# a task that STARTS after the previous snapshot (or one that hangs) within
+# a bounded delay of its own start-anchored budget, the harvest loop never
+# waits unbounded: it re-snapshots start-times + recomputes the expired set
+# at least this often. Small enough to be responsive, large enough to avoid
+# a busy-poll. The actual wait is `min(next_deadline - now, this)`.
+_HARVEST_POLL_INTERVAL_SECONDS = 2.0
+
+
+# ---------------------------------------------------------------------------
+# Round-robin submit ordering (I-fetch-003 / BB5-C02)
+# ---------------------------------------------------------------------------
+
+
+def _round_robin_indices(
+    tasks: Sequence[FetchTask],
+) -> list[int]:
+    """Return ORIGINAL task indices reordered into round-robin
+    `backend_id` order.
+
+    Group indices by `backend_id` (preserving first-seen group order
+    and intra-group input order), then emit one index per backend per
+    round until every group is exhausted. So the first ``len(groups)``
+    indices span distinct backends/hosts.
+
+    The result is a permutation of ``range(len(tasks))`` — every input
+    index appears exactly once — so callers map results back to the
+    ORIGINAL index unchanged. Pure / deterministic / allocation-light.
+    """
+    groups: dict[str, list[int]] = {}
+    for idx, task in enumerate(tasks):
+        groups.setdefault(task.backend_id, []).append(idx)
+
+    ordered: list[int] = []
+    group_queues = list(groups.values())
+    while group_queues:
+        next_round: list[list[int]] = []
+        for queue in group_queues:
+            ordered.append(queue.pop(0))
+            if queue:
+                next_round.append(queue)
+        group_queues = next_round
+    return ordered
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def parallel_fetch(
+    tasks: Sequence[FetchTask],
+    fetcher: ParallelFetcher,
+    *,
+    max_workers: int = 8,
+    per_backend_max_concurrent: Mapping[str, int] | None = None,
+    per_task_timeout: float | None = None,
+) -> ParallelFetchReport:
+    """Fan out `tasks` to a thread pool and collect results.
+
+    `max_workers` caps the global concurrency. Per-backend
+    limits gate concurrent-by-backend further: a task on
+    backend `"semantic_scholar"` can only proceed when both a
+    worker is free AND the backend's semaphore has capacity.
+
+    `per_backend_max_concurrent` maps `backend_id` to its
+    concurrency limit. Backends absent from the map use
+    `DEFAULT_PER_BACKEND_LIMIT`. Pass `{"semantic_scholar": 1,
+    "serper": 10, ...}` to set explicit ceilings.
+
+    `per_task_timeout` is the wall-clock seconds before a
+    task is marked `TIMEOUT`. None disables timeout.
+    The cancel attempt is best-effort: in-flight tasks may
+    continue running after the timeout fires (Python's
+    Future.cancel() can't interrupt synchronous code), but
+    the report records TIMEOUT and the worker thread is
+    abandoned. Backend semaphore is released either way (in a
+    finally block), so subsequent tasks on the same backend
+    don't deadlock waiting on a leaked permit.
+
+    Returns a `ParallelFetchReport` summarizing per-task
+    outcomes. Order of `results` is the input task order,
+    NOT completion order — callers correlate via task_metadata
+    if they need other orderings.
+
+    Duplicate (source_url, backend_id) pairs in input collapse
+    to first-occurrence (subsequent dupes dropped silently).
+    """
+    if not isinstance(tasks, Sequence) or isinstance(
+        tasks, (str, bytes)
+    ):
+        raise ParallelFetchError(
+            f"tasks must be a sequence of FetchTask, got "
+            f"{type(tasks).__name__}"
+        )
+    if fetcher is None or not hasattr(fetcher, "fetch"):
+        raise ParallelFetchError(
+            "fetcher must implement the ParallelFetcher Protocol"
+        )
+    if max_workers < 1:
+        raise ParallelFetchError(
+            f"max_workers must be >= 1, got {max_workers}"
+        )
+    if per_task_timeout is not None and per_task_timeout <= 0:
+        raise ParallelFetchError(
+            f"per_task_timeout must be > 0 or None, got "
+            f"{per_task_timeout}"
+        )
+
+    if per_backend_max_concurrent is not None:
+        for k, v in per_backend_max_concurrent.items():
+            if not isinstance(v, int) or v < 1:
+                raise ParallelFetchError(
+                    f"per_backend_max_concurrent[{k!r}] must be "
+                    f"a positive int, got {v!r}"
+                )
+
+    # Build deduplicated task list (first wins).
+    seen_keys: set[tuple[str, str]] = set()
+    deduped: list[FetchTask] = []
+    for i, task in enumerate(tasks):
+        if not isinstance(task, FetchTask):
+            raise ParallelFetchError(
+                f"tasks[{i}] must be FetchTask, got "
+                f"{type(task).__name__}"
+            )
+        key = (task.source_url, task.backend_id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(task)
+
+    started_at = time.time()
+
+    if not deduped:
+        return ParallelFetchReport(
+            started_at=started_at,
+            finished_at=started_at,
+            results=(),
+            success_count=0,
+            errored_count=0,
+            timeout_count=0,
+        )
+
+    # Per-backend semaphores. Lazily allocated on first task
+    # for each backend.
+    backend_limits: dict[str, int] = dict(per_backend_max_concurrent or {})
+    semaphores: dict[str, threading.Semaphore] = {}
+    semaphores_lock = threading.Lock()
+
+    def _get_semaphore(backend_id: str) -> threading.Semaphore:
+        with semaphores_lock:
+            sem = semaphores.get(backend_id)
+            if sem is None:
+                limit = backend_limits.get(
+                    backend_id, DEFAULT_PER_BACKEND_LIMIT,
+                )
+                sem = threading.Semaphore(limit)
+                semaphores[backend_id] = sem
+            return sem
+
+    # I-fetch-003 (BB5-C01): the deadline is START-anchored, so we record the
+    # MONOTONIC start of each task (immune to wall-clock jumps) keyed by index
+    # under the lock. The wall-clock start is kept separately ONLY for the
+    # FetchResultRecord.started_at report field (AC7 — never used in deadline
+    # arithmetic). A not-yet-started index is absent from BOTH maps → +inf
+    # effective deadline → cannot TIMEOUT before it runs.
+    task_started_monotonic_by_index: dict[int, float] = {}
+    task_started_wall_by_index: dict[int, float] = {}
+    task_started_lock = threading.Lock()
+
+    def _run_task(
+        index: int, task: FetchTask,
+    ) -> FetchResultRecord:
+        sem = _get_semaphore(task.backend_id)
+        sem.acquire()
+        task_started = time.time()
+        task_started_mono = time.monotonic()
+        with task_started_lock:
+            task_started_monotonic_by_index[index] = task_started_mono
+            task_started_wall_by_index[index] = task_started
+        try:
+            try:
+                result = fetcher.fetch(task)
+            except Exception as exc:  # noqa: BLE001 — intentional broad
+                return FetchResultRecord(
+                    source_url=task.source_url,
+                    backend_id=task.backend_id,
+                    outcome=FetchOutcome.ERRORED,
+                    payload=None,
+                    content_type=None,
+                    fetch_status_code=None,
+                    error=str(exc),
+                    started_at=task_started,
+                    finished_at=time.time(),
+                    task_metadata=task.task_metadata,
+                )
+
+            if (
+                not isinstance(result, tuple)
+                or len(result) != 3
+                or not isinstance(result[0], (bytes, bytearray))
+                or not isinstance(result[1], str)
+                or not isinstance(result[2], int)
+            ):
+                raise FetcherProtocolError(
+                    f"fetcher.fetch({task.source_url!r}) returned "
+                    f"{type(result).__name__}, expected "
+                    "tuple[bytes, str, int]"
+                )
+
+            payload, content_type, status = result
+            return FetchResultRecord(
+                source_url=task.source_url,
+                backend_id=task.backend_id,
+                outcome=FetchOutcome.SUCCESS,
+                payload=bytes(payload),
+                content_type=content_type,
+                fetch_status_code=status,
+                error=None,
+                started_at=task_started,
+                finished_at=time.time(),
+                task_metadata=task.task_metadata,
+            )
+        finally:
+            sem.release()
+
+    results_by_index: dict[int, FetchResultRecord] = {}
+
+    # Codex round-1 HIGH fix (v2): manage executor manually so we
+    # can shutdown(wait=False, cancel_futures=True) on TIMEOUT.
+    # The `with` block's __exit__ calls shutdown(wait=True) which
+    # blocks until all in-flight workers finish — defeating
+    # boundary 3's caller-latency promise.
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+    )
+    try:
+        future_to_index: dict[concurrent.futures.Future, int] = {}
+        # I-fetch-003 (BB5-C02): submit in ROUND-ROBIN backend order so the
+        # first `max_workers` submissions span up to `max_workers` distinct
+        # backends/hosts. Without this, a clustered same-host candidate prefix
+        # makes the first workers all block on ONE host-semaphore (acquired
+        # inside `_run_task`), starving distinct-host tasks queued behind them.
+        # `_round_robin_indices` returns ORIGINAL deduped indices, so result
+        # indexing into `results_by_index` is unchanged (correctness preserved).
+        submit_order = _round_robin_indices(deduped)
+        for idx in submit_order:
+            task = deduped[idx]
+            fut = executor.submit(_run_task, idx, task)
+            future_to_index[fut] = idx
+
+        remaining: set[concurrent.futures.Future] = set(future_to_index)
+        protocol_error_to_raise: FetcherProtocolError | None = None
+
+        def _effective_deadline_monotonic(idx: int) -> float:
+            # I-fetch-003 (BB5-C01): START-anchored, MONOTONIC effective
+            # deadline. A not-yet-started index (absent from the start map)
+            # → +inf: it CANNOT TIMEOUT before it runs. A started index →
+            # its OWN observed start + per_task_timeout. Caller holds
+            # `task_started_lock`.
+            started = task_started_monotonic_by_index.get(idx)
+            if started is None:
+                return float("inf")
+            return started + per_task_timeout  # type: ignore[operator]
+
+        while remaining and protocol_error_to_raise is None:
+            if per_task_timeout is None:
+                # No timeout — just wait for the next completion.
+                done, _ = concurrent.futures.wait(
+                    remaining,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+            else:
+                # I-fetch-003 (BB5-C01): BOUNDED-POLL harvest. The wait is
+                # ALWAYS bounded by `_HARVEST_POLL_INTERVAL_SECONDS`, never
+                # `timeout=None`, so a task that STARTS after this snapshot
+                # (or one that hangs) is re-checked against ITS OWN start-
+                # anchored deadline within the poll interval — the harvest
+                # never relies on a sibling completing to make progress.
+                now_mono = time.monotonic()
+                with task_started_lock:
+                    next_deadline = min(
+                        _effective_deadline_monotonic(future_to_index[f])
+                        for f in remaining
+                    )
+                wait_timeout = min(
+                    max(0.0, next_deadline - now_mono),
+                    _HARVEST_POLL_INTERVAL_SECONDS,
+                )
+                done, _ = concurrent.futures.wait(
+                    remaining,
+                    timeout=wait_timeout,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+
+            if done:
+                for fut in done:
+                    idx = future_to_index[fut]
+                    task = deduped[idx]
+                    try:
+                        rec = fut.result()
+                    except FetcherProtocolError as exc:
+                        protocol_error_to_raise = exc
+                        break
+                    results_by_index[idx] = rec
+                    remaining.discard(fut)
+
+            if protocol_error_to_raise is not None:
+                break
+
+            if per_task_timeout is not None:
+                # Recompute the expired set from CURRENT start-times after
+                # every wake (whether or not anything completed). A task is
+                # TIMEOUT iff IT exceeded ITS OWN start-anchored budget.
+                now_mono = time.monotonic()
+                with task_started_lock:
+                    expired = [
+                        f for f in list(remaining)
+                        if _effective_deadline_monotonic(
+                            future_to_index[f]
+                        ) <= now_mono
+                    ]
+                if expired:
+                    now_wall = time.time()
+                    for fut in expired:
+                        idx = future_to_index[fut]
+                        task = deduped[idx]
+                        fut.cancel()  # best-effort
+                        with task_started_lock:
+                            timeout_started_at = (
+                                task_started_wall_by_index.get(idx, now_wall)
+                            )
+                        results_by_index[idx] = FetchResultRecord(
+                            source_url=task.source_url,
+                            backend_id=task.backend_id,
+                            outcome=FetchOutcome.TIMEOUT,
+                            payload=None,
+                            content_type=None,
+                            fetch_status_code=None,
+                            error="per-task timeout exceeded",
+                            started_at=timeout_started_at,
+                            finished_at=now_wall,
+                            task_metadata=task.task_metadata,
+                        )
+                        remaining.discard(fut)
+
+        if protocol_error_to_raise is not None:
+            for other_fut in remaining:
+                other_fut.cancel()
+            # Codex round-1 MEDIUM fix (v2): release the executor
+            # without waiting so the protocol error propagates
+            # promptly. In-flight workers continue but caller
+            # gets control back.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise protocol_error_to_raise
+    finally:
+        # Codex round-1 HIGH fix (v2): non-blocking shutdown.
+        # Pending (not-yet-started) futures are cancelled;
+        # in-flight workers continue but don't gate our return.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    # Reorder by input index.
+    results = tuple(
+        results_by_index[i] for i in range(len(deduped))
+    )
+
+    success = sum(1 for r in results if r.outcome == FetchOutcome.SUCCESS)
+    errored = sum(1 for r in results if r.outcome == FetchOutcome.ERRORED)
+    timed_out = sum(1 for r in results if r.outcome == FetchOutcome.TIMEOUT)
+
+    return ParallelFetchReport(
+        started_at=started_at,
+        finished_at=time.time(),
+        results=results,
+        success_count=success,
+        errored_count=errored,
+        timeout_count=timed_out,
+    )
+
+
+def report_to_exit_code(report: ParallelFetchReport) -> int:
+    """Map outcome to CI exit code.
+
+    Convention: any errored OR timeout → 1; all-success or
+
+ succeeded in 4277ms:
+"""I-fetch-003 (#1175 / BB5-C01/C02) — start-anchored, bounded-poll,
+round-robin parallel-fetch starvation fix.
+
+Offline + deterministic: NO network, NO spend. A mock fetcher plus a
+virtual monotonic clock (monkeypatched onto the parallel_fetch module)
+drive the start-anchored deadline arithmetic; `threading.Event`
+barriers make concurrency ordering deterministic without sleeping on
+the wall clock. The harvest poll interval is shrunk so the bounded
+poll wakes quickly instead of really blocking ~2s.
+
+Covers (per AC5):
+  (a) a single SLOW task does NOT time out fast/queued siblings under
+      start-anchoring + bounded poll (the C01 starvation root cause).
+  (b) a task exceeding ITS OWN start-anchored budget IS TIMEOUT even
+      when no sibling ever completes.
+  (c) two DISTINCT hosts run concurrently while same-host is capped at
+      the per-host limit (C02 host-keyed semaphore).
+  (d) ADVERSARIAL: >max_workers same-host tasks followed by a
+      different-host task — the other host STARTS before the same-host
+      prefix drains (round-robin submit defeats worker-slot hoarding).
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass, field
+
+import pytest
+
+import src.polaris_graph.audit_ir.parallel_fetch as pf_mod
+from src.polaris_graph.audit_ir.parallel_fetch import (
+    FetchOutcome,
+    FetchTask,
+    _round_robin_indices,
+    parallel_fetch,
+)
+
+
+# ---------------------------------------------------------------------------
+# Virtual monotonic clock — deterministic deadline arithmetic, no wall sleep
+# ---------------------------------------------------------------------------
+
+
+class _VirtualClock:
+    """A controllable monotonic clock. Worker threads advance it from
+    inside the mock fetcher (per-task), the harvest loop reads it for
+    deadline decisions. Thread-safe."""
+
+    def __init__(self) -> None:
+        self._now = 0.0
+        self._lock = threading.Lock()
+
+    def monotonic(self) -> float:
+        with self._lock:
+            return self._now
+
+    def advance(self, seconds: float) -> None:
+        with self._lock:
+            self._now += seconds
+
+
+# ---------------------------------------------------------------------------
+# Mock fetchers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _GatedFetcher:
+    """Per-URL gated fetcher. Each task records its start order, then
+    blocks on a per-URL `threading.Event` until the test releases it.
+    Optionally advances a virtual clock by `clock_advance` BEFORE
+    blocking so the harvest loop sees the task as having consumed time.
+    """
+
+    release_events: dict[str, threading.Event]
+    clock: _VirtualClock | None = None
+    clock_advance: float = 0.0
+    start_order: list[str] = field(default_factory=list)
+    started_events: dict[str, threading.Event] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def fetch(self, task: FetchTask) -> tuple[bytes, str, int]:
+        with self._lock:
+            self.start_order.append(task.source_url)
+        ev = self.started_events.get(task.source_url)
+        if ev is not None:
+            ev.set()
+        if self.clock is not None and self.clock_advance:
+            self.clock.advance(self.clock_advance)
+        gate = self.release_events.get(task.source_url)
+        if gate is not None:
+            gate.wait(timeout=10.0)
+        return (task.source_url.encode("utf-8"), "text/plain", 200)
+
+
+# ---------------------------------------------------------------------------
+# (round-robin permutation correctness — submit-order primitive)
+# ---------------------------------------------------------------------------
+
+
+def test_round_robin_indices_is_a_permutation() -> None:
+    tasks = [
+        FetchTask("https://a/1", "host_a"),
+        FetchTask("https://a/2", "host_a"),
+        FetchTask("https://a/3", "host_a"),
+        FetchTask("https://b/1", "host_b"),
+    ]
+    order = _round_robin_indices(tasks)
+    # A permutation of range(len): every original index exactly once.
+    assert sorted(order) == [0, 1, 2, 3]
+    # First two submissions span the two distinct hosts (no hoarding).
+    assert {tasks[order[0]].backend_id, tasks[order[1]].backend_id} == {
+        "host_a", "host_b",
+    }
+
+
+def test_round_robin_indices_single_backend_preserves_order() -> None:
+    tasks = [FetchTask(f"https://a/{i}", "host_a") for i in range(5)]
+    assert _round_robin_indices(tasks) == [0, 1, 2, 3, 4]
+
+
+# ---------------------------------------------------------------------------
+# (a) slow task does NOT time out fast/queued siblings
+# ---------------------------------------------------------------------------
+
+
+def test_slow_task_does_not_timeout_fast_siblings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C01 root cause: ONE slow task must not drag fast (and not-yet-
+    started) siblings into a batch TIMEOUT. Start-anchoring means a
+    not-yet-started task has a +inf deadline; a fast task that runs
+    well inside its own budget SUCCEEDS."""
+    clock = _VirtualClock()
+    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+    # Shrink the bounded poll so the harvest loop wakes fast (no real 2s).
+    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+
+    urls = ["https://fast/1", "https://fast/2", "https://slow/1"]
+    release = {u: threading.Event() for u in urls}
+    # Release the two fast tasks immediately; the slow one stays gated
+    # but will finish WELL within its own budget (no clock advance).
+    release["https://fast/1"].set()
+    release["https://fast/2"].set()
+    release["https://slow/1"].set()
+    fetcher = _GatedFetcher(release_events=release, clock=clock)
+
+    tasks = [FetchTask(u, "default") for u in urls]
+    report = parallel_fetch(
+        tasks, fetcher,
+        max_workers=4,
+        per_backend_max_concurrent={"default": 4},
+        per_task_timeout=100.0,
+    )
+    # None timed out: every task ran inside its own start-anchored budget.
+    assert report.timeout_count == 0
+    assert report.success_count == 3
+    assert all(r.outcome is FetchOutcome.SUCCESS for r in report.results)
+
+
+# ---------------------------------------------------------------------------
+# (b) a task exceeding ITS OWN budget IS TIMEOUT even with no sibling done
+# ---------------------------------------------------------------------------
+
+
+def test_task_over_own_budget_is_timeout_without_sibling_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single task that consumes MORE than its own start-anchored
+    budget is marked TIMEOUT — the bounded poll catches it within the
+    poll interval and does NOT rely on any sibling completing."""
+    clock = _VirtualClock()
+    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+
+    # The single task starts, advances the virtual clock PAST its budget,
+    # then stays gated (never completes). The harvest loop must TIMEOUT it.
+    url = "https://hang/1"
+    release = {url: threading.Event()}  # never set -> never completes
+    started = {url: threading.Event()}
+    fetcher = _GatedFetcher(
+        release_events=release,
+        clock=clock,
+        clock_advance=5.0,  # > per_task_timeout below
+        started_events=started,
+    )
+
+    tasks = [FetchTask(url, "default")]
+    report = parallel_fetch(
+        tasks, fetcher,
+        max_workers=2,
+        per_task_timeout=1.0,
+    )
+    assert report.timeout_count == 1
+    rec = report.results[0]
+    assert rec.outcome is FetchOutcome.TIMEOUT
+    assert rec.error == "per-task timeout exceeded"
+    # The gated worker did start (proving the budget was START-anchored,
+    # not relabeled at submit time).
+    assert started[url].is_set()
+
+
+def test_not_yet_started_task_never_times_out_behind_a_slot_hog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With max_workers=1, a queued (not-yet-started) task has a +inf
+    effective deadline: even though wall time passes while the first
+    task hogs the only slot, the queued task is NOT batch-TIMEOUT'd —
+    it runs and SUCCEEDS once the slot frees. (Inverse of C01.)"""
+    clock = _VirtualClock()
+    monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+
+    first, second = "https://first/1", "https://second/1"
+    release = {first: threading.Event(), second: threading.Event()}
+    started = {first: threading.Event(), second: threading.Event()}
+    release[second].set()  # second completes instantly once it starts
+    fetcher = _GatedFetcher(
+        release_events=release, clock=clock, started_events=started,
+    )
+
+    tasks = [FetchTask(first, "default"), FetchTask(second, "default")]
+
+    def _run() -> pf_mod.ParallelFetchReport:
+        return parallel_fetch(
+            tasks, fetcher,
+            max_workers=1,  # second is QUEUED behind first
+            per_task_timeout=1.0,
+        )
+
+    holder: dict[str, object] = {}
+    runner = threading.Thread(target=lambda: holder.update(r=_run()))
+    runner.start()
+    # First task has started and is holding the only worker slot.
+    assert started[first].wait(timeout=5.0)
+    # Advance virtual time PAST first's budget. The QUEUED second task
+    # has no start yet (+inf deadline) -> must NOT be timed out.
+    clock.advance(10.0)
+    time.sleep(0.1)
+    assert not started[second].is_set()  # still queued, not started
+    # Release first inside its (virtual) budget consumption is moot — it
+    # already over-ran; it will TIMEOUT. Free the slot so second can run.
+    release[first].set()
+    runner.join(timeout=10.0)
+    report = holder["r"]  # type: ignore[assignment]
+
+    outcomes = {r.source_url: r.outcome for r in report.results}
+    # first over-ran its own budget -> TIMEOUT; second ran fresh -> SUCCESS.
+    assert outcomes[second] is FetchOutcome.SUCCESS
+    assert outcomes[first] is FetchOutcome.TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# (c) two distinct hosts concurrent; same-host capped at per-host limit
+# ---------------------------------------------------------------------------
+
+
+def test_distinct_hosts_run_concurrently_same_host_capped() -> None:
+    """Host-keyed backend_id (limit=1 per host): two tasks on DIFFERENT
+    hosts overlap; two tasks on the SAME host serialize."""
+
+    @dataclass
+    class _DelayFetcher:
+        delay: float
+
+        def fetch(self, task: FetchTask) -> tuple[bytes, str, int]:
+            time.sleep(self.delay)
+            return (task.source_url.encode(), "text/plain", 200)
+
+    same_host = [
+        FetchTask("https://h1/a", "host1"),
+        FetchTask("https://h1/b", "host1"),
+    ]
+    t0 = time.time()
+    rep_same = parallel_fetch(
+        same_host, _DelayFetcher(0.05),
+        max_workers=4,
+        per_backend_max_concurrent={"host1": 1},
+    )
+    same_elapsed = time.time() - t0
+    assert rep_same.success_count == 2
+    # limit=1 serializes -> ~2 * 0.05.
+    assert same_elapsed >= 0.09, (
+        f"same-host elapsed {same_elapsed} suggests cap=1 violated"
+    )
+
+    # Distinct hosts: overlap -> faster than serial.
+    diff_host = [
+        FetchTask("https://h1/a", "host1"),
+        FetchTask("https://h2/a", "host2"),
+    ]
+    t0 = time.time()
+    rep_diff = parallel_fetch(
+        diff_host, _DelayFetcher(0.05),
+        max_workers=4,
+        per_backend_max_concurrent={"host1": 1, "host2": 1},
+    )
+    diff_elapsed = time.time() - t0
+    assert rep_diff.success_count == 2
+    # Two distinct hosts run concurrently -> ~0.05, not ~0.10.
+    assert diff_elapsed < 0.09, (
+        f"distinct-host elapsed {diff_elapsed} suggests no cross-host "
+        "parallelism"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (d) ADVERSARIAL — round-robin submit defeats worker-slot hoarding
+# ---------------------------------------------------------------------------
+
+
+def test_roundrobin_other_host_starts_before_same_host_prefix_drains() -> None:
+    """ADVERSARIAL: a clustered same-host prefix (more tasks than
+    max_workers, each on host_a capped at 1) followed by ONE host_b
+    task. Without round-robin submit the first max_workers workers all
+    block on host_a's single semaphore and host_b starves until the
+    prefix drains. With round-robin submit, host_b is submitted in the
+    first round and STARTS before the host_a prefix finishes.
+    """
+    n_same = 6  # > max_workers
+    max_workers = 4
+    same_urls = [f"https://host_a/{i}" for i in range(n_same)]
+    other_url = "https://host_b/1"
+
+    release = {u: threading.Event() for u in same_urls}
+    release[other_url] = threading.Event()
+    release[other_url].set()  # host_b completes immediately once started
+    started = {u: threading.Event() for u in same_urls}
+    started[other_url] = threading.Event()
+    fetcher = _GatedFetcher(
+        release_events=release, started_events=started,
+    )
+
+    # Same-host prefix THEN the other host (the hoarding-bait order).
+    tasks = [FetchTask(u, "host_a") for u in same_urls]
+    tasks.append(FetchTask(other_url, "host_b"))
+
+    holder: dict[str, object] = {}
+
+    def _run() -> None:
+        holder["r"] = parallel_fetch(
+            tasks, fetcher,
+            max_workers=max_workers,
+            # host_a capped at 1 -> only one host_a task runs at a time;
+            # the other 3 worker slots would be IDLE-but-blocked under a
+            # naive submit order. Round-robin must let host_b run.
+            per_backend_max_concurrent={"host_a": 1, "host_b": 1},
+            per_task_timeout=None,
+        )
+
+    runner = threading.Thread(target=_run)
+    runner.start()
+    # host_b must START while the host_a prefix is still gated (none of
+    # the host_a tasks have been released yet).
+    assert started[other_url].wait(timeout=5.0), (
+        "host_b did not start before the host_a prefix drained — "
+        "round-robin submit failed to defeat worker-slot hoarding"
+    )
+    # Confirm the host_a prefix is genuinely still blocked (proof the
+    # other host started CONCURRENTLY, not after the prefix completed).
+    assert not all(started[u].is_set() for u in same_urls[1:])
+
+    # Drain the host_a prefix so the run can finish cleanly.
+    for ev in release.values():
+        ev.set()
+    runner.join(timeout=10.0)
+    report = holder["r"]  # type: ignore[assignment]
+    assert report.success_count == n_same + 1
+
+ succeeded in 5916ms:
+tests\fixtures\drb72\run_log.txt:9:[retrieval]   pre_filter=155, fetched=26, failed=129, elapsed=302.3s  api_calls={'serper': 5, 's2': 5, 'openalex': 151, 'fetch': 155, 'openalex_search': 5, 'parallel_fetch_success_count': 26, 'parallel_fetch_errored_count': 0, 'parallel_fetch_timeout_count': 129}
+tests\fixtures\drb90_redaction\manifest.json:2036:    "api_calls": {
+tests\fixtures\drb90_redaction\manifest.json:2040:      "parallel_fetch_errored_count": 0,
+tests\fixtures\drb90_redaction\manifest.json:2041:      "parallel_fetch_success_count": 76,
+tests\fixtures\drb90_redaction\manifest.json:2042:      "parallel_fetch_timeout_count": 75,
+tests\fixtures\drb72\manifest.json:923:    "api_calls": {
+tests\fixtures\drb72\manifest.json:927:      "parallel_fetch_errored_count": 0,
+tests\fixtures\drb72\manifest.json:928:      "parallel_fetch_success_count": 26,
+tests\fixtures\drb72\manifest.json:929:      "parallel_fetch_timeout_count": 129,
+tests\dr_benchmark\test_super_heavy_preflight_icred013.py:336:    def _fake_serper(query, num=10, api_calls=None):
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:859:    "api_calls": {
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:862:      "parallel_fetch_errored_count": 0,
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:863:      "parallel_fetch_success_count": 30,
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:864:      "parallel_fetch_timeout_count": 0,
+src\utils\cost_tracker.py:159:    total_api_calls: int = 0
+src\utils\cost_tracker.py:168:        self.total_api_calls += entry.calls
+src\utils\cost_tracker.py:380:                "total_api_calls": self.ledger.total_api_calls,
+src\utils\cost_tracker.py:572:        print(f"API Calls: {summary['total_api_calls']}")
+src\polaris_graph\discovery\source_adapter_registry.py:204:    backend-id used for `backends_used` / `per_backend_counts` / api_calls
+src\polaris_graph\audit_ir\loader.py:702:    api_calls = raw.get("api_calls", {})
+src\polaris_graph\audit_ir\loader.py:703:    if not isinstance(api_calls, Mapping):
+src\polaris_graph\audit_ir\loader.py:704:        api_calls = {}
+src\polaris_graph\audit_ir\loader.py:706:    for k, v in api_calls.items():
+src\polaris_graph\audit_ir\parallel_fetch.py:226:DEFAULT_PER_BACKEND_LIMIT = 4
+src\polaris_graph\audit_ir\parallel_fetch.py:303:    `DEFAULT_PER_BACKEND_LIMIT`. Pass `{"semantic_scholar": 1,
+src\polaris_graph\audit_ir\parallel_fetch.py:391:                    backend_id, DEFAULT_PER_BACKEND_LIMIT,
+src\polaris_graph\retrieval\live_retriever.py:97:# PG_LIVE_RETRIEVER_MAX_WORKERS is UNSET, the pool scales with the candidate
+src\polaris_graph\retrieval\live_retriever.py:105:# Mirror of parallel_fetch.DEFAULT_PER_BACKEND_LIMIT (4) used as the default
+src\polaris_graph\retrieval\live_retriever.py:108:    DEFAULT_PER_BACKEND_LIMIT as _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
+src\polaris_graph\retrieval\live_retriever.py:118:class LiveRetrievalResult:
+src\polaris_graph\retrieval\live_retriever.py:126:    api_calls: dict[str, int] = field(default_factory=dict)
+src\polaris_graph\retrieval\live_retriever.py:141:    # as SIBLING fields (NOT folded into api_calls: dict[str, int] — that
+src\polaris_graph\retrieval\live_retriever.py:274:    query: str, num: int = 10, api_calls: dict[str, int] | None = None
+src\polaris_graph\retrieval\live_retriever.py:335:        # per query. P2 fix — api_calls['serper'] used to undercount paginated breadth.
+src\polaris_graph\retrieval\live_retriever.py:336:        if api_calls is not None:
+src\polaris_graph\retrieval\live_retriever.py:337:            api_calls["serper"] = api_calls.get("serper", 0) + 1
+src\polaris_graph\retrieval\live_retriever.py:2422:) -> LiveRetrievalResult:
+src\polaris_graph\retrieval\live_retriever.py:2456:    Returns LiveRetrievalResult.
+src\polaris_graph\retrieval\live_retriever.py:2466:    api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
+src\polaris_graph\retrieval\live_retriever.py:2538:        # FX-17 (#1126) iter-2: pass api_calls so each HTTP page (not each query) is counted inside
+src\polaris_graph\retrieval\live_retriever.py:2540:        serper_hits = _serper_search(q, num=max_serper, api_calls=api_calls)
+src\polaris_graph\retrieval\live_retriever.py:2566:        api_calls["s2"] += 1
+src\polaris_graph\retrieval\live_retriever.py:2593:                api_calls["openalex_search"] = api_calls.get("openalex_search", 0) + 1
+src\polaris_graph\retrieval\live_retriever.py:2663:                    api_calls[backend_name] = (
+src\polaris_graph\retrieval\live_retriever.py:2664:                        api_calls.get(backend_name, 0) + 1
+src\polaris_graph\retrieval\live_retriever.py:2699:                    api_calls[backend_name] = (
+src\polaris_graph\retrieval\live_retriever.py:2700:                        api_calls.get(backend_name, 0) + 1
+src\polaris_graph\retrieval\live_retriever.py:2834:        _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
+src\polaris_graph\retrieval\live_retriever.py:2850:                "PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS", "120",
+src\polaris_graph\retrieval\live_retriever.py:2859:        # default mirrors parallel_fetch DEFAULT_PER_BACKEND_LIMIT (4).
+src\polaris_graph\retrieval\live_retriever.py:2861:            "PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT",
+src\polaris_graph\retrieval\live_retriever.py:2862:            _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
+src\polaris_graph\retrieval\live_retriever.py:2891:        # api_calls so the manifest sees a non-zero invocation count.
+src\polaris_graph\retrieval\live_retriever.py:2892:        api_calls["parallel_fetch_success_count"] = (
+src\polaris_graph\retrieval\live_retriever.py:2895:        api_calls["parallel_fetch_errored_count"] = (
+src\polaris_graph\retrieval\live_retriever.py:2898:        api_calls["parallel_fetch_timeout_count"] = (
+src\polaris_graph\retrieval\live_retriever.py:2916:        # LiveRetrievalResult; they are NOT folded into api_calls (contract
+src\polaris_graph\retrieval\live_retriever.py:3013:        api_calls["fetch"] += 1
+src\polaris_graph\retrieval\live_retriever.py:3028:                api_calls["openalex"] += 1
+src\polaris_graph\retrieval\live_retriever.py:3202:    return LiveRetrievalResult(
+src\polaris_graph\retrieval\live_retriever.py:3210:        api_calls=api_calls,
+tests\polaris_graph\discovery\test_source_discovery_phase2.py:616:    def _fake_serper(query, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
+tests\polaris_graph\discovery\test_source_discovery_phase2.py:681:def test_p2_11_dedupe_and_api_calls_accounting(monkeypatch):
+tests\polaris_graph\discovery\test_source_discovery_phase2.py:682:    """Merged candidate dedupe-by-URL + api_calls accounting at the seam."""
+tests\polaris_graph\test_fx18b_openalex_trace_row_iready017.py:60:    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: [])
+tests\polaris_graph\test_fx18b_openalex_trace_row_iready017.py:104:    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: [])
+tests\polaris_graph\planning\test_research_planner_phase1.py:145:    def serper(self, q, num=10, api_calls=None):  # FX-17 (#1126): _serper_search gained api_calls
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:78:def test_api_calls_counts_each_page_not_each_query(monkeypatch):
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:79:    """FX-17 iter-2 P2 fix: api_calls['serper'] must count EACH HTTP page, not once per query."""
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:84:    api_calls = {"serper": 0}
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:85:    lr._serper_search("q", num=20, api_calls=api_calls)
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:86:    assert api_calls["serper"] == 2             # two pages fetched -> two API calls counted
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:89:def test_api_calls_none_is_safe(monkeypatch):
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:90:    """Passing api_calls=None (default) must not raise — back-compat for non-tracking callers."""
+tests\polaris_graph\test_fx17_serper_pagination_iready017.py:92:    out = lr._serper_search("q", num=10)        # no api_calls kwarg
+tests\polaris_graph\test_corpus_truncation_gate.py:3:Asserts truncation is no longer a silent log WARNING: it is carried on LiveRetrievalResult, recorded in the
+tests\polaris_graph\test_corpus_truncation_gate.py:15:from src.polaris_graph.retrieval.live_retriever import LiveRetrievalResult
+tests\polaris_graph\test_corpus_truncation_gate.py:24:        self.api_calls = {"fetch": processed}
+tests\polaris_graph\test_corpus_truncation_gate.py:44:    r = LiveRetrievalResult(
+tests\polaris_graph\test_fx18_s2_keyword_openalex_iready017.py:45:    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: [
+tests\polaris_graph\test_manifest_contract.py:357:    with fetched/failed/api_calls fields."""
+tests\polaris_graph\test_manifest_contract.py:364:        api_calls = {"serper": 3, "s2": 3, "fetch": 20}
+tests\polaris_graph\test_manifest_contract.py:374:    assert r["api_calls"]["serper"] == 3
+tests\polaris_graph\test_md8_phase1_parallel_fetch.py:25:    DEFAULT_PER_BACKEND_LIMIT,
+tests\polaris_graph\test_md8_phase1_parallel_fetch.py:241:    DEFAULT_PER_BACKEND_LIMIT."""
+tests\polaris_graph\test_md8_phase1_parallel_fetch.py:242:    assert DEFAULT_PER_BACKEND_LIMIT >= 1
+tests\polaris_graph\test_md8_phase1_parallel_fetch.py:246:        for i in range(DEFAULT_PER_BACKEND_LIMIT + 2)
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:8:  3. Run-log evidence: api_calls dict carries
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:9:     parallel_fetch_success_count after a real fetch
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:37:def test_live_retriever_can_import_parallel_fetch_substrate() -> None:
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:54:def test_parallel_fetch_invoked_when_flag_default(
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:58:    counts land in api_calls."""
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:120:def test_parallel_fetch_imported_in_live_retriever_block(
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:187:    skipped — no parallel_fetch_success_count key in api_calls.
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:202:        # FX-17 (#1126) added api_calls= to the real _serper_search call site
+tests\polaris_graph\test_m_int_1_parallel_fetch_integration.py:222:    assert "parallel_fetch_success_count" not in result.api_calls
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:296:    # MEDIUM: stub must return a shape-compatible LiveRetrievalResult
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:298:    # candidates_fetched, classified_sources, evidence_rows, api_calls)
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:311:            api_calls={},
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:399:    # Codex round-3 MEDIUM: shape-compatible LiveRetrievalResult
+tests\polaris_graph\test_m_int_5_domain_router_integration.py:411:            api_calls={},
+tests\polaris_graph\test_post_fetch_loop_timeout.py:93:    monkeypatch.setattr(lr, "_serper_search", lambda q, num=10, api_calls=None: list(hits))
+
+ succeeded in 7751ms:
 """
 Live retriever — HONEST-REBUILD.
 
@@ -2926,16 +4883,8 @@ def run_live_retrieval(
             _usable_fetched / _denom if _denom > 0 else None
         )
         _submitted = len(parallel_report.results)
-        # I-fetch-003 (#1175): a NOT_DISPATCHED task (batch-budget starvation)
-        # never ran — it is NOT a completion. Subtract it alongside timeouts so
-        # a starved batch reports a LOW completion rate (else the AC3 diagnostic
-        # this issue added would paint a starved run as near-fully-complete).
         _parallel_completion_rate = (
-            (
-                _submitted
-                - parallel_report.timeout_count
-                - parallel_report.not_dispatched_count
-            ) / _submitted
+            (_submitted - parallel_report.timeout_count) / _submitted
             if _submitted > 0 else None
         )
         _fetch_workers = max_workers
@@ -3226,3 +5175,827 @@ def run_live_retrieval(
         fetch_workers=_fetch_workers,
         distinct_hosts=_distinct_hosts,
     )
+
+codex
+The first pass shows the core deadline arithmetic is start-anchored and monotonic, but there is one execution-risk path I need to pin down: timed-out workers are only best-effort cancelled, so queued tasks can remain not-started forever if every worker is still occupied.
+codex
+The live retriever side keeps the new throughput diagnostics as sibling dataclass fields, and the existing `parallel_fetch_*` api call keys are unchanged. I’m checking whether the offline tests would actually catch the queued-behind-timeout case and whether any import/contract changes leak outside retrieval.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/audit_ir/parallel_fetch.py | ForEach-Object { $i++; if ($i -ge 330 -and $i -le 585) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/retrieval/live_retriever.py | ForEach-Object { $i++; if ($i -ge 80 -and $i -le 150) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/retrieval/live_retriever.py | ForEach-Object { $i++; if ($i -ge 2770 -and $i -le 2938) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/test_parallel_fetch_ifetch003.py | ForEach-Object { $i++; if (($i -ge 118 -and $i -le 230) -or ($i -ge 300 -and $i -le 370)) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 2568ms:
+ 2770:     # ------------------------------------------------------------------
+ 2771:     # Wires `parallel_fetch.parallel_fetch(...)` into the content-fetch
+ 2772:     # loop. Per FINAL_PLAN.md M-INT-1: imported, invoked, run-log
+ 2773:     # evidence, and PG_USE_PARALLEL_FETCH=0 disables (rollback).
+ 2774:     #
+ 2775:     # The substrate's ParallelFetcher Protocol expects (bytes, str,
+ 2776:     # int). Live retrieval's existing _fetch_content returns
+ 2777:     # (content, ok, title, body_type, jsonld) — we wrap it in an adapter
+ 2778:     # that stashes the full 5-tuple in a side dict keyed by URL,
+ 2779:     # then post-process serially using the side dict. Diff-gate P1-C: the 5th
+ 2780:     # element is the raw ld+json captured before _strip_html (Signal C input).
+ 2781:     use_parallel = os.environ.get("PG_USE_PARALLEL_FETCH", "1") != "0"
+ 2782:     fetched_side: dict[str, tuple[str, bool, str, str, str]] = {}
+ 2783:     # I-fetch-003 (#1175 / AC3): retrieval-throughput diagnostics. Stay None on
+ 2784:     # the serial fallback / no-candidates path (no parallel_fetch report).
+ 2785:     _fetch_success_rate: float | None = None
+ 2786:     _parallel_completion_rate: float | None = None
+ 2787:     _fetch_workers: int | None = None
+ 2788:     _distinct_hosts: int | None = None
+ 2789: 
+ 2790:     if use_parallel and candidates:
+ 2791:         from src.polaris_graph.audit_ir.parallel_fetch import (
+ 2792:             FetchOutcome,
+ 2793:             FetchTask,
+ 2794:             parallel_fetch,
+ 2795:         )
+ 2796: 
+ 2797:         class _LiveContentParallelFetcher:
+ 2798:             """Adapter wrapping `_fetch_content(url, max_chars)` for
+ 2799:             the parallel_fetch substrate's ParallelFetcher Protocol.
+ 2800:             Stashes the full 5-tuple (content, ok, title, body_type, jsonld)
+ 2801:             in a thread-safe side dict so the post-processing loop
+ 2802:             can read it back per-candidate."""
+ 2803: 
+ 2804:             def __init__(self, max_chars: int) -> None:
+ 2805:                 self.max_chars = max_chars
+ 2806:                 self._lock = threading.Lock()
+ 2807:                 self.results = fetched_side
+ 2808: 
+ 2809:             def fetch(
+ 2810:                 self, task: "FetchTask"
+ 2811:             ) -> tuple[bytes, str, int]:
+ 2812:                 # I-meta-007c: surface the per-candidate DOI/PMID hints
+ 2813:                 # (stashed in task_metadata at task construction) so the OA
+ 2814:                 # resolver can fire on the DEFAULT parallel path, not just the
+ 2815:                 # serial fallback.
+ 2816:                 _meta = task.task_metadata or {}
+ 2817:                 content, ok, title, body_type, jsonld = _fetch_content(
+ 2818:                     task.source_url, self.max_chars,
+ 2819:                     doi_hint=str(_meta.get("doi") or ""),
+ 2820:                     pmid_hint=str(_meta.get("pmid") or ""),
+ 2821:                 )
+ 2822:                 with self._lock:
+ 2823:                     self.results[task.source_url] = (
+ 2824:                         content, ok, title, body_type, jsonld,
+ 2825:                     )
+ 2826:                 payload = (content or "").encode("utf-8", errors="replace")
+ 2827:                 return (payload, "text/plain", 200 if ok else 502)
+ 2828: 
+ 2829:         # I-fetch-003 (#1175 / BB5-C02): scale max_workers with the candidate
+ 2830:         # count instead of a flat default-8. Explicit env wins; when UNSET,
+ 2831:         # min(_CEILING, max(_FLOOR, len(candidates) // _PER_CANDIDATE)). Named
+ 2832:         # constants (LAW VI — no magic numbers). For ~740 candidates this
+ 2833:         # yields ~46 workers; small corpora stay at the floor of 8.
+ 2834:         _explicit_workers = os.environ.get("PG_LIVE_RETRIEVER_MAX_WORKERS")
+ 2835:         if _explicit_workers is not None:
+ 2836:             try:
+ 2837:                 max_workers = max(1, int(_explicit_workers))
+ 2838:             except ValueError:
+ 2839:                 max_workers = _FETCH_WORKERS_FLOOR
+ 2840:         else:
+ 2841:             max_workers = min(
+ 2842:                 _FETCH_WORKERS_CEILING,
+ 2843:                 max(
+ 2844:                     _FETCH_WORKERS_FLOOR,
+ 2845:                     len(candidates) // _FETCH_WORKERS_PER_CANDIDATE,
+ 2846:                 ),
+ 2847:             )
+ 2848:         try:
+ 2849:             per_task_timeout = float(os.environ.get(
+ 2850:                 "PG_LIVE_RETRIEVER_FETCH_TIMEOUT_SECONDS", "120",
+ 2851:             ))
+ 2852:         except ValueError:
+ 2853:             per_task_timeout = 120.0
+ 2854: 
+ 2855:         # I-fetch-003 (#1175 / BB5-C02): per-HOST politeness limit. The
+ 2856:         # parallel_fetch semaphore is keyed by FetchTask.backend_id; keying it
+ 2857:         # by the URL host (below) gives each host its own Semaphore so distinct
+ 2858:         # hosts fetch concurrently while same-host stays capped. Env-overridable;
+ 2859:         # default mirrors parallel_fetch DEFAULT_PER_BACKEND_LIMIT (4).
+ 2860:         _per_host_limit = _env_int(
+ 2861:             "PG_LIVE_RETRIEVER_PER_HOST_CONCURRENT",
+ 2862:             _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
+ 2863:         )
+ 2864: 
+ 2865:         fetch_tasks = []
+ 2866:         _per_host_concurrent: dict[str, int] = {}
+ 2867:         for idx, c in enumerate(candidates):
+ 2868:             # I-meta-007c: carry the candidate's DOI/PMID hints into the
+ 2869:             # FetchTask so _LiveContentParallelFetcher.fetch can pass them to
+ 2870:             # _fetch_content for the OA resolver (default = parallel path).
+ 2871:             _doi, _pmid = _candidate_oa_hints(getattr(c, "metadata", None))
+ 2872:             # I-fetch-003 (#1175): key the rate-limit class by URL host so the
+ 2873:             # parallel_fetch host-semaphore yields cross-host parallelism.
+ 2874:             _host = urlsplit(c.url).hostname or "default"
+ 2875:             _per_host_concurrent[_host] = _per_host_limit
+ 2876:             fetch_tasks.append(
+ 2877:                 FetchTask(
+ 2878:                     source_url=c.url,
+ 2879:                     backend_id=_host,
+ 2880:                     task_metadata={"index": idx, "doi": _doi, "pmid": _pmid},
+ 2881:                 )
+ 2882:             )
+ 2883:         fetcher = _LiveContentParallelFetcher(DEFAULT_CONTENT_MAX_CHARS)
+ 2884:         parallel_report = parallel_fetch(
+ 2885:             fetch_tasks, fetcher,
+ 2886:             max_workers=max_workers,
+ 2887:             per_backend_max_concurrent=_per_host_concurrent,
+ 2888:             per_task_timeout=per_task_timeout,
+ 2889:         )
+ 2890:         # Run-log evidence: persist the substrate's report into
+ 2891:         # api_calls so the manifest sees a non-zero invocation count.
+ 2892:         api_calls["parallel_fetch_success_count"] = (
+ 2893:             parallel_report.success_count
+ 2894:         )
+ 2895:         api_calls["parallel_fetch_errored_count"] = (
+ 2896:             parallel_report.errored_count
+ 2897:         )
+ 2898:         api_calls["parallel_fetch_timeout_count"] = (
+ 2899:             parallel_report.timeout_count
+ 2900:         )
+ 2901:         logger.info(
+ 2902:             "[live_retriever] M-INT-1 parallel_fetch: %d success, "
+ 2903:             "%d errored, %d timeout (max_workers=%d, "
+ 2904:             "per_task_timeout=%.0fs)",
+ 2905:             parallel_report.success_count,
+ 2906:             parallel_report.errored_count,
+ 2907:             parallel_report.timeout_count,
+ 2908:             max_workers, per_task_timeout,
+ 2909:         )
+ 2910:         # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics.
+ 2911:         # fetch_success_rate = usable / (usable + failed): a SUCCESS outcome
+ 2912:         # with a 2xx status is "usable"; an ERRORED/TIMEOUT or a non-2xx
+ 2913:         # SUCCESS (the adapter returns 502 when _fetch_content reports not-ok)
+ 2914:         # is "failed". parallel_completion_rate = completed-in-deadline /
+ 2915:         # submitted (1 - timeout_fraction). These are SIBLING fields surfaced on
+ 2916:         # LiveRetrievalResult; they are NOT folded into api_calls (contract
+ 2917:         # stays unwidened, M-INT-1 fields above unchanged).
+ 2918:         _usable_fetched = sum(
+ 2919:             1 for r in parallel_report.results
+ 2920:             if r.outcome is FetchOutcome.SUCCESS
+ 2921:             and (r.fetch_status_code or 0) < 400
+ 2922:         )
+ 2923:         _failed_fetched = len(parallel_report.results) - _usable_fetched
+ 2924:         _denom = _usable_fetched + _failed_fetched
+ 2925:         _fetch_success_rate = (
+ 2926:             _usable_fetched / _denom if _denom > 0 else None
+ 2927:         )
+ 2928:         _submitted = len(parallel_report.results)
+ 2929:         _parallel_completion_rate = (
+ 2930:             (_submitted - parallel_report.timeout_count) / _submitted
+ 2931:             if _submitted > 0 else None
+ 2932:         )
+ 2933:         _fetch_workers = max_workers
+ 2934:         _distinct_hosts = len(_per_host_concurrent)
+ 2935:         if (
+ 2936:             _fetch_success_rate is not None
+ 2937:             and _fetch_success_rate < _FETCH_SUCCESS_RATE_WARN_FLOOR
+ 2938:         ):
+
+ succeeded in 4316ms:
+   80: AUTHORITY_CACHE_DB = Path(
+   81:     os.getenv("PG_AUTHORITY_CACHE_DB", "cache/authority_enrich.sqlite")
+   82: )
+   83: # I-ready-017 #1134 (Codex diff-gate P1-2): bumped 1->2 so cached enrich payloads
+   84: # written before the journal_only `is_retracted` + `openalex_venue` fields are
+   85: # REBUILT (not served stale) — a cached retracted article must not pass the
+   86: # journal_only predicate via a payload that predates the retraction field.
+   87: AUTHORITY_CACHE_SCHEMA_VERSION = 2
+   88: 
+   89: # Hard caps
+   90: DEFAULT_MAX_SERPER = int(os.getenv("PG_LIVE_MAX_SERPER", "20"))
+   91: DEFAULT_MAX_S2 = int(os.getenv("PG_LIVE_MAX_S2", "20"))
+   92: DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+   93: DEFAULT_CONTENT_MAX_CHARS = int(os.getenv("PG_LIVE_CONTENT_MAX", "25000"))
+   94: DEFAULT_HTTP_TIMEOUT = float(os.getenv("PG_LIVE_HTTP_TIMEOUT", "20"))
+   95: 
+   96: # I-fetch-003 (#1175 / BB5-C02): parallel-fetch worker-pool sizing. When
+   97: # PG_LIVE_RETRIEVER_MAX_WORKERS is UNSET, the pool scales with the candidate
+   98: # count: min(_CEILING, max(_FLOOR, len(candidates) // _PER_CANDIDATE)). Named
+   99: # constants (LAW VI — no magic numbers). Floor keeps small corpora at the
+  100: # legacy default of 8; ceiling caps the pool so a huge corpus cannot spawn an
+  101: # unbounded thread count; per-candidate divisor sets the ramp.
+  102: _FETCH_WORKERS_FLOOR = 8
+  103: _FETCH_WORKERS_CEILING = 48
+  104: _FETCH_WORKERS_PER_CANDIDATE = 16
+  105: # Mirror of parallel_fetch.DEFAULT_PER_BACKEND_LIMIT (4) used as the default
+  106: # per-HOST concurrency cap; imported as a named constant rather than hardcoded.
+  107: from src.polaris_graph.audit_ir.parallel_fetch import (  # noqa: E402
+  108:     DEFAULT_PER_BACKEND_LIMIT as _PARALLEL_FETCH_DEFAULT_PER_BACKEND_LIMIT,
+  109: )
+  110: # I-fetch-003 (#1175 / AC3): WARN floor for the new fetch_success_rate
+  111: # retrieval diagnostic. Env-overridable; below this, a loud warning fires.
+  112: _FETCH_SUCCESS_RATE_WARN_FLOOR = float(
+  113:     os.getenv("PG_LIVE_FETCH_SUCCESS_RATE_WARN_FLOOR", "0.5")
+  114: )
+  115: 
+  116: 
+  117: @dataclass
+  118: class LiveRetrievalResult:
+  119:     classified_sources: list[CorpusSource]
+  120:     evidence_rows: list[dict[str, Any]]
+  121:     total_candidates_pre_filter: int
+  122:     candidates_kept_by_scope: int
+  123:     candidates_kept_by_offtopic: int
+  124:     candidates_fetched: int
+  125:     candidates_failed_fetch: int
+  126:     api_calls: dict[str, int] = field(default_factory=dict)
+  127:     notes: list[str] = field(default_factory=list)
+  128:     # #958 (S2): fail-loud corpus-truncation signal. True when the post-fetch
+  129:     # loop budget (PG_POST_FETCH_LOOP_BUDGET) broke mid-corpus, leaving later
+  130:     # candidates unclassified. Defaults keep existing constructors valid.
+  131:     corpus_truncated: bool = False
+  132:     candidates_total: int = 0
+  133:     candidates_processed: int = 0
+  134:     # I-ready-017 #1134: journal_only metadata sidecar, keyed by canonical URL.
+  135:     # Populated ONLY on the journal_only ON path (None = OFF = byte-identical).
+  136:     # Carries the per-source journal-article signals (openalex pub_type /
+  137:     # source_type / is_peer_reviewed / is_retracted / doi / venue) that the
+  138:     # citeability predicate needs; merged across retrieval stages by the sweep.
+  139:     journal_metadata_sidecar: dict[str, Any] | None = None
+  140:     # I-fetch-003 (#1175 / AC3): NEW retrieval-throughput diagnostics, emitted
+  141:     # as SIBLING fields (NOT folded into api_calls: dict[str, int] — that
+  142:     # contract stays unwidened). None when the parallel-fetch path did not run
+  143:     # (serial fallback or no candidates). fetch_success_rate = usable / (usable
+  144:     # + failed); parallel_completion_rate = completed-in-deadline / submitted.
+  145:     fetch_success_rate: float | None = None
+  146:     parallel_completion_rate: float | None = None
+  147:     fetch_workers: int | None = None
+  148:     distinct_hosts: int | None = None
+  149: 
+  150: 
+
+ succeeded in 6030ms:
+  330:         )
+  331:     if fetcher is None or not hasattr(fetcher, "fetch"):
+  332:         raise ParallelFetchError(
+  333:             "fetcher must implement the ParallelFetcher Protocol"
+  334:         )
+  335:     if max_workers < 1:
+  336:         raise ParallelFetchError(
+  337:             f"max_workers must be >= 1, got {max_workers}"
+  338:         )
+  339:     if per_task_timeout is not None and per_task_timeout <= 0:
+  340:         raise ParallelFetchError(
+  341:             f"per_task_timeout must be > 0 or None, got "
+  342:             f"{per_task_timeout}"
+  343:         )
+  344: 
+  345:     if per_backend_max_concurrent is not None:
+  346:         for k, v in per_backend_max_concurrent.items():
+  347:             if not isinstance(v, int) or v < 1:
+  348:                 raise ParallelFetchError(
+  349:                     f"per_backend_max_concurrent[{k!r}] must be "
+  350:                     f"a positive int, got {v!r}"
+  351:                 )
+  352: 
+  353:     # Build deduplicated task list (first wins).
+  354:     seen_keys: set[tuple[str, str]] = set()
+  355:     deduped: list[FetchTask] = []
+  356:     for i, task in enumerate(tasks):
+  357:         if not isinstance(task, FetchTask):
+  358:             raise ParallelFetchError(
+  359:                 f"tasks[{i}] must be FetchTask, got "
+  360:                 f"{type(task).__name__}"
+  361:             )
+  362:         key = (task.source_url, task.backend_id)
+  363:         if key in seen_keys:
+  364:             continue
+  365:         seen_keys.add(key)
+  366:         deduped.append(task)
+  367: 
+  368:     started_at = time.time()
+  369: 
+  370:     if not deduped:
+  371:         return ParallelFetchReport(
+  372:             started_at=started_at,
+  373:             finished_at=started_at,
+  374:             results=(),
+  375:             success_count=0,
+  376:             errored_count=0,
+  377:             timeout_count=0,
+  378:         )
+  379: 
+  380:     # Per-backend semaphores. Lazily allocated on first task
+  381:     # for each backend.
+  382:     backend_limits: dict[str, int] = dict(per_backend_max_concurrent or {})
+  383:     semaphores: dict[str, threading.Semaphore] = {}
+  384:     semaphores_lock = threading.Lock()
+  385: 
+  386:     def _get_semaphore(backend_id: str) -> threading.Semaphore:
+  387:         with semaphores_lock:
+  388:             sem = semaphores.get(backend_id)
+  389:             if sem is None:
+  390:                 limit = backend_limits.get(
+  391:                     backend_id, DEFAULT_PER_BACKEND_LIMIT,
+  392:                 )
+  393:                 sem = threading.Semaphore(limit)
+  394:                 semaphores[backend_id] = sem
+  395:             return sem
+  396: 
+  397:     # I-fetch-003 (BB5-C01): the deadline is START-anchored, so we record the
+  398:     # MONOTONIC start of each task (immune to wall-clock jumps) keyed by index
+  399:     # under the lock. The wall-clock start is kept separately ONLY for the
+  400:     # FetchResultRecord.started_at report field (AC7 — never used in deadline
+  401:     # arithmetic). A not-yet-started index is absent from BOTH maps → +inf
+  402:     # effective deadline → cannot TIMEOUT before it runs.
+  403:     task_started_monotonic_by_index: dict[int, float] = {}
+  404:     task_started_wall_by_index: dict[int, float] = {}
+  405:     task_started_lock = threading.Lock()
+  406: 
+  407:     def _run_task(
+  408:         index: int, task: FetchTask,
+  409:     ) -> FetchResultRecord:
+  410:         sem = _get_semaphore(task.backend_id)
+  411:         sem.acquire()
+  412:         task_started = time.time()
+  413:         task_started_mono = time.monotonic()
+  414:         with task_started_lock:
+  415:             task_started_monotonic_by_index[index] = task_started_mono
+  416:             task_started_wall_by_index[index] = task_started
+  417:         try:
+  418:             try:
+  419:                 result = fetcher.fetch(task)
+  420:             except Exception as exc:  # noqa: BLE001 — intentional broad
+  421:                 return FetchResultRecord(
+  422:                     source_url=task.source_url,
+  423:                     backend_id=task.backend_id,
+  424:                     outcome=FetchOutcome.ERRORED,
+  425:                     payload=None,
+  426:                     content_type=None,
+  427:                     fetch_status_code=None,
+  428:                     error=str(exc),
+  429:                     started_at=task_started,
+  430:                     finished_at=time.time(),
+  431:                     task_metadata=task.task_metadata,
+  432:                 )
+  433: 
+  434:             if (
+  435:                 not isinstance(result, tuple)
+  436:                 or len(result) != 3
+  437:                 or not isinstance(result[0], (bytes, bytearray))
+  438:                 or not isinstance(result[1], str)
+  439:                 or not isinstance(result[2], int)
+  440:             ):
+  441:                 raise FetcherProtocolError(
+  442:                     f"fetcher.fetch({task.source_url!r}) returned "
+  443:                     f"{type(result).__name__}, expected "
+  444:                     "tuple[bytes, str, int]"
+  445:                 )
+  446: 
+  447:             payload, content_type, status = result
+  448:             return FetchResultRecord(
+  449:                 source_url=task.source_url,
+  450:                 backend_id=task.backend_id,
+  451:                 outcome=FetchOutcome.SUCCESS,
+  452:                 payload=bytes(payload),
+  453:                 content_type=content_type,
+  454:                 fetch_status_code=status,
+  455:                 error=None,
+  456:                 started_at=task_started,
+  457:                 finished_at=time.time(),
+  458:                 task_metadata=task.task_metadata,
+  459:             )
+  460:         finally:
+  461:             sem.release()
+  462: 
+  463:     results_by_index: dict[int, FetchResultRecord] = {}
+  464: 
+  465:     # Codex round-1 HIGH fix (v2): manage executor manually so we
+  466:     # can shutdown(wait=False, cancel_futures=True) on TIMEOUT.
+  467:     # The `with` block's __exit__ calls shutdown(wait=True) which
+  468:     # blocks until all in-flight workers finish — defeating
+  469:     # boundary 3's caller-latency promise.
+  470:     executor = concurrent.futures.ThreadPoolExecutor(
+  471:         max_workers=max_workers,
+  472:     )
+  473:     try:
+  474:         future_to_index: dict[concurrent.futures.Future, int] = {}
+  475:         # I-fetch-003 (BB5-C02): submit in ROUND-ROBIN backend order so the
+  476:         # first `max_workers` submissions span up to `max_workers` distinct
+  477:         # backends/hosts. Without this, a clustered same-host candidate prefix
+  478:         # makes the first workers all block on ONE host-semaphore (acquired
+  479:         # inside `_run_task`), starving distinct-host tasks queued behind them.
+  480:         # `_round_robin_indices` returns ORIGINAL deduped indices, so result
+  481:         # indexing into `results_by_index` is unchanged (correctness preserved).
+  482:         submit_order = _round_robin_indices(deduped)
+  483:         for idx in submit_order:
+  484:             task = deduped[idx]
+  485:             fut = executor.submit(_run_task, idx, task)
+  486:             future_to_index[fut] = idx
+  487: 
+  488:         remaining: set[concurrent.futures.Future] = set(future_to_index)
+  489:         protocol_error_to_raise: FetcherProtocolError | None = None
+  490: 
+  491:         def _effective_deadline_monotonic(idx: int) -> float:
+  492:             # I-fetch-003 (BB5-C01): START-anchored, MONOTONIC effective
+  493:             # deadline. A not-yet-started index (absent from the start map)
+  494:             # → +inf: it CANNOT TIMEOUT before it runs. A started index →
+  495:             # its OWN observed start + per_task_timeout. Caller holds
+  496:             # `task_started_lock`.
+  497:             started = task_started_monotonic_by_index.get(idx)
+  498:             if started is None:
+  499:                 return float("inf")
+  500:             return started + per_task_timeout  # type: ignore[operator]
+  501: 
+  502:         while remaining and protocol_error_to_raise is None:
+  503:             if per_task_timeout is None:
+  504:                 # No timeout — just wait for the next completion.
+  505:                 done, _ = concurrent.futures.wait(
+  506:                     remaining,
+  507:                     return_when=concurrent.futures.FIRST_COMPLETED,
+  508:                 )
+  509:             else:
+  510:                 # I-fetch-003 (BB5-C01): BOUNDED-POLL harvest. The wait is
+  511:                 # ALWAYS bounded by `_HARVEST_POLL_INTERVAL_SECONDS`, never
+  512:                 # `timeout=None`, so a task that STARTS after this snapshot
+  513:                 # (or one that hangs) is re-checked against ITS OWN start-
+  514:                 # anchored deadline within the poll interval — the harvest
+  515:                 # never relies on a sibling completing to make progress.
+  516:                 now_mono = time.monotonic()
+  517:                 with task_started_lock:
+  518:                     next_deadline = min(
+  519:                         _effective_deadline_monotonic(future_to_index[f])
+  520:                         for f in remaining
+  521:                     )
+  522:                 wait_timeout = min(
+  523:                     max(0.0, next_deadline - now_mono),
+  524:                     _HARVEST_POLL_INTERVAL_SECONDS,
+  525:                 )
+  526:                 done, _ = concurrent.futures.wait(
+  527:                     remaining,
+  528:                     timeout=wait_timeout,
+  529:                     return_when=concurrent.futures.FIRST_COMPLETED,
+  530:                 )
+  531: 
+  532:             if done:
+  533:                 for fut in done:
+  534:                     idx = future_to_index[fut]
+  535:                     task = deduped[idx]
+  536:                     try:
+  537:                         rec = fut.result()
+  538:                     except FetcherProtocolError as exc:
+  539:                         protocol_error_to_raise = exc
+  540:                         break
+  541:                     results_by_index[idx] = rec
+  542:                     remaining.discard(fut)
+  543: 
+  544:             if protocol_error_to_raise is not None:
+  545:                 break
+  546: 
+  547:             if per_task_timeout is not None:
+  548:                 # Recompute the expired set from CURRENT start-times after
+  549:                 # every wake (whether or not anything completed). A task is
+  550:                 # TIMEOUT iff IT exceeded ITS OWN start-anchored budget.
+  551:                 now_mono = time.monotonic()
+  552:                 with task_started_lock:
+  553:                     expired = [
+  554:                         f for f in list(remaining)
+  555:                         if _effective_deadline_monotonic(
+  556:                             future_to_index[f]
+  557:                         ) <= now_mono
+  558:                     ]
+  559:                 if expired:
+  560:                     now_wall = time.time()
+  561:                     for fut in expired:
+  562:                         idx = future_to_index[fut]
+  563:                         task = deduped[idx]
+  564:                         fut.cancel()  # best-effort
+  565:                         with task_started_lock:
+  566:                             timeout_started_at = (
+  567:                                 task_started_wall_by_index.get(idx, now_wall)
+  568:                             )
+  569:                         results_by_index[idx] = FetchResultRecord(
+  570:                             source_url=task.source_url,
+  571:                             backend_id=task.backend_id,
+  572:                             outcome=FetchOutcome.TIMEOUT,
+  573:                             payload=None,
+  574:                             content_type=None,
+  575:                             fetch_status_code=None,
+  576:                             error="per-task timeout exceeded",
+  577:                             started_at=timeout_started_at,
+  578:                             finished_at=now_wall,
+  579:                             task_metadata=task.task_metadata,
+  580:                         )
+  581:                         remaining.discard(fut)
+  582: 
+  583:         if protocol_error_to_raise is not None:
+  584:             for other_fut in remaining:
+  585:                 other_fut.cancel()
+
+ succeeded in 7576ms:
+  118: def test_round_robin_indices_single_backend_preserves_order() -> None:
+  119:     tasks = [FetchTask(f"https://a/{i}", "host_a") for i in range(5)]
+  120:     assert _round_robin_indices(tasks) == [0, 1, 2, 3, 4]
+  121: 
+  122: 
+  123: # ---------------------------------------------------------------------------
+  124: # (a) slow task does NOT time out fast/queued siblings
+  125: # ---------------------------------------------------------------------------
+  126: 
+  127: 
+  128: def test_slow_task_does_not_timeout_fast_siblings(
+  129:     monkeypatch: pytest.MonkeyPatch,
+  130: ) -> None:
+  131:     """C01 root cause: ONE slow task must not drag fast (and not-yet-
+  132:     started) siblings into a batch TIMEOUT. Start-anchoring means a
+  133:     not-yet-started task has a +inf deadline; a fast task that runs
+  134:     well inside its own budget SUCCEEDS."""
+  135:     clock = _VirtualClock()
+  136:     monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+  137:     # Shrink the bounded poll so the harvest loop wakes fast (no real 2s).
+  138:     monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+  139: 
+  140:     urls = ["https://fast/1", "https://fast/2", "https://slow/1"]
+  141:     release = {u: threading.Event() for u in urls}
+  142:     # Release the two fast tasks immediately; the slow one stays gated
+  143:     # but will finish WELL within its own budget (no clock advance).
+  144:     release["https://fast/1"].set()
+  145:     release["https://fast/2"].set()
+  146:     release["https://slow/1"].set()
+  147:     fetcher = _GatedFetcher(release_events=release, clock=clock)
+  148: 
+  149:     tasks = [FetchTask(u, "default") for u in urls]
+  150:     report = parallel_fetch(
+  151:         tasks, fetcher,
+  152:         max_workers=4,
+  153:         per_backend_max_concurrent={"default": 4},
+  154:         per_task_timeout=100.0,
+  155:     )
+  156:     # None timed out: every task ran inside its own start-anchored budget.
+  157:     assert report.timeout_count == 0
+  158:     assert report.success_count == 3
+  159:     assert all(r.outcome is FetchOutcome.SUCCESS for r in report.results)
+  160: 
+  161: 
+  162: # ---------------------------------------------------------------------------
+  163: # (b) a task exceeding ITS OWN budget IS TIMEOUT even with no sibling done
+  164: # ---------------------------------------------------------------------------
+  165: 
+  166: 
+  167: def test_task_over_own_budget_is_timeout_without_sibling_completion(
+  168:     monkeypatch: pytest.MonkeyPatch,
+  169: ) -> None:
+  170:     """A single task that consumes MORE than its own start-anchored
+  171:     budget is marked TIMEOUT — the bounded poll catches it within the
+  172:     poll interval and does NOT rely on any sibling completing."""
+  173:     clock = _VirtualClock()
+  174:     monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+  175:     monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+  176: 
+  177:     # The single task starts, advances the virtual clock PAST its budget,
+  178:     # then stays gated (never completes). The harvest loop must TIMEOUT it.
+  179:     url = "https://hang/1"
+  180:     release = {url: threading.Event()}  # never set -> never completes
+  181:     started = {url: threading.Event()}
+  182:     fetcher = _GatedFetcher(
+  183:         release_events=release,
+  184:         clock=clock,
+  185:         clock_advance=5.0,  # > per_task_timeout below
+  186:         started_events=started,
+  187:     )
+  188: 
+  189:     tasks = [FetchTask(url, "default")]
+  190:     report = parallel_fetch(
+  191:         tasks, fetcher,
+  192:         max_workers=2,
+  193:         per_task_timeout=1.0,
+  194:     )
+  195:     assert report.timeout_count == 1
+  196:     rec = report.results[0]
+  197:     assert rec.outcome is FetchOutcome.TIMEOUT
+  198:     assert rec.error == "per-task timeout exceeded"
+  199:     # The gated worker did start (proving the budget was START-anchored,
+  200:     # not relabeled at submit time).
+  201:     assert started[url].is_set()
+  202: 
+  203: 
+  204: def test_not_yet_started_task_never_times_out_behind_a_slot_hog(
+  205:     monkeypatch: pytest.MonkeyPatch,
+  206: ) -> None:
+  207:     """With max_workers=1, a queued (not-yet-started) task has a +inf
+  208:     effective deadline: even though wall time passes while the first
+  209:     task hogs the only slot, the queued task is NOT batch-TIMEOUT'd —
+  210:     it runs and SUCCEEDS once the slot frees. (Inverse of C01.)"""
+  211:     clock = _VirtualClock()
+  212:     monkeypatch.setattr(pf_mod.time, "monotonic", clock.monotonic)
+  213:     monkeypatch.setattr(pf_mod, "_HARVEST_POLL_INTERVAL_SECONDS", 0.02)
+  214: 
+  215:     first, second = "https://first/1", "https://second/1"
+  216:     release = {first: threading.Event(), second: threading.Event()}
+  217:     started = {first: threading.Event(), second: threading.Event()}
+  218:     release[second].set()  # second completes instantly once it starts
+  219:     fetcher = _GatedFetcher(
+  220:         release_events=release, clock=clock, started_events=started,
+  221:     )
+  222: 
+  223:     tasks = [FetchTask(first, "default"), FetchTask(second, "default")]
+  224: 
+  225:     def _run() -> pf_mod.ParallelFetchReport:
+  226:         return parallel_fetch(
+  227:             tasks, fetcher,
+  228:             max_workers=1,  # second is QUEUED behind first
+  229:             per_task_timeout=1.0,
+  230:         )
+  300:     assert rep_diff.success_count == 2
+  301:     # Two distinct hosts run concurrently -> ~0.05, not ~0.10.
+  302:     assert diff_elapsed < 0.09, (
+  303:         f"distinct-host elapsed {diff_elapsed} suggests no cross-host "
+  304:         "parallelism"
+  305:     )
+  306: 
+  307: 
+  308: # ---------------------------------------------------------------------------
+  309: # (d) ADVERSARIAL — round-robin submit defeats worker-slot hoarding
+  310: # ---------------------------------------------------------------------------
+  311: 
+  312: 
+  313: def test_roundrobin_other_host_starts_before_same_host_prefix_drains() -> None:
+  314:     """ADVERSARIAL: a clustered same-host prefix (more tasks than
+  315:     max_workers, each on host_a capped at 1) followed by ONE host_b
+  316:     task. Without round-robin submit the first max_workers workers all
+  317:     block on host_a's single semaphore and host_b starves until the
+  318:     prefix drains. With round-robin submit, host_b is submitted in the
+  319:     first round and STARTS before the host_a prefix finishes.
+  320:     """
+  321:     n_same = 6  # > max_workers
+  322:     max_workers = 4
+  323:     same_urls = [f"https://host_a/{i}" for i in range(n_same)]
+  324:     other_url = "https://host_b/1"
+  325: 
+  326:     release = {u: threading.Event() for u in same_urls}
+  327:     release[other_url] = threading.Event()
+  328:     release[other_url].set()  # host_b completes immediately once started
+  329:     started = {u: threading.Event() for u in same_urls}
+  330:     started[other_url] = threading.Event()
+  331:     fetcher = _GatedFetcher(
+  332:         release_events=release, started_events=started,
+  333:     )
+  334: 
+  335:     # Same-host prefix THEN the other host (the hoarding-bait order).
+  336:     tasks = [FetchTask(u, "host_a") for u in same_urls]
+  337:     tasks.append(FetchTask(other_url, "host_b"))
+  338: 
+  339:     holder: dict[str, object] = {}
+  340: 
+  341:     def _run() -> None:
+  342:         holder["r"] = parallel_fetch(
+  343:             tasks, fetcher,
+  344:             max_workers=max_workers,
+  345:             # host_a capped at 1 -> only one host_a task runs at a time;
+  346:             # the other 3 worker slots would be IDLE-but-blocked under a
+  347:             # naive submit order. Round-robin must let host_b run.
+  348:             per_backend_max_concurrent={"host_a": 1, "host_b": 1},
+  349:             per_task_timeout=None,
+  350:         )
+  351: 
+  352:     runner = threading.Thread(target=_run)
+  353:     runner.start()
+  354:     # host_b must START while the host_a prefix is still gated (none of
+  355:     # the host_a tasks have been released yet).
+  356:     assert started[other_url].wait(timeout=5.0), (
+  357:         "host_b did not start before the host_a prefix drained — "
+  358:         "round-robin submit failed to defeat worker-slot hoarding"
+  359:     )
+  360:     # Confirm the host_a prefix is genuinely still blocked (proof the
+  361:     # other host started CONCURRENTLY, not after the prefix completed).
+  362:     assert not all(started[u].is_set() for u in same_urls[1:])
+  363: 
+  364:     # Drain the host_a prefix so the run can finish cleanly.
+  365:     for ev in release.values():
+  366:         ev.set()
+  367:     runner.join(timeout=10.0)
+  368:     report = holder["r"]  # type: ignore[assignment]
+  369:     assert report.success_count == n_same + 1
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content tests/polaris_graph/test_parallel_fetch_ifetch003.py | ForEach-Object { $i++; if ($i -ge 230 -and $i -le 260) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 2184ms:
+  230:         )
+  231: 
+  232:     holder: dict[str, object] = {}
+  233:     runner = threading.Thread(target=lambda: holder.update(r=_run()))
+  234:     runner.start()
+  235:     # First task has started and is holding the only worker slot.
+  236:     assert started[first].wait(timeout=5.0)
+  237:     # Advance virtual time PAST first's budget. The QUEUED second task
+  238:     # has no start yet (+inf deadline) -> must NOT be timed out.
+  239:     clock.advance(10.0)
+  240:     time.sleep(0.1)
+  241:     assert not started[second].is_set()  # still queued, not started
+  242:     # Release first inside its (virtual) budget consumption is moot — it
+  243:     # already over-ran; it will TIMEOUT. Free the slot so second can run.
+  244:     release[first].set()
+  245:     runner.join(timeout=10.0)
+  246:     report = holder["r"]  # type: ignore[assignment]
+  247: 
+  248:     outcomes = {r.source_url: r.outcome for r in report.results}
+  249:     # first over-ran its own budget -> TIMEOUT; second ran fresh -> SUCCESS.
+  250:     assert outcomes[second] is FetchOutcome.SUCCESS
+  251:     assert outcomes[first] is FetchOutcome.TIMEOUT
+  252: 
+  253: 
+  254: # ---------------------------------------------------------------------------
+  255: # (c) two distinct hosts concurrent; same-host capped at per-host limit
+  256: # ---------------------------------------------------------------------------
+  257: 
+  258: 
+  259: def test_distinct_hosts_run_concurrently_same_host_capped() -> None:
+  260:     """Host-keyed backend_id (limit=1 per host): two tasks on DIFFERENT
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"def _env_int|def _env_float|_env_int\\(\" src/polaris_graph/retrieval/live_retriever.py" in C:\POLARIS
+ succeeded in 3527ms:
+1129:def _env_float(name: str, default: float) -> float:
+1144:def _env_int(name: str, default: int) -> int:
+2860:        _per_host_limit = _env_int(
+2964:    _enrich_failfast = _env_int("PG_OPENALEX_ENRICH_FAILFAST", 3)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content src/polaris_graph/retrieval/live_retriever.py | ForEach-Object { $i++; if ($i -ge 1120 -and $i -le 1155) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 2152ms:
+ 1120:         # pre-fetch key the read path uses, so a later lookup is a true cache
+ 1121:         # hit that skips the network (the read path is now exercised).
+ 1122:         _authority_cache_put(enrich_cache_key, enrich)
+ 1123:         return enrich
+ 1124:     except Exception as exc:
+ 1125:         logger.debug("[live_retriever] OpenAlex enrich failed for %r: %s", url, exc)
+ 1126:         return {}
+ 1127: 
+ 1128: 
+ 1129: def _env_float(name: str, default: float) -> float:
+ 1130:     """Positive-*finite*-float env knob with a safe fallback (LAW VI).
+ 1131: 
+ 1132:     Non-finite overrides (``inf``/``-inf``/``nan``) fall back to ``default``:
+ 1133:     ``float("inf")`` parses fine and is ``> 0``, but feeding it to e.g.
+ 1134:     ``threading.Thread.join(timeout=...)`` raises ``OverflowError`` on
+ 1135:     Windows (I-bug-116 / #556).
+ 1136:     """
+ 1137:     try:
+ 1138:         value = float(os.getenv(name, str(default)))
+ 1139:     except (TypeError, ValueError):
+ 1140:         return default
+ 1141:     return value if math.isfinite(value) and value > 0 else default
+ 1142: 
+ 1143: 
+ 1144: def _env_int(name: str, default: int) -> int:
+ 1145:     """Positive-int env knob with a safe fallback (LAW VI — no hardcode)."""
+ 1146:     try:
+ 1147:         value = int(os.getenv(name, str(default)))
+ 1148:     except (TypeError, ValueError):
+ 1149:         return default
+ 1150:     return value if value > 0 else default
+ 1151: 
+ 1152: 
+ 1153: def _post_fetch_loop_budget(fetch_cap: int) -> float:
+ 1154:     """I-ready-003 (#1074) P1: the post-fetch loop wall-clock budget, SCALED with ``fetch_cap``.
+ 1155: 
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "candidates.*dedupe|dedup|seen.*candidate|seen_urls|candidate.*url" src/polaris_graph/retrieval/live_retriever.py' in C:\POLARIS
+ succeeded in 2123ms:
+316:    # the loop keeps offset-paging until (a) budget met, (b) a page returns 0 NEW (post-dedup)
+359:            # added 0 NEW (post-dedup) URLs — the reliable end-of-results signal.
+2505:    seen_urls: set[str] = set()
+2517:        if _surl and _surl not in seen_urls:
+2518:            seen_urls.add(_surl)
+2543:            if not url or url in seen_urls:
+2545:            seen_urls.add(url)
+2569:            if not url or url in seen_urls:
+2571:            seen_urls.add(url)
+2583:        # academic backend — ADD (union), not replace S2 (Codex Q8) — sending the NL `q`; union+dedup
+2584:        # via the shared `seen_urls`. Candidates carry source="openalex_search"; default query_origin
+2607:                    if not url or url in seen_urls:
+2609:                    seen_urls.add(url)
+2651:                if not url or url in seen_urls:
+2653:                seen_urls.add(url)
+2685:                if not url or url in seen_urls:
+2687:                seen_urls.add(url)
+2990:            i + 1, len(candidates), cand.url[:60],
+
+codex
+The remaining checks are lining up: result indexing is preserved via original deduped indices, host keys are really URL hostnames, and the new diagnostic fields stay outside `api_calls`. The blocker is narrower: timeout accounting can remove a hung started future while leaving queued or semaphore-waiting futures with infinite deadlines, so the harvest loop stays alive with nothing capable of completing.
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/audit_ir/parallel_fetch.py:410-581: A timed-out started task is removed from remaining, but if it keeps occupying the worker thread or host semaphore, not-yet-started/semaphore-waiting futures retain +inf deadlines and can keep the harvest loop alive forever. This breaks the execution guarantee for per_task_timeout under a hung first task plus queued siblings."
+p2:
+  - "tests/polaris_graph/test_parallel_fetch_ifetch003.py:128-159: The claimed slow-sibling test is tautological: the 'slow' task is released immediately and the virtual clock never advances, so it does not exercise a slow sibling or a sibling-driven timeout boundary."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Ensure parallel_fetch terminates when timed-out in-flight workers are abandoned but remaining submitted tasks have not observed start, without labeling never-started tasks as TIMEOUT."
+```
+
+verdict: REQUEST_CHANGES
+tokens used
+67,410
