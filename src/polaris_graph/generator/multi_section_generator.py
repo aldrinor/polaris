@@ -96,6 +96,35 @@ def _allowed_sections_for_domain(domain: str | None) -> list[str]:
     )
 
 
+# BB5-C07 (#1178): explicit gap-disclosure stub body for a legacy (non-V30) section whose every
+# generated sentence failed strict verification. Pre-fix the section silently VANISHED at render
+# (run_honest_sweep_r3.py:5232 skips `dropped_due_to_failure or not verified_text`; the assembly
+# at multi_section_generator.py:5363 excludes `dropped_due_to_failure` sections), so on a
+# clinical-safety question a planned "Safety" section could disappear with no trace (drb_75). This
+# stub mirrors the V30 slot path's gap disclosure (contract_section_runner.py:1006-1009): an honest,
+# curator-actionable disclosure that NO claim survived, NOT silence. It carries NO `[#ev:...]` /
+# `[N]` citation marker — fabricating a citation for a non-claim would be a faithfulness defect; a
+# marker-less disclosure is the faithful choice (the section renderer prepends the `### <title>`
+# heading, so the rendered line reads "### <title> ... no claim survived strict verification;
+# curator-actionable gap.").
+_GAP_STUB_SENTENCE = (
+    "No claim in this section survived strict verification against the retrieved "
+    "source text; this section is a curator-actionable gap. See the verification "
+    "details and frame-coverage report for per-claim disposition."
+)
+
+# BB5-C07 (#1178): the sibling vanish path. When a planned section has NO evidence rows assigned
+# in the pool at all (a starved corpus can route even a clinical Safety section here), the legacy
+# early-return marked it dropped_due_to_failure=True with empty verified_text — the SAME silent
+# vanish, same harm class. Render a distinct no-evidence gap stub so "a planned section never
+# silently disappears" is actually true. Marker-less for the same reason as _GAP_STUB_SENTENCE.
+_NO_EVIDENCE_GAP_STUB_SENTENCE = (
+    "No evidence was available in the retrieved corpus to ground this section; it is a "
+    "curator-actionable gap. The corpus did not yield any source assigned to this section "
+    "(see the retrieval and frame-coverage telemetry for the assignment trail)."
+)
+
+
 # Field-invariant section archetypes (I-meta-005 Phase 1 #985, brief §2.3).
 # These TAGS are the on-path control-flow key — a non-clinical question gets a
 # question-specific TITLE plus one of these tags, and on-mode audit routing
@@ -274,6 +303,16 @@ class SectionResult:
     # SectionResult is never `asdict`-ed in any OFF artifact path. Appended
     # LAST to preserve positional construction at the existing call sites.
     archetype: str = ""
+    # BB5-C07 (#1178): True ONLY for a legacy (non-V30) section that produced ZERO verified
+    # sentences and is rendered as an explicit gap-disclosure stub instead of silently vanishing.
+    # The stub section ships with `dropped_due_to_failure=False` so the body + assembly render it
+    # (mirroring the V30 slot path), but it carries ZERO verified sentences. This flag is the
+    # explicit skip signal for any consumer that must NOT treat a gap stub as verified prose —
+    # e.g. the Key-Findings exec-summary (BB5-P07, separate lane) which must skip gap-placeholder
+    # sections so the stub never surfaces as a "span-verified statement". `sentences_verified == 0`
+    # is the equivalent implicit signal. Default False -> every real / V30 / legacy-with-content
+    # section is byte-identical.
+    is_gap_stub: bool = False
 
 
 @dataclass
@@ -2103,17 +2142,22 @@ async def _run_section(
         if ev_id in evidence_pool
     ]
     if not ev_subset:
+        # BB5-C07 (#1178) sibling vanish path: a planned section with NO assigned evidence must
+        # NOT silently disappear either. Render the no-evidence gap stub and ship the section
+        # (dropped_due_to_failure=False, is_gap_stub=True) so the gap is visible + curator-actionable.
+        # `error="no_evidence_in_pool"` is preserved for telemetry so the cause stays auditable.
         return SectionResult(
             title=section.title, focus=section.focus,
             ev_ids_assigned=section.ev_ids,
             raw_draft="", rewritten_draft="",
-            verified_text="", biblio_slice=[],
+            verified_text=_NO_EVIDENCE_GAP_STUB_SENTENCE, biblio_slice=[],
             sentences_verified=0, sentences_dropped=0,
-            regen_attempted=False, dropped_due_to_failure=True,
+            regen_attempted=False, dropped_due_to_failure=False,
             error="no_evidence_in_pool",
             # I-meta-005 Phase 1 (#985, P2 note B): carry the plan's archetype
             # onto the result so on-mode audit routing keys on the tag.
             archetype=getattr(section, "archetype", ""),
+            is_gap_stub=True,
         )
 
     total_in_tok = 0
@@ -2284,7 +2328,21 @@ async def _run_section(
     # IDs are byte-preserved (see _normalize_citation_punctuation).
     verified_text = _normalize_citation_punctuation(verified_text)
 
-    dropped_due_to_failure = len(report.kept_sentences) == 0
+    # BB5-C07 (#1178): a section that produced ZERO verified sentences must NOT silently vanish.
+    # Pre-fix, `dropped_due_to_failure=True` + empty `verified_text` caused the section to be
+    # skipped at every render/assembly site (run_honest_sweep_r3.py:5232 + assembly:5363), so a
+    # planned clinical-safety section could disappear with no trace (drb_75 "Safety" vanished).
+    # Mirror the V30 slot path: render an explicit gap-disclosure stub and ship the section so it
+    # appears in the body + assembly. The section is tagged `is_gap_stub=True` (and carries zero
+    # verified sentences) so a consumer that must not treat a gap stub as verified prose can skip
+    # it (e.g. Key Findings, BB5-P07, separate lane). The stub is marker-less (no fabricated
+    # citation for a non-claim — faithful disclosure, not a claim). With the stub always rendered,
+    # `dropped_due_to_failure` is now never True from this legacy path (the zero-kept case becomes
+    # a rendered gap stub; the non-zero case was never dropped) — every section ships with a trace.
+    is_gap_stub = len(report.kept_sentences) == 0
+    if is_gap_stub:
+        verified_text = _GAP_STUB_SENTENCE
+    dropped_due_to_failure = False
 
     # I-gen-005 Step 1.5 iter-2 (Codex P1 #2): include M-41c policy
     # drops in sentences_dropped so the section-level total matches
@@ -2327,6 +2385,9 @@ async def _run_section(
         # I-meta-005 Phase 1 (#985, P2 note B): carry the plan's archetype
         # onto the result so on-mode M-44/M-47 route on the tag, not title.
         archetype=getattr(section, "archetype", ""),
+        # BB5-C07 (#1178): tag the rendered gap-disclosure stub so a consumer that must not
+        # treat it as verified prose (Key Findings, BB5-P07) can skip it.
+        is_gap_stub=is_gap_stub,
     )
 
 

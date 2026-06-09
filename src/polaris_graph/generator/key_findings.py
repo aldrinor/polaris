@@ -20,6 +20,29 @@ from typing import Any
 # diff-gate iter-1 P2).
 _SENTENCE_RE = re.compile(r".+?[.!?](?:\s*\[\d+\])*(?=\s+[A-Z(\[\d]|\s*$)", re.DOTALL)
 
+# A Key Finding is a SPAN-VERIFIED statement — by definition it carries its `[N]` / `[#ev:`
+# citation (module docstring). This is the robust per-SENTENCE gap filter (I-gen-006 #1178
+# C07/P07): a gap-disclosure sentence ("... did not survive strict verification; curator-
+# actionable gap.") carries NO citation, so in a MIXED V30 section (a leading gap slot +
+# later verified prose, where the SECTION still has sentences_verified>0) the uncited gap
+# sentence is skipped and the first CITED sentence is lifted instead. Keys on the citation
+# invariant, never on matching gap-disclosure text.
+_CITATION_RE = re.compile(r"\[\d+\]|\[#ev:")
+
+# Gap-disclosure boilerplate (I-gen-006 #1178 C07/P07, Codex iter-5): the V30 contract-runner
+# gap disclosure is a FIXED two-sentence template — "Contract-bound content ... curator-actionable
+# gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[N]" — and
+# its SECOND sentence DOES carry a `[N]` (a pointer to the gap-task sidecar, NOT an evidence span),
+# so the citation filter alone cannot exclude it. A Key Finding must be a span-verified CLAIM, never
+# a gap pointer; exclude any sentence carrying a canonical gap-disclosure marker. Robust because the
+# disclosure text is generated from fixed constants (contract_section_runner / _GAP_STUB_SENTENCE),
+# never free-form prose — this is a rendering filter, not a §-1.1 quality-by-pattern judgement.
+_GAP_MARKER_RE = re.compile(
+    r"curator-actionable gap|did not survive strict verification|"
+    r"did not survive (?:4-role )?verification|frame_coverage_report|human_gap_tasks",
+    re.IGNORECASE,
+)
+
 _OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
 
 # How many leading verified sentences to lift from each section (default 1 — the headline finding).
@@ -35,7 +58,14 @@ def key_findings_enabled() -> bool:
 
 def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
     matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
-    return [s for s in matches if s][:n]
+    # A Key Finding is a span-verified CLAIM: it must carry a citation AND must NOT be
+    # gap-disclosure boilerplate (whose 2nd sentence is cited to the gap-task sidecar, not
+    # an evidence span). Both filters together exclude every gap shape in a mixed section
+    # (I-gen-006 #1178 C07/P07, Codex iter-5).
+    return [
+        s for s in matches
+        if s and _CITATION_RE.search(s) and not _GAP_MARKER_RE.search(s)
+    ][:n]
 
 
 def build_key_findings(sections: list[Any]) -> str:
@@ -47,6 +77,12 @@ def build_key_findings(sections: list[Any]) -> str:
     bullets: list[str] = []
     for sr in sections or []:
         if getattr(sr, "dropped_due_to_failure", False):
+            continue
+        # I-gen-006 (#1178) BB5-C07/P07: a 0-verified gap DISCLOSURE renders disclosure
+        # text in verified_text (the legacy is_gap_stub or a V30 contract gap) but is NOT
+        # span-verified prose — it must never surface as a Key-Findings "span-verified
+        # statement". Skip every gap disclosure (universal signal: sentences_verified == 0).
+        if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
             continue
         verified_text = getattr(sr, "verified_text", "") or ""
         if not verified_text.strip():

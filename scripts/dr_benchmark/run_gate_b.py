@@ -767,6 +767,28 @@ _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS = (
 # is NOT required here (rescue widening is out of scope; judge_error fail-closed keys on the entailment mode).
 _BENCHMARK_PREFLIGHT_ENFORCE_MODES = ("PG_STRICT_VERIFY_ENTAILMENT",)
 
+# BB5-C06 (#1178): entity types that KEEP the OA full-text path even under PG_FRAME_PREFER_ABSTRACT.
+# frame_fetcher's default `_FULLTEXT_ENTITY_TYPES` is trial/review-only (pivotal_trial,clinical_trial,
+# rct,systematic_review,meta_analysis), so under prefer-abstract EVERY narrative / source-critical entity
+# (economic working paper, policy/CBO report, court decision, statute, regulatory label, mechanism study,
+# cohort study, technical standard) skipped its OA full text and read only the ~500-char abstract
+# (`skipped:prefer_abstract` in run 5; e.g. drb_72 frey_osborne OA full text on the Oxford repo was
+# skipped). The substantive claims of those entities live in the BODY, not the abstract — so the benchmark
+# must never skip an OA full text such an entity needs. We BROADEN the set to the full distinct entity-type
+# inventory of the locked scope templates that need full text (verified via
+# `grep "type: " config/scope_templates/*.yaml`). The clinical full-text types (already in the default) are
+# RE-INCLUDED because PG_FRAME_FULLTEXT_ENTITY_TYPES replaces the whole value — dropping them would regress
+# the M-66b-T clinical trial-roster path. prefer-abstract STAYS on (the clean deterministic abstract is the
+# right source for the entities NOT in this set); this only stops the full-text SKIP for entities that need it.
+_BENCHMARK_FULLTEXT_ENTITY_TYPES = ",".join((
+    # original clinical full-text types (frame_fetcher default) — re-included; whole-value replacement
+    "pivotal_trial", "clinical_trial", "rct", "systematic_review", "meta_analysis",
+    # narrative / source-critical types that ALSO need full text (BB5-C06 broadening)
+    "economic_report", "cbo_report", "policy_report", "mechanism_primary", "cohort_primary",
+    "regulatory", "regulatory_ruling", "regulation", "court_decision", "legal_case", "statute",
+    "technical_standard", "agency_report", "authoritative_source",
+))
+
 # Codex diff-gate iter-2 P1: import-time module CONSTANTS that the slate must have raised before the
 # owning module was imported (env-only validation would miss a too-late slate). The preflight reads the
 # LIVE constant and fails closed if it is below the floor. (module_path, attr, floor)
@@ -1071,6 +1093,15 @@ async def run_gate_b_query(
     # clean, deterministic abstract (CrossRef/OpenAlex) is the correct source — contract fields
     # are abstract-level claims. Prefer it over the scrape; setdefault keeps the operator override.
     os.environ.setdefault("PG_FRAME_PREFER_ABSTRACT", "1")
+    # BB5-C06 (#1178): prefer-abstract is RIGHT for entities whose contract fields are abstract-level, but
+    # it was ALSO skipping the OA full text of narrative / source-critical entities whose substantive claims
+    # live in the body (economic/policy/mechanism/cohort/regulatory/legal). Broaden the keep-full-text set so
+    # those entities keep the OA full-text path even under prefer-abstract — "never skip an OA full text an
+    # entity needs". MUST be set before the lazy frame_fetcher import (run_honest_sweep_r3.py:4567, inside the
+    # per-query V30 block) freezes `_FULLTEXT_ENTITY_TYPES` from this env — that import fires AFTER this line,
+    # so this placement (next to PG_FRAME_PREFER_ABSTRACT, both before the per-query import) is effective.
+    # setdefault keeps an explicit operator override (LAW VI).
+    os.environ.setdefault("PG_FRAME_FULLTEXT_ENTITY_TYPES", _BENCHMARK_FULLTEXT_ENTITY_TYPES)
     os.environ.setdefault("PG_OPENALEX_FRAME_FALLBACK", "1")
     # I-cap-002 feature 2/4 (#1060): turn on the ADVISORY analytical-depth annotation for the
     # benchmark/paid run ONLY here (gate-B entry), never globally — so manifest['analytical_depth_

@@ -1165,12 +1165,25 @@ def write_per_run_cost_ledger(run_dir: Path, run_id: str) -> int:
 def filter_verified_sections(sections) -> list:
     """Codex round 1 B-3: the single-source-of-truth predicate for
     "did this section survive Phase-4 strict_verify?". A section
-    qualifies only if it was NOT dropped AND has non-empty verified_text.
+    qualifies only if it was NOT dropped AND has non-empty verified_text
+    AND is not a gap-stub.
+
+    I-gen-006 (#1178) BB5-C07: a section that produced ZERO verified sentences is a
+    gap DISCLOSURE, not verified prose — whether it is the new legacy gap stub
+    (``is_gap_stub=True``) or a V30 contract slot's gap disclosure (``is_gap_stub``
+    stays False but ``sentences_verified == 0``). Both render for display with
+    ``dropped_due_to_failure=False`` + non-empty ``verified_text`` (the disclosure
+    text), so the UNIVERSAL survivor signal is ``sentences_verified > 0``. Excluding
+    every 0-verified gap here ensures a report whose every section is a gap
+    disclosure correctly hits ``abort_no_verified_sections`` instead of shipping as
+    success (Codex iter-3 P1: is_gap_stub alone missed the V30 gap class).
     """
     return [
         sr for sr in sections
         if not getattr(sr, "dropped_due_to_failure", True)
         and getattr(sr, "verified_text", "")
+        and getattr(sr, "sentences_verified", 1) > 0
+        and not getattr(sr, "is_gap_stub", False)
     ]
 
 

@@ -1,0 +1,27 @@
+P1 findings:
+
+1. F02 is not fixed in production. The new regression replaces the entailment judge with a fake `NEUTRAL` verdict, then asserts the existing gate drops `NEUTRAL`: [test file](C:/POLARIS/tests/dr_benchmark/test_lane_b_gen_faithfulness_completeness_beatboth5.py:113). The same file explicitly says the real Gemma judge returned `ENTAILED` for the boulardii-to-probiotics widening and that prompt work is “reported, not fixed”: [lines 13-18](C:/POLARIS/tests/dr_benchmark/test_lane_b_gen_faithfulness_completeness_beatboth5.py:13). The live gate just trusts the judge verdict and only drops `NEUTRAL`/`CONTRADICTED`: [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1478). Since the real defect is “judge says ENTAILED for a scope-widened claim,” this is a continuing P1/no-op for #1176.
+
+2. C07 introduces a zero-verified abort regression. Gap stubs are emitted with `sentences_verified=0` but `dropped_due_to_failure=False` and non-empty `verified_text`: [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:2149), [zero-kept path](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:2342). The runner’s zero-verified abort still uses `filter_verified_sections()`, which treats “not dropped + non-empty verified_text” as survived verification: [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:1069), and that predicate gates the abort path: [run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:5853). I verified a gap stub returns as “verified” from that filter. The new C07 test hand-copies the render predicate instead of calling the live abort predicate: [test file](C:/POLARIS/tests/dr_benchmark/test_lane_b_gen_faithfulness_completeness_beatboth5.py:277).
+
+C06: no blocking issue found. The benchmark constant covers the scope-template inventory plus original clinical defaults, `setdefault` preserves overrides, and the env is set before the lazy `frame_fetcher` import path. The reimport test is useful for the import-time freeze, though not a true fetch-level end-to-end test.
+
+Verification run: `python -m pytest tests/dr_benchmark/test_lane_b_gen_faithfulness_completeness_beatboth5.py -q` passed, with only a pytest cache permission warning.
+
+§8.3.9 schema:
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Continuing F02: production still does not catch the real drb_76 scope-widening when the real judge returns ENTAILED."
+  - "Novel C07: gap stubs satisfy the runner's zero-verified survived-section predicate, bypassing abort_no_verified_sections."
+p2:
+  - "C06 test overclaims end-to-end coverage; it validates constants/import freeze but does not call fetch_frame_entity to assert no skipped:prefer_abstract attempt."
+convergence_call: "Do not approve on iter 1/5; blockers are concrete and bounded."
+remaining_blockers_for_execution:
+  - "Strengthen/wire the real entailment judge or add deterministic scope-widening guard, with a regression that fails without the production change."
+  - "Update live verified-section/abort/telemetry predicates to require sentences_verified > 0 or explicitly exclude is_gap_stub."
+```
+
+verdict: REQUEST_CHANGES
