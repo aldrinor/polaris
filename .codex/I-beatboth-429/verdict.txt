@@ -1,0 +1,11 @@
+**Findings**
+- P1 [openrouter_role_transport.py](C:/POLARIS/src/polaris_graph/roles/openrouter_role_transport.py:864): `Retry-After` bypasses the configured cap. A response like `Retry-After: 86400` is parsed and passed directly to `time.sleep()` at line 875, so a 429/503 can stall the 4-role gate for hours or days before failing closed. That violates the bounded-backoff requirement. The test at [test_role_transport_http_429_retry.py](C:/POLARIS/tests/polaris_graph/roles/test_role_transport_http_429_retry.py:170) currently reinforces this by setting cap `0.05` but expecting a `7.0` second sleep. Cap header-derived delays with `PG_ROLE_HTTP_BACKOFF_CAP_SECONDS` and add an oversized-header test.
+
+I verified the surrounding path: persistent 429/503 still reaches the existing `RoleTransportError`; non-retryable non-200s still fail immediately; verdict parsing, blank-verdict recovery, budget accounting, and provider exclusion logic appear unchanged.
+
+Targeted test run: `python -m pytest -q tests/polaris_graph/roles/test_role_transport_http_429_retry.py` passed 8 tests, with only a pytest cache permission warning.
+
+Blockers:
+- P1: bound `Retry-After` before sleeping and update the test expectation.
+
+verdict: REQUEST_CHANGES

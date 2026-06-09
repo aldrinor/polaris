@@ -91,6 +91,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 
 import httpx
 
@@ -389,6 +390,36 @@ def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
 # budget) take MINUTES per claim — give them their OWN generous timeout (default 900s/15min), not the
 # cheap 90s shared default (which also governs retrieval/embeddings). Env-overridable (LAW VI).
 _TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
+
+# I-beatboth-429 (#1173): a per-claim judge burst (~178 calls for drb_72) trips OpenRouter's
+# rate limit on the qwen judge — a 429 (or a transient 503) on a SINGLE role call must NOT hold
+# the 4-role release. Bounded exponential backoff-retry on the retryable HTTP statuses, honoring
+# the `Retry-After` response header, is RESILIENCE ONLY: exhausted retries STILL raise
+# RoleTransportError below -> release HELD (fail-closed; the gate is never weakened). LAW VI:
+# every knob is env-driven (named, no magic numbers), read LAZILY per-call (mirrors the adjacent
+# PG_ROLE_TRANSPORT_RETRIES pattern so an override set after import is honored).
+_ROLE_HTTP_RETRY_MAX_DEFAULT = "5"
+_ROLE_HTTP_RETRY_STATUS_DEFAULT = "429,503"
+_ROLE_HTTP_BACKOFF_BASE_SECONDS_DEFAULT = "2.0"
+_ROLE_HTTP_BACKOFF_CAP_SECONDS_DEFAULT = "60.0"
+
+
+def _parse_retry_after_seconds(value: str | None) -> float | None:
+    """Parse the `Retry-After` header as integer seconds (RFC 9110 delta-seconds form).
+
+    Returns the non-negative float seconds on success, or `None` when the header is absent,
+    empty, or a non-numeric/HTTP-date form — in which case the caller falls back to the capped
+    exponential backoff. We deliberately do NOT parse the HTTP-date form (per the I-beatboth-429
+    spec): any non-integer value is treated as the absent case so a malformed header can never
+    yield a negative or unbounded sleep.
+    """
+    if value is None:
+        return None
+    try:
+        seconds = int(value.strip())
+    except (ValueError, AttributeError):
+        return None
+    return float(seconds) if seconds >= 0 else None
 
 # LAW VI: base URL + key come from the SAME env vars openrouter_client reads (single source of
 # truth). Read lazily (function-level) so import never depends on env presence.
@@ -762,33 +793,94 @@ class OpenRouterRoleTransport:
                 # failure. Retry the POST a bounded number of times (env-driven, LAW VI) before
                 # fail-loud. HTTP-STATUS errors are handled separately below (not retried here).
                 transport_retries = max(0, int(os.getenv("PG_ROLE_TRANSPORT_RETRIES", "2")))
+                # I-beatboth-429 (#1173): rate-limit retry budget is SEPARATE from the
+                # transport-fault budget above (a 429 is not a connection reset). Read lazily so a
+                # monkeypatched env override is honored. The retryable-status set defaults to the
+                # rate-limit (429) + the transient-unavailable (503) statuses.
+                rate_limit_max = max(
+                    0,
+                    int(os.getenv("PG_ROLE_HTTP_RETRY_MAX", _ROLE_HTTP_RETRY_MAX_DEFAULT)),
+                )
+                retryable_statuses = {
+                    int(s)
+                    for s in os.getenv(
+                        "PG_ROLE_HTTP_RETRY_STATUS", _ROLE_HTTP_RETRY_STATUS_DEFAULT
+                    ).split(",")
+                    if s.strip()
+                }
+                backoff_base = float(
+                    os.getenv(
+                        "PG_ROLE_HTTP_BACKOFF_BASE_SECONDS",
+                        _ROLE_HTTP_BACKOFF_BASE_SECONDS_DEFAULT,
+                    )
+                )
+                backoff_cap = float(
+                    os.getenv(
+                        "PG_ROLE_HTTP_BACKOFF_CAP_SECONDS",
+                        _ROLE_HTTP_BACKOFF_CAP_SECONDS_DEFAULT,
+                    )
+                )
+
                 http_response = None
-                for transport_attempt in range(transport_retries + 1):
-                    try:
-                        http_response = self._http_client.post(
-                            url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
-                        )
-                        break
-                    except httpx.TransportError as exc:
-                        # Codex diff-gate P2: retry ONLY transport-layer faults (connection reset /
-                        # WinError 10054, read/connect timeout, remote-protocol error — all
-                        # httpx.TransportError subclasses). A non-transport httpx error (e.g. an
-                        # HTTPStatusError from a future event hook) is NOT a transient blip and falls
-                        # through to the broad fail-loud handler below instead of being retried.
-                        if transport_attempt < transport_retries:
-                            logger.warning(
-                                "[polaris graph] #1053: %s transport error (attempt %d/%d) at %s: "
-                                "%s — retrying.",
-                                request.role, transport_attempt + 1, transport_retries + 1, url, exc,
+                rate_limit_attempt = 0
+                while True:
+                    http_response = None
+                    for transport_attempt in range(transport_retries + 1):
+                        try:
+                            http_response = self._http_client.post(
+                                url, json=body, headers=headers, timeout=_TIMEOUT_SECONDS
                             )
-                            continue
-                        raise RoleTransportError(
-                            f"OpenRouter {request.role!r} transport error at {url}: {exc}"
-                        ) from exc
-                    except httpx.HTTPError as exc:
-                        raise RoleTransportError(
-                            f"OpenRouter {request.role!r} transport error at {url}: {exc}"
-                        ) from exc
+                            break
+                        except httpx.TransportError as exc:
+                            # Codex diff-gate P2: retry ONLY transport-layer faults (connection reset /
+                            # WinError 10054, read/connect timeout, remote-protocol error — all
+                            # httpx.TransportError subclasses). A non-transport httpx error (e.g. an
+                            # HTTPStatusError from a future event hook) is NOT a transient blip and falls
+                            # through to the broad fail-loud handler below instead of being retried.
+                            if transport_attempt < transport_retries:
+                                logger.warning(
+                                    "[polaris graph] #1053: %s transport error (attempt %d/%d) at %s: "
+                                    "%s — retrying.",
+                                    request.role, transport_attempt + 1, transport_retries + 1, url, exc,
+                                )
+                                continue
+                            raise RoleTransportError(
+                                f"OpenRouter {request.role!r} transport error at {url}: {exc}"
+                            ) from exc
+                        except httpx.HTTPError as exc:
+                            raise RoleTransportError(
+                                f"OpenRouter {request.role!r} transport error at {url}: {exc}"
+                            ) from exc
+
+                    # I-beatboth-429 (#1173): bounded exponential backoff on a RETRYABLE HTTP status
+                    # (429 / 503), honoring `Retry-After`. RESILIENCE ONLY — when the budget is
+                    # exhausted (or the status is NOT retryable) we fall through to the UNCHANGED
+                    # non-200 raise below, which still fires -> release HELD (fail-closed; the 4-role
+                    # gate is never weakened, no fake verdict is ever returned).
+                    if (
+                        http_response.status_code in retryable_statuses
+                        and rate_limit_attempt < rate_limit_max
+                    ):
+                        delay = _parse_retry_after_seconds(
+                            http_response.headers.get("Retry-After")
+                        )
+                        if delay is None:
+                            delay = backoff_base * (2 ** rate_limit_attempt)
+                        # I-beatboth-429 Codex iter-1 P1: a server-supplied Retry-After is NOT trusted
+                        # unbounded — clamp BOTH the header value AND the exponential backoff to
+                        # backoff_cap so a hostile/misconfigured `Retry-After` (e.g. 7200s) can never
+                        # make the judge sleep past the cap (which would itself stall the 4-role run).
+                        delay = min(backoff_cap, delay)
+                        logger.warning(
+                            "[polaris graph] #1173: role %s HTTP %d rate-limited, backing off %.1fs "
+                            "(retry %d/%d) at %s",
+                            request.role, http_response.status_code, delay,
+                            rate_limit_attempt + 1, rate_limit_max, url,
+                        )
+                        time.sleep(delay)
+                        rate_limit_attempt += 1
+                        continue
+                    break
 
                 if http_response.status_code != httpx.codes.OK:
                     raise RoleTransportError(

@@ -1,0 +1,7 @@
+Findings: none.
+
+Blockers: none. The iter-1 P1 is addressed: both `Retry-After` and exponential delay are clamped before sleep, and exhausted 429/503 still falls through to the existing `RoleTransportError` non-200 path. Verdict parsing, blank recovery, budget accounting, and provider exclusion remain after the successful 200 path and are not bypassed.
+
+Verification: new focused file passed, `9 passed`. Adjacent OpenRouter/provider tests reached `62 passed`; 2 setup errors were sandbox temp-dir permission failures, not diff behavior.
+
+verdict: APPROVE
