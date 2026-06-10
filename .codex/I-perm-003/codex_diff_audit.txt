@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "ON-mode env hardening gap: `PG_SWEEP_SELECTION_SCALE_FRAC=inf` is parseable and positive, then `math.ceil(pool_size * frac)` raises `OverflowError`. Default-OFF path is unaffected."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

@@ -569,6 +569,100 @@ def _domain_cap_config() -> tuple[bool, float]:
     return enabled, frac
 
 
+# ── I-perm-003 (#1197): corpus-size-scaled evidence-selection budget ─────────
+# The generator-facing cap is a FIXED `max_rows` (PG_LIVE_MAX_EV_TO_GEN, default
+# 20 — #1070/#1078). At 1000-URL retrieval the fixed cap truncates the pool to a
+# constant slice regardless of how much best-ranked evidence the corpus actually
+# holds. This PREVENTATIVE knob scales the selection budget WITH the pool size so
+# a larger corpus feeds proportionally more BEST-ranked rows (the existing
+# tier-balanced + relevance/recency truncation already picks best-ranked, never
+# first-N — this only raises the budget it operates under).
+#
+# HONEST SCOPE: on the beatboth8 corpus the selector drops 0 sources (the ~90%
+# loss is UPSTREAM extraction, owned by I-perm-007), so this changes nothing
+# there. It is a forward guard for when the upstream pool is genuinely large.
+#
+# DEFAULT OFF. When `PG_SWEEP_SELECTION_SCALE` is unset/0/false/no/off the helper
+# returns `base_max_rows` UNCHANGED and `select_evidence_for_generation` is
+# byte-identical to the prior behaviour (no reassignment, no telemetry).
+#
+# FLOOR semantics: effective = max(base_max_rows, ceil(pool_size * frac)),
+# optionally clamped to a ceiling. The `max(...)` guarantees scaling NEVER drops
+# the budget below the operator/code cap (a small pool with a low frac keeps the
+# existing cap — never a regression).
+_SELECTION_SCALE_FRAC_DEFAULT = 0.30
+# 0 = no ceiling (scale unbounded with the pool). A positive value clamps the
+# scaled budget so an enormous pool can't blow past an operator-set ceiling.
+_SELECTION_SCALE_CEILING_DEFAULT = 0
+
+
+def _selection_scale_enabled() -> bool:
+    """Flag `PG_SWEEP_SELECTION_SCALE` (default OFF). ON only on explicit
+    truthy ('1'/'true'/'yes'/'on'). OFF → byte-identical prior selection AND
+    no scaling telemetry. Inverse default of `_env_flag_on` ON-by-default."""
+    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _selection_scale_frac() -> float:
+    """Budget-per-pool-row fraction `PG_SWEEP_SELECTION_SCALE_FRAC`
+    (default 0.30). Non-positive / unparseable → default (FAIL SOFT to a sane
+    positive fraction; a 0 frac would make scaling a no-op via the floor)."""
+    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_FRAC", "").strip()
+    if not raw:
+        return _SELECTION_SCALE_FRAC_DEFAULT
+    try:
+        frac = float(raw)
+    except (ValueError, TypeError):
+        return _SELECTION_SCALE_FRAC_DEFAULT
+    # Reject non-finite (inf/nan): a positive `inf` parses but would OverflowError in
+    # `math.ceil(pool_size * frac)` (Codex iter-1 P2). FAIL SOFT to the sane default.
+    return frac if (frac > 0 and math.isfinite(frac)) else _SELECTION_SCALE_FRAC_DEFAULT
+
+
+def _selection_scale_ceiling() -> int:
+    """Optional absolute ceiling `PG_SWEEP_SELECTION_SCALE_CEILING`
+    (default 0 = no ceiling). Clamps the scaled budget so an enormous pool can't
+    overshoot an operator cap. Values <= 0 / unparseable → no ceiling."""
+    raw = os.environ.get("PG_SWEEP_SELECTION_SCALE_CEILING", "").strip()
+    if not raw:
+        return _SELECTION_SCALE_CEILING_DEFAULT
+    try:
+        ceiling = int(raw)
+    except (ValueError, TypeError):
+        return _SELECTION_SCALE_CEILING_DEFAULT
+    return ceiling if ceiling > 0 else _SELECTION_SCALE_CEILING_DEFAULT
+
+
+def _scaled_max_rows(pool_size: int, base_max_rows: int) -> tuple[int, str | None]:
+    """Corpus-size-scaled selection budget (I-perm-003, default OFF).
+
+    Returns ``(effective_max_rows, note)``. When the flag is OFF, returns
+    ``(base_max_rows, None)`` — the caller MUST treat that as a byte-identical
+    no-op (no telemetry note appended). When ON, returns the FLOOR-guarded scaled
+    budget ``max(base_max_rows, ceil(pool_size * frac))`` (optionally clamped to a
+    ceiling) plus a single telemetry string for the selection notes.
+    """
+    if not _selection_scale_enabled():
+        return base_max_rows, None
+    frac = _selection_scale_frac()
+    ceiling = _selection_scale_ceiling()
+    scaled = math.ceil(pool_size * frac)
+    effective = max(base_max_rows, scaled)
+    clamped = False
+    if ceiling > 0 and effective > ceiling:
+        # Never below the base cap even when the ceiling is < base (floor wins).
+        effective = max(base_max_rows, ceiling)
+        clamped = True
+    note = (
+        f"selection_scale pool={pool_size} frac={frac} "
+        f"base_max_rows={base_max_rows} scaled={scaled} "
+        f"effective={effective} ceiling={ceiling or 'none'}"
+        f"{' clamped' if clamped else ''}"
+    )
+    return effective, note
+
+
 def _row_query_origin(row: dict[str, Any]) -> str:
     """The sub-query that surfaced the row (`query_origin`), or `_unlabeled`."""
     return str(row.get("query_origin") or "") or "_unlabeled"
@@ -1069,6 +1163,15 @@ def select_evidence_for_generation(
             primary_trial_anchors=primary_trial_anchors,
         )
 
+    # I-perm-003 (#1197): corpus-size-scaled budget (default OFF). Fixed-cap
+    # (tier-balanced max_rows) path only — the relevance-floor mode above already
+    # returns without a cap. When the flag is OFF, `_scaled_max_rows` returns the
+    # passed `max_rows` UNCHANGED and `_selection_scale_note` is None, so every
+    # branch below (short-pool + truncation) is byte-identical to the prior path
+    # and NO telemetry is appended. When ON, the floor-guarded scaled budget
+    # raises `max_rows` so a large pool feeds more BEST-ranked rows.
+    max_rows, _selection_scale_note = _scaled_max_rows(len(scored), max_rows)
+
     # M-46 (2026-04-22): when total <= max_rows, still keep everything,
     # BUT compute floor-detection + deterministic priority ordering
     # + telemetry so downstream consumers see the same reservation
@@ -1085,13 +1188,19 @@ def select_evidence_for_generation(
     # Notes include the m42e_primary_floor / m42c_mechanism_floor /
     # m42d_hc_quota_expand entries seen on truncating runs.
     if len(scored) <= max_rows:
-        return _m46_short_pool_ordered_selection(
+        _short = _m46_short_pool_ordered_selection(
             evidence_rows=evidence_rows,
             scored=scored,
             full_counts=full_counts,
             max_rows=max_rows,
             primary_trial_anchors=primary_trial_anchors,
         )
+        # I-perm-003: surface the scaling note (ON-mode only; None when OFF →
+        # byte-identical). The scaled budget can flip a pool that USED to
+        # truncate into this keep-everything short-pool branch.
+        if _selection_scale_note is not None:
+            _short.notes.append(_selection_scale_note)
+        return _short
 
     # Floors: reserve at least 1 slot for each present T1, T2, T3
     # (high-value tiers) if pool has any.
@@ -1559,6 +1668,10 @@ def select_evidence_for_generation(
         selected_counts[tier] = selected_counts.get(tier, 0) + 1
 
     notes: list[str] = []
+    # I-perm-003 (#1197): corpus-size-scaled budget telemetry (ON-mode only;
+    # None when the flag is OFF → byte-identical, no note).
+    if _selection_scale_note is not None:
+        notes.append(_selection_scale_note)
     # #956: source-diversity telemetry (empty unless a pass fired).
     notes.extend(_diversity_notes)
     # M-42e pass-2: surface the primary-floor telemetry so sweep
