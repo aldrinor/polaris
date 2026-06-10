@@ -1,5 +1,50 @@
 # POLARIS Bug Log
 
+## ONGOING BUGS REGISTRY — current state (2026-06-10, during P4 beat-both run)
+
+**Operator-requested snapshot.** Grounded against the commit log on `bot/I-ready-017-faithfulness`, open GitHub issues, and live-run observation of the P4 run (drb_72/75/76/78/90, reanchor+Zyte+enforce, started 11:15Z). Bug-forensics counting (allowed; the §-1.1 count ban is for research-OUTPUT quality only). Authoritative deduplicated lists: `outputs/audits/beatboth5/FULL_BUG_LIST.md` (~54 bugs) + `outputs/audits/beatboth7/BEAT_BOTH_SUMMARY.md` (audit verdict).
+
+**Top-line:** the beat-both gap is COMPLETENESS, not faithfulness. Last audited run (beatboth7): POLARIS faithful 5/5 (0 fabrications, span-verified), beats Gemini 4/5, beats ChatGPT 0/5 (gpt_5_5_pro is careful AND more complete). The fixes below target completeness WITHOUT relaxing any faithfulness gate.
+
+### A. FIXED + DEPLOYED in the P4 run (validating now — close on beat-both confirmation)
+- **#1174 I-faith-004** (P0 faithfulness LEAK, BB5-F01): redactor leaked UNSUPPORTED S3 observe-only claims as asserted prose. Fixed c790d627 — redaction severity-independent. Codex APPROVE.
+- **#1175 I-fetch-003** (P0 completeness ROOT, BB5-C01/C02): parallel_fetch global submit-anchored deadline + unscaled workers starved 85% of fetches. Fixed 4e44ac19 — per-task start-anchored deadline + host-keyed semaphore + scaled workers. Codex APPROVE.
+- **#1173 I-beatboth-429**: 4-role judge held release on every 429. Fixed 3fb48c3c — bounded backoff, fail-closed. APPROVE.
+- **#1171** breadth-collapse + clinical-scope false-reject + drb_90 report.md leak. Fixed 5c557548/fa72c398/0c64af25. APPROVE.
+- **#1177 I-stab-001**: fetch-layer stability (thread teardown, SIGSEGV guard, extractor fallback). Fixed 8444d552. APPROVE.
+- **#1178 I-gen-006**: OA full-text expansion + dropped-section gap stub. Fixed 454b7652. APPROVE.
+- **#1179 I-ux-003**: presentation ([REVIEW]-dump cap, semantic-dump trim, drb_90 dedup). Fixed dc188d3d. APPROVE.
+- **#1181 I-redact-001**: redactor sub-clause isolation (fixes abort_report_redaction_failed regression). Fixed a7f7b39a. APPROVE.
+- **#1182 I-complete-001**: honest section max_tokens ceiling + phase-7 instrumentation. Fixed f3a157db. APPROVE iter2.
+- **#1183 I-provider-001** (dominant completeness blocker): V4 Pro ~18k reasoning EXCEEDED DeepInfra 16384 cap → content truncated. Fixed 1106cb34 — routed to Novita (Singapore, non-US/non-China, 393k cap) + reasoning-first cap 32000. APPROVE.
+- **#1185 I-fetch-004** (Zyte paid fallback): env-gated last-resort scraper after free chain. Fixed be2ed45b. **Confirmed firing in production this run** (p3/drb_76 hit AJCN PDF via Zyte after Archive.org failed). APPROVE.
+- **#1189 I-complete-003** (THE keystone): provenance RE-ANCHOR — re-binds a sentence's `[#ev]` token to a span in its SAME cited row that DIRECTLY entails; faithfulness-SAFE (drops if none). Fixed db14f1f. Canary doubled coverage 0.20→0.40 faithful. APPROVE iter2.
+- **#1190 I-complete-004** (#5 lane): env-gated required-entity retrieval for clinical must-cover (contraindications/dosing) the corpus lacks. Fixed 5da210e1/68021495/27e19e0c. (Note: a SEPARATE #5 build via Workflow w0hlp268o was still building at last check — reconcile.)
+
+### B. OPEN ongoing bugs (still to fix — the real backlog)
+- **#1187 I-audit-001** (process, P1): Codex §-1.1 audit briefs lack RESOLVED evidence spans → Codex defaults to TRACEABILITY scoring (banned) → caused the false drb_78 "beat". FIX = embed resolved evidence_pool spans per claim into the Codex brief. **MUST apply at the P5 audit (beatboth8).** OPEN.
+- **#1180 I-faith-006** (deferred from BB5-F02): entailment judge does not treat specific→general WIDENING as NEUTRAL; judge-prompt bakeoff deferred. OPEN.
+- **#1176 I-faith-005** (BB5-F02): generator drops strain/subgroup/timepoint qualifiers from verified spans (clinical overgeneralization). Partially mitigated by re-anchor; the generator-side qualifier-drop root is OPEN.
+- **#1184 I-gen-404-001**: quantified-spec LLM call (`_q_spec_provider`) returned 404 → phase-7 quantified differentiator no-op'd on all 5 questions. Status UNCONFIRMED on the Novita slate — verify in P4 manifests (phase-7 firing_status). OPEN until confirmed firing.
+- **#1188 I-complete-002**: gap decomposition (~46% citation-precision + ~23% fetch + ~13% uncited + ~14% recoverable) — diagnosis DONE; validating the fix-set this run.
+
+### C. NEW live-run observations this session (P4, 2026-06-10) — candidate fixes
+- **NLI entailment_judge intermittent `'choices'` errors** (Novita empty-200 on the judge call; clustered 12:12–12:20Z, then quiesced). Handled FAIL-CLOSED (sentence dropped, NO fabrication — safe), but it DROPS genuinely-supported sentences → costs completeness. **Candidate fix: empty-200 retry on the judge call (mirror the provider-failover pattern #1052).** NEW — file an issue if it recurs at scale.
+- **gap-#18 local-window entailment fallback in the MAIN verify path** (`entailment_passed_on_local_window`, e.g. ev=frey_osborne_computerisation): narrow cited span = NEUTRAL but the wider window in the SAME row ENTAILS → passes as "span_imprecise but locally grounded." NOT a fabrication, but the cited char-offsets are imprecise (PARTIAL-risk). The re-anchor keystone disables this fallback; the main path keeps it. **Candidate: tighten/re-anchor the bound span when window-passed (precision fix).** Flag these claims for claim-by-claim scrutiny at P5.
+- **Agentic S2 cap: truncating 800+ → 100 academic results/query** (`searcher` Semantic Scholar cap). Possible SILENT completeness limiter vs the ~1000-URL goal (operator's no-silent-downgrade concern). **Review whether 100/query is right; surface + operator-approve if kept.** NEW.
+- **drb_90 httpx resilience**: last run drb_90 ended status=error_unexpected (fetch error). Watching this run; DEFERRED if it recurs.
+
+### D. Deferred / operator-gated (not autonomous bugs)
+- Credibility-redesign activation wiring (006b weight-mass adequacy, 007b both-sides render, 008b disclosure render, 010b dissent-recall) — flag-gated additive feature activation, not defects.
+- **Journal count-floor removal** (`assess_journal_only_adequacy`, DEFAULT_MIN_DISTINCT_JOURNALS=12 in run_gate_b.py) — operator-gated, part of the spend-bearing run prep (#1146/#1170 partially landed 695d84eb).
+- **P9 verifier strengthening** (#1158) — needs operator sign-off (only phase touching the verifier; sign-off GIVEN per active_fix_campaign.json, build pending).
+- **CLAUDE.md §3.0.1 pinned-edit** — blocked on operator signed canonical-pin reconciliation (DNA already landed in the spec + hook dba20684).
+
+### Process for each open bug
+GitHub issue-first + Codex-gated brief + diff + Codex-gated diff (§-1.2 + §8.3.1 5-cap). Codex is the only gate. No faithfulness gate may be relaxed to gain completeness.
+
+---
+
 ## Bug Forensic: Beat-both run-5 — ~54 bugs, 2 P0 roots (2026-06-09)
 
 **Status:** ACTIVE fix campaign. Full deduplicated ranked list in `outputs/audits/beatboth5/FULL_BUG_LIST.md` (7 Claude forensic lanes + Codex cross-check + synthesis, Workflow wt6x8lrjr). Source: the released 5-question beat-both run (drb_72/75/76/78/90) was §-1.1 dual-audited — NOT beat-both (POLARIS faithful + beats Gemini on all, does NOT beat gpt_5_5_pro; the gap is completeness).

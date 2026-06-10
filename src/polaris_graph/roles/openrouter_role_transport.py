@@ -651,7 +651,18 @@ def _parse_openrouter_response(raw: dict) -> tuple[object, str | None, dict | No
     """
     choices = raw.get("choices")
     if not choices:
-        raise RoleTransportError(
+        # I-transport-001 (#1191) Site 3 (FIXES drb_75): a structurally-empty HTTP 200
+        # ({"choices": []}, model=None) previously raised a PLAIN RoleTransportError, which the
+        # complete() loop does NOT catch (it only catches BlankVerdictError at :904) -> release
+        # HELD at coverage 0.000 with NO provider failover (OpenRouter does not auto-advance off
+        # an empty 200). Raise the RECOVERABLE BlankVerdictError instead so the SAME effort-ladder
+        # + provider-exclusion failover that already handles a blank-content 200 (:902-973) excludes
+        # the blanking provider and advances to the next healthy one. This is scoped to the
+        # empty-choices case ONLY — the non-dict-choice / non-dict-message guards below KEEP their
+        # plain RoleTransportError (a malformed shape is a genuine fail-loud, not a provider blip).
+        # The gate stays fail-closed: HELD is reached only AFTER the ladder/providers exhaust
+        # (:973/:1008 raise); no fake verdict is ever synthesized.
+        raise BlankVerdictError(
             f"OpenRouter response carried no choices (model={raw.get('model')!r})"
         )
     first_choice = choices[0]

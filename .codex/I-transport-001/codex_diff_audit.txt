@@ -1,0 +1,34 @@
+Criterion AC1 [Site 1 scoped RemoteProtocolError retry]: NONE.
+Criterion AC2 [Site 2 in-loop empty choices retry]: NONE.
+Criterion AC3 [Site 3 failover on empty choices]: NONE.
+Criterion AC4 [Site 4 bounded judge retry/sentinel]: NONE.
+Criterion AC5 [Site 5 bounded probe retry/gate]: P2: cumulative URL union across attempts can soften the one-query breadth signal.
+Criterion AC6 [No faithfulness-gate relaxation]: NONE.
+Criterion AC7 [LAW VI/no hardcoding]: P2: breadth retry/backoff env values are import-time constants; the test sets them after import and does not prove the override.
+Criterion AC8 [Hermetic tests]: P2: breadth test does real default sleep for the same import-order reason; otherwise new tests pass.
+Criterion AC9 [Diff hygiene/scope]: P2: PR exceeds the stated 200-LOC cap with no exemption noted.
+
+Files read this round: `openrouter_client.py`, `openrouter_role_transport.py`, `entailment_judge.py`, `super_heavy_preflight.py`, `strict_verify.py`, `provenance_generator.py`, `live_retriever.py`, `test_transport_retry_resilience.py`, plus diff/numstat for `requirements.txt`.
+
+Tests run: `python -m pytest tests/polaris_graph/test_transport_retry_resilience.py -q` passed, 13 tests.
+
+P0: none.
+P1: none.
+P2:
+- `scripts/dr_benchmark/super_heavy_preflight.py:385-396`: the breadth probe keeps one persistent URL set across attempts. This can pass the 100-floor via cumulative low results across retries even if no single production-shaped Serper+S2 attempt clears the floor. Non-blocking, but it weakens the precision of the throttle regression signal.
+- `scripts/dr_benchmark/super_heavy_preflight.py:86-88` + `tests/polaris_graph/test_transport_retry_resilience.py:445-448`: the test imports the module before setting `PG_BREADTH_PROBE_RETRY_BACKOFF_S`, so the import-time default `1.0` remains in effect; the test does not verify the env override and incurs real sleep.
+- Diff size is 759 additions / 98 deletions, including a 502-line test file, so AC9’s 200-LOC cap is not met and no exemption is noted.
+P3: none.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "AC5: breadth probe accumulates URLs across retry attempts, which can soften the one-query throttle signal if individually-low attempts return different URLs."
+  - "AC7/AC8: breadth retry/backoff env values are import-time constants; the test sets them after import, so it does not prove the override and still does real sleep."
+  - "AC9: diff exceeds the stated 200-LOC cap with no exemption noted."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

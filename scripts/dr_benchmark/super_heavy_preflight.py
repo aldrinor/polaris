@@ -53,10 +53,14 @@ when called. Importing this module opens no socket.
 """
 from __future__ import annotations
 
+import logging
 import os
+import time
 from typing import Awaitable, Callable, Mapping
 
 from scripts.dr_benchmark.pathB_run_gate import GateError, behavioral_canary
+
+logger = logging.getLogger(__name__)
 
 # The credibility-redesign master flag. The credibility judge LLM only fires in production when this is
 # active (run_honest_sweep_r3.py:4711), so its slug is probed only then — probe-alive must match the
@@ -73,6 +77,15 @@ _CREDIBILITY_OFF_TOKENS = ("", "0", "false", "off", "no")
 # a throttled config (e.g. PG_SWEEP_MAX_S2=12, single-page Serper ~20) collapses the union to ~30-40.
 # UNCALIBRATED offline — may need tuning against the first real wide run (see I-preflight-002 caveats).
 _PREFLIGHT_MIN_BREADTH = int(os.getenv("PG_PREFLIGHT_MIN_BREADTH", "100"))
+
+# I-transport-001 (#1191) Site 5 (FIXES drb_78; LAW VI — env-overridable): the breadth probe
+# re-issues BOTH discovery backends up to this many EXTRA times before failing closed, so a single
+# transient S2 HTTP-500 / timeout (which `_s2_bulk_search` swallows to an empty list -> 0 S2 URLs ->
+# union below the 100 floor -> GateError, with zero retry) does not abort a fundable pre-spend gate.
+# Default 2 => up to 3 total attempts. 0 disables the retry (single attempt, the pre-#1191 behavior).
+_BREADTH_PROBE_RETRIES = int(os.getenv("PG_BREADTH_PROBE_RETRIES", "2"))
+# Short fixed backoff (seconds) between breadth-probe attempts. Env-overridable per LAW VI.
+_BREADTH_PROBE_RETRY_BACKOFF_S = float(os.getenv("PG_BREADTH_PROBE_RETRY_BACKOFF_S", "1.0"))
 
 # I-preflight-002 (#1169) STORM-FIRED floor (LAW VI, env-overridable). The cheap STORM probe requests
 # target_count=2 personas; require at least this many to fire. Default 2 — the probe is intentionally
@@ -360,16 +373,43 @@ def _default_breadth_probe() -> int:
     # wide; it does not assert the run's actual question yields this many — that is the run's own corpus).
     query = "metformin efficacy in type 2 diabetes"
 
-    urls: set[str] = set()
-    for hit in _serper_search(query, num=max_serper):
-        u = hit.get("url", "")
-        if u:
-            urls.add(u)
-    for hit in _s2_bulk_search(query, limit=max_s2):
-        u = hit.get("url", "")
-        if u:
-            urls.add(u)
-    return len(urls)
+    # I-transport-001 (#1191) Site 5 (FIXES drb_78): bounded retry around the Serper+S2 union.
+    # `_serper_search` / `_s2_bulk_search` SWALLOW transient HTTP 5xx / timeouts internally and
+    # return an empty list (live_retriever.py:410-431), so the retry trigger is "union still below
+    # the floor," not an exception — re-issue BOTH backends each attempt so a transient S2 500
+    # (0 S2 URLs on one attempt) is recovered on a later attempt.
+    #
+    # AC5 (Codex #1191 diff-gate, no-silent-downgrade): the floor is judged PER-ATTEMPT — each attempt
+    # computes its OWN fresh union (one production-shaped query), and the gate passes iff a SINGLE
+    # attempt clears `_PREFLIGHT_MIN_BREADTH`. We do NOT accumulate URLs across attempts: summing low
+    # results from multiple flaky attempts would soften the throttle signal and could pass a genuinely
+    # thin corpus that no single production query reaches. Retry recovers a transient backend ZERO; it
+    # never sums partial results to reach the floor. We return the BEST single-attempt union (the most
+    # protective true breadth signal). The caller's `_PREFLIGHT_MIN_BREADTH` floor check remains the
+    # fail-closed terminal — this only prevents a single transient backend blip from aborting a
+    # fundable run; it never widens the corpus floor.
+    best = 0
+    for attempt in range(_BREADTH_PROBE_RETRIES + 1):
+        urls: set[str] = set()
+        for hit in _serper_search(query, num=max_serper):
+            u = hit.get("url", "")
+            if u:
+                urls.add(u)
+        for hit in _s2_bulk_search(query, limit=max_s2):
+            u = hit.get("url", "")
+            if u:
+                urls.add(u)
+        best = max(best, len(urls))
+        if best >= _PREFLIGHT_MIN_BREADTH:
+            break
+        if attempt < _BREADTH_PROBE_RETRIES:
+            logger.warning(
+                "[super_heavy_preflight] breadth probe single-attempt union=%d < floor=%d after "
+                "attempt %d/%d (likely a transient discovery-backend blip) — re-issuing both backends.",
+                len(urls), _PREFLIGHT_MIN_BREADTH, attempt + 1, _BREADTH_PROBE_RETRIES + 1,
+            )
+            time.sleep(_BREADTH_PROBE_RETRY_BACKOFF_S)
+    return best
 
 
 async def _default_chromium_probe() -> None:

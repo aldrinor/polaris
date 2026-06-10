@@ -77,6 +77,26 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
 _ENTAILMENT_TIMEOUT_S = 30.0
+# I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
+# for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge
+# previously fell straight through to the fail-open ('ENTAILED','judge_error:…') sentinel, which the
+# consumers DROP in enforce mode — an OVER-DROP of a salvageable verdict (the drb_72-class coverage
+# collapse). Retry the POST+parse this many extra times before emitting the sentinel; default 2
+# (=> up to 3 total attempts). 0 disables the retry (single attempt, the pre-#1191 behavior).
+_DEFAULT_ENTAILMENT_RETRIES = 2
+# Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
+_DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
+
+
+class _RetryableJudgeError(Exception):
+    """I-transport-001 (#1191) Site 4: a transient/recoverable judge fault that should trigger a
+    bounded SAME-provider retry. Carries the human-readable `reason` used for the terminal
+    ('ENTAILED','judge_error: <reason>') sentinel so a bad-verdict's `bad_verdict=<v>` detail is
+    preserved across retries instead of being collapsed into a generic exception type name."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 _ENTAILMENT_PROMPT = """You are a strict entailment judge. You will be given a SPAN of source text and a SENTENCE that cites that span. Decide whether the SPAN entails the SENTENCE.
 
 Rules:
@@ -143,17 +163,28 @@ class _EntailmentJudge:
         """Return (verdict, reason).
 
         verdict is one of "ENTAILED", "NEUTRAL", "CONTRADICTED".
-        On API/parse failure returns ("ENTAILED", "judge_error: ...") —
-        fail-open so a transient OpenRouter outage does not nuke a run.
+
+        I-transport-001 (#1191) Site 4: a transient transport/parse/empty-choices/bad-verdict
+        fault is now RETRIED on the same provider up to `PG_ENTAILMENT_RETRIES` extra times
+        (default 2 => 3 total attempts; env-driven per LAW VI) before the method emits the
+        ('ENTAILED', 'judge_error: ...') sentinel on exhaustion. This is NOT a fail-OPEN: both
+        consumers FAIL CLOSED on that sentinel — `clinical_generator/strict_verify.py:295-301`
+        keys on the `judge_error:` PREFIX alone (drops in enforce); `provenance_generator.py:1795`
+        sets `judge_error_flag` on `verdict=='ENTAILED' AND reason.startswith('judge_error:')`
+        (consumed -> drop). The sentinel stays EXACTLY ('ENTAILED', 'judge_error: ...') so that
+        detection is preserved (do NOT flip to NEUTRAL standalone — that bypasses the
+        provenance detection at :1795). The retry's only effect is to stop a SINGLE transient
+        judge fault from OVER-DROPPING a salvageable verdict (the drb_72-class coverage collapse),
+        without loosening the binding faithfulness gate.
 
         I-bug-100: after each successful httpx call this method records
         the call cost via openrouter_client's module-level helpers
         (`_add_run_cost`, `check_run_budget`, `_COST_LEDGER_PATH`) so
         judge spend is visible to the per-run budget cap and the cost
         ledger. `BudgetExceededError` is explicitly re-raised before
-        the broad `except Exception` fail-open handler so a cap breach
-        aborts the sweep cleanly instead of being masked as a transient
-        judge error.
+        the broad retry/fail-closed handler so a cap breach aborts the
+        sweep cleanly instead of being masked as a transient judge error
+        or being retried.
         """
         prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
         started = time.monotonic()
@@ -200,91 +231,128 @@ class _EntailmentJudge:
             except Exception:  # noqa: BLE001
                 pass
 
-        data = None  # I-obs-001 #1141 AC3: bound before the try so the fail-open capture can prefer
-        # the served response (post ok, parse/verdict failed) over the exception string.
-        try:
-            response = self._client.post(
-                self._endpoint,
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=json_body,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            # I-safety-002b (#925): Path-B gate capture. The entailment judge is the
-            # evaluator-family LLM call that bypasses OpenRouterClient (direct httpx),
-            # so without capturing here the gate's two-family completeness check would
-            # be a silent no-op. Best-effort + gate-flagged; lazy import keeps off-mode
-            # import cost zero. `data` is the genuinely-served non-stream JSON.
+        # I-transport-001 (#1191) Site 4: bounded SAME-provider retry around post+parse+budget+
+        # verdict (LAW VI — env-driven bounds). A single transient transport/parse/empty-choices/
+        # bad-verdict fault now RETRIES instead of immediately fail-closing the verdict (which the
+        # consumers DROP -> over-drop of a salvageable verdict, the drb_72-class coverage collapse).
+        _retries = max(0, int(os.environ.get("PG_ENTAILMENT_RETRIES", _DEFAULT_ENTAILMENT_RETRIES)))
+        _backoff = max(
+            0.0,
+            float(os.environ.get(
+                "PG_ENTAILMENT_RETRY_BACKOFF_S", _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S
+            )),
+        )
+        data = None  # I-obs-001 #1141 AC3: bound before the loop so the terminal judge_error
+        # capture can prefer the served response (post ok, parse/verdict failed) over the exc string.
+        last_reason = ""
+        for attempt in range(_retries + 1):
+            data = None  # reset per attempt so a later attempt's terminal capture is not stale.
             try:
-                from src.polaris_graph.benchmark import pathB_capture as _pathb
-                if _pathb.is_active():
-                    _pathb.capture_llm_call(
-                        role="evaluator",
-                        messages=[{"role": "user", "content": prompt}],
-                        raw_response=data,
+                response = self._client.post(
+                    self._endpoint,
+                    headers={
+                        "Authorization": f"Bearer {self._api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=json_body,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # I-safety-002b (#925): Path-B gate capture. The entailment judge is the
+                # evaluator-family LLM call that bypasses OpenRouterClient (direct httpx),
+                # so without capturing here the gate's two-family completeness check would
+                # be a silent no-op. Best-effort + gate-flagged; lazy import keeps off-mode
+                # import cost zero. `data` is the genuinely-served non-stream JSON.
+                try:
+                    from src.polaris_graph.benchmark import pathB_capture as _pathb
+                    if _pathb.is_active():
+                        _pathb.capture_llm_call(
+                            role="evaluator",
+                            messages=[{"role": "user", "content": prompt}],
+                            raw_response=data,
+                        )
+                except Exception:  # noqa: BLE001 — capture must never break the judge
+                    pass
+
+                # I-bug-100: cost recording. Reads + records BEFORE verdict
+                # parse so a cap breach aborts the sweep regardless of
+                # downstream parse outcome. Each real POST (incl. a retried one) bills its OWN
+                # tokens — correct, real money was spent — so this runs inside the loop per attempt.
+                usage = data.get("usage", {}) or {}
+                input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                output_tokens = int(usage.get("completion_tokens", 0) or 0)
+                api_cost = float(usage.get("cost", 0) or 0)
+                actual_cost = api_cost or _orc._impute_cost_from_tokens(
+                    self._model, input_tokens, output_tokens, 0,
+                )
+                # I-bug-100 iter-1 diff P2 fix: when the entire usage block
+                # is absent, both api_cost and the imputed value are 0, which
+                # silently bypasses the budget guard. Fall back to a
+                # conservative estimate based on typical judge-call shape
+                # (~500 prompt + ~100 completion tokens) priced at Opus-tier
+                # so the budget cap is preserved on degraded responses.
+                if actual_cost == 0 and not usage:
+                    actual_cost = _orc._impute_cost_from_tokens(
+                        self._model, 500, 100, 0,
                     )
-            except Exception:  # noqa: BLE001 — capture must never break the judge
-                pass
+                _orc._add_run_cost(actual_cost)
+                duration_ms = (time.monotonic() - started) * 1000.0
+                try:
+                    _append_judge_ledger_entry(
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        duration_ms=duration_ms,
+                        actual_cost=actual_cost,
+                    )
+                except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
+                    logger.warning("entailment ledger write failed: %s", exc)
+                _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
 
-            # I-bug-100: cost recording. Reads + records BEFORE verdict
-            # parse so a cap breach aborts the sweep regardless of
-            # downstream parse outcome.
-            usage = data.get("usage", {}) or {}
-            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
-            output_tokens = int(usage.get("completion_tokens", 0) or 0)
-            api_cost = float(usage.get("cost", 0) or 0)
-            actual_cost = api_cost or _orc._impute_cost_from_tokens(
-                self._model, input_tokens, output_tokens, 0,
-            )
-            # I-bug-100 iter-1 diff P2 fix: when the entire usage block
-            # is absent, both api_cost and the imputed value are 0, which
-            # silently bypasses the budget guard. Fall back to a
-            # conservative estimate based on typical judge-call shape
-            # (~500 prompt + ~100 completion tokens) priced at Opus-tier
-            # so the budget cap is preserved on degraded responses.
-            if actual_cost == 0 and not usage:
-                actual_cost = _orc._impute_cost_from_tokens(
-                    self._model, 500, 100, 0,
-                )
-            _orc._add_run_cost(actual_cost)
-            duration_ms = (time.monotonic() - started) * 1000.0
-            try:
-                _append_judge_ledger_entry(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    duration_ms=duration_ms,
-                    actual_cost=actual_cost,
-                )
-            except Exception as exc:  # noqa: BLE001 — ledger IO is non-critical
-                logger.warning("entailment ledger write failed: %s", exc)
-            _orc.check_run_budget(0)  # raises BudgetExceededError if cap breached
+                content = data["choices"][0]["message"]["content"]
+                parsed = json.loads(content)
+                verdict = str(parsed.get("verdict", "")).upper().strip()
+                reason = str(parsed.get("reason", ""))
+                if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
+                    # Bad verdict = a recoverable failed verification: raise the RETRYABLE error so a
+                    # transient garbled verdict re-issues. The reason (with bad_verdict=<v>) is
+                    # preserved for the terminal sentinel on exhaustion.
+                    raise _RetryableJudgeError(f"bad_verdict={verdict!r}")
+                # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
+                _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
+                return verdict, reason
+            except _orc.BudgetExceededError:
+                # I-bug-100: do NOT fail-open OR retry on cap breach. Propagate immediately so the
+                # sweep aborts with a clear cause (this except MUST stay FIRST/outside the retry).
+                raise
+            except _RetryableJudgeError as exc:
+                last_reason = exc.reason
+                if attempt < _retries:
+                    logger.warning(
+                        "entailment judge bad verdict (attempt %d/%d): %s — retrying.",
+                        attempt + 1, _retries + 1, exc.reason,
+                    )
+                    time.sleep(_backoff)
+                    continue
+                break
+            except Exception as exc:  # noqa: BLE001 — transient transport/parse fault: retry then fail-closed
+                last_reason = type(exc).__name__
+                if attempt < _retries:
+                    logger.warning(
+                        "entailment judge error (attempt %d/%d): %s — retrying.",
+                        attempt + 1, _retries + 1, exc,
+                    )
+                    time.sleep(_backoff)
+                    continue
+                logger.warning("entailment judge error (final): %s", exc)
+                break
 
-            content = data["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-            verdict = str(parsed.get("verdict", "")).upper().strip()
-            reason = str(parsed.get("reason", ""))
-            if verdict not in ("ENTAILED", "NEUTRAL", "CONTRADICTED"):
-                # Bad verdict = a failed verification → ONE judge_error record, not ok (gate iter-1 P1).
-                _emit_raw_io("judge_error", data)
-                return "ENTAILED", f"judge_error: bad_verdict={verdict!r}"
-            # Validated verdict → the ONE success raw-IO record, AFTER parse (gate iter-1 P1).
-            _emit_raw_io("ok", data, duration_ms=(time.monotonic() - started) * 1000.0)
-            return verdict, reason
-        except _orc.BudgetExceededError:
-            # I-bug-100: do NOT fail-open on cap breach. Propagate so
-            # the sweep aborts with a clear cause.
-            raise
-        except Exception as exc:  # noqa: BLE001 — fail-open by design
-            logger.warning("entailment judge error: %s", exc)
-            # Fail-OPEN judge_error (the drb_72-class signal): prefer the bound served data (parse
-            # failure on a real response) over the exc string. ONE judge_error record — no preceding
-            # "ok" was emitted because the success capture now lives AFTER verdict validation.
-            _emit_raw_io("judge_error", data if data is not None else {"error": str(exc)})
-            return "ENTAILED", f"judge_error: {type(exc).__name__}"
+        # Retries exhausted: emit EXACTLY ONE terminal judge_error record (no per-attempt emits) and
+        # return the fail-CLOSED-at-consumer sentinel. Prefer the bound served data (a parse/verdict
+        # failure on a real response) over a bare error string. The sentinel stays ENTAILED+prefix so
+        # both consumers DROP it (see method docstring + §5 DIVERGENCE in the brief).
+        _emit_raw_io("judge_error", data if data is not None else {"error": last_reason})
+        return "ENTAILED", f"judge_error: {last_reason}"
 
 
 def _append_judge_ledger_entry(

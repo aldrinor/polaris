@@ -5198,3 +5198,30 @@
 - EVIDENCE/FINDINGS: F01 — redactor now redacts every non-VERIFIED 4-role verdict regardless of severity (S3 governs release LATCH only); 18/18 tests pass; Codex brief APPROVE + diff-gate APPROVE (0 P0/P1). Funnel (drb_72): 1385 discovered -> 740 candidates -> 109 in-deadline (631 TIMEOUT, errored=0) -> 36 usable -> 11 evidence -> 12 cited. C01 fix: anchor per-task deadline at task START (task_started_by_index), not submit; C02: scale max_workers w/ candidate count (env PG_LIVE_RETRIEVER_MAX_WORKERS, default 8 -> ~46).
 - STATUS: F01 (P0 faithfulness leak) CLOSED + committed + pushed. C01/C02 (P0 completeness root) brief Codex-gating (bskgiiqf8). ~52 bugs remain in the ordered FULL_BUG_LIST sequence; many are CONSEQUENCES of C01 (re-measure after fetch fix, do not pre-fix). 6 by-design DO-NOT-TOUCH (incl analyst-synthesis-off = correct).
 - NEXT_STEP: C01 brief APPROVE -> Workflow-driven build (deadline re-anchor + worker scaling + offline test) -> Codex diff-gate -> commit. Then S02/S03, C05, C06/C07; then RE-RUN 5-Q on VM + re-audit dual §-1.1; loop until beat-both.
+
+[2026-06-10 02:24:18]
+- ACTION: I-redact-001 #1181 redaction-pinning P0 fix committed (a7f7b39a)
+- RATIONALE: rerun6 aborted drb_76/78/90 at abort_report_redaction_failed — F01 (correctly redacting S3) exposed _SENTENCE_BOUNDARY_RE under-split; fix = 3-arm boundary split isolates unsupported sub-clause + redact-every-occurrence + TIER2 minimal-unit + fail-closed-only-if-absent. Claude Codex Workflow, Codex APPROVE iter2.
+- EVIDENCE: 36 redactor tests pass; verified-neighbor [N] preserved; fixture tests/fixtures/redaction_fixture_redact001.json (3 real failing cases).
+- STATUS: redaction abort fixed. Latent-bug forensic wjeyrtbni running to clear OTHER blockers before re-run (drb_72/75 release-held + any latent regressions).
+- NEXT_STEP: process forensic blocking findings → fix each → re-run 5-Q → dual §-1.1 audit.
+
+[2026-06-10 12:58:00]
+- ACTION: Recorded consolidated ONGOING BUGS REGISTRY at top of logs/bug_log.md (operator request "record down all ongoing bugs") during the P4 beat-both run.
+- RATIONALE: Operator asked for a durable snapshot of all ongoing bugs. Grounded against the commit log on bot/I-ready-017-faithfulness (16 fixes #1171-#1190 landed), open GitHub issues, and live P4-run observation. Bug-forensics counting is allowed (the §-1.1 count ban applies to research-OUTPUT quality only). Structured: A=fixed+deployed-validating, B=open backlog, C=new live-run observations, D=deferred/operator-gated.
+- DOCS/RESEARCH: outputs/audits/beatboth5/FULL_BUG_LIST.md; outputs/audits/beatboth7/BEAT_BOTH_SUMMARY.md; state/active_fix_campaign.json; gh issue list.
+- SYNC: N/A (bug_log is the registry; no APD precedence change).
+- AFFECTED_FILES: logs/bug_log.md (prepended registry), logs/session_log.md.
+- EVIDENCE/FINDINGS: Top-line — beat-both gap is COMPLETENESS not faithfulness (beatboth7: faithful 5/5, beat Gemini 4/5, beat ChatGPT 0/5). Open backlog: #1187 (Codex briefs need spans, apply at P5), #1180/#1176 (qualifier-drop/widening), #1184 (phase-7 404 unconfirmed on Novita), #1188 (gap diag done). New this session: NLI 'choices' fail-closed over-drop, gap-#18 local-window imprecise-span PARTIAL-risk, agentic S2 100/query cap, drb_90 httpx. P4 run healthy 3/3 alive, RUNDONE 0/5.
+- STATUS: Registry recorded. P4 run in progress (~101 min, no RUNDONE yet). Monitor loop armed.
+- NEXT_STEP: Continue deep monitor loop; on all-5 RUNDONE run P5 dual §-1.1 audit (beatboth8) with resolved spans embedded in the Codex brief (#1187).
+
+[2026-06-10 07:03:47]
+- ACTION: Implemented I-transport-001 (#1191) — bounded retry at 5 transport sites (faithfulness-safe; terminal stays fail-closed).
+- RATIONALE: beatboth8 FAILURE_AUDIT root cause = transient single-fault crashes/holds (drb_72 mid-stream RemoteProtocolError, drb_75 empty-200 no-failover, drb_78 single-shot S2-500). Purely ADDITIVE resilience: after retries exhaust every site fails CLOSED exactly as before. Implemented per Codex-spec brief .codex/I-transport-001/brief.md.
+- DOCS/RESEARCH: outputs/audits/beatboth8/FAILURE_AUDIT.md §4.1; httpx exception hierarchy (RemoteProtocolError/ReadError are TransportError siblings of TimeoutException/ConnectError).
+- SYNC: N/A.
+- AFFECTED_FILES: src/polaris_graph/llm/openrouter_client.py (Sites 1+2), src/polaris_graph/roles/openrouter_role_transport.py (Site 3), src/polaris_graph/llm/entailment_judge.py (Site 4), scripts/dr_benchmark/super_heavy_preflight.py (Site 5), tests/polaris_graph/test_transport_retry_resilience.py (new, 11 cases).
+- EVIDENCE/FINDINGS: new test 11/11 pass; 547 roles+real_completion+provenance tests pass; 153 entailment/preflight/seam/strict_verify/io_sink regression tests pass; AST OK all 5 files. New env PG_ENTAILMENT_RETRIES=2, PG_BREADTH_PROBE_RETRIES=2 (LAW VI). NLI sentinel kept ENTAILED+judge_error: prefix (no NEUTRAL flip).
+- STATUS: All 5 sites implemented + tested. Pre-existing path-config collection error on bare-import clinical_generator tests (unrelated; reproduces on untouched test_generator.py; passes with PYTHONPATH=src).
+- NEXT_STEP: Codex diff-gate review of .codex/I-transport-001/codex_diff.patch.

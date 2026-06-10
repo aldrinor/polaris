@@ -1834,6 +1834,35 @@ class OpenRouterClient:
                             f"Provider error (code={err.get('code', '?')}): "
                             f"{err.get('message', str(err))[:200]}"
                         )
+                    # I-transport-001 (#1191) Site 2 (FIXES drb_72-class): a structurally-empty
+                    # HTTP 200 ({"choices": []} with NO error key) was previously detected only
+                    # AFTER the for/else (the post-loop SF-16 block below) and raised a NON-retryable
+                    # ValueError — ZERO retries on the first empty 200. Move the detection INSIDE the
+                    # try so a transient empty 200 reuses the EXISTING retryable RuntimeError branch
+                    # (~:1959) and re-POSTs. This runs ONLY on the non-stream path (the stream branch
+                    # synthesizes a non-empty `choices` at :1784-1797, so {"choices":[]} can only
+                    # reach here non-streamed); it is placed AFTER the error-key check above so the
+                    # {"error":…,"choices":[]} path keeps its own retryable RuntimeError and is not
+                    # shadowed. After MAX_RETRIES the RuntimeError re-raises (status=error stays
+                    # fail-closed) — no empty/blank completion is ever consumed as content.
+                    if not data.get("choices"):
+                        # I-obs-001 #1141 AC3: emit the empty-choices forensic capture here (mirrors
+                        # the post-loop block) so the retry path does not silently drop the signal.
+                        _io_sink = current_raw_io_sink()
+                        if _io_sink is not None:
+                            try:
+                                _io_sink.record(
+                                    call_id=uuid.uuid4().hex, call_type=call_type,
+                                    role=_pathb_capture.current_llm_role(),
+                                    request={**body, "messages": sanitized_messages},
+                                    raw_response=data, duration_ms=None, status="empty_choices",
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
+                        raise RuntimeError(
+                            f"API returned no choices in response for {call_type} "
+                            f"(model={data.get('model', '?')}) — empty HTTP 200"
+                        )
                 break
 
             except asyncio.TimeoutError:
@@ -1972,7 +2001,20 @@ class OpenRouterClient:
                 self.usage.total_errors += 1
                 raise
 
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            except (
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                # I-transport-001 (#1191) Site 1 (FIXES drb_72): a mid-stream
+                # incomplete-chunked-read raises httpx.RemoteProtocolError — a SIBLING (not a
+                # subclass) of TimeoutException/ConnectError, so the prior 2-class tuple matched
+                # NO clause and the disconnect propagated uncaught with ZERO retries
+                # (status=error_unexpected). Add the SPECIFIC RemoteProtocolError (+ ReadError for
+                # a truncated body read) — NOT the broad httpx.TransportError parent, which would
+                # also swallow ProxyError/UnsupportedProtocol/DecodingError. After MAX_RETRIES the
+                # error STILL re-raises via the for/else below (status=error stays fail-closed).
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+            ) as exc:
                 last_error = exc
                 # FIX-052B: DNS failures get longer backoff (outages last 10-60s)
                 is_dns_failure = "getaddrinfo" in str(exc).lower()
@@ -2002,7 +2044,13 @@ class OpenRouterClient:
 
         duration_ms = (time.monotonic() - start) * 1000
 
-        # SF-16: Check for empty choices before indexing
+        # SF-16: Check for empty choices before indexing.
+        # I-transport-001 (#1191) Site 2: the PRIMARY empty-choices detection now lives INSIDE
+        # the retry loop (raises a retryable RuntimeError so a transient empty 200 re-POSTs). This
+        # post-loop block is kept as a fail-closed BACKSTOP — it stays a ValueError (a non-retryable
+        # terminal) for any non-stream empty-200 that reaches here through a future code path; the
+        # in-loop check makes it dead for the current non-stream flow but its removal would weaken
+        # the defense if the break/assignment order ever changes.
         choices = data.get("choices", [])
         if not choices:
             self.usage.total_errors += 1
