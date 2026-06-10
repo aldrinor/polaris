@@ -338,3 +338,9 @@ PRIORITY (I-safety-002b / #925). Benchmarks POLARIS as a deep-research tool vs C
 **NOTE**: the legacy `src/polaris_graph/benchmark/dimension_scorers.py` + `beat_both_scorer.py` ("BEAT-BOTH", 7-dimension) are §-1.1-INVALID (count/pattern/string-match scoring + POLARIS auto-win dimensions) — DO NOT use as a benchmark scorer; being replaced by `claim_audit_scorer.py`.
 
 - `scripts/diagnostics/sentinel_groundedness_probe.py` / `sentinel_multifixture_smoke.py` — I-run11-002 (#1044) live OpenRouter groundedness-discrimination probes for the benchmark Sentinel (granite + non-inverted GROUNDED/UNGROUNDED prompt). Sovereign self-host Guardian path (inverted yes=risk) unchanged.
+
+## Permanent-fix program docs (2026-06-10, the 9 issues, operator-directed)
+- `docs/permanent_fix_9_issues.md` — CHARTER: the 9 pinned issues (I-perm-001..009, GitHub #1194-#1203), the withhold→always-release+label reframe, per-issue process.
+- `docs/permanent_fix_migration_blueprint.md` — the architecture migration design (frontier-cited + code-grounded; target architecture, cross-cutting decisions, per-issue migration, build order, serious-smoke spec, 6 Codex tensions).
+- `outputs/audits/beatboth8/MASTER_FIX_PLAN.md` — the original 8-bug consolidation + behavioral-smoke design (superseded/expanded by the 9-issue charter).
+- `outputs/audits/beatboth8/FAILURE_AUDIT.md`, `REMAINING_RISKS.md`, `drb_76/DRB76_FORENSIC.md` — the §-1.1 forensics the program is built on.

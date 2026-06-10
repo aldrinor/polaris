@@ -1,6 +1,10 @@
 # POLARIS — todo / active scope (RE-PRIORITIZED 2026-05-20)
 
-## ⭐⭐ CURRENT PRIORITY (2026-06-09, operator autonomous loop): BEAT-BOTH fix campaign — never stop until beat-both
+## ⭐⭐⭐ TOP PRIORITY (2026-06-10, operator-directed): PERMANENT ARCHITECTURE FIX — the 9 issues
+
+Governing reframe: the pipeline changes from **WITHHOLD-when-imperfect → ALWAYS-RELEASE with honest per-claim confidence + provenance; user judges** (never assert an ungrounded claim as fact). Subsumes the beat-both completeness gap: the held/over-cautious gate stack is the root, not faithfulness (zero fabrication confirmed). Umbrella **#1194** (I-perm-000), issues **#1195–#1203** (I-perm-001…009). Charter `docs/permanent_fix_9_issues.md`; migration blueprint `docs/permanent_fix_migration_blueprint.md` (frontier-cited + code-grounded; Codex architecture pressure-test in progress). Per issue: research best-practice → line-by-line our code → permanent migration → build → SERIOUS stress smoke (I-perm-009 replay harness on saved beatboth8) → Codex review (only gate). **Build order:** W0 schema + replay harness → W1 I-perm-001 keystone → W2 {002,004} → W3 {005,008} → W4 {006,003,007}. **Exit:** all 9 Codex-APPROVED → serious preflight → present summary → operator go for the full beat-both run. Honest corrections baked in: I-perm-003 selector drops 0 (the ~90% loss is upstream extraction/I-perm-007); I-perm-006 pending-rewrite is a phantom; false contraindication hold proven byte-level.
+
+## ⭐⭐ PRIOR PRIORITY (2026-06-09, now SUBSUMED by the 9-issue program): BEAT-BOTH fix campaign — never stop until beat-both
 
 The released 5-question beat-both run (drb_72/75/76/78/90, branch `bot/I-ready-017-faithfulness`) was §-1.1 dual-audited: POLARIS is genuinely faithful + **beats Gemini on all 5**, but does **NOT beat gpt_5_5_pro** (careful, no fabrication). Gap = **completeness, not faithfulness**. 7-lane bug forensic → ~54 bugs → 2 P0 roots. Full ranked list + ordered sequence: `outputs/audits/beatboth5/FULL_BUG_LIST.md`. Loop state: `state/beat_both_loop_state.json`. Mission: fix → re-deploy 5-Q on VM → re-audit dual §-1.1 → loop until beat-both (both auditors agree). Each fix = GitHub issue-first + Codex-gated brief + diff (§-1.2 + §8.3.1 5-cap); Codex the only gate.
 
