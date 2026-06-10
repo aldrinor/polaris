@@ -616,6 +616,18 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # operator =0 cannot survive the setdefault slate and silently restore the tier-count refusal on the
     # paid beat-both run (the I-cap-005 P1-1 force-on pattern).
     "PG_SWEEP_WEIGHTED_CORPUS_GATE": "1",
+    # I-perm-000 permanent-fix activation (#1194). Each fix is DEFAULT OFF (byte-identical) and is
+    # INERT in production unless the slate turns it on — the exact "fix built but not live" trap.
+    # Force-on + required below so a stray operator =0 cannot survive the setdefault slate and
+    # silently restore the pre-fix behaviour on the paid beat-both run.
+    #   PG_ALWAYS_RELEASE         (#1195 keystone) WITHHOLD->ALWAYS-RELEASE+LABEL: a held report ships
+    #                             with disclosed gaps instead of aborting (the drb_76 false hold).
+    #   PG_SWEEP_NUMERIC_SANITIZER(#1201) drop DOI/URL/accession cruft parsed as clinical data.
+    # NOT activated here: PG_SWEEP_SELECTION_SCALE (#1197) — the blueprint keeps it flag-OFF until
+    # I-perm-007 grows a real large pool (it is preventative; on the current corpus it would scale
+    # the budget ABOVE the #1070/#1078 evidence-to-generation cap and re-flood the generator).
+    "PG_ALWAYS_RELEASE": "1",
+    "PG_SWEEP_NUMERIC_SANITIZER": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -680,6 +692,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
     # is not active so a tier-mix refusal can never silently reach the paid run.
     "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    # I-perm-000 permanent-fix (#1194): the keystone always-release + the numeric sanitizer + the
+    # are DEFAULT OFF; required here so the preflight FAILS CLOSED if either is off, i.e. the paid
+    # run can NEVER silently revert to the pre-fix withhold / DOI-cruft behaviour. (Selection-scale
+    # #1197 is deliberately NOT required — it stays flag-OFF until I-perm-007 grows a real pool.)
+    "PG_ALWAYS_RELEASE",
+    "PG_SWEEP_NUMERIC_SANITIZER",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -730,6 +748,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_SERPER_STOP_ON_ZERO_NEW",
     # BB-006: ingest the STORM interview-search-result URLs as URL-only seed candidates.
     "PG_STORM_INGEST_WEB_RESULTS",
+    # I-perm-000 (#1194): force-on the two ready permanent-fix flags so an explicit operator =0
+    # cannot survive the setdefault slate and silently revert to the pre-fix withhold / DOI-cruft
+    # behaviour. (PG_SWEEP_SELECTION_SCALE stays OFF until I-perm-007 grows a real pool.)
+    "PG_ALWAYS_RELEASE",
+    "PG_SWEEP_NUMERIC_SANITIZER",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
