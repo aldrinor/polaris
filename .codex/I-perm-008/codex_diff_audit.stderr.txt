@@ -1,0 +1,2147 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb381-a189-7a81-a591-6d462dc1f425
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings. Same quality bar regardless of iteration count.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex DIFF review — I-perm-008 (#1202) Key-Findings fix — ITER 2 of 5
+
+Iter-1 verdict: REQUEST_CHANGES, ZERO P0, ONE P1 + one P2. Both RESOLVED. VERIFY.
+
+## P1 (B was ineffective in production) — RESOLVED
+You were right: the real `reconcile_report_against_verdicts` replaces the WHOLE KF bullet (prefix + sentence) with a BARE stub line, so the old `- `-prefix check missed it. FIX: `refilter_key_findings_block` now drops ANY line inside the bounded KF block that matches `_GAP_MARKER_RE` (regardless of a `- ` prefix). The block's only other lines are the `## Key Findings` heading + the italic preamble, neither of which matches `_GAP_MARKER_RE`, so no legitimate line is dropped.
+NEW integration test `test_build_then_real_redact_then_refilter_is_clean` uses the ACTUAL `reconcile_report_against_verdicts` (not `report.replace`): it asserts the stub IS present in the KF block before refilter (the production leak you flagged) and GONE after. EVIDENCE: I reproduced exactly your scenario — before refilter the KF block contains "A claim previously stated here did not survive 4-role verification..."; after refilter it does not.
+
+## P2 (ATX-only header detection) — RESOLVED
+`_strip_leading_markdown_headers` + `_first_verified_sentences` now use `_ATX_HEADER_RE = re.compile(r"#{1,6}\s")` (hash + whitespace), not a bare `startswith("#")`, so hash-leading prose like "#1 ranked therapy" is NOT mis-stripped. NEW test `test_hash_leading_prose_is_not_stripped_as_a_header`.
+
+## Evidence pack (ran this session)
+- `pytest tests/polaris_graph/generator/test_key_findings_iperm008.py tests/polaris_graph/test_key_findings.py` → **15 passed** (8 new incl. the real-redactor integration + the hash-prose P2 guard; 7 existing no-regression).
+- `pytest tests/polaris_graph/replay/` → **20 passed, 1 xfailed** (no regression).
+
+## HONEST SCOPE (unchanged)
+The committed saved drb_76 report.md is a frozen PRE-(A) artifact; full end-to-end real-data validation is a canary re-run. The "curator-actionable gap" WORDING is unchanged here (test-coupled; deferred to I-perm-008b).
+
+VERIFY both fixes close the iter-1 findings and nothing novel. APPROVE if so.
+
+## Output schema (REQUIRED — last `verdict:` line parsed by CI)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+========== THE UPDATED DIFF UNDER REVIEW ==========
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 9a14d492..e14e98d7 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -7258,8 +7258,20 @@ async def run_one_query(
+                         # Write the reconciled body back BEFORE the V30 append so the disclosure
+                         # reflects the redacted report. Emit one redacted_unsupported gap per
+                         # removed claim into gaps.json (append; never overwrite curator gaps).
++                        _reconciled_report = _redaction.report_text
++                        if _redaction.redacted:
++                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
++                            # lifted headline the four-role seam later marks non-VERIFIED was just
++                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
++                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
++                            from src.polaris_graph.generator.key_findings import (
++                                refilter_key_findings_block,
++                            )
++                            _reconciled_report = refilter_key_findings_block(
++                                _reconciled_report
++                            )
+                         _redact_report_path.write_text(
+-                            _redaction.report_text, encoding="utf-8"
++                            _reconciled_report, encoding="utf-8"
+                         )
+                         manifest["report_redaction"] = {
+                             "redacted_count": _redaction.redacted_count,
+diff --git a/src/polaris_graph/generator/key_findings.py b/src/polaris_graph/generator/key_findings.py
+index 94e1867b..fd88d0d9 100644
+--- a/src/polaris_graph/generator/key_findings.py
++++ b/src/polaris_graph/generator/key_findings.py
+@@ -43,6 +43,10 @@ _GAP_MARKER_RE = re.compile(
+     re.IGNORECASE,
+ )
+ 
++# An ATX markdown header: 1-6 '#' followed by whitespace ("### Section"). Used to detect a
++# leaked section header WITHOUT mis-classifying hash-leading prose like "#1 ranked" (Codex P2).
++_ATX_HEADER_RE = re.compile(r"#{1,6}\s")
++
+ _OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
+ 
+ # How many leading verified sentences to lift from each section (default 1 — the headline finding).
+@@ -56,18 +60,81 @@ def key_findings_enabled() -> bool:
+     return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
+ 
+ 
++def _strip_leading_markdown_headers(text: str) -> str:
++    """Drop leading markdown header lines (and blanks) from a section's verified_text
++    (I-perm-008 #1202). A section header that leaked into ``verified_text`` (e.g.
++    "### Pathogenic bacteria...") would otherwise be lifted AS the headline finding via the
++    DOTALL sentence regex, producing a "- **Section.** ### <header> ..." bullet that breaks the
++    Key-Findings block boundary. Stripping leading headers makes the lift a clean prose sentence."""
++    lines = (text or "").split("\n")
++    i = 0
++    while i < len(lines) and (not lines[i].strip() or _ATX_HEADER_RE.match(lines[i].lstrip())):
++        i += 1
++    return "\n".join(lines[i:])
++
++
+ def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
+     matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
+-    # A Key Finding is a span-verified CLAIM: it must carry a citation AND must NOT be
++    # A Key Finding is a span-verified CLAIM: it must carry a citation, must NOT be
+     # gap-disclosure boilerplate (whose 2nd sentence is cited to the gap-task sidecar, not
+-    # an evidence span). Both filters together exclude every gap shape in a mixed section
+-    # (I-gen-006 #1178 C07/P07, Codex iter-5).
++    # an evidence span), and must NOT be a markdown header line (I-perm-008 — a leaked "###"
++    # header is never a finding). The filters together exclude every gap/header shape in a
++    # mixed section (I-gen-006 #1178 C07/P07, Codex iter-5).
+     return [
+         s for s in matches
+-        if s and _CITATION_RE.search(s) and not _GAP_MARKER_RE.search(s)
++        if s
++        and not _ATX_HEADER_RE.match(s.lstrip())
++        and _CITATION_RE.search(s)
++        and not _GAP_MARKER_RE.search(s)
+     ][:n]
+ 
+ 
++def refilter_key_findings_block(report_text: str) -> str:
++    """Drop Key-Findings bullets that became a redaction STUB after the four-role seam
++    (I-perm-008 #1202, blueprint R7).
++
++    ``build_key_findings`` is assembled PRE-four-role on strict_verify-passed prose, so a lifted
++    headline finding the four-role seam later marks non-VERIFIED is redacted in report.md into a
++    "- **Section.** <gap stub>" pseudo-finding. The redactor runs AFTER Key Findings is built, so
++    it cannot prevent the stub bullet; this post-redaction pass removes any KF bullet whose body
++    now matches the gap-disclosure boilerplate (``_GAP_MARKER_RE``). With the leaked-header strip
++    in ``build_key_findings`` each bullet is a clean single line, so a line-scoped drop is exact.
++    If no genuine finding remains, the whole block is dropped (no empty heading). Idempotent +
++    byte-identical when no KF bullet was redacted.
++    """
++    if not key_findings_enabled():
++        return report_text
++    header_match = re.search(r"(?m)^##\s*Key Findings\s*$", report_text)
++    if not header_match:
++        return report_text
++    block_start = header_match.start()
++    rest = report_text[header_match.end():]
++    next_header = re.search(r"(?m)^#{1,6}\s", rest)
++    block_end = header_match.end() + (next_header.start() if next_header else len(rest))
++
++    kept_lines: list[str] = []
++    dropped_any = False
++    for line in report_text[block_start:block_end].splitlines():
++        # Within the bounded KF block, ANY gap-disclosure line is a redacted finding — the real
++        # `reconcile_report_against_verdicts` replaces the WHOLE bullet (including the
++        # "- **Section.**" prefix) with a BARE stub line, so a `- `-prefix check misses it
++        # (Codex iter-1 P1). The block's only other lines are the heading + the italic preamble,
++        # neither of which matches `_GAP_MARKER_RE`, so this never drops a legitimate line.
++        if _GAP_MARKER_RE.search(line):
++            dropped_any = True
++            continue
++        kept_lines.append(line)
++    if not dropped_any:
++        return report_text  # byte-identical when nothing was a stub
++    new_block = "\n".join(kept_lines)
++    if not re.search(r"(?m)^\s*-\s+\S", new_block):
++        trimmed = report_text[:block_start] + report_text[block_end:]
++        return re.sub(r"^\n+", "", trimmed) if block_start == 0 else trimmed
++    if not new_block.endswith("\n"):
++        new_block += "\n"
++    return report_text[:block_start] + new_block + report_text[block_end:]
++
++
+ def build_key_findings(sections: list[Any]) -> str:
+     """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
+     from each non-dropped section with verified_text. Verified-only + extractive — never a new claim.
+@@ -84,7 +151,9 @@ def build_key_findings(sections: list[Any]) -> str:
+         # statement". Skip every gap disclosure (universal signal: sentences_verified == 0).
+         if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
+             continue
+-        verified_text = getattr(sr, "verified_text", "") or ""
++        # I-perm-008: strip any leaked leading section header so it is never lifted as the
++        # headline finding (a "### ..." header would otherwise break the KF block boundary).
++        verified_text = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
+         if not verified_text.strip():
+             continue
+         title = getattr(sr, "title", "") or ""
+diff --git a/tests/polaris_graph/generator/test_key_findings_iperm008.py b/tests/polaris_graph/generator/test_key_findings_iperm008.py
+new file mode 100644
+index 00000000..3ac7df55
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_key_findings_iperm008.py
+@@ -0,0 +1,175 @@
++"""I-perm-008 (#1202) — Key-Findings leaked-header strip + post-redaction stub re-filter.
++
++Offline, deterministic. Proves the two-part fix on synthetic sections/reports:
++(A) `build_key_findings` strips a leaked "### header" from a section's verified_text so it is
++    never lifted as the headline finding (clean single-line bullet).
++(B) `refilter_key_findings_block` drops a KF bullet that the four-role seam redacted into a gap
++    stub after Key Findings was assembled (with (A) the bullet is single-line, so the line-scoped
++    drop is exact). My first slice-1 (B alone) was a no-op on the real drb_76 report BECAUSE the
++    leaked header made the bullet multi-line — (A) is the enabler.
++
++HONEST SCOPE: the committed saved drb_76 report.md was rendered PRE-(A), so its broken multi-line
++Mechanism bullet is a frozen pre-fix artifact; full end-to-end real-data validation is a canary
++re-run (RE-RUN-REQUIRED per the blueprint). These tests prove the FIX LOGIC.
++"""
++
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++from src.polaris_graph.generator.key_findings import (
++    build_key_findings,
++    refilter_key_findings_block,
++)
++
++_REDACTION_STUB = (
++    "A claim previously stated here did not survive 4-role verification and was redacted; "
++    "this is a curator-actionable gap."
++)
++
++
++def _section(title, verified_text, sentences_verified=2):
++    return SimpleNamespace(
++        title=title,
++        verified_text=verified_text,
++        dropped_due_to_failure=False,
++        is_gap_stub=False,
++        sentences_verified=sentences_verified,
++    )
++
++
++# --- (A) leaked-header strip ----------------------------------------------------------------
++
++
++def test_leaked_header_is_not_lifted_as_a_finding():
++    sections = [
++        _section("Efficacy", "Exposure: intake of dietary fibre and whole grains.[1]"),
++        # Mechanism's verified_text has a leaked "### " section header before the prose.
++        _section(
++            "Mechanism",
++            "### Pathogenic bacteria and their genotoxic metabolites\n\n"
++            "The pathogenic bacterium pks+ E. coli has been linked to colorectal cancer.[2]",
++        ),
++    ]
++    kf = build_key_findings(sections)
++    assert "###" not in kf, f"a leaked header leaked into Key Findings:\n{kf}"
++    # The Mechanism bullet is the clean prose sentence, not the header.
++    assert "- **Mechanism.** The pathogenic bacterium pks+ E. coli" in kf
++    assert "- **Efficacy.** Exposure: intake of dietary fibre" in kf
++
++
++def test_header_only_section_yields_no_bullet():
++    # A section whose verified_text is ONLY a header (no real cited prose) contributes nothing.
++    sections = [_section("Mechanism", "### Just a header with no prose")]
++    assert build_key_findings(sections) == ""
++
++
++# --- (B) post-redaction stub re-filter ------------------------------------------------------
++
++
++def _report(bullets):
++    body = "\n".join(bullets)
++    return (
++        "# Research report: q\n\n"
++        "## Key Findings\n\n"
++        "_preamble._\n\n"
++        f"{body}\n\n"
++        "### Efficacy\n\nbody prose.[1]\n\n"
++        "## Bibliography\n[1] x\n"
++    )
++
++
++def test_refilter_drops_stub_bullet_keeps_real_finding():
++    report = _report([
++        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
++        f"- **Mechanism.** {_REDACTION_STUB}",
++    ])
++    out = refilter_key_findings_block(report)
++    assert "## Key Findings" in out
++    assert "- **Efficacy.** Exposure: intake of dietary fibre.[1]" in out
++    assert _REDACTION_STUB not in out.split("### Efficacy")[0]  # stub gone from the KF block
++    assert "did not survive" not in out.split("### Efficacy")[0]
++    # Body + bibliography preserved.
++    assert "### Efficacy" in out and "## Bibliography" in out
++
++
++def test_refilter_drops_whole_block_when_no_finding_survives():
++    report = _report([f"- **Mechanism.** {_REDACTION_STUB}"])
++    out = refilter_key_findings_block(report)
++    assert "## Key Findings" not in out  # no empty heading
++    assert "### Efficacy" in out  # body untouched
++
++
++def test_refilter_byte_identical_when_no_stub():
++    report = _report([
++        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
++        "- **Mechanism.** The bacterium is linked to cancer.[2]",
++    ])
++    assert refilter_key_findings_block(report) == report
++
++
++def test_refilter_is_idempotent():
++    report = _report([
++        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
++        f"- **Mechanism.** {_REDACTION_STUB}",
++    ])
++    once = refilter_key_findings_block(report)
++    assert refilter_key_findings_block(once) == once
++
++
++# --- (A-P2) ATX-only header detection (do not strip hash-leading prose) ----------------------
++
++
++def test_hash_leading_prose_is_not_stripped_as_a_header():
++    # "#1 ..." is prose, not an ATX header (no space after the hashes); it must survive.
++    sections = [_section("Comparative", "#1 ranked therapy improved outcomes in the cohort.[3]")]
++    kf = build_key_findings(sections)
++    assert "#1 ranked therapy improved outcomes" in kf
++
++
++# --- (A)+(B) together via the REAL redactor (not a string replace) ---------------------------
++
++
++def test_build_then_real_redact_then_refilter_is_clean():
++    # Codex iter-1 P1: the integration must use the ACTUAL reconcile_report_against_verdicts,
++    # which replaces the WHOLE bullet (prefix + sentence) with a bare stub line.
++    from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts
++
++    sections = [
++        _section("Efficacy", "Exposure: intake of dietary fibre.[1]"),
++        # (A): leaked header before the prose finding the four-role seam will reject.
++        _section(
++            "Mechanism",
++            "### Pathogenic bacteria\n\n"
++            "The bacterium has been strongly linked to colorectal cancer.[2]",
++        ),
++    ]
++    kf = build_key_findings(sections)
++    # (A) sanity: no leaked header reached a bullet.
++    assert "###" not in kf
++    report = (
++        "# Research report: q\n\n"
++        + kf
++        + "### Efficacy\n\nExposure: intake of dietary fibre.[1]\n\n"
++        + "### Mechanism\n\nThe bacterium has been strongly linked to colorectal cancer.[2]\n\n"
++        + "## Bibliography\n[1] a\n[2] b\n"
++    )
++    audit_map = {
++        "01-002": {
++            "sentence": "The bacterium has been strongly linked to colorectal cancer.[2]",
++            "severity": "S2",
++            "verdict": "UNSUPPORTED",
++        }
++    }
++    redaction = reconcile_report_against_verdicts(report, {"01-002": "UNSUPPORTED"}, audit_map)
++    assert redaction.redacted_count == 1
++    # Before refilter, the real redactor leaves a bare stub line in the KF block.
++    kf_before = redaction.report_text.split("### Efficacy")[0]
++    assert "did not survive" in kf_before  # the leak Codex flagged exists in production
++    # (B): refilter removes it even though the redactor stripped the "- **Mechanism.**" prefix.
++    out = refilter_key_findings_block(redaction.report_text)
++    kf_after = out.split("### Efficacy")[0]
++    assert "did not survive" not in kf_after  # the stub is gone from Key Findings
++    assert "curator-actionable gap" not in kf_after
++    assert "- **Efficacy.** Exposure: intake of dietary fibre.[1]" in out  # real finding kept
++    assert "### Mechanism" in out and "## Bibliography" in out  # body untouched
+
+codex
+I’ll verify against the actual working tree, not just the pasted diff. I’m going to read the touched code and tests first, then run the focused test set if the repo is in the expected state.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/key_findings.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/generator/test_key_findings_iperm008.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- scripts/run_honest_sweep_r3.py src/polaris_graph/generator/key_findings.py tests/polaris_graph/generator/test_key_findings_iperm008.py tests/polaris_graph/test_key_findings.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def reconcile_report_against_verdicts|class .*Redaction|A claim previously stated|curator-actionable|_GAP_MARKER_RE|refilter_key_findings_block|Key Findings" src tests scripts' in C:\POLARIS
+ succeeded in 3019ms:
+"""I-perm-008 (#1202) — Key-Findings leaked-header strip + post-redaction stub re-filter.
+
+Offline, deterministic. Proves the two-part fix on synthetic sections/reports:
+(A) `build_key_findings` strips a leaked "### header" from a section's verified_text so it is
+    never lifted as the headline finding (clean single-line bullet).
+(B) `refilter_key_findings_block` drops a KF bullet that the four-role seam redacted into a gap
+    stub after Key Findings was assembled (with (A) the bullet is single-line, so the line-scoped
+    drop is exact). My first slice-1 (B alone) was a no-op on the real drb_76 report BECAUSE the
+    leaked header made the bullet multi-line — (A) is the enabler.
+
+HONEST SCOPE: the committed saved drb_76 report.md was rendered PRE-(A), so its broken multi-line
+Mechanism bullet is a frozen pre-fix artifact; full end-to-end real-data validation is a canary
+re-run (RE-RUN-REQUIRED per the blueprint). These tests prove the FIX LOGIC.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from src.polaris_graph.generator.key_findings import (
+    build_key_findings,
+    refilter_key_findings_block,
+)
+
+_REDACTION_STUB = (
+    "A claim previously stated here did not survive 4-role verification and was redacted; "
+    "this is a curator-actionable gap."
+)
+
+
+def _section(title, verified_text, sentences_verified=2):
+    return SimpleNamespace(
+        title=title,
+        verified_text=verified_text,
+        dropped_due_to_failure=False,
+        is_gap_stub=False,
+        sentences_verified=sentences_verified,
+    )
+
+
+# --- (A) leaked-header strip ----------------------------------------------------------------
+
+
+def test_leaked_header_is_not_lifted_as_a_finding():
+    sections = [
+        _section("Efficacy", "Exposure: intake of dietary fibre and whole grains.[1]"),
+        # Mechanism's verified_text has a leaked "### " section header before the prose.
+        _section(
+            "Mechanism",
+            "### Pathogenic bacteria and their genotoxic metabolites\n\n"
+            "The pathogenic bacterium pks+ E. coli has been linked to colorectal cancer.[2]",
+        ),
+    ]
+    kf = build_key_findings(sections)
+    assert "###" not in kf, f"a leaked header leaked into Key Findings:\n{kf}"
+    # The Mechanism bullet is the clean prose sentence, not the header.
+    assert "- **Mechanism.** The pathogenic bacterium pks+ E. coli" in kf
+    assert "- **Efficacy.** Exposure: intake of dietary fibre" in kf
+
+
+def test_header_only_section_yields_no_bullet():
+    # A section whose verified_text is ONLY a header (no real cited prose) contributes nothing.
+    sections = [_section("Mechanism", "### Just a header with no prose")]
+    assert build_key_findings(sections) == ""
+
+
+# --- (B) post-redaction stub re-filter ------------------------------------------------------
+
+
+def _report(bullets):
+    body = "\n".join(bullets)
+    return (
+        "# Research report: q\n\n"
+        "## Key Findings\n\n"
+        "_preamble._\n\n"
+        f"{body}\n\n"
+        "### Efficacy\n\nbody prose.[1]\n\n"
+        "## Bibliography\n[1] x\n"
+    )
+
+
+def test_refilter_drops_stub_bullet_keeps_real_finding():
+    report = _report([
+        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
+        f"- **Mechanism.** {_REDACTION_STUB}",
+    ])
+    out = refilter_key_findings_block(report)
+    assert "## Key Findings" in out
+    assert "- **Efficacy.** Exposure: intake of dietary fibre.[1]" in out
+    assert _REDACTION_STUB not in out.split("### Efficacy")[0]  # stub gone from the KF block
+    assert "did not survive" not in out.split("### Efficacy")[0]
+    # Body + bibliography preserved.
+    assert "### Efficacy" in out and "## Bibliography" in out
+
+
+def test_refilter_drops_whole_block_when_no_finding_survives():
+    report = _report([f"- **Mechanism.** {_REDACTION_STUB}"])
+    out = refilter_key_findings_block(report)
+    assert "## Key Findings" not in out  # no empty heading
+    assert "### Efficacy" in out  # body untouched
+
+
+def test_refilter_byte_identical_when_no_stub():
+    report = _report([
+        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
+        "- **Mechanism.** The bacterium is linked to cancer.[2]",
+    ])
+    assert refilter_key_findings_block(report) == report
+
+
+def test_refilter_is_idempotent():
+    report = _report([
+        "- **Efficacy.** Exposure: intake of dietary fibre.[1]",
+        f"- **Mechanism.** {_REDACTION_STUB}",
+    ])
+    once = refilter_key_findings_block(report)
+    assert refilter_key_findings_block(once) == once
+
+
+# --- (A-P2) ATX-only header detection (do not strip hash-leading prose) ----------------------
+
+
+def test_hash_leading_prose_is_not_stripped_as_a_header():
+    # "#1 ..." is prose, not an ATX header (no space after the hashes); it must survive.
+    sections = [_section("Comparative", "#1 ranked therapy improved outcomes in the cohort.[3]")]
+    kf = build_key_findings(sections)
+    assert "#1 ranked therapy improved outcomes" in kf
+
+
+# --- (A)+(B) together via the REAL redactor (not a string replace) ---------------------------
+
+
+def test_build_then_real_redact_then_refilter_is_clean():
+    # Codex iter-1 P1: the integration must use the ACTUAL reconcile_report_against_verdicts,
+    # which replaces the WHOLE bullet (prefix + sentence) with a bare stub line.
+    from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts
+
+    sections = [
+        _section("Efficacy", "Exposure: intake of dietary fibre.[1]"),
+        # (A): leaked header before the prose finding the four-role seam will reject.
+        _section(
+            "Mechanism",
+            "### Pathogenic bacteria\n\n"
+            "The bacterium has been strongly linked to colorectal cancer.[2]",
+        ),
+    ]
+    kf = build_key_findings(sections)
+    # (A) sanity: no leaked header reached a bullet.
+    assert "###" not in kf
+    report = (
+        "# Research report: q\n\n"
+        + kf
+        + "### Efficacy\n\nExposure: intake of dietary fibre.[1]\n\n"
+        + "### Mechanism\n\nThe bacterium has been strongly linked to colorectal cancer.[2]\n\n"
+        + "## Bibliography\n[1] a\n[2] b\n"
+    )
+    audit_map = {
+        "01-002": {
+            "sentence": "The bacterium has been strongly linked to colorectal cancer.[2]",
+            "severity": "S2",
+            "verdict": "UNSUPPORTED",
+        }
+    }
+    redaction = reconcile_report_against_verdicts(report, {"01-002": "UNSUPPORTED"}, audit_map)
+    assert redaction.redacted_count == 1
+    # Before refilter, the real redactor leaves a bare stub line in the KF block.
+    kf_before = redaction.report_text.split("### Efficacy")[0]
+    assert "did not survive" in kf_before  # the leak Codex flagged exists in production
+    # (B): refilter removes it even though the redactor stripped the "- **Mechanism.**" prefix.
+    out = refilter_key_findings_block(redaction.report_text)
+    kf_after = out.split("### Efficacy")[0]
+    assert "did not survive" not in kf_after  # the stub is gone from Key Findings
+    assert "curator-actionable gap" not in kf_after
+    assert "- **Efficacy.** Exposure: intake of dietary fibre.[1]" in out  # real finding kept
+    assert "### Mechanism" in out and "## Bibliography" in out  # body untouched
+
+ succeeded in 5092ms:
+"""Verified-only extractive executive summary (I-meta-002-q1d #949 part b).
+
+Frontier DR reports lead with a key-findings-up-front summary; POLARIS opened cold into Efficacy. This
+builds a "Key Findings" block by EXTRACTING the first verified sentence (verbatim, with its `[N]` citation)
+from each verified section. It is PURELY EXTRACTIVE — it copies sentences that already survived strict_verify
+and introduces ZERO new claims, no LLM call, no spend. Empty input → "" (no empty heading).
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from typing import Any
+
+# One sentence = minimal run up to end punctuation, PLUS any trailing `[N]` citation marker(s), where the
+# end punctuation must be a real sentence boundary: followed by whitespace+capital/bracket/digit OR end of
+# text. The boundary lookahead prevents stopping inside a decimal ("2.1" — the period is followed by a digit,
+# no whitespace, so it is not a boundary). Matching (not splitting) keeps trailing-citation forms (`claim.
+# [1]` AND `claim [1].`) attached to the sentence — re.split would consume the trailing `[N]` (Codex
+# diff-gate iter-1 P2).
+_SENTENCE_RE = re.compile(r".+?[.!?](?:\s*\[\d+\])*(?=\s+[A-Z(\[\d]|\s*$)", re.DOTALL)
+
+# A Key Finding is a SPAN-VERIFIED statement — by definition it carries its `[N]` / `[#ev:`
+# citation (module docstring). This is the robust per-SENTENCE gap filter (I-gen-006 #1178
+# C07/P07): a gap-disclosure sentence ("... did not survive strict verification; curator-
+# actionable gap.") carries NO citation, so in a MIXED V30 section (a leading gap slot +
+# later verified prose, where the SECTION still has sentences_verified>0) the uncited gap
+# sentence is skipped and the first CITED sentence is lifted instead. Keys on the citation
+# invariant, never on matching gap-disclosure text.
+_CITATION_RE = re.compile(r"\[\d+\]|\[#ev:")
+
+# Gap-disclosure boilerplate (I-gen-006 #1178 C07/P07, Codex iter-5): the V30 contract-runner
+# gap disclosure is a FIXED two-sentence template — "Contract-bound content ... curator-actionable
+# gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[N]" — and
+# its SECOND sentence DOES carry a `[N]` (a pointer to the gap-task sidecar, NOT an evidence span),
+# so the citation filter alone cannot exclude it. A Key Finding must be a span-verified CLAIM, never
+# a gap pointer; exclude any sentence carrying a canonical gap-disclosure marker. Robust because the
+# disclosure text is generated from fixed constants (contract_section_runner / _GAP_STUB_SENTENCE),
+# never free-form prose — this is a rendering filter, not a §-1.1 quality-by-pattern judgement.
+_GAP_MARKER_RE = re.compile(
+    r"curator-actionable gap|did not survive strict verification|"
+    r"did not survive (?:4-role )?verification|frame_coverage_report|human_gap_tasks",
+    re.IGNORECASE,
+)
+
+# An ATX markdown header: 1-6 '#' followed by whitespace ("### Section"). Used to detect a
+# leaked section header WITHOUT mis-classifying hash-leading prose like "#1 ranked" (Codex P2).
+_ATX_HEADER_RE = re.compile(r"#{1,6}\s")
+
+_OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
+
+# How many leading verified sentences to lift from each section (default 1 — the headline finding).
+_SENTENCES_PER_SECTION = 1
+# Hard cap on total bullets so the summary stays a summary.
+_MAX_BULLETS = 6
+
+
+def key_findings_enabled() -> bool:
+    """Default ON. `PG_SWEEP_KEY_FINDINGS=0` ships the report without the exec-summary block (cold-open)."""
+    return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
+
+
+def _strip_leading_markdown_headers(text: str) -> str:
+    """Drop leading markdown header lines (and blanks) from a section's verified_text
+    (I-perm-008 #1202). A section header that leaked into ``verified_text`` (e.g.
+    "### Pathogenic bacteria...") would otherwise be lifted AS the headline finding via the
+    DOTALL sentence regex, producing a "- **Section.** ### <header> ..." bullet that breaks the
+    Key-Findings block boundary. Stripping leading headers makes the lift a clean prose sentence."""
+    lines = (text or "").split("\n")
+    i = 0
+    while i < len(lines) and (not lines[i].strip() or _ATX_HEADER_RE.match(lines[i].lstrip())):
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
+    matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
+    # A Key Finding is a span-verified CLAIM: it must carry a citation, must NOT be
+    # gap-disclosure boilerplate (whose 2nd sentence is cited to the gap-task sidecar, not
+    # an evidence span), and must NOT be a markdown header line (I-perm-008 — a leaked "###"
+    # header is never a finding). The filters together exclude every gap/header shape in a
+    # mixed section (I-gen-006 #1178 C07/P07, Codex iter-5).
+    return [
+        s for s in matches
+        if s
+        and not _ATX_HEADER_RE.match(s.lstrip())
+        and _CITATION_RE.search(s)
+        and not _GAP_MARKER_RE.search(s)
+    ][:n]
+
+
+def refilter_key_findings_block(report_text: str) -> str:
+    """Drop Key-Findings bullets that became a redaction STUB after the four-role seam
+    (I-perm-008 #1202, blueprint R7).
+
+    ``build_key_findings`` is assembled PRE-four-role on strict_verify-passed prose, so a lifted
+    headline finding the four-role seam later marks non-VERIFIED is redacted in report.md into a
+    "- **Section.** <gap stub>" pseudo-finding. The redactor runs AFTER Key Findings is built, so
+    it cannot prevent the stub bullet; this post-redaction pass removes any KF bullet whose body
+    now matches the gap-disclosure boilerplate (``_GAP_MARKER_RE``). With the leaked-header strip
+    in ``build_key_findings`` each bullet is a clean single line, so a line-scoped drop is exact.
+    If no genuine finding remains, the whole block is dropped (no empty heading). Idempotent +
+    byte-identical when no KF bullet was redacted.
+    """
+    if not key_findings_enabled():
+        return report_text
+    header_match = re.search(r"(?m)^##\s*Key Findings\s*$", report_text)
+    if not header_match:
+        return report_text
+    block_start = header_match.start()
+    rest = report_text[header_match.end():]
+    next_header = re.search(r"(?m)^#{1,6}\s", rest)
+    block_end = header_match.end() + (next_header.start() if next_header else len(rest))
+
+    kept_lines: list[str] = []
+    dropped_any = False
+    for line in report_text[block_start:block_end].splitlines():
+        # Within the bounded KF block, ANY gap-disclosure line is a redacted finding — the real
+        # `reconcile_report_against_verdicts` replaces the WHOLE bullet (including the
+        # "- **Section.**" prefix) with a BARE stub line, so a `- `-prefix check misses it
+        # (Codex iter-1 P1). The block's only other lines are the heading + the italic preamble,
+        # neither of which matches `_GAP_MARKER_RE`, so this never drops a legitimate line.
+        if _GAP_MARKER_RE.search(line):
+            dropped_any = True
+            continue
+        kept_lines.append(line)
+    if not dropped_any:
+        return report_text  # byte-identical when nothing was a stub
+    new_block = "\n".join(kept_lines)
+    if not re.search(r"(?m)^\s*-\s+\S", new_block):
+        trimmed = report_text[:block_start] + report_text[block_end:]
+        return re.sub(r"^\n+", "", trimmed) if block_start == 0 else trimmed
+    if not new_block.endswith("\n"):
+        new_block += "\n"
+    return report_text[:block_start] + new_block + report_text[block_end:]
+
+
+def build_key_findings(sections: list[Any]) -> str:
+    """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
+    from each non-dropped section with verified_text. Verified-only + extractive — never a new claim.
+    Returns "" when disabled or when no section has verified prose (no empty heading)."""
+    if not key_findings_enabled():
+        return ""
+    bullets: list[str] = []
+    for sr in sections or []:
+        if getattr(sr, "dropped_due_to_failure", False):
+            continue
+        # I-gen-006 (#1178) BB5-C07/P07: a 0-verified gap DISCLOSURE renders disclosure
+        # text in verified_text (the legacy is_gap_stub or a V30 contract gap) but is NOT
+        # span-verified prose — it must never surface as a Key-Findings "span-verified
+        # statement". Skip every gap disclosure (universal signal: sentences_verified == 0).
+        if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
+            continue
+        # I-perm-008: strip any leaked leading section header so it is never lifted as the
+        # headline finding (a "### ..." header would otherwise break the KF block boundary).
+        verified_text = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
+        if not verified_text.strip():
+            continue
+        title = getattr(sr, "title", "") or ""
+        for sentence in _first_verified_sentences(verified_text, _SENTENCES_PER_SECTION):
+            label = f"**{title}.** " if title else ""
+            bullets.append(f"- {label}{sentence}")
+            if len(bullets) >= _MAX_BULLETS:
+                break
+        if len(bullets) >= _MAX_BULLETS:
+            break
+    if not bullets:
+        return ""
+    header = (
+        "## Key Findings\n\n"
+        "_Each finding below is a verbatim, span-verified statement carried up from the body section "
+        "named in bold; citations are the body's._\n\n"
+    )
+    return header + "\n".join(bullets) + "\n\n"
+
+ succeeded in 7287ms:
+scripts\anti_tunnel_view_test.py:215:# LAYER 4: Key Findings Survival
+scripts\anti_tunnel_view_test.py:218:    """Verify Key Findings extract/preserve/re-append in section_writer.py."""
+scripts\anti_tunnel_view_test.py:224:    has_key_findings_regex = re.search(r'Key Findings', content) is not None
+scripts\anti_tunnel_view_test.py:231:                "Key Findings referenced but preservation pattern incomplete")
+scripts\anti_tunnel_view_test.py:234:                "No Key Findings preservation logic found")
+scripts\anti_tunnel_view_test.py:482:    """Verify DOCX export handles tables, images, and Key Findings."""
+scripts\anti_tunnel_view_test.py:493:**Key Findings:**
+scripts\anti_tunnel_view_test.py:634:            if re.search(r'Key Findings', report, re.IGNORECASE):
+scripts\anti_tunnel_view_test.py:647:        f"structured_data={has_structured}, Key Findings={has_key_findings}, "
+scripts\anti_tunnel_view_test.py:852:    print("\n[Layer 4] Key Findings Survival")
+tests\e2e\test_gemini_frontend.py:4:Validates that new UI elements (base64 charts, tables, Key Findings,
+tests\e2e\test_gemini_frontend.py:104:**Key Findings:**
+tests\e2e\test_gemini_frontend.py:157:        // GEMINI-ARCH 3C: Wrap Key Findings blocks
+tests\e2e\test_gemini_frontend.py:160:            /<p><strong>Key Findings:?<\\/strong><\\/p>\\s*<ul>([\\s\\S]*?)<\\/ul>/gi,
+tests\e2e\test_gemini_frontend.py:162:                return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + listContent + '</ul></div>';
+tests\e2e\test_gemini_frontend.py:288:        """Verify Key Findings blocks are wrapped in .key-findings container."""
+tests\e2e\test_gemini_e2e.py:6:tables, charts (base64), Key Findings blocks, :::metrics blocks, and
+tests\e2e\test_gemini_e2e.py:161:        """Report should contain Key Findings blocks."""
+tests\e2e\test_gemini_e2e.py:164:                     f"{kf_count} 'Key Findings' occurrences")
+tests\fixtures\drb72\run_log.txt:28:                FAIL PT13: 5 unhedged: ["'top' in: '## Key Findings\\n\\n_Each finding below is a verbatim, span-verified state
+tests\fixtures\drb72\run_log.txt:38:[V30]         wrote human_gap_tasks.json: 3 curator-actionable tasks
+tests\fixtures\drb72\report.md:3:## Key Findings
+tests\fixtures\drb72\report.md:15:- **Key Findings.** Acemoglu and Restrepo's task-based framework posits that automation displaces labor by enabling capital to replace workers in existing tasks, reducing the labor share and potentially labor demand, while the creation of new tasks reinstates labor by shifting the task content of production in favor of workers.[2]
+tests\fixtures\drb72\report.md:30:Contract-bound content for frey_osborne_computerisation did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[5]
+tests\fixtures\drb72\report.md:46:### Key Findings
+tests\fixtures\drb72\manifest.json:23:      "Key Findings",
+tests\fixtures\drb72\manifest.json:31:      "Key Findings",
+tests\fixtures\drb72\manifest.json:723:      "Key Findings",
+tests\fixtures\subagent_prompts\section_writer_system.txt:10:3. End each section with a **Key Findings** subsection: 3-5 cited bullet points summarizing
+tests\fixtures\subagent_prompts\section_writer_response.txt:38:**Key Findings**
+tests\fixtures\redaction_fixture_redact001.json:37:      "report_text": "## Key Findings\n\n_Each finding below is a verbatim, span-verified statement carried up from the body section named in bold; citations are the body's._\n\n- **Efficacy.** Population: more than 1.7 million participants.[1]\n- **Mechanism.** ### Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis\n\nPathogen: Escherichia coli.[3]\n- **Safety.** Among 125 patients with nonblood *Saccharomyces* culture findings, 24 (19%) had used the probiotic, versus 2% (3/123) of controls (OR 10, 95% CI 3–32).[4]\n- **Dose Response.** For total dietary fiber, each 10 g/day increment was associated with a summary relative risk (RR) of 0.90 (95% CI 0.86 to 0.94) across 16 studies including 14,514 cases among 1,985,552 participants, with no significant heterogeneity (I²=0%).[1]\n- **Long-term Outcomes.** A meta-analysis across solid tumors indicated that combining FMT with immune checkpoint inhibitors improved pooled objective response rates to 43.1% compared to 36.9% with immunotherapy alone.[9]\n\n### Probiotic intervention clinical evidence (inflammation / CRC)\n\nContract-bound content for probiotic_crc_inflammation_rct did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[2]\n\n### Prebiotic / dietary-fiber intake and colorectal-cancer risk\n\nExposure: dietary fibre and whole grains.[1] Population: more than 1.7 million participants.[1] Outcome: colorectal cancer.[1] Dose response: 0.90 (0.86 to 0.94) for each 10 g/day intake.[1] The pooled analysis included more than 1.7 million participants.[1] In the dose-response analysis, each 10 g/day increment in intake was associated with a relative risk of 0.90.[1] The 95% confidence interval for this estimate ranged from 0.86 to 0.94.[1] Colorectal cancer incidence was the outcome of interest in all included cohorts.[1] The more than 1.7 million participants contributed to the statistical power of the analysis.[1]\n\n### Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis\n\nPathogen: Escherichia coli.[3] Mechanism: alkylate DNA on adenine residues4,5 and induces double-strand breaks.[3] Mutational signature: distinct mutational signature.[3] Toxic metabolite or virulence factor: colibactin.[3] This bacterium produces the genotoxic metabolite colibactin.[3] Colibactin is a virulence factor that damages host DNA.[3] The mechanism of colibactin's genotoxicity involves DNA alkylation.[3] Specifically, colibactin alkylates DNA on adenine residues4,5.[3] Following alkylation, colibactin induces double-strand breaks.[3] The induction of double-strand breaks is a direct outcome of colibactin's activity.[3] As a result of this DNA damage, a distinct mutational signature is generated.[3] This mutational signature is characteristic of colibactin exposure.[3] The distinct mutational signature can be detected in colorectal carcinogenesis.[3] Colibactin is a genotoxin that targets DNA.[3] The genotoxic metabolite colibactin is directly responsible for the DNA damage.[3] Ultimately, the mechanism of colibactin involves alkylating DNA on adenine residues4,5 and inducing double-strand breaks, leaving a distinct mutational signature.[3]\n\n### Probiotic contraindications and at-risk populations\n\nContract-bound content for probiotic_immunocompromised_contraindication did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[4]\n\n### Safety\n\nAmong 125 patients with nonblood *Saccharomyces* culture findings, 24 (19%) had used the probiotic, versus 2% (3/123) of controls (OR 10, 95% CI 3–32).[4] Consequently, *S. cerevisiae* var. *boulardii* probiotics are not recommended for patients with indwelling catheters, those who are immunocompromised, or the critically ill.[4] In one trial, a multispecies probiotic preparation administered to patients with severe acute pancreatitis was associated with increased mortality. *Escherichia coli* carrying the pks pathogenicity island produces colibactin, a genotoxin that alkylates DNA on adenine residues and induces double-strand breaks.[4].[3] Cyclomodulin-producing *E. coli* were present in biopsies from 70% of colorectal cancer patients compared with only 3% of healthy controls.[5] Lipopolysaccharide (LPS) from Gram-negative bacteria such as *Fusobacterium* and *Bacteroides* activates NF-κB signaling, driving inflammation and colorectal cancer metastasis.[6].[7] A retrospective registry study across five Finnish university hospitals from 2009 to 2018 identified 46 patients with *Saccharomyces* fungemia; at least 20 (43%) were using *Saccharomyces boulardii* probiotic, and compared with a control group with bacteremia or candidemia, the odds ratio for use of an *S. boulardii* probiotic was 14 (95% CI 4–44).[4] Human intestinal organoids were exposed to genotoxic pks+ *E. coli* by repeated luminal injection over five months; whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria.[3] The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer.[3] Butyrate, a short-chain fatty acid, stimulates proliferation at low concentrations but suppresses it at high concentrations.[6]\n\n### Dose Response\n\nFor total dietary fiber, each 10 g/day increment was associated with a summary relative risk (RR) of 0.90 (95% CI 0.86 to 0.94) across 16 studies including 14,514 cases among 1,985,552 participants, with no significant heterogeneity (I²=0%).[1] In contrast, fruit fiber intake was not significantly associated with CRC risk (RR 0.93, 95% CI 0.82 to 1.05 per 10 g/day), and vegetable fiber showed no association (RR 0.98, 95% CI 0.91 to 1.06 per 10 g/day).[1] Similarly, a review of harnessing gut microbiota for CRC therapy highlights the potential of microbiome modulators but emphasizes the need for rigorous validation and biomarker development before clinical translation.[8] A systematic review and meta-analysis of 25 prospective studies examined the association between dietary fiber and whole grain intake and colorectal cancer (CRC) risk[1] Cereal fiber demonstrated a similar protective dose-response: each 10 g/day increase yielded an RR of 0.90 (0.83 to 0.97) based on 8 studies with 9,487 cases among 1,471,756 participants.[1] Whole grain intake also exhibited a significant inverse dose-response: an increment of three servings daily (90 g/day) was associated with an RR of 0.83 (0.78 to 0.89) across 6 studies with 7,941 cases among 774,806 participants.[1]\n\n### Long-term Outcomes\n\nA meta-analysis across solid tumors indicated that combining FMT with immune checkpoint inhibitors improved pooled objective response rates to 43.1% compared to 36.9% with immunotherapy alone.[9] Fecal microbiota transplantation (FMT) has shown potential to augment therapies for colorectal cancer.[9] In a study, patients with refractory, MSS metastatic CRC receiving tislelizumab and fruquintinib achieved a median progression-free survival of 9.6 months and median overall survival of 13.7 months, with an objective response rate of 20% and a disease control rate of 95%.[9] Probiotic modulation with CBM588 (Clostridium butyricum) combined with cabozantinib and nivolumab significantly increased response rates (74% vs 20%, P=0.01) in a trial of metastatic renal cell carcinoma.[9]\n\n### Limitations\n\nLimitations: The evidence base is heavily skewed, with only 17% of sources classified as T1 primary studies and 62% falling into an unknown tier, which undermines the reliability of the evidence hierarchy. Three high-severity contradictions were detected: sources disagree sharply on the effect on ttr (relative difference 12275.0%), on ttr at 0.5 mg (25.0% difference), and on weight loss (212.5% difference), indicating substantial inconsistency in key outcomes. The evidence horizon spans from 2010-01-01 to the present, potentially omitting earlier foundational research and limiting the temporal scope of the analysis.\n\n## Methods\nPre-registered protocol.json (SHA-256 feb9fd7172651bfc...).\nCorpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: domain_backends(clinical): {'europe_pmc': 21}).\nRetrieval fetch outcome: 375 of 740 candidate sources fetched; 365 failed or timed out.\nGenerator model: deepseek/deepseek-v4-pro (multi-section: outline + 6 parallel sections + strict_verify + regen-on-failure).\nEvaluator model: google/gemma-4-31b-it (different family).\nSources classified using T1-T7 tier taxonomy.\nInclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.\nPrompt-injection sanitization enabled. Retrieved 2026-06-09.\nExpected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=14%, T2=1%, T3=0%, T4=9%, T6=5%, T7=5%, UNKNOWN=66%.\nCorpus adequacy: decision=proceed, 8/8 thresholds met.\nCompleteness checklist: 6/6 topics covered.\n\n## Capability disclosures\nQuantified trade-off analysis was ENABLED but did not contribute to this report (no verified quantified output); 399 sourced numbers were extracted but not modeled into a verified quantified comparison.\n\n## Contradiction disclosures\nThe contradiction detector flagged 3 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different measured endpoints, units, sub-populations, time windows, or comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):\n\n- unknown / ttr: cited values range 0.8 to 99.0 % (source tiers: UNKNOWN, T1, T2).\n- unknown / ttr (0.5 mg): cited values range 58.0 to 72.5 % (source tiers: T6, UNKNOWN).\n- unknown / weight loss: cited values range 3.2 to 10.0 % (source tiers: UNKNOWN, T4).\n\nClaims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.\n\n## Qualitative safety-conflict disclosures\nThe qualitative detector flagged 0 present-vs-absent clinical-safety conflict(s) (contraindication / drug-interaction / eligibility / warning / adverse-event causation) and 744 review-flagged item(s) requiring human adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a numeric value; review flags are NOT adjudicated conflicts.\n\n- 744 review-flagged item(s) collapsed to keep the report readable; full per-flag rows are in the `contradictions.json` sidecar (filter `type=\"qualitative\"`, `severity=\"review\"`).\n\n\n## Bibliography\n[1] Dietary fibre, whole grains, and risk of colorectal cancer: systematic review and dose-response meta-analysis of prospective studies — https://www.ncbi.nlm.nih.gov/pmc/articles/3213242 (tier T1)\n[2] Dietary synbiotics reduce cancer risk factors in polypectomized and colon cancer patients — https://ajcn.nutrition.org/article/S0002-9165(23)27938-1/pdf (tier T1)\n[3] Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli — https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0 (tier T1)\n[4] CDC CDC Emerging Infectious Diseases — fungemia / invasive infection from probiotics; avoid in immunocompromised, critically-ill, and central-line patients Label — https://wwwnc.cdc.gov/eid/article/27/8/21-0018_article (tier T1)\n[5] [PDF] The Association of Microbiome Dysbiosis With Colorectal Cancer — https://www.cureus.com/articles/86171-the-association-of-microbiome-dysbiosis-with-colorectal-cancer.pdf (tier T1)\n[6] Gut microbial metabolites in colorectal cancer: dual roles in tumorigenesis, immune crosstalk, and therapeutic innovation — https://doi.org/10.3389/fcimb.2026.1693161 (tier UNKNOWN)\n[7] The Gut Microbiota and Inflammation: An Overview - PMC - NIH — https://pmc.ncbi.nlm.nih.gov/articles/PMC7589951/ (tier T1)\n[8] Harnessing gut microbiota for colorectal cancer therapy: from clinical insights to therapeutic innovations — https://doi.org/10.1038/s41522-025-00818-3 (tier UNKNOWN)\n[9] Harnessing gut microbiota for colorectal cancer therapy - Nature — https://www.nature.com/articles/s41522-025-00818-3 (tier T1)\n\n\n---\n\n## V30 Phase-1 Retrieval Coverage Disclosure\n\nPHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):\n  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.\n\nFrame coverage disclosure (V30 Report Contract):\n  - Total contract-required entities: 5\n  - Fully populated (full-text bound evidence): 2\n  - Unretrievable (paywalled with no OA/abstract): 3\n  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.\n",
+tests\fixtures\redaction_fixture_redact001.json:658:      "report_text": "## Key Findings\n\n_Each finding below is a verbatim, span-verified statement carried up from the body section named in bold; citations are the body's._\n\n- **Efficacy.** Population: patients with advanced Parkinson's disease and severe motor symptoms.[1]\n- **Mechanism.** Complication type: hardware complications.[2]\n- **Long-term Outcomes.** The Movement Disorder Society-sponsored revision of the Unified Parkinson's Disease Rating Scale (MDS-UPDRS), validated in a study of 877 patients from 39 sites, demonstrated high internal consistency (Cronbach's alpha = 0.79–0.93 across parts) and strong correlation with the original UPDRS (ρ = 0.96), providing a comprehensive framework for tracking these changes across four parts: non-motor experiences of daily living, motor experiences of daily living, motor examination, and motor complications.[3]\n- **Safety.** The FDA labeling for carbidopa-levodopa explicitly warns that patients should be observed carefully when the dosage is reduced abruptly or discontinued, especially if they are receiving neuroleptics.[6]\n- **Population Subgroups.** The choice between rechargeable and non‑rechargeable IPGs was significantly associated with affordability (χ²=19.13, p<0.001), and remote programming capability influenced brand selection.[10]\n\n### Efficacy\n\nPopulation: patients with advanced Parkinson's disease and severe motor symptoms.[1] Intervention: this treatment plus medication.[1] Comparator: medication alone.[1] Primary endpoint: the changes from baseline to six months in the quality of life, as assessed by the Parkinson's Disease Questionnaire (PDQ-39), and the severity of symptoms without medication, according to the Unified Parkinson's Disease Rating Scale, part III (UPDRS-III).[1] Timepoint: six months.[1] Study design: randomized-pairs trial.[1]\n\n### Mechanism\n\nComplication type: hardware complications.[2] The Movement Disorder Society-sponsored Unified Parkinson's Disease Rating Scale, known as the MDS-UPDRS, structures the clinical assessment of Parkinson's disease into four distinct and complementary parts.[3] Whereas Part I addresses the non-motor domain, Part II shifts the focus to motor aspects of daily function.[3] However, Part IV specifically records motor complications, distinguishing them from the core motor examination.[3] The combined clinimetric results of this study support the validity of the MDS-UPDRS for rating PD.[3] The primary source identifies hardware complications as a distinct category of DBS-related adverse events.[2] In contrast, the source does not offer guidance on daily life adjustments or support strategies for patients experiencing hardware complications.[2]\n\n### DBS device contraindications and dopaminergic-withdrawal dosing safety\n\nContract-bound content for dbs_device_mri_safety did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[4]\n\n### Long-term Outcomes\n\nThe Movement Disorder Society-sponsored revision of the Unified Parkinson's Disease Rating Scale (MDS-UPDRS), validated in a study of 877 patients from 39 sites, demonstrated high internal consistency (Cronbach's alpha = 0.79–0.93 across parts) and strong correlation with the original UPDRS (ρ = 0.96), providing a comprehensive framework for tracking these changes across four parts: non-motor experiences of daily living, motor experiences of daily living, motor examination, and motor complications.[3] In advanced stages, symptoms are severe and daily life usually requires full-time support.[5]\n\n### Safety\n\nThe FDA labeling for carbidopa-levodopa explicitly warns that patients should be observed carefully when the dosage is reduced abruptly or discontinued, especially if they are receiving neuroleptics.[6] DBS hardware complications are relatively common; in a prospective series of 81 consecutive patients with PD undergoing subthalamic nucleus (STN) DBS followed for a mean of 17 months, hardware complications occurred in 26.2% of patients (atom_009).[2] Specific complications included infections requiring system removal in 2.5% (atom_010) and implantable pulse generator (IPG) removal in 3.7% (atom_011), misplaced leads in 12.5% (atom_012), and lead migration, fracture, or IPG malfunction.[2] A review of the FDA MAUDE database over 10 years identified 221 unique adverse events, with infection being the most common (16.2%) (atom_013) and lead migration accounting for 8.6% (atom_014).[7] Over a third (40%) of all devices with adverse events required return to the operating room for explant or revision (atom_003, atom_004).[7] A review of postoperative psychosis after DBS reported a lifetime incidence of psychosis of 28.3% (atom_018) in PD patients following DBS, underscoring the need for vigilance.[8] Additionally, implantable pulse generator expiration can precipitate a movement disorder emergency with severe parkinsonian worsening or akinetic crisis, necessitating urgent medical evaluation.[9] Abrupt reduction or discontinuation of carbidopa-levodopa has been associated with a symptom complex resembling neuroleptic malignant syndrome (NMS), characterized by hyperthermia, muscle rigidity, altered consciousness, and autonomic dysfunction.[6] Psychosis can emerge after STN DBS, as illustrated by clinical cases where patients developed paranoid ideation, hallucinations, and delusions within months of surgery, requiring antipsychotic treatment.[8] Patients taking dopaminergic medications may experience intense urges to gamble, increased sexual urges, binge eating, and other compulsive behaviors, which may resolve with dose reduction or discontinuation[6]\n\n### Population Subgroups\n\nThe choice between rechargeable and non‑rechargeable IPGs was significantly associated with affordability (χ²=19.13, p<0.001), and remote programming capability influenced brand selection.[10] Despite this, a preliminary survey of 17 DBS patients (85% of those approached) found that 76.5% used their patient programmer once per month or less, 17.7% never used it, and the most common function was checking battery life (58.8%).[11] Adaptive DBS shows promise, as one study reported that overall well‑being significantly improved with adaptive stimulation (p=0.007).[12] Caregivers of intermediate PD spent 6.6 hours per day caring, compared to 3.2 hours for early PD, and were less likely to be employed (25.3% vs 42.4%).[13] Personalized DBS programming using machine learning to optimize gait has produced meaningful improvements in walking, addressing a common post‑DBS challenge.[14] Remote patient monitoring devices led 79.9% of participants to agree that they improved mobility, and 48% perceived themselves as safer.[15] However, a meta‑synthesis of wearable device experiences identified barriers including discomfort, emotional distress, and interface difficulties that hinder long‑term adherence.[16] 87.3% of DBS patients used rechargeable IPGs (r-IPGs), 87.7% were satisfied with their device; among those with r-IPGs, 40.6% felt confident handling the device within one week of discharge, 71.4% recharged independently, and the mean recharge interval was 4.3 days.[10] Caregivers of people with advanced PD had significantly higher perceived burden (ZBI 34.5 vs 24.7 for early PD) and were more likely to take medication due to caregiving (34.7% vs 13.8%).[13] Assistive technologies also contribute: a scoping review reported that home automation significantly increased quality of life (p<0.001), and 63.5% of participants used speech‑to‑text functions to cope with tremors.[15]\n\n### Limitations\n\nLimitations: The pipeline's tier distribution reveals a heavy reliance on lower-quality evidence, with only 10% of sources classified as T1 primary studies and a striking 70% falling into the UNKNOWN tier. Six high-severity contradictions were detected, including a 972.4% relative difference in mortality estimates and a 481.0% divergence in hazard ratio, indicating sources disagree sharply on both magnitude and direction of key outcomes. The evidence horizon spans from 2010-01-01 to the present, but the predominance of unclassified sources and sparse representation in tiers T2 (1%), T3 (1%), and T5 (0%) further limit confidence in the synthesized findings.\n\n## Methods\nPre-registered protocol.json (SHA-256 36a59dc009aa949f...).\nCorpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (clinical: domain_backends(clinical): {'europe_pmc': 27}).\nRetrieval fetch outcome: 478 of 740 candidate sources fetched; 262 failed or timed out.\nGenerator model: deepseek/deepseek-v4-pro (multi-section: outline + 6 parallel sections + strict_verify + regen-on-failure).\nEvaluator model: google/gemma-4-31b-it (different family).\nSources classified using T1-T7 tier taxonomy.\nInclusion / exclusion per clinical template. Sponsor / conflict-of-interest review per source.\nPrompt-injection sanitization enabled. Retrieved 2026-06-10.\nExpected tier distribution: T1 30-60%, T2 15-40%, T3 5-25%, T4 0-20%, T5 0-15%, T6 0-10%, T7 0-10%. Actual distribution: T1=7%, T2=1%, T3=1%, T4=5%, T5=0%, T6=7%, T7=5%, UNKNOWN=73%.\nCorpus adequacy: decision=proceed, 8/8 thresholds met.\nCompleteness checklist: 7/7 topics covered.\n\n## Capability disclosures\nQuantified trade-off analysis was ENABLED but did not contribute to this report (no verified quantified output); 1905 sourced numbers were extracted but not modeled into a verified quantified comparison.\n\n## Contradiction disclosures\nThe contradiction detector flagged 6 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different measured endpoints, units, sub-populations, time windows, or comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):\n\n- unknown / accuracy: cited values range 88.0 to 98.2 % (source tiers: T1, T2).\n- unknown / hazard ratio: cited values range 10.0 to 58.1 % (source tiers: T1, T4).\n- unknown / intracranial hemorrhage: cited values range 4.6 to 16.3 % (source tiers: UNKNOWN).\n- unknown / mortality: cited values range 6.49 to 69.6 % (source tiers: T4, UNKNOWN, T1).\n- unknown / relative risk: cited values range 20.0 to 98.1 % (source tiers: UNKNOWN, T1, T4).\n- unknown / ttr: cited values range 0.8 to 95.0 % (source tiers: UNKNOWN, T4, T1).\n\nClaims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.\n\n## Qualitative safety-conflict disclosures\nThe qualitative detector flagged 0 present-vs-absent clinical-safety conflict(s) (contraindication / drug-interaction / eligibility / warning / adverse-event causation) and 1343 review-flagged item(s) requiring human adjudication. Status is shown as asserted PRESENT/ABSENT/INDETERMINATE, not a numeric value; review flags are NOT adjudicated conflicts.\n\n- 1343 review-flagged item(s) collapsed to keep the report readable; full per-flag rows are in the `contradictions.json` sidecar (filter `type=\"qualitative\"`, `severity=\"review\"`).\n\n\n## Bibliography\n[1] A Randomized Trial of Deep-Brain Stimulation for Parkinson's Disease — https://www.nejm.org/doi/pdf/10.1056/NEJMoa060281?articleTools=true (tier T1)\n[2] Surgical and hardware complications of subthalamic stimulation —  (tier T1)\n[3] Movement Disorder Society‐sponsored revision of the Unified Parkinson's Disease Rating Scale (MDS‐UPDRS): Scale presentation and clinimetric testing results — https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/mds.22340 (tier T1)\n[4] FDA FDA DBS device labeling — MRI / diathermy contraindications and precautions — https://www.accessdata.fda.gov/cdrh_docs/pdf/P960009.pdf (tier T1)\n[5] End-Stage Parkinson's Disease: Symptoms, Care, and Support — https://mytomorrows.com/blog/patients/end-stage-parkinsons-disease-symptoms-care-and-support/ (tier UNKNOWN)\n[6] FDA FDA carbidopa-levodopa labeling — abrupt-withdrawal hyperpyrexia warning — https://www.accessdata.fda.gov/drugsatfda_docs/label/2020/017555s072lbl.pdf (tier T1)\n[7] Characterizing Complications of Deep Brain Stimulation Devices for ... — https://pmc.ncbi.nlm.nih.gov/articles/PMC8269991/ (tier T4)\n[8] Psychotic Symptoms Following Subthalamic DBS in Parkinson's Disease: Three Clinical Cases and Literature Review. — https://www.ncbi.nlm.nih.gov/pmc/articles/PMC13158162/ (tier T4)\n[9] Challenges in PD Patient Management After DBS - PMC - NIH — https://pmc.ncbi.nlm.nih.gov/articles/PMC6174419/ (tier T1)\n[10] Fixed-Life or Rechargeable Battery for Deep Brain Stimulation — https://www.frontiersin.org/journals/neurology/articles/10.3389/fneur.2021.668322/full (tier T1)\n[11] Evaluating Use of the DBS Patient Programmer - MDS Abstracts — https://www.mdsabstracts.org/abstract/evaluating-use-of-the-dbs-patient-programmer/ (tier UNKNOWN)\n[12] DBS Settings Optimization for Parkinson's Disease - Clinical Trials — https://www.withpower.com/trial/phase-parkinson-disease-6-2023-d67e2 (tier UNKNOWN)\n[13] Impact of advanced Parkinson's disease on caregivers — https://link.springer.com/article/10.1007/s00415-022-11546-5 (tier T1)\n[14] Tailored Deep Brain Stimulation Improves Walking in Parkinson's ... — https://medconnection.ucsfhealth.org/news/tailored-deep-brain-stimulation-improves-walking-in-parkinson-s-disease (tier UNKNOWN)\n[15] [PDF] The Impact of Assistive Technology on the Quality of Life of Home ... — https://www.scranton.edu/academics/pcps/physicaltherapy/ptresearch/2022-research/cardella-slides.pdf (tier UNKNOWN)\n[16] The experience and perception of wearable devices in Parkinson's ... — https://pmc.ncbi.nlm.nih.gov/articles/PMC12009228/ (tier T4)\n\n\n---\n\n## V30 Phase-1 Retrieval Coverage Disclosure\n\nPHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):\n  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.\n\nFrame coverage disclosure (V30 Report Contract):\n  - Total contract-required entities: 5\n  - Fully populated (full-text bound evidence): 2\n  - Populated from abstract/metadata only (full text NOT retrieved): 1 (dbs_complications_warning_signs)\n  - Unretrievable (paywalled with no OA/abstract): 2\n  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.\n",
+tests\fixtures\redaction_fixture_redact001.json:1160:      "report_text": "## Key Findings\n\n_Each finding below is a verbatim, span-verified statement carried up from the body section named in bold; citations are the body's._\n\n- **Technical_Standard.** ### SAE J3016 driving-automation levels and the human-machine boundary\n\nLevel 5:\nFull Driving Automation.[1]\n- **Legal_Framework.** 157 - Automated Lane Keeping Systems (ALKS).[2]\n- **Background.** The Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems.[1]\n- **Key Findings.** In the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States.[15]\n- **Evidence and Analysis.** The EU’s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties.[15][24]\n- **Comparative Assessment.** A key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement.[17][9]\n\n### SAE J3016 driving-automation levels and the human-machine boundary\n\nLevel 5:\nFull Driving Automation.[1] Standard id: J3016_202104.[1] The SAE J3016_202104 standard defines six levels of driving automation.[1] Level 0 is No Driving Automation.[1] In contrast, Level 1 is Driver Assistance.[1] Level 0 and Level 1 are No Driving Automation and Driver Assistance, respectively.[1] Finally, Level 5 is Full Driving Automation.[1] These are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation, respectively.[1] Although Level 0 is No Driving Automation, Level 1 is Driver Assistance.[1] In contrast, Level 2 is Partial Driving Automation, whereas Level 3 is Conditional Driving Automation.[1] The taxonomy's six levels are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation.[1]\n\n### UNECE WP.29 ALKS regulation (system-vs-driver responsibility)\n\nInstrument: UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS).[2] UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) is the instrument identified in the primary source.[2] The subject matter is Automated Lane Keeping Systems.[2] In contrast, the regulation’s title clearly indicates its focus on automated lane keeping.[2] The regulation’s full designation is UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS).[2] The regulation, UN Regulation No. 157, addresses Automated Lane Keeping Systems.[2]\n\n### NHTSA automated-driving-systems policy and crash-reporting order\n\nScope: Entities named in the General Order.[3] Issuing agency: NHTSA.[3] The scope of this order is precisely defined, applying exclusively to entities named in the General Order.[3] However, the reporting obligation is not triggered for every crash involving those entities; it is conditional upon specific temporal and outcome-based criteria.[3] Alternatively, the obligation arises if the crash involved a vulnerable road user being struck.[3] In contrast, a crash that does not meet these consequence thresholds, even if ADS was active within the 30-second window, would not require reporting under the order.[3] The reporting criteria also encompass an air bag deployment.[3] Finally, any individual being transported to a hospital for medical treatment as a result of the crash mandates a report.[3] By comparison, crashes where ADS was not in use within 30 seconds, or where the damage is below the specified property damage threshold, fall outside the mandatory reporting scope.[3]\n\n### Product-liability / negligence doctrine for ADAS manufacturers\n\nDefect categories: manufacturing defects; design defects; and inadequate instructions or warnings defects.[4]\n\n### Relevant ADAS / automated-feature crash-liability case law\n\nContract-bound content for adas_crash_case_law did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[5]\n\n### Proposed regulatory guidelines and liability-allocation recommendations\n\nContract-bound content for proposed_regulatory_guidelines did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[6]\n\n### Background\n\nThe Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems.[1] Active safety systems such as electronic stability control (ESC) and automatic emergency braking (AEB) are excluded from this taxonomy because they provide only momentary intervention rather than sustained performance of the dynamic driving task (DDT).[1] Common ADAS functions include adaptive cruise control (ACC), blind spot detection (BSD), lane departure warning/lane keeping systems (LDW/LKS), intelligent headlamp control (IHC), and emergency brake assist (EBA).[7] Large-scale crash statistics indicate that among 7.7 million vehicles manufactured between 2015 and 2023, ADAS-equipped cars experienced on average a 27% reduction in forward-collision crashes and an 11% reduction in lane-departure crashes.[8] Blind Spot Monitoring (BSM) systems are estimated to reduce lane-change crashes by 14% and lane-change crashes with injuries by 23%.[9] For example, lane departure warning (LDW) systems were found to be turned off in 67.2% of observed vehicles due to lack of trust and excessive false alarms.[10] Camera-based DMS have been shown to detect driver distraction approximately 50 seconds sooner than steering-wheel-based DMS, and users of steering-wheel DMS were able to engage in 5.65 minutes of continuous distracted driving before an alert, compared to 2.25 minutes for camera-based DMS.[11] The increasing complexity of ADAS and automated driving systems has prompted the development of specialized accident investigation frameworks, such as a comprehensive system proposed in China that integrates traffic accident boundary analysis, control action safety analysis, and causal scene restoration.[12] To evaluate ADAS safety effectiveness, researchers have identified 94 influence parameters from sources including published literature, standardized tests, accident databases, and autonomous vehicle disengagement reports, with 77 parameters assigned importance levels through cluster analysis.[13] Driver drowsiness remains a significant safety concern, with the World Health Organization reporting approximately 1.35 million traffic-related deaths annually, and research indicating that steering wheel angle variability increases from 0.5–1.5° in alert drivers to 2–5° in fatigued states.[14] If the driver does not fully understand the capabilities and limitations of the system, this might lead to mode confusion and can cause surprises for the driver.[9] In the European Union, several SAE Level 0 ADAS will be mandatory by 2022, while no automated driving technology is yet permitted on the EU market.[9]\n\n### Key Findings\n\nIn the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States.[15] This verdict signals a shift toward manufacturer accountability for AI driving systems.[16] NHTSA investigations have identified patterns of failures in Tesla's ADAS, including a probe of 2.4 million vehicles for crashes at intersections and emergency vehicle collisions, and a subsequent probe of 2.88 million vehicles involving 58 traffic violation reports, 14 crashes, and 23 injuries.[16] One analysis argues that semi-autonomous systems create a collaborative driving endeavor, and that automakers' marketing efforts to gain public trust may render them primarily liable when that trust is misplaced, with a reduction for the driver's comparative fault.[17] The opacity of AI decision-making and the 'problem of many hands'—diffusion of responsibility among multiple actors—create a liability gap that traditional tort frameworks struggle to address.[18] A growing body of policy analysis advocates for strict liability for high-risk AI systems, with proposals ranging from a single responsible operator under EU law to no-fault insurance schemes.[15].[18][19] One scholar proposes extending strict products liability to defective software components in autonomous vehicles, treating software creators as strictly liable for injuries caused by dangerously defective code.[20] A law and economics analysis suggests that negligence-based rules can efficiently accommodate AV-human interactions, but require substantial doctrinal reforms, including reconceptualization of fault standards for both AVs and human drivers.[21] Jurisdictional approaches vary: Michigan's product liability statutes govern claims involving defective ADAS, Louisiana applies a comparative fault system to apportion liability between driver and manufacturer, and the UK's Automated and Electric Vehicles Act 2018 explicitly addresses liability for accidents resulting from unauthorized software alterations or failure to update software.[22][23][16]\n\n### Evidence and Analysis\n\nThe EU’s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties.[15][24] In China, the undefined legal status of autonomous driving systems has prompted the development of a comprehensive accident investigation system that integrates boundary analysis, control action safety assessment, and causal scene restoration to allocate responsibility.[12] US legal scholarship argues that automakers’ marketing of ADAS features fosters driver trust, and when that trust is misplaced, products liability law supports primary manufacturer liability with a potential reduction for the driver’s comparative fault, rather than placing full responsibility on the human operator.[17] The revised PLD is an EU instrument for AI-related harm[15][24]\n\n### Comparative Assessment\n\nA key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement.[17][9] Under U.S. products liability law, automakers may face primary liability for ADAS failures, though the driver's comparative fault can reduce recovery[17][22] Legal scholars debate whether the human driver or the manufacturer bears responsibility when supervised autonomy fails in semi-autonomous vehicles.[17]\n\n### Implications\n\nIn the United Kingdom, the Automated and Electric Vehicles Act 2018 addresses liability for accidents caused by automated vehicles, including those resulting from unauthorized software alterations or failure to update software.[16] Texas has legislatively limited lessors’ liability for failing to retrofit optional safety systems, provided the vehicle met federal standards at purchase.[25] Empirical evidence from a survey of 260 drivers indicates that collision avoidance performance and system reliability are the strongest predictors of user trust, while road safety impact emerges as an independent societal benefit.[26] On the cost side, an Italian analysis estimates that an average ADAS investment of €1,629 per vehicle yields nationwide savings of €1.89 billion in 2024, with most systems becoming cost-effective within two to three years.[27] Daimler Trucks North America was granted summary judgment in a lawsuit.[25] However, the technology’s safety promise is tempered by the emergence of algorithmic negligence as a liability.[16]\n\n### Limitations\n\nFor driver monitoring systems, reported performance is highly protocol-dependent, and the lack of standardized benchmarks and cross-dataset validation makes cross-study accuracy comparisons misleading.[14] The shift from driver to vehicle control complicates liability attribution; evidence from aviation and early AV incidents suggests that human operators may become a “moral crumple zone,” blamed even when system design is a contributing factor.[19] The lack of integrated, context-rich data from connected vehicles hinders user-centered evaluation of ADAS; data are often siloed within engineering departments and not readily accessible to design teams.[28] The complexity of AV software, with estimates of up to 300 million lines of code, far exceeds that of aircraft, yet current algorithms often achieve only 95–98% reliability, whereas safety-critical functions may require 99.9999% reliability.[29]\n\nLimitations: The corpus is heavily skewed toward sources of unknown provenance, with 81% of documents lacking a tier classification and only 2% originating from T1 primary studies, limiting confidence in the evidence base. Two high-severity contradictions were detected: sources disagree on accuracy (relative difference 132.6%) and on ttr (relative difference 1342.0%), indicating substantial conflict in key metrics. The evidence horizon spans from 2015-01-01 to the present, which may exclude earlier foundational work.\n\n## Methods\nPre-registered protocol.json (SHA-256 268348acaf5d352c...).\nCorpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (policy: domain_backends(policy): {'serper_policy': 20}).\nRetrieval fetch outcome: 464 of 740 candidate sources fetched; 276 failed or timed out.\nGenerator model: deepseek/deepseek-v4-pro (multi-section: outline + 10 parallel sections + strict_verify + regen-on-failure).\nEvaluator model: google/gemma-4-31b-it (different family).\nSources classified using T1-T7 tier taxonomy.\nInclusion / exclusion per policy template. Sponsor / conflict-of-interest review per source.\nPrompt-injection sanitization enabled. Retrieved 2026-06-10.\nExpected tier distribution: T3 35-70%, T1 10-30%, T2 5-25%, T6 5-25%, T4 0-15%, T5 0-10%, T7 0-5%. Actual distribution: T1=2%, T3=1%, T4=5%, T5=0%, T6=4%, T7=5%, UNKNOWN=82%.\nCorpus adequacy: decision=proceed, 8/8 thresholds met.\nCompleteness checklist: 6/6 topics covered.\n\n## Capability disclosures\nQuantified trade-off analysis was ENABLED but did not contribute to this report (no verified quantified output); 249 sourced numbers were extracted but not modeled into a verified quantified comparison.\n\n## Contradiction disclosures\nThe contradiction detector flagged 2 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different measured endpoints, units, sub-populations, time windows, or comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):\n\n- unknown / accuracy: cited values range 43.0 to 100.0 % (source tiers: UNKNOWN).\n- unknown / ttr: cited values range 6.9 to 99.5 % (source tiers: T4, UNKNOWN, T1, T6).\n\nClaims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.\n\n\n## Bibliography\n[1] sae_j3016_automation_levels — https://www.sae.org/standards/content/j3016_202104/ (tier T1)\n[2] unece_alks_regulation_framework — https://unece.org/transport/documents/2021/03/standards/un-regulation-no-157-automated-lane-keeping-systems-alks (tier T1)\n[3] nhtsa_ads_policy_framework — https://www.nhtsa.gov/laws-regulations/standing-general-order-crash-reporting (tier T1)\n[4] product_liability_doctrine — https://www.ali.org/publications/restatement-law-third/torts-third (tier T1)\n[5] adas_crash_case_law — https://www.courtlistener.com/docket/59932667/benavides-v-tesla-inc/ (tier T1)\n[6] proposed_regulatory_guidelines — https://www.ntsb.gov/Advocacy/mwl/Pages/mwl-22-23/mwl-hs.aspx (tier T1)\n[7] Analysis of Advanced Driver-Assistance Systems for Safe and ... - PMC — https://pmc.ncbi.nlm.nih.gov/articles/PMC11479187/ (tier T1)\n[8] Classifying Advanced Driver Assistance System (ADAS) Activation ... — https://pmc.ncbi.nlm.nih.gov/articles/PMC12526685/ (tier T4)\n[9] [PDF] Road Safety Thematic Report Advanced driver assistance systems — https://road-safety.transport.ec.europa.eu/document/download/d786ded1-66ce-4571-95e5-1ff38fff5c74_en?filename=Road_Safety_Thematic_Report_ADAS_2021.pdf (tier T3)\n[10] [PDF] Cause-and-Effect Analysis of ADAS - arXiv — https://arxiv.org/pdf/2208.00249 (tier T4)\n[11] Human involvement in autonomous decision-making systems. Lessons learned from three case studies in aviation, social care and road vehicles — https://doi.org/10.3389/fpos.2023.1238461 (tier UNKNOWN)\n[12] A comprehensive accident investigation system for assisted driving ... — https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0328156 (tier T4)\n[13] Collection and classification of influence parameters for safety ... — https://www.frontiersin.org/journals/future-transportation/articles/10.3389/ffutr.2023.945599/full (tier T4)\n[14] Intelligent driver monitoring systems: a survey of drowsiness ... — https://link.springer.com/article/10.1007/s10462-026-11505-w (tier T4)\n[15] [PDF] Artificial Intelligence and Civil Liability - European Parliament — https://www.europarl.europa.eu/RegData/etudes/STUD/2025/776426/IUST_STU(2025)776426_EN.pdf (tier T3)\n[16] Autonomous Vehicle AI Liability - AI Standard of Care — https://aistandardofcare.com/industries/autonomous-vehicles/ (tier UNKNOWN)\n[17] [PDF] Litigating Partial Autonomy - Iowa Law Review — https://ilr.law.uiowa.edu/sites/ilr.law.uiowa.edu/files/2024-05/ILR-109-BurkeRobertson_0.pdf (tier UNKNOWN)\n[18] [PDF] Addressing the Liability Gap in AI Accidents — https://www.cigionline.org/static/documents/PB_no.177.pdf (tier UNKNOWN)\n[19] [PDF] The cost of AI-driven accidents. A law and economics analysis of ... — https://extranet.side-isle.it/storage/files/lg5eoW6zxGpuRB5oSzT0PkZBEMrQ8CgiUGInNElA.pdf (tier UNKNOWN)\n[20] [PDF] Products Liability for Software Defects in Driverless Cars — https://gould.usc.edu/why/students/orgs/ilj/assets/docs/32-1-Rustad.pdf (tier UNKNOWN)\n[21] [PDF] How Should Accident Law Adapt to Autonomous Vehicles? Lessons ... — https://www.hoover.org/sites/default/files/ip2-19002-paper.pdf (tier UNKNOWN)\n[22] ADAS Liability in Michigan Auto Accidents: Your Legal Guide — https://ravidandassociates.com/advanced-driver-assistance-systems-adas-and-liability-in-michigan-auto-accidents/ (tier UNKNOWN)\n[23] Liability in Autonomous Vehicle Accidents: Key Legal Issues — https://www.akdlawyers.com/car-accident/liability-in-autonomous-vehicle-accidents/ (tier UNKNOWN)\n[24] [PDF] Liability for Autonomous Vehicle-Related Damages — https://www.etd.ceu.edu/2025/margishvili_mariam.pdf (tier UNKNOWN)\n[25] [PDF] Overview Advanced Driver Assistance Systems, or ADAS, encapsulate — https://www.iadclaw.org/assets/1/6/8.1_-_Driver_Assistance_Safety_Technology.pdf (tier UNKNOWN)\n[26] [PDF] Assensing the Impact of Advanced Driver Assistance Systems ... — https://journal2.upgris.ac.id/index.php/asset/article/download/2371/1031/13478 (tier UNKNOWN)\n[27] [PDF] economic impacts of the Advanced Driver Assistance Systems — https://www.politesi.polimi.it/retrieve/5e9f9369-c910-41d6-bb71-b4a9f1610371/2025_04_Cesaro_Tesi.pdf (tier UNKNOWN)\n[28] [PDF] Data-driven user evaluation of ADAS (DADEL) - Vinnova — https://www.vinnova.se/globalassets/mikrosajter/ffi/dokument/slutrapporter-ffi/slutrapporter-2025/2024-00820eng.pdf (tier UNKNOWN)\n[29] Are Connected and Automated Vehicles the Silver Bullet for Future Transportation Challenges? Benefits and Weaknesses on Safety, Consumption, and Traffic Congestion — https://doi.org/10.3389/frsc.2020.607054 (tier UNKNOWN)\n\n\n---\n\n## V30 Phase-1 Retrieval Coverage Disclosure\n\nPHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):\n  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.\n\nFrame coverage disclosure (V30 Report Contract):\n  - Total contract-required entities: 6\n  - Fully populated (full-text bound evidence): 4\n  - Partial coverage (below min_fields or unbound citation): 1\n  - Unretrievable (paywalled with no OA/abstract): 1\n  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.\n",
+tests\fixtures\redaction_fixture_redact001.json:1709:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1720:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1731:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1742:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1753:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1766:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1777:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1788:          "section_title": "Key Findings",
+tests\fixtures\redaction_fixture_redact001.json:1801:          "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:666:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:679:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:690:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:701:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:712:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:723:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:734:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:747:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:760:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:776:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:789:    "section_title": "Key Findings",
+tests\fixtures\drb72\four_role_claim_audit.json:800:    "section_title": "Key Findings",
+tests\fixtures\drb90_redaction\four_role_claim_audit.json:229:    "section_title": "Key Findings",
+tests\fixtures\drb90_redaction\four_role_claim_audit.json:242:    "section_title": "Key Findings",
+tests\fixtures\drb90_redaction\four_role_claim_audit.json:255:    "section_title": "Key Findings",
+tests\fixtures\m_live_4_baseline\clinical\clinical_tirzepatide_t2dm\manifest.json:655:        "failure_reason": "phase-1 synth (retrieval-coverage): non-gap row but direct_quote + oa_pdf_url both empty \u2014 degraded retrieval \u2192 curator-actionable",
+tests\fixtures\drb90_redaction\report.md:3:## Key Findings
+tests\fixtures\drb90_redaction\report.md:9:Contract-bound content for sae_j3016_automation_levels did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap.
+tests\fixtures\drb90_redaction\report.md:15:Contract-bound content for adas_crash_case_law did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap.
+tests\fixtures\drb90_redaction\report.md:18:Contract-bound content for proposed_regulatory_guidelines did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap.
+tests\fixtures\drb90_redaction\report.md:20:- **Key Findings.** Conversely, the same study reported that ADS accidents had lower odds in rear-end (OR 0.457) and broadside (OR 0.171) collisions, suggesting that automation may reduce certain types of crashes.[8]
+tests\fixtures\drb90_redaction\report.md:26:Contract-bound content for sae_j3016_automation_levels did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[1]
+tests\fixtures\drb90_redaction\report.md:46:Contract-bound content for adas_crash_case_law did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[5]
+tests\fixtures\drb90_redaction\report.md:52:Contract-bound content for proposed_regulatory_guidelines did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[6]
+tests\fixtures\drb90_redaction\report.md:58:### Key Findings
+tests\fixtures\drb90_redaction\manifest.json:23:      "Key Findings",
+tests\fixtures\drb90_redaction\manifest.json:35:      "Key Findings",
+tests\fixtures\drb90_redaction\manifest.json:1976:      "Key Findings",
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:388:    assert "curator-actionable gap" in stub
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:416:    # Verified-prose consumer (Key Findings / BB5-P07) skip signals.
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:529:    assert "curator-actionable gap" in stub
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:623:        "curator-actionable gap.", biblio_slice=[],
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:641:    Key Findings block as a 'span-verified statement'; a real verified sentence still does."""
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:648:        verified_text="No claim survived strict verification; curator-actionable gap.",
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:659:    assert "curator-actionable gap" not in out, "gap disclosure leaked into Key Findings as span-verified"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:660:    assert "HR 0.82" in out, "real verified sentence missing from Key Findings"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:674:            "The dosing sub-slot did not survive strict verification; curator-actionable gap. "
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:681:    assert "curator-actionable gap" not in out, "uncited gap sentence leaked into Key Findings"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:682:    assert "hazard ratio of 0.82" in out, "first cited sentence missing from Key Findings"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:698:            "curator-actionable gap. See manifest.frame_coverage_report and "
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:706:    assert "curator-actionable gap" not in out, "gap disclosure sentence leaked into Key Findings"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:707:    assert "frame_coverage_report" not in out, "gap-task pointer leaked into Key Findings"
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:709:    assert "hazard ratio of 0.82" in out, "real cited finding missing from Key Findings"
+tests\polaris_graph\generator\test_key_findings_iperm008.py:6:(B) `refilter_key_findings_block` drops a KF bullet that the four-role seam redacted into a gap
+tests\polaris_graph\generator\test_key_findings_iperm008.py:7:    stub after Key Findings was assembled (with (A) the bullet is single-line, so the line-scoped
+tests\polaris_graph\generator\test_key_findings_iperm008.py:22:    refilter_key_findings_block,
+tests\polaris_graph\generator\test_key_findings_iperm008.py:26:    "A claim previously stated here did not survive 4-role verification and was redacted; "
+tests\polaris_graph\generator\test_key_findings_iperm008.py:27:    "this is a curator-actionable gap."
+tests\polaris_graph\generator\test_key_findings_iperm008.py:55:    assert "###" not in kf, f"a leaked header leaked into Key Findings:\n{kf}"
+tests\polaris_graph\generator\test_key_findings_iperm008.py:74:        "## Key Findings\n\n"
+tests\polaris_graph\generator\test_key_findings_iperm008.py:87:    out = refilter_key_findings_block(report)
+tests\polaris_graph\generator\test_key_findings_iperm008.py:88:    assert "## Key Findings" in out
+tests\polaris_graph\generator\test_key_findings_iperm008.py:98:    out = refilter_key_findings_block(report)
+tests\polaris_graph\generator\test_key_findings_iperm008.py:99:    assert "## Key Findings" not in out  # no empty heading
+tests\polaris_graph\generator\test_key_findings_iperm008.py:108:    assert refilter_key_findings_block(report) == report
+tests\polaris_graph\generator\test_key_findings_iperm008.py:116:    once = refilter_key_findings_block(report)
+tests\polaris_graph\generator\test_key_findings_iperm008.py:117:    assert refilter_key_findings_block(once) == once
+tests\polaris_graph\generator\test_key_findings_iperm008.py:170:    out = refilter_key_findings_block(redaction.report_text)
+tests\polaris_graph\generator\test_key_findings_iperm008.py:172:    assert "did not survive" not in kf_after  # the stub is gone from Key Findings
+tests\polaris_graph\generator\test_key_findings_iperm008.py:173:    assert "curator-actionable gap" not in kf_after
+scripts\audit_v3_report.py:121:        r'\*\*Key Findings?\*\*', report_md, re.I,
+scripts\audit_v3_report.py:254:        print(f"    Key Findings:        {metrics['key_findings_sections']:>4}")
+scripts\loopback_auto_universal.py:275:        return f"{body}\n\n**Key Findings**\n\n{kf}" if kf else body
+tests\polaris_graph\test_analytical_depth.py:9:  (front ``## Key Findings`` ATX block is NOT counted by the bold-form regex; per-section
+tests\polaris_graph\test_analytical_depth.py:10:  ``**Key Findings**`` subsections ARE counted).
+tests\polaris_graph\test_analytical_depth.py:27:        {"title": "A", "content": "Drug X outperformed placebo. **Key Findings** here."},
+tests\polaris_graph\test_analytical_depth.py:34:    assert out["key_findings"] == 1               # one bold **Key Findings**
+tests\polaris_graph\test_analytical_depth.py:45:    rich = {"title": "Rich", "content": "X outperformed Y. **Key Findings** noted."}
+tests\polaris_graph\test_analytical_depth.py:57:    kfs = " ".join(["**Key Findings**"] * 3)
+tests\polaris_graph\test_analytical_depth.py:114:    report = "## Key Findings\n\n- bullet one\n\n## Per-Trial Summaries\n\nbody\n"
+tests\polaris_graph\test_analytical_depth.py:116:    assert "Key Findings" in titles
+tests\polaris_graph\test_analytical_depth.py:121:    # The benchmark front block is emitted as an ATX header `## Key Findings` (generator/key_findings.py),
+tests\polaris_graph\test_analytical_depth.py:123:    front_atx = "## Key Findings\n\n- finding one\n- finding two\n"
+tests\polaris_graph\test_analytical_depth.py:127:    # The per-section bold `**Key Findings**` subsection form IS counted.
+tests\polaris_graph\test_analytical_depth.py:128:    body_bold = "### Efficacy\n\nResults here.\n\n**Key Findings**\n\n- x\n"
+scripts\forensic_audit.py:492:            lines.append("**Key Findings:**")
+tests\polaris_graph\test_generator_domain_outline_iready009.py:74:        '{"title":"Key Findings","focus":"f","ev_ids":["ev_1","ev_2"]},'
+tests\polaris_graph\test_generator_domain_outline_iready009.py:80:    assert "Key Findings" in titles and "Implications" in titles
+tests\polaris_graph\test_generator_domain_outline_iready009.py:87:        '{"title":"Key Findings","focus":"f","ev_ids":["ev_3","ev_4"]},'
+tests\polaris_graph\test_generator_domain_outline_iready009.py:93:    assert "Key Findings" in titles
+tests\polaris_graph\test_generator_domain_outline_iready009.py:122:    assert titles == ["Key Findings", "Evidence and Analysis", "Implications"]
+tests\polaris_graph\test_generator_domain_outline_iready009.py:159:        '{"title":"Key Findings","focus":"f","ev_ids":["ev_0","ev_1"]},'
+tests\polaris_graph\test_generator_domain_outline_iready009.py:196:    assert "Key Findings" in retry_system or "Implications" in retry_system
+tests\polaris_graph\test_honest_sweep_integration.py:16:   curator-actionable task with required_fields.
+tests\polaris_graph\test_honest_sweep_integration.py:377:        state; it must route to curator-actionable."""
+tests\polaris_graph\test_honest_sweep_integration.py:423:        # curator-actionable fail_min_fields (Codex pass-4
+tests\polaris_graph\test_honest_sweep_integration.py:521:        # Tasks file has exactly one curator-actionable entry
+tests\polaris_graph\test_key_findings.py:1:"""Verified-only extractive Key Findings block (I-meta-002-q1d #949b). NO spend.
+tests\polaris_graph\test_key_findings.py:28:    assert "## Key Findings" in out
+tests\polaris_graph\test_key_findings.py:54:    assert "## Key Findings" not in build_key_findings([_Section("X", "  ")])
+scripts\deep_gemini_verify.py:148:    """Test 3: Does the LLM produce citations, Key Findings, and tables
+scripts\deep_gemini_verify.py:182:        "3. End with a **Key Findings:** subsection with 3-5 cited bullet points\n"
+scripts\deep_gemini_verify.py:193:        f"- End with **Key Findings:** bullet points\n"
+scripts\deep_gemini_verify.py:209:        has_key_findings = bool(re.search(r'Key Findings', content, re.IGNORECASE))
+scripts\deep_gemini_verify.py:231:               "Key Findings section present" if has_key_findings else "NO KEY FINDINGS")
+scripts\deep_gemini_verify.py:363:    """Test 6: Does Key Findings enforcement generate findings when missing?
+scripts\deep_gemini_verify.py:372:    # Section content WITHOUT Key Findings
+scripts\deep_gemini_verify.py:383:    has_kf = bool(re.search(r'(\*\*Key Findings\*\*|##+ Key Findings)', section_content, re.I))
+scripts\deep_gemini_verify.py:385:           f"Correctly detected missing Key Findings: {not has_kf}")
+scripts\deep_gemini_verify.py:389:        f"Based on this section content, write a **Key Findings** subsection "
+scripts\deep_gemini_verify.py:393:        f"Output ONLY the Key Findings block in this exact format:\n"
+scripts\deep_gemini_verify.py:394:        f"**Key Findings:**\n"
+scripts\deep_gemini_verify.py:407:        has_header = bool(re.search(r'Key Findings', kf_block, re.I))
+scripts\pg_gemini_preflight.py:247:    """Test G: Key Findings detection in DOCX exporter."""
+scripts\pg_gemini_preflight.py:249:        ("**Key Findings:**", True),
+scripts\pg_gemini_preflight.py:250:        ("**Key Findings**", True),
+scripts\pg_gemini_preflight.py:251:        ("**Key Findings: Water Treatment**", True),
+scripts\pg_gemini_preflight.py:252:        ("## Key Findings", True),
+scripts\pg_gemini_preflight.py:253:        ("### Key Findings", True),
+scripts\pg_gemini_preflight.py:254:        ("#### Key Findings:", True),
+scripts\pg_gemini_preflight.py:255:        ("# Key Findings", False),  # h1 shouldn't match #{2,4}
+scripts\pg_gemini_preflight.py:256:        ("Key Findings", False),  # plain text shouldn't match
+scripts\pg_gemini_preflight.py:263:            text in ("**Key Findings:**", "**Key Findings**")
+scripts\pg_gemini_preflight.py:264:            or text.startswith("**Key Findings")
+scripts\pg_gemini_preflight.py:265:            or bool(re.match(r'^#{2,4}\s+Key Findings', text, re.IGNORECASE))
+scripts\pg_gemini_preflight.py:272:    _record("G", "Key Findings detection", all_pass, "; ".join(details))
+scripts\pg_gemini_preflight.py:276:    """Test H: DOCX export with tables, images, Key Findings, metrics."""
+scripts\pg_gemini_preflight.py:322:**Key Findings:**
+scripts\pg_gemini_preflight.py:571:                "The LLM did not generate Key Findings despite being instructed."
+scripts\pg_micro_test_edge.py:151:    # TEST C: Key Findings generation (separate call)
+scripts\pg_micro_test_edge.py:154:    print("TEST C: Key Findings bullet generation")
+scripts\pg_micro_test_edge.py:158:        f"Based on this section content, write a **Key Findings** subsection "
+scripts\pg_micro_test_edge.py:162:        f"Output ONLY the Key Findings block in this exact format:\n"
+scripts\pg_micro_test_edge.py:163:        f"**Key Findings:**\n"
+scripts\pg_micro_test_assembler_e2e.py:68:                "**Key Findings:** Glycemic control improves significantly with IF protocols."
+scripts\pg_micro_test_assembler_e2e.py:84:                "**Key Findings:** Cardiovascular mortality risk is elevated for short eating windows."
+scripts\pg_micro_test_assembler_e2e.py:216:    # 9. **Key Findings** on its own line
+scripts\pg_micro_test_assembler_e2e.py:217:    kf_on_line = "\n\n**Key Findings" in full_report or "\n**Key Findings" in full_report
+scripts\pg_micro_test_assembler_e2e.py:218:    print(f"  [FMT] Key Findings on new line: {kf_on_line}")
+scripts\pg_micro_test_assembler.py:124:        "**Key Findings:** The evidence shows clear glycemic benefits from "
+scripts\pg_micro_test_assembler.py:133:        sec_content = re.sub(r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", sec_content)
+scripts\pg_micro_test_assembler.py:138:    key_findings_on_new_line = "\n\n**Key Findings" in sec_content
+scripts\pg_micro_test_assembler.py:142:    print(f"  **Key Findings on new line: {key_findings_on_new_line}")
+tests\polaris_graph\test_m56_frame_fetcher.py:589:        (curator-actionable)."""
+tests\polaris_graph\test_m58_slot_fill.py:761:        curator-actionable-gap sentence). This is what stops the Eloundou-5/5-not_extractable
+tests\polaris_graph\test_m60_frame_manifest.py:291:        # impossible" — the curator-actionable gap case.
+tests\polaris_graph\test_m60_frame_manifest.py:312:        # Gap row with fail_min_fields IS curator-actionable
+tests\polaris_graph\test_m60_frame_manifest.py:970:        # verdict != PASS -> NOT an override (extraction gap, curator-actionable).
+scripts\pg_test_wiki_proof.py:129:5. Include a "**Key Findings**" section at the end with 3-5 bullet points summarizing the most important claims.
+scripts\pg_subagent_validate.py:15:  S7. has Key Findings subsection
+scripts\pg_subagent_validate.py:183:    # S7: Key Findings subsection
+scripts\pg_subagent_validate.py:184:    has_kf = bool(re.search(r"\*\*Key Findings\*\*|^#+\s*Key Findings", text, re.MULTILINE))
+scripts\pg_subagent_validate.py:186:        "S7. has Key Findings subsection",
+scripts\visual_diag.py:177:        "**Key Findings:**\n"
+scripts\visual_verify.py:67:        "**Key Findings:**\n"
+scripts\visual_verify.py:101:    // Wrap Key Findings
+scripts\visual_verify.py:104:        /<p><strong>Key Findings:?<\/strong><\/p>\s*<ul>([\s\S]*?)<\/ul>/gi,
+scripts\visual_verify.py:106:            return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + listContent + '</ul></div>';
+scripts\visual_verify.py:209:            # Screenshot 4: Scroll to Key Findings
+scripts\visual_verify.py:216:            print("  [4] Key Findings viewport")
+scripts\visual_final.py:83:    // Apply Key Findings wrapping
+scripts\visual_final.py:86:        /<p><strong>Key Findings:?<\/strong><\/p>\s*<ul>([\s\S]*?)<\/ul>/gi,
+scripts\visual_final.py:88:            return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + list + '</ul></div>';
+scripts\visual_final.py:157:        "**Key Findings:**\n"
+scripts\run_honest_sweep_r3.py:6307:        # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
+scripts\run_honest_sweep_r3.py:7263:                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+scripts\run_honest_sweep_r3.py:7268:                                refilter_key_findings_block,
+scripts\run_honest_sweep_r3.py:7270:                            _reconciled_report = refilter_key_findings_block(
+scripts\run_honest_sweep_r3.py:7443:        # logs + skips. Surface = the FULL on-disk report.md (front Key Findings, body, tables,
+scripts\pw_render_helper.py:42:    // Apply Key Findings wrapping
+scripts\pw_render_helper.py:45:        /<p><strong>Key Findings:?<\/strong><\/p>\s*<ul>([\s\S]*?)<\/ul>/gi,
+scripts\pw_render_helper.py:47:            return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + list + '</ul></div>';
+tests\polaris_graph\test_m63_contract_section_runner.py:808:        assert "curator-actionable gap" in result.verified_text
+tests\polaris_graph\test_m63_contract_section_runner.py:819:            if "curator-actionable gap" in blk
+tests\polaris_graph\test_m63_contract_section_runner.py:1009:        assert "curator-actionable gap" not in result.verified_text, (
+scripts\static\css\report.css:315:/* GEMINI-ARCH 3C: Key Findings blocks */
+tests\v3\test_integration.py:9:- Structural sections (Key Findings, Contradictions, Conclusions) present
+tests\v3\test_integration.py:232:    """Validates that Key Findings, Contradictions, Conclusions are added."""
+tests\v3\test_integration.py:247:        assert any("key findings" in t for t in titles), f"Missing Key Findings. Titles: {titles}"
+tests\v3\test_integration.py:257:                OutlineSection(id="s01", title="Key Findings and Analysis", order=1),
+tests\v3\test_integration.py:263:        # Should not add duplicate Key Findings or Conclusions
+tests\v3\test_integration.py:266:        assert key_findings_count == 1, f"Duplicate Key Findings: {key_findings_count}"
+tests\v3\test_integration.py:391:            VerifiedSectionDraft(section_id="s02", title="Key Findings", content="...", word_count=200),
+tests\v3\test_integration.py:397:        assert "Key Findings" in toc
+scripts\static\js\report_view.js:244:      // GEMINI-ARCH 3C: Wrap "Key Findings" blocks in styled container
+scripts\static\js\report_view.js:246:        /<p><strong>Key Findings:?<\/strong><\/p>\s*<ul>([\s\S]*?)<\/ul>/gi,
+scripts\static\js\report_view.js:248:          return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + listContent + '</ul></div>';
+scripts\static\js\report_view.js:251:      // Also handle h3/h4 Key Findings headers
+scripts\static\js\report_view.js:253:        /<h([34])[^>]*>Key Findings:?<\/h\1>\s*<ul>([\s\S]*?)<\/ul>/gi,
+scripts\static\js\report_view.js:255:          return '<div class="key-findings"><div class="key-findings-title">Key Findings</div><ul>' + listContent + '</ul></div>';
+src\polaris_graph\agents\synthesizer.py:2616:                        # Keep Key Findings, tables, and highly-cited paragraphs
+src\polaris_graph\agents\synthesizer.py:2618:                            "**Key Findings" in para
+src\polaris_graph\agents\synthesizer.py:4086:                    f"Keep **Key Findings**.\n\n"
+scripts\static\js\mind_map.js:427:      html += '<div class="mindmap-info-conn-title">Key Findings (' + connFindings.length + ')</div>';
+src\polaris_graph\generator\slot_fill.py:721:        # zero-kept gap path emits ONE honest curator-actionable-gap sentence (the all_gap
+src\polaris_graph\generator\multi_section_generator.py:114:    "Key Findings",
+src\polaris_graph\generator\multi_section_generator.py:138:# curator-actionable disclosure that NO claim survived, NOT silence. It carries NO `[#ev:...]` /
+src\polaris_graph\generator\multi_section_generator.py:142:# curator-actionable gap.").
+src\polaris_graph\generator\multi_section_generator.py:145:    "source text; this section is a curator-actionable gap. See the verification "
+src\polaris_graph\generator\multi_section_generator.py:156:    "curator-actionable gap. The corpus did not yield any source assigned to this section "
+src\polaris_graph\generator\multi_section_generator.py:735:        titles = ["Key Findings", "Evidence and Analysis", "Implications"]
+src\polaris_graph\generator\multi_section_generator.py:737:            "Key Findings": "Summarize the principal findings supported by the evidence.",
+src\polaris_graph\generator\multi_section_generator.py:2180:        # (dropped_due_to_failure=False, is_gap_stub=True) so the gap is visible + curator-actionable.
+src\polaris_graph\generator\multi_section_generator.py:2371:    # it (e.g. Key Findings, BB5-P07, separate lane). The stub is marker-less (no fabricated
+src\polaris_graph\generator\multi_section_generator.py:2422:        # treat it as verified prose (Key Findings, BB5-P07) can skip it.
+src\polaris_graph\generator\key_findings.py:4:builds a "Key Findings" block by EXTRACTING the first verified sentence (verbatim, with its `[N]` citation)
+src\polaris_graph\generator\key_findings.py:33:# gap disclosure is a FIXED two-sentence template — "Contract-bound content ... curator-actionable
+src\polaris_graph\generator\key_findings.py:40:_GAP_MARKER_RE = re.compile(
+src\polaris_graph\generator\key_findings.py:41:    r"curator-actionable gap|did not survive strict verification|"
+src\polaris_graph\generator\key_findings.py:88:        and not _GAP_MARKER_RE.search(s)
+src\polaris_graph\generator\key_findings.py:92:def refilter_key_findings_block(report_text: str) -> str:
+src\polaris_graph\generator\key_findings.py:98:    "- **Section.** <gap stub>" pseudo-finding. The redactor runs AFTER Key Findings is built, so
+src\polaris_graph\generator\key_findings.py:100:    now matches the gap-disclosure boilerplate (``_GAP_MARKER_RE``). With the leaked-header strip
+src\polaris_graph\generator\key_findings.py:107:    header_match = re.search(r"(?m)^##\s*Key Findings\s*$", report_text)
+src\polaris_graph\generator\key_findings.py:122:        # neither of which matches `_GAP_MARKER_RE`, so this never drops a legitimate line.
+src\polaris_graph\generator\key_findings.py:123:        if _GAP_MARKER_RE.search(line):
+src\polaris_graph\generator\key_findings.py:139:    """Return a markdown "## Key Findings" block: the first verified sentence (verbatim, citation intact)
+src\polaris_graph\generator\key_findings.py:170:        "## Key Findings\n\n"
+src\polaris_graph\generator\frame_manifest.py:535:    called for curator-actionable entries (engineer-owned statuses
+src\polaris_graph\generator\frame_manifest.py:586:        f"curator-actionable case. Verify "
+src\polaris_graph\generator\frame_manifest.py:596:    curator-actionable (status, row-type) combinations.
+src\polaris_graph\generator\frame_manifest.py:612:    NOT curator-actionable (engineer or no-op):
+src\polaris_graph\generator\contract_section_runner.py:310:    it as FAIL_MIN_FIELDS (curator-actionable) rather than silently
+src\polaris_graph\generator\contract_section_runner.py:376:    # FAIL_MIN_FIELDS / curator-actionable) WITHOUT calling the LLM on an empty span, so strict_verify
+src\polaris_graph\generator\contract_section_runner.py:1008:                    "verification; curator-actionable gap."
+src\polaris_graph\generator\analytical_depth.py:4:``**Key Findings**`` subsections, plus a per-section "deficient" flag and a ``passed`` threshold) was
+src\polaris_graph\generator\analytical_depth.py:28:# ATX markdown header: 1-6 '#' then whitespace then a title (e.g. "## Key Findings", "### Limitations").
+src\polaris_graph\generator\analytical_depth.py:41:    NOTE (benchmark form): the ``key_findings`` regex matches the **bold** ``**Key Findings**``
+src\polaris_graph\generator\analytical_depth.py:43:    aggregated Key Findings block is emitted as an **ATX** header (``## Key Findings`` —
+src\polaris_graph\generator\analytical_depth.py:45:    ``**Key Findings**`` subsections ARE counted. Kept verbatim rather than broadened so Pipeline-B
+src\polaris_graph\generator\analytical_depth.py:63:    key_findings_pattern = re.compile(r'\*\*Key Findings?\*\*', re.I)
+src\polaris_graph\generator\analytical_depth.py:113:    (front Key Findings block, body sections, Trial Summary tables, Per-Trial subsections, Limitations,
+tests\unit\test_gemini_fixes.py:955:        """Report should still have Executive Summary and Key Findings."""
+tests\unit\test_gemini_fixes.py:959:        assert "## Key Findings" in report
+tests\unit\test_gemini_fixes.py:978:            "## Key Findings\n"
+tests\unit\test_gemini_docx.py:5:Key Findings block detection, figure caption detection, and full export
+tests\unit\test_gemini_docx.py:227:    """Verify Key Findings detection: heading paragraph + bullet items.
+tests\unit\test_gemini_docx.py:229:    Note: ``**Key Findings:**`` (bare, no trailing text) is intercepted by the
+tests\unit\test_gemini_docx.py:230:    figure-caption regex ``^\\*(.+)\\*$`` before the Key Findings branch runs.
+tests\unit\test_gemini_docx.py:231:    Using ``**Key Findings:** Summary`` ensures the Key Findings path fires
+tests\unit\test_gemini_docx.py:232:    via ``stripped.startswith("**Key Findings")``.
+tests\unit\test_gemini_docx.py:235:        "**Key Findings:** Summary of results\n"
+tests\unit\test_gemini_docx.py:245:    # The Key Findings heading paragraph should contain "Key Findings"
+tests\unit\test_gemini_docx.py:246:    key_findings_paras = [t for t in para_texts if "Key Findings" in t]
+tests\unit\test_gemini_docx.py:248:        f"Expected 'Key Findings' heading paragraph, got texts: {para_texts}"
+tests\unit\test_gemini_docx.py:260:    # Verify the Key Findings heading has a left border via XML
+tests\unit\test_gemini_docx.py:262:        if "Key Findings" in para.text and para.text.strip() == "Key Findings":
+tests\unit\test_gemini_docx.py:264:            assert p_pr is not None, "Key Findings paragraph should have pPr"
+tests\unit\test_gemini_docx.py:267:                "Key Findings paragraph should have left border (w:pBdr)"
+tests\unit\test_gemini_docx.py:276:            "Could not find standalone 'Key Findings' heading paragraph"
+tests\unit\test_gemini_docx.py:347:        "**Key Findings:**\n"
+src\agents\citefirst_synthesizer.py:4460:        report_parts.append("## Key Findings\n")
+src\agents\synthesizer_agent.py:1614:        md.append("### Key Findings")
+tests\unit\test_gemini_assembler.py:118:        """'Key Findings' mention (case-insensitive) is counted."""
+tests\unit\test_gemini_assembler.py:119:        report = "This section covers **Key Findings:** of the study."
+src\polaris_graph\export\docx_exporter.py:500:            # Key Findings block detection (MUST be before figure caption
+src\polaris_graph\export\docx_exporter.py:501:            # because **Key Findings:** matches the *...* caption pattern)
+src\polaris_graph\export\docx_exporter.py:502:            # FIX-7: Also detect ## Key Findings and ### Key Findings headings
+src\polaris_graph\export\docx_exporter.py:504:                stripped in ("**Key Findings:**", "**Key Findings**")
+src\polaris_graph\export\docx_exporter.py:505:                or stripped.startswith("**Key Findings")
+src\polaris_graph\export\docx_exporter.py:506:                or bool(re.match(r'^#{2,4}\s+Key Findings', stripped, re.IGNORECASE))
+src\polaris_graph\export\docx_exporter.py:514:                run = para.add_run("Key Findings")
+src\polaris_graph\export\docx_exporter.py:522:                # Collect following bullet items as Key Findings
+src\polaris_graph\synthesis\report_assembler.py:735:        # Re-insert breaks before **Key Findings** and markdown headings
+src\polaris_graph\synthesis\report_assembler.py:736:        result = re.sub(r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", result)
+src\polaris_graph\synthesis\report_assembler.py:826:        r"Write the required Key Findings[^.]*\.",
+src\polaris_graph\synthesis\report_assembler.py:839:        r"[Tt]he Key Findings section appears complete[^.]*\.",
+src\polaris_graph\synthesis\report_assembler.py:852:        r"- Complete the Key Findings[^.]*\.",
+src\polaris_graph\synthesis\report_assembler.py:1165:        # Insert \n\n before ### subheadings, **Key Findings**, and tables.
+src\polaris_graph\synthesis\report_assembler.py:1171:            # Insert breaks before **Key Findings**
+src\polaris_graph\synthesis\report_assembler.py:1173:                r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", resolved_content
+src\polaris_graph\synthesis\report_assembler.py:1570:                r"(?<!\n)(\*\*Key Findings)", r"\n\n\1", sec_content
+src\polaris_graph\graph_v3.py:558:                # Fallback: prefer "Key Findings" section
+src\polaris_graph\synthesis\section_writer.py:47:3. End each section with a **Key Findings** subsection: 3-5 cited bullet points summarizing
+src\polaris_graph\synthesis\section_writer.py:1714:    # KEY-FINDINGS ENFORCEMENT: Detect missing Key Findings and inject via LLM.
+src\polaris_graph\synthesis\section_writer.py:1715:    # The system prompt instructs "End each section with a **Key Findings** subsection"
+src\polaris_graph\synthesis\section_writer.py:1719:        r'(\*\*Key Findings\*\*|##+ Key Findings)', content, re.IGNORECASE
+src\polaris_graph\synthesis\section_writer.py:1723:            "[polaris graph] KEY-FIND: Section '%s' missing Key Findings — "
+src\polaris_graph\synthesis\section_writer.py:1729:                f"Based on this section content, write a **Key Findings** subsection "
+src\polaris_graph\synthesis\section_writer.py:1733:                f"Output ONLY the Key Findings block in this exact format:\n"
+src\polaris_graph\synthesis\section_writer.py:1734:                f"**Key Findings:**\n"
+src\polaris_graph\synthesis\section_writer.py:1747:            # Validate: must contain Key Findings and at least 2 bullet points
+src\polaris_graph\synthesis\section_writer.py:1748:            _kf_has_header = bool(re.search(r'Key Findings', _kf_block, re.IGNORECASE))
+src\polaris_graph\synthesis\section_writer.py:1754:                    "[polaris graph] KEY-FIND: Injected Key Findings with %d bullets "
+src\polaris_graph\synthesis\section_writer.py:1767:                "[polaris graph] KEY-FIND: Key Findings generation failed for '%s': %s",
+src\polaris_graph\synthesis\section_writer.py:1771:    # FIX-KF-PRESERVE: Extract Key Findings block BEFORE post-processing.
+src\polaris_graph\synthesis\section_writer.py:1773:    # silently strip Key Findings when they regenerate the section. We preserve
+src\polaris_graph\synthesis\section_writer.py:1777:        r'(\n\n\*\*Key Findings:?\*\*\s*\n(?:\s*[-*+]\s+.*\n?)+)',
+src\polaris_graph\synthesis\section_writer.py:1783:            r'(\n\n#{2,4}\s+Key Findings:?\s*\n(?:\s*[-*+]\s+.*\n?)+)',
+src\polaris_graph\synthesis\section_writer.py:1895:    # FIX-KF-PRESERVE: Re-append preserved Key Findings after all post-processing
+src\polaris_graph\synthesis\section_writer.py:1898:        if not re.search(r'Key Findings', content, re.IGNORECASE):
+src\polaris_graph\synthesis\section_writer.py:1901:                "[polaris graph] FIX-KF-PRESERVE: Re-appended Key Findings to '%s' "
+src\polaris_graph\honest_sweep_integration.py:414:            f"{len(human_tasks)} curator-actionable tasks"
+src\polaris_graph\honest_sweep_integration.py:547:        (curator-actionable). Retrieval failed; operator can
+src\polaris_graph\honest_sweep_integration.py:622:                        "row → curator-actionable"
+src\polaris_graph\honest_sweep_integration.py:642:                        "curator-actionable"
+src\polaris_graph\nodes\outline.py:120:    # Enforce structural sections (Fix 6: Key Findings, Contradictions, Conclusions)
+src\polaris_graph\nodes\outline.py:219:        "title": "Key Findings",
+src\polaris_graph\nodes\outline.py:248:    """Ensure Key Findings, Contradictions, and Conclusions sections exist.
+src\polaris_graph\schemas.py:1048:                return f"{v}: Key Findings and Analysis"
+src\polaris_graph\roles\report_redactor.py:17:``report.md`` body and carried-up Key Findings.
+src\polaris_graph\roles\report_redactor.py:23:existing visible gap language ("did not survive verification; curator-actionable gap").
+src\polaris_graph\roles\report_redactor.py:84:# verification; curator-actionable gap.") so a redacted body reads consistently.
+src\polaris_graph\roles\report_redactor.py:86:    "A claim previously stated here did not survive 4-role verification and was "
+src\polaris_graph\roles\report_redactor.py:87:    "redacted; this is a curator-actionable gap."
+src\polaris_graph\roles\report_redactor.py:102:class ReportRedactionError(RuntimeError):
+src\polaris_graph\roles\report_redactor.py:119:class RedactionResult:
+src\polaris_graph\roles\report_redactor.py:141:                    "report.md (refuse-in-place); curator-actionable gap"
+src\polaris_graph\roles\report_redactor.py:164:def reconcile_report_against_verdicts(
+src\polaris_graph\retrieval\frame_fetcher.py:1053:        # so M-58 emits `not_extractable` (curator-actionable) rather
+src\polaris_graph\retrieval\human_gap_completion.py:20:curator-actionable gap entry (what M-60.compose_human_completion_tasks
+src\polaris_graph\retrieval\human_gap_completion.py:430:      - supply content for an entity that isn't curator-actionable
+src\polaris_graph\retrieval\human_gap_completion.py:455:                f"that's not curator-actionable",
+src\polaris_graph\retrieval\synthesis_prompts.py:219:- End each section with a "**Key Findings**" subsection (3-5 bullet points).
+
+ succeeded in 9295ms:
+codex
+I found the implementation present in the tree. The two iter-1 fixes are reflected as described: the refilter now matches bare stub lines inside the bounded block, and the header regex requires `#` plus whitespace.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/report_redactor.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_key_findings.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7248 -First 40' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"build_key_findings\\(|refilter_key_findings_block\\(|PG_SWEEP_KEY_FINDINGS|report_redaction|reconcile_report_against_verdicts\" scripts/run_honest_sweep_r3.py src tests/polaris_graph" in C:\POLARIS
+ succeeded in 2765ms:
+"""Post-gate report.md reconciliation against the 4-role D8 verdicts (I-beatboth-fix-000 #1171).
+
+THE FAITHFULNESS LEAK this module closes
+----------------------------------------
+``scripts/run_honest_sweep_r3.py`` assembles ``report.md`` from strict_verify-KEPT
+sentences (L5780) BEFORE the authoritative 4-role D8 seam runs (L6407+). The seam
+re-judges every kept sentence with the stronger Mirror/Sentinel/Judge stack and can
+flip a strict_verify-kept sentence to a non-VERIFIED verdict
+(UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at ANY severity). Today the runner
+consumes that verdict ONLY as a manifest flag (``release_allowed=False`` +
+``needs_rewrite``); it NEVER reconciles the assembled ``report.md`` against the
+verdicts. So a sentence the strongest verifier rejected still ships as asserted prose.
+
+drb_90 proof: ``needs_rewrite`` carried 7 material UNSUPPORTED claim_ids and at least
+six of those sentences (e.g. the "$27,874 per violation" penalty figure, the
+"UN Regulation No. 157 — ALKS" instrument line) were physically present in the shipped
+``report.md`` body and carried-up Key Findings.
+
+WHAT THIS HELPER DOES (fail-closed)
+-----------------------------------
+For every claim whose 4-role ``final_verdict`` is non-VERIFIED, it locates the
+claim's verbatim sentence in the rendered ``report.md`` and REPLACES it with the
+existing visible gap language ("did not survive verification; curator-actionable gap").
+Redaction is SEVERITY-INDEPENDENT (I-faith-003 #1174): a claim is redacted iff its verdict
+is non-VERIFIED, at ANY severity. S3 "observe-only" governs the release LATCH only
+(release_policy.py) — it never exempts an unverified claim from redaction.
+
+It is REFUSE-IN-PLACE, not a generative rewrite: no new spend, no new claims. The
+redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring designs
+but the runner never wired.
+
+The mapping is NOT 1:1 with strict_verify-kept (run_honest_sweep_r3.py:5660-5669 in-tree
+caveat: downstream dedup/repair passes mutate the body). THREE TIERS of locating the prose
+(I-redact-001 #1181 — high-recall detection, high-precision action):
+  * TIER 1 (precise, single span): the claim's prose IS one discrete rendered sentence
+    span (coverage >= ``_MIN_REDACTION_COVERAGE``) -> redact exactly that span, leaving
+    every VERIFIED neighbor sentence and its [N] markers byte-for-byte (the leak fix).
+  * TIER 2 (minimal containing unit): the claim's normalized prose is unambiguously
+    PRESENT but it does not cover one span at the coverage floor — because a boundary
+    under-split merged it with a VERIFIED neighbor, OR it straddles >=2 rendered spans.
+    Redact the SMALLEST set of consecutive spans (or, only if no span set bounds it, the
+    body line) whose concatenation contains the stem — over-redact SAFELY rather than
+    abort (issue acceptance 1+2). The cross-line projection makes table/line-join
+    rendering visible so this is never a silent ``already_absent``.
+  * TIER 3 (genuinely absent): the claim's prose is genuinely ABSENT from the rendered
+    report (downstream dedup/repair removed it) -> already not shipped; record
+    ``already_absent`` and ship nothing extra (the SAFE state).
+FAIL-CLOSED contract (I-redact-001 #1181): the helper RAISES ``ReportRedactionError`` ONLY
+when a material non-VERIFIED claim's normalized prose is genuinely ABSENT from the normalized
+report yet a real inconsistency demands a fail-closed abort — i.e. neither TIER-1 nor TIER-2
+can bound the prose AND the prose is not cleanly absent. A merely hard-to-pin-to-one-sentence
+claim is redacted via TIER 2, NOT aborted. The boundary hardening (``_SENTENCE_BOUNDARY_RE``,
+I-redact-001) splits ``...risk[1] Cereal...`` / ``...adherence.[16] 87.3%...`` so the common
+case resolves at TIER 1; TIER 2 is the defense-in-depth for any future under-split shape.
+
+MULTI-OCCURRENCE (I-redact-001 #1181, Codex iter-1 P1-1): the same non-VERIFIED stem can appear
+more than once (e.g. once cleanly + once in an under-split merge). The tiered redaction LOOPS
+per claim until the stem is absent from the line-join-normalized whole body (no occurrence left)
+or no tier makes further progress (fail-closed) — so a second occurrence can never leak. The
+claim is recorded in ``redacted`` exactly ONCE regardless of how many physical spans were removed.
+
+Pure function (string ops only; no network, no I/O). The CALLER reads/writes report.md.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+# REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
+# mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
+# regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
+# (a non-required-entity S3 claim does not BLOCK release), NEVER this redaction path: previously
+# the S3 "observe-only" scope guard wrongly let 26 UNSUPPORTED claims (incl. clinical-safety
+# guidance) ship across the 5 beat-both questions (BB5-F01). VERIFIED survives; every other
+# verdict is a leak if it ships as prose.
+_NON_VERIFIED_VERDICTS = frozenset(
+    {"UNSUPPORTED", "FABRICATED", "UNREACHABLE", "PARTIAL"}
+)
+_VERDICT_VERIFIED = "VERIFIED"
+
+# The visible gap sentence a redacted claim is replaced with. Mirrors the existing gap
+# language already used by contract_section_runner ("did not survive strict
+# verification; curator-actionable gap.") so a redacted body reads consistently.
+_GAP_REPLACEMENT = (
+    "A claim previously stated here did not survive 4-role verification and was "
+    "redacted; this is a curator-actionable gap."
+)
+
+# gaps.json kind for a post-gate redaction (mirrors release_policy._GAP_RESIDUAL_UNSUPPORTED
+# vocabulary but is distinct so the audit trail shows the redaction happened in report.md).
+GAP_KIND_REDACTED_UNSUPPORTED = "redacted_unsupported"
+
+# POLARIS provenance token: [#ev:evidence_id:start-end].
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+# Rendered numbered citation marker: [1], [12]. The final report converts each provenance
+# token into one of these, so the stem matcher must ignore them on BOTH sides.
+_NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+class ReportRedactionError(RuntimeError):
+    """Raised when a material non-VERIFIED claim is present-but-unlocatable for a discrete
+    rendered-sentence replacement. The caller MUST fail closed (do NOT ship the report).
+    """
+
+
+@dataclass
+class RedactedClaim:
+    """One claim whose verbatim sentence was removed from report.md (-> gaps.json)."""
+
+    claim_id: str
+    severity: str
+    verdict: str
+    claim_text: str  # the verbatim sentence (with its original provenance token)
+
+
+@dataclass
+class RedactionResult:
+    """Outcome of reconciling report.md against the 4-role verdicts."""
+
+    report_text: str
+    redacted: list[RedactedClaim] = field(default_factory=list)
+    # Material non-VERIFIED claims whose prose was already absent from the rendered report
+    # (downstream dedup/repair had removed them) — recorded for the audit trail, not a leak.
+    already_absent: list[str] = field(default_factory=list)
+
+    @property
+    def redacted_count(self) -> int:
+        return len(self.redacted)
+
+    def gaps_json(self) -> list[dict]:
+        """Serialize the redactions as gaps.json entries (one per removed claim)."""
+        return [
+            {
+                "ref": rc.claim_id,
+                "kind": GAP_KIND_REDACTED_UNSUPPORTED,
+                "severity": rc.severity,
+                "note": (
+                    f"claim re-judged {rc.verdict} by the 4-role seam and removed from "
+                    "report.md (refuse-in-place); curator-actionable gap"
+                ),
+            }
+            for rc in self.redacted
+        ]
+
+
+def _prose_stem(text: str) -> str:
+    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose."""
+    text = _PROVENANCE_TOKEN_RE.sub("", text)
+    text = _NUMBERED_MARKER_RE.sub("", text)
+    return text
+
+
+def _normalize(text: str) -> str:
+    """Citation-insensitive, whitespace-insensitive prose for matching across the
+    provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
+    """
+    text = _prose_stem(text)
+    text = _WHITESPACE_RE.sub(" ", text)
+    return text.strip().rstrip(".").strip()
+
+
+def reconcile_report_against_verdicts(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+) -> RedactionResult:
+    """Remove every non-VERIFIED claim's verbatim sentence from ``report_text``.
+
+    Redaction is severity-independent (I-faith-003 #1174): a claim is redacted iff its
+    4-role verdict is not VERIFIED, at ANY severity (S0..S3). Severity governs the release
+    latch in release_policy.py, never this redaction path.
+
+    Args:
+      report_text: the assembled report.md content.
+      final_verdicts: claim_id -> 4-role final verdict (UNSUPPORTED/VERIFIED/...).
+      audit_map: claim_id -> {"sentence": <verbatim>, "severity": <S0..S3>, ...}
+                 (the persisted four_role_claim_audit.json structure).
+
+    Returns a RedactionResult with the redacted text + per-claim records.
+
+    Raises:
+      ReportRedactionError — fail closed when a material non-VERIFIED claim's prose is
+      present in the report but cannot be pinned to a discrete sentence to replace.
+    """
+    result = RedactionResult(report_text=report_text)
+    working = report_text
+
+    for claim_id, verdict in sorted(final_verdicts.items()):
+        meta = audit_map.get(claim_id)
+        if meta is None:
+            # A verdict with no audit row is itself a fail-closed condition: we cannot
+            # know the claim_text to redact, and a material non-VERIFIED claim might be
+            # shipping. Only raise for non-VERIFIED verdicts (VERIFIED never redacts).
+            if verdict != _VERDICT_VERIFIED:
+                raise ReportRedactionError(
+                    f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+                    "cannot locate its sentence to reconcile (fail-closed)."
+                )
+            continue
+
+        severity = str(meta.get("severity", ""))
+        if verdict == _VERDICT_VERIFIED:
+            # VERIFIED survives at ANY severity. Every non-VERIFIED verdict is redacted
+            # regardless of severity (I-faith-003 #1174): S3 "observe-only" governs the
+            # release LATCH (release_policy.py), never this redaction path.
+            continue
+
+        sentence = str(meta.get("sentence", ""))
+        stem_norm = _normalize(sentence)
+        if not stem_norm:
+            # Defensive: an empty/whitespace-only claim sentence cannot be matched. A
+            # material non-VERIFIED claim with no usable text is a fail-closed condition.
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+                "cannot reconcile (fail-closed)."
+            )
+
+        # MULTI-OCCURRENCE LOOP (I-redact-001 #1181, Codex iter-1 P1-1): a non-VERIFIED stem can
+        # appear MORE THAN ONCE in the body — e.g. once cleanly (TIER 1 catches it) and once in a
+        # boundary-under-split span (only TIER 2 catches it). The prior single-pass logic marked
+        # the claim handled after the FIRST successful removal and `continue`d, leaving the second
+        # occurrence in result.report_text — a leak. We now loop the tiered redaction until the
+        # stem is ABSENT from the line-join-normalized whole-body projection (no occurrence left)
+        # OR no tier can make further progress (-> fail-closed). The loop terminates because each
+        # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
+        # re-match the stem), so occurrences are consumed monotonically.
+        redacted_any_for_claim = False
+        while _prose_present(working, stem_norm):
+            # TIER 1 — precise single-span redaction (coverage floor protects VERIFIED neighbors).
+            # One pass clears EVERY clean (pin-at-floor) occurrence across all lines at once.
+            removed, working = _redact_sentence(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # TIER 1 made no progress this pass, but the prose IS still present (line-join
+            # projection): it did not pin to one span at the coverage floor (a boundary
+            # under-split merged it with a VERIFIED neighbor, OR it straddles spans). TIER 2 —
+            # redact the minimal CONTAINING unit, over-redacting SAFELY rather than aborting a
+            # present-but-hard-to-pin claim (#1181). TIER 2 removes ONE under-split unit per pass;
+            # the loop re-checks presence and keeps going for any further occurrence.
+            removed, working = _redact_minimal_containing_unit(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # FAIL-CLOSED: the prose registers as present in the line-join projection (e.g. it
+            # spans a heading/bibliography line the redactor must not touch, or its alignment is
+            # unbounded across non-adjacent units) but NEITHER tier could bound it to a redactable
+            # unit without nuking a forbidden line. A real inconsistency — refuse to ship a partial
+            # report (#1174). Raising here (not after the loop) means we never spin: no progress +
+            # still present == abort.
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
+                "but could not be bounded to any redactable unit (span set or body line); "
+                "refusing to ship a partially-reconciled report (fail-closed). "
+                f"prose_stem={stem_norm[:120]!r}"
+            )
+
+        # Record the claim ONCE after the loop (Codex iter-1 P1-1: appending per removal would
+        # double-count a claim that occurred twice and inflate redacted_count). If the loop body
+        # never ran, the prose was genuinely ABSENT from the start — the SAFE state (TIER 3).
+        if redacted_any_for_claim:
+            result.redacted.append(
+                RedactedClaim(
+                    claim_id=claim_id,
+                    severity=severity,
+                    verdict=verdict,
+                    claim_text=sentence,
+                )
+            )
+        else:
+            result.already_absent.append(claim_id)  # TIER 3 — genuinely absent, ship nothing
+
+    result.report_text = working
+    return result
+
+
+def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """Replace each rendered sentence whose normalized prose contains ``stem_norm`` with the
+    visible gap language. Returns (redacted_any, new_text).
+
+    Matching is done at the rendered-sentence granularity: each body line is split into
+    sentence spans (each span KEEPS its own trailing citation markers), normalized (citation +
+    whitespace insensitive), and a span is redacted iff its normalized prose CONTAINS the claim
+    stem with sufficient coverage. Every NON-matching sentence — and its [N] markers — is
+    preserved byte-for-byte, so redacting one sentence never strips citations off its VERIFIED
+    neighbors (Codex iter-1 P1). Robust to the provenance-token -> [N] render shift; never
+    matches across unrelated sentences.
+    """
+    redacted_any = False
+    out_lines: list[str] = []
+    for line in report_text.split("\n"):
+        # Never touch headings, bibliography rows, or already-gap lines.
+        stripped = line.lstrip()
+        if stripped.startswith("#") or stripped.startswith("[") or not stripped:
+            out_lines.append(line)
+            continue
+        new_line, hit = _redact_line(line, stem_norm)
+        redacted_any = redacted_any or hit
+        out_lines.append(new_line)
+    return redacted_any, "\n".join(out_lines)
+
+
+# A rendered-sentence boundary: a terminator [.!?], then any run of the sentence's OWN
+# trailing citation markers ([N], optionally space-separated), then the inter-sentence
+# whitespace, then the start of the next sentence. The trailing markers stay attached to the
+# sentence they cite (the LEFT side) — they are NOT consumed as a separator.
+#
+# Codex iter-1 P1 fix: the prior `re.split(r"(?<=[.!?])(?:\[\d+\])?\s+...")` discarded the
+# boundary marker (it was part of the matched, dropped separator), so redacting one sentence
+# stripped the [8]/[4] citation markers off its VERIFIED neighbors on the same line and turned
+# cited claims into uncited prose. The real drb_90 case: the VERIFIED 05-000 sentence renders
+# "...crashes.[8]" immediately before the UNSUPPORTED 05-001 sentence — the [8] belongs to
+# 05-000 and must survive redaction of 05-001.
+#
+# I-redact-001 #1181 — three ALTERNATION ARMS so a real boundary is not under-split (the
+# under-split merged a non-VERIFIED sentence with a VERIFIED neighbor into one over-long span,
+# dropping coverage below the floor and forcing a whole-report abort). Each arm still demands
+# inter-sentence whitespace + a sentence-start, so decimals/abbreviations never become a split:
+#   ARM 1 (terminator, sentence-start char): "...crashes.[8] The..." — the original behavior.
+#   ARM 2 (terminator + >=1 marker, digit-start next): "...adherence.[16] 87.3% of..." — the
+#          next sentence begins with a digit (defeating ARM 1's [A-Z"'(#] lookahead). REQUIRES
+#          at least one [N] marker between the period and the digit, so a bare decimal
+#          "0.90 (0.83 to 0.97) was found." (period, space, digit, NO marker) never matches.
+#   ARM 3 (>=1 marker as terminator, NO preceding period): "...risk[1] Cereal...",
+#          "...recovery[17][22] Legal..." — the renderer emitted the citation marker(s) with no
+#          terminal period before them; the marker(s) ARE the boundary. The marker stays with
+#          the LEFT (cited) sentence (it is m.start()-anchored, then rstrip-included in the span),
+#          so a VERIFIED neighbor keeps its [N] byte-for-byte (the Codex iter-1 P1 invariant).
+#          Codex iter-1 P2: ARM 3 is WORD-ANCHORED — the marker run must immediately follow a
+#          word character ``(?<=\w)`` (NO whitespace between the sentence-final word and its
+#          marker), so it fires only on a plausible sentence end where the renderer dropped the
+#          terminal period ("risk[1]", "recovery[17][22]"). A MID-sentence inline citation —
+#          "...as shown [5] In vivo..." or "the [5] Group reported..." — has WHITESPACE before
+#          the bracket, so ``(?<=\w)`` rejects it and the inline-cited sentence stays intact (no
+#          false split -> no over-redaction of a VERIFIED sentence). This only ever causes an
+#          UNDER-split, which TIER 2 then bounds safely; it can never over-split a survivor.
+# A decimal like "0.457" or "No. 157" or "U.S." is never a boundary: ARM 1/2 require whitespace
+# before the next char and ARM 2 requires an intervening [N] marker; "U.S. products" splits only
+# if "products" were uppercase (it is not), and "No. 157" has no marker so ARM 2 cannot fire.
+_SENTENCE_BOUNDARY_RE = re.compile(
+    r"(?:"
+    r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
+    r"|[.!?](?:\s*\[\d+\])+\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
+    r"|(?<=\w)(?:\[\d+\])+\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
+    r")"
+)
+
+# The claim stem must cover at least this fraction of a rendered sentence to redact it. Guards
+# against a short non-VERIFIED claim whose normalized prose is a substring of a LONGER VERIFIED
+# sentence wrongly redacting that survivor (over-redaction). Internal matching-precision floor,
+# named per §9.4 (no magic numbers) — not an operator-tunable parameter.
+_MIN_REDACTION_COVERAGE = 0.6
+
+
+def _sentence_spans(line: str) -> list[tuple[int, int]]:
+    """(start, end) spans over ``line``, one per rendered sentence, each span INCLUDING the
+    sentence's trailing citation markers. The gaps between spans are pure inter-sentence
+    whitespace, which the caller preserves verbatim — so a redaction never disturbs a
+    neighbor's text or markers.
+    """
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(line):
+        # m.group() == terminator + markers + trailing whitespace; the sentence (with its
+        # markers) ends where that trailing whitespace begins.
+        sentence_end = m.start() + len(m.group().rstrip())
+        spans.append((start, sentence_end))
+        start = m.end()  # next sentence begins after the inter-sentence whitespace
+    spans.append((start, len(line)))
+    return spans
+
+
+def _sentence_matches_stem(sentence: str, stem_norm: str) -> bool:
+    """A rendered sentence IS the rejected claim iff its normalized prose contains the claim
+    stem AND the stem covers >= _MIN_REDACTION_COVERAGE of it (no short-substring false hit)."""
+    sent_norm = _normalize(sentence)
+    if not sent_norm or stem_norm not in sent_norm:
+        return False
+    return len(stem_norm) >= _MIN_REDACTION_COVERAGE * len(sent_norm)
+
+
+def _redact_line(line: str, stem_norm: str) -> tuple[str, bool]:
+    """Redact matching rendered sentences within a single body line, byte-preserving EVERY
+    non-matching sentence (its exact text + citation markers) and all inter-sentence
+    whitespace. Only the matching sentence span (including its own trailing markers) is
+    replaced with the gap language.
+    """
+    # Fast reject: if the normalized line does not contain the stem, nothing to do.
+    if stem_norm not in _normalize(line):
+        return line, False
+
+    out: list[str] = []
+    cursor = 0
+    hit = False
+    for (start, end) in _sentence_spans(line):
+        out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+        sentence = line[start:end]
+        if _sentence_matches_stem(sentence, stem_norm):
+            out.append(_GAP_REPLACEMENT)
+            hit = True
+        else:
+            out.append(sentence)  # byte-identical — markers intact
+        cursor = end
+    out.append(line[cursor:])
+    return "".join(out), hit
+
+
+def _is_redactable_body_line(line: str) -> bool:
+    """A body line the redactor is allowed to rewrite: NOT a heading (#…), a bibliography /
+    already-gap row ([…), or blank. Mirrors the skip in ``_redact_sentence`` so TIER-2 honors
+    the exact same no-touch set (a claim that exists ONLY inside a heading stays a fail-closed
+    inconsistency, not a TIER-2 redaction — preserving the present-but-unlocatable contract).
+    """
+    stripped = line.lstrip()
+    return bool(stripped) and not stripped.startswith("#") and not stripped.startswith("[")
+
+
+def _prose_present(report_text: str, stem_norm: str) -> bool:
+    """High-RECALL presence detector over a LINE-JOIN-NORMALIZED projection of the whole body
+    (research practice: cross-line / table rendering is a blind spot — never silently treat a
+    line-straddling claim as already-absent). Returns True iff the claim stem is normalized-
+    present either within one body line OR across the join of consecutive redactable body lines.
+
+    Recall here only guards against a FALSE ``already_absent`` (a leak); the high-PRECISION
+    decision of WHICH unit to remove stays in ``_redact_minimal_containing_unit`` (exact
+    normalized containment + the coverage floor), so this projection never itself redacts.
+    """
+    if stem_norm in _normalize(report_text):
+        return True
+    # Cross-line projection: join only the redactable body lines (skip headings / bib / blanks),
+    # normalized, and look for the stem straddling a soft line break.
+    body = " ".join(
+        line for line in report_text.split("\n") if _is_redactable_body_line(line)
+    )
+    return stem_norm in _normalize(body)
+
+
+def _redact_minimal_containing_unit(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """TIER-2 fallback (#1181): the stem is present but did NOT pin to one span at the coverage
+    floor. Remove the SMALLEST containing unit, over-redacting SAFELY rather than aborting:
+
+      1. Within a single redactable body line, find the smallest set of CONSECUTIVE spans whose
+         concatenation (normalized) contains the stem, and replace exactly that span set with one
+         gap sentence — preserving every OTHER span (and its [N] markers) and all inter-span
+         whitespace byte-for-byte. This handles both the boundary-under-split residue and a TRUE
+         multi-span straddle (issue acceptance 1+2) with the same walk.
+      2. If no within-line consecutive-span set bounds the stem (it straddles a soft line break),
+         replace the smallest run of consecutive redactable body lines whose join contains the
+         stem with one gap line — the coarsest safe unit.
+
+    Returns (redacted_any, new_text). Returns (False, unchanged) iff the stem cannot be bounded
+    by any redactable unit (the caller then fails closed). NEVER touches a heading/bib line.
+    """
+    lines = report_text.split("\n")
+
+    # ---- 1) within-line minimal consecutive-span set -------------------------------------
+    for idx, line in enumerate(lines):
+        if not _is_redactable_body_line(line):
+            continue
+        if stem_norm not in _normalize(line):
+            continue
+        spans = _sentence_spans(line)
+        span_set = _minimal_consecutive_span_set(line, spans, stem_norm)
+        if span_set is not None:
+            lo, hi = span_set  # inclusive span indices
+            start = spans[lo][0]
+            end = spans[hi][1]
+            new_line = line[:start] + _GAP_REPLACEMENT + line[end:]
+            lines[idx] = new_line
+            return True, "\n".join(lines)
+
+    # ---- 2) cross-line: smallest consecutive redactable-body-line run --------------------
+    redactable_idx = [i for i, ln in enumerate(lines) if _is_redactable_body_line(lines[i])]
+    for span_len in range(1, len(redactable_idx) + 1):
+        for offset in range(0, len(redactable_idx) - span_len + 1):
+            window = redactable_idx[offset : offset + span_len]
+            # The window must be CONTIGUOUS in the body-line sequence to be one rendered unit.
+            if window[-1] - window[0] != span_len - 1:
+                continue
+            joined = " ".join(lines[i] for i in window)
+            if stem_norm in _normalize(joined):
+                first = window[0]
+                # Replace the first line of the run with the gap; blank the remaining lines so the
+                # leak prose is fully removed while preserving the line count (no structural churn).
+                lines[first] = _GAP_REPLACEMENT
+                for i in window[1:]:
+                    lines[i] = ""
+                return True, "\n".join(lines)
+
+    return False, report_text
+
+
+def _minimal_consecutive_span_set(
+    line: str, spans: list[tuple[int, int]], stem_norm: str
+) -> tuple[int, int] | None:
+    """Smallest (lo, hi) inclusive index window over ``spans`` whose concatenated source text is
+    normalized-containing ``stem_norm``. Grows the window by length so the FIRST hit is minimal;
+    prefers the smallest unit (precision: do not nuke a section when a span-pair suffices)."""
+    n = len(spans)
+    for window in range(1, n + 1):
+        for lo in range(0, n - window + 1):
+            hi = lo + window - 1
+            seg = line[spans[lo][0] : spans[hi][1]]
+            if stem_norm in _normalize(seg):
+                return (lo, hi)
+    return None
+
+ succeeded in 4878ms:
+scripts/run_honest_sweep_r3.py:224:    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+scripts/run_honest_sweep_r3.py:255:    "report_redaction_failed": "abort_report_redaction_failed",
+scripts/run_honest_sweep_r3.py:6309:        # section prose — zero new claims, no spend. Fail-open + default-ON kill-switch PG_SWEEP_KEY_FINDINGS.
+scripts/run_honest_sweep_r3.py:6313:            _key_findings = build_key_findings(getattr(multi, "sections", []))
+scripts/run_honest_sweep_r3.py:7187:            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+scripts/run_honest_sweep_r3.py:7195:                    reconcile_report_against_verdicts,
+scripts/run_honest_sweep_r3.py:7202:                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+scripts/run_honest_sweep_r3.py:7222:                    summary_status = "report_redaction_failed"
+scripts/run_honest_sweep_r3.py:7226:                    manifest["report_redaction_error"] = (
+scripts/run_honest_sweep_r3.py:7232:                        "verdicts -> abort_report_redaction_failed"
+scripts/run_honest_sweep_r3.py:7239:                        _redaction = reconcile_report_against_verdicts(
+scripts/run_honest_sweep_r3.py:7248:                        summary_status = "report_redaction_failed"
+scripts/run_honest_sweep_r3.py:7252:                        manifest["report_redaction_error"] = str(_redact_exc)
+scripts/run_honest_sweep_r3.py:7255:                            "abort_report_redaction_failed"
+scripts/run_honest_sweep_r3.py:7270:                            _reconciled_report = refilter_key_findings_block(
+scripts/run_honest_sweep_r3.py:7276:                        manifest["report_redaction"] = {
+tests/polaris_graph\generator\test_key_findings_iperm008.py:54:    kf = build_key_findings(sections)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:64:    assert build_key_findings(sections) == ""
+tests/polaris_graph\generator\test_key_findings_iperm008.py:87:    out = refilter_key_findings_block(report)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:98:    out = refilter_key_findings_block(report)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:108:    assert refilter_key_findings_block(report) == report
+tests/polaris_graph\generator\test_key_findings_iperm008.py:116:    once = refilter_key_findings_block(report)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:117:    assert refilter_key_findings_block(once) == once
+tests/polaris_graph\generator\test_key_findings_iperm008.py:126:    kf = build_key_findings(sections)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:134:    # Codex iter-1 P1: the integration must use the ACTUAL reconcile_report_against_verdicts,
+tests/polaris_graph\generator\test_key_findings_iperm008.py:136:    from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts
+tests/polaris_graph\generator\test_key_findings_iperm008.py:147:    kf = build_key_findings(sections)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:164:    redaction = reconcile_report_against_verdicts(report, {"01-002": "UNSUPPORTED"}, audit_map)
+tests/polaris_graph\generator\test_key_findings_iperm008.py:170:    out = refilter_key_findings_block(redaction.report_text)
+src\polaris_v6\schemas\run_status.py:49:    "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation fail-closed — the v6 actor loads manifest.status into pipeline_status, so omitting this would 500 RunStatusResponse on a redaction-failure abort
+tests/polaris_graph\test_key_findings.py:27:    out = build_key_findings(secs)
+tests/polaris_graph\test_key_findings.py:45:    out = build_key_findings(secs)
+tests/polaris_graph\test_key_findings.py:52:    assert build_key_findings([]) == ""
+tests/polaris_graph\test_key_findings.py:53:    assert build_key_findings([_Section("Efficacy", "", dropped_due_to_failure=True)]) == ""
+tests/polaris_graph\test_key_findings.py:54:    assert "## Key Findings" not in build_key_findings([_Section("X", "  ")])
+tests/polaris_graph\test_key_findings.py:59:    out = build_key_findings(secs)
+tests/polaris_graph\test_key_findings.py:67:    out = build_key_findings(secs)
+tests/polaris_graph\test_key_findings.py:73:    monkeypatch.delenv("PG_SWEEP_KEY_FINDINGS", raising=False)
+tests/polaris_graph\test_key_findings.py:76:    assert build_key_findings(secs) != ""
+tests/polaris_graph\test_key_findings.py:77:    monkeypatch.setenv("PG_SWEEP_KEY_FINDINGS", "0")
+tests/polaris_graph\test_key_findings.py:79:    assert build_key_findings(secs) == ""
+tests/polaris_graph\test_key_findings.py:89:    out = build_key_findings(secs)
+src\polaris_graph\generator\key_findings.py:59:    """Default ON. `PG_SWEEP_KEY_FINDINGS=0` ships the report without the exec-summary block (cold-open)."""
+src\polaris_graph\generator\key_findings.py:60:    return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
+src\polaris_graph\generator\key_findings.py:92:def refilter_key_findings_block(report_text: str) -> str:
+src\polaris_graph\generator\key_findings.py:119:        # `reconcile_report_against_verdicts` replaces the WHOLE bullet (including the
+src\polaris_graph\generator\key_findings.py:138:def build_key_findings(sections: list[Any]) -> str:
+src\polaris_graph\audit_ir\regression_lab.py:626:    "abort_report_redaction_failed": 2,
+src\polaris_graph\roles\report_redactor.py:164:def reconcile_report_against_verdicts(
+tests/polaris_graph\test_manifest_contract.py:57:        "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed (material non-VERIFIED claim present-but-unredactable)
+tests/polaris_graph\test_manifest_contract.py:84:        ("report_redaction_failed", "abort_report_redaction_failed"),  # I-beatboth-fix-000 (#1171)
+
+ succeeded in 7057ms:
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
+                        _redact_report_path.write_text(
+                            _reconciled_report, encoding="utf-8"
+                        )
+                        manifest["report_redaction"] = {
+                            "redacted_count": _redaction.redacted_count,
+                            "redacted_claim_ids": [
+                                rc.claim_id for rc in _redaction.redacted
+                            ],
+                            "already_absent_claim_ids": _redaction.already_absent,
+                        }
+                        if _redaction.redacted:
+                            _gaps_redact_path = run_dir / "gaps.json"
+                            _existing_gaps: list = []
+                            if _gaps_redact_path.is_file():
+                                try:
+                                    _loaded = json.loads(
+
+ succeeded in 9212ms:
+"""Verified-only extractive Key Findings block (I-meta-002-q1d #949b). NO spend.
+
+Asserts: extractive-only (sentences appear verbatim in section verified_text; citations preserved), dropped
+sections excluded, empty input → "" (no heading), bullet cap, default-ON kill-switch.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import src.polaris_graph.generator.key_findings as kf
+from src.polaris_graph.generator.key_findings import build_key_findings, key_findings_enabled
+
+
+@dataclass
+class _Section:
+    title: str
+    verified_text: str
+    dropped_due_to_failure: bool = False
+
+
+def test_extractive_first_sentence_with_citation_preserved():
+    secs = [
+        _Section("Efficacy", "Tirzepatide reduced HbA1c by 2.1 percent versus placebo [3]. More prose here [4]."),
+        _Section("Safety", "Nausea was the most common adverse event at 12 percent [7]. Second sentence [8]."),
+    ]
+    out = build_key_findings(secs)
+    assert "## Key Findings" in out
+    # first verified sentence of each section, verbatim, with its [N] citation
+    assert "Tirzepatide reduced HbA1c by 2.1 percent versus placebo [3]." in out
+    assert "Nausea was the most common adverse event at 12 percent [7]." in out
+    # bold section label
+    assert "**Efficacy.**" in out and "**Safety.**" in out
+    # only the FIRST sentence per section is lifted (extractive headline, not the whole section)
+    assert "More prose here [4]." not in out
+    assert "Second sentence [8]." not in out
+
+
+def test_dropped_and_empty_sections_excluded():
+    secs = [
+        _Section("Efficacy", "Kept finding [1].", dropped_due_to_failure=False),
+        _Section("Safety", "This was dropped [2].", dropped_due_to_failure=True),
+        _Section("Regulatory", "   "),  # empty verified_text
+    ]
+    out = build_key_findings(secs)
+    assert "Kept finding [1]." in out
+    assert "This was dropped [2]." not in out
+    assert "Regulatory" not in out
+
+
+def test_no_verified_sections_returns_empty_no_heading():
+    assert build_key_findings([]) == ""
+    assert build_key_findings([_Section("Efficacy", "", dropped_due_to_failure=True)]) == ""
+    assert "## Key Findings" not in build_key_findings([_Section("X", "  ")])
+
+
+def test_bullet_cap():
+    secs = [_Section(f"S{i}", f"Finding number {i} here [{i}].") for i in range(12)]
+    out = build_key_findings(secs)
+    assert out.count("\n- ") == kf._MAX_BULLETS
+
+
+def test_trailing_citation_form_stays_attached():
+    """Codex diff-gate iter-1 P2: a trailing-citation sentence `claim. [1]` keeps its citation with the
+    lifted finding (not split into a bare `[1]` second 'sentence')."""
+    secs = [_Section("Efficacy", "Tirzepatide reduced HbA1c by 2.1 percent. [3] Follow-on sentence here.")]
+    out = build_key_findings(secs)
+    assert "Tirzepatide reduced HbA1c by 2.1 percent. [3]" in out
+    assert "Follow-on sentence here." not in out
+
+
+def test_kill_switch(monkeypatch):
+    monkeypatch.delenv("PG_SWEEP_KEY_FINDINGS", raising=False)
+    assert key_findings_enabled() is True
+    secs = [_Section("Efficacy", "Kept finding [1].")]
+    assert build_key_findings(secs) != ""
+    monkeypatch.setenv("PG_SWEEP_KEY_FINDINGS", "0")
+    assert key_findings_enabled() is False
+    assert build_key_findings(secs) == ""
+
+
+def test_extractive_property_every_bullet_sentence_in_some_section():
+    """Hard extractive guarantee: every bulleted sentence must appear verbatim in some section's
+    verified_text (no synthesized/new claim)."""
+    secs = [
+        _Section("Efficacy", "Alpha finding [1]. beta."),
+        _Section("Safety", "Gamma finding [2]. delta."),
+    ]
+    out = build_key_findings(secs)
+    bodies = " ".join(s.verified_text for s in secs)
+    for line in out.splitlines():
+        if not line.startswith("- "):
+            continue
+        # strip the "- **Title.** " prefix → the lifted sentence
+        sentence = line.split("** ", 1)[-1] if "**" in line else line[2:]
+        assert sentence in bodies, f"non-extractive bullet: {sentence!r} not in any section body"
+
+codex
+The surrounding runner path calls the refilter only after a successful redaction pass and before the V30 disclosure append, which is the right place for this fix. I’m running the focused tests now, including the replay suite the evidence pack cites.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/generator/test_key_findings_iperm008.py tests/polaris_graph/test_key_findings.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/replay/' in C:\POLARIS
+2026-06-10T21:48:58.924458Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.1 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator/test_key_findings_iperm008.py te …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 3102ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator/test_key_findings_iperm008.py te …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+2026-06-10T21:49:01.033637Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.2 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/replay/[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 5158ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/replay/[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m switching to the interpreter entry point and checking the repo’s Python environment files if needed.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/replay/' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/generator/test_key_findings_iperm008.py tests/polaris_graph/test_key_findings.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files -g "pyproject.toml" -g "pytest.ini" -g "tox.ini" -g "requirements*.txt" -g "uv.lock" -g "poetry.lock" -g "Pipfile" -g ".venv"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Command python | Select-Object -ExpandProperty Source' in C:\POLARIS
+2026-06-10T21:49:12.966540Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.3 seconds
+Output:
+web\requirements.txt
+web\requirements-v6.txt
+requirements-orchestrator.txt
+pytest.ini
+requirements.txt
+requirements-v6.txt
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_iready005_pytest: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: ./codex_fullpower_tmp: Access is denied. (os error 5)
+rg: ./codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: ./codex_008budget_tax: Access is denied. (os error 5)
+rg: ./codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: ./codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_008budget_final2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: ./codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_008budget_final: Access is denied. (os error 5)
+rg: ./codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: ./codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: ./POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+
+ exited 1 in 5271ms:
+web\requirements.txt
+web\requirements-v6.txt
+requirements-orchestrator.txt
+pytest.ini
+requirements.txt
+requirements-v6.txt
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_iready005_pytest: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: ./codex_fullpower_tmp: Access is denied. (os error 5)
+rg: ./codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: ./codex_008budget_tax: Access is denied. (os error 5)
+rg: ./codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: ./codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_008budget_final2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: ./codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_008budget_final: Access is denied. (os error 5)
+rg: ./codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: ./codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: ./POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+
+ succeeded in 9763ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 21 items
+
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_reproduces_held_reasons PASSED [  4%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_coverage_fraction PASSED [  9%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_needs_rewrite_count PASSED [ 14%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_not_release_allowed PASSED [ 19%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_zero_fabrication_invariant PASSED [ 23%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[5 mg dose-given 50 mg daily-True-substring 5-in-50 (lethal)] PASSED [ 28%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[change of -5%-change of 5%-True-measurement sign flip] PASSED [ 33%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p<0.001-p=0.001-True-comparator < vs =] PASSED [ 38%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p>0.05-p<0.05-True-comparator > vs <] PASSED [ 42%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p < 0.001-p=0.001-True-SPACED comparator < vs =] PASSED [ 47%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[RR > 1.2-RR=1.2-True-SPACED comparator > vs =] PASSED [ 52%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p <= 0.05-p=0.05-True-SPACED <= vs =] PASSED [ 57%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p < 0.001-p < 0.001-False-SPACED comparator same value OK] PASSED [ 61%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[P value of 0.32-(P=0.32 for non-linearity)-False-bare vs '=' same value] PASSED [ 66%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[HR 0.65 (95% CI 0.47-0.89)-0.65, 95% CI 0.47 to 0.89-False-range endpoints] PASSED [ 71%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[26.2 \xb1 2.3%-26.2\xb12.3%-False-spacing/unicode] PASSED [ 76%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[13,000 patients-13000 patients-False-thousands separator] PASSED [ 80%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_zero_fabrication_fails_loud_on_missing_pack PASSED [ 85%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_iperm002_evidence_id_credit_does_not_clear_safety_hold PASSED [ 90%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_safety_floor_input_has_verified_safety_claim PASSED [ 95%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_iperm002_production_flip XFAIL [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 20 passed, 1 xfailed, 1 warning in 3.68s ===================
+
+ succeeded in 11236ms:
+C:\Python313\python.exe
+
+ succeeded in 13899ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 15 items
+
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_leaked_header_is_not_lifted_as_a_finding PASSED [  6%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_header_only_section_yields_no_bullet PASSED [ 13%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_refilter_drops_stub_bullet_keeps_real_finding PASSED [ 20%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_refilter_drops_whole_block_when_no_finding_survives PASSED [ 26%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_refilter_byte_identical_when_no_stub PASSED [ 33%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_refilter_is_idempotent PASSED [ 40%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_hash_leading_prose_is_not_stripped_as_a_header PASSED [ 46%]
+tests/polaris_graph/generator/test_key_findings_iperm008.py::test_build_then_real_redact_then_refilter_is_clean PASSED [ 53%]
+tests/polaris_graph/test_key_findings.py::test_extractive_first_sentence_with_citation_preserved PASSED [ 60%]
+tests/polaris_graph/test_key_findings.py::test_dropped_and_empty_sections_excluded PASSED [ 66%]
+tests/polaris_graph/test_key_findings.py::test_no_verified_sections_returns_empty_no_heading PASSED [ 73%]
+tests/polaris_graph/test_key_findings.py::test_bullet_cap PASSED         [ 80%]
+tests/polaris_graph/test_key_findings.py::test_trailing_citation_form_stays_attached PASSED [ 86%]
+tests/polaris_graph/test_key_findings.py::test_kill_switch PASSED        [ 93%]
+tests/polaris_graph/test_key_findings.py::test_extractive_property_every_bullet_sentence_in_some_section PASSED [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 15 passed, 1 warning in 2.52s ========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+44,292

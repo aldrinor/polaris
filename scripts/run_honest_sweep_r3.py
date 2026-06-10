@@ -7258,8 +7258,20 @@ async def run_one_query(
                         # Write the reconciled body back BEFORE the V30 append so the disclosure
                         # reflects the redacted report. Emit one redacted_unsupported gap per
                         # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
                         _redact_report_path.write_text(
-                            _redaction.report_text, encoding="utf-8"
+                            _reconciled_report, encoding="utf-8"
                         )
                         manifest["report_redaction"] = {
                             "redacted_count": _redaction.redacted_count,

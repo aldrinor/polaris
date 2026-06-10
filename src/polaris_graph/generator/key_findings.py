@@ -43,6 +43,10 @@ _GAP_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# An ATX markdown header: 1-6 '#' followed by whitespace ("### Section"). Used to detect a
+# leaked section header WITHOUT mis-classifying hash-leading prose like "#1 ranked" (Codex P2).
+_ATX_HEADER_RE = re.compile(r"#{1,6}\s")
+
 _OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
 
 # How many leading verified sentences to lift from each section (default 1 — the headline finding).
@@ -56,16 +60,79 @@ def key_findings_enabled() -> bool:
     return os.getenv("PG_SWEEP_KEY_FINDINGS", "1").strip().lower() not in _OFF_VALUES
 
 
+def _strip_leading_markdown_headers(text: str) -> str:
+    """Drop leading markdown header lines (and blanks) from a section's verified_text
+    (I-perm-008 #1202). A section header that leaked into ``verified_text`` (e.g.
+    "### Pathogenic bacteria...") would otherwise be lifted AS the headline finding via the
+    DOTALL sentence regex, producing a "- **Section.** ### <header> ..." bullet that breaks the
+    Key-Findings block boundary. Stripping leading headers makes the lift a clean prose sentence."""
+    lines = (text or "").split("\n")
+    i = 0
+    while i < len(lines) and (not lines[i].strip() or _ATX_HEADER_RE.match(lines[i].lstrip())):
+        i += 1
+    return "\n".join(lines[i:])
+
+
 def _first_verified_sentences(verified_text: str, n: int) -> list[str]:
     matches = [m.group(0).strip() for m in _SENTENCE_RE.finditer(verified_text or "")]
-    # A Key Finding is a span-verified CLAIM: it must carry a citation AND must NOT be
+    # A Key Finding is a span-verified CLAIM: it must carry a citation, must NOT be
     # gap-disclosure boilerplate (whose 2nd sentence is cited to the gap-task sidecar, not
-    # an evidence span). Both filters together exclude every gap shape in a mixed section
-    # (I-gen-006 #1178 C07/P07, Codex iter-5).
+    # an evidence span), and must NOT be a markdown header line (I-perm-008 — a leaked "###"
+    # header is never a finding). The filters together exclude every gap/header shape in a
+    # mixed section (I-gen-006 #1178 C07/P07, Codex iter-5).
     return [
         s for s in matches
-        if s and _CITATION_RE.search(s) and not _GAP_MARKER_RE.search(s)
+        if s
+        and not _ATX_HEADER_RE.match(s.lstrip())
+        and _CITATION_RE.search(s)
+        and not _GAP_MARKER_RE.search(s)
     ][:n]
+
+
+def refilter_key_findings_block(report_text: str) -> str:
+    """Drop Key-Findings bullets that became a redaction STUB after the four-role seam
+    (I-perm-008 #1202, blueprint R7).
+
+    ``build_key_findings`` is assembled PRE-four-role on strict_verify-passed prose, so a lifted
+    headline finding the four-role seam later marks non-VERIFIED is redacted in report.md into a
+    "- **Section.** <gap stub>" pseudo-finding. The redactor runs AFTER Key Findings is built, so
+    it cannot prevent the stub bullet; this post-redaction pass removes any KF bullet whose body
+    now matches the gap-disclosure boilerplate (``_GAP_MARKER_RE``). With the leaked-header strip
+    in ``build_key_findings`` each bullet is a clean single line, so a line-scoped drop is exact.
+    If no genuine finding remains, the whole block is dropped (no empty heading). Idempotent +
+    byte-identical when no KF bullet was redacted.
+    """
+    if not key_findings_enabled():
+        return report_text
+    header_match = re.search(r"(?m)^##\s*Key Findings\s*$", report_text)
+    if not header_match:
+        return report_text
+    block_start = header_match.start()
+    rest = report_text[header_match.end():]
+    next_header = re.search(r"(?m)^#{1,6}\s", rest)
+    block_end = header_match.end() + (next_header.start() if next_header else len(rest))
+
+    kept_lines: list[str] = []
+    dropped_any = False
+    for line in report_text[block_start:block_end].splitlines():
+        # Within the bounded KF block, ANY gap-disclosure line is a redacted finding — the real
+        # `reconcile_report_against_verdicts` replaces the WHOLE bullet (including the
+        # "- **Section.**" prefix) with a BARE stub line, so a `- `-prefix check misses it
+        # (Codex iter-1 P1). The block's only other lines are the heading + the italic preamble,
+        # neither of which matches `_GAP_MARKER_RE`, so this never drops a legitimate line.
+        if _GAP_MARKER_RE.search(line):
+            dropped_any = True
+            continue
+        kept_lines.append(line)
+    if not dropped_any:
+        return report_text  # byte-identical when nothing was a stub
+    new_block = "\n".join(kept_lines)
+    if not re.search(r"(?m)^\s*-\s+\S", new_block):
+        trimmed = report_text[:block_start] + report_text[block_end:]
+        return re.sub(r"^\n+", "", trimmed) if block_start == 0 else trimmed
+    if not new_block.endswith("\n"):
+        new_block += "\n"
+    return report_text[:block_start] + new_block + report_text[block_end:]
 
 
 def build_key_findings(sections: list[Any]) -> str:
@@ -84,7 +151,9 @@ def build_key_findings(sections: list[Any]) -> str:
         # statement". Skip every gap disclosure (universal signal: sentences_verified == 0).
         if getattr(sr, "is_gap_stub", False) or getattr(sr, "sentences_verified", 1) == 0:
             continue
-        verified_text = getattr(sr, "verified_text", "") or ""
+        # I-perm-008: strip any leaked leading section header so it is never lifted as the
+        # headline finding (a "### ..." header would otherwise break the KF block boundary).
+        verified_text = _strip_leading_markdown_headers(getattr(sr, "verified_text", "") or "")
         if not verified_text.strip():
             continue
         title = getattr(sr, "title", "") or ""
