@@ -1875,3 +1875,6 @@ auditor_revision_count: int
 **Symptom:** Pipeline A call sites instantiate OpenRouterClient(model=model) without passing a session ID. Cost ledger has session_id column but it's empty for pipeline A entries.
 
 **Required fix direction:** Thread a run_id from sweep orchestrator through to every LLM client instantiation.
+
+## PERMANENT ARCHITECTURE FIX — the 9 issues PINNED (2026-06-10)
+Umbrella #1194 (I-perm-000); issues #1195-#1203 (I-perm-001..009). Charter: docs/permanent_fix_9_issues.md. Governing reframe: WITHHOLD→ALWAYS-RELEASE+LABEL; never assert ungrounded as fact. Each issue: research frontier best-practice → line-by-line our code → permanent migration → build → SERIOUS stress smoke → Codex review (only gate). Exit: all 9 Codex-APPROVED → serious preflight → present summary → operator go for full beat-both run. Folds prior #1192 #1078 #1193 #954 #1187 #1180 #1176 #1184 #1146 #1147.
