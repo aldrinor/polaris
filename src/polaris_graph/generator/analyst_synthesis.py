@@ -37,6 +37,28 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# D-1 / I-ready-017 (#1182): analyst-synthesis CONTENT token budget.
+#
+# The default writer (deepseek/deepseek-v4-pro per I-cd-009 Carney lock) is
+# REASONING-FIRST: it emits 6k-42k+ reasoning tokens BEFORE the synthesis prose.
+# The prior hardcoded `4000` ceiling starved the content phase, so
+# finish_reason=length truncated mid-planning and the FX-01 (#1105)
+# reasoning->content promotion guard correctly REFUSED to ship the scratchpad,
+# omitting the synthesis. Per LAW VI this is a NAMED, env-overridable module
+# constant (no magic number), defaulting generous so the writer has room to
+# FINISH planning AND write the 1500-3000-word synthesis.
+#
+# IMPORTANT (scope honesty): openrouter_client clamps every reasoning-first
+# request to PG_REASONING_FIRST_HARD_CAP (default 16384, DeepInfra's verified
+# deepseek-v4-pro cap). So on the DEFAULT provider this constant above 16384 is
+# forward-compat HEADROOM, not active room (>16384 clamps down to 16384; <16384
+# floors UP to 16384). It only takes effect once an operator points the writer at
+# a higher-tier endpoint AND raises PG_REASONING_FIRST_HARD_CAP above the model's
+# reasoning burn. The truncation GUARD lives in openrouter_client's promotion
+# path and is untouched here — we only widen the requested content budget.
+PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "24000"))
+
+
 # Disclosure preamble (Codex iter-1 suggested rewrite, verbatim).
 ANALYST_SYNTHESIS_DISCLOSURE = (
     "This section is analyst synthesis: interpretive commentary based on "
@@ -422,7 +444,11 @@ async def generate_analyst_synthesis(
     research_question: str,
     prior_verified_context: list[dict[str, Any]] | None = None,
     model: str = "deepseek/deepseek-v4-pro",
-    max_tokens: int = 4000,
+    # D-1 / I-ready-017 (#1182): was a hardcoded 4000; the reasoning-first writer
+    # needs room to finish planning before the synthesis prose. Named, env-overridable
+    # default (openrouter_client clamps reasoning-first to PG_REASONING_FIRST_HARD_CAP
+    # =16384 on the default provider — see the module-level PG_SECTION_MAX_TOKENS note).
+    max_tokens: int = PG_SECTION_MAX_TOKENS,
     temperature: float = 0.3,
 ) -> tuple[str, int, int]:
     """Generate the Analyst Synthesis section.

@@ -54,6 +54,39 @@ from src.polaris_graph.generator.provenance_generator import (
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
+# D-1 / I-ready-017 (#1182): per-section + analyst-synthesis CONTENT token budget.
+#
+# The default generator (deepseek/deepseek-v4-pro per I-cd-009 Carney lock) is
+# REASONING-FIRST: it emits 6k-42k+ reasoning tokens BEFORE any content. A small
+# hardcoded ceiling (the prior magic `4000`) starved the content phase, so
+# finish_reason=length truncated and the FX-01 (#1105) reasoning->content
+# promotion guard correctly REFUSED to ship the scratchpad — dropping whole
+# narrative sections. Per LAW VI this is a NAMED, env-overridable module constant
+# (no magic number). Default is deliberately generous so a reasoning-first writer
+# has room to FINISH planning AND write the cited paragraph.
+#
+# IMPORTANT (scope honesty): openrouter_client clamps every reasoning-first
+# request to PG_REASONING_FIRST_HARD_CAP (default 16384, DeepInfra's verified
+# deepseek-v4-pro provider cap — 16385 → 404). So on the DEFAULT provider this
+# constant above 16384 is forward-compat HEADROOM, not active room: any value
+# >16384 is clamped down to 16384, and any value <16384 is floored UP to 16384.
+# Raising this constant only takes effect once an operator points the writer at a
+# higher-tier endpoint AND raises PG_REASONING_FIRST_HARD_CAP above the model's
+# reasoning burn. The truncation GUARD (FX-01 promotion path in openrouter_client)
+# is untouched here — we only widen the requested content budget, never disable
+# the refusal-to-ship-scratchpad guard.
+PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "24000"))
+
+# V30 Phase-2 contract-slot extraction floor (M-66 run-5): contract slots echo
+# long regulatory prose spans as JSON; they need at least this much budget even
+# if a caller passes a smaller per-section value. Used as max(section_max_tokens,
+# floor). Named per LAW VI; openrouter_client still clamps reasoning-first to
+# PG_REASONING_FIRST_HARD_CAP.
+PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+    os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+)
+
+
 # Allowed section labels. The outline call is constrained to pick from
 # this list; prevents the model from inventing off-topic section titles.
 # OFF-PATH ONLY (legacy clinical path, retained byte-identically for the true
@@ -4469,7 +4502,12 @@ async def generate_multi_section_report(
     outline_temperature: float = 0.2,
     section_temperature: float = 0.3,
     outline_max_tokens: int = 2500,    # M-24 fix: was 800, JSON truncated with 12-20 ev_ids per section (V10 FATAL)
-    section_max_tokens: int = 2400,    # M-24 fix: was 1200, bumped for 10-18 sentence target
+    # D-1 / I-ready-017 (#1182): was a hardcoded 2400; reasoning-first writer (V4 Pro)
+    # burned the whole budget on planning -> finish_reason=length -> guard dropped the
+    # section. Now the named, env-overridable PG_SECTION_MAX_TOKENS (generous default;
+    # openrouter_client clamps reasoning-first to PG_REASONING_FIRST_HARD_CAP=16384 on
+    # the default provider — see the module-level constant note).
+    section_max_tokens: int = PG_SECTION_MAX_TOKENS,
     min_kept_fraction: float = 0.5,
     max_parallel_sections: int = 3,
     # R-1: pipeline telemetry for the Limitations synthesis call.
@@ -4826,7 +4864,7 @@ async def generate_multi_section_report(
                     "code fences, or any text outside the JSON "
                     "object."
                 ),
-                max_tokens=max(section_max_tokens, 6000),
+                max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
                 temperature=section_temperature,
             )
         finally:
@@ -5594,7 +5632,14 @@ async def generate_multi_section_report(
                         research_question=research_question,
                         prior_verified_context=prior_verified_context,
                         model=gen_model,
-                        max_tokens=4000,
+                        # D-1 / I-ready-017 (#1182): was a hardcoded 4000; a
+                        # reasoning-first writer (V4 Pro) needs room to finish
+                        # planning before it writes the synthesis prose, else
+                        # finish_reason=length truncates and the FX-01 guard drops
+                        # the section. Named, env-overridable budget (openrouter_client
+                        # clamps reasoning-first to PG_REASONING_FIRST_HARD_CAP=16384
+                        # on the default provider — see PG_SECTION_MAX_TOKENS note).
+                        max_tokens=PG_SECTION_MAX_TOKENS,
                         temperature=0.3,
                     )
                 )

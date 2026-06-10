@@ -537,6 +537,8 @@ def test_p7_sweep_orchestrator_end_to_end():
     )
     assert telem["spec_produced"] and telem["execution_success"]
     assert telem["verified_sentences"] >= 1
+    # FIX D-2 (#1182): a section that lands carries the LOUD "fired" firing_status.
+    assert telem["firing_status"] == "fired"
     assert section is not None
     assert "Quantified Trade-off" in section
     assert "[#calc:" not in section                       # token stripped
@@ -557,6 +559,41 @@ def test_p7_sweep_orchestrator_no_spec_returns_none():
         run_quantified_section("q", rows, spec_provider=spec_provider)
     )
     assert section is None and telem["spec_produced"] is False
+    # FIX D-2 (#1182): the no-spec no-op is now LOUD — firing_status names WHERE it
+    # died instead of leaving the manifest silent about the differentiator no-op.
+    assert telem["firing_status"] == "no_spec_returned"
+
+
+# ── FIX D-2 (#1182): firing_status names every no-op + fired path ─────────────
+def test_d2_firing_status_spec_provider_error():
+    rows = {"ev_1": {"statement": "x", "direct_quote": "x"}}
+
+    async def spec_provider(_q, _s):
+        raise RuntimeError("simulated 404 on generator route")
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert section is None
+    assert telem["spec_produced"] is False
+    assert telem["firing_status"] == "spec_provider_error"
+    assert "simulated 404" in telem.get("firing_error", "")
+
+
+def test_d2_firing_status_spec_validation_rejected():
+    # Writer returns a dict, but it is structurally invalid (bad model_id) ->
+    # build_quantified_spec rejects -> spec_validation_rejected (NOT a transport fail).
+    rows = {"ev_1": {"statement": "x", "direct_quote": "x"}}
+
+    async def spec_provider(_q, _s):
+        return {"model_id": "has spaces", "title": "t", "inputs": [], "outputs": []}
+
+    section, telem = asyncio.run(
+        run_quantified_section("q", rows, spec_provider=spec_provider)
+    )
+    assert section is None
+    assert telem["spec_produced"] is False
+    assert telem["firing_status"] == "spec_validation_rejected"
 
 
 # ── P7-25 number-kind never scientific (Codex diff-gate iter2 P1) ────────────

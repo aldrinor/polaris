@@ -333,10 +333,20 @@ async def run_quantified_section(
         extract_numbers_from_evidence,
     )
 
+    # FIX D-2 (#1182): ``firing_status`` is the LOUD, single-field reason the
+    # quantified differentiator did or did not land — set at EVERY return point so a
+    # ``spec_produced=False`` / ``fired=False`` manifest is never silent about WHERE it
+    # died. The consumer ``quantified_degradation_disclosure`` (run_honest_sweep_r3.py)
+    # already reads ``telemetry.get("firing_status")`` for its reader-facing disclosure,
+    # but this producer never populated it — so a no-op surfaced only as a buried log.
+    # Distinct values let a post-run audit tell "broken" (spec_provider_error /
+    # execution_failed) apart from "legitimately inapplicable" (no_spec_returned with a
+    # genuine Writer decline) without reading the raw log. Default = the pre-spec state.
     telem: dict[str, Any] = {
         "enabled": True, "spec_produced": False, "execution_success": False,
         "outputs": 0, "sourced_inputs": 0, "modeled_inputs": 0,
         "verified_sentences": 0, "dropped_sentences": 0, "conflicts": [],
+        "firing_status": "started",
     }
 
     sourced_numbers = extract_numbers_from_evidence(evidence_pool)
@@ -346,9 +356,29 @@ async def run_quantified_section(
     try:
         raw_spec = await spec_provider(question, sourced_numbers)
     except Exception as exc:
-        logger.warning("[quantified_analysis] spec_provider raised: %s", str(exc)[:160])
+        # UNAMBIGUOUSLY broken: the Writer/transport raised (e.g. a 404 on the
+        # generator route surfaced as an exception). Loud, distinct, non-aborting.
+        telem["firing_status"] = "spec_provider_error"
+        telem["firing_error"] = str(exc)[:200]
+        logger.warning(
+            "[quantified_analysis] NO-OP (spec_provider_error): spec_provider raised: %s",
+            str(exc)[:160],
+        )
         return None, telem
     if not isinstance(raw_spec, dict):
+        # AMBIGUOUS by construction: a prod ``spec_provider`` (the Writer closure in
+        # run_honest_sweep_r3.py) collapses BOTH a transport failure (404 / empty 200 →
+        # no JSON parsed) AND a legitimate Writer decline ({"model_id":"none"}) into a
+        # bare ``None`` before it reaches us. We CANNOT tell broken from inapplicable
+        # here — the caller lane must stop collapsing the two (see module summary). Tag
+        # it honestly rather than guess a confident reason we can't support.
+        telem["firing_status"] = "no_spec_returned"
+        logger.warning(
+            "[quantified_analysis] NO-OP (no_spec_returned): spec_provider returned "
+            "no dict (transport failure OR legitimate Writer decline — caller collapses "
+            "both into None; %d sourced numbers were available)",
+            len(sourced_numbers),
+        )
         return None, telem
 
     spec = build_quantified_spec(
@@ -356,6 +386,14 @@ async def run_quantified_section(
         spec_llm=lambda _q, _s: raw_spec,
     )
     if spec is None:
+        # The Writer returned a dict but it FAILED hard validation in
+        # build_quantified_spec (datapoint identity, formula AST, material-dependency,
+        # etc.). A defensible-but-rejected model, not a transport failure.
+        telem["firing_status"] = "spec_validation_rejected"
+        logger.warning(
+            "[quantified_analysis] NO-OP (spec_validation_rejected): Writer emitted a "
+            "spec dict but it failed build_quantified_spec validation (fail-closed)",
+        )
         return None, telem
     telem["spec_produced"] = True
     telem["model_id"] = spec.model_id
@@ -364,6 +402,12 @@ async def run_quantified_section(
 
     result = await execute_quantified_model(spec, evidence_pool, run_dir=run_dir)
     if result is None:
+        telem["firing_status"] = "execution_failed"
+        logger.warning(
+            "[quantified_analysis] NO-OP (execution_failed): spec validated but the "
+            "deterministic sandbox execution did not return clean outputs (model %s)",
+            spec.model_id,
+        )
         return None, telem
     telem["execution_success"] = True
     telem["outputs"] = len(spec.outputs)
@@ -376,6 +420,14 @@ async def run_quantified_section(
     telem["verified_sentences"] = report.total_kept
     telem["dropped_sentences"] = report.total_dropped
     if report.total_kept == 0:
+        # The spec executed but EVERY computed sentence failed Regime C (e.g. an
+        # unlabeled modeled assumption, a number≠display mismatch). No verified prose.
+        telem["firing_status"] = "no_verified_sentences"
+        logger.warning(
+            "[quantified_analysis] NO-OP (no_verified_sentences): %d computed "
+            "sentence(s) all failed Regime C verification (model %s)",
+            report.total_dropped, spec.model_id,
+        )
         return None, telem
 
     # I-cred-008b (#1162) SITE 4/4 (quantified trade-off): populate the advisory per-claim disclosure
@@ -399,6 +451,10 @@ async def run_quantified_section(
             }
             for _sv in report.kept_sentences
         ]
+
+    # Reached only when a spec validated, executed, and ≥1 computed sentence survived
+    # Regime C — the differentiator actually FIRED.
+    telem["firing_status"] = "fired"
 
     rendered, _biblio = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,

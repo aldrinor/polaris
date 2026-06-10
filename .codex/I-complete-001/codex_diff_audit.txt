@@ -1,0 +1,20 @@
+**Findings**
+
+P1: D-1 does not raise the section-writing budget on the primary sweep path. `run_honest_sweep_r3.py` still passes `section_max_tokens=int(os.environ.get("PG_SECTION_MAX_TOKENS", "5000"))`, which bypasses the new `generate_multi_section_report(... section_max_tokens=PG_SECTION_MAX_TOKENS)` default of `24000`. On the default DeepSeek path this is still floored/clamped to `16384`, so old/new are effectively unchanged; on a higher-cap endpoint, merely raising `PG_REASONING_FIRST_HARD_CAP` still leaves sweep section calls at the `16384` floor unless the operator also sets `PG_SECTION_MAX_TOKENS`. That means the main D-1 completeness fix is inert for legacy section prose in the deployed runner. See [scripts/run_honest_sweep_r3.py](C:/POLARIS/scripts/run_honest_sweep_r3.py:5558) and [src/polaris_graph/generator/multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:4510).
+
+P2: D-2’s implementation covers all return statuses, but the tests do not assert every advertised status path. The added/updated tests cover `fired`, `no_spec_returned`, `spec_provider_error`, and `spec_validation_rejected`; I found no `firing_status` coverage for `execution_failed` or `no_verified_sentences`. This is a test gap, not a faithfulness/control-flow issue.
+
+D-5 looks metadata-only and semantically aligned with `key_findings.py`: non-dropped, not `is_gap_stub`, and `sentences_verified > 0`, with the `getattr(..., 1)` default preserving older real section objects. The untracked forensic builder block is disclosure-only and does not recompute generated prose.
+
+D-1 does not weaken FX-01 or strict verification; the clamp/guard path is untouched. The contract-slot call is also `client.generate()` on the default reasoning-first model, so it hits the same `16384` effective clamp; under the current sweep default it remains `max(5000, 6000)`, so it also does not gain the new `24000` headroom unless `PG_SECTION_MAX_TOKENS` is explicitly set.
+
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "D-1 is inert for the primary sweep section-writing path because run_honest_sweep_r3.py still overrides section_max_tokens with PG_SECTION_MAX_TOKENS default 5000, bypassing the new 24000 module default."
+p2:
+  - "D-2 tests do not cover execution_failed or no_verified_sentences firing_status paths."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Align the sweep runner's PG_SECTION_MAX_TOKENS fallback with the new named 24000 budget, or import/reuse the module constant, so D-1 actually applies to production sweep section calls."

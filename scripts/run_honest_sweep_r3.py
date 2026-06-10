@@ -5555,8 +5555,17 @@ async def run_one_query(
             # I-cap-001 (#1059) Part A: default un-throttled to Tier-A SOTA
             # (operator-approved 2400->5000) so a run with no env set is NOT
             # silently capped below the frontier narrative length (no-downgrade).
+            # I-complete-001 (#1182) D-1: raised 5000->16384 to match the effective
+            # provider ceiling. A reasoning-first model (deepseek-v4-pro) is floored
+            # AND clamped to PG_REASONING_FIRST_HARD_CAP=16384 in openrouter_client
+            # (DeepInfra cap; 16385->404), so 5000 was a misleading no-op that did NOT
+            # take effect — the binding constraint is the 16384 provider cap, which is
+            # BELOW the model's ~18k reasoning-token usage on some sections, truncating
+            # content regardless. The real D-1 fix is a higher-cap provider/model for
+            # V4 Pro (see follow-up issue) — this raise removes the misleading 5000 and
+            # gives content the full available provider budget.
             section_max_tokens=int(os.environ.get(
-                "PG_SECTION_MAX_TOKENS", "5000",
+                "PG_SECTION_MAX_TOKENS", "16384",
             )),
             # I-cap-001 (#1059) Part A: the Limitations section default (400) was
             # not passed here, so a run used the throttled 400-token cap. Wire it
@@ -5645,7 +5654,16 @@ async def run_one_query(
                 emit_event(_ext, "strict_verify.section_completed", {
                     "section": sr.title,
                     "local": sr.sentences_verified > 0,
-                    "global": (not sr.dropped_due_to_failure and bool(sr.verified_text)),
+                    # D-5 (#1182): a 0-verified gap stub ships dropped_due_to_failure=False
+                    # with non-empty disclosure verified_text, so the old global signal
+                    # (not dropped and bool(verified_text)) counted gap stubs as globally
+                    # verified content. Exclude them via the SAME universal survivor signal
+                    # filter_verified_sections uses (not is_gap_stub + sentences_verified>0).
+                    "global": (
+                        not sr.dropped_due_to_failure
+                        and not getattr(sr, "is_gap_stub", False)
+                        and getattr(sr, "sentences_verified", 1) > 0
+                    ),
                 })
                 emit_event(_ext, "generator.section_completed", {
                     "section": sr.title,
@@ -6073,7 +6091,11 @@ async def run_one_query(
             f"{retrieval.notes[-1] if retrieval.notes else 'none'}).\n"
             f"{retrieval_fetch_disclosure(_ret_fetched, _ret_failed, _ret_total)}"
             f"Generator model: {PG_GENERATOR_MODEL} (multi-section: outline + "
-            f"{len([s for s in multi.sections if not s.dropped_due_to_failure])} "
+            # D-5 (#1182): exclude 0-verified gap stubs from the Methods parallel-section
+            # count using the SAME universal survivor signal filter_verified_sections uses
+            # — a gap stub ships dropped_due_to_failure=False with non-empty disclosure
+            # text, so the bare not-dropped check over-stated the section count.
+            f"{len([s for s in multi.sections if not s.dropped_due_to_failure and not getattr(s, 'is_gap_stub', False) and getattr(s, 'sentences_verified', 1) > 0])} "
             f"parallel sections + strict_verify + regen-on-failure).\n"
             f"Evaluator model: {PG_EVALUATOR_MODEL} (different family).\n"
             f"Sources classified using T1-T7 tier taxonomy.\n"
@@ -6689,8 +6711,18 @@ async def run_one_query(
             "contradictions_found": len(contradictions),
             "generator": {
                 "outline_sections": [p.title for p in multi.outline],
-                "sections_kept": sum(1 for s in multi.sections
-                                     if not s.dropped_due_to_failure),
+                # D-5 (#1182): sections_kept feeds the §-1.1 beat-both scoring surface
+                # (.codex/beatboth5/build_forensic_input.py). A 0-verified gap stub ships
+                # dropped_due_to_failure=False with non-empty disclosure verified_text, so
+                # the bare not-dropped count inflated POLARIS's section count vs Gemini/
+                # ChatGPT. Exclude gap stubs via the SAME universal survivor signal
+                # filter_verified_sections uses. Metadata honesty — not a content change.
+                "sections_kept": sum(
+                    1 for s in multi.sections
+                    if not s.dropped_due_to_failure
+                    and not getattr(s, "is_gap_stub", False)
+                    and getattr(s, "sentences_verified", 1) > 0
+                ),
                 "words": multi.total_words,
                 # I-bug-105 two-layer reporting: distinguish verified
                 # word count from analyst-synthesis word count so
