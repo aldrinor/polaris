@@ -1690,6 +1690,26 @@ class OpenRouterClient:
             # Hard ceiling at DeepInfra's verified cap for deepseek-v4-pro. The runner's
             # per-section/outline max_tokens kwargs can legally request higher (e.g. 24000
             # for V30 Phase-2 long-form sections); without this clamp those requests 404.
+            #
+            # I-provider-001 (#1183): the default STAYS 16384 — it is the safe cap for the
+            # DEFAULT provider configuration (empty OPENROUTER_PROVIDER_ORDER -> the health-
+            # ranked generator chain in config/settings/openrouter_provider_routing.yaml,
+            # which can land on DeepInfra whose deepseek-v4-pro endpoint caps at exactly
+            # 16384; 16385 -> 404 "No endpoints found"). deepseek-v4-pro is reasoning-first
+            # and emits ~17-18k reasoning tokens before content on some sections, so a 16384
+            # ceiling starves content -> finish_reason=length -> the FX-01 guard drops the
+            # truncated section. The fix is COUPLED, env-only, and provider-gated: raise this
+            # cap to 32000 ONLY in a run env that also pins OPENROUTER_PROVIDER_ORDER=novita
+            # (+ OPENROUTER_ALLOW_FALLBACKS=false so OpenRouter cannot drift off Novita) AND
+            # PG_SECTION_MAX_TOKENS=32000 (the runner budget that this cap would otherwise
+            # clamp back down). Novita serves deepseek-v4-pro at max_completion_tokens=393216
+            # (verified live via GET /api/v1/models/deepseek/deepseek-v4-pro/endpoints,
+            # 2026-06-09: Novita status=0, max_completion=393216; DeepInfra max_completion=
+            # 16384), so 32000 NEVER 404s there. Raising the DEFAULT here (instead of via the
+            # coupled run env) would re-introduce the DeepInfra 404 on un-pinned runs and would
+            # change behavior for EVERY reasoning-first model — both forbidden. Jurisdiction
+            # rationale: Novita = Singapore (non-US / non-China), operator-chosen for the
+            # sovereign generation provider. Exact run-env slate is in the I-provider-001 brief.
             _hard_cap = int(os.getenv("PG_REASONING_FIRST_HARD_CAP", "16384"))
             if body.get("max_tokens", 0) > _hard_cap:
                 body["max_tokens"] = _hard_cap
