@@ -4716,7 +4716,17 @@ async def run_one_query(
                         lane_enabled as _req_lane_enabled,
                         run_required_entity_lane as _run_req_entity_lane,
                     )
-                    if _req_lane_enabled():
+                    # journal_only (_jo_active) EXCLUDES the lane: the must-cover
+                    # authorities are drug labels / guidelines (dailymed, fda.gov,
+                    # nice, ods.od.nih.gov), NOT peer-reviewed journals, so they
+                    # carry no journal sidecar metadata. Injecting them under
+                    # journal_only would either leak non-journal rows into the
+                    # citeable corpus or trip the pre-generator no-leak assert
+                    # (the same hazard the gap-round documents at the
+                    # filter_to_citeable seam). The two modes are mutually
+                    # exclusive by intent — journal_only would prune drug labels
+                    # anyway — so the lane is skipped (fail-safe).
+                    if _req_lane_enabled() and not _jo_active:
                         from src.agents.search_agent import (
                             _serper_search_sync as _req_search_fn,
                         )
@@ -4745,13 +4755,19 @@ async def run_one_query(
                         # canonical-URL dedup + global evidence_id renumber the
                         # saturation gap-round uses, so the billed pool never
                         # double-counts an existing source and ids never collide.
+                        # The new rows are PREPENDED onto evidence_for_gen (like
+                        # the V30 contract + upload injections) so the I-meta-005
+                        # money-gate suffix-diff invariant holds: _selection_base_rows
+                        # (snapshot :4641) must stay the contiguous SUFFIX, and
+                        # `everything ahead of it` is the exact injected prepend a
+                        # gap round re-applies (Codex diff-gate P1 :4636-4640).
                         _req_existing_canon = {
                             _req_canon_url(
                                 _r.get("source_url") or _r.get("url") or ""
                             )
                             for _r in retrieval.evidence_rows
                         }
-                        _req_merged = 0
+                        _req_new_rows: list[dict[str, Any]] = []
                         for _ev in _req_result.evidence_rows:
                             _canon = _req_canon_url(
                                 _ev.get("source_url") or _ev.get("url") or ""
@@ -4763,14 +4779,15 @@ async def run_one_query(
                                 f"ev_{len(retrieval.evidence_rows):03d}"
                             )
                             retrieval.evidence_rows.append(_ev)
-                            evidence_for_gen = list(evidence_for_gen) + [_ev]
-                            _req_merged += 1
+                            _req_new_rows.append(_ev)
+                        if _req_new_rows:
+                            evidence_for_gen = _req_new_rows + list(evidence_for_gen)
                         _log(
                             f"[req-entity]  lane: attempted "
                             f"{len(_req_result.attempted_entity_ids)} unsatisfied "
                             f"entit{'y' if len(_req_result.attempted_entity_ids) == 1 else 'ies'}"
                             f", fetched {len(_req_result.seed_urls)} seed url(s), "
-                            f"merged {_req_merged} new corpus row(s)"
+                            f"merged {len(_req_new_rows)} new corpus row(s)"
                         )
                     _outline_v30 = compose_outline_from_contract(
                         _cf, _frame_rows,

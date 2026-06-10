@@ -30,9 +30,20 @@ recurring cause of clinical-question reports lacking verified safety content
    anchor_seed=False)` — the same AccessBypass/Zyte chokepoint, no Serper/S2
    fan-out (the deepener/gap precedent) — yielding canonical evidence rows with
    their REAL fetched URLs.
-4. MERGE into `evidence_for_gen` + `retrieval.evidence_rows` with the SAME
+4. MERGE into `retrieval.evidence_rows` (append) + `evidence_for_gen`
+   (**PREPEND**, like the V30 contract + upload injections) with the SAME
    canonical-URL dedup + global `evidence_id` renumber the saturation gap-round
-   uses.
+   uses. The prepend preserves the I-meta-005 money-gate suffix-diff invariant
+   (`_selection_base_rows` snapshot at :4641 must stay the contiguous SUFFIX;
+   `_gate_injected_prepend_rows` at :5019 then correctly captures the lane rows
+   as part of the injected prepend a gap-round re-applies).
+
+**journal_only guard:** the lane is SKIPPED when `_jo_active` — the must-cover
+authorities are drug labels / guidelines (not peer-reviewed journals), so under
+journal_only they carry no sidecar metadata and would either leak into the
+citeable corpus or trip the pre-generator no-leak assert. The two modes are
+mutually exclusive by intent (journal_only prunes drug labels anyway), so the
+lane fail-safes off.
 
 The generator then writes verified contraindication/dosing claims from the
 newly-present content via the UNCHANGED strict_verify. The FrameRow / V30 slot
