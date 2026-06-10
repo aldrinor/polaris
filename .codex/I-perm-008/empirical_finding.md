@@ -35,3 +35,22 @@ is R7's "precondition for PG_ALWAYS_RELEASE".
 - Harness asserts (blueprint §5): for every non-VERIFIED claim, its stem is absent from KF
   (holds under BOTH delete-mode AND simulated label-mode); KF contains no `###` header / no
   redaction-stub string; ZERO "curator"/"operator can" strings.
+
+## DEEPER root cause (found 2026-06-10 via a failed slice-1 attempt + real-data smoke)
+A naive post-redaction line-filter is a NO-OP on the real drb_76 report (reverted). The actual broken bullet is MULTI-LINE:
+```
+- **Mechanism.** ### Pathogenic bacteria and their genotoxic metabolites in colorectal carcinogenesis
+
+A claim previously stated here did not survive 4-role verification and was redacted; this is a curator-actionable gap.
+[x4]
+```
+Two compounding bugs in `build_key_findings`:
+1. **Header leaks into the lift.** The Mechanism section's `verified_text` begins with a `### <section header>` (hypothesis: section title rendered into verified_text); `_SENTENCE_RE` (DOTALL `.+?[.!?]`) lifts a multi-line chunk = header + the first real sentence, so the bullet carries the `###` header.
+2. **Pre-four-role lift.** The lifted "headline" (01-002 "strongly linked") was four-role UNSUPPORTED; redaction (which runs AFTER KF assembly at run_honest_sweep_r3.py:6313 vs ~7120) replaced the sentence text with the stub, leaving "- **Mechanism.** ### header\n\n<stub>".
+
+## REAL build plan (the careful unit — NOT a tail-of-session quick fix)
+- Make `build_key_findings` VERDICT-AWARE: lift only four-role-VERIFIED sentences. This requires `final_verdicts` (claim_id→verdict) which only exists AFTER the four-role seam (~7120), so KF assembly must MOVE to after four-role (re-assemble report.md with the verdict-filtered KF), OR a post-redaction REBUILD that re-extracts from the reconciled body + skips `###` headers + `_GAP_MARKER_RE` stubs.
+- Strip leading `###`/`##` headers from any lifted sentence; constrain the DOTALL multi-line over-lift to a single sentence.
+- Then the cruft wording (preamble overclaim, "curator-actionable gap", "human_gap_tasks", "operator can") across report_redactor.py / contract_section_runner.py / multi_section_generator.py — coupled to tests (PT08) that pin those substrings; update tests too.
+- Smoke: harness (tests/polaris_graph/replay/) + new I-perm-008 asserts (no `###` in KF, no redaction-stub string, ZERO curator/operator strings, every non-VERIFIED stem absent from KF under BOTH delete-mode and simulated label-mode) + existing key_findings tests + PT08. Codex diff gate.
+- Risk: clinical user-facing output + report-assembly reorder in a 7000-line script. Build with care + full smoke; do NOT rush.
