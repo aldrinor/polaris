@@ -1,0 +1,575 @@
+commit 3baf98f09c5394937e7ef9cc18caf645b8fefc0a
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 16:17:54 2026 -0700
+
+    I-perm-002 (#1196): semantic contraindication credit + structural negation guard + slate activation
+    
+    Behind PG_SWEEP_SEMANTIC_CONTRAINDICATION (default OFF -> byte-identical), the S0
+    `contraindications` content requirement is satisfied by a contraindication DIRECTION signal, so a
+    faithful warning whose source never uses the literal token still credits. The population token
+    ("immunocompromised") stays the literal precision anchor. Both singular and plural concept tokens
+    are relaxed.
+    
+    Three positive routes, all fail-closed against inversion (over-crediting a contraindication is
+    §-1.1-lethal; under-crediting is a safe disclosed gap under always-release / I-perm-001):
+      1. "not recommended" — UNLESS an "against" follows it anywhere downstream (the "recommend against"
+         idiom inverts it; whole-tail scan, not a gameable fixed window).
+      2. DIRECTIONAL IMPERATIVES ("should be avoided", "should/must not be used/given/administered").
+      3. The bare concept STEM ("contraindicat...") — positive ONLY when NO negation context (pre OR
+         post, within a tight 20-char window) surrounds ANY occurrence.
+    
+    Negative contractions are expanded first (aren't->are not, haven't->have not, shouldn't->should not;
+    curly apostrophe normalized) so the guard is not defeated by spelling, plus "free of"/"devoid
+    of"/"zero" absence forms.
+    
+    Codex diff-gate iterations (each a real over-credit P0, all fixed structurally):
+      iter-1 P0: brittle contiguous negation list missed interposed qualifiers ("no known
+        contraindications", "not generally/clearly contraindicated") -> windowed pre/post negation regex.
+      iter-1 P2: whole-claim "are safe" scan under-credited a contrastive warning -> removed.
+      iter-2 P0: contraction negations ("aren't contraindicated") bypassed the regex -> contraction
+        normalization before matching.
+      iter-3 P0: the "against" inverter interposed beyond the fixed 16-char window ("not recommended by
+        the CDC source against use") -> whole-tail "against" scan for the recommend family.
+      iter-3 P2: plural "contraindications" token not relaxed -> added to the concept set.
+    
+    Why the fix matters: the CDC source for `probiotic_immunocompromised_contraindication` says probiotics
+    "should be avoided ... immunocompromised" — never "contraindicated". drb_76 claim 03-001 ("not
+    recommended for patients who are immunocompromised", VERIFIED, cites the exact CDC url) genuinely
+    WARNED yet went un-credited -> released_insufficient_safety_evidence. Proven on the saved drb_76 run:
+    flag ON credits `contraindications` (coverage 2/5 -> 3/5), safety floor clears, the run flips to
+    released_with_disclosed_gaps WITHOUT fabricating.
+    
+    Four independent guards stand between a claim and S0 credit: is_verified, exact canonical-source
+    match, the literal population anchor, and this direction/negation guard.
+    
+    - native_gate_b_inputs.py: _expand_negative_contractions + _contraindication_direction_present
+      (recommend/against route + imperatives + windowed stem-negation regex); _content_requirements_satisfied
+      relaxes only the concept token.
+    - d8_replay_harness.py: replay_release_outcome gains corpus_satisfaction passthrough (default False
+      preserves the I-perm-009/I-perm-001 baseline bit-for-bit).
+    - test_semantic_contraindication_iperm002.py: credit/refuse matrix incl. all Codex iter-1/2/3 P0/P2
+      cases + plural token + the drb_76 behavioral flip (skipif saved pool absent).
+    - run_gate_b.py: ACTIVATE PG_SWEEP_SEMANTIC_CONTRAINDICATION in the Gate-B slate (slate + required +
+      force-on), fail-closed if an operator =0.
+    
+    Tests: 101 green (incl. all Codex iter-1/2/3 P0/P2 regressions + drb_76 flip); OFF byte-identical; 112 slate green.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 8ea12a72..17a8c40d 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -623,11 +623,17 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     #   PG_ALWAYS_RELEASE         (#1195 keystone) WITHHOLD->ALWAYS-RELEASE+LABEL: a held report ships
+     #                             with disclosed gaps instead of aborting (the drb_76 false hold).
+     #   PG_SWEEP_NUMERIC_SANITIZER(#1201) drop DOI/URL/accession cruft parsed as clinical data.
++    #   PG_SWEEP_SEMANTIC_CONTRAINDICATION (#1196) credit a faithful contraindication WARNING
++    #                             ("not recommended"/"should be avoided") whose source never uses the
++    #                             literal "contraindicated" — negation-guarded so an inverted claim
++    #                             never over-credits; drb_76 then ships caveated-normal instead of
++    #                             released_insufficient_safety_evidence.
+     # NOT activated here: PG_SWEEP_SELECTION_SCALE (#1197) — the blueprint keeps it flag-OFF until
+     # I-perm-007 grows a real large pool (it is preventative; on the current corpus it would scale
+     # the budget ABOVE the #1070/#1078 evidence-to-generation cap and re-flood the generator).
+     "PG_ALWAYS_RELEASE": "1",
+     "PG_SWEEP_NUMERIC_SANITIZER": "1",
++    "PG_SWEEP_SEMANTIC_CONTRAINDICATION": "1",
+ }
+ 
+ # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+@@ -694,10 +700,12 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+     # I-perm-000 permanent-fix (#1194): the keystone always-release + the numeric sanitizer + the
+     # are DEFAULT OFF; required here so the preflight FAILS CLOSED if either is off, i.e. the paid
+-    # run can NEVER silently revert to the pre-fix withhold / DOI-cruft behaviour. (Selection-scale
+-    # #1197 is deliberately NOT required — it stays flag-OFF until I-perm-007 grows a real pool.)
++    # run can NEVER silently revert to the pre-fix withhold / DOI-cruft / literal-token behaviour.
++    # (Selection-scale #1197 is deliberately NOT required — it stays flag-OFF until I-perm-007 grows
++    # a real pool.)
+     "PG_ALWAYS_RELEASE",
+     "PG_SWEEP_NUMERIC_SANITIZER",
++    "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+ )
+ 
+ # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+@@ -748,11 +756,13 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     "PG_SERPER_STOP_ON_ZERO_NEW",
+     # BB-006: ingest the STORM interview-search-result URLs as URL-only seed candidates.
+     "PG_STORM_INGEST_WEB_RESULTS",
+-    # I-perm-000 (#1194): force-on the two ready permanent-fix flags so an explicit operator =0
+-    # cannot survive the setdefault slate and silently revert to the pre-fix withhold / DOI-cruft
+-    # behaviour. (PG_SWEEP_SELECTION_SCALE stays OFF until I-perm-007 grows a real pool.)
++    # I-perm-000 (#1194): force-on the ready permanent-fix flags so an explicit operator =0 cannot
++    # survive the setdefault slate and silently revert to the pre-fix withhold / DOI-cruft /
++    # literal-contraindicated behaviour. (PG_SWEEP_SELECTION_SCALE stays OFF until I-perm-007 grows
++    # a real pool.)
+     "PG_ALWAYS_RELEASE",
+     "PG_SWEEP_NUMERIC_SANITIZER",
++    "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+ })
+ 
+ # Flags/modes that the benchmark slate force-sets to a specific value that is
+diff --git a/src/polaris_graph/roles/native_gate_b_inputs.py b/src/polaris_graph/roles/native_gate_b_inputs.py
+index c7f9e19d..1cbe38f3 100644
+--- a/src/polaris_graph/roles/native_gate_b_inputs.py
++++ b/src/polaris_graph/roles/native_gate_b_inputs.py
+@@ -309,6 +309,141 @@ def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
+     return False
+ 
+ 
++# --- I-perm-002 (#1196): semantic contraindication credit (default OFF -> literal-exact) -----
++# The CDC contraindication source for `probiotic_immunocompromised_contraindication` says probiotics
++# "should be avoided for patients who ... are immunocompromised" — it NEVER uses the word
++# "contraindicated". So a FAITHFUL claim grounded in that span (e.g. drb_76 claim 03-001, "not
++# recommended for patients who are immunocompromised", VERIFIED + cites the exact CDC url) can never
++# contain the literal token, and the S0 `contraindications` category goes un-credited -> the safety
++# floor reports insufficient even though the report DID warn. PG_SWEEP_SEMANTIC_CONTRAINDICATION
++# relaxes ONLY the contraindication-CONCEPT requirement token to a curated, high-precision set of
++# contraindication-DIRECTION phrases; the population token (e.g. "immunocompromised") is NEVER
++# relaxed — it stays the literal precision anchor that binds substance+population (R6). A
++# deterministic negation guard refuses credit on any opposite-direction / negated phrase so a
++# faithful-but-INVERTED claim can never earn S0 safety credit.
++#
++# Direction of error is deliberate: over-crediting a contraindication is §-1.1-LETHAL (a report that
++# wrongly believes it warned); UNDER-crediting is a SAFE disclosed gap under always-release
++# (I-perm-001). Every layer therefore errs toward refusing credit. Four independent guards stand
++# between a claim and S0 credit: (1) `verification.is_verified` — only strict-verified claims reach
++# the matcher; (2) `_entity_canonical_match` — the claim must cite the entity's EXACT source;
++# (3) the literal population anchor; (4) this negation guard.
++_ENV_SEMANTIC_CONTRAINDICATION = "PG_SWEEP_SEMANTIC_CONTRAINDICATION"
++_SEMANTIC_OFF_VALUES = frozenset({"", "0", "false", "no", "off"})
++# Requirement tokens that NAME the contraindication concept — only these are relaxed to synonyms.
++# Both singular AND plural ("contraindications") so a future config token is also relaxed (Codex P2).
++_CONTRAINDICATION_CONCEPT_TOKENS = frozenset(
++    {"contraindicated", "contraindication", "contraindications"}
++)
++# "not recommended" warns UNLESS the "recommend AGAINST" idiom inverts it ("not recommended against
++# use" == recommended FOR use). The inverting "against" can be interposed at ANY distance ("not
++# recommended by the CDC source against use"), so a FIXED tail window is gameable (Codex P0-3): a
++# "not recommended" occurrence counts ONLY when NO "against" follows it anywhere in the remaining
++# claim text (whole-tail scan). Over-refusing a warning that merely mentions "against" downstream is
++# a SAFE under-credit. Handled separately from the imperatives below, which carry no such idiom.
++_RECOMMEND_DIRECTIONAL_INDICATOR = "not recommended"
++_RECOMMEND_INVERTER = "against"
++# DIRECTIONAL IMPERATIVES — each asserts an action-prohibition for the population ("do not give this
++# to this group"). Robustly positive: each already encodes a negation/avoidance, so inverting one in
++# place is unnatural — presence => contraindication direction. Bare "avoid"/"unsafe"/"risk" are
++# deliberately EXCLUDED (too easily negated / ambiguous). The bare concept stem is handled separately
++# below (it is a noun and far easier to invert).
++_CONTRAINDICATION_DIRECTIONAL_INDICATORS = (
++    "should be avoided",
++    "should not be used",
++    "should not be given",
++    "should not be administered",
++    "must not be used",
++    "must not be given",
++    "must not be administered",
++    "not be used in",
++)
++# The bare contraindication CONCEPT stem (matches "contraindicated" / "contraindication(s)"). A noun
++# is easily negated — BEFORE it ("no known contraindications", "not generally / clearly
++# contraindicated", "need not be contraindicated", "without contraindication") or AFTER it
++# ("contraindications are unknown / not established / absent"). The brittle contiguous-phrase list
++# this replaces MISSED every interposed-qualifier form (Codex P0-1: it credited "CDC reports no known
++# contraindications ... in immunocompromised patients"). The stem counts as a positive direction
++# ONLY when NO negation context surrounds ANY occurrence — one negated mention disqualifies the stem
++# signal for the whole claim (conservative = SAFE under-credit, never lethal over-credit).
++_CONTRAINDICATION_STEM = "contraindicat"
++# Interposition between the negator and the stem (qualifier adverbs / short clauses). Tight 20-char
++# window so a SHORT inverting qualifier ("no known", "not generally") is caught while an unrelated
++# distant negation ("no doubt probiotics are contraindicated") is NOT — that long form stays a credit.
++_CONTRA_NEG_INTERPOSE = r"[\w\s,'()/-]{0,20}?"
++_CONTRAINDICATION_NEGATION_RE = re.compile(
++    # negator BEFORE the stem (contractions are expanded to `X not` first, so `\bnot\b` covers
++    # aren't/isn't/haven't/etc.; "free of"/"devoid of"/"zero" are short absence forms)
++    r"\b(?:no|not|never|without|none|neither|nor|lack|lacks|lacking|few|rare|rarely|absent|zero|"
++    r"free\s+of|devoid\s+of|unknown|unestablished|unproven|undetermined)\b"
++    + _CONTRA_NEG_INTERPOSE + _CONTRAINDICATION_STEM
++    # OR a negation/absence predicate AFTER the stem
++    + r"|" + _CONTRAINDICATION_STEM + r"\w*" + _CONTRA_NEG_INTERPOSE
++    + r"\b(?:unknown|undetermined|unestablished|not\s+(?:been\s+)?established|absent|unclear|"
++    r"unlikely|none|negligible|rare|few)\b",
++    re.IGNORECASE,
++)
++# Negative contractions -> expanded `... not` (a SPACE before "not" so the `\bnot\b` negator fires;
++# "cannot" would join the word boundary). Apostrophe is normalized to ASCII first so a curly
++# right-single-quote (U+2019) in scraped prose does not defeat the lookup. Expanding ALSO helps the
++# directional route ("shouldn't be used" -> "should not be used" matches the indicator). Codex P0-2:
++# the pre/post regex only knew expanded forms, so `aren't contraindicated` / `haven't been
++# established` over-credited.
++_NEGATIVE_CONTRACTIONS = {
++    "aren't": "are not", "isn't": "is not", "wasn't": "was not", "weren't": "were not",
++    "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
++    "don't": "do not", "doesn't": "does not", "didn't": "did not",
++    "won't": "will not", "wouldn't": "would not", "can't": "can not", "couldn't": "could not",
++    "shouldn't": "should not", "mustn't": "must not", "needn't": "need not",
++    "mightn't": "might not", "shan't": "shall not", "oughtn't": "ought not",
++}
++
++
++def _expand_negative_contractions(text: str) -> str:
++    """Normalize the curly apostrophe to ASCII, then expand negative contractions to `X not`."""
++    text = text.replace("’", "'")
++    for contraction, expanded in _NEGATIVE_CONTRACTIONS.items():
++        text = text.replace(contraction, expanded)
++    return text
++
++
++def _semantic_contraindication_enabled() -> bool:
++    """``PG_SWEEP_SEMANTIC_CONTRAINDICATION`` (default OFF -> literal-exact content match)."""
++    return os.environ.get(_ENV_SEMANTIC_CONTRAINDICATION, "").strip().lower() not in _SEMANTIC_OFF_VALUES
++
++
++def _contraindication_direction_present(lowered_claim: str) -> bool:
++    """True iff the claim asserts a contraindication DIRECTION for the population (not its negation).
++
++    Three independent positive routes, all fail-closed against inversion (over-crediting a
++    contraindication is §-1.1-lethal; under-crediting is a safe disclosed gap under always-release):
++
++    1. "not recommended" — UNLESS an "against" follows it anywhere downstream (the "recommend
++       against" idiom inverts it; whole-tail scan, not a gameable fixed window — Codex P0-3).
++    2. A DIRECTIONAL IMPERATIVE ("should be avoided", "should not be used", ...) — no "against"-style
++       in-place inverter applies, so presence => direction.
++    3. The bare concept STEM ("contraindicat...") — only when NO negation context (pre OR post)
++       surrounds any occurrence; a single negated mention disqualifies the stem for the whole claim.
++
++    Negative contractions are expanded first (`aren't` -> `are not`) so the guard is not defeated by
++    contraction spelling (Codex P0-2).
++    """
++    lowered_claim = _expand_negative_contractions(lowered_claim)
++    start = lowered_claim.find(_RECOMMEND_DIRECTIONAL_INDICATOR)
++    while start != -1:
++        tail = lowered_claim[start + len(_RECOMMEND_DIRECTIONAL_INDICATOR):]
++        if _RECOMMEND_INVERTER not in tail:
++            return True
++        start = lowered_claim.find(_RECOMMEND_DIRECTIONAL_INDICATOR, start + 1)
++    if any(indicator in lowered_claim for indicator in _CONTRAINDICATION_DIRECTIONAL_INDICATORS):
++        return True
++    if _CONTRAINDICATION_STEM in lowered_claim and not _CONTRAINDICATION_NEGATION_RE.search(
++        lowered_claim
++    ):
++        return True
++    return False
++
++
+ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
+     """All `coverage_content_requirements` present in the claim (case-insensitive, exact).
+ 
+@@ -316,6 +451,11 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
+     False rather than vacuously True. A bare canonical-evidence citation must NEVER earn S0
+     credit without a real deterministic content match. (Validation in `validate_entity_severity`
+     already blocks empty/blank S0 requirements at load; this is the matcher-side backstop.)
++
++    I-perm-002 (#1196): when `PG_SWEEP_SEMANTIC_CONTRAINDICATION` is ON, a requirement token that
++    NAMES the contraindication concept ("contraindicated"/"contraindication") is satisfied by any
++    high-precision contraindication-DIRECTION phrase (negation-guarded); every OTHER token (e.g.
++    "immunocompromised") stays literal-exact. Default OFF -> byte-identical literal-exact match.
+     """
+     lowered = claim_text.lower()
+     requirements = [
+@@ -325,7 +465,15 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
+     ]
+     if not requirements:
+         return False
+-    return all(token.lower() in lowered for token in requirements)
++    semantic = _semantic_contraindication_enabled()
++    for token in requirements:
++        token_lower = token.lower()
++        if semantic and token_lower in _CONTRAINDICATION_CONCEPT_TOKENS:
++            if not _contraindication_direction_present(lowered):
++                return False
++        elif token_lower not in lowered:
++            return False
++    return True
+ 
+ 
+ def _claim_covers_entity(
+diff --git a/tests/polaris_graph/replay/d8_replay_harness.py b/tests/polaris_graph/replay/d8_replay_harness.py
+index 74db5e14..fa0b2de4 100644
+--- a/tests/polaris_graph/replay/d8_replay_harness.py
++++ b/tests/polaris_graph/replay/d8_replay_harness.py
+@@ -107,15 +107,30 @@ _MISSING_S0_PREFIX = "d8_s0_must_cover_missing:"
+ 
+ 
+ def replay_release_outcome(
+-    run: SavedRun, *, always_release: bool, template_path: Path | None = None
++    run: SavedRun,
++    *,
++    always_release: bool,
++    template_path: Path | None = None,
++    corpus_satisfaction: bool = False,
+ ) -> ReleaseOutcome:
+     """Replay the I-perm-001 always-release outcome (BLOCK -> LABEL) over a saved run.
+ 
+     Computes the no-fabrication hard line + the clinical safety floor from the saved verdicts:
+     ``zero_verified`` (no VERIFIED claim), ``zero_usable_evidence`` (no cited evidence at all),
+     ``safety_floor_insufficient`` (every required S0 SAFETY category is in the missing set).
++
++    ``corpus_satisfaction`` (I-perm-002 #1196): when True, the safety floor is computed from
++    coverage RE-DERIVED through the production S0 content-requirement matcher
++    (``_content_requirements_satisfied``) rather than the saved literal-era ``covered_element_ids``.
++    With ``PG_SWEEP_SEMANTIC_CONTRAINDICATION`` ON this credits a faithful contraindication warning
++    ("not recommended"/"should be avoided") that the literal-token era left un-credited — so the
++    safety floor clears and a run that was ``released_insufficient_safety_evidence`` becomes a
++    caveated ``released_with_disclosed_gaps``. Default False preserves the I-perm-009/I-perm-001
++    baseline (literal-era coverage, bit-for-bit).
+     """
+-    result = replay_d8(run, template_path=template_path)
++    result = replay_d8(
++        run, template_path=template_path, corpus_satisfaction=corpus_satisfaction
++    )
+     decision = result.decision
+     zero_verified = not any(v == _VERDICT_VERIFIED for v in run.final_verdicts.values())
+     zero_usable_evidence = not any(
+diff --git a/tests/polaris_graph/roles/__init__.py b/tests/polaris_graph/roles/__init__.py
+new file mode 100644
+index 00000000..e69de29b
+diff --git a/tests/polaris_graph/roles/test_semantic_contraindication_iperm002.py b/tests/polaris_graph/roles/test_semantic_contraindication_iperm002.py
+new file mode 100644
+index 00000000..c23b3307
+--- /dev/null
++++ b/tests/polaris_graph/roles/test_semantic_contraindication_iperm002.py
+@@ -0,0 +1,242 @@
++"""I-perm-002 (#1196) semantic contraindication credit — matcher + behavioral flip.
++
++The CDC contraindication source for the probiotic safety entity says probiotics "should be avoided
++for patients who ... are immunocompromised" — it NEVER uses the word "contraindicated". So a
++FAITHFUL claim grounded in it (drb_76 claim 03-001, "not recommended for patients who are
++immunocompromised", VERIFIED) can never contain the literal token, and the S0 ``contraindications``
++category went un-credited -> ``released_insufficient_safety_evidence`` even though the report DID
++warn. ``PG_SWEEP_SEMANTIC_CONTRAINDICATION`` (default OFF) relaxes ONLY the contraindication CONCEPT
++token to a high-precision DIRECTION synonym set, keeps the population token literal, and refuses
++credit on any negated / opposite-direction phrase.
++
++Direction of error (binding): over-crediting a contraindication is §-1.1-LETHAL; under-crediting is
++a SAFE disclosed gap under always-release (I-perm-001). Every assertion below checks that the
++negation guard makes over-credit impossible while the genuine warning credits.
++"""
++
++from __future__ import annotations
++
++import os
++from pathlib import Path
++
++import pytest
++
++from src.polaris_graph.roles import native_gate_b_inputs as ng
++
++_FLAG = "PG_SWEEP_SEMANTIC_CONTRAINDICATION"
++
++# Inline synthetic entity mirroring config/scope_templates/clinical.yaml
++# `probiotic_immunocompromised_contraindication` — kept inline so the unit tests are robust to
++# config edits. The literal concept token + the literal population anchor.
++_ENTITY = {
++    ng._KEY_ENTITY_ID: "probiotic_immunocompromised_contraindication",
++    ng._KEY_ENTITY_CONTENT_REQS: ["contraindicated", "immunocompromised"],
++}
++
++# The REAL drb_76 claim 03-001 text (VERIFIED, cites the CDC contraindication source). A genuine
++# warning that lacks the literal token "contraindicated".
++_REAL_WARNING = (
++    "On the basis of these data, the authors explicitly advise that probiotics are not "
++    "recommended for patients who are immunocompromised, critically ill, or have indwelling "
++    "catheters."
++)
++
++
++@pytest.fixture(autouse=True)
++def _clear_flag():
++    os.environ.pop(_FLAG, None)
++    yield
++    os.environ.pop(_FLAG, None)
++
++
++# --- OFF: byte-identical literal-exact match (the genuine warning is NOT credited) -----------
++
++
++def test_off_is_literal_exact_unchanged():
++    os.environ.pop(_FLAG, None)
++    # The genuine warning lacks the literal "contraindicated" -> NOT credited (pre-fix behavior).
++    assert ng._content_requirements_satisfied(_REAL_WARNING, _ENTITY) is False
++    # A claim with BOTH literal tokens still credits exactly as before.
++    assert (
++        ng._content_requirements_satisfied(
++            "probiotics are contraindicated in immunocompromised patients", _ENTITY
++        )
++        is True
++    )
++    for falsey in ("0", "false", "no", "off", ""):
++        os.environ[_FLAG] = falsey
++        assert ng._content_requirements_satisfied(_REAL_WARNING, _ENTITY) is False
++
++
++# --- ON: high-precision contraindication-DIRECTION synonyms credit (population stays literal) -
++
++
++@pytest.mark.parametrize(
++    "claim",
++    [
++        _REAL_WARNING,  # "not recommended ... immunocompromised" — the real drb_76 warning
++        "live probiotics should be avoided in immunocompromised hosts",
++        "this product should not be used in immunocompromised patients",
++        "the agent must not be given to immunocompromised individuals",
++        "probiotics are contraindicated in immunocompromised patients",  # literal still works
++        # a DISTANT negator (>20 chars from the stem) must NOT suppress a genuine warning.
++        "there is no doubt probiotics are contraindicated in immunocompromised patients",
++        # Codex P2 fix: a contrastive warning ("safe for most adults, BUT not recommended for the
++        # population") must credit — the old whole-claim "are safe" scan wrongly refused it.
++        "although probiotics are safe for most adults, they are not recommended "
++        "for immunocompromised patients",
++    ],
++)
++def test_on_credits_direction_synonyms_with_population(claim):
++    os.environ[_FLAG] = "1"
++    assert ng._content_requirements_satisfied(claim, _ENTITY) is True
++
++
++# --- ON: the negation guard makes over-credit impossible (§-1.1-lethal direction) ------------
++
++
++@pytest.mark.parametrize(
++    "claim",
++    [
++        # Negated contraindication — the pathological case. MUST refuse.
++        "probiotics are not contraindicated in immunocompromised patients",
++        "there is no contraindication to probiotics in immunocompromised hosts",
++        "probiotics should not be avoided in immunocompromised patients",
++        # Opposite direction — safe/recommended for the population. MUST refuse.
++        "probiotics are well tolerated in immunocompromised patients",
++        "probiotics are safe in immunocompromised patients",
++        "probiotics are considered safe for immunocompromised patients",
++        # Codex P0-1 (iter-1): interposed-qualifier negations the brittle contiguous list MISSED.
++        "cdc reports no known contraindications to s. boulardii probiotics in immunocompromised patients",
++        "s. boulardii is not generally contraindicated in immunocompromised patients",
++        "it is not clearly contraindicated in immunocompromised patients",
++        "the product need not be contraindicated in immunocompromised patients",
++        # the in-place "against" inverter of a directional imperative.
++        "probiotics are not recommended against use in immunocompromised patients",
++        # post-stem absence predicate.
++        "contraindications are unknown in immunocompromised patients",
++        "contraindications have not been established in immunocompromised patients",
++        # Codex P0-2 (iter-2): contraction negations the expanded-only regex missed.
++        "s. boulardii probiotics aren't contraindicated in immunocompromised patients",
++        "it isn't contraindicated in immunocompromised patients",
++        "there aren't contraindications for probiotics in immunocompromised patients",
++        "contraindications haven't been established in immunocompromised patients",
++        # curly apostrophe (U+2019) must not defeat contraction expansion.
++        "probiotics aren’t contraindicated in immunocompromised patients",
++        # short absence forms.
++        "probiotics are free of contraindications in immunocompromised patients",
++        "there are zero contraindications for probiotics in immunocompromised patients",
++        # Codex P0-3 (iter-3): the "recommend against" inverter INTERPOSED beyond a fixed window.
++        "probiotics are not recommended by the cdc source against use in immunocompromised patients",
++        "probiotics are not recommended, per the 2021 report, against use in immunocompromised hosts",
++    ],
++)
++def test_on_negation_guard_refuses_inverted(claim):
++    os.environ[_FLAG] = "1"
++    assert ng._content_requirements_satisfied(claim, _ENTITY) is False
++
++
++def test_on_relaxes_plural_concept_token():
++    """Codex iter-3 P2: a future config token "contraindications" (plural) is also relaxed."""
++    os.environ[_FLAG] = "1"
++    plural_entity = {
++        ng._KEY_ENTITY_ID: "x",
++        ng._KEY_ENTITY_CONTENT_REQS: ["contraindications", "immunocompromised"],
++    }
++    assert (
++        ng._content_requirements_satisfied(
++            "probiotics are not recommended for immunocompromised patients", plural_entity
++        )
++        is True
++    )
++    # and it still refuses an inverted claim under the plural token.
++    assert (
++        ng._content_requirements_satisfied(
++            "there are no contraindications for probiotics in immunocompromised patients",
++            plural_entity,
++        )
++        is False
++    )
++
++
++def test_on_is_strictly_safer_than_off_for_negated_contraindicated():
++    """The bare-substring OFF path WRONGLY credits "not contraindicated"; the ON negation guard
++    refuses it. ON is therefore not a pure superset — it ADDS the faithful-warning path and
++    SUBTRACTS this latent over-credit."""
++    inverted = "probiotics are not contraindicated in immunocompromised patients"
++    os.environ.pop(_FLAG, None)
++    assert ng._content_requirements_satisfied(inverted, _ENTITY) is True  # latent OFF over-credit
++    os.environ[_FLAG] = "1"
++    assert ng._content_requirements_satisfied(inverted, _ENTITY) is False  # ON refuses it
++
++
++# --- ON: the population token is NEVER relaxed (wrong population / missing population refuse) --
++
++
++@pytest.mark.parametrize(
++    "claim",
++    [
++        "probiotics are not recommended for pregnant women",  # wrong population
++        "probiotics should be avoided in patients with short bowel syndrome",  # wrong population
++        "probiotic use was strongly associated with fungemia compared with controls",  # no pop, no dir
++    ],
++)
++def test_on_population_anchor_stays_literal(claim):
++    os.environ[_FLAG] = "1"
++    assert ng._content_requirements_satisfied(claim, _ENTITY) is False
++
++
++def test_on_empty_requirements_fail_closed():
++    os.environ[_FLAG] = "1"
++    empty = {ng._KEY_ENTITY_ID: "x", ng._KEY_ENTITY_CONTENT_REQS: []}
++    assert ng._content_requirements_satisfied(_REAL_WARNING, empty) is False
++    blank = {ng._KEY_ENTITY_ID: "x", ng._KEY_ENTITY_CONTENT_REQS: ["   ", ""]}
++    assert ng._content_requirements_satisfied(_REAL_WARNING, blank) is False
++
++
++# --- behavioral: drb_76 flips insufficient-safety -> caveated release WITHOUT fabricating ------
++
++
++_SAVED_POOL = (
++    Path(__file__).resolve().parents[3]
++    / "outputs/audits/beatboth8/drb_76/four_role_claim_audit.json"
++)
++
++
++@pytest.mark.skipif(
++    not _SAVED_POOL.is_file(),
++    reason="saved beatboth8 drb_76 run not present (gitignored) — unit matcher tests cover CI",
++)
++def test_drb76_flips_to_released_with_disclosed_gaps():
++    from tests.polaris_graph.replay.d8_replay_harness import (
++        replay_d8,
++        replay_release_outcome,
++    )
++    from tests.polaris_graph.replay.saved_run_loader import (
++        default_run_dir,
++        load_saved_run,
++    )
++
++    run = load_saved_run(default_run_dir())
++
++    # OFF: the literal-era safety floor reports insufficient (the genuine warning is un-credited).
++    os.environ.pop(_FLAG, None)
++    d_off = replay_d8(run, corpus_satisfaction=True)
++    assert "contraindications" not in d_off.credited_categories
++    out_off = replay_release_outcome(run, always_release=True, corpus_satisfaction=True)
++    assert out_off.status == "released_insufficient_safety_evidence"
++    assert out_off.safety_floor == "insufficient"
++    assert out_off.normal_release_blocked is True
++
++    # ON: the contraindication category credits from the faithful warning -> safety floor clears ->
++    # caveated-normal release. The credit comes from a VERIFIED claim that genuinely warned; nothing
++    # is fabricated, and coverage rises by exactly the one contraindication element.
++    os.environ[_FLAG] = "1"
++    d_on = replay_d8(run, corpus_satisfaction=True)
++    assert "contraindications" in d_on.credited_categories
++    assert d_on.covered_element_ids > d_off.covered_element_ids
++    out_on = replay_release_outcome(run, always_release=True, corpus_satisfaction=True)
++    assert out_on.status == "released_with_disclosed_gaps"
++    assert out_on.safety_floor == "ok"
++    assert out_on.normal_release_blocked is False
++    assert out_on.released is True
