@@ -317,3 +317,175 @@ def to_gaps_json(decision: ReleaseDecision) -> list[dict]:
         }
         for gap in decision.gaps
     ]
+
+
+# ── I-perm-001 (#1195) keystone slice 1: WITHHOLD → ALWAYS-RELEASE + LABEL ───────────────────
+# The withhold-when-imperfect gate stack (coverage-below-threshold, S0-must-cover-missing,
+# pending-rewrite) BLOCKS the whole report. Under always-release it converts every such hold
+# from a release-BLOCKER into a DISPLAYED disclosed-gap label; the report ships with honest
+# per-gap disclosure and the user judges. The ONLY hard line that still withholds a normal
+# report is (a) a FABRICATED occurrence latch, or (b) true zero-grounding (no VERIFIED claim AND
+# no usable evidence). A clinical safety floor (all required S0 SAFETY categories disclosed as
+# gaps / zero VERIFIED safety content) does not HARD-block, but it blocks the NORMAL render and
+# ships an honest "insufficient safety evidence" report instead (operator decision, blueprint R2).
+#
+# DEFAULT OFF: PG_ALWAYS_RELEASE unset/0/false/no/off -> compute_release_outcome reproduces the
+# legacy `release_allowed` decision verbatim (byte-identical; no status/label change).
+
+# Master flag (default OFF -> legacy withhold behaviour, byte-identical). ON only on an EXPLICIT
+# truthy token (Codex slice-1 P2: a stray value like "garbage" must NOT silently enable it).
+_ENV_ALWAYS_RELEASE = "PG_ALWAYS_RELEASE"
+_ON_VALUES = frozenset({"1", "true", "yes", "on"})
+
+# Held reasons that are NON-hard: under always-release they become disclosed-gap labels, not
+# release blockers. A FABRICATED occurrence is the one held reason that is NEVER a mere label.
+_NON_HARD_HELD_REASONS = frozenset(
+    {
+        _REASON_UNSUPPORTED_RESIDUAL_BELOW_COVERAGE,
+        _REASON_PENDING_REWRITE,
+    }
+)
+
+# Status vocabulary (mirrors scripts/run_honest_sweep_r3.py UNIFIED_STATUS_VALUES; slice 1 adds
+# the two released-with-disclosure terminals — both are RELEASED, not abort).
+STATUS_SUCCESS = "success"
+STATUS_RELEASED_WITH_DISCLOSED_GAPS = "released_with_disclosed_gaps"
+STATUS_RELEASED_INSUFFICIENT_SAFETY = "released_insufficient_safety_evidence"
+STATUS_ABORT_NO_VERIFIED = "abort_no_verified_sections"
+STATUS_ABORT_FOUR_ROLE_HELD = "abort_four_role_release_held"
+STATUS_ABORT_FABRICATED = "abort_evaluator_critical"
+
+
+def is_hard_block(
+    *,
+    fabricated_occurrence_latched: bool,
+    zero_verified: bool,
+    zero_usable_evidence: bool,
+) -> bool:
+    """The canonical no-fabrication hard line (blueprint R1): a report is HARD-blocked iff a
+    FABRICATED occurrence latched OR there is true zero-grounding (no VERIFIED claim AND no usable
+    evidence). Everything else releases (with labels) under always-release."""
+    return bool(fabricated_occurrence_latched or (zero_verified and zero_usable_evidence))
+
+
+@dataclass
+class ReleaseOutcome:
+    """The always-release-aware release outcome over a D8 ``ReleaseDecision`` (I-perm-001).
+
+    ``released`` — a report ships (normal OR honest-insufficient-safety variant).
+    ``hard_block`` — the no-fabrication hard line fired; NO report ships as clean.
+    ``normal_release_blocked`` — the polished normal report is withheld (hard_block OR the clinical
+        safety floor is insufficient), but an honest report may still ship.
+    ``status`` — the terminal pipeline status.
+    ``disclosed_gaps`` — the held reasons surfaced as DISPLAYED labels (not blockers).
+    ``release_quality_score`` — the displayed coverage fraction (NOT a trap-door threshold).
+    """
+
+    released: bool
+    hard_block: bool
+    normal_release_blocked: bool
+    status: str
+    disclosed_gaps: list[str]
+    hard_block_reasons: list[str]
+    release_quality_score: float
+    safety_floor: str  # "ok" | "insufficient"
+
+
+def always_release_enabled() -> bool:
+    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+    import os
+
+    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() in _ON_VALUES
+
+
+def compute_release_outcome(
+    decision: ReleaseDecision,
+    *,
+    zero_verified: bool,
+    zero_usable_evidence: bool,
+    safety_floor_insufficient: bool,
+    coverage_fraction: float,
+    always_release: bool | None = None,
+) -> ReleaseOutcome:
+    """Map a D8 ``ReleaseDecision`` to a release outcome under the always-release reframe.
+
+    When always-release is OFF (default), reproduce the LEGACY decision verbatim: ``released`` ==
+    ``decision.release_allowed``, the held reasons stay blockers, and the status is the legacy
+    held/success label — byte-identical behaviour. When ON, convert non-hard holds to disclosed
+    gaps and release, keeping only the fabricated/zero-grounding hard line and the clinical
+    safety-floor normal-render block (blueprint R1/R2).
+    """
+    enabled = always_release_enabled() if always_release is None else always_release
+    hard_block = is_hard_block(
+        fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
+        zero_verified=zero_verified,
+        zero_usable_evidence=zero_usable_evidence,
+    )
+    hard_block_reasons: list[str] = []
+    if decision.fabricated_occurrence_latched:
+        hard_block_reasons.append(_REASON_FABRICATED_OCCURRENCE)
+    if zero_verified and zero_usable_evidence:
+        hard_block_reasons.append("zero_grounding")
+    safety_floor = "insufficient" if safety_floor_insufficient else "ok"
+
+    if not enabled:
+        # Legacy withhold path — byte-identical to `decision.release_allowed`.
+        status = STATUS_SUCCESS if decision.release_allowed else STATUS_ABORT_FOUR_ROLE_HELD
+        return ReleaseOutcome(
+            released=decision.release_allowed,
+            hard_block=not decision.release_allowed and hard_block,
+            normal_release_blocked=not decision.release_allowed,
+            status=status,
+            disclosed_gaps=[],
+            hard_block_reasons=hard_block_reasons if not decision.release_allowed else [],
+            release_quality_score=coverage_fraction,
+            safety_floor=safety_floor,
+        )
+
+    # --- always-release ON ---
+    if hard_block:
+        status = (
+            STATUS_ABORT_FABRICATED
+            if decision.fabricated_occurrence_latched
+            else STATUS_ABORT_NO_VERIFIED
+        )
+        return ReleaseOutcome(
+            released=False,
+            hard_block=True,
+            normal_release_blocked=True,
+            status=status,
+            # A hard-block reason (fabricated) is NEVER a disclosed GAP (Codex slice-1 P2): it
+            # lives in hard_block_reasons. Surface only the non-hard holds as disclosed gaps.
+            disclosed_gaps=[
+                r for r in decision.held_reasons if r != _REASON_FABRICATED_OCCURRENCE
+            ],
+            hard_block_reasons=hard_block_reasons,
+            release_quality_score=coverage_fraction,
+            safety_floor=safety_floor,
+        )
+
+    # Every remaining held reason is a DISPLAYED disclosed-gap label, not a blocker.
+    disclosed_gaps = list(decision.held_reasons)
+    if safety_floor_insufficient:
+        # Clinical safety floor: ship the honest insufficient-safety report, block normal render.
+        return ReleaseOutcome(
+            released=True,
+            hard_block=False,
+            normal_release_blocked=True,
+            status=STATUS_RELEASED_INSUFFICIENT_SAFETY,
+            disclosed_gaps=disclosed_gaps,
+            hard_block_reasons=[],
+            release_quality_score=coverage_fraction,
+            safety_floor="insufficient",
+        )
+    status = STATUS_SUCCESS if not disclosed_gaps else STATUS_RELEASED_WITH_DISCLOSED_GAPS
+    return ReleaseOutcome(
+        released=True,
+        hard_block=False,
+        normal_release_blocked=False,
+        status=status,
+        disclosed_gaps=disclosed_gaps,
+        hard_block_reasons=[],
+        release_quality_score=coverage_fraction,
+        safety_floor="ok",
+    )

@@ -1,0 +1,9 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/roles/release_policy.py:451: hard-block outcomes copy all held_reasons into disclosed_gaps, so fabricated hard blocks carry d8_fabricated_occurrence as a disclosed_gaps entry. No release bypass, but it muddies the 'never a disclosed gap' contract."
+  - "src/polaris_graph/roles/release_policy.py:393: always_release_enabled says explicit truthy only, but any non-OFF token, e.g. 'garbage', enables it. No production caller yet, but tighten before slice-2 wiring."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

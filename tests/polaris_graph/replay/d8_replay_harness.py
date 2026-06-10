@@ -44,7 +44,9 @@ from src.polaris_graph.roles.release_policy import (
     CoverageLedger,
     D8ClaimRow,
     ReleaseDecision,
+    ReleaseOutcome,
     apply_d8_release_policy,
+    compute_release_outcome,
     load_d8_policy_config,
 )
 
@@ -99,6 +101,41 @@ def verified_claims_citing(run: SavedRun, evidence_id: str) -> list[str]:
         if evidence_id in run.audit_map[claim_id].get("evidence_ids", []):
             out.append(claim_id)
     return out
+
+
+_MISSING_S0_PREFIX = "d8_s0_must_cover_missing:"
+
+
+def replay_release_outcome(
+    run: SavedRun, *, always_release: bool, template_path: Path | None = None
+) -> ReleaseOutcome:
+    """Replay the I-perm-001 always-release outcome (BLOCK -> LABEL) over a saved run.
+
+    Computes the no-fabrication hard line + the clinical safety floor from the saved verdicts:
+    ``zero_verified`` (no VERIFIED claim), ``zero_usable_evidence`` (no cited evidence at all),
+    ``safety_floor_insufficient`` (every required S0 SAFETY category is in the missing set).
+    """
+    result = replay_d8(run, template_path=template_path)
+    decision = result.decision
+    zero_verified = not any(v == _VERDICT_VERIFIED for v in run.final_verdicts.values())
+    zero_usable_evidence = not any(
+        run.audit_map.get(cid, {}).get("evidence_ids") for cid in run.final_verdicts
+    )
+    missing_s0 = {
+        reason[len(_MISSING_S0_PREFIX):]
+        for reason in decision.held_reasons
+        if reason.startswith(_MISSING_S0_PREFIX)
+    }
+    required_s0 = set(result.required_s0_categories)
+    safety_floor_insufficient = bool(required_s0) and required_s0 <= missing_s0
+    return compute_release_outcome(
+        decision,
+        zero_verified=zero_verified,
+        zero_usable_evidence=zero_usable_evidence,
+        safety_floor_insufficient=safety_floor_insufficient,
+        coverage_fraction=result.coverage_fraction,
+        always_release=always_release,
+    )
 
 
 def replay_d8(
