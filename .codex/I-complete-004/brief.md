@@ -17,17 +17,21 @@ HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
 4. **NAMED CONSTS** (LAW VI) — `PG_REQUIRED_ENTITY_DOMAINS` default = `fda.gov, dailymed.nlm.nih.gov, ema.europa.eu, nice.org.uk, who.int, drugs.com` (operator-approved clinical-authority set), plus each entity's OWN `url_pattern` host is added to the per-entity domain bias (so `ods.od.nih.gov` / `accessdata.fda.gov` / `health-products.canada.ca` entities are reachable — the default list alone cannot surface them under exact-URL coverage).
 
 ## WHAT THE LANE DOES
-Inserted in `scripts/run_honest_sweep_r3.py` immediately AFTER `fetch_compiled_frame` (~:4692) and BEFORE the `_contract_evidence_rows`/`register_frame_rows_into_evidence_pool` build (~:4747), inside the existing `PG_V30_PHASE2_ENABLED` block.
+Inserted in `scripts/run_honest_sweep_r3.py` immediately AFTER `fetch_compiled_frame` (~:4694), inside the existing `PG_V30_PHASE2_ENABLED` block, where both the contract (`_cf`/`_template`) AND the corpus (`retrieval`/`evidence_for_gen`) are in scope.
 
 For each FrameRow in `_frame_rows` that is UNSATISFIED — `provenance_class == FRAME_GAP_UNRECOVERABLE` OR (`== METADATA_ONLY` AND `len(direct_quote.strip()) < _MIN_VERIFIABLE_SPAN_CHARS`), mirroring the gap-routing test in `contract_section_runner.py:370-386`:
-1. Build targeted queries from `(intervention anchor, entity term)` — e.g. `"<intervention> contraindications"`, `"<intervention> dosing"`, `"<intervention> safety adverse"` — biased to `PG_REQUIRED_ENTITY_DOMAINS` ∪ {entity's own url_pattern host} via the EXISTING `domains=[...]` → `site:` mechanism (`search_agent._serper_search_sync:513-516`). (Built for telemetry/corpus discovery; capped.)
-2. RE-FETCH the entity's OWN canonical `url_pattern` through `fetch_frame_entity` (reuses AccessBypass/Zyte — `frame_fetcher.py:973`), which re-binds to the SAME `entity_id` with the ACTUAL resolved URL. If the re-fetch now yields a non-gap FrameRow with a verifiable span, REPLACE the gap row in `_frame_rows`. Otherwise leave the gap row untouched.
+1. Build targeted queries from `(intervention anchor, entity term)` — e.g. `"<intervention> contraindications"`, `"<intervention> dosing"`, `"<intervention> safety adverse"` — biased to `PG_REQUIRED_ENTITY_DOMAINS` ∪ {entity's own url_pattern host} via the EXISTING `domains=[...]` → `site:` mechanism (`search_agent._serper_search_sync:513-516`). **CONSUME** the search output to collect candidate authoritative URLs (capped).
+2. FETCH the collected candidate URLs through the EXISTING live retriever (`run_live_retrieval(seed_urls=..., seed_only=True, anchor_seed=False)` — same AccessBypass/Zyte chokepoint, NO Serper/S2 fan-out; the deepener/gap precedent at `live_retriever.py:2766-2786`), producing canonical evidence rows with REAL fetched URLs.
+3. MERGE the fetched rows into the corpus (`evidence_for_gen` + `retrieval.evidence_rows`) with the SAME canonical-URL dedup + global `evidence_id` renumber the saturation gap-round uses (`run_honest_sweep_r3.py:5105-5139`).
 
-Result flows through the EXISTING `_contract_evidence_rows` build + `register_frame_rows_into_evidence_pool` + `generate_multi_section_report` → `strict_verify` → 4-role `_entity_canonical_match`. No new verify path.
+Result: the generator (`generate_multi_section_report` → `strict_verify`) can now write VERIFIED contraindication/dosing claims from the newly-present authoritative content. The FrameRow is NEVER mutated; the must-cover slot stays a gap-disclosure if no verifiable evidence is found.
+
+## HONEST SCOPE (stated finding — verify, don't discover)
+The 4-role coverage gate for url-pattern regulatory entities requires `record.url == entity.url_pattern` EXACTLY (`_entity_canonical_match`, operator-locked, NOT touched). Injecting an ALTERNATE authoritative URL therefore CANNOT flip THAT entity's 4-role coverage. The lane's value is getting authoritative SAFETY CONTENT into the corpus so the generator can make VERIFIED claims (directly addressing #1190's "absent from the cited research corpus"). It flips 4-role coverage only for DOI/PMID-keyed entities, or when the entity's exact `url_pattern` is itself among the fetched URLs — NOT for the url-pattern regulatory entity class as a rule. This is a deliberate faithfulness boundary, not a defect.
 
 ## FILES
-- NEW `src/polaris_graph/retrieval/required_entity_retrieval.py` — pure helpers + DI'd orchestrator (search_fn, fetch_fn injected; NO network in tests).
-- EDIT `scripts/run_honest_sweep_r3.py` — env-gated call to the lane at the seam.
+- NEW `src/polaris_graph/retrieval/required_entity_retrieval.py` — pure helpers + DI'd orchestrator (search_fn, retrieval_fn injected; NO network in tests; returns fetched rows, NEVER keyed to entity_id).
+- EDIT `scripts/run_honest_sweep_r3.py` — env-gated lane call + corpus merge at the seam.
 - NEW `tests/polaris_graph/test_required_entity_retrieval.py` — offline.
 
 ## Files I have ALSO checked and they're clean
@@ -38,10 +42,10 @@ Result flows through the EXISTING `_contract_evidence_rows` build + `register_fr
 - `strict_verify` / `multi_section_generator.py` — UNCHANGED, NOT touched.
 
 ## TESTS (offline, no network)
-(a) targeted query built with authoritative-domain bias (default ∪ entity host) for a missing entity;
-(b) lane finds NO verifiable evidence (fetch_fn returns gap) → FrameRow stays the gap (no fabrication, no relabel);
-(c) `PG_REQUIRED_ENTITY_RETRIEVAL` OFF → lane is a no-op AND no search_fn/fetch_fn is called (byte-identical);
-(d) §-1.1: a re-fetch that yields content whose resolved URL ≠ the entity's `url_pattern` is NOT relabeled to the entity's canonical URL (provenance honesty) — the satisfied row carries its REAL url.
+(a) targeted query built with authoritative-domain bias (default ∪ entity host) for a missing entity; label_name-anchor priority; host extraction; domain override;
+(b) lane finds NO candidate URLs → NO evidence injected AND retrieval NEVER called (no fabrication, no wasted fetch); candidates found → rows fetched seed-only with honest labels and returned for merge;
+(c) `PG_REQUIRED_ENTITY_RETRIEVAL` OFF → `lane_enabled()` False; already-satisfied frame rows never searched/fetched;
+(d) §-1.1: a fetched corpus row carries its REAL fetched URL, is NOT keyed to any entity_id, is NOT relabeled with the entity's `url_pattern`, and FAILS exact-equality coverage on an alternate URL (provenance honesty — the operator-locked gate cannot be tricked).
 
 ## SCHEMA
 ```yaml

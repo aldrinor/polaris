@@ -5,51 +5,64 @@ PURPOSE
 Some clinical must-cover S0 safety entities (contraindications, dosing limits,
 boxed warnings, regulatory status) live on drug-label / guideline pages
 (DailyMed, accessdata.fda.gov, EMA, NICE, Health Canada, NIH ODS) that the
-generic Serper/S2 research corpus rarely surfaces. When the V30 Phase-2 frame
-fetch (`fetch_compiled_frame`) returns those entities as GAPS, the contract
-slot honestly gap-discloses — but the gap recurs across clinical questions and
-holds the 4-role release gate (`four_role_held`).
+generic Serper/S2 research corpus rarely surfaces. When that content is absent
+from the cited corpus, the report cannot make verified contraindication/dosing
+claims and the must-cover slots gap-disclose — the recurring cause of
+`four_role_held` on clinical questions (#1188 + canary diagnosis).
 
-This lane is a SECOND-CHANCE, ENV-GATED retry on EXACTLY the must-cover entities
-that came back unsatisfied. For each unsatisfied entity it:
+This lane is an ENV-GATED, additive retry. For each must-cover entity that is
+STILL unsatisfied after the normal V30 frame fetch, it:
 
-1. Builds TARGETED search queries (intervention anchor x entity safety term)
+1. Builds TARGETED safety queries (intervention anchor x entity safety term)
    biased to an authoritative clinical-authority domain set UNION the entity's
-   OWN ``url_pattern`` host — for corpus discovery + telemetry.
-2. RE-FETCHES the entity's OWN canonical ``url_pattern`` through the existing
-   deterministic ``fetch_frame_entity`` (AccessBypass/Zyte chokepoint). If the
-   re-fetch now yields a non-gap FrameRow with a verifiable span, the gap row is
-   REPLACED in place; otherwise the gap row is left untouched.
+   OWN ``url_pattern`` host, and fires them through ``search_fn`` (Serper) to
+   DISCOVER candidate authoritative URLs.
+2. FETCHES the discovered candidate URLs through the EXISTING live-retrieval
+   pipeline (``retrieval_fn`` = ``run_live_retrieval`` with ``seed_urls`` +
+   ``seed_only=True`` — the same AccessBypass/Zyte chokepoint, no Serper/S2
+   fan-out), producing canonical evidence rows that carry their REAL fetched
+   URLs.
+3. RETURNS those evidence rows so the caller MERGES them into the corpus
+   (``evidence_for_gen``) — exactly like the saturation gap-round merge.
 
 FAITHFULNESS (§-1.1 — LETHAL otherwise)
 =======================================
-The lane CANNOT fabricate or force a slot. It only re-binds an entity to content
-fetched from THAT ENTITY'S OWN canonical ``url_pattern`` — so the satisfied
-FrameRow always carries the entity's REAL resolved URL, never a relabel of
-foreign content (the citation-faithfulness lie). All downstream gating is
-UNCHANGED: the slot fills only if the new evidence passes the SAME strict_verify
-and the SAME EXACT-equality ``_entity_canonical_match`` in the 4-role gate. An
-entity with no verifiable authoritative content stays the gap it already was.
+The discovered rows are injected as ORDINARY corpus evidence carrying their REAL
+fetched URLs — they are NEVER keyed to an entity_id and NEVER relabeled with an
+entity's canonical ``url_pattern`` (the citation-faithfulness lie). All
+downstream gating is UNCHANGED: the generator can fill a must-cover slot ONLY if
+the new evidence passes the SAME strict_verify, and the 4-role coverage gate
+(`_entity_canonical_match`, operator-locked, NOT touched here) still requires
+EXACT canonical-identifier equality. An entity with no verifiable authoritative
+content stays the gap-disclosure it already was — no fabrication, no forced
+coverage.
 
-The targeted SEARCH results are NOT injected as the entity's coverage evidence
-(that would risk relabeling); search is for discovery/telemetry only. Coverage
-re-binding happens ONLY via the entity's own ``url_pattern`` re-fetch.
+HONEST SCOPE
+============
+Because the 4-role coverage gate for url-pattern regulatory entities requires
+``record.url == entity.url_pattern`` EXACTLY, injecting an ALTERNATE authoritative
+URL CANNOT flip that specific entity's coverage. What this lane does is get the
+authoritative SAFETY CONTENT into the corpus so the generator can write VERIFIED
+contraindication / dosing claims (directly addressing #1190's "absent from the
+cited research corpus"). It flips 4-role coverage only for DOI/PMID-keyed
+entities, or when the entity's exact ``url_pattern`` is itself among the fetched
+URLs — not for the url-pattern regulatory entity class as a rule.
 
 PURITY / TESTABILITY
 ====================
-``run_required_entity_lane`` takes the search and fetch callables by DEPENDENCY
-INJECTION (``search_fn`` / ``fetch_fn``). Production wires the real Serper search
-and ``fetch_frame_entity``; tests pass deterministic stubs. NO network here.
+``run_required_entity_lane`` takes the search and retrieval callables by
+DEPENDENCY INJECTION (``search_fn`` / ``retrieval_fn``). Production wires the
+real Serper search and ``run_live_retrieval``; tests pass deterministic stubs.
+NO network in this module. The caller owns the env gate and the corpus merge.
 """
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
-from src.polaris_graph.nodes.frame_compiler import EvidenceBinding
 from src.polaris_graph.retrieval.frame_fetcher import FrameRow, ProvenanceClass
 
 logger = logging.getLogger(__name__)
@@ -61,7 +74,7 @@ _LANE_ENABLED_ENV = "PG_REQUIRED_ENTITY_RETRIEVAL"
 # The operator-approved clinical-authority set. Each entity's OWN url_pattern
 # host is UNIONed onto this per-entity so url-only-canonical entities
 # (ods.od.nih.gov, accessdata.fda.gov, health-products.canada.ca) are reachable
-# under the EXACT-equality coverage rule the default list alone cannot satisfy.
+# in the targeted search (the default list alone does not cover them).
 _REQUIRED_ENTITY_DOMAINS_ENV = "PG_REQUIRED_ENTITY_DOMAINS"
 _DEFAULT_REQUIRED_ENTITY_DOMAINS: tuple[str, ...] = (
     "fda.gov",
@@ -82,6 +95,9 @@ _DEFAULT_MAX_ENTITIES = 12
 # Max search results requested per targeted query (discovery width).
 _MAX_RESULTS_PER_QUERY_ENV = "PG_REQUIRED_ENTITY_MAX_RESULTS_PER_QUERY"
 _DEFAULT_MAX_RESULTS_PER_QUERY = 5
+# Max candidate URLs FETCHED per entity (the billed fetch cap for this lane).
+_MAX_SEED_URLS_PER_ENTITY_ENV = "PG_REQUIRED_ENTITY_MAX_SEED_URLS_PER_ENTITY"
+_DEFAULT_MAX_SEED_URLS_PER_ENTITY = 3
 
 # --- minimum verifiable span (mirrors contract_section_runner default) --------
 # A METADATA_ONLY row whose direct_quote is shorter than this has no verifiable
@@ -106,21 +122,25 @@ _GENERIC_SAFETY_TERMS: tuple[str, ...] = (
     "dosing",
 )
 
+# Caller-supplied source/origin labels so the merged rows are honestly tagged
+# as required-entity-lane discoveries (not mislabeled as primary-trial seeds).
+SEED_SOURCE_LABEL = "required_entity_lane"
+SEED_QUERY_ORIGIN = "required_entity_targeted_search"
 
-@dataclass(frozen=True)
+
+@dataclass
 class RequiredEntityLaneResult:
     """Outcome of one lane invocation (for the manifest / audit trail).
 
-    ``frame_rows`` is the (possibly updated) tuple, in the SAME order as the
-    input; ``satisfied_entity_ids`` lists entities whose gap row was replaced by
-    a verified re-fetch; ``attempted_entity_ids`` lists every entity the lane
-    tried (gap-or-near-empty). All counts are deterministic.
+    ``evidence_rows`` are the NEWLY fetched corpus rows (real fetched URLs) the
+    caller merges into ``evidence_for_gen``. The lane NEVER mutates the frame
+    rows. All counts are deterministic.
     """
 
-    frame_rows: tuple[FrameRow, ...]
-    attempted_entity_ids: tuple[str, ...]
-    satisfied_entity_ids: tuple[str, ...]
-    queries_by_entity: Mapping[str, tuple[str, ...]]
+    evidence_rows: list[dict[str, Any]] = field(default_factory=list)
+    attempted_entity_ids: tuple[str, ...] = ()
+    queries_by_entity: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    seed_urls: tuple[str, ...] = ()
 
 
 def lane_enabled() -> bool:
@@ -260,56 +280,70 @@ def _domains_for_entity(entity: Mapping[str, Any]) -> list[str]:
     return domains
 
 
+def _result_url(hit: Any) -> str:
+    """Extract a candidate URL from a single Serper result row (or raw string)."""
+    if isinstance(hit, str):
+        return hit.strip()
+    if isinstance(hit, Mapping):
+        for key in ("url", "link"):
+            value = hit.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
 def run_required_entity_lane(
     *,
     frame_rows: Sequence[FrameRow],
-    bindings_by_entity_id: Mapping[str, EvidenceBinding],
     entity_meta_by_id: Mapping[str, Any],
     entity_cfg_by_id: Mapping[str, Mapping[str, Any]],
     research_question: str,
     scope_overrides: Optional[Mapping[str, Any]],
     search_fn: Callable[..., Any],
-    fetch_fn: Callable[[EvidenceBinding], FrameRow],
+    retrieval_fn: Callable[..., Any],
 ) -> RequiredEntityLaneResult:
     """Run the targeted required-entity lane (ENV-GATED by the CALLER).
 
     For each UNSATISFIED FrameRow:
-      1. Build + fire targeted authoritative-domain-biased search queries
-         (corpus discovery / telemetry; capped per-entity and total-entities).
-      2. RE-FETCH the entity's OWN ``url_pattern`` via ``fetch_fn`` (re-binds to
-         the SAME entity_id with the ACTUAL resolved URL). If the re-fetch is
-         now SATISFIED (a verifiable span), REPLACE the gap FrameRow; else leave
-         it untouched.
+      1. Build + fire targeted authoritative-domain-biased search queries via
+         ``search_fn(query, domains=, max_results=)`` and COLLECT the candidate
+         URLs (capped per-entity and total-entities).
+      2. FETCH the collected candidate URLs through ``retrieval_fn`` (the live
+         retriever) with ``seed_urls`` + ``seed_only=True`` — same Zyte
+         chokepoint, no Serper/S2 fan-out — producing canonical evidence rows
+         carrying their REAL fetched URLs.
 
-    DEPENDENCY INJECTION: ``search_fn(query, *, domains, max_results)`` and
-    ``fetch_fn(binding) -> FrameRow`` are injected so this is pure / offline-
-    testable. The caller is responsible for the env gate (``lane_enabled()``).
+    Returns the NEWLY fetched evidence rows for the CALLER to merge into the
+    corpus (dedup + evidence_id renumber, like the saturation gap-round). The
+    lane NEVER mutates ``frame_rows`` and NEVER keys a row to an entity_id, so a
+    fetched row can never be relabeled as the entity (provenance honesty).
 
-    FAITHFULNESS: the satisfied FrameRow is whatever ``fetch_fn`` returns for the
-    entity's OWN binding — its ``url`` is the entity's real resolved URL. Search
-    results are NOT relabeled as the entity's coverage evidence.
+    DEPENDENCY INJECTION: ``search_fn`` and ``retrieval_fn`` are injected so this
+    is pure / offline-testable. The caller owns the env gate (``lane_enabled()``).
     """
-    rows = list(frame_rows)
     max_entities = _bounded_int_env(_MAX_ENTITIES_ENV, _DEFAULT_MAX_ENTITIES)
     max_results = _bounded_int_env(
         _MAX_RESULTS_PER_QUERY_ENV, _DEFAULT_MAX_RESULTS_PER_QUERY
     )
+    max_seed_urls = _bounded_int_env(
+        _MAX_SEED_URLS_PER_ENTITY_ENV, _DEFAULT_MAX_SEED_URLS_PER_ENTITY
+    )
     floor = _min_verifiable_span_chars()
 
     attempted: list[str] = []
-    satisfied: list[str] = []
     queries_by_entity: dict[str, tuple[str, ...]] = {}
+    seed_urls: list[str] = []
+    seen_seed: set[str] = set()
 
-    for index, row in enumerate(rows):
+    for row in frame_rows:
         if len(attempted) >= max_entities:
             break
         if not frame_row_is_unsatisfied(row, min_span_chars=floor):
             continue
         entity_id = row.entity_id
-        binding = bindings_by_entity_id.get(entity_id)
         entity_cfg = entity_cfg_by_id.get(entity_id)
-        if binding is None or entity_cfg is None:
-            # No binding/config to re-fetch from — cannot act faithfully; skip.
+        if entity_cfg is None:
+            # No config to anchor the targeted query on — cannot act; skip.
             continue
         attempted.append(entity_id)
 
@@ -323,44 +357,72 @@ def run_required_entity_lane(
         )
         queries_by_entity[entity_id] = queries
 
-        # (1) Targeted authoritative-domain-biased search — discovery/telemetry.
-        # We do NOT bind these results as the entity's coverage evidence (that
-        # would risk relabeling foreign content as the canonical entity). Errors
-        # are non-fatal: discovery is best-effort, coverage comes from the
-        # url_pattern re-fetch below.
+        # (1) Targeted authoritative-domain-biased search -> DISCOVER candidate
+        # URLs (consume the search output). Errors are non-fatal: a failed query
+        # simply yields no candidates for that entity.
         domains = _domains_for_entity(entity_cfg)
+        entity_urls: list[str] = []
         for query in queries:
             try:
-                search_fn(query, domains=domains, max_results=max_results)
+                hits = search_fn(query, domains=domains, max_results=max_results)
             except Exception:  # noqa: BLE001 — discovery is best-effort
                 logger.warning(
-                    "required_entity_lane: search failed for entity=%s query=%r "
-                    "(continuing to url_pattern re-fetch)",
+                    "required_entity_lane: search failed for entity=%s query=%r",
                     entity_id,
                     query,
                 )
+                continue
+            for hit in hits or []:
+                url = _result_url(hit)
+                if not url or url in seen_seed:
+                    continue
+                seen_seed.add(url)
+                entity_urls.append(url)
+                if len(entity_urls) >= max_seed_urls:
+                    break
+            if len(entity_urls) >= max_seed_urls:
+                break
+        seed_urls.extend(entity_urls)
 
-        # (2) Re-fetch the entity's OWN url_pattern -> re-binds to the SAME
-        # entity_id with the REAL resolved URL. Faithful: never relabel.
-        try:
-            refetched = fetch_fn(binding)
-        except Exception:  # noqa: BLE001 — a failed re-fetch leaves the gap
-            logger.warning(
-                "required_entity_lane: re-fetch raised for entity=%s; leaving gap",
-                entity_id,
-            )
-            continue
-        if refetched is None or refetched.entity_id != entity_id:
-            # Defensive: a re-fetch that does not bind back to the entity is
-            # discarded (never silently mis-attributed).
-            continue
-        if not frame_row_is_unsatisfied(refetched, min_span_chars=floor):
-            rows[index] = refetched
-            satisfied.append(entity_id)
+    if not seed_urls:
+        return RequiredEntityLaneResult(
+            evidence_rows=[],
+            attempted_entity_ids=tuple(attempted),
+            queries_by_entity=queries_by_entity,
+            seed_urls=(),
+        )
 
+    # (2) FETCH the discovered URLs through the existing live retriever, seed-only
+    # (no Serper/S2 fan-out), so each candidate is fetched + classified through
+    # the SAME chokepoint and emerges as a canonical evidence row with its REAL
+    # url. A retrieval failure leaves the corpus unchanged (best-effort).
+    try:
+        result = retrieval_fn(
+            research_question=research_question,
+            amplified_queries=[],
+            seed_urls=list(seed_urls),
+            seed_only=True,
+            seed_source=SEED_SOURCE_LABEL,
+            seed_query_origin=SEED_QUERY_ORIGIN,
+            anchor_seed=False,
+        )
+    except Exception:  # noqa: BLE001 — a failed fetch leaves the corpus as-is
+        logger.warning(
+            "required_entity_lane: live-retrieval fetch raised for %d seed urls; "
+            "leaving corpus unchanged",
+            len(seed_urls),
+        )
+        return RequiredEntityLaneResult(
+            evidence_rows=[],
+            attempted_entity_ids=tuple(attempted),
+            queries_by_entity=queries_by_entity,
+            seed_urls=tuple(seed_urls),
+        )
+
+    evidence_rows = list(getattr(result, "evidence_rows", []) or [])
     return RequiredEntityLaneResult(
-        frame_rows=tuple(rows),
+        evidence_rows=evidence_rows,
         attempted_entity_ids=tuple(attempted),
-        satisfied_entity_ids=tuple(satisfied),
         queries_by_entity=queries_by_entity,
+        seed_urls=tuple(seed_urls),
     )
