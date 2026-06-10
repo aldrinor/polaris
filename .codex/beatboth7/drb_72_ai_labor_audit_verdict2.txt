@@ -1,0 +1,4 @@
+verdict_beat_chatgpt: false
+verdict_beat_gemini: true
+polaris_fabrication_found: false
+rationale: POLARIS is more span-faithful than Gemini, which has visible mismatches and unsupported excursions, but POLARIS is too redacted and incomplete to beat ChatGPT’s broader coverage. Several POLARIS claims are partial or unsupported overextensions, but no direct cited-span contradiction or nonexistent numeric anchor was found.

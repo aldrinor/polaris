@@ -1,0 +1,4 @@
+verdict_beat_chatgpt: true
+verdict_beat_gemini: true
+polaris_fabrication_found: false
+rationale: POLARIS provides claim-level citation bindings and explicit redactions/gap language, but the actual cited evidence spans are not present in the brief, so unsupported/fabricated findings cannot be established from the supplied text alone. ChatGPT and Gemini make broader clinical and device-management claims without per-claim spans, with Gemini adding more over-specific and time-sensitive assertions.

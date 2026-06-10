@@ -1,0 +1,1193 @@
+§-1.1 LINE-BY-LINE AUDIT — drb_90_adas_liability. CRITICAL RULES: DO NOT use web search or ANY tool. Audit ONLY the text in THIS brief. Go claim-by-claim. Your ENTIRE response must be ONLY the final verdict block below — do not narrate. Clinical: a wrong dose/contraindication is lethal.
+
+VERDICT LEGEND (§-1.1):
+- VERIFIED: claim fully supported by its cited evidence span.
+- PARTIAL: claim partially supported; some element unsupported or overstated.
+- UNSUPPORTED: claim not supported by its cited span.
+- FABRICATED: claim contradicted by, or absent from, all cited evidence (invented).
+- UNREACHABLE: cited evidence span missing/empty/cannot be checked.
+
+Audit method: For POLARIS, verify EACH claim in the report against its matching cited evidence span in the PER-CLAIM CITED SPANS JSON below. A POLARIS fabrication = any report claim that is FABRICATED or UNSUPPORTED against its own cited span. For ChatGPT and Gemini, you have the report text only (no per-claim spans) — judge internal consistency, plausibility, hedging, and whether claims are self-evidently fabricated/over-claimed. "Beat" = POLARIS is more faithful (fewer fabrications/unsupported claims, better grounding) than that competitor on this question.
+
+=== POLARIS REPORT ===
+## Key Findings
+
+_Each finding below is a verbatim, span-verified statement carried up from the body section named in bold; citations are the body's._
+
+- **Technical_Standard.** ### SAE J3016 driving-automation levels and the human-machine boundary
+
+Level 5:
+Full Driving Automation.[1]
+- **Legal_Framework.** 157 - Automated Lane Keeping Systems (ALKS).[2]
+- **Background.** The Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems.[1]
+- **Key Findings.** In the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States.[15]
+- **Evidence and Analysis.** The EU’s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties.[15][24]
+- **Comparative Assessment.** A key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement.[17][9]
+
+### SAE J3016 driving-automation levels and the human-machine boundary
+
+Level 5:
+Full Driving Automation.[1] Standard id: J3016_202104.[1] The SAE J3016_202104 standard defines six levels of driving automation.[1] Level 0 is No Driving Automation.[1] In contrast, Level 1 is Driver Assistance.[1] Level 0 and Level 1 are No Driving Automation and Driver Assistance, respectively.[1] Finally, Level 5 is Full Driving Automation.[1] These are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation, respectively.[1] Although Level 0 is No Driving Automation, Level 1 is Driver Assistance.[1] In contrast, Level 2 is Partial Driving Automation, whereas Level 3 is Conditional Driving Automation.[1] The taxonomy's six levels are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation.[1]
+
+### UNECE WP.29 ALKS regulation (system-vs-driver responsibility)
+
+Instrument: UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS).[2] UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) is the instrument identified in the primary source.[2] The subject matter is Automated Lane Keeping Systems.[2] In contrast, the regulation’s title clearly indicates its focus on automated lane keeping.[2] The regulation’s full designation is UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS).[2] The regulation, UN Regulation No. 157, addresses Automated Lane Keeping Systems.[2]
+
+### NHTSA automated-driving-systems policy and crash-reporting order
+
+Scope: Entities named in the General Order.[3] Issuing agency: NHTSA.[3] The scope of this order is precisely defined, applying exclusively to entities named in the General Order.[3] However, the reporting obligation is not triggered for every crash involving those entities; it is conditional upon specific temporal and outcome-based criteria.[3] Alternatively, the obligation arises if the crash involved a vulnerable road user being struck.[3] In contrast, a crash that does not meet these consequence thresholds, even if ADS was active within the 30-second window, would not require reporting under the order.[3] The reporting criteria also encompass an air bag deployment.[3] Finally, any individual being transported to a hospital for medical treatment as a result of the crash mandates a report.[3] By comparison, crashes where ADS was not in use within 30 seconds, or where the damage is below the specified property damage threshold, fall outside the mandatory reporting scope.[3]
+
+### Product-liability / negligence doctrine for ADAS manufacturers
+
+Defect categories: manufacturing defects; design defects; and inadequate instructions or warnings defects.[4]
+
+### Relevant ADAS / automated-feature crash-liability case law
+
+Contract-bound content for adas_crash_case_law did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[5]
+
+### Proposed regulatory guidelines and liability-allocation recommendations
+
+Contract-bound content for proposed_regulatory_guidelines did not survive strict verification against retrieved primary source text; this slot is a curator-actionable gap. See manifest.frame_coverage_report and human_gap_tasks.json for per-entity detail.[6]
+
+### Background
+
+The Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems.[1] Active safety systems such as electronic stability control (ESC) and automatic emergency braking (AEB) are excluded from this taxonomy because they provide only momentary intervention rather than sustained performance of the dynamic driving task (DDT).[1] Common ADAS functions include adaptive cruise control (ACC), blind spot detection (BSD), lane departure warning/lane keeping systems (LDW/LKS), intelligent headlamp control (IHC), and emergency brake assist (EBA).[7] Large-scale crash statistics indicate that among 7.7 million vehicles manufactured between 2015 and 2023, ADAS-equipped cars experienced on average a 27% reduction in forward-collision crashes and an 11% reduction in lane-departure crashes.[8] Blind Spot Monitoring (BSM) systems are estimated to reduce lane-change crashes by 14% and lane-change crashes with injuries by 23%.[9] For example, lane departure warning (LDW) systems were found to be turned off in 67.2% of observed vehicles due to lack of trust and excessive false alarms.[10] Camera-based DMS have been shown to detect driver distraction approximately 50 seconds sooner than steering-wheel-based DMS, and users of steering-wheel DMS were able to engage in 5.65 minutes of continuous distracted driving before an alert, compared to 2.25 minutes for camera-based DMS.[11] The increasing complexity of ADAS and automated driving systems has prompted the development of specialized accident investigation frameworks, such as a comprehensive system proposed in China that integrates traffic accident boundary analysis, control action safety analysis, and causal scene restoration.[12] To evaluate ADAS safety effectiveness, researchers have identified 94 influence parameters from sources including published literature, standardized tests, accident databases, and autonomous vehicle disengagement reports, with 77 parameters assigned importance levels through cluster analysis.[13] Driver drowsiness remains a significant safety concern, with the World Health Organization reporting approximately 1.35 million traffic-related deaths annually, and research indicating that steering wheel angle variability increases from 0.5–1.5° in alert drivers to 2–5° in fatigued states.[14] If the driver does not fully understand the capabilities and limitations of the system, this might lead to mode confusion and can cause surprises for the driver.[9] In the European Union, several SAE Level 0 ADAS will be mandatory by 2022, while no automated driving technology is yet permitted on the EU market.[9]
+
+### Key Findings
+
+In the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States.[15] This verdict signals a shift toward manufacturer accountability for AI driving systems.[16] NHTSA investigations have identified patterns of failures in Tesla's ADAS, including a probe of 2.4 million vehicles for crashes at intersections and emergency vehicle collisions, and a subsequent probe of 2.88 million vehicles involving 58 traffic violation reports, 14 crashes, and 23 injuries.[16] One analysis argues that semi-autonomous systems create a collaborative driving endeavor, and that automakers' marketing efforts to gain public trust may render them primarily liable when that trust is misplaced, with a reduction for the driver's comparative fault.[17] The opacity of AI decision-making and the 'problem of many hands'—diffusion of responsibility among multiple actors—create a liability gap that traditional tort frameworks struggle to address.[18] A growing body of policy analysis advocates for strict liability for high-risk AI systems, with proposals ranging from a single responsible operator under EU law to no-fault insurance schemes.[15].[18][19] One scholar proposes extending strict products liability to defective software components in autonomous vehicles, treating software creators as strictly liable for injuries caused by dangerously defective code.[20] A law and economics analysis suggests that negligence-based rules can efficiently accommodate AV-human interactions, but require substantial doctrinal reforms, including reconceptualization of fault standards for both AVs and human drivers.[21] Jurisdictional approaches vary: Michigan's product liability statutes govern claims involving defective ADAS, Louisiana applies a comparative fault system to apportion liability between driver and manufacturer, and the UK's Automated and Electric Vehicles Act 2018 explicitly addresses liability for accidents resulting from unauthorized software alterations or failure to update software.[22][23][16]
+
+### Evidence and Analysis
+
+The EU’s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties.[15][24] In China, the undefined legal status of autonomous driving systems has prompted the development of a comprehensive accident investigation system that integrates boundary analysis, control action safety assessment, and causal scene restoration to allocate responsibility.[12] US legal scholarship argues that automakers’ marketing of ADAS features fosters driver trust, and when that trust is misplaced, products liability law supports primary manufacturer liability with a potential reduction for the driver’s comparative fault, rather than placing full responsibility on the human operator.[17] The revised PLD is an EU instrument for AI-related harm[15][24]
+
+### Comparative Assessment
+
+A key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement.[17][9] Under U.S. products liability law, automakers may face primary liability for ADAS failures, though the driver's comparative fault can reduce recovery[17][22] Legal scholars debate whether the human driver or the manufacturer bears responsibility when supervised autonomy fails in semi-autonomous vehicles.[17]
+
+### Implications
+
+In the United Kingdom, the Automated and Electric Vehicles Act 2018 addresses liability for accidents caused by automated vehicles, including those resulting from unauthorized software alterations or failure to update software.[16] Texas has legislatively limited lessors’ liability for failing to retrofit optional safety systems, provided the vehicle met federal standards at purchase.[25] Empirical evidence from a survey of 260 drivers indicates that collision avoidance performance and system reliability are the strongest predictors of user trust, while road safety impact emerges as an independent societal benefit.[26] On the cost side, an Italian analysis estimates that an average ADAS investment of €1,629 per vehicle yields nationwide savings of €1.89 billion in 2024, with most systems becoming cost-effective within two to three years.[27] Daimler Trucks North America was granted summary judgment in a lawsuit.[25] However, the technology’s safety promise is tempered by the emergence of algorithmic negligence as a liability.[16]
+
+### Limitations
+
+For driver monitoring systems, reported performance is highly protocol-dependent, and the lack of standardized benchmarks and cross-dataset validation makes cross-study accuracy comparisons misleading.[14] The shift from driver to vehicle control complicates liability attribution; evidence from aviation and early AV incidents suggests that human operators may become a “moral crumple zone,” blamed even when system design is a contributing factor.[19] The lack of integrated, context-rich data from connected vehicles hinders user-centered evaluation of ADAS; data are often siloed within engineering departments and not readily accessible to design teams.[28] The complexity of AV software, with estimates of up to 300 million lines of code, far exceeds that of aircraft, yet current algorithms often achieve only 95–98% reliability, whereas safety-critical functions may require 99.9999% reliability.[29]
+
+Limitations: The corpus is heavily skewed toward sources of unknown provenance, with 81% of documents lacking a tier classification and only 2% originating from T1 primary studies, limiting confidence in the evidence base. Two high-severity contradictions were detected: sources disagree on accuracy (relative difference 132.6%) and on ttr (relative difference 1342.0%), indicating substantial conflict in key metrics. The evidence horizon spans from 2015-01-01 to the present, which may exclude earlier foundational work.
+
+## Methods
+Pre-registered protocol.json (SHA-256 268348acaf5d352c...).
+Corpus: Serper + Semantic Scholar + OpenAlex live retrieval, augmented by domain backends (policy: domain_backends(policy): {'serper_policy': 20}).
+Retrieval fetch outcome: 464 of 740 candidate sources fetched; 276 failed or timed out.
+Generator model: deepseek/deepseek-v4-pro (multi-section: outline + 10 parallel sections + strict_verify + regen-on-failure).
+Evaluator model: google/gemma-4-31b-it (different family).
+Sources classified using T1-T7 tier taxonomy.
+Inclusion / exclusion per policy template. Sponsor / conflict-of-interest review per source.
+Prompt-injection sanitization enabled. Retrieved 2026-06-10.
+Expected tier distribution: T3 35-70%, T1 10-30%, T2 5-25%, T6 5-25%, T4 0-15%, T5 0-10%, T7 0-5%. Actual distribution: T1=2%, T3=1%, T4=5%, T5=0%, T6=4%, T7=5%, UNKNOWN=82%.
+Corpus adequacy: decision=proceed, 8/8 thresholds met.
+Completeness checklist: 6/6 topics covered.
+
+## Capability disclosures
+Quantified trade-off analysis was ENABLED but did not contribute to this report (no verified quantified output); 249 sourced numbers were extracted but not modeled into a verified quantified comparison.
+
+## Contradiction disclosures
+The contradiction detector flagged 2 numeric disagreements across the evidence pool. Most are extraction artifacts produced by grouping different measured endpoints, units, sub-populations, time windows, or comparators under the same subject/predicate label. The detector does NOT adjudicate by endpoint, population, timepoint, or source tier; raw detector output is available in `contradictions.json`. Per-flag enumeration (PT08 disclosure):
+
+- unknown / accuracy: cited values range 43.0 to 100.0 % (source tiers: UNKNOWN).
+- unknown / ttr: cited values range 6.9 to 99.5 % (source tiers: T4, UNKNOWN, T1, T6).
+
+Claims made in the body of this report are individually bound to their cited evidence IDs via the strict-verify gate, so the reader can trace any specific numeric discrepancy to its source regardless of detector granularity.
+
+
+## Bibliography
+[1] sae_j3016_automation_levels — https://www.sae.org/standards/content/j3016_202104/ (tier T1)
+[2] unece_alks_regulation_framework — https://unece.org/transport/documents/2021/03/standards/un-regulation-no-157-automated-lane-keeping-systems-alks (tier T1)
+[3] nhtsa_ads_policy_framework — https://www.nhtsa.gov/laws-regulations/standing-general-order-crash-reporting (tier T1)
+[4] product_liability_doctrine — https://www.ali.org/publications/restatement-law-third/torts-third (tier T1)
+[5] adas_crash_case_law — https://www.courtlistener.com/docket/59932667/benavides-v-tesla-inc/ (tier T1)
+[6] proposed_regulatory_guidelines — https://www.ntsb.gov/Advocacy/mwl/Pages/mwl-22-23/mwl-hs.aspx (tier T1)
+[7] Analysis of Advanced Driver-Assistance Systems for Safe and ... - PMC — https://pmc.ncbi.nlm.nih.gov/articles/PMC11479187/ (tier T1)
+[8] Classifying Advanced Driver Assistance System (ADAS) Activation ... — https://pmc.ncbi.nlm.nih.gov/articles/PMC12526685/ (tier T4)
+[9] [PDF] Road Safety Thematic Report Advanced driver assistance systems — https://road-safety.transport.ec.europa.eu/document/download/d786ded1-66ce-4571-95e5-1ff38fff5c74_en?filename=Road_Safety_Thematic_Report_ADAS_2021.pdf (tier T3)
+[10] [PDF] Cause-and-Effect Analysis of ADAS - arXiv — https://arxiv.org/pdf/2208.00249 (tier T4)
+[11] Human involvement in autonomous decision-making systems. Lessons learned from three case studies in aviation, social care and road vehicles — https://doi.org/10.3389/fpos.2023.1238461 (tier UNKNOWN)
+[12] A comprehensive accident investigation system for assisted driving ... — https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0328156 (tier T4)
+[13] Collection and classification of influence parameters for safety ... — https://www.frontiersin.org/journals/future-transportation/articles/10.3389/ffutr.2023.945599/full (tier T4)
+[14] Intelligent driver monitoring systems: a survey of drowsiness ... — https://link.springer.com/article/10.1007/s10462-026-11505-w (tier T4)
+[15] [PDF] Artificial Intelligence and Civil Liability - European Parliament — https://www.europarl.europa.eu/RegData/etudes/STUD/2025/776426/IUST_STU(2025)776426_EN.pdf (tier T3)
+[16] Autonomous Vehicle AI Liability - AI Standard of Care — https://aistandardofcare.com/industries/autonomous-vehicles/ (tier UNKNOWN)
+[17] [PDF] Litigating Partial Autonomy - Iowa Law Review — https://ilr.law.uiowa.edu/sites/ilr.law.uiowa.edu/files/2024-05/ILR-109-BurkeRobertson_0.pdf (tier UNKNOWN)
+[18] [PDF] Addressing the Liability Gap in AI Accidents — https://www.cigionline.org/static/documents/PB_no.177.pdf (tier UNKNOWN)
+[19] [PDF] The cost of AI-driven accidents. A law and economics analysis of ... — https://extranet.side-isle.it/storage/files/lg5eoW6zxGpuRB5oSzT0PkZBEMrQ8CgiUGInNElA.pdf (tier UNKNOWN)
+[20] [PDF] Products Liability for Software Defects in Driverless Cars — https://gould.usc.edu/why/students/orgs/ilj/assets/docs/32-1-Rustad.pdf (tier UNKNOWN)
+[21] [PDF] How Should Accident Law Adapt to Autonomous Vehicles? Lessons ... — https://www.hoover.org/sites/default/files/ip2-19002-paper.pdf (tier UNKNOWN)
+[22] ADAS Liability in Michigan Auto Accidents: Your Legal Guide — https://ravidandassociates.com/advanced-driver-assistance-systems-adas-and-liability-in-michigan-auto-accidents/ (tier UNKNOWN)
+[23] Liability in Autonomous Vehicle Accidents: Key Legal Issues — https://www.akdlawyers.com/car-accident/liability-in-autonomous-vehicle-accidents/ (tier UNKNOWN)
+[24] [PDF] Liability for Autonomous Vehicle-Related Damages — https://www.etd.ceu.edu/2025/margishvili_mariam.pdf (tier UNKNOWN)
+[25] [PDF] Overview Advanced Driver Assistance Systems, or ADAS, encapsulate — https://www.iadclaw.org/assets/1/6/8.1_-_Driver_Assistance_Safety_Technology.pdf (tier UNKNOWN)
+[26] [PDF] Assensing the Impact of Advanced Driver Assistance Systems ... — https://journal2.upgris.ac.id/index.php/asset/article/download/2371/1031/13478 (tier UNKNOWN)
+[27] [PDF] economic impacts of the Advanced Driver Assistance Systems — https://www.politesi.polimi.it/retrieve/5e9f9369-c910-41d6-bb71-b4a9f1610371/2025_04_Cesaro_Tesi.pdf (tier UNKNOWN)
+[28] [PDF] Data-driven user evaluation of ADAS (DADEL) - Vinnova — https://www.vinnova.se/globalassets/mikrosajter/ffi/dokument/slutrapporter-ffi/slutrapporter-2025/2024-00820eng.pdf (tier UNKNOWN)
+[29] Are Connected and Automated Vehicles the Silver Bullet for Future Transportation Challenges? Benefits and Weaknesses on Safety, Consumption, and Traffic Congestion — https://doi.org/10.3389/frsc.2020.607054 (tier UNKNOWN)
+
+
+---
+
+## V30 Phase-1 Retrieval Coverage Disclosure
+
+PHASE-1 RETRIEVAL COVERAGE (V30 Report Contract, not yet report-coverage):
+  This disclosure reports whether M-56 (deterministic DOI / PMID / Unpaywall retrieval) succeeded for each contract-required entity. It does NOT claim the legacy generator cited each entity in the verified report — that validation lands in Phase 2 when M-58 slot-bound prompts replace the legacy generator.
+
+Frame coverage disclosure (V30 Report Contract):
+  - Total contract-required entities: 6
+  - Fully populated (full-text bound evidence): 4
+  - Partial coverage (below min_fields or unbound citation): 1
+  - Unretrievable (paywalled with no OA/abstract): 1
+  - Gap slots render explicit gap language in the relevant subsection; see manifest.json frame_coverage_report for per-slot detail.
+
+
+=== POLARIS PER-CLAIM CITED SPANS ===
+{
+  "00-000-a4e18a8e": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 5:\nFull Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-001-8fbadbcc": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "The SAE J3016_202104 standard defines six levels of driving automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-002-aaf65e75": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 0 is No Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-003-95e32bc4": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "In contrast, Level 1 is Driver Assistance [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-004-cbad8991": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 0 and Level 1 are No Driving Automation and Driver Assistance, respectively [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-005-e9a6e46f": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Finally, Level 5 is Full Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-006-73dfcc36": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "These are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation, respectively [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "00-007-a0064c73": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Although Level 0 is No Driving Automation, Level 1 is Driver Assistance [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-008-fb107a7d": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "In contrast, Level 2 is Partial Driving Automation, whereas Level 3 is Conditional Driving Automation [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "00-009-9eb8198c": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "The taxonomy's six levels are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "01-000-2bfe564b": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Instrument: UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-001-0e971b39": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Scope: Entities named in the General Order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-002-832fd3a8": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Defect categories: manufacturing defects; design defects; and inadequate instructions or warnings defects [#ev:product_liability_doctrine:6900-7700].",
+    "severity": "S1"
+  },
+  "01-003-85f4a879": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) is the instrument identified in the primary source [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-004-9e709104": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The subject matter is Automated Lane Keeping Systems [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-005-1ada93fc": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "In contrast, the regulation\u2019s title clearly indicates its focus on automated lane keeping [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-006-7b56000a": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The regulation\u2019s full designation is UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-007-18f62f6f": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The regulation, UN Regulation No. 157, addresses Automated Lane Keeping Systems [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-008-d77b8d5b": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The scope of this order is precisely defined, applying exclusively to entities named in the General Order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-009-4364b3ea": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "However, the reporting obligation is not triggered for every crash involving those entities; it is conditional upon specific temporal and outcome-based criteria [#ev:nhtsa_ads_policy_framework:11900-12700].",
+    "severity": "S2"
+  },
+  "01-010-abb06d20": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Alternatively, the obligation arises if the crash involved a vulnerable road user being struck [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-011-6365838f": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "In contrast, a crash that does not meet these consequence thresholds, even if ADS was active within the 30-second window, would not require reporting under the order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-012-fdcf2765": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The reporting criteria also encompass an air bag deployment [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-013-8509421c": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Finally, any individual being transported to a hospital for medical treatment as a result of the crash mandates a report [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-014-24c9ef06": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "By comparison, crashes where ADS was not in use within 30 seconds, or where the damage is below the specified property damage threshold, fall outside the mandatory reporting scope [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "02-000-3542bc50": {
+    "covered_element_ids": [
+      "adas_crash_case_law"
+    ],
+    "evidence_ids": [
+      "adas_crash_case_law"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Case_Law",
+    "sentence": "Tesla, Inc [#ev:adas_crash_case_law:400-1200].",
+    "severity": "S1"
+  },
+  "04-000-32bc098d": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "04-001-84d7ab44": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Active safety systems such as electronic stability control (ESC) and automatic emergency braking (AEB) are excluded from this taxonomy because they provide only momentary intervention rather than sustained performance of the dynamic driving task (DDT) [#ev:sae_j3016_automation_levels:2800-3600].",
+    "severity": "S1"
+  },
+  "04-002-0b782060": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_534"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Common ADAS functions include adaptive cruise control (ACC), blind spot detection (BSD), lane departure warning/lane keeping systems (LDW/LKS), intelligent headlamp control (IHC), and emergency brake assist (EBA) [#ev:ev_534:0-800].",
+    "severity": "S3"
+  },
+  "04-003-3f61f7e7": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_427"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Large-scale crash statistics indicate that among 7.7 million vehicles manufactured between 2015 and 2023, ADAS-equipped cars experienced on average a 27% reduction in forward-collision crashes and an 11% reduction in lane-departure crashes [#ev:ev_427:1700-2500].",
+    "severity": "S3"
+  },
+  "04-004-d3e7510b": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Blind Spot Monitoring (BSM) systems are estimated to reduce lane-change crashes by 14% and lane-change crashes with injuries by 23% [#ev:ev_434:4600-5400].",
+    "severity": "S3"
+  },
+  "04-005-5e0eea4c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_456"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "For example, lane departure warning (LDW) systems were found to be turned off in 67.2% of observed vehicles due to lack of trust and excessive false alarms [#ev:ev_456:3800-4600].",
+    "severity": "S3"
+  },
+  "04-006-f68233bb": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_030"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Camera-based DMS have been shown to detect driver distraction approximately 50 seconds sooner than steering-wheel-based DMS, and users of steering-wheel DMS were able to engage in 5.65 minutes of continuous distracted driving before an alert, compared to 2.25 minutes for camera-based DMS [#ev:ev_030:9500-10300].",
+    "severity": "S3"
+  },
+  "04-007-982912fd": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_174"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The increasing complexity of ADAS and automated driving systems has prompted the development of specialized accident investigation frameworks, such as a comprehensive system proposed in China that integrates traffic accident boundary analysis, control action safety analysis, and causal scene restoration [#ev:ev_174:0-800].",
+    "severity": "S3"
+  },
+  "04-008-b6c0e9c6": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_459"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "To evaluate ADAS safety effectiveness, researchers have identified 94 influence parameters from sources including published literature, standardized tests, accident databases, and autonomous vehicle disengagement reports, with 77 parameters assigned importance levels through cluster analysis [#ev:ev_459:900-1700].",
+    "severity": "S3"
+  },
+  "04-009-fd4f26b9": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_550"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Driver drowsiness remains a significant safety concern, with the World Health Organization reporting approximately 1.35 million traffic-related deaths annually, and research indicating that steering wheel angle variability increases from 0.5\u20131.5\u00b0 in alert drivers to 2\u20135\u00b0 in fatigued states [#ev:ev_550:1600-2400].",
+    "severity": "S3"
+  },
+  "04-010-e42c4c34": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "If the driver does not fully understand the capabilities and limitations of the system, this might lead to mode confusion and can cause surprises for the driver [#ev:ev_434:4900-5700].",
+    "severity": "S3"
+  },
+  "04-011-16c64931": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "In the European Union, several SAE Level 0 ADAS will be mandatory by 2022, while no automated driving technology is yet permitted on the EU market [#ev:ev_434:2500-3300].",
+    "severity": "S3"
+  },
+  "05-000-bd96d290": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "In the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States [#ev:ev_112:100-900].",
+    "severity": "S3"
+  },
+  "05-001-21a77b28": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "This verdict signals a shift toward manufacturer accountability for AI driving systems [#ev:ev_524:100-900].",
+    "severity": "S3"
+  },
+  "05-002-50c094a4": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "NHTSA investigations have identified patterns of failures in Tesla's ADAS, including a probe of 2.4 million vehicles for crashes at intersections and emergency vehicle collisions, and a subsequent probe of 2.88 million vehicles involving 58 traffic violation reports, 14 crashes, and 23 injuries [#ev:ev_524:1200-2000].",
+    "severity": "S3"
+  },
+  "05-003-71e7c5c5": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "One analysis argues that semi-autonomous systems create a collaborative driving endeavor, and that automakers' marketing efforts to gain public trust may render them primarily liable when that trust is misplaced, with a reduction for the driver's comparative fault [#ev:ev_008:400-1200].",
+    "severity": "S3"
+  },
+  "05-004-649074a3": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_496"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "The opacity of AI decision-making and the 'problem of many hands'\u2014diffusion of responsibility among multiple actors\u2014create a liability gap that traditional tort frameworks struggle to address [#ev:ev_496:0-800].",
+    "severity": "S3"
+  },
+  "05-005-b7e764ff": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_496",
+      "ev_506"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "A growing body of policy analysis advocates for strict liability for high-risk AI systems, with proposals ranging from a single responsible operator under EU law to no-fault insurance schemes [#ev:ev_112:400-1200][#ev:ev_496:0-800][#ev:ev_506:0-800].",
+    "severity": "S3"
+  },
+  "05-006-c46264ec": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_645"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "One scholar proposes extending strict products liability to defective software components in autonomous vehicles, treating software creators as strictly liable for injuries caused by dangerously defective code [#ev:ev_645:600-1400].",
+    "severity": "S3"
+  },
+  "05-007-58781f7d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_631"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "A law and economics analysis suggests that negligence-based rules can efficiently accommodate AV-human interactions, but require substantial doctrinal reforms, including reconceptualization of fault standards for both AVs and human drivers [#ev:ev_631:800-1600].",
+    "severity": "S3"
+  },
+  "05-008-730b60bf": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_011",
+      "ev_423",
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "Jurisdictional approaches vary: Michigan's product liability statutes govern claims involving defective ADAS [#ev:ev_011:1323-2123], Louisiana applies a comparative fault system to apportion liability between driver and manufacturer [#ev:ev_423:1200-2000], and the UK's Automated and Electric Vehicles Act 2018 explicitly addresses liability for accidents resulting from unauthorized software alterations or failure to update software [#ev:ev_524:2900-3700].",
+    "severity": "S3"
+  },
+  "06-000-f5808eb3": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_512"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The EU\u2019s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties [#ev:ev_112:8700-9500][#ev:ev_512:11100-11900].",
+    "severity": "S3"
+  },
+  "06-001-faf38b5e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_174"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "In China, the undefined legal status of autonomous driving systems has prompted the development of a comprehensive accident investigation system that integrates boundary analysis, control action safety assessment, and causal scene restoration to allocate responsibility [#ev:ev_174:0-800].",
+    "severity": "S3"
+  },
+  "06-002-7d0f2d92": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "US legal scholarship argues that automakers\u2019 marketing of ADAS features fosters driver trust, and when that trust is misplaced, products liability law supports primary manufacturer liability with a potential reduction for the driver\u2019s comparative fault, rather than placing full responsibility on the human operator [#ev:ev_008:200-1000].",
+    "severity": "S3"
+  },
+  "06-003-e7446589": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_512"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The revised PLD is an EU instrument for AI-related harm [#ev:ev_112:8700-9500][#ev:ev_512:7100-7900]",
+    "severity": "S3"
+  },
+  "07-000-fc6403ed": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008",
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "A key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement [#ev:ev_008:0-800][#ev:ev_434:4900-5700].",
+    "severity": "S3"
+  },
+  "07-001-b3fea61d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008",
+      "ev_011"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "Under U.S. products liability law, automakers may face primary liability for ADAS failures, though the driver's comparative fault can reduce recovery [#ev:ev_008:200-1000][#ev:ev_011:1323-2123]",
+    "severity": "S3"
+  },
+  "07-002-6bfb4290": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "Legal scholars debate whether the human driver or the manufacturer bears responsibility when supervised autonomy fails in semi-autonomous vehicles [#ev:ev_008:0-800].",
+    "severity": "S3"
+  },
+  "08-000-d1f331d8": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "In the United Kingdom, the Automated and Electric Vehicles Act 2018 addresses liability for accidents caused by automated vehicles, including those resulting from unauthorized software alterations or failure to update software [#ev:ev_524:2900-3700].",
+    "severity": "S3"
+  },
+  "08-001-2357bc75": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_018"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Texas has legislatively limited lessors\u2019 liability for failing to retrofit optional safety systems, provided the vehicle met federal standards at purchase [#ev:ev_018:2700-3500].",
+    "severity": "S3"
+  },
+  "08-002-a2fecb16": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_566"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Empirical evidence from a survey of 260 drivers indicates that collision avoidance performance and system reliability are the strongest predictors of user trust, while road safety impact emerges as an independent societal benefit [#ev:ev_566:1700-2500].",
+    "severity": "S3"
+  },
+  "08-003-1057b9dc": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_438"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "On the cost side, an Italian analysis estimates that an average ADAS investment of \u20ac1,629 per vehicle yields nationwide savings of \u20ac1.89 billion in 2024, with most systems becoming cost-effective within two to three years [#ev:ev_438:1200-2000].",
+    "severity": "S3"
+  },
+  "08-004-14a7ca02": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_018"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Daimler Trucks North America was granted summary judgment in a lawsuit [#ev:ev_018:1400-2200].",
+    "severity": "S3"
+  },
+  "08-005-00411e0e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "However, the technology\u2019s safety promise is tempered by the emergence of algorithmic negligence as a liability [#ev:ev_524:0-800].",
+    "severity": "S3"
+  },
+  "09-000-cb209e13": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_550"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "For driver monitoring systems, reported performance is highly protocol-dependent, and the lack of standardized benchmarks and cross-dataset validation makes cross-study accuracy comparisons misleading [#ev:ev_550:500-1300].",
+    "severity": "S3"
+  },
+  "09-001-00f68cac": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_506"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The shift from driver to vehicle control complicates liability attribution; evidence from aviation and early AV incidents suggests that human operators may become a \u201cmoral crumple zone,\u201d blamed even when system design is a contributing factor [#ev:ev_506:700-1500].",
+    "severity": "S3"
+  },
+  "09-002-d1fb6fb1": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_468"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The lack of integrated, context-rich data from connected vehicles hinders user-centered evaluation of ADAS; data are often siloed within engineering departments and not readily accessible to design teams [#ev:ev_468:3800-4600].",
+    "severity": "S3"
+  },
+  "09-003-7168941c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_051"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The complexity of AV software, with estimates of up to 300 million lines of code, far exceeds that of aircraft, yet current algorithms often achieve only 95\u201398% reliability, whereas safety-critical functions may require 99.9999% reliability [#ev:ev_051:9100-9900].",
+    "severity": "S3"
+  }
+}
+
+
+=== ChatGPT (gpt_5_5_pro) REPORT (first 36000 chars) ===
+# Liability Allocation in Accidents Involving Vehicles With Advanced Driver Assistance Systems
+
+## Executive Summary
+
+Advanced Driver Assistance Systems now sit in an awkward legal and technical middle ground. In current mass-market vehicles, the most important systems implicated in serious crashes are usually SAE Level 1 or Level 2 features: adaptive cruise control, lane keeping or lane centering, blind-spot functions, automatic emergency braking, and hands-free or near-hands-free highway assistance. These systems can control some parts of the driving task, but regulators in the United States, the United Kingdom, and safety investigators such as the NTSB still treat the human driver as responsible for monitoring the environment and intervening unless and until the law expressly recognizes a vehicle as “driving itself.” citeturn22search3turn22search19turn17search2turn19view4turn43search3
+
+The core liability pattern in ADAS crashes is therefore **mixed causation**. Serious accidents often involve more than one failure at once: human distraction or overreliance, weak driver monitoring, ambiguous human-machine interface design, operation outside a feature’s intended domain, degraded sensors, and inadequate post-market controls such as software updates or recalls. Official crash investigations of Tesla Autopilot and Ford BlueCruise repeatedly found combinations of driver inattention and system design limitations, rather than a single sole cause. citeturn7view0turn7view1turn7view2turn43search0turn43search3turn43search9
+
+Across jurisdictions, the legal architecture is converging on a functional split. **Public law** governs certification, recalls, market surveillance, reporting, and data logging. **Private law** allocates compensation through negligence, product liability, insurance, contribution, and comparative fault. The United States exemplifies a federal/state split: NHTSA regulates safety standards and defects, while state tort law governs negligence, strict products liability, and comparative fault. The European Union increasingly integrates software into type approval and product liability. The United Kingdom has gone furthest in creating an insurer-first rule for listed automated vehicles when the vehicle is legally “driving itself,” while preserving ordinary driver responsibility for driver-assistance systems. Japan has moved early on Level 3 legality by pairing safety standards with driver obligations to preserve recorded operational-state data. citeturn22search15turn22search18turn22search16turn8search8turn16search6turn16search0turn41search2turn41search1turn20search0turn20search4turn19view4turn28search3turn28search13turn38search1turn38search0
+
+The litigation record remains thin compared with the scale of deployment, but the available cases already show the decisive questions. Courts and juries are asking whether the driver misused a clearly limited system, whether the manufacturer’s warnings and interface were adequate, whether similar prior crashes put the manufacturer on notice, whether the system should have been restricted to its operational boundaries, and whether evidence from EDRs, internal logs, prior incidents, and OTA update histories can be admitted. In recent U.S. Tesla matters, some juries returned defense verdicts based on warnings and driver misuse, while other courts allowed design-defect and failure-to-warn theories to proceed and, in one federal case, a jury assigned Tesla a share of responsibility and imposed punitive damages that were later upheld after trial. citeturn5view0turn5view1turn45search2turn47view0turn5view4
+
+The strongest regulatory answer is not to force every ADAS crash into either “driver fault” or “manufacturer fault.” A better framework is to require: clearly bounded operational domains; mode-specific labeling; stronger driver monitoring; preserved, privacy-governed event and operational data; software-safety certification for updates; supplier traceability; rapid incident reporting; and an insurance model that pays victims quickly while preserving recourse against the actor actually responsible. Current law already contains pieces of this model, but no jurisdiction has assembled them completely for mainstream ADAS. citeturn32view0turn35search0turn35search1turn35search2turn21search4turn28search3turn43search9
+
+## Technical Principles That Drive Liability
+
+### Functions, automation boundaries, and the driver’s continuing role
+
+For present-day road vehicles, the liability-critical dividing line is between **driver assistance** and **self-driving**. NHTSA describes Level 1 systems as continuous assistance with either steering or speed control, and Level 2 systems as continuous assistance with both steering and acceleration/braking, while the driver remains fully engaged and attentive. NHTSA’s consumer-facing guidance expressly frames current Level 2 technology as “You drive, you monitor.” citeturn22search3turn22search19turn42search11
+
+Typical ADAS functions cluster into five groups: longitudinal control, lateral control, collision mitigation, surroundings awareness, and driver-state monitoring. In regulatory practice these include adaptive cruise control, lane keeping support, lane departure warning/intervention, automatic emergency braking, blind-spot warning/intervention, pedestrian AEB, driver drowsiness and attention warning, and distraction-warning systems. NHTSA’s 2024 NCAP roadmap and the EU’s General Safety Regulation both treat these as mainstream safety features rather than as fully autonomous operation. citeturn26search9turn26search16turn16search6turn16search19
+
+That distinction matters because the crash law for Level 2 is still fundamentally supervisory. The system may steer and regulate speed, but it does not transfer legal responsibility away from the driver merely because control is shared at a moment in time. NTSB’s recent BlueCruise report states the premise succinctly: partial driving automation provides steering and acceleration/deceleration control, but the driver performs the rest of the driving task and remains responsible for monitoring the environment, including hazards and automation failures. citeturn43search3turn43search0
+
+### Sensors, software stack, and human-machine interface
+
+Modern ADAS relies on combinations of cameras, radar, lidar, ultrasonic sensors, inertial and vehicle-state data, and sometimes map or geofencing inputs. A recent NHTSA-backed sensor-degradation study specifically examined camera, radar, and lidar performance and found that occlusion, grime, and improper repairs can materially reduce sensor range and returns. citeturn27view0
+
+From a systems-engineering standpoint, the liability-relevant software stack can be understood as a layered chain: **sensing**, **perception/fusion**, **classification/tracking**, **decision logic**, **trajectory or warning/control generation**, **actuation**, and **human-machine interface/driver monitoring**. That layering is an inference from how official materials describe automated features: the UK’s Automated Vehicles Act explanatory notes describe software receiving sensor input, processing it, and controlling steering and braking, while NHTSA- and NTSB-backed technical reports treat degraded sensor signals, fusion logic, and driver-monitoring design as distinct safety layers. citeturn19view4turn27view0turn43search3
+
+For liability, the HMI is not cosmetic; it is part of the safety mechanism. NHTSA’s human-factors guidance for Level 2 and Level 3 concepts and later naturalistic research focus on mode annunciation, engagement/disengagement clarity, takeover communication, and driver understanding of system status. Independent human-factors studies have likewise found mode confusion in Level 2 use and show that drivers can misperceive whether assistance is active, or over-trust it once active. citeturn26search4turn42search2turn42search0turn42search1
+
+### Operational design domain, transition logic, and foreseeable misuse
+
+Although “operational design domain” is more formalized in higher-automation law, the same idea is already central to ADAS liability: every assistance feature has conditions in which it is intended to work and conditions in which it is not. NTSB’s Delray Beach Tesla investigation found that the operational design of Tesla’s partial automation system contributed to the crash because the company failed to limit use of the feature to the conditions for which it was designed. That finding goes directly to design-defect, warning, and misuse-foreseeability analysis. citeturn7view1
+
+UNECE ALKS rules and the UK’s new automated-vehicle framework make these boundary questions explicit. UNECE Regulation No. 157 requires a transition demand and, if the driver fails to resume control, a minimum-risk manoeuvre; the UK’s 2024 Act similarly ties authorization to specified locations and circumstances, requires an authorized self-driving entity, and conditions user-in-charge immunity on a valid transition demand and the end of the transition period. Those ideas are not limited to Level 3 and above; they demonstrate what robust boundary management looks like and highlight what many Level 2 ADAS designs still lack. citeturn35search0turn35search4turn19view4turn21search2turn21search8
+
+### Failure modes, limitations, and black-box evidence
+
+The most recurrent ADAS failure modes in official investigations are now familiar. Perception can fail because of lane splits, gore areas, stationary objects, cross-traffic, glare, fog, dust, or contaminated sensors. System safeguards can fail when the feature remains available outside intended conditions, when AEB can be disabled or is functionally absent during automation, or when driver monitoring is too easy to satisfy. Human operators can fail through distraction, phone use, alcohol impairment, complacency, or simple overreliance on the system. Official Tesla and Ford investigations repeatedly show these combinations. citeturn7view0turn7view1turn7view2turn27view0turn43search0turn43search3turn42news34
+
+Data logging has therefore become central to both accident reconstruction and liability allocation. In the United States, an EDR is defined in 49 C.F.R. Part 563 as a device or function that records dynamic time-series data shortly before or during a crash event; the owner’s manual must disclose its presence and purpose. Part 563 remains an **if-equipped** standard, but NHTSA’s 2026 final rule preserved a new phase-in for vehicles equipped with EDRs to move from 5 seconds at 2 Hz to 20 seconds at 10 Hz of pre-crash capture, with compliance staged from model years beginning in 2028. The federal Driver Privacy Act of 2015 makes retained EDR data the property of the owner or lessee, subject to enumerated exceptions. citeturn22search1turn22search5turn22search9turn22search13turn32view0turn30search0turn30search1
+
+In Europe, event data recorders are now effectively part of mainstream type approval. EU rules require EDR fitment for new types of M1/N1 vehicles from July 2022 and all new vehicles from July 2024, and UNECE Regulation No. 160 excludes VIN, location, driver information, and date/time from the data scope. The EU definition of EDR also emphasizes that its only purpose is recording and storing critical crash-related parameters and information shortly before, during, and immediately after a collision. citeturn16search0turn39search0turn39search6turn35search1
+
+That still leaves an evidentiary gap. Standard EDRs capture crash dynamics, but not always **who or what** was driving at each instant, which warnings were shown, whether a driver-monitoring camera was satisfied, what software version was running, whether an OTA update changed behavior, or whether a sensor was degraded. NHTSA’s 2026 EDR rule expressly treated EDR and DSSAD as separate regulatory tracks, confirming that the United States still lacks a general, harmonized machine-versus-human operational data recorder requirement for ordinary ADAS litigation. citeturn32view0
+
+## Comparative Legal Frameworks
+
+### United States
+
+The United States has a deliberately split model. At the federal level, the National Traffic and Motor Vehicle Safety Act, 49 U.S.C. chapter 301, authorizes NHTSA to issue FMVSS, investigate safety defects, require recalls, and enforce manufacturer reporting duties. FMVSS are implemented largely through 49 C.F.R. part 571, while defect and noncompliance reporting is governed by 49 C.F.R. part 573. NHTSA’s Standing General Order separately requires identified manufacturers and operators to report certain crashes involving ADS and Level 2 ADAS vehicles. citeturn22search8turn22search18turn22search16turn8search8turn22search11
+
+But compensation law is mainly state law. In practice, ADAS crash plaintiffs sue under negligence, strict products liability for design/manufacturing/warning defects, breach of warranty, misrepresentation, and sometimes punitive-damages theories. California’s standard jury instructions, for example, separately frame strict design-defect and warning-defect claims and comparative-fault issues. At the same time, federal compliance does not create a universal shield: *Geier* shows that some state claims can be conflict-preempted where they would nullify a deliberate federal regulatory choice, while *Williamson* shows that preemption is not automatic simply because a manufacturer complied with FMVSS. citeturn23search1turn23search5turn23search3turn23search7turn24search0turn24search9
+
+On the road-rules side, NHTSA’s own public guidance still treats Level 2 as driver-supervised driving. That means ordinary traffic-law and negligence principles continue to attach to the person behind the wheel absent a different statute. Federal policy itself describes the line between federal design/performance regulation and state control of the human driver and vehicle operations. citeturn22search3turn22search19turn22search15
+
+### European Union and UNECE
+
+The EU legal picture combines **type approval**, **market surveillance**, and **private liability modernization**. Regulation (EU) 2018/858 is the baseline framework for type approval and market surveillance. Regulation (EU) 2019/2144, the General Safety Regulation, requires a new package of safety technologies for passenger cars and vans, including intelligent speed assistance, driver drowsiness and attention warning, advanced driver distraction warning, emergency lane-keeping, advanced emergency braking, and EDRs. citeturn9search2turn16search6turn16search19
+
+The detailed technical layer is heavily UNECE-driven. UNECE Regulation No. 79 addresses steering and driver-control assistance systems and still centers systems in which the driver remains in primary control; Regulation No. 152 specifies AEBS; Regulation No. 157 sets transition-demand and minimum-risk-manoeuvre requirements for ALKS; Regulation No. 155 requires a cybersecurity management system; and Regulation No. 160 governs EDRs and limits personal data captured. citeturn35search3turn10search5turn35search0turn35search4turn35search2turn35search1
+
+The private-law side is moving toward software-inclusive strict product liability. The Council’s 2024 adoption materials and the European Parliament’s briefing on Directive (EU) 2024/2853 make three developments particularly important for ADAS litigation: software and digital manufacturing files are brought within the definition of “product”; the concept of damage expands to include medically recognized psychological harm and certain data loss; and the burden of proof is eased in some circumstances for victims. The new directive entered into force in December 2024 and must be transposed by Member States by December 2026. citeturn41search2turn41search0turn41search1turn41search10turn41search7
+
+### United Kingdom
+
+For ordinary driver-assistance systems, the UK remains firm that the driver stays responsible. The Highway Code states that drivers must not rely on driver-assistance systems such as motorway assist or remote-control parking and must keep full control at all times. The Road Traffic Act 1988 remains the basic framework for dangerous, careless, and uninsured driving. Product-defect claims continue to run through the Consumer Protection Act 1987, which imposes liability for damage caused by defective products and defines defect by the level of safety people are generally entitled to expect. citeturn17search2turn17search23turn17search1turn18search0turn18search9
+
+The UK is distinctive, however, because it already built a special insurance pathway for genuine automated driving. Under the Automated and Electric Vehicles Act 2018, the Secretary of State keeps a list of automated vehicles, and where an insured automated vehicle causes an accident while “driving itself,” the insurer is liable to injured persons in the first instance, with recourse rights against the truly responsible party preserved. citeturn20search13turn20search16turn20search0turn20search21
+
+The Automated Vehicles Act 2024 moves beyond listing and creates a full authorization regime. Its explanatory notes are especially important for liability analysis: they require authorized self-driving features to be safe and legal to at least the level of a careful and competent human driver, require an authorized self-driving entity to be legally responsible for how the vehicle drives itself, limit authorization to specified locations and circumstances, and give a user-in-charge immunity for how the vehicle drives while the self-driving feature is engaged, subject to exceptions after a valid transition demand or in cases such as tampering. The Act also contemplates data sharing through authorization and operator-licensing rules. citeturn20search2turn19view4turn21search2turn21search4turn21search8
+
+### Japan
+
+The user left the Asian comparator unspecified, so this report selects **Japan** because it has early Level 3 deployment and a relatively clear set of official English-language sources. The National Police Agency explains that the 2019 amendments to the Road Traffic Act imposed obligations on drivers using Automated Operational Devices, including preserving data recorded by Operational State Recording Devices. The NPA also states that the revised Road Traffic Act and the revised Act on Vehicles for Road Transportation together provide the rules for safe driving of SAE Level 3 vehicles. citeturn28search3
+
+The MLIT summary materials add the safety-regulation dimension: the amended Road Transport Vehicle Act brought automated driving systems into the set of devices subject to national safety standards, and by 2021 Japan had already seen market launch of a Level 3 passenger car. That combination matters because it ties public-law vehicle approval directly to automation-specific rulemaking. citeturn28search13turn28search2turn28search6
+
+For private-law allocation, two official English sources are central. The Civil Code’s tort chapter provides the general negligence-based compensation framework and expressly addresses comparative negligence. The Act on Securing Compensation for Automobile Accidents is designed to protect injured parties by guaranteeing compensation for death or bodily injury caused by the operation of an automobile. In effect, Japan couples traffic-law obligations and safety-approval rules with a compensation regime aimed at maintaining recovery for victims even as driving tasks become more automated. citeturn38search0turn38search4turn38search1
+
+### Comparative table
+
+| Jurisdiction | Ex ante safety regulation | Default road-use rule for ADAS | Private liability architecture | Data and logging posture | Insurance posture |
+|---|---|---|---|---|---|
+| **United States** | NHTSA safety statutes, FMVSS, defect investigations, recalls, SGO crash reporting. citeturn22search8turn22search18turn22search16turn8search8 | For Level 2, the driver remains responsible and must monitor. citeturn22search3turn22search19 | State negligence, strict products liability, warning claims, comparative fault; federal preemption is possible but not automatic. citeturn23search1turn23search3turn24search0 | EDR standardized if equipped; owner/lessee owns retained data; richer ADAS operational logging remains fragmented. citeturn22search1turn22search9turn32view0turn30search1 | Ordinary auto insurance; no general federal insurer-first rule for ADAS. citeturn22search15 |
+| **European Union** | Type approval/market surveillance under 2018/858; mandatory safety tech and EDRs under 2019/2144; detailed UNECE-derived rules. citeturn9search2turn16search6turn35search0turn35search1turn35search2turn35search3 | Driver responsibility remains the baseline unless a higher-automation regime says otherwise. citeturn35search3turn35search0 | Product liability moves toward software-inclusive no-fault defect liability under Directive 2024/2853, easing proof in some cases. citeturn41search2turn41search1turn41search0 | EDR mandatory for new types from 2022 and all new vehicles from 2024; data scope excludes VIN tail, location, and driver identity. citeturn16search0turn35search1turn39search0turn39search6 | Insurance remains largely Member-State based; no single EU-wide insurer-first ADAS rule. citeturn41search2 |
+| **United Kingdom** | RTA 1988, Highway Code, product safety law, plus AEVA 2018 and AV Act 2024 for genuine self-driving. citeturn17search1turn17search2turn20search16turn19view4 | For driver-assistance, driver remains responsible; for authorized self-driving, user-in-charge immunity can apply. citeturn19view8turn19view4turn21search2 | CPA 1987 strict product liability continues; AV Act assigns legal responsibility for self-driving function to ASDE. citeturn18search0turn18search9turn19view4 | Authorization and operator licensing can require data sharing; transition-demand logic is statutory. citeturn19view4turn21search4turn21search8 | Insurer-first rule where a listed automated vehicle causes an accident while driving itself; recourse preserved. citeturn20search0turn20search21 |
+| **Japan** | Revised traffic and vehicle acts regulate Level 3 use, safety standards, and operational-state recording. citeturn28search3turn28search13 | Drivers using Automated Operational Devices have statutory duties, including preserving recorded data. citeturn28search3 | General tort and comparative-negligence structure under Civil Code, plus victim-protective automobile-compensation statute. citeturn38search0turn38search4turn38search1 | Operational State Recording Devices are expressly contemplated for automated operation. citeturn28search3 | Compensation-guarantee regime under the Act on Securing Compensation for Automobile Accidents. citeturn38search1 |
+
+## Case Law and Litigation Patterns
+
+The public merits record is still dominated by U.S. cases, especially Tesla litigation. That is not because other jurisdictions are irrelevant, but because large-scale deployment preceded mature statutory allocation in the U.S., and many serious disputes elsewhere are still handled through regulators, insurers, or confidential settlements rather than published merits decisions. Even within the U.S., the published record shows no single pro-manufacturer or pro-plaintiff pattern; outcomes track the mix of warnings, driver conduct, defect proof, notice, and evidentiary rulings. citeturn5view0turn5view1turn45search2turn47view0turn5view4
+
+A particularly important evidentiary point is that, even where NTSB investigations are central to public debate, courts may sharply limit how those materials are used in civil cases. In the 2025 *Benavides v. Tesla* proceedings, the Southern District of Florida held that plaintiffs could use NTSB investigators’ factual materials, but not the NTSB Board’s accident reports, legal conclusions, or probable-cause determinations, citing 49 U.S.C. § 1154(b). The same order allowed certain prior incidents and portions of NHTSA materials for the limited purpose of notice. For ADAS litigation, that matters greatly: the plaintiff may reconstruct fact patterns from data and field reports, but cannot simply put the Board’s blame assignment in front of the jury. citeturn47view0
+
+### Selected case and investigation examples
+
+| Matter | Facts | Claims or issues | Outcome | Reasoning and liability significance |
+|---|---|---|---|---|
+| **Hsu v. Tesla** (Los Angeles Superior Court jury, 2023) | Plaintiff alleged her Model S swerved into a curb while Autopilot was engaged on city streets and that the airbag caused severe facial injury. citeturn5view0 | Design defect in Autopilot and airbag; nondisclosure theory. citeturn5view0 | Defense verdict; zero damages. citeturn5view0 | Reuters reported jurors credited Tesla’s warnings and blamed driver distraction and off-design use on city streets. This is the cleanest published example of a jury treating warning adequacy and driver misuse as defeating ADAS defect claims. citeturn5view0 |
+| **Lee fatal-crash litigation against Tesla** (Riverside County jury, 2023) | Plaintiffs alleged a Model 3 suddenly veered off a highway and struck a palm tree, killing driver Micah Lee and seriously injuring passengers. Tesla argued alcohol and disputed whether Autopilot was engaged. citeturn5view1 | Defective Autopilot and crashworthiness-related theories. citeturn5view1 | Defense verdict. citeturn5view1 | The case shows how ordinary causation disputes remain decisive in ADAS litigation; if the system state or driver impairment is disputed, juries may never reach broader policy questions about automation safety. citeturn5view1 |
+| **Tesla, Inc. v. Banner** (Florida Fourth District Court of Appeal, 2025) | Jeremy Banner died in a 2019 underride collision with a tractor-trailer while driving a Tesla Model 3 on Autopilot-related features. The estate sought to add punitive damages. citeturn45search2turn5view2 | Whether the record supported punitive damages based on alleged knowledge of Autopilot defects and failure to cure or limit use. citeturn45search2turn5view2 | Appellate court reversed the order allowing punitive damages. citeturn45search2turn5view2 | The court held the estate had not shown Tesla knew or should have known its Level 2 features were likely to cause death or great bodily injury; it emphasized repeated warnings, state-of-the-art status, and compliance with industry and regulatory standards, and said Tesla could not be punished for failing to provide technology “that did not exist.” This is a major signpost on punitive exposure, though not a final merits ruling on ordinary products-liability claims. citeturn45search2turn5view2 |
+| **Benavides v. Tesla** and the McGee crash (S.D. Fla. trial and post-trial proceedings, 2025–2026) | George McGee’s 2019 Model S, equipped with Autopilot features, struck a parked SUV and then two people standing nearby in Key Largo, killing Naibel Benavides Leon and injuring Dillon Angulo. Court materials state McGee bent down to look for his dropped phone; Reuters reports the vehicle entered the intersection at about 62 mph. citeturn47view0turn5view4 | Strict liability design defect, failure to warn, manufacturing defect, negligent misrepresentation, punitive damages, admissibility of prior incidents and regulatory materials. citeturn47view0 | Manufacturing defect and negligent misrepresentation were dismissed before trial; design-defect and failure-to-warn claims went to the jury. The jury found Tesla 33% responsible and awarded compensatory and punitive damages; in 2026 the district judge refused to set the verdict aside. citeturn47view0turn5view4 | This is the clearest contrary example to the earlier defense verdicts. It shows that where plaintiffs can frame the defect as inadequate warnings plus a design that permits foreseeable misuse, and support notice with prior incidents, manufacturer exposure can survive even when the human driver is also plainly negligent. citeturn47view0turn5view4 |
+| **NTSB BlueCruise investigations** (nonjudicial, but highly probative, 2026) | Two 2024 fatal crashes involved 2022 Ford Mustang Mach-E vehicles using BlueCruise hands-free partial automation and colliding with stationary vehicles at highway speed; neither driver-applied nor system-applied braking was recorded before impact. citeturn43search0turn43search1turn43search3turn43search4 | Safety-investigation questions, not tort claims: driver overreliance, driver monitoring adequacy, excessive speed, and AEB/automation interactions. citeturn43search0turn43search9 | NTSB concluded overreliance on automation contributed and called for stronger federal guidance and system safeguards. citeturn43search0turn43search9turn42news34 | These findings are not civil judgments, but they strongly preview the theories later plaintiffs are likely to plead: foreseeable misuse, weak driver-monitoring design, failure to detect stationary-vehicle scenarios, and inadequate restrictions when conditions degrade. citeturn43search0turn43search3turn42news34 |
+
+### What the cases collectively show
+
+Three practical lessons emerge from the cases. First, **warnings still matter**, but only up to a point. Where juries believe the driver plainly ignored repeated warnings or used an assistance feature in an obviously unsuitable way, manufacturers often win. Second, **warn-and-blame-the-driver is no longer always enough** if plaintiffs can show that the manufacturer’s design foreseeably invited misuse, or that prior incidents put the manufacturer on notice that stronger restrictions, monitoring, or clearer mode communication were necessary. Third, **evidence architecture is outcome-determinative**: EDR data, prior-incident similarity, internal admissions, software histories, and the admissibility limits on agency conclusions all shape who can prove what. citeturn5view0turn5view1turn45search2turn47view0turn5view4
+
+## Liability Allocation Scenarios
+
+### Actor relationships
+
+The central allocation problem is not whether a crash has one actor or many. Most ADAS crashes create **stacked liability questions** across multiple actors at once: immediate road-traffic fault, design defect, software fault, maintenance fault, or operator-management fault.
+
+```mermaid
+flowchart LR
+    Victim[Injured road user or passenger]
+    Driver[Driver or user-in-charge]
+    Owner[Vehicle owner]
+    Fleet[Fleet operator]
+    OEM[Vehicle manufacturer]
+    SW[ADAS software supplier]
+    Sensor[Sensor or component supplier]
+    Maint[Maintainer or repairer]
+    Road[Third party or road authority]
+    Ins[Motor insurer]
+
+    Victim --> Ins
+    Victim --> Driver
+    Victim --> Owner
+    Victim --> Fleet
+    Victim --> OEM
+    OEM --> SW
+    OEM --> Sensor
+    Owner --> Maint
+    Fleet --> Maint
+    Driver --> Road
+    OEM --> Road
+```
+
+The chart reflects the structure now visible in statutes and investigations: victim compensation often begins with the driver’s or owner’s insurer; ordinary road-fault principles continue to point toward the human driver in Level 2 cases; and contribution or indemnity then moves backward through the product and service chain if the real defect lies in software, sensors, integration, or maintenance. The UK’s automated-vehicle statutes formalize this more explicitly than other systems by routing “driving itself” claims to the insurer first and then preserving recourse. citeturn20search0turn20search21turn19view4
+
+### Scenario matrix
+
+| Scenario | Likely primary exposure | Secondary exposure | Typical legal theory | High-value evidence |
+|---|---|---|---|---|
+| Driver uses Level 2 correctly described feature but looks away, sleeps, or uses phone; system remains within disclosed limits | Driver; owner’s insurer | OEM only if warnings/HMI were still misleading or monitoring obviously inadequate | Negligence, traffic-law fault, comparative fault | Phone records, DMS logs, steering/torque data, warnings shown, manual and in-car prompts. citeturn22search3turn7view0turn7view2 |
+| Driver uses feature outside intended conditions because the system permits it and the interface/marketing suggests normal operation | Shared: driver and OEM | Software supplier if design choices or calibration can be separated | Design defect, failure to warn, negligent misrepresentation, punitive damages in extreme cases | Prior similar crashes, geofencing capability, feature-availability logic, on-screen text, owner’s manual, OTA history. citeturn7view1turn45search2turn47view0turn5view4 |
+| Sensor is occluded, degraded by grime, or misaligned after repair; feature continues operating or fails silently | Owner/maintainer if warnings ignored; OEM if diagnostics are inadequate | Repairer; component supplier if defect in sensor/module itself | Negligence, service malpractice, product defect if self-diagnostics inadequate | Calibration logs, repair records, diagnostic alerts, sensor-health logs, physical inspection, camera/radar/lidar performance data. citeturn27view0 |
+| OTA update or software regression changes braking, fusion, or monitoring logic before crash | OEM | Software supplier and integrator | Design defect, negligent update deployment, recall/noncompliance theories | Software version, release notes, regression testing, change logs, post-market incident trend, preserved binaries, telematics. citeturn32view0turn21search4 |
+| Hands-free highway assist fails to detect stationary vehicle at speed; no braking occurs | Shared between driver and OEM for Level 2 under current law | Fleet operator if training or policy failures exist | Negligence plus design defect/failure to warn | DMS data, stationary-object scenario testing, AEB status, geofencing, speed, prior incident notice. citeturn43search0turn43search1turn43search3turn42news34 |
+| Third party creates hazard, such as truck failing to yield or road hardware left unrepaired | Third-party road actor | Driver and OEM can still share fault if automation or attention-monitoring failures compound the hazard | Comparative fault, contribution, product defect | Cross-vehicle EDR data, roadway maintenance records, video, system-status logs. citeturn7view0turn7view1 |
+| Commercial fleet deploys ADAS but under-trains drivers or disables safeguards for uptime | Fleet operator | OEM if safeguards should have prevented disablement or obvious misuse | Negligent entrustment/training, maintenance negligence, product defect | Driver-training records, dispatch directives, safety KPIs, maintenance and override logs. citeturn43search9turn21search4 |
+| Vehicle is legally “driving itself” under a self-driving statute rather than ordinary ADAS | Insurer/authorized self-driving entity under special statutory regime | User-in-charge only after valid transition demand or tampering | Statutory insu
+
+=== Gemini REPORT (first 36000 chars) ===
+# **Liability Allocation in Advanced Driver Assistance Systems (ADAS): A Transnational Analysis of Technical Principles, Case Law, and Regulatory Evolution**
+
+The integration of Advanced Driver Assistance Systems (ADAS) into modern consumer vehicles represents one of the most profound shifts in automotive engineering and personal mobility since the commercialization of the internal combustion engine. However, this monumental technological leap has precipitated a complex, multi-jurisdictional jurisprudential crisis. For over a century, the legal frameworks governing motor vehicle collisions, civil liability, and insurance were predicated on a singular, binary assumption: a human driver possesses ultimate, exclusive physical control over the vehicle, and is therefore exclusively responsible for its safe operation. The advent of semi-autonomous technologies fundamentally fractures this foundational legal assumption. By introducing automated steering, acceleration, and braking capabilities that operate dynamically alongside human input, ADAS establishes a paradigm of "supervised autonomy" or "collaborative driving."  
+In this nascent paradigm, the allocation of civil liability following a collision can no longer be determined solely by assessing human negligence through the traditional lens of the reasonable person standard. Instead, courts, insurers, and legislatures are increasingly forced to dissect highly intricate, systemic failures involving human psychology, machine learning algorithms, sensor fidelity, product design, and corporate marketing strategies. Automakers have historically advanced a defensive legal posture rooted in product manuals, end-user license agreements, and technical classifications, arguing that because ADAS requires constant human oversight, the human driver remains fully and solely responsible when supervised autonomy fails. Yet, emerging case law and statutory reforms globally are systematically dismantling this absolute defense.  
+The legal consensus is rapidly pivoting toward a model of shared responsibility. This model recognizes that when a machine is designed to assume control of dynamic driving tasks—while simultaneously inducing known psychological phenomena such as automation complacency—the manufacturer of that machine must bear a proportional share of the liability when the human-machine interface breaks down. This report provides an exhaustive, granular analysis of liability allocation in accidents involving vehicles equipped with ADAS. By synthesizing the technical principles of collaborative driving with landmark United States case law, the pioneering statutory frameworks of the United Kingdom and the European Union, and the unique no-fault insurance exemptions of British Columbia, this analysis delineates the trajectory of autonomous vehicle litigation. The report concludes by proposing a comprehensive set of regulatory guidelines designed to harmonize technological innovation with equitable liability apportionment, ensuring that the legal frameworks of the twenty-first century are equipped to manage the realities of the automated road.
+
+## **The Technical Taxonomy and Engineering Principles of ADAS**
+
+To accurately allocate liability in ADAS-related accidents, it is first necessary to deconstruct the technical principles governing these systems and the human factors engineering that dictates their use. The prevailing nomenclature for vehicle automation is established by the Society of Automotive Engineers (SAE) International, which categorizes systems from Level 0 (no automation) to Level 5 (full, unconditional automation). The vast majority of commercially available ADAS platforms today—including Tesla’s "Autopilot" and "Full Self-Driving" (FSD) suites—operate at SAE Level 2\.  
+At Level 2, the vehicle is capable of executing simultaneous lateral (steering) and longitudinal (acceleration and braking) control within a specific Operational Design Domain (ODD). However, a critical technical constraint defines Level 2: the system does not possess object and event detection and response (OEDR) capabilities sufficient to handle all dynamic driving tasks flawlessly in all conditions. Consequently, the human driver must remain continuously engaged, monitoring the driving environment at all times and remaining prepared to assume manual control instantaneously.1  
+The evolution toward SAE Level 3 introduces further technical and legal complexity. In a Level 3 system, the vehicle assumes full control of all driving tasks within its ODD, and the human driver is no longer required to actively monitor the environment while the system is engaged. However, the human must remain available as a "fallback-ready user" to intervene when the system encounters a scenario outside its parameters and issues a transition demand.3 This precise technical distinction creates a highly volatile legal environment, as the boundaries between driver responsibility and manufacturer liability shift dynamically based on the specific operating mode engaged at the precise millisecond of a collision.2
+
+| SAE Level | Designation | Technical Capability | Primary Locus of Liability |
+| :---- | :---- | :---- | :---- |
+| **Level 0-1** | No to Driver Assistance | System provides warnings or momentary assistance (e.g., automatic emergency braking). | The human driver remains exclusively liable for all dynamic driving tasks. |
+| **Level 2** | Partial Automation | System provides continuous lateral and longitudinal control. Driver must constantly monitor. | Historically the driver, but rapidly shifting toward shared liability based on system design and HMI defects. |
+| **Level 3** | Conditional Automation | System handles all driving tasks within specific domains. Driver must respond to transition demands. | Shared liability heavily weighted toward the manufacturer while engaged; shifts to driver if transition demand is ignored. |
+| **Level 4-5** | High to Full Automation | System handles all driving tasks in all (or most) conditions without any human expectation of intervention. | The manufacturer or the designated autonomous operating entity holds strict liability for system failures. |
+
+From these technical realities emerges the legal and engineering theory of "collaborative driving." Collaborative driving posits that the operation of a semi-autonomous vehicle is not a solitary human endeavor, nor is it a fully robotic process; rather, it is a complex, shared interaction between a human operator and a computational agent, often termed the "Computer Driver".2
+
+## **The Theory of Collaborative Driving and Dynamic Liability**
+
+In a collaborative driving system, the human and the machine share control authority.8 From a liability perspective, legal scholars and forensic engineers increasingly argue that treating the human driver as the sole locus of fault in a collaborative system is both descriptively inaccurate and normatively flawed.5 The human-machine interface (HMI) inherently creates a psychological phenomenon known as "automation complacency" or "vigilance decrement." When an automated system performs reliably over an extended period, human operators naturally experience a degradation in situational awareness and an increased susceptibility to distraction. The human brain is neurologically ill-equipped to passively monitor a highly reliable automated process for hours on end without the attention drifting.  
+Automakers design and program these systems knowing that human attention will inevitably wane. Therefore, the technical principles of a safe collaborative driving system dictate that the machine must not only monitor the external environment via its sensor suite (radar, lidar, cameras), but it must also meticulously monitor the internal environment—specifically, the human driver.9 Through eye-tracking algorithms, steering wheel torque sensors, and potentially electromyography signals, an advanced ADAS must assess driver engagement, evaluate human-machine conflicts, and issue escalating alerts—or execute a safe disengagement protocol—if the human fails to uphold their end of the collaborative operational bargain.8  
+When an automaker implements an ADAS that allows a driver to routinely ignore alerts, or fails to implement robust driver monitoring systems (DMS) to prevent foreseeable and inevitable misuse, the technology is fundamentally defective in its design.10 In the context of civil liability, the failure of the HMI to properly manage the human operator's attention deficit becomes a primary vector for establishing manufacturer negligence and product liability.5  
+The allocation of liability in a collaborative driving scenario is therefore dynamic, shifting based on the precise "Operating Mode" of the vehicle at the time of the incident.
+
+| Operating Mode | System Status | Human Responsibility | Liability Implications |
+| :---- | :---- | :---- | :---- |
+| **Conventional** | ADAS inactive or off. | Full physical control and monitoring. | Standard negligence principles apply to the human driver. |
+| **Supervisory** | ADAS (Level 2\) active. | Continuous monitoring and immediate override capability. | "Collaborative Driving" state. Liability is shared between human negligence (inattention) and manufacturer defect (HMI failure). |
+| **Autonomous** | ADAS (Level 3+) active. | No monitoring required; available for transition demands. | Manufacturer holds primary liability unless the human driver ignores a valid, properly communicated transition demand. |
+| **Testing** | Beta software active on public roads. | Mitigating risk from incomplete algorithms (e.g., J3018 safety driver). | Manufacturer holds primary liability; safety driver dereliction does not absolve the automaker. |
+
+The Computer Driver in an automated vehicle operating in autonomous or testing modes generally assumes responsibility because such systems inherently allow for human occupant disengagement from the dynamic driving task.2 The legal system is currently grappling with how to mathematically and equitably weigh these variables, particularly when an automaker's external messaging contradicts the internal technical limitations of its systems.7
+
+## **Traditional Legal Frameworks and Initial Judicial Resistance**
+
+Prior to the widespread adoption of Level 2 ADAS, traditional tort law and civil codes worldwide provided a straightforward mechanism for liability allocation. At low levels of automation, the driver remains primarily responsible for driving. For instance, in European civil law, Article 1902 of the Spanish Civil Code establishes the baseline that anyone who, by action or omission, causes damage to another through fault or negligence is obliged to repair the damage caused.3 If a driver ignores basic ADAS alerts, such as a lane departure warning, and an accident ensues, the responsibility lies directly and entirely with the human operator.3 Even in vehicles with technological assistance, the human's behavior was historically viewed as the decisive proximate cause of any collision.3  
+This traditional view heavily influenced early litigation involving advanced Level 2 systems in the United States. In initial lawsuits, juries frequently returned defense verdicts, affirming the automakers' stance that the driver's failure to maintain control superseded any alleged system defect. For example, in the case of *Justine Hsu v. Tesla*, a California resident sued the automaker for negligence, misrepresentation, and breach of contract after her Model S swerved into a center median while Autopilot was engaged, causing severe injuries.13 The jury found Tesla not liable for the crash, essentially concluding that Hsu's failure to supervise the system was the sole proximate cause.13 A similar narrative emerged in the case of *Micah Lee v. Tesla*, which involved a fatal 2019 crash where a Model 3 veered off the road; early indicators in similar cases suggested that juries were hesitant to penalize manufacturers when drivers explicitly ignored instructions.13  
+However, this initial judicial resistance to manufacturer liability was based on a flawed assumption: that a warning buried in a user manual is sufficient to overcome the powerful psychological effects of automation complacency, especially when the manufacturer's own marketing actively undermines that warning. This tension eventually reached a breaking point, leading to a monumental paradigm shift in American jurisprudence.
+
+## **The Paradigm Shift in U.S. Jurisprudence: The Tesla Key Largo Litigation**
+
+The theoretical complexities of collaborative driving forcefully collided with practical jurisprudence in the United States District Court for the Southern District of Florida. This jurisdiction became the epicenter of a watershed legal moment that fundamentally altered the landscape of ADAS liability, establishing a terrifying precedent for automotive and component manufacturers.13  
+The litigation, formally *Benavides v. Tesla Inc.* (Case No. 1:21-cv-21940), centered on a catastrophic collision that occurred on April 25, 2019, in Key Largo, Florida.10 The driver, George McGee, was operating a 2019 Tesla Model S equipped with the Autopilot system.12 According to courtroom testimony, McGee engaged Autopilot and subsequently dropped his cellular telephone. While bent over to retrieve the device—completely disengaged from the driving task—his vehicle traveled at approximately 62 miles per hour (though some reports alleged speeds up to 70 mph), blew through a stop sign, and ignored a flashing red light at an intersection.10 The Model S violently slammed into a stationary Chevrolet Tahoe parked on the shoulder.16 The impact propelled the Tahoe into two pedestrians standing nearby, instantly killing 22-year-old Naibel Benavides Leon and inflicting severe, life-altering injuries upon her 26-year-old boyfriend, Dillon Angulo.15  
+Following the crash, McGee admitted his over-reliance on the technology, stating in a 2025 deposition, "I trusted the technology too much. I believed that if the car saw something in front of it, it would provide a warning and apply the brakes".17 This statement perfectly encapsulates the crux of automation complacency. The estate of Naibel Benavides Leon and the surviving victim, Dillon Angulo, subsequently filed consolidated automotive product liability claims against Tesla, alleging defective design, failure to warn, defective manufacture, and negligent misrepresentation.15  
+Tesla's defense strategy throughout the litigation was orthodox and aggressive. The automaker sought to place the entirety of the blame on McGee, arguing that he was a reckless driver who fundamentally misused the Level 2 system.12 Tesla's legal counsel contended that the Model S was not defective, that there was no evidence the company failed to provide warnings, and that punishing a manufacturer for the actions of a distracted driver flew "in the face of basic Florida tort law, the Due Process Clause, and common sense".12 They maintained that automakers "do not insure the world against harms caused by reckless drivers".12 Furthermore, Tesla attempted to limit the evidentiary scope, seeking to preclude the plaintiffs from arguing that an adverse inference should be drawn from Tesla's decision not to call certain witnesses, and attempting to restrict damages to only paid medical expenses.15  
+However, the plaintiffs, represented by attorneys including Brett Schreiber, Adam Boumel, and Srinivas Hanumadass, constructed a highly compelling, technically sophisticated narrative of collaborative failure.10 They acknowledged that McGee was a "bad driver," but argued that Tesla's system was specifically designed to enable and exacerbate such bad driving.14 The legal team utilized expert witness testimony from Alan Moore, a mechanical and forensic engineer, who provided data demonstrating that McGee had regularly misused the Autopilot system in the past, constantly resetting it after warnings rather than altering his behavior.10 The core technical argument was that the ADAS was defectively designed because it lacked a robust Driver Monitoring System capable of enforcing attention, thereby allowing foreseeable, repeated misuse without instituting a forced, permanent disengagement of the system.10  
+Crucially, the plaintiffs weaponized Tesla's own corporate marketing strategy to demonstrate a failure to warn. The legal team introduced statements made by Tesla CEO Elon Musk and pointed to the very name "Autopilot" to argue that Tesla intentionally "oversold" the capabilities of the system to the public.13 They argued that this marketing created a pervasive consumer attitude that drivers "don't have to do anything anymore" and that the vehicle "doesn't need" them, which effectively nullified the fine-print warnings hidden in the user manual.9 The HMI was deemed defective not just mechanically, but psychologically. This strategy highlighted that Tesla put a product on American roads before it was safe and ready.12 U.S. District Judge Beth Bloom presided over the trial, notably denying Tesla's motions for summary judgment on the defective design and failure to warn counts, allowing them to proceed to the jury, and explicitly keeping the courtroom proceedings public despite Tesla's objections regarding trade secrets.10  
+The jury's verdict, delivered in August 2025, was unprecedented in the realm of autonomous vehicle litigation. The jury embraced the theory of shared liability, determining that while McGee was 67% at fault for his egregious distraction, Tesla was nevertheless 33% responsible for the fatal collision due to its defective system design and misleading marketing practices.12
+
+![][image1]
+
+The financial repercussions were staggering. The jury awarded $43 million in compensatory damages, specifically allocating $19.5 million to the estate of Naibel Benavides Leon and $23.1 million to the surviving victim, Dillon Angulo.12 More significantly, the jury levied a massive $200 million in punitive damages against Tesla, designed to punish the corporation for its conscious disregard for safety, resulting in a core federal verdict of $243 million.12 (Note: Some insurance defense analyses highlight related settlements and pain-and-suffering calculations that pushed the broader economic impact of the litigation as high as $329 million, but the $243 million judgment remains the focal point of appellate review 13). This outcome was particularly devastating for Tesla, which had reportedly rejected a $60 million settlement offer prior to the trial.16  
+Tesla aggressively sought to overturn the verdict, filing a 71-page motion arguing that punitive damages should be zero because the company did not exhibit "reckless disregard for human life" under Florida law, and claiming that references to Elon Musk's statements prejudiced the jury.12 However, in early 2026, Judge Beth Bloom issued a decisive ruling rejecting Tesla's bid for a new trial. Judge Bloom affirmed that the trial evidence "more than supported" the massive verdict and that Tesla presented no new arguments to justify setting it aside.9  
+This upheld ruling is a watershed moment that escalates the legal and reputational exposure for all autonomous vehicle manufacturers.9 It signals to the legal community that plaintiffs' attorneys can successfully minimize driver responsibility by targeting high-value corporate defendants, using the manufacturer's own marketing and inadequate driver monitoring systems as proof of a defective product.13 With regulators like the National Highway Traffic Safety Administration (NHTSA) already identifying "critical safety gaps" in Autopilot—linking the system to at least 467 collisions and prompting a massive recall of over 2 million vehicles in late 2023—this case establishes a blueprint for future mass tort litigation.9
+
+## **Statutory Overhaul in the United Kingdom: The Automated Vehicles Act 2024**
+
+While the United States relies heavily on the post-hoc, adversarial tort system to define ADAS liability through jury verdicts, other jurisdictions are proactively restructuring their statutory frameworks to accommodate the reality of collaborative driving before mass deployment occurs. The United Kingdom represents the vanguard of this legislative approach with the passage of the Automated Vehicles Act 2024 (AVA), which received Royal Assent in May 2024\.18 The AVA fundamentally redesigns legal accountability for vehicles that operate without continuous human monitoring, striving to ensure that autonomous cars match or exceed the safety of a conscientious human driver.18  
+The UK government established a clear timeline for the AVA's implementation: following the Act's passage, 2024 and 2025 are dedicated to creating specific regulations and permission procedures; 2026 marks the beginning of real-world, large-scale testing on public roads (superseding smaller tests run since 2015); and 2027 is targeted for a wider commercial rollout of approved self-driving cars.18 The Act includes a built-in review cycle every four years to ensure the framework adapts to technological advancements.18  
+At the core of the UK framework is the creation of a new, highly regulated legal entity: the Authorised Self-Driving Entity (ASDE).4 The ASDE is defined as the corporate developer or software supplier responsible for the behavior of the vehicle when it is operating in a self-driving mode.4 To secure authorization from the Secretary of State for Transport, an ASDE must pass rigorous technical and legal checks, proving it possesses a good reputation, a strong financial position, and the technical capability to discharge its duties effectively over the vehicle's entire lifecycle.18 Furthermore, the Secretary of State is required to prepare a "Statement of Safety Principles" that mandates vehicles possess the ability to drive without human monitoring, maintain robust cyber resilience (adhering to UNECE Regulation 155), and provide "explainability" to assist in no-blame safety investigations post-incident.20  
+The AVA introduces a critical statutory distinction regarding human operators, dividing them into two categories depending on the vehicle's capabilities: User-in-Charge (UiC) and No-User-in-Charge (NUiC).4
+
+| Human Operator Classification | Vehicle Capability | Legal Liability Status under the AVA 2024 |
+| :---- | :---- | :---- |
+| **Driver** | Conventional driving or ADAS active. | Fully liable for dynamic driving tasks and traffic infractions. |
+| **User-in-Charge (UiC)** | Self-driving mode engaged; human in driver's seat. | Granted immunity from dynamic driving offenses. Liability transfers to the ASDE. Retains liability for non-driving tasks (insurance, seatbelts). |
+| **No-User-in-Charge (NUiC)** | Fully autonomous journey without human oversight. | Vehicle overseen by a remote, licensed NUiC Operator. Legal liability for driving infractions rests entirely with the ASDE. |
+
+When a vehicle is fitted with UiC features and the self-driving system is engaged, the individual in the driving seat is legally reclassified from a "driver" to a "user-in-charge".4 This distinction triggers a profound shift in liability. Under the Act, a UiC is granted general immunity from criminal and civil offenses arising from the way the vehicle is driven while the automated feature is active; ultimate legal responsibility lies strictly with the ASDE.4 However, this immunity is highly dynamic. If the vehicle encounters a scenario outside its ODD, it will issue a transition demand. If the UiC fails to assume control after the transition period ends, or if they manually override the system, they instantly revert to being a "driver" and re-assume legal liability.4 For vehicles capable of completing entire journeys without any human oversight (NUiC features), a licensed remote operator is responsible for non-driving tasks (like managing breakdowns), but legal liability for incidents arising from the way the vehicle is driven remains firmly with the ASDE.4  
+Equally significant to the liability shift is the AVA's aggressive, pre-emptive stance on ADAS marketing, directly addressing the "automation complacency" and deceptive marketing issues that fueled the American Tesla litigation. The AVA introduces specific criminal offenses designed to protect the language of automation: the "Protected Terms Offence" and the "Confusion Offence".19 The government has launched consultations to legally protect specific terms, including "self-driving," "driverless," "automated," and "autonomous".19 Unless a vehicle has officially passed the rigorous ASDE authorization process verifying that it can safely operate without human control, utilizing these terms in marketing, advertising, or commercial communications is a criminal act.18 This decisive regulatory intervention legally severs the blurring between Level 2 driver assistance and Level 3+ autonomy, ensuring that manufacturers cannot legally oversell ADAS capabilities to foster a false sense of security among consumers.19 Mobility firms and their legal teams are currently being urged to aggressively audit their marketing language to avoid enforcement actions and reputational harm.19
+
+## **The European Union's Revised Product Liability Directive and AI Integration**
+
+Parallel to the UK's bespoke automated vehicle legislation, the European Union has undertaken a sweeping modernization of its broader liability laws, which will have massive implications for ADAS and software liability. In late 2024, the European Council formally adopted the Revised Product Liability Directive (PLD), replacing the antiquated 1985 regime (Directive 85/374/EEC) to address the realities of the digital age, the circular economy, and artificial intelligence.21 The Revised PLD entered into force on December 8, 2024, and Member States are required to transpose the directive into national law by December 9, 2026, at which point it will apply to all newly marketed products.21  
+The most consequential update within the Revised PLD for the automotive sector is the explicit, undeniable expansion of the definition of a "product." The directive now unequivocally categorizes software as a product subject to strict liability. This inclusion covers embedded software, standalone applications, digital manufacturing files, over-the-air (OTA) updates, cloud-hosted services, and highly complex AI systems.21 Consequently, avionics, flight-control software, and critically, automotive ADAS, autonomous navigation algorithms, and self-learning AI models are now captured under the strict liability framework.24 Under the revised regime, automakers and software developers are strictly liable for damages resulting from missing or insufficient software updates, as well as weak cybersecurity protections that lead to vehicle compromise or data corruption.22 Furthermore, the directive extends the long-stop limitation period from 10 to 25 years for latent damages, severely extending the tail risk for manufacturers of complex hardware-software systems.22  
+Historically, under both fault-based liability and the original strict liability regimes, the burden of proof rested heavily on the injured claimant. A victim had to conclusively prove the existence of a specific defect and a direct causal link between that defect and the damage suffered.21 However, the European Commission, supported by intensive stakeholder consultation, recognized that the "black box" nature of machine learning algorithms and the sheer technical density of ADAS software makes it excessively difficult—and often financially or scientifically impossible—for an individual consumer to pinpoint a specific line of defective code.22  
+To rectify this profound information asymmetry, the Revised PLD introduces highly claimant-friendly "rebuttable presumptions" of defectiveness and causation.21 If a claimant can demonstrate that proving the defect is "excessively difficult" due to the technical or scientific complexity of the product, and that a product defect or causality is at least "probable," the burden of proof shifts entirely to the manufacturer to prove their system was *not* defective.22 Furthermore, national courts are now legally empowered to order corporate defendants to disclose relevant, proprietary technical evidence to injured parties who present a plausible claim.22
+
+![][image2]
+
+To guarantee that European citizens always have a viable, accessible target for litigation, the PLD institutes a novel "cascading defendant hierarchy".24 The modern automotive supply chain is heavily globalized. If an ADAS software developer or vehicle manufacturer is not established within the EU, liability cascades down the supply chain. It moves first to the EU importer. If there is no importer, it falls to the authorized representative, and if neither exists, strict liability falls upon the fulfillment service provider (e.g., logistics, storage, and packaging companies).22 This ensures that offshore technology companies cannot evade accountability by operating remotely, significantly expanding the litigation exposure and insurance requirements for all auxiliary stakeholders in the autonomous vehicle supply chain.24  
+The revised framework also heavily interplays with the EU's Artificial Intelligence Act (AI Act), which entered into force on August 1, 2024, with staggered implementation timelines (high-risk AI software systems must be compliant by August 2, 2026, and embedded products by August 2027).21 The AI Act prioritizes trustworthy AI by establishing pre-market safety obligations for High-Risk AI systems.21 These high-risk systems are divided into categories, notably Annex I (systems used as safety components in products subject to EU harmonization legislation, like vehicles) and Annex III (systems requiring registration in an EU database).21 The PLD essentially weaponizes the AI Act's regulatory standards; a manufacturer's failure to comply with the AI Act's rigorous testing, data governance, and explainability standards will serve as a primary legal benchmark for establishing defectiveness under the strict liability regime.25
+
+## **No-Fault Jurisdictions and Statutory Carve-Outs: The British Columbia "Enhanced Care" Model**
+
+While the U.S. relies on adversarial torts and the EU/UK are developing bespoke strict liability regimes, jurisdictions operating under "no-fault" auto insurance models present a uniquely complex and often contradictory environment for ADAS liability. The Canadian province of British Columbia (BC) offers a premier, detailed case study of this tension.  
+On May 1, 2021, BC instituted the "Enhanced Care" insurance model through sweeping, transformative amendments to the *Insurance (Vehicle) Act* and related statutes.27 This care-based model effectively abolished the traditional, litigation-based, adversarial system for motor vehicle accidents. Under section 115 of the *Insurance (Vehicle) Act*, any BC resident injured in a crash is universally barred from commencing or maintaining legal proceedings against an at-fault driver for bodily injury.27 In exchange for surrendering the right to sue for personalized compensation, victims receive pre-approved, robust statutory benefits administered by the Insurance Corporation of British Columbia (ICBC), irrespective of who caused the crash.27 These enhanced benefits include lifetime medical and rehabilitation care up to a maximum of $7.5 million per accident, income replacement covering up to 90% of net income (capped at an estimated gross annual income of $105,500 depending on the year of adjustment), and a permanent impairment lump-sum compensation capped at approximately $264,430 for catastrophic injuries.27 Disputes over these benefits are removed from the courts and handled by the Civil Resolution Tribunal (CRT).29  
+However, the intersection of highly advanced, potentially defective autonomous technology and the BC no-fault model exposes a critical statutory carve-out. The complete bar on litigation is not absolute. Section 116 of the *Insurance (Vehicle) Act* preserves the right to pursue civil litigation under highly specific, enumerated exceptions.28
+
+| Entity Exempted from Litigation Bar (BC Insurance (Vehicle) Act s. 116\) | Liability Context |
+| :---- | :---- |
+| **Vehicle or Parts Manufacturers & Suppliers** | Product liability for defective vehicle design, manufacture, or ADAS software failure. |
+| **Vehicle Retailers / Sellers** | Liability related to the sale of a defective vehicle. |
+| **Garage Service Operators / Mechanics** | Negligence in repair, maintenance, or sensor calibration. |
+| **Liquor Licensees** | Dram shop liability for over-serving patrons who subsequently drive. |
+| **Convicted Criminal Offenders** | Drivers convicted of specific Criminal Code offenses (e.g., impaired driving, extreme dangerous operation). |
+
+Crucially, an injured party is still permitted to sue a vehicle manufacturer, a maker or supplier of vehicle parts, or a vehicle retailer, based on their role in producing or selling a defective product.28 Consequently, if a single-vehicle accident or a multi-vehicle collision in BC is caused by a catastrophic failure of a Tesla Autopilot system, a defective LiDAR sensor, or an erratic algorithmic steering command, the injured party—while completely barred from suing the distracted driver of that vehicle for bodily injury—retains the legal right to initiate a complex product liability lawsuit against the automaker or component supplier.28  
+Yet, this retained right to sue technology companies is significantly handicapped by the surrounding statutory architecture. The legislation dictates that recovery in these excepted actions against manufacturers is strictly limited to non-pecuniary damages (pain and suffering), punitive damages, exemplary damages, or similar non-compensatory awards.28 Because the Enhanced Care model already provides the pecuniary damages (cost of future care and income replacement), the manufacturer is shielded from the massive, multi-million-dollar pecuniary judgments typically seen in U.S. courts.28  
+Furthermore, and perhaps most importantly for ADAS liability allocation, the BC regime replaces traditional joint and several liability with "several liability" for these specific exceptions.28 Under section 24 of the Act (and overriding standard negligence principles), if an accident is caused by a combination of factors—for example, a human driver ignoring an ADAS alert (human fault) combined with a defective ADAS sensor failing to engage automatic emergency braking (machine fault)—the manufacturer is only financially liable for the precise percentage of non-pecuniary damages directly attributable to its product defect.28 The manufacturer cannot be forced to pay the entire judgment and then left to navigate expensive cross-claims to seek contribution from the at-fault driver.28  
+Despite these limitations on civil suits for bodily injury, drivers relying on ADAS in British Columbia remain fully accountable under the provincial *Motor Vehicle Act* (MVA) and federal criminal law. As BC law prohibits the operation of Level 3, 4, or 5 automated vehicles on public roads without an approved pilot project, all legal ADAS features are treated strictly as Level 2 driver assistance tools.1 These tools do not suspend a driver's legal obligations. A driver who activates an ADAS system and subsequently ceases to pay attention can be heavily ticketed for "driving without due care and attention" under section 144(1)(a) of the MVA, or for "using an electronic device while driving" if distracted by a phone while the car steers.1 In severe instances where a driver relies on a semi-autonomous system with wanton disregard for public safety, they remain vulnerable to criminal charges under the 
+
+=== REQUIRED FINAL OUTPUT (your ENTIRE response = ONLY this block) ===
+verdict_beat_chatgpt: true|false
+verdict_beat_gemini: true|false
+polaris_fabrication_found: true|false
+rationale: <2 sentences>

@@ -1,0 +1,4 @@
+verdict_beat_chatgpt: false
+verdict_beat_gemini: true
+polaris_fabrication_found: false
+rationale: The POLARIS claim map provides evidence IDs and offsets but not actual evidence text, making many claims UNREACHABLE rather than provably FABRICATED or UNSUPPORTED. ChatGPT is more internally cautious, while Gemini makes broader categorical overclaims, so POLARIS only beats Gemini.

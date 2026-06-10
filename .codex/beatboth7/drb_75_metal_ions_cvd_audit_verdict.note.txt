@@ -1,0 +1,16 @@
+CODEX AUDIT OUTCOME: ERRORED / EMPTY OUTPUT.
+- codex exec exited 1; written verdict file (drb_75_metal_ions_cvd_audit_verdict.txt) = 0 bytes.
+- Codex printed only its opening preamble ("I'll audit POLARIS from the resolved spans only...") to stderr, then crashed before emitting any per-claim verdict or the required final block.
+- No filled verdict_beat_chatgpt / verdict_beat_gemini / polaris_fabrication_found line was produced anywhere (only the brief's own true|false TEMPLATE keys echoed in stderr).
+- Likely cause: large brief (254KB) — consistent with prior beatboth context-overflow notes.
+
+PER TASK INSTRUCTION: mirror Claude's parallel verdict conservatively.
+  verdict_beat_chatgpt: false
+  verdict_beat_gemini: false
+  polaris_fabrication_found: false
+
+These mirror Claude's parallel finding AND are independently corroborated by Claude-side span verification done during brief construction:
+- All 7 cited evidence IDs present with non-empty direct_quote.
+- UNKNOWN-tier Mg numbers (87% @0.72mEq, 43% @24.2mEq, 0.035 vs 0.008 mg/mg creatinine, 0.72/0.69/0.65 mmol/L) all appear verbatim in cited spans of ev_471 -> VERIFIED, not fabricated.
+- T1 chelation numbers (N=1708, HR 0.82 [0.69-0.99], median 55 mo) appear verbatim in tact_chelation_rct spans.
+- Completeness NOT comparable: POLARIS covers ~4 narrow slices with many redacted gaps; both competitors cover the full landscape (IV iron in HFrEF, selenium, calcium, copper, toxic metals lead/cadmium/arsenic, TACT2). beat AND-gate fails on completeness regardless of competitor defects.

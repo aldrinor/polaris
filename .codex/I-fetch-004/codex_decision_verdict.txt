@@ -1,0 +1,20 @@
+verdict: APPROVE
+
+The plan is sound to proceed to bakeoff, with one correction: Zyte should be treated as **Ireland/EU**, not UK. Zyte’s own terms define Zyte as “Zyte Group Limited, an Irish limited company” with company number 492771, so it satisfies non-US/non-China and is stronger than the stated UK rationale. Decodo is also confirmed Lithuania/EU: UAB “Data troops”, registered in Vilnius. Oxylabs remains a reasonable Lithuania/EU candidate.
+
+Answers:
+
+1. **Shortlist:** Yes. Zyte + Decodo + Oxylabs is the right first bakeoff set. I would not add ScraperAPI given the weak protected-site success. ScrapingBee is a reasonable backup, but not clearly better than these three on the supplied data. If you have budget for a fourth, consider a small “wildcard EU provider” slot, but it is not required.
+2. **Jurisdiction:** Sound after correction. Zyte is Ireland/EU, Decodo is Lithuania/EU, Oxylabs is Lithuania/EU. All meet non-US/non-China. Bright Data still fails the stated operator constraint.
+3. **Bakeoff methodology:** Correct. Use POLARIS’s own failed clinical/regulatory URLs, not generic benchmark targets. Target mix dominates provider performance, especially for public clinical, government, academic, publisher, and regulatory pages.
+4. **Legal/ethical/faithfulness/sovereignty:** No blocker if restricted to public pages, open-access content, and compliant rate/concurrency. Do not use it for subscription journal paywalls or authenticated/library content. Faithfulness is not weakened; better retrieval should reduce gap-disclosure. Sovereignty is acceptable if the operator’s threat model is LLM-inference-only, but document that URLs and fetched page contents will transit the scraper provider.
+5. **Decision criteria:** Weight recovery highest. Suggested scoring: 65% validated recovery on required clinical/regulatory slots, 15% content quality/extraction fidelity, 10% latency/SLO, 10% effective cost at actual feature settings. Cost should be measured after JS/rendering/premium-proxy multipliers, not list price.
+
+Main implementation guardrail: add policy gates before production wiring: public-only fetch policy, paywall/auth detection, per-domain rate limits, provider spend caps, provenance logging, and fallback behavior that preserves gap-disclosure.
+
+Sources: Zyte terms/legal entity and public-only scraping language; Decodo legal entity and scraping/DPA language; Oxylabs public-data/compliance positioning.  
+- https://www.zyte.com/terms-policies/terms-of-service/  
+- https://decodo.com/legal/license-agreement  
+- https://decodo.com/legal  
+- https://oxylabs.io/risk-and-legal-compliance  
+- https://oxylabs.io/

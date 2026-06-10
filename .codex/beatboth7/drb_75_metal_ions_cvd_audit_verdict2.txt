@@ -1,0 +1,4 @@
+verdict_beat_chatgpt: false
+verdict_beat_gemini: false
+polaris_fabrication_found: false
+rationale: The POLARIS per-claim section provides source IDs/offsets but not quoted evidence spans, so its substantive numeric and clinical claims are UNREACHABLE rather than VERIFIED. Because many claims are unreachable and the report leaves explicit clinical gaps, POLARIS does not beat ChatGPT or Gemini on combined faithfulness and completeness.

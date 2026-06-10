@@ -1,0 +1,489 @@
+### CLAIM 00-000-8eb17362  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Displacement vs reinstatement: an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect [#ev:acemoglu_restrepo_automation_tasks:500-1300].
+CITED SPAN [acemoglu_restrepo_automation_tasks:500-1300] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """mation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect, and always raises the labor share and labor demand. We show how the role of changes in the task content of production—due to automation and new tasks—can be inferred from industry-level data. Our empirical decomposition suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product"""
+
+### CLAIM 00-001-592470a2  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: The framework's central mechanism is that automation allows capital to replace labor in previously human-performed tasks, which shifts the overall task content of production against labor through what the authors term a displacement effect [#ev:acemoglu_restrepo_automation_tasks:0-800].
+CITED SPAN [acemoglu_restrepo_automation_tasks:0-800] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """We present a framework for understanding the effects of automation and other types of technological changes on labor demand, and use it to interpret changes in US employment over the recent past. At the center of our framework is the allocation of tasks to capital and labor—the task content of production. Automation, which enables capital to replace labor in tasks it was previously engaged in, shifts the task content of production against labor because of a displacement effect. As a result, automation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production"""
+
+### CLAIM 00-002-a42d7a9e  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: This acceleration was particularly concentrated in the manufacturing sector [#ev:acemoglu_restrepo_automation_tasks:500-1300].
+CITED SPAN [acemoglu_restrepo_automation_tasks:500-1300] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """mation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect, and always raises the labor share and labor demand. We show how the role of changes in the task content of production—due to automation and new tasks—can be inferred from industry-level data. Our empirical decomposition suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product"""
+
+### CLAIM 00-003-168e71a3  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: In contrast, the reinstatement effect, rather than strengthening, was weaker, meaning that the creation of new labor-absorbing tasks did not keep up with the displacement [#ev:acemoglu_restrepo_automation_tasks:500-1300].
+CITED SPAN [acemoglu_restrepo_automation_tasks:500-1300] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """mation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect, and always raises the labor share and labor demand. We show how the role of changes in the task content of production—due to automation and new tasks—can be inferred from industry-level data. Our empirical decomposition suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product"""
+
+### CLAIM 00-004-f461f83a  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Although the displacement acceleration was especially sharp in manufacturing, the pattern of faster displacement and weaker reinstatement appears to characterize the broader labor market [#ev:acemoglu_restrepo_automation_tasks:500-1300].
+CITED SPAN [acemoglu_restrepo_automation_tasks:500-1300] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """mation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect, and always raises the labor share and labor demand. We show how the role of changes in the task content of production—due to automation and new tasks—can be inferred from industry-level data. Our empirical decomposition suggests that the slower growth of employment over the last three decades is accounted for by an acceleration in the displacement effect, especially in manufacturing, a weaker reinstatement effect, and slower growth of product"""
+
+### CLAIM 00-005-b734b254  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Moreover, the framework provides a systematic way to attribute employment movements to displacement, reinstatement, and productivity shifts [#ev:acemoglu_restrepo_automation_tasks:100-900].
+CITED SPAN [acemoglu_restrepo_automation_tasks:100-900] (source: "Automation and New Tasks: How Technology Displaces and Reinstates Labo", tier T1, text_len=1331):
+    """changes on labor demand, and use it to interpret changes in US employment over the recent past. At the center of our framework is the allocation of tasks to capital and labor—the task content of production. Automation, which enables capital to replace labor in tasks it was previously engaged in, shifts the task content of production against labor because of a displacement effect. As a result, automation always reduces the labor share in value added and may reduce labor demand even as it raises productivity. The effects of automation are counterbalanced by the creation of new tasks in which labor has a comparative advantage. The introduction of new tasks changes the task content of production in favor of labor because of a reinstatement effect, and always raises the labor share and labor de"""
+
+### CLAIM 00-006-02d8e523  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Automation is typically designed and intended to substitute for human labor in specific tasks [#ev:autor_why_still_jobs:5000-5800].
+CITED SPAN [autor_why_still_jobs:5000-5800] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """ funda-mental economic law that guarantees every adult will be able to earn a living solely on the basis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply. Indeed, a key observation of the paper is that journalists and even expert commentators tend to overstate the extent of machine substitution for human labor and ignore the st"""
+
+### CLAIM 00-007-15713613  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: However, the influence of automation is not confined to this direct substitution effect [#ev:autor_why_still_jobs:5000-5800].
+CITED SPAN [autor_why_still_jobs:5000-5800] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """ funda-mental economic law that guarantees every adult will be able to earn a living solely on the basis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply. Indeed, a key observation of the paper is that journalists and even expert commentators tend to overstate the extent of machine substitution for human labor and ignore the st"""
+
+### CLAIM 00-008-19d408cd  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Automation raises overall output, generating scale effects that, paradoxically, increase the demand for labor [#ev:autor_why_still_jobs:4800-5600].
+CITED SPAN [autor_why_still_jobs:4800-5600] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """uture: in particular, the emergence of greatly improved computing power, artificial intelligence, and robotics raises the possibility of replacing labor on a scale not previously observed. There is no funda-mental economic law that guarantees every adult will be able to earn a living solely on the basis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adj"""
+
+### CLAIM 00-009-5925ed83  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: Moreover, the complementarity dynamic interacts with ongoing adjustments in labor supply [#ev:autor_why_still_jobs:4900-5700].
+CITED SPAN [autor_why_still_jobs:4900-5700] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """d robotics raises the possibility of replacing labor on a scale not previously observed. There is no funda-mental economic law that guarantees every adult will be able to earn a living solely on the basis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply. Indeed, a key observation of the paper is that journalists and even expert"""
+
+### CLAIM 00-010-dabf35db  (section: Foundational_Theory, severity: S1)
+REPORT SENTENCE: In sum, the relationship between automation and labor is not solely adversarial, because complementarity, output expansion, and supply interactions jointly sustain labor demand [#ev:autor_why_still_jobs:4900-5700].
+CITED SPAN [autor_why_still_jobs:4900-5700] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """d robotics raises the possibility of replacing labor on a scale not previously observed. There is no funda-mental economic law that guarantees every adult will be able to earn a living solely on the basis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply. Indeed, a key observation of the paper is that journalists and even expert"""
+
+### CLAIM 01-000-c2933635  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: Identification strategy: variation in exposure to robots—defined from industry-level advances in robotics and local industry employment [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-001-f0c14187  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: Population: US labor markets [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-002-5982c59a  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: Outcome: employment and wages [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-003-83112972  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: Exposure measure: probability of computerisation [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-004-c4669dfa  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: Their empirical framework exploits cross-sectional differences in the penetration of industrial robots across US labor markets, which are operationalized as commuting zones, thereby capturing localized labor market disturbances [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-005-2c8e9a6e  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: The exposure measure is constructed by combining data on the rate of robot adoption within detailed industries with the preexisting employment shares of those industries in each commuting zone, yielding a commuting-zone-specific dose of technological shock [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-006-19ecb17c  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: In contrast to studies that rely on aggregate time-series variation or broad proxies for technology, this design identifies the effect of robots from geographically targeted variation in their adoption [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-007-185c87a5  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: The variation in robot exposure across commuting zones thus serves as the key source of identifying information [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-008-0a010c2a  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: By relating these exposure differences to subsequent changes in local employment and wages, the study isolates the causal effect of increasing robot adoption on labor market outcomes [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-009-d2d84481  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: However, the exposure is not uniform; it is determined by the interaction of national robotization trends with each commuting zone’s initial industry composition, creating a rich mosaic of treatment intensity [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-010-effec071  (section: Empirical_Displacement, severity: S3)
+REPORT SENTENCE: In sum, the investigation systematically links the geographic distribution of robot exposure to changes in employment and wages across US labor markets [#ev:acemoglu_restrepo_robots_jobs:0-688].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+
+### CLAIM 01-011-8c79d5f6  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: The authors began by implementing a Gaussian process classifier to estimate this probability for each occupation [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-012-a6de3650  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: The Gaussian process classifier formed the core of the estimation engine [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-013-1480207a  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: The resulting exposure measure was the probability of computerisation, a quantitative indicator of automation risk [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-014-b72bed95  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: The probability of computerisation thus became the central variable of interest in their investigation [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-015-8d10c3f3  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: However, the exposure measure itself was simply the estimated probability of computerisation [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 01-016-56ff52b0  (section: Empirical_Displacement, severity: S2)
+REPORT SENTENCE: The probability of computerisation was calculated from the Gaussian process classifier output [#ev:frey_osborne_computerisation:1000-1800].
+CITED SPAN [frey_osborne_computerisation:1000-1800] (source: "The future of employment: How susceptible are jobs to computerisation?", tier T1, text_len=3556):
+    """gy to estimate the probability of computerisation for 702 detailed occupations, using a Gaussian process classifier. Based on these estimates, we examine expected impacts of future computerisation on US labour market outcomes, with the primary objective of analysing the number of jobs at risk and the relationship between an occupations probability of computerisation, wages and educational attainment. 
+
+Publication status:Published Peer review status:Peer reviewed
+
+### Actions
+
+* * *
+
+*   [Email](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#emailForm)## Email this record
+
+Send the bibliographic details of this record to your email address. 
+*   [Cite](https://ora.ox.ac.uk/objects/uuid:4ed9f1bd-27e9-4e30-997e-5fc8405b0491#citeForm)## APA Style
+
+Frey, C., & Osborne, """
+
+### CLAIM 02-000-e0c45dfc  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: Design: staggered introduction [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-001-4afa61be  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: Population: 5,172 customer-support agents [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-002-a679fe05  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: Intervention: generative AI–based conversational assistant [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-003-25fea03e  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: The intervention under investigation was a generative AI–based conversational assistant [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-004-a8239f8f  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: To assess its effects, the researchers implemented a staggered introduction design [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-005-dfa5ecd3  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: In this design, agents received access to the conversational assistant at different time points [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 02-006-0930e763  (section: Generative_AI_Evidence, severity: S3)
+REPORT SENTENCE: In sum, this research offers a critical lens on how a generative AI–based conversational assistant can reshape the work of 5,172 customer-support agents when introduced via a staggered design [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 03-000-c22ee104  (section: Background, severity: S1)
+REPORT SENTENCE: Concerns that automation would eliminate jobs are not new: the early 19th-century Luddites smashed textile machines, and a 1961 TIME magazine cover story warned of “The Automation Jobless” [#ev:autor_why_still_jobs:0-800].
+CITED SPAN [autor_why_still_jobs:0-800] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """Journal of Economic Perspectives—Volume 29, Number 3—Summer 2015—Pages 3–30T here have been periodic warnings in the last two centuries that automation and new technology were going to wipe out large numbers of middle class jobs. The best-known early example is the Luddite movement of the early 19th century, in which a group of English textile artisans protested the automation of textile production by seeking to destroy some of the machines. A lesser-known but more recent example is the concern over “The Automation Jobless,” as they were called in the title of a TIME magazine story of February 24, 1961:The number of jobs lost to more efficient machines is only part of the prob-lem. What worries many job experts more is that automation may prevent the economy from creating enough new jobs. """
+
+### CLAIM 03-001-4fe3f515  (section: Background, severity: S1)
+REPORT SENTENCE: Despite these alarms, the 20th century saw the employment-to-population ratio rise and no long-run increase in the unemployment rate [#ev:autor_why_still_jobs:3800-4600].
+CITED SPAN [autor_why_still_jobs:3800-4600] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """behind some people, perhaps even a lot of people, as it races ahead. As we’ll demonstrate, there’s never been a better time to be a worker with special skills or the right education, because these people can use technology to create and capture value. However, there’s never been a worse time to be a worker with only ‘ordinary’ skills and abilities to offer, because computers, robots, and other digital technologies are acquiring these skills and abilities at an extraordinary rate.Clearly, the past two centuries of automation and technological progress have not made human labor obsolete: the employment‐to‐population ratio rose during the 20th century even as women moved from home to market; and although the unemployment rate fluctuates cyclically, there is no apparent long-run increase. But """
+
+### CLAIM 03-002-7edf5837  (section: Background, severity: S3)
+REPORT SENTENCE: To understand these dynamics, economists have adopted task-based frameworks; Acemoglu and Restrepo (2019) distinguish between automation that displaces labor from tasks and the introduction of new tasks that reinstates labor demand [ev_acemoglu_restrepo_automation_tasks][#ev:ev_005:4400-5200].
+CITED SPAN [ev_005:4400-5200] (source: "", tier T3, text_len=5966):
+    """1) proposed a task-based framework where tasks are defined as units of work activity that
+
+[...]
+
+umed technology increases labor demand or only threatens workers who perform routine tasks. More recent research broadens the role of technology to include the ability to perform any task; this meets the definition of automation described in Section 2.2.1.
+The model introduced by Acemoglu and Restrepo (2019) describes three classes of technology: automation, new task generation, and factor-augmenting technologies (which increase the productivity of labor or capital in doing any task). A new technol
+
+[...]
+
+.
+In the empirical section of the paper, Acemoglu and Restrepo (2019) examine trends in U.S. data and distinguish between 1947 to 1987 and 1987 to 2017. In the earlier period, they measure a"""
+
+### CLAIM 03-003-5fb3b63e  (section: Background, severity: S3)
+REPORT SENTENCE: Their decomposition of U.S. data shows that from 1947 to 1987 the displacement effect averaged 0.48% per year, offset by a reinstatement effect of 0.47% and annual productivity growth of 2.4%, yielding real wage growth of 2.5% per year [#ev:ev_005:4900-5700].
+CITED SPAN [ev_005:4900-5700] (source: "", tier T3, text_len=5966):
+    """g technologies (which increase the productivity of labor or capital in doing any task). A new technol
+
+[...]
+
+.
+In the empirical section of the paper, Acemoglu and Restrepo (2019) examine trends in U.S. data and distinguish between 1947 to 1987 and 1987 to 2017. In the earlier period, they measure a displacement effect from new technologies that amounted to 0.48% per year, which was offset by a reinstatement effect and strong productivity growth (2.4% per year). The net result was rising real wages (2.5% per year) and strong labor demand. In the period since 1987, wage growth has been much weaker (1.3% per year) as a result of weaker productivity growth (1.5% per year), a slowdown of the reinstatement effect (from 0.47% to 0.35% per year), and an acceleration of the displacement effect (fr"""
+
+### CLAIM 03-004-d9b4308f  (section: Background, severity: S3)
+REPORT SENTENCE: After 1987, the displacement effect accelerated to 0.70% per year, the reinstatement effect slowed to 0.35%, and productivity growth fell to 1.5%, leading to real wage growth of only 1.3% per year [#ev:ev_005:5000-5800].
+CITED SPAN [ev_005:5000-5800] (source: "", tier T3, text_len=5966):
+    """l
+
+[...]
+
+.
+In the empirical section of the paper, Acemoglu and Restrepo (2019) examine trends in U.S. data and distinguish between 1947 to 1987 and 1987 to 2017. In the earlier period, they measure a displacement effect from new technologies that amounted to 0.48% per year, which was offset by a reinstatement effect and strong productivity growth (2.4% per year). The net result was rising real wages (2.5% per year) and strong labor demand. In the period since 1987, wage growth has been much weaker (1.3% per year) as a result of weaker productivity growth (1.5% per year), a slowdown of the reinstatement effect (from 0.47% to 0.35% per year), and an acceleration of the displacement effect (from 0.48% to 0.70%). Using industry-year variation within the U.S., they find that the proxy measures"""
+
+### CLAIM 03-005-7e78671b  (section: Background, severity: S3)
+REPORT SENTENCE: Empirical evidence, however, indicates that dramatic occupational decline is rare; between 1999 and 2018, only 21 U.S. occupations (representing 1% of jobs in 1999) declined by 50% or more per decade, while 55 occupations grew by 50% or more over the same period [#ev:ev_389:5600-6400].
+CITED SPAN [ev_389:5600-6400] (source: "", tier T3, text_len=8838):
+    """rates to be positive. However, while many occupations experienced below-average growth, others experienced absolute declines. An occupation must decline by 25 percent per decade to shrink by 44 percent over two decades, equivalent to 0.56 of its base-year level. This is comparable to the rate of change implied by Frey and Osborne’s widely cited forecast of a 47-percent decline in the total number of jobs over 20 years.22
+Such steep declines are unusual. Table 1 shows the actual distr
+
+[...]
+
+nd jobs involved grow smaller. This is especially the case for declining occupations. Only 21 occupations, representing 1 percent of jobs in 1999, declined by 50 percent or more per decade from 1999 to 2018. By contrast, 55 occupations, representing 2.7 percent of jobs in 1999, grew by 50 percent or mo"""
+
+### CLAIM 03-006-d08de553  (section: Background, severity: S3)
+REPORT SENTENCE: As AI permeates the economy, surveys show uneven adoption: in 2017, only 5.8% of U.S. companies used AI, but this figure rose to 18.2% when weighted by employment, reflecting concentration in large firms [#ev:ev_342:10700-11500].
+CITED SPAN [ev_342:10700-11500] (source: "", tier T1, text_len=11595):
+    """ctivity and a 1.3–1.45 rise in log per capita GNI, confirming productivity-driven growth effects. While descriptive evidence shows no clear unconditional relationship with employment, econometric results (FGLS) reveal a statistically significant positive impact of digital
+
+[...]
+
+e job quality without supportive labor institutions. Overall, the results highlight that digital transformation enhances efficiency and growth, but its social outcomes depend on complementary policies and change management (Aly, 2022).
+In 2017, only 5.8% of U.S. companies used AI. However, when weighted by the number of employees, the adoption rate rises to 18.2% (see Fig. 4). This indicates that AI use is concentrated in large enterprises and fast-growing start-ups. The low average penetration rate suggests the e"""
+
+### CLAIM 03-007-3298a203  (section: Background, severity: S1)
+REPORT SENTENCE: Recent decades have reignited anxiety, with MIT scholars Brynjolfsson and McAfee arguing in *The Second Machine Age* that digital technologies could leave behind some people [#ev:autor_why_still_jobs:3200-4000]
+CITED SPAN [autor_why_still_jobs:3200-4000] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """al Reserve Bank sponsorship in area economic development free from the Fed’s national headquarters.”Such concerns have recently regained prominence. In their widely discussed book The Second Machine Age, MIT scholars Erik Brynjolfsson and Andrew McAfee (2014, p. 11) offer an unsettling picture of the likely effects of automation on employment:Rapid and accelerating digitization is likely to bring economic rather than environmental disruption, stemming from the fact that as computers get more powerful, companies have less need for some kinds of workers. Technological progress is going to leave behind some people, perhaps even a lot of people, as it races ahead. As we’ll demonstrate, there’s never been a better time to be a worker with special skills or the right education, because these peo"""
+
+### CLAIM 03-008-b25c6a6c  (section: Background, severity: S3)
+REPORT SENTENCE: Between 1999 and 2018, total jobs grew 17% for the 669 occupations in the OE, with the median occupation holding about 54,000 jobs [#ev:ev_389:4500-5300].
+CITED SPAN [ev_389:4500-5300] (source: "", tier T3, text_len=8838):
+    """2.7 percent). Occupational size declines fairly rapidly thereafter, such that the share of the smallest occupation in the top decile of the occupational employment distribution accounted for about twice the average (0.29 percent). The median occupation had only about 54,000 jobs, accounting for just 0.03 percent of all jobs, and the nearly 400 occupations below the median each accounted for 0.01 percent of all jobs on average. Clearly, occupational size is an important consideration when focusing on particular cases given that most occupations are small in absolute terms and even large occupations account for relatively small shares of all 
+
+[...]
+
+al employment are themselves not very common.
+Between 1999 and 2018, the total number of jobs grew 17 percent for the 669 occupations in the OE"""
+
+### CLAIM 03-009-51586736  (section: Background, severity: S3)
+REPORT SENTENCE: A growing body of research suggests that AI often augments rather than replaces human labor, transforming jobs and shifting skill demands [#ev:ev_342:0-800].
+CITED SPAN [ev_342:0-800] (source: "", tier T1, text_len=11595):
+    """Abstract
+This study explores the impact of artificial intelligence (AI) on the labour market, focusing on changes in job roles, skill requirements, and human resource (HR) practices. Unlike previous surveys that primarily addressed technological aspects, this research systematically integrates technological, organisational, and institutional perspectives. The literature review (2020–2025) shows that AI adoption is closely associated with rising demand for technical and interdisciplinary skills, restructuring of work roles, and widening wage gaps between AI-skilled and non-AI-skilled workers. At the same time, many jobs are not eliminated but transformed, as AI frequently functions in augmentation rather than pure substitution mode. The results suggest that the future of work in the AI era """
+
+### CLAIM 04-000-ce301545  (section: Key Findings, severity: S3)
+REPORT SENTENCE: A systematic literature review for 2020–2025 concludes that AI adoption is associated with widening wage gaps between AI‑skilled and non‑AI‑skilled workers, that many jobs are transformed rather than eliminated, and that demand for technical and interdisciplinary skills is rising [#ev:ev_342:0-800].
+CITED SPAN [ev_342:0-800] (source: "", tier T1, text_len=11595):
+    """Abstract
+This study explores the impact of artificial intelligence (AI) on the labour market, focusing on changes in job roles, skill requirements, and human resource (HR) practices. Unlike previous surveys that primarily addressed technological aspects, this research systematically integrates technological, organisational, and institutional perspectives. The literature review (2020–2025) shows that AI adoption is closely associated with rising demand for technical and interdisciplinary skills, restructuring of work roles, and widening wage gaps between AI-skilled and non-AI-skilled workers. At the same time, many jobs are not eliminated but transformed, as AI frequently functions in augmentation rather than pure substitution mode. The results suggest that the future of work in the AI era """
+
+### CLAIM 04-001-85f3d7c7  (section: Key Findings, severity: S3)
+REPORT SENTENCE: A field experiment among 5,172 customer‑support agents found that a generative AI assistant increased worker productivity by 15% on average, with particularly large gains for less‑experienced workers [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 04-002-2a612312  (section: Key Findings, severity: S3)
+REPORT SENTENCE: In online retail, a series of large‑scale randomized field experiments observed that GenAI integration increased sales by up to 16.3% in customer‑service workflows, directly raising total factor productivity [#ev:ev_411:1400-2200].
+CITED SPAN [ev_411:1400-2200] (source: "", tier T4, text_len=10462):
+    """ligence (GenAI) on firm productivity through a series of large-scale randomized field experiments in
+
+[...]
+
+border online retail platform. Over six months in 2023-2024, GenAI-based enhancements were integrated into seven consumer-facing business workflows. We find that GenAI adoption significantly increases sales, with treatment effects ranging from 0% to 16.3%, depending on GenAI’s marginal contribution relative to existing firm practices. Because inputs and prices were held constant across experimental arms, these gains map directly into total factor productivity improvements. Across the four GenAI appl
+
+[...]
+
+ivity across sectors of the economy. Recent academic research has provided compelling evidence of GenAI’s promise in various domains, including software development, customer sup"""
+
+### CLAIM 06-000-5f69e5e7  (section: Comparative Assessment, severity: S3)
+REPORT SENTENCE: In contrast to these displacement effects, generative AI applications have produced significant productivity improvements without reducing labor inputs: a conversational assistant raised customer‑support agent productivity by 15% on average [#ev:brynjolfsson_genai_at_work:0-800], and a randomized field experiment in online retail found that GenAI deployment increased sales by up to 16.3% while holding inputs constant [#ev:ev_411:5000-5800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+CITED SPAN [ev_411:5000-5800] (source: "", tier T4, text_len=10462):
+    """ity. Each application was evaluated through randomized field experiments, with user groups ranging from tens o
+
+[...]
+
+t also where, how, and for whom those gains materialize. We document three main findings. First, most GenAI deployments generate economically significant gains, though the effects vary across workflows—from no detectable impact to increases of up to 16.3% in sales, with the largest improvements observed in customer service and search applications. Because output rose while labor and capital inputs remained constant, these improvements map directly into total factor productivity (TFP) gains of compar
+
+[...]
+
+y. A key distinction of our study relative to existing GenAI literature is its focus on revenue-based outcomes. In contrast to prior work emphasizing input-side efficie"""
+
+### CLAIM 06-001-2b3efa3b  (section: Comparative Assessment, severity: S3)
+REPORT SENTENCE: The productivity gains from generative AI are unevenly distributed—less‑experienced and lower‑skilled agents gained the most in speed and quality, while the most experienced agents saw only small speed improvements and small declines in quality [#ev:brynjolfsson_genai_at_work:0-800].
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+
+### CLAIM 06-002-21a21d8c  (section: Comparative Assessment, severity: S3)
+REPORT SENTENCE: In summary, robot‑centered automation tends to produce measurable job and wage losses [#ev:acemoglu_restrepo_robots_jobs:0-688][#ev:ev_234:1100-1900][#ev:ev_271:2300-3100], whereas generative AI appears capable of augmenting productivity without displacement but with skill‑biased benefits [#ev:brynjolfsson_genai_at_work:0-800][#ev:ev_411:700-1500], while the fear of job loss remains widespread [#ev:ev_271:2300-3100].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+CITED SPAN [ev_234:1100-1900] (source: "", tier T4, text_len=11719):
+    """ucial role social networks play in this process. The results show that industrial robots significantly enhance participation efficiency in the gig economy. Heterogeneity analysis reveals that migrant workers with moderate skills benefit the most, while marital status and gender also influence the effectiveness of social networks. Furthermore, the impact varies between new-generation and traditiona
+
+[...]
+
+ift has weakened labor's share in value-added processes, generating a pronounced substitution effect. Moreover, Acemoglu and Restrepo (2017) estimate that the introduction of one additional industrial robot leads to the displacement of approximately 5.6 jobs. Other studies similarly emphasize that industrial robots primarily replace labor-intensive tasks (Brynjolfsson and McAfee, 2014; Fo"""
+CITED SPAN [ev_271:2300-3100] (source: "", tier T1, text_len=8012):
+    """literature too, education and skill levels represent one of the central factors affecting the job satisfaction of workers. Two contrasting mechanisms link education and job satisfaction. On the one hand, a higher skill level
+
+[...]
+
+ing effects. Fear of replacement is stronger for the low-skilled. These workers are more exposed to the risks of displacement from automation because they typically carry out routine tasks that can more easily be automated (see literature in section 2.1). Fear of replacement is stronger for the high-skilled. High-skilled workers are typically also more educated individuals who read more and follow media debates on robots, automation and their negative consequences for employment. Hence, high skille
+
+[...]
+
+ in the labor market. Acemoglu and Restrepo and Blanas """
+CITED SPAN [brynjolfsson_genai_at_work:0-800] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """Abstract We study the staggered introduction of a generative AI–based conversational assistant using data from 5,172 customer-support agents. Access to AI assistance increases worker productivity, as measured by issues resolved per hour, by 15% on average, with substantial heterogeneity across workers. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are """
+CITED SPAN [ev_411:700-1500] (source: "", tier T4, text_len=10462):
+    """ved. All remaining errors are the responsibility of the authors. Lu Fang acknowledges financial support from the National Natural Science Foundation of China [Grants 72501258 and 72192803], the National Social Science Fund of China [Grant 22&amp;ZD081]. Zhe Yuan acknowledges financial support from the National Key Research and Development Project [Grant 2024YFB3312900], the National Natural Science Foundation of China [Grants 72192803, 72141305 and 72203202], the Fundamental Research Funds for the Central Universities. Kaifu Zhang, Dante Donati, and Miklos Sarvary have no funding to report. Preliminary version, subject to change) Abstract We quantify the impact of Generative Artificial Intelligence (GenAI) on firm productivity through a series of large-scale randomized field experiments in"""
+CITED SPAN [ev_271:2300-3100] (source: "", tier T1, text_len=8012):
+    """literature too, education and skill levels represent one of the central factors affecting the job satisfaction of workers. Two contrasting mechanisms link education and job satisfaction. On the one hand, a higher skill level
+
+[...]
+
+ing effects. Fear of replacement is stronger for the low-skilled. These workers are more exposed to the risks of displacement from automation because they typically carry out routine tasks that can more easily be automated (see literature in section 2.1). Fear of replacement is stronger for the high-skilled. High-skilled workers are typically also more educated individuals who read more and follow media debates on robots, automation and their negative consequences for employment. Hence, high skille
+
+[...]
+
+ in the labor market. Acemoglu and Restrepo and Blanas """
+
+### CLAIM 06-003-16b9897c  (section: Comparative Assessment, severity: S3)
+REPORT SENTENCE: Industrial robots consistently reduce employment and wages: in US commuting zones, one more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42% [#ev:acemoglu_restrepo_robots_jobs:0-688], while their adoption is linked to labor market transformations [#ev:ev_234:0-800] and worker displacement [#ev:ev_271:0-800].
+CITED SPAN [acemoglu_restrepo_robots_jobs:0-688] (source: "Robots and Jobs: Evidence from US Labor Markets", tier T1, text_len=688):
+    """We study the effects of industrial robots on US labor markets. We show theoretically that robots may reduce employment and wages and that their local impacts can be estimated using variation in exposure to robots—defined from industry-level advances in robotics and local industry employment. We estimate robust negative effects of robots on employment and wages across commuting zones. We also show that areas most exposed to robots after 1990 do not exhibit any differential trends before then, and robots’ impact is distinct from other capital and technologies. One more robot per thousand workers reduces the employment-to-population ratio by 0.2 percentage points and wages by 0.42%."""
+CITED SPAN [ev_234:0-800] (source: "", tier T4, text_len=11719):
+    """Industrial robots, social networks, and the gig economy Chunyang Su Lin Zhang Research Article Keywords: robots, social networks, gig economy, migrant workers Posted Date: April 18th, 2025 DOI: https://doi.org/10.21203/rs.3.rs-6238257/v1 License:   This work is licensed under a Creative Commons Attribution 4.0 International License. Read Full License Additional Declarations: No competing interests reported. Version of Record: A version of this preprint was published at The Annals of Regional Science on July 24th, 2025. See the published version at https://doi.org/10.1007/s00168-025-01409-y. Industrial robots, social networks, and the gig economy Abstract：With the rapid advancement of automation technology, the labor market is undergoing significant transformations, particularly affecting"""
+CITED SPAN [ev_271:0-800] (source: "", tier T1, text_len=8012):
+    """Automation, workers’ skills and job satisfaction When industrial robots are adopted by firms in a local labor market, some workers are displaced and become unemployed. Other workers that are not directly affected by automation may however fear that these new technologies might replace their working tasks in the future. This fear of a possible future replacement is important because it negatively affects workers’ job satisfaction at present. This paper studies the extent to which automation affects workers’ job satisfaction, and whether this effect differs for high- versus low-skilled workers. The empirical analysis uses microdata for several thousand workers in Norway from the Working Life Barometer survey for the period 2016–2019, combined with information on the introduction of industria"""
+
+### CLAIM 06-004-347890d9  (section: Comparative Assessment, severity: S3)
+REPORT SENTENCE: A one-standard-deviation increase in robot exposure increases the probability of fear of machine replacement by 2.6% [#ev:ev_271:7000-7800].
+CITED SPAN [ev_271:7000-7800] (source: "", tier T1, text_len=8012):
+    """at is the economic significance of these results? According to our OLS estimates (see column 2 in Table 4), a one standard deviation increase in robot exposure increases the probability that a worker expresses fear of machine replacement by 2.6 percent (we thank an anonymous reviewer for suggesting to point this out). It is hard to say whether this estimated effect is economically sizeable. However, considering that robot adoption in Norway has more than doubled during the time span consid
+
+[...]
+
+ot adoption on employment found in other recent studies (although none of these present estimates of the effects of robot adoption on subjective fear of replacement). find that one additional robot per thousand workers reduces the employment rate by 0.16–0.20 percentage points across European reg"""
+
+### CLAIM 07-000-70e10528  (section: Implications, severity: S3)
+REPORT SENTENCE: A digital‑evolution index (DEI) analysis links a one‑unit increase in DEI to approximately USD 19,000 higher labour productivity and a 1.3–1.45 rise in log per‑capita GNI, though social outcomes hinge on complementary labour‑market institutions [#ev:ev_342:10400-11200].
+CITED SPAN [ev_342:10400-11200] (source: "", tier T1, text_len=11595):
+    """ethics, transparency, and potential job displacement (A
+
+[...]
+
+igital Evolution Index (DEI), is strongly and significantly associated with higher labor productivity and economic development. Specifically, a one-unit increase in DEI is linked to an increase of approximately USD 19,000 in labor productivity and a 1.3–1.45 rise in log per capita GNI, confirming productivity-driven growth effects. While descriptive evidence shows no clear unconditional relationship with employment, econometric results (FGLS) reveal a statistically significant positive impact of digital
+
+[...]
+
+e job quality without supportive labor institutions. Overall, the results highlight that digital transformation enhances efficiency and growth, but its social outcomes depend on complementary policies and change managem"""
+
+### CLAIM 07-001-6ef2d45b  (section: Implications, severity: S3)
+REPORT SENTENCE: AI assistance improves English fluency among international agents and helps less experienced workers improve their speed and quality [#ev:brynjolfsson_genai_at_work:300-1100]
+CITED SPAN [brynjolfsson_genai_at_work:300-1100] (source: "Generative AI at Work", tier T1, text_len=1113):
+    """rs. The effects vary significantly across different agents. Less experienced and lower-skilled workers improve both the speed and quality of their output, while the most experienced and highest-skilled workers see small gains in speed and small declines in quality. We also find evidence that AI assistance facilitates worker learning and improves English fluency, particularly among international agents. While AI systems improve with more training data, we find that the gains from AI adoption are largest for moderately rare problems, where human agents have less baseline experience but the system still has adequate training data. Finally, we provide evidence that AI assistance improves the experience of work along several dimensions: customers are more polite and less likely to ask to speak """
+
+### CLAIM 07-002-9c0d1667  (section: Implications, severity: S3)
+REPORT SENTENCE: Chinese firm‑level evidence from a sample of firm-year observations (2006–2020) further shows that AI adoption increases labour‑cost stickiness, implying that firms may hoard labour during downturns but also that worker adjustment costs rise [#ev:ev_342:9200-10000].
+CITED SPAN [ev_342:9200-10000] (source: "", tier T1, text_len=11595):
+    """saved labor hours. These findings confirm tha
+
+[...]
+
+ncreases the costs associated with their adjustment and adaptation. To benefit from this change, companies should encourage continuous learning and adapt work processes so that both people and AI work effectively together. For example study analysed 28.463 firm-year observations of Chinese A-share listed nonfinancial firms from 2006 to 2020, using a textual measure of AI adoption based on annual reports. On average, firms mention 0.781 AI-related words per 1000 words, reflecting heterogeneous adoption across industries and time, with higher adoption in high-tech, IT, and capital-intensive sectors. Empirical results show that AI adoption significantly increases labor cost stickines
+
+[...]
+
+my (Akmeraner-Kökat & Pellandini-Simányi, 2025)."""
+
+### CLAIM 08-000-50a4fea7  (section: Limitations, severity: S3)
+REPORT SENTENCE: Three specific limitations are identified: early findings focusing on labor demand are collectively inconclusive, current data offer only weak signals about future impacts, and the existing research on labor demand addresses only one corner of the many plausible channels of employment impact [#ev:ev_725:500-1300].
+CITED SPAN [ev_725:500-1300] (source: "", tier T4, text_len=4731):
+    """ today is inconclusive, and claims about harmful impacts on particular groups of workers are premature. There are three reasons why the nascent research on AI’s impact on the labor market has barely scratched the surface, and why all the important questions about AI’s effects on the labor market are still unanswered. First is that the early research findings, which focus on how AI affects labor demand, are collectively inconclusive. Second is that any research findings based on current data on AI and the labor market are necessarily weak signals about the future. Third is that the existing research on labor demand is only one corner of the vast landscape of urgent AI research questions, and many plausible channels of impact on the labor market have been under-explored relative to labor dem"""
+
+### CLAIM 08-001-085a2f94  (section: Limitations, severity: S1)
+REPORT SENTENCE: A thorough review of workplace automation history cautions that journalistic and expert commentary frequently overstates machine substitution while ignoring strong complementarities between automation and labor [#ev:autor_why_still_jobs:5100-5900].
+CITED SPAN [autor_why_still_jobs:5100-5900] (source: "Why Are There Still So Many Jobs? The History and Future of Workplace ", tier T1, text_len=25000):
+    """asis of sound mind and good character. Whatever the future holds, the present clearly offers a resurgence of automation anxiety (Akst 2013).David H. Autor     5In this essay, I begin by identifying the reasons that automation has not wiped out a majority of jobs over the decades and centuries. Automation does indeed substitute for labor—as it is typically intended to do. However, automation also complements labor, raises output in ways that lead to higher demand for labor, and interacts with adjustments in labor supply. Indeed, a key observation of the paper is that journalists and even expert commentators tend to overstate the extent of machine substitution for human labor and ignore the strong complementarities between automation and labor that increase productivity, raise earnings, and """

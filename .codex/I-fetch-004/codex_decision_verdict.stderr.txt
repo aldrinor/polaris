@@ -1,0 +1,101 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eaff8-8e68-7483-aa9f-2dba228f2194
+--------
+user
+HARD ITERATION CAP: 5. This is iter 1. Reserve P0/P1 for real blockers. Output a final 'verdict: APPROVE|REQUEST_CHANGES' + brief reasoning.
+
+# Codex decision review — I-fetch-004: paid EU web-scraping backend choice + bakeoff design
+
+CONTEXT: POLARIS (clinical deep-research, beat-both vs ChatGPT/Gemini on §-1.1 faithfulness). The live Novita run shows required clinical slots gap-disclose because their evidence isn't fetched. Fetch-failure buckets (cumulative): 429 rate-limit on free bypass svcs (Jina/Archive.org — partly self-inflicted by 3-parallel × 32-48 workers), trafilatura extractor empty-tree, Crawl4AI browser crash, 403 bot-blocks (genuine), some SSL/timeout. A paid scraping API would recover the 429+403+extractor buckets.
+
+INDEPENDENT BENCHMARKS (Proxyway Web Scraping API Report Dec-2025; Scrape.do 11-provider): success on protected sites — Zyte 93.1% (highest), Decodo 85.9%, Oxylabs 85.8%, ScrapingBee 84.5%, ScraperAPI 69% (weak); Bright Data 98.4% but Israel/US. Zyte = fastest avg response + highest throughput + cheapest ("costs peanuts", scales for hard sites). Decodo cheapest flat (~$0.30/1K, <$0.10 at volume). JS-render/premium proxies raise effective cost 5-75x.
+
+OPERATOR CONSTRAINTS: (1) provider jurisdiction must be NON-US and NON-CHINA (they rejected DeepInfra=US, Parasail=US, chose Novita=Singapore for the LLM). Jurisdictions: Zyte=UK, Oxylabs=Lithuania(EU), ScrapingBee=France(EU), Decodo=EU(confirm exact). (2) NO paywall piracy — a scraping API bypasses Cloudflare/bot-blocks on PUBLIC pages, NOT subscription journal paywalls; legit open-access (Unpaywall/CORE) already wired; for a clinical product, do not scrape paywalled subscription content (legal/ethical). (3) §-1.1 faithfulness unaffected (retrieval only). (4) sovereignty: this is the retrieval path, not the LLM-inference path (operator's sovereignty threat model is LLM-inference-only) — confirm acceptable.
+
+PROPOSED DECISION: shortlist Zyte (UK, top metrics) + Decodo (EU, cheapest) + Oxylabs (Lithuania, EU all-rounder) for an EMPIRICAL BAKEOFF on ~50 of OUR ACTUAL failing clinical/regulatory URLs (not generic Amazon/Zillow — Proxyway warns target-difficulty dominates), measuring recovery% + latency + cost on THOSE, then wire the empirical winner as a POLARIS fetch backend. Lead candidate on the data = Zyte.
+
+QUESTIONS FOR CODEX: (1) Is the candidate shortlist right, or is there a better non-US/non-China provider for CLINICAL/GOV/ACADEMIC targets specifically? (2) Is the jurisdiction reasoning sound (Zyte=UK acceptable as non-US/non-China)? (3) Is the empirical-bakeoff-on-our-URLs methodology correct (vs trusting the generic benchmark)? (4) Any legal/ethical/faithfulness/sovereignty concern with adding a paid scraping backend to a clinical research product? (5) Recommended decision criteria for picking the winner (recovery% weight vs latency vs cost)? Verdict APPROVE iff the plan is sound to proceed to the bakeoff.
+
+codex
+I’ll verify the provider jurisdiction details against primary sources first, because that is the part most likely to invalidate the shortlist if it is off. Then I’ll answer the review questions directly and keep P0/P1 only for true blockers.
+web search: 
+web search: Zyte legal terms registered office jurisdiction company Ireland UK
+web search: 
+web search: site:zyte.com/legal terms Zyte Group Limited Ireland registered office
+web search: 
+web search: Zyte terms of service Zyte Group Limited Ireland
+web search: 
+web search: https://decodo.com/legal
+web search: 
+web search: zyte.com legal terms zyte group limited
+web search: 
+web search: Zyte terms and conditions Zyte Group Limited
+web search: 
+web search: https://www.zyte.com/legal/terms-of-service/
+web search: 
+web search: www.zyte.com/legal/ terms "Zyte Group Limited"
+web search: 
+web search: Zyte official website
+web search: 
+web search: 'License Agreement' in https://decodo.com/legal
+web search: 
+web search: https://decodo.com/legal
+web search: 
+web search: https://www.zyte.com/
+web search: 
+web search: https://www.zyte.com/
+web search: 
+web search: https://www.zyte.com/terms-policies/
+web search: 
+web search: https://oxylabs.io/
+web search: 
+web search: https://oxylabs.io/
+web search: 
+web search: https://oxylabs.io/
+web search: 
+web search: 'Oxylabs, UAB' in https://oxylabs.io/legal/privacy
+web search: 
+web search: https://oxylabs.io/legal/privacy
+web search: 
+web search: https://oxylabs.io/legal/terms
+web search: 
+web search: site:oxylabs.io/legal "General Terms" Oxylabs
+web search: 
+web search: site:oxylabs.io "Vilnius" "Oxylabs" "Lithuania"
+web search: 
+web search: https://oxylabs.io/contact-us
+web search: 
+web search: 'Contact' in https://oxylabs.io/
+web search: 
+web search: https://trust.oxylabs.io/
+codex
+verdict: APPROVE
+
+The plan is sound to proceed to bakeoff, with one correction: Zyte should be treated as **Ireland/EU**, not UK. Zyte’s own terms define Zyte as “Zyte Group Limited, an Irish limited company” with company number 492771, so it satisfies non-US/non-China and is stronger than the stated UK rationale. Decodo is also confirmed Lithuania/EU: UAB “Data troops”, registered in Vilnius. Oxylabs remains a reasonable Lithuania/EU candidate.
+
+Answers:
+
+1. **Shortlist:** Yes. Zyte + Decodo + Oxylabs is the right first bakeoff set. I would not add ScraperAPI given the weak protected-site success. ScrapingBee is a reasonable backup, but not clearly better than these three on the supplied data. If you have budget for a fourth, consider a small “wildcard EU provider” slot, but it is not required.
+2. **Jurisdiction:** Sound after correction. Zyte is Ireland/EU, Decodo is Lithuania/EU, Oxylabs is Lithuania/EU. All meet non-US/non-China. Bright Data still fails the stated operator constraint.
+3. **Bakeoff methodology:** Correct. Use POLARIS’s own failed clinical/regulatory URLs, not generic benchmark targets. Target mix dominates provider performance, especially for public clinical, government, academic, publisher, and regulatory pages.
+4. **Legal/ethical/faithfulness/sovereignty:** No blocker if restricted to public pages, open-access content, and compliant rate/concurrency. Do not use it for subscription journal paywalls or authenticated/library content. Faithfulness is not weakened; better retrieval should reduce gap-disclosure. Sovereignty is acceptable if the operator’s threat model is LLM-inference-only, but document that URLs and fetched page contents will transit the scraper provider.
+5. **Decision criteria:** Weight recovery highest. Suggested scoring: 65% validated recovery on required clinical/regulatory slots, 15% content quality/extraction fidelity, 10% latency/SLO, 10% effective cost at actual feature settings. Cost should be measured after JS/rendering/premium-proxy multipliers, not list price.
+
+Main implementation guardrail: add policy gates before production wiring: public-only fetch policy, paywall/auth detection, per-domain rate limits, provider spend caps, provenance logging, and fallback behavior that preserves gap-disclosure.
+
+Sources: Zyte terms/legal entity and public-only scraping language; Decodo legal entity and scraping/DPA language; Oxylabs public-data/compliance positioning.  
+- https://www.zyte.com/terms-policies/terms-of-service/  
+- https://decodo.com/legal/license-agreement  
+- https://decodo.com/legal  
+- https://oxylabs.io/risk-and-legal-compliance  
+- https://oxylabs.io/
+tokens used
+116,602

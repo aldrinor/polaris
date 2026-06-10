@@ -1,0 +1,75 @@
+**POLARIS Audit**
+
+Redaction placeholders are completeness gaps, not fabrications. Key-finding duplicates inherit the body verdicts below. The leaked `###` header and “Exposure:” style are quality/readability defects, not faithfulness defects.
+
+| Claim | Verdict | Span basis |
+|---|---:|---|
+| 00-000 | VERIFIED | “intake of dietary fibre and whole grains” |
+| 00-001 | VERIFIED | “incidence of colorectal cancer” |
+| 00-002 | VERIFIED | “0.90 (95% confidence interval 0.86 to 0.94, I(2) = 0%)” |
+| 00-003 | VERIFIED | “Systematic review and meta-analysis”; “25 prospective studies were included” |
+| 00-004 | VERIFIED | “dietary fibre or whole grain intake and incidence of colorectal cancer” |
+| 00-005 | VERIFIED | “for 10 g daily of total dietary fibre” |
+| 00-006 | PARTIAL | “25 prospective studies”; “total dietary fibre (16 studies)” supports counts, but not “provided the required…data” |
+| 00-007 | VERIFIED | “summary relative risk…was 0.90” |
+| 00-008 | VERIFIED | “0.86 to 0.94” |
+| 00-009 | PARTIAL | Numbers supported; “protective effect” overstates observational association |
+| 00-010 | VERIFIED | RR <1 with “I(2) = 0%” supports consistent inverse association |
+| 00-011 | VERIFIED | “25 prospective studies were included” |
+| 00-012 | PARTIAL | RR/CI supported; “narrow…precision” is interpretive, not in span |
+| 00-013 | VERIFIED | “0.90…0.86 to 0.94” supports inverse signal |
+| 00-014 | VERIFIED | “dietary fibre and whole grains”; “total dietary fibre” |
+| 00-015 | VERIFIED | “25 prospective studies”; “0.90…0.86 to 0.94, I(2)=0%”; “associated with a reduced risk” |
+| 01-000 | VERIFIED | “genotoxic pks+ E. coli” |
+| 01-001 | PARTIAL | Span says “believed to alkylate” and “in cultured cells”; claim drops both qualifiers |
+| 01-002 | VERIFIED | “revealed a distinct mutational signature” |
+| 01-003 | PARTIAL | “pks…synthesize colibactin” supported; “pathogenic bacterium”/“toxic metabolite” are extra labels |
+| 01-004 | PARTIAL | “believed to alkylate DNA” supports core; “potent” and certainty drift |
+| 01-005 | UNSUPPORTED | Span gives alkylation and DSBs separately; not that modified adenines “lead to” DSBs |
+| 01-006 | PARTIAL | “induces double-strand breaks” supported; “hallmark” not in span |
+| 01-007 | PARTIAL | Distinct signature after pks+ E. coli exposure supported; isolated “colibactin ultimately manifests” is stronger than span |
+| 01-008 | PARTIAL | Components supported; certainty/cell-context qualifiers dropped |
+| 03-000 | VERIFIED | “reported safety issues…contamination”; “safety profile remains unclear” |
+| 03-001 | VERIFIED | “retrospective registry study…2009–2018 in 5 university hospitals in Finland” |
+| 03-002 | VERIFIED | “46 patients”; “20 (43%)”; “odds ratio…14 (95% CI 4–44)” |
+| 03-003 | VERIFIED | “percentage of probiotic users was the minimum estimate in all groups” |
+| 03-004 | VERIFIED | “not recommended for patients who have indwelling catheters, are immunocompromised, or are critically ill” |
+| 04-000 | VERIFIED | “47.0% of high-fiber group and 51.2% of low-fiber group” |
+| 04-001 | VERIFIED | “10 g inulin/day for 16 days”; “0.89 to 3.9%” |
+| 04-002 | VERIFIED | “5 g/day FOS for 6 weeks”; “3.5 g/day GOS for 12 weeks”; “IBS symptoms improvement” |
+| 04-003 | VERIFIED | IL-6, TNF-alpha, and CD4+/CD8+ values all appear exactly in span |
+| 05-000 | PARTIAL | N/group counts supported; span says “four Lesion groups,” while claim says “all lesion groups” |
+| 05-001 | PARTIAL | Altered microbiota contributing to inflammation supported; “profoundly dysbiotic” not directly in spans |
+| 05-002 | VERIFIED | “Type Specific”; “does not alleviate…mucus layer”; “inulin-exacerbated colitis” |
+| 05-003 | VERIFIED | Same contraindication span as 03-004 |
+| 05-004 | VERIFIED | “combined use of prebiotics with Bifidobacterium longum…improved clinical symptoms” |
+| 05-005 | VERIFIED | “at least two weeks…inulin fructans…increased…Bifidobacterium by 3.8 times” |
+
+POLARIS bottom line: I found **no span-contradicted fabrication**, but I did find real unsupported/partial mechanistic and qualifier drift, especially claim 01-005 and several colibactin certainty upgrades.
+
+**ChatGPT Defect Audit**
+
+I did not find a clear fabricated clinical claim in the ChatGPT report. Its main weakness is scope: it is a broad gut-health/probiotics/prebiotics/pathobiont report, not a CRC-focused clinical synthesis with CRC effect estimates. The high-risk cautions are generally hedged and consistent with guideline-style caution. For example, its Wastyk diet discussion tracks the RCT abstract: high fiber increased CAZymes with stable diversity, while fermented foods increased diversity and decreased inflammatory markers. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/34256014/))
+
+Verdict on ChatGPT defects: **no material FABRICATED/UNSUPPORTED clinical defect found**; completeness/usefulness is better than POLARIS for broad gut-directed diet/probiotic counseling, though less tightly CRC-specific.
+
+**Gemini Defect Audit**
+
+| Verdict | Offending sentence | Defect |
+|---|---|---|
+| FABRICATED | “In human patients suffering from COVID-19…A. muciniphila is actively elevated and positively correlates with the management of inflammatory cytokines like CXCL8.” | Direction/meaning reversal. The cited review says it positively correlated with proinflammatory cytokines and “may participate in the pathogenesis,” not “management.” ([frontiersin.org](https://www.frontiersin.org/journals/microbiology/articles/10.3389/fmicb.2024.1354447/full)) |
+| UNSUPPORTED | “Hydrogen sulfide…is a deeply established, highly potent genotoxin and known carcinogen…” | Overstates unsettled CRC mechanistic literature into settled carcinogen language. |
+| UNSUPPORTED | “A highly structured, dual dietary approach…delivers an incredibly powerful, synergistic ‘one-two punch’…” | Wastyk tested separate high-fiber vs fermented-food arms, not a combined synergistic intervention. ([pubmed.ncbi.nlm.nih.gov](https://pubmed.ncbi.nlm.nih.gov/34256014/)) |
+| UNSUPPORTED | “An average healthy human requires…15 to 20 grams per day…to maintain optimal health…” | The cited resistant-potato-starch paper is a mouse study and says RS is “recommended as part of the diet,” not a human requirement for optimal health. ([frontiersin.org](https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2022.782667/full)) |
+| FABRICATED | “RS2…ensures beyond a doubt…completely outpaces and actively suppresses toxic…putrefaction throughout the absolute entire length…colon.” | Contradicted by the cited mouse study’s limited finding: strongest expression changes were cecal and “substantially decreased” in proximal/distal colon. ([frontiersin.org](https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2022.782667/full)) |
+| UNSUPPORTED | “non-viable…A. muciniphila maintain profound clinical efficacy” | The cited review calls A. muciniphila “promising” and notes unclear infectious-disease mechanisms; much evidence is animal/preclinical. ([frontiersin.org](https://www.frontiersin.org/journals/microbiology/articles/10.3389/fmicb.2024.1354447/full)) |
+| PARTIAL | “RKH…demonstrating incredibly potent protective effects…in murine and piglet models.” | Preclinical models supported, but clinical implication is overblown; the review says it “may need further evaluation before transformation into clinical practice.” ([frontiersin.org](https://www.frontiersin.org/journals/microbiology/articles/10.3389/fmicb.2024.1354447/full)) |
+| UNSUPPORTED | Broad probiotic therapeutic claims based on Wikipedia/GeneFood citations | Citation-claim mismatch for clinical recommendations; nonclinical/popular sources are inappropriate for treatment claims. |
+
+Gemini bottom line: multiple real clinical faithfulness defects, including at least two direction/causal overstatements that would be unsafe in a patient-facing report.
+
+```text
+verdict_beat_chatgpt: false
+verdict_beat_gemini: true
+polaris_fabrication_found: false
+```

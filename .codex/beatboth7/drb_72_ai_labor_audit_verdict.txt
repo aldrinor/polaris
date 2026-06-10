@@ -1,0 +1,23 @@
+# CODEX RUN — EMPTY FINAL OUTPUT (turn budget exhausted)
+
+Codex (gpt-5.5, reasoning effort xhigh) exited code 0 but wrote NO final synthesis
+block to stdout. It spent its entire turn budget on extended reasoning plus ~22
+citation-verification web searches (stderr lines ~1144-1185) and terminated after the
+last search ("45% to 60%" prompt-engineering claim) before emitting the required
+verdict block. The only `verdict_*` lines present anywhere are the brief's own template
+(stderr lines 77-79), NOT a Codex answer.
+
+The verification trail Codex DID leave in stderr independently targeted the same Gemini
+defects the §-1.1 standard hunts for (Goldman 7%/300M-jobs vs Gemini's "$13 trillion";
+WEF 85M/97M attributed by Gemini to a 2024 report when those figures are from the 2020
+report; "146,932 hallucinated references" sourced to one news article; preprint-sourced
+"45-60%" prompt-engineering figure) AND even-handedly checked ChatGPT's citations
+(Alekseeva, Kanazawa, Frank/PNAS-Nexus, Law, Demirci, Cui — all real peer-reviewed works).
+But no machine-parseable verdict block was produced.
+
+Per task fallback ("codex errored/empty -> mirror Claude's verdict conservatively"),
+the returned verdict is Claude's independently-grounded parallel finding:
+
+verdict_beat_chatgpt: false
+verdict_beat_gemini: true
+polaris_fabrication_found: false
