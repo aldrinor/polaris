@@ -62,9 +62,31 @@ _jina_consecutive_failures: int = 0
 _jina_circuit_open_until: float = 0.0
 _firecrawl_consecutive_failures: int = 0
 _firecrawl_circuit_open_until: float = 0.0
+# I-fetch-004 (#1185): circuit breaker for the PAID Zyte fallback. Mirrors the
+# firecrawl/jina breaker so a Zyte outage cannot fire N doomed PAID calls on a
+# ~1000-URL run. Shares the same threshold/cooldown constants below.
+_zyte_consecutive_failures: int = 0
+_zyte_circuit_open_until: float = 0.0
 # FIX-G: Raised defaults — threshold 5→8, cooldown 60→120s for transient tolerance
 _CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("PG_CIRCUIT_BREAKER_THRESHOLD", "8"))
 _CIRCUIT_BREAKER_COOLDOWN = float(os.getenv("PG_CIRCUIT_BREAKER_COOLDOWN", "120.0"))
+
+# I-fetch-004 (#1185): Zyte paid-fallback telemetry + tunables (LAW VI — no
+# hard-coded thresholds; every knob is env-overridable). These counters are
+# separate from the circuit-breaker failure counter above: attempts/successes
+# track usage, the breaker tracks consecutive failures.
+_zyte_fallback_attempts: int = 0
+_zyte_fallback_success: int = 0
+# Per-call HTTP timeout for both the cheap (httpResponseBody) and escalated
+# (browserHtml) Zyte requests.
+_ZYTE_TIMEOUT = float(os.getenv("PG_ZYTE_TIMEOUT", "60.0"))
+# Minimum usable-content length. Shared by the escalation trigger (a cheap
+# result shorter than this escalates to browserHtml) and the final success
+# gate (content shorter than this is rejected). Mirrors the 500-char floor used
+# by the PDF/crawl4ai paths.
+_ZYTE_MIN_CONTENT_CHARS = int(os.getenv("PG_ZYTE_MIN_CONTENT_CHARS", "500"))
+# Zyte API endpoint (override only for testing against a mock server).
+_ZYTE_API_ENDPOINT = os.getenv("PG_ZYTE_API_ENDPOINT", "https://api.zyte.com/v1/extract")
 
 # ---------------------------------------------------------------------------
 # Crawl4AI availability flag (set on first import attempt)
@@ -1200,6 +1222,25 @@ class AccessBypass:
                 scihub_result.content = _strip_navigation_boilerplate(scihub_result.content)
                 return scihub_result
 
+        # I-fetch-004 (#1185): PAID Zyte fallback — the genuine LAST resort,
+        # ONLY after the entire FREE chain (PDF/Unpaywall/PMC-BioC -> concurrent
+        # quality-scored group -> direct -> Archive.org -> proxy -> timeout-retry
+        # -> Sci-Hub) has failed. STRICT NO-OP: when ZYTE_API_KEY is absent the
+        # helper is never even invoked, so behaviour here is byte-identical to
+        # before (zero spend, zero risk on un-keyed runs). Zyte only RETRIEVES
+        # raw content; the returned text still flows through the SAME extractor
+        # and the downstream strict_verify / 4-role faithfulness gates — no gate
+        # is bypassed. _try_zyte strips boilerplate internally and only returns
+        # success on non-paywalled content above the min-length floor, so there
+        # is no extra strip needed at this call site.
+        if os.getenv("ZYTE_API_KEY"):
+            logger.info(
+                "[ACCESS] I-fetch-004: Trying Zyte paid fallback for %s", url[:60]
+            )
+            zyte_result = await self._try_zyte(url)
+            if zyte_result.success:
+                return zyte_result
+
         # SF-40: Log total failure at WARNING (was completely silent)
         logger.warning("[ACCESS] ALL access methods exhausted for %s", url[:80])
         return AccessResult(
@@ -1936,6 +1977,268 @@ class AccessBypass:
             success=False,
             metadata={"error": "Unexpected loop exit"},
         )
+
+    async def _try_zyte(self, url: str) -> AccessResult:
+        """I-fetch-004 (#1185): PAID Zyte fallback — the genuine last resort.
+
+        Called by `fetch_with_bypass` ONLY after the entire free chain
+        (direct -> concurrent quality-scored group -> Archive.org -> proxy ->
+        timeout-retry -> Sci-Hub) has failed.
+
+        Safety couplings (all required):
+          - ENV-GATED: with ZYTE_API_KEY absent this is a complete NO-OP that
+            returns a failure AccessResult and spends nothing. The call site
+            also guards on the key, so the helper is never even invoked on
+            un-keyed runs (double-safe — behaviour byte-identical to before).
+          - COST-SMART: tries the cheap httpResponseBody mode first and
+            escalates to the pricier JS-rendering browserHtml mode ONLY when
+            the cheap result is unusable (empty / short / paywalled). A hard
+            auth/quota error (401/402/429) returns fast WITHOUT a second paid
+            call.
+          - CIRCUIT BREAKER: after N consecutive failures the breaker opens for
+            a cooldown so a Zyte outage cannot fire N doomed PAID calls on a
+            ~1000-URL run.
+          - FAITHFULNESS-UNAFFECTED: Zyte only RETRIEVES raw HTML; it is routed
+            through the SAME `safe_trafilatura_extract` extractor every other
+            backend uses, then through the downstream strict_verify / 4-role
+            gates. No faithfulness gate is bypassed. The issue notes scraping
+            bypasses bot-blocks, NOT paywalls — so a paywall stub remains a
+            live possibility and is rejected by `_detect_paywall` before any
+            success is returned.
+
+        Zyte API (docs.zyte.com): POST https://api.zyte.com/v1/extract, HTTP
+        Basic auth with the API key as username and an EMPTY password.
+        httpResponseBody is BASE64-encoded; browserHtml is a plain HTML string.
+        """
+        import aiohttp
+        import base64
+
+        # Telemetry + breaker globals. Declared together so the `+= 1` lines
+        # below do not raise UnboundLocalError.
+        global _zyte_consecutive_failures, _zyte_circuit_open_until
+        global _zyte_fallback_attempts, _zyte_fallback_success
+
+        # ENV-GATE (strict NO-OP, zero spend when the key is absent).
+        key = os.getenv("ZYTE_API_KEY")
+        if not key:
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="zyte",
+                legal_alternative=None,
+                success=False,
+                metadata={"error": "ZYTE_API_KEY not set"},
+            )
+
+        # CIRCUIT BREAKER: skip (no paid call) while open.
+        now = _time_module.time()
+        if _zyte_circuit_open_until > now:
+            remaining = _zyte_circuit_open_until - now
+            logger.debug(
+                "[ACCESS] Zyte circuit breaker OPEN for %s (%.0fs remaining)",
+                url[:60], remaining,
+            )
+            return AccessResult(
+                url=url,
+                content="",
+                access_method="zyte",
+                legal_alternative=None,
+                success=False,
+                metadata={
+                    "error": "circuit_breaker_open",
+                    "cooldown_remaining": remaining,
+                },
+            )
+
+        def _record_failure() -> None:
+            """Increment the breaker and open it at threshold."""
+            global _zyte_consecutive_failures, _zyte_circuit_open_until
+            _zyte_consecutive_failures += 1
+            if _zyte_consecutive_failures >= _CIRCUIT_BREAKER_THRESHOLD:
+                _zyte_circuit_open_until = (
+                    _time_module.time() + _CIRCUIT_BREAKER_COOLDOWN
+                )
+                logger.warning(
+                    "[ACCESS] Zyte circuit breaker OPENED after %d consecutive "
+                    "failures (cooldown %.0fs)",
+                    _zyte_consecutive_failures, _CIRCUIT_BREAKER_COOLDOWN,
+                )
+
+        def _is_usable(text: "str | None") -> bool:
+            """Usable = extracted, long enough, and not a paywall stub."""
+            if not text or len(text) < _ZYTE_MIN_CONTENT_CHARS:
+                return False
+            if self._detect_paywall(text):
+                return False
+            return True
+
+        timeout = aiohttp.ClientTimeout(total=_ZYTE_TIMEOUT)
+        headers = {**_NO_BROTLI_HEADERS, "Content-Type": "application/json"}
+        auth = aiohttp.BasicAuth(key, "")
+
+        _zyte_fallback_attempts += 1
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # (1) CHEAP mode: httpResponseBody (base64-encoded).
+                async with session.post(
+                    _ZYTE_API_ENDPOINT,
+                    headers=headers,
+                    auth=auth,
+                    json={"url": url, "httpResponseBody": True},
+                ) as resp:
+                    status = resp.status
+                    # DIFFERENTIATED hard-error handling: auth/quota/rate-limit
+                    # return fast and count toward the breaker — do NOT escalate
+                    # a hard error into a second paid call.
+                    if status in (401, 402, 403, 429):
+                        body = (await resp.text())[:200]
+                        logger.warning(
+                            "[ACCESS] Zyte cheap request returned %d for %s: %s",
+                            status, url[:60], _safe_log_str(body, 120),
+                        )
+                        _record_failure()
+                        return AccessResult(
+                            url=url, content="", access_method="zyte",
+                            legal_alternative=None, success=False,
+                            metadata={"status": status, "error": "auth_or_quota"},
+                        )
+                    if status != 200:
+                        logger.warning(
+                            "[ACCESS] Zyte cheap request returned status %d for %s",
+                            status, url[:60],
+                        )
+                        _record_failure()
+                        return AccessResult(
+                            url=url, content="", access_method="zyte",
+                            legal_alternative=None, success=False,
+                            metadata={"status": status},
+                        )
+                    data = await resp.json()
+
+                encoded = (data or {}).get("httpResponseBody")
+                cheap_text: "str | None" = None
+                if encoded:
+                    html = base64.b64decode(encoded).decode(
+                        "utf-8", errors="replace"
+                    )
+                    cheap_text = safe_trafilatura_extract(
+                        html,
+                        include_tables=True,
+                        include_links=False,
+                        output_format="txt",
+                    )
+
+                used_text = cheap_text
+                mode = "httpResponseBody"
+                escalated = False
+
+                # (2) ESCALATE to browserHtml ONLY when the cheap result is
+                # unusable (None / too short / paywalled). browserHtml is the
+                # pricier JS-rendering, ban-solving mode.
+                if not _is_usable(cheap_text):
+                    escalated = True
+                    mode = "browserHtml"
+                    async with session.post(
+                        _ZYTE_API_ENDPOINT,
+                        headers=headers,
+                        auth=auth,
+                        json={"url": url, "browserHtml": True},
+                    ) as resp2:
+                        status2 = resp2.status
+                        if status2 in (401, 402, 403, 429):
+                            body2 = (await resp2.text())[:200]
+                            logger.warning(
+                                "[ACCESS] Zyte browserHtml returned %d for %s: %s",
+                                status2, url[:60], _safe_log_str(body2, 120),
+                            )
+                            _record_failure()
+                            return AccessResult(
+                                url=url, content="", access_method="zyte",
+                                legal_alternative=None, success=False,
+                                metadata={"status": status2, "error": "auth_or_quota"},
+                            )
+                        if status2 != 200:
+                            logger.warning(
+                                "[ACCESS] Zyte browserHtml returned status %d for %s",
+                                status2, url[:60],
+                            )
+                            _record_failure()
+                            return AccessResult(
+                                url=url, content="", access_method="zyte",
+                                legal_alternative=None, success=False,
+                                metadata={"status": status2},
+                            )
+                        data2 = await resp2.json()
+                    browser_html = (data2 or {}).get("browserHtml")
+                    used_text = None
+                    if browser_html:
+                        used_text = safe_trafilatura_extract(
+                            browser_html,
+                            include_tables=True,
+                            include_links=False,
+                            output_format="txt",
+                        )
+
+            # POST-PROCESSING CONSISTENCY: strip boilerplate (every sibling
+            # return does this) then gate on paywall + min-length so a stub
+            # can never pollute the evidence pool.
+            content = _strip_navigation_boilerplate(used_text or "")
+            if (
+                content
+                and len(content) >= _ZYTE_MIN_CONTENT_CHARS
+                and not self._detect_paywall(content)
+            ):
+                _zyte_consecutive_failures = 0
+                _zyte_fallback_success += 1
+                logger.info(
+                    "[ACCESS] Zyte succeeded for %s (%d chars, mode=%s, "
+                    "escalated=%s, attempts=%d, successes=%d)",
+                    url[:60], len(content), mode, escalated,
+                    _zyte_fallback_attempts, _zyte_fallback_success,
+                )
+                return AccessResult(
+                    url=url,
+                    content=content[:50000],
+                    access_method="zyte",
+                    legal_alternative=None,
+                    success=True,
+                    metadata={
+                        "content_length": len(content),
+                        "zyte_mode": mode,
+                        "escalated": escalated,
+                    },
+                )
+
+            # Unusable (short / paywalled / empty) — terminal failure, no
+            # further escalation.
+            _record_failure()
+            logger.info(
+                "[ACCESS] Zyte produced unusable content for %s "
+                "(mode=%s, escalated=%s)",
+                url[:60], mode, escalated,
+            )
+            return AccessResult(
+                url=url, content="", access_method="zyte",
+                legal_alternative=None, success=False,
+                metadata={
+                    "error": "unusable_content",
+                    "zyte_mode": mode,
+                    "escalated": escalated,
+                },
+            )
+
+        except Exception as e:
+            # Never crash the fetch loop — any error returns a failure result.
+            _record_failure()
+            logger.warning(
+                "[ACCESS] Zyte failed for %s: %s", url[:80], str(e)[:150],
+            )
+            return AccessResult(
+                url=url, content="", access_method="zyte",
+                legal_alternative=None, success=False,
+                metadata={"error": str(e)[:200]},
+            )
 
     async def _try_firecrawl(self, url: str) -> AccessResult:
         """

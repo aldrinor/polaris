@@ -3,6 +3,6 @@ novel_p0: []
 continuing_p0: []
 p1: []
 p2:
-  - "Non-blocking hardening: the two fetch_with_bypass call-site tests still inherit PG_TRAFILATURA_ENABLED; if a runner explicitly sets it to 1, _try_trafilatura can be scheduled and perform trafilatura.fetch_url. This is not the iter-1 P1 because it is default-off and not a paid/keyed Firecrawl path, but setting PG_TRAFILATURA_ENABLED=0 would make the offline claim fully env-independent."
+  - "Non-blocking hardening: tests/polaris_graph/test_zyte_fallback.py still inherits PG_TRAFILATURA_ENABLED; if a runner explicitly sets it to 1, fetch_with_bypass can schedule _try_trafilatura and perform trafilatura.fetch_url. This is not the iter-1 P1 because it is default-off and not a paid/default-on Firecrawl path, but setting PG_TRAFILATURA_ENABLED=0 would make the offline claim fully env-independent."
 convergence_call: accept_remaining
 remaining_blockers_for_execution: []
