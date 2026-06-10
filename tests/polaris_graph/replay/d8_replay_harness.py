@@ -107,15 +107,30 @@ _MISSING_S0_PREFIX = "d8_s0_must_cover_missing:"
 
 
 def replay_release_outcome(
-    run: SavedRun, *, always_release: bool, template_path: Path | None = None
+    run: SavedRun,
+    *,
+    always_release: bool,
+    template_path: Path | None = None,
+    corpus_satisfaction: bool = False,
 ) -> ReleaseOutcome:
     """Replay the I-perm-001 always-release outcome (BLOCK -> LABEL) over a saved run.
 
     Computes the no-fabrication hard line + the clinical safety floor from the saved verdicts:
     ``zero_verified`` (no VERIFIED claim), ``zero_usable_evidence`` (no cited evidence at all),
     ``safety_floor_insufficient`` (every required S0 SAFETY category is in the missing set).
+
+    ``corpus_satisfaction`` (I-perm-002 #1196): when True, the safety floor is computed from
+    coverage RE-DERIVED through the production S0 content-requirement matcher
+    (``_content_requirements_satisfied``) rather than the saved literal-era ``covered_element_ids``.
+    With ``PG_SWEEP_SEMANTIC_CONTRAINDICATION`` ON this credits a faithful contraindication warning
+    ("not recommended"/"should be avoided") that the literal-token era left un-credited — so the
+    safety floor clears and a run that was ``released_insufficient_safety_evidence`` becomes a
+    caveated ``released_with_disclosed_gaps``. Default False preserves the I-perm-009/I-perm-001
+    baseline (literal-era coverage, bit-for-bit).
     """
-    result = replay_d8(run, template_path=template_path)
+    result = replay_d8(
+        run, template_path=template_path, corpus_satisfaction=corpus_satisfaction
+    )
     decision = result.decision
     zero_verified = not any(v == _VERDICT_VERIFIED for v in run.final_verdicts.values())
     zero_usable_evidence = not any(

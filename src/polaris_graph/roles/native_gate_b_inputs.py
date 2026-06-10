@@ -309,6 +309,141 @@ def _entity_canonical_match(entity: dict, record: Mapping[str, Any]) -> bool:
     return False
 
 
+# --- I-perm-002 (#1196): semantic contraindication credit (default OFF -> literal-exact) -----
+# The CDC contraindication source for `probiotic_immunocompromised_contraindication` says probiotics
+# "should be avoided for patients who ... are immunocompromised" — it NEVER uses the word
+# "contraindicated". So a FAITHFUL claim grounded in that span (e.g. drb_76 claim 03-001, "not
+# recommended for patients who are immunocompromised", VERIFIED + cites the exact CDC url) can never
+# contain the literal token, and the S0 `contraindications` category goes un-credited -> the safety
+# floor reports insufficient even though the report DID warn. PG_SWEEP_SEMANTIC_CONTRAINDICATION
+# relaxes ONLY the contraindication-CONCEPT requirement token to a curated, high-precision set of
+# contraindication-DIRECTION phrases; the population token (e.g. "immunocompromised") is NEVER
+# relaxed — it stays the literal precision anchor that binds substance+population (R6). A
+# deterministic negation guard refuses credit on any opposite-direction / negated phrase so a
+# faithful-but-INVERTED claim can never earn S0 safety credit.
+#
+# Direction of error is deliberate: over-crediting a contraindication is §-1.1-LETHAL (a report that
+# wrongly believes it warned); UNDER-crediting is a SAFE disclosed gap under always-release
+# (I-perm-001). Every layer therefore errs toward refusing credit. Four independent guards stand
+# between a claim and S0 credit: (1) `verification.is_verified` — only strict-verified claims reach
+# the matcher; (2) `_entity_canonical_match` — the claim must cite the entity's EXACT source;
+# (3) the literal population anchor; (4) this negation guard.
+_ENV_SEMANTIC_CONTRAINDICATION = "PG_SWEEP_SEMANTIC_CONTRAINDICATION"
+_SEMANTIC_OFF_VALUES = frozenset({"", "0", "false", "no", "off"})
+# Requirement tokens that NAME the contraindication concept — only these are relaxed to synonyms.
+# Both singular AND plural ("contraindications") so a future config token is also relaxed (Codex P2).
+_CONTRAINDICATION_CONCEPT_TOKENS = frozenset(
+    {"contraindicated", "contraindication", "contraindications"}
+)
+# "not recommended" warns UNLESS the "recommend AGAINST" idiom inverts it ("not recommended against
+# use" == recommended FOR use). The inverting "against" can be interposed at ANY distance ("not
+# recommended by the CDC source against use"), so a FIXED tail window is gameable (Codex P0-3): a
+# "not recommended" occurrence counts ONLY when NO "against" follows it anywhere in the remaining
+# claim text (whole-tail scan). Over-refusing a warning that merely mentions "against" downstream is
+# a SAFE under-credit. Handled separately from the imperatives below, which carry no such idiom.
+_RECOMMEND_DIRECTIONAL_INDICATOR = "not recommended"
+_RECOMMEND_INVERTER = "against"
+# DIRECTIONAL IMPERATIVES — each asserts an action-prohibition for the population ("do not give this
+# to this group"). Robustly positive: each already encodes a negation/avoidance, so inverting one in
+# place is unnatural — presence => contraindication direction. Bare "avoid"/"unsafe"/"risk" are
+# deliberately EXCLUDED (too easily negated / ambiguous). The bare concept stem is handled separately
+# below (it is a noun and far easier to invert).
+_CONTRAINDICATION_DIRECTIONAL_INDICATORS = (
+    "should be avoided",
+    "should not be used",
+    "should not be given",
+    "should not be administered",
+    "must not be used",
+    "must not be given",
+    "must not be administered",
+    "not be used in",
+)
+# The bare contraindication CONCEPT stem (matches "contraindicated" / "contraindication(s)"). A noun
+# is easily negated — BEFORE it ("no known contraindications", "not generally / clearly
+# contraindicated", "need not be contraindicated", "without contraindication") or AFTER it
+# ("contraindications are unknown / not established / absent"). The brittle contiguous-phrase list
+# this replaces MISSED every interposed-qualifier form (Codex P0-1: it credited "CDC reports no known
+# contraindications ... in immunocompromised patients"). The stem counts as a positive direction
+# ONLY when NO negation context surrounds ANY occurrence — one negated mention disqualifies the stem
+# signal for the whole claim (conservative = SAFE under-credit, never lethal over-credit).
+_CONTRAINDICATION_STEM = "contraindicat"
+# Interposition between the negator and the stem (qualifier adverbs / short clauses). Tight 20-char
+# window so a SHORT inverting qualifier ("no known", "not generally") is caught while an unrelated
+# distant negation ("no doubt probiotics are contraindicated") is NOT — that long form stays a credit.
+_CONTRA_NEG_INTERPOSE = r"[\w\s,'()/-]{0,20}?"
+_CONTRAINDICATION_NEGATION_RE = re.compile(
+    # negator BEFORE the stem (contractions are expanded to `X not` first, so `\bnot\b` covers
+    # aren't/isn't/haven't/etc.; "free of"/"devoid of"/"zero" are short absence forms)
+    r"\b(?:no|not|never|without|none|neither|nor|lack|lacks|lacking|few|rare|rarely|absent|zero|"
+    r"free\s+of|devoid\s+of|unknown|unestablished|unproven|undetermined)\b"
+    + _CONTRA_NEG_INTERPOSE + _CONTRAINDICATION_STEM
+    # OR a negation/absence predicate AFTER the stem
+    + r"|" + _CONTRAINDICATION_STEM + r"\w*" + _CONTRA_NEG_INTERPOSE
+    + r"\b(?:unknown|undetermined|unestablished|not\s+(?:been\s+)?established|absent|unclear|"
+    r"unlikely|none|negligible|rare|few)\b",
+    re.IGNORECASE,
+)
+# Negative contractions -> expanded `... not` (a SPACE before "not" so the `\bnot\b` negator fires;
+# "cannot" would join the word boundary). Apostrophe is normalized to ASCII first so a curly
+# right-single-quote (U+2019) in scraped prose does not defeat the lookup. Expanding ALSO helps the
+# directional route ("shouldn't be used" -> "should not be used" matches the indicator). Codex P0-2:
+# the pre/post regex only knew expanded forms, so `aren't contraindicated` / `haven't been
+# established` over-credited.
+_NEGATIVE_CONTRACTIONS = {
+    "aren't": "are not", "isn't": "is not", "wasn't": "was not", "weren't": "were not",
+    "haven't": "have not", "hasn't": "has not", "hadn't": "had not",
+    "don't": "do not", "doesn't": "does not", "didn't": "did not",
+    "won't": "will not", "wouldn't": "would not", "can't": "can not", "couldn't": "could not",
+    "shouldn't": "should not", "mustn't": "must not", "needn't": "need not",
+    "mightn't": "might not", "shan't": "shall not", "oughtn't": "ought not",
+}
+
+
+def _expand_negative_contractions(text: str) -> str:
+    """Normalize the curly apostrophe to ASCII, then expand negative contractions to `X not`."""
+    text = text.replace("’", "'")
+    for contraction, expanded in _NEGATIVE_CONTRACTIONS.items():
+        text = text.replace(contraction, expanded)
+    return text
+
+
+def _semantic_contraindication_enabled() -> bool:
+    """``PG_SWEEP_SEMANTIC_CONTRAINDICATION`` (default OFF -> literal-exact content match)."""
+    return os.environ.get(_ENV_SEMANTIC_CONTRAINDICATION, "").strip().lower() not in _SEMANTIC_OFF_VALUES
+
+
+def _contraindication_direction_present(lowered_claim: str) -> bool:
+    """True iff the claim asserts a contraindication DIRECTION for the population (not its negation).
+
+    Three independent positive routes, all fail-closed against inversion (over-crediting a
+    contraindication is §-1.1-lethal; under-crediting is a safe disclosed gap under always-release):
+
+    1. "not recommended" — UNLESS an "against" follows it anywhere downstream (the "recommend
+       against" idiom inverts it; whole-tail scan, not a gameable fixed window — Codex P0-3).
+    2. A DIRECTIONAL IMPERATIVE ("should be avoided", "should not be used", ...) — no "against"-style
+       in-place inverter applies, so presence => direction.
+    3. The bare concept STEM ("contraindicat...") — only when NO negation context (pre OR post)
+       surrounds any occurrence; a single negated mention disqualifies the stem for the whole claim.
+
+    Negative contractions are expanded first (`aren't` -> `are not`) so the guard is not defeated by
+    contraction spelling (Codex P0-2).
+    """
+    lowered_claim = _expand_negative_contractions(lowered_claim)
+    start = lowered_claim.find(_RECOMMEND_DIRECTIONAL_INDICATOR)
+    while start != -1:
+        tail = lowered_claim[start + len(_RECOMMEND_DIRECTIONAL_INDICATOR):]
+        if _RECOMMEND_INVERTER not in tail:
+            return True
+        start = lowered_claim.find(_RECOMMEND_DIRECTIONAL_INDICATOR, start + 1)
+    if any(indicator in lowered_claim for indicator in _CONTRAINDICATION_DIRECTIONAL_INDICATORS):
+        return True
+    if _CONTRAINDICATION_STEM in lowered_claim and not _CONTRAINDICATION_NEGATION_RE.search(
+        lowered_claim
+    ):
+        return True
+    return False
+
+
 def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
     """All `coverage_content_requirements` present in the claim (case-insensitive, exact).
 
@@ -316,6 +451,11 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
     False rather than vacuously True. A bare canonical-evidence citation must NEVER earn S0
     credit without a real deterministic content match. (Validation in `validate_entity_severity`
     already blocks empty/blank S0 requirements at load; this is the matcher-side backstop.)
+
+    I-perm-002 (#1196): when `PG_SWEEP_SEMANTIC_CONTRAINDICATION` is ON, a requirement token that
+    NAMES the contraindication concept ("contraindicated"/"contraindication") is satisfied by any
+    high-precision contraindication-DIRECTION phrase (negation-guarded); every OTHER token (e.g.
+    "immunocompromised") stays literal-exact. Default OFF -> byte-identical literal-exact match.
     """
     lowered = claim_text.lower()
     requirements = [
@@ -325,7 +465,15 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
     ]
     if not requirements:
         return False
-    return all(token.lower() in lowered for token in requirements)
+    semantic = _semantic_contraindication_enabled()
+    for token in requirements:
+        token_lower = token.lower()
+        if semantic and token_lower in _CONTRAINDICATION_CONCEPT_TOKENS:
+            if not _contraindication_direction_present(lowered):
+                return False
+        elif token_lower not in lowered:
+            return False
+    return True
 
 
 def _claim_covers_entity(
