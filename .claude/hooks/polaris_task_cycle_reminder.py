@@ -70,16 +70,28 @@ Non-negotiable invariants (these are what the 4-role drift violated):
      merger). Live testing / auto-merge enabled ONLY after everything is fixed.
   6. Between merge and next branch: ZERO prose (§8.2). Stop is Codex's call,
      not Claude's (§8.3.10).
+  7. ONE name: "Claude Codex Workflow" (no sub-labels). ALWAYS run it via the
+     Anthropic Workflow FUNCTION, NEVER inline (operator reaffirmed 2026-06-09).
+  8. Prove-first (the standard content of every run): write the Claims Ledger
+     (every claim -> file:line -> live/staged/roadmap/removed) BEFORE building;
+     build from the ledger not memory; batch-fix the whole class (sibling-grep);
+     self-run the rubric; hand Codex an EVIDENCE PACK (changes + ledger + smoke
+     command/output/artifact) to VERIFY not hunt; answer each finding
+     id -> fixed line -> sibling-grep proof.
 
 Full spec: CLAUDE.md §3.0.1 + .claude/workflows/polaris_task_cycle.md.
 
 NAMED TRIGGER (operator, 2026-05-29): "Claude Codex Workflow" (or "with Claude Codex
-Workflow") is the operator's invocation phrase for THIS loop. When the operator says it
-— and equivalently the keywords 'exec:' / 'task:' — RUN this loop via the Anthropic
-Workflow FUNCTION (the background workflow engine that spawns the BRIEF / BUILD / SMOKE /
-Codex-gate agents in phases), with Codex as the ONLY gate. Operator is BLIND: ANNOUNCE
-each workflow launch in one plain spoken line as it fires, and read the key result inline
-— do NOT rely on the /workflows panel (a screen reader cannot see it)."""
+Workflow") is the operator's ONE invocation phrase for THIS loop (no sub-labels). When the
+operator says it — and equivalently the keywords 'exec:' / 'task:' — ALWAYS RUN this loop
+via the Anthropic Workflow FUNCTION, NEVER inline (operator reaffirmed 2026-06-09) — the
+background workflow engine that spawns the BRIEF / BUILD / SMOKE / Codex-gate agents in
+phases, with Codex as the ONLY gate. Prove-first is the standard content of every run:
+Claims Ledger (every claim -> file:line -> live/staged) BEFORE building; self-run the
+rubric; hand Codex an EVIDENCE PACK to VERIFY not hunt; batch-fix the whole class; answer
+findings id -> line -> sibling-grep. Operator is BLIND: ANNOUNCE each workflow launch in one
+plain spoken line as it fires, and read the key result inline — do NOT rely on the
+/workflows panel (a screen reader cannot see it)."""
 
 
 # Case-insensitive trigger phrases that mean "run the loop via the Workflow function".
