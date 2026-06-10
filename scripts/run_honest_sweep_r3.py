@@ -4694,6 +4694,58 @@ async def run_one_query(
                         f"[V30-P2]      fetched {len(_frame_rows)} "
                         f"frame rows"
                     )
+                    # I-complete-004 (#1190): targeted required-entity
+                    # retrieval lane. ENV-GATED (PG_REQUIRED_ENTITY_RETRIEVAL,
+                    # default OFF => byte-identical: no search/fetch, _frame_rows
+                    # unchanged). For each must-cover entity STILL unsatisfied
+                    # after the normal frame fetch (gap / near-empty span), fire
+                    # targeted authoritative-domain-biased search (discovery)
+                    # AND re-fetch the entity's OWN url_pattern via
+                    # fetch_frame_entity (re-binds to the SAME entity_id with the
+                    # REAL resolved URL). A satisfied re-fetch REPLACES the gap
+                    # row; otherwise the gap stands. FAITHFULNESS-SAFE: never
+                    # relabels foreign content as the entity, never fabricates;
+                    # downstream strict_verify + exact-equality coverage are
+                    # UNCHANGED (an entity with no verifiable evidence stays a
+                    # gap-disclosure).
+                    from src.polaris_graph.retrieval.required_entity_retrieval import (
+                        lane_enabled as _req_lane_enabled,
+                        run_required_entity_lane as _run_req_entity_lane,
+                    )
+                    if _req_lane_enabled():
+                        from src.agents.search_agent import (
+                            _serper_search_sync as _req_search_fn,
+                        )
+                        from src.polaris_graph.retrieval.frame_fetcher import (
+                            fetch_frame_entity as _req_fetch_fn,
+                        )
+                        _req_entity_cfg_by_id = {
+                            _e.get("id"): _e
+                            for _e in (
+                                (_template.get("per_query_report_contract") or {})
+                                .get(q["slug"], {})
+                                .get("required_entities", [])
+                            )
+                            if isinstance(_e, dict) and _e.get("id")
+                        }
+                        _req_result = _run_req_entity_lane(
+                            frame_rows=_frame_rows,
+                            bindings_by_entity_id=_cf.bindings_by_entity_id(),
+                            entity_meta_by_id=_cf.contract.entities_by_id(),
+                            entity_cfg_by_id=_req_entity_cfg_by_id,
+                            research_question=q["question"],
+                            scope_overrides=q.get("scope_overrides"),
+                            search_fn=_req_search_fn,
+                            fetch_fn=_req_fetch_fn,
+                        )
+                        _frame_rows = _req_result.frame_rows
+                        _log(
+                            f"[req-entity]  lane: attempted "
+                            f"{len(_req_result.attempted_entity_ids)} unsatisfied "
+                            f"entit{'y' if len(_req_result.attempted_entity_ids) == 1 else 'ies'}"
+                            f", satisfied "
+                            f"{len(_req_result.satisfied_entity_ids)} via url_pattern re-fetch"
+                        )
                     _outline_v30 = compose_outline_from_contract(
                         _cf, _frame_rows,
                     )
