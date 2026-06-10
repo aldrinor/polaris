@@ -25,6 +25,11 @@ LifecycleStatus = Literal[
 
 PipelineStatus = Literal[
     "success",
+    # I-perm-001 (#1195): always-release RELEASED-with-disclosure terminals. The v6 actor loads
+    # manifest.status into pipeline_status, so these MUST mirror UNIFIED_STATUS_VALUES or
+    # RunStatusResponse 500s on a released_* run.
+    "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence",
     "partial_outline_fallback",
     "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
     "partial_evaluator_advisory",

@@ -254,7 +254,14 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
         logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
         return summary
 
-    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
+    if (
+        pipeline_status == "success"
+        or pipeline_status.startswith("partial_")
+        # I-perm-001 (#1195): the always-release model SHIPS a report with disclosed gaps
+        # (released_with_disclosed_gaps / released_insufficient_safety_evidence) — these are
+        # COMPLETED terminals (a report + bundle exist), not aborts/errors.
+        or pipeline_status.startswith("released_")
+    ):
         run_store.mark_completed(
             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
         )

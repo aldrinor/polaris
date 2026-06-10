@@ -36,6 +36,8 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
     )
     expected = frozenset({
         "success",
+        "released_with_disclosed_gaps",            # I-perm-001 (#1195): always-release BLOCK->LABEL
+        "released_insufficient_safety_evidence",   # I-perm-001 (#1195): clinical safety-floor honest report
         "partial_thin_corpus",
         "partial_incomplete_corpus",
         "partial_rule_check_warnings",
@@ -289,6 +291,28 @@ def test_manifest_contract_exception_writes_error_manifest() -> None:
 # (every class of status is recognizable by its prefix).
 # ─────────────────────────────────────────────────────────────────
 
+def test_always_release_outcome_statuses_round_trip() -> None:
+    """Every status `compute_release_outcome` can emit must be a valid unified status AND map to
+    ITSELF through to_unified_status (NOT error_unexpected) — the I-perm-001 slice-2 consume site
+    feeds outcome.status straight into to_unified_status (Codex slice-2 iter-2 P1)."""
+    from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES, to_unified_status
+    from src.polaris_graph.roles import release_policy as rp
+
+    emitted = {
+        rp.STATUS_SUCCESS,
+        rp.STATUS_RELEASED_WITH_DISCLOSED_GAPS,
+        rp.STATUS_RELEASED_INSUFFICIENT_SAFETY,
+        rp.STATUS_ABORT_NO_VERIFIED,
+        rp.STATUS_ABORT_FABRICATED,
+    }
+    for status in emitted:
+        assert status in UNIFIED_STATUS_VALUES, f"{status!r} not in UNIFIED_STATUS_VALUES"
+        assert to_unified_status(status) == status, (
+            f"to_unified_status({status!r}) = {to_unified_status(status)!r}, not identity "
+            "(a clean/disclosed always-release run would be mis-classified)"
+        )
+
+
 def test_manifest_contract_status_prefixes() -> None:
     """Every status value falls into one of four classes via its prefix.
     This is what downstream readers rely on to classify a run."""
@@ -304,6 +328,11 @@ def test_manifest_contract_status_prefixes() -> None:
             # SSE `run.completed`); renaming it to abort_cancelled would break those consumers. It is
             # a terminal/cancel class of its own, deliberately outside the 4-prefix scheme.
             or status == "cancelled"
+            # I-perm-001 (#1195): the always-release model adds a RELEASED-with-disclosure class
+            # (`released_with_disclosed_gaps` / `released_insufficient_safety_evidence`) — a report
+            # SHIPPED with honest disclosed gaps (BLOCK->LABEL). Documented prefix exception: it is
+            # neither success (it carries gaps) nor abort (a report was produced).
+            or status.startswith("released_")
         ), f"Status {status!r} doesn't match any known prefix class"
 
 

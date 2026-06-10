@@ -1,0 +1,1724 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb3a7-9c9c-7f93-812e-4357a678b3d3
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# Codex DIFF review — I-perm-001 (#1195) KEYSTONE slice 2 — ITER 3 of 5
+
+Iter-2: REQUEST_CHANGES, ZERO P0, ONE NOVEL P1 (a clean PG_ALWAYS_RELEASE release mapped to error_unexpected because `_SUMMARY_TO_UNIFIED` had no `"success": "success"` identity map). RESOLVED.
+
+## P1 (clean always-release release -> error_unexpected) — RESOLVED
+`scripts/run_honest_sweep_r3.py`: added `"success": "success"` to `_SUMMARY_TO_UNIFIED`. Now `to_unified_status("success") == "success"` (was -> error_unexpected). EVIDENCE: probe `to_unified_status('success') -> 'success'`, `to_unified_status('released_with_disclosed_gaps') -> 'released_with_disclosed_gaps'`.
+NEW regression test `test_always_release_outcome_statuses_round_trip` (tests/polaris_graph/test_manifest_contract.py): asserts EVERY status `compute_release_outcome` can emit (STATUS_SUCCESS, STATUS_RELEASED_WITH_DISCLOSED_GAPS, STATUS_RELEASED_INSUFFICIENT_SAFETY, STATUS_ABORT_NO_VERIFIED, STATUS_ABORT_FABRICATED) is in UNIFIED_STATUS_VALUES AND round-trips through to_unified_status to itself (never error_unexpected). This LOCKS the whole class, not just `success`.
+
+## Iter-1 + iter-2 findings (confirmed closed): released_* v6 actor+schema wiring (3 v6 tests); zero_usable_evidence uses claim.evidence_documents; release_disclosure no longer duplicates `released`.
+
+## Evidence pack (ran this session)
+- `pytest test_manifest_contract.py test_released_status_iperm001.py replay/` -> **44 passed, 1 xfailed**.
+
+VERIFY the novel P1 is closed (every outcome status round-trips) and nothing else novel. APPROVE if so.
+
+## Output schema (REQUIRED — last `verdict:` line parsed by CI)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+========== THE UPDATED DIFF UNDER REVIEW ==========
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index e14e98d7..0b9df7c3 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -197,6 +197,13 @@ from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
+ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+     # success
+     "success",
++    # released-with-disclosure (I-perm-001 #1195 always-release): the report SHIPPED with honest
++    # disclosed gaps (BLOCK->LABEL) — a RELEASED terminal, not an abort. `released_insufficient_
++    # safety_evidence` is the honest clinical-safety-floor variant (normal render blocked, honest
++    # report still ships). The "released_" prefix is a documented exception to the 4-prefix scheme
++    # (alongside "cancelled") in tests/.../test_manifest_contract_status_prefixes.
++    "released_with_disclosed_gaps",
++    "released_insufficient_safety_evidence",
+     # partial — report produced but degraded signal
+     "partial_thin_corpus",
+     "partial_incomplete_corpus",
+@@ -230,6 +237,11 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+ # Map legacy summary["status"] labels → unified manifest.status values.
+ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     "ok": "success",
++    # I-perm-001 (#1195) slice 2: the always-release outcome's clean status IS already unified
++    # ("success") — without this identity map, to_unified_status("success") falls to the
++    # error_unexpected default and a clean PG_ALWAYS_RELEASE run is mis-classified (Codex slice-2
++    # iter-2 P1). The released_* identity maps below cover the disclosed-gap outcomes.
++    "success": "success",
+     "ok_thin_corpus": "partial_thin_corpus",
+     "ok_incomplete_corpus": "partial_incomplete_corpus",
+     "ok_outline_fallback": "partial_outline_fallback",
+@@ -250,6 +262,10 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
+     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
+     "four_role_released": "success",
+     "four_role_held": "abort_four_role_release_held",
++    # I-perm-001 (#1195) always-release: the outcome already carries a unified status; map it to
++    # itself so to_unified_status passes it through (NOT error_unexpected).
++    "released_with_disclosed_gaps": "released_with_disclosed_gaps",
++    "released_insufficient_safety_evidence": "released_insufficient_safety_evidence",
+     # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
+     # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
+     "report_redaction_failed": "abort_report_redaction_failed",
+@@ -7117,13 +7133,37 @@ async def run_one_query(
+                 pass
+             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+-            manifest["release_allowed"] = four_role_result.release_allowed
+-            # Single binding status: released => success; held => release-blocking abort.
+-            summary_status = (
+-                "four_role_released"
+-                if four_role_result.release_allowed
+-                else "four_role_held"
+-            )
++            # I-perm-001 (#1195) slice 2: under PG_ALWAYS_RELEASE the D8 BLOCK becomes a LABEL —
++            # non-hard holds ship as disclosed gaps and the report RELEASES; only the
++            # no-fabrication hard line (fabricated / zero-grounding) withholds; the clinical
++            # safety floor ships the honest insufficient-safety report (normal render blocked).
++            # release_allowed = outcome.released, so bundle.py refuses ONLY a hard block. Default
++            # OFF: the legacy held/success path below is byte-identical.
++            from src.polaris_graph.roles.release_policy import always_release_enabled
++            _release_outcome = getattr(four_role_result, "release_outcome", None)
++            if always_release_enabled() and _release_outcome is not None:
++                manifest["release_allowed"] = _release_outcome.released
++                summary_status = _release_outcome.status
++                # release_disclosure is the D8 LABEL snapshot. It deliberately does NOT carry a
++                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
++                # binding decision, and a later fail-closed gate (redaction / run-health) can flip
++                # it to False — a duplicated `released` here would go stale and contradict it.
++                manifest["release_disclosure"] = {
++                    "hard_block": _release_outcome.hard_block,
++                    "hard_block_reasons": list(_release_outcome.hard_block_reasons),
++                    "normal_release_blocked": _release_outcome.normal_release_blocked,
++                    "disclosed_gaps": list(_release_outcome.disclosed_gaps),
++                    "release_quality_score": _release_outcome.release_quality_score,
++                    "safety_floor": _release_outcome.safety_floor,
++                }
++            else:
++                manifest["release_allowed"] = four_role_result.release_allowed
++                # Single binding status: released => success; held => release-blocking abort.
++                summary_status = (
++                    "four_role_released"
++                    if four_role_result.release_allowed
++                    else "four_role_held"
++                )
+             # Reassign BOTH the summary label AND the unified local so manifest.json,
+             # sweep_summary.json (summary["status"] at the function tail), and the status log
+             # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+diff --git a/src/polaris_graph/audit_ir/regression_lab.py b/src/polaris_graph/audit_ir/regression_lab.py
+index a5e73612..912eed6f 100644
+--- a/src/polaris_graph/audit_ir/regression_lab.py
++++ b/src/polaris_graph/audit_ir/regression_lab.py
+@@ -589,6 +589,12 @@ def _diff_manifest(
+ _STATUS_TIERS: dict[str, int] = {
+     # success
+     "success": 0,
++    # I-perm-001 (#1195) always-release: RELEASED-with-disclosure terminals (a report SHIPPED).
++    # `released_with_disclosed_gaps` is a release (tier 0); `released_insufficient_safety_evidence`
++    # ships the honest report but with degraded clinical safety signal (tier 1). MUST stay mirrored
++    # with runner.UNIFIED_STATUS_VALUES (test_md9_regression_lab + test_saturation_phase4).
++    "released_with_disclosed_gaps": 0,
++    "released_insufficient_safety_evidence": 1,
+     # partial — report produced but degraded signal
+     "partial_thin_corpus": 1,
+     "partial_incomplete_corpus": 1,
+diff --git a/src/polaris_graph/roles/sweep_integration.py b/src/polaris_graph/roles/sweep_integration.py
+index 2fa62b8d..40aa3cd4 100644
+--- a/src/polaris_graph/roles/sweep_integration.py
++++ b/src/polaris_graph/roles/sweep_integration.py
+@@ -55,7 +55,9 @@ from src.polaris_graph.roles.release_policy import (
+     D8ClaimRow,
+     Gap,
+     ReleaseDecision,
++    ReleaseOutcome,
+     apply_d8_release_policy,
++    compute_release_outcome,
+     load_d8_policy_config,
+ )
+ from src.polaris_graph.roles.role_pipeline import (
+@@ -150,6 +152,10 @@ class FourRoleEvaluationResult:
+     fabricated_occurrence_latched: bool
+     needs_rewrite: list[str]
+     kg_path: Path
++    # I-perm-001 (#1195) slice 2: the always-release-aware outcome (BLOCK->LABEL). Default None
++    # for legacy/timeout construction sites; the headline D8 decision (release_allowed above) is
++    # unchanged, so consumers that ignore this field are byte-identical.
++    release_outcome: ReleaseOutcome | None = None
+ 
+ 
+ def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
+@@ -659,6 +665,31 @@ def run_four_role_evaluation(
+         rewrite_already_attempted=rewrite_already_attempted,
+     )
+ 
++    # I-perm-001 (#1195) slice 2: compute the always-release-aware outcome HERE, where the
++    # required-S0 set + the per-claim verdicts are natively available. `compute_release_outcome`
++    # reads PG_ALWAYS_RELEASE (default OFF -> released == decision.release_allowed, byte-identical).
++    _final = final_verdicts or {}
++    _zero_verified = not any(v == "VERIFIED" for v in _final.values())
++    # zero_usable_evidence = the NATIVE evidence signal (Codex slice-2 P1): no claim cites ANY
++    # evidence document. `not final_verdicts` (no claims) was too weak — a claims-present-but-
++    # all-unsupported run with no cited evidence must still zero-grounding hard-block. Mirrors the
++    # replay harness's audit_map evidence_ids signal.
++    _zero_usable_evidence = not any((c.evidence_documents or []) for c in claims)
++    _missing_s0 = {
++        reason[len("d8_s0_must_cover_missing:"):]
++        for reason in decision.held_reasons
++        if reason.startswith("d8_s0_must_cover_missing:")
++    }
++    _required_s0 = set(required_s0_categories)
++    _safety_floor_insufficient = bool(_required_s0) and _required_s0 <= _missing_s0
++    release_outcome = compute_release_outcome(
++        decision,
++        zero_verified=_zero_verified,
++        zero_usable_evidence=_zero_usable_evidence,
++        safety_floor_insufficient=_safety_floor_insufficient,
++        coverage_fraction=internal_ledger.fraction(),
++    )
++
+     return FourRoleEvaluationResult(
+         release_allowed=decision.release_allowed,
+         held_reasons=decision.held_reasons,
+@@ -669,6 +700,7 @@ def run_four_role_evaluation(
+         fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
+         needs_rewrite=decision.needs_rewrite,
+         kg_path=kg_path,
++        release_outcome=release_outcome,
+     )
+ 
+ 
+diff --git a/src/polaris_v6/queue/actors.py b/src/polaris_v6/queue/actors.py
+index 2f90e6c9..ff0e09b5 100644
+--- a/src/polaris_v6/queue/actors.py
++++ b/src/polaris_v6/queue/actors.py
+@@ -254,7 +254,14 @@ def enqueue_research_run(run_id: str, request_payload: dict[str, Any]) -> dict[s
+         logger.info("[actor] run_id=%s cancelled during pipeline run", run_id)
+         return summary
+ 
+-    if pipeline_status == "success" or pipeline_status.startswith("partial_"):
++    if (
++        pipeline_status == "success"
++        or pipeline_status.startswith("partial_")
++        # I-perm-001 (#1195): the always-release model SHIPS a report with disclosed gaps
++        # (released_with_disclosed_gaps / released_insufficient_safety_evidence) — these are
++        # COMPLETED terminals (a report + bundle exist), not aborts/errors.
++        or pipeline_status.startswith("released_")
++    ):
+         run_store.mark_completed(
+             run_id, summary, pipeline_status=pipeline_status, cost_usd=cost_usd_f
+         )
+diff --git a/src/polaris_v6/schemas/run_status.py b/src/polaris_v6/schemas/run_status.py
+index 6aa2b966..ba2527c6 100644
+--- a/src/polaris_v6/schemas/run_status.py
++++ b/src/polaris_v6/schemas/run_status.py
+@@ -25,6 +25,11 @@ LifecycleStatus = Literal[
+ 
+ PipelineStatus = Literal[
+     "success",
++    # I-perm-001 (#1195): always-release RELEASED-with-disclosure terminals. The v6 actor loads
++    # manifest.status into pipeline_status, so these MUST mirror UNIFIED_STATUS_VALUES or
++    # RunStatusResponse 500s on a released_* run.
++    "released_with_disclosed_gaps",
++    "released_insufficient_safety_evidence",
+     "partial_outline_fallback",
+     "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+     "partial_evaluator_advisory",
+diff --git a/tests/polaris_graph/test_manifest_contract.py b/tests/polaris_graph/test_manifest_contract.py
+index b0acd960..4d29944f 100644
+--- a/tests/polaris_graph/test_manifest_contract.py
++++ b/tests/polaris_graph/test_manifest_contract.py
+@@ -36,6 +36,8 @@ def test_manifest_contract_unified_taxonomy_defined() -> None:
+     )
+     expected = frozenset({
+         "success",
++        "released_with_disclosed_gaps",            # I-perm-001 (#1195): always-release BLOCK->LABEL
++        "released_insufficient_safety_evidence",   # I-perm-001 (#1195): clinical safety-floor honest report
+         "partial_thin_corpus",
+         "partial_incomplete_corpus",
+         "partial_rule_check_warnings",
+@@ -289,6 +291,28 @@ def test_manifest_contract_exception_writes_error_manifest() -> None:
+ # (every class of status is recognizable by its prefix).
+ # ─────────────────────────────────────────────────────────────────
+ 
++def test_always_release_outcome_statuses_round_trip() -> None:
++    """Every status `compute_release_outcome` can emit must be a valid unified status AND map to
++    ITSELF through to_unified_status (NOT error_unexpected) — the I-perm-001 slice-2 consume site
++    feeds outcome.status straight into to_unified_status (Codex slice-2 iter-2 P1)."""
++    from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES, to_unified_status
++    from src.polaris_graph.roles import release_policy as rp
++
++    emitted = {
++        rp.STATUS_SUCCESS,
++        rp.STATUS_RELEASED_WITH_DISCLOSED_GAPS,
++        rp.STATUS_RELEASED_INSUFFICIENT_SAFETY,
++        rp.STATUS_ABORT_NO_VERIFIED,
++        rp.STATUS_ABORT_FABRICATED,
++    }
++    for status in emitted:
++        assert status in UNIFIED_STATUS_VALUES, f"{status!r} not in UNIFIED_STATUS_VALUES"
++        assert to_unified_status(status) == status, (
++            f"to_unified_status({status!r}) = {to_unified_status(status)!r}, not identity "
++            "(a clean/disclosed always-release run would be mis-classified)"
++        )
++
++
+ def test_manifest_contract_status_prefixes() -> None:
+     """Every status value falls into one of four classes via its prefix.
+     This is what downstream readers rely on to classify a run."""
+@@ -304,6 +328,11 @@ def test_manifest_contract_status_prefixes() -> None:
+             # SSE `run.completed`); renaming it to abort_cancelled would break those consumers. It is
+             # a terminal/cancel class of its own, deliberately outside the 4-prefix scheme.
+             or status == "cancelled"
++            # I-perm-001 (#1195): the always-release model adds a RELEASED-with-disclosure class
++            # (`released_with_disclosed_gaps` / `released_insufficient_safety_evidence`) — a report
++            # SHIPPED with honest disclosed gaps (BLOCK->LABEL). Documented prefix exception: it is
++            # neither success (it carries gaps) nor abort (a report was produced).
++            or status.startswith("released_")
+         ), f"Status {status!r} doesn't match any known prefix class"
+ 
+ 
+diff --git a/tests/polaris_v6/test_released_status_iperm001.py b/tests/polaris_v6/test_released_status_iperm001.py
+new file mode 100644
+index 00000000..756b0e09
+--- /dev/null
++++ b/tests/polaris_v6/test_released_status_iperm001.py
+@@ -0,0 +1,60 @@
++"""I-perm-001 (#1195) slice 2 — the always-release `released_*` statuses are wired through the v6
++serving path (Codex slice-2 P1-a). Without this, a PG_ALWAYS_RELEASE canary run would 500
++RunStatusResponse and fall to `unknown_pipeline_status` in the actor.
++"""
++
++from __future__ import annotations
++
++import typing
++from pathlib import Path
++
++from src.polaris_graph.audit_ir.regression_lab import KNOWN_STATUS_VALUES
++from src.polaris_v6.schemas.run_status import PipelineStatus, RunStatusResponse
++from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES
++
++_RELEASED = ("released_with_disclosed_gaps", "released_insufficient_safety_evidence")
++# Read the actor source from disk (importing it pulls in the dramatiq broker — out of scope here).
++_ACTORS_SRC = Path(__file__).resolve().parents[2] / "src" / "polaris_v6" / "queue" / "actors.py"
++
++
++def test_released_statuses_validate_in_pipeline_schema():
++    """RunStatusResponse must accept the released_* statuses (the actor loads manifest.status into
++    pipeline_status — an omitted value 500s Pydantic validation on a real run)."""
++    allowed = set(typing.get_args(PipelineStatus))
++    for status in _RELEASED:
++        assert status in allowed, f"{status} missing from PipelineStatus schema mirror"
++        response = RunStatusResponse(
++            run_id="x",
++            lifecycle_status="completed",
++            pipeline_status=status,
++            template="t",
++            question="q",
++            queued_at="2026-01-01T00:00:00Z",
++        )
++        assert response.pipeline_status == status
++
++
++def test_actor_classifies_released_as_completed():
++    """The actor completion classifier marks a released_* manifest as COMPLETED — not
++    unknown_pipeline_status. Locks the `startswith('released_')` branch in run_research_run."""
++    source = _ACTORS_SRC.read_text(encoding="utf-8")
++    assert 'startswith("released_")' in source, (
++        "actor completion classifier must treat released_* as a completed terminal"
++    )
++    # And the classification predicate itself recognises them as completed.
++    for status in _RELEASED:
++        assert (
++            status == "success"
++            or status.startswith("partial_")
++            or status.startswith("released_")
++        )
++
++
++def test_released_statuses_mirrored_across_all_taxonomies():
++    """released_* must be in EVERY status mirror (runner / regression_lab / v6 schema) so no layer
++    rejects or mis-tiers a real always-release run."""
++    schema_allowed = set(typing.get_args(PipelineStatus))
++    for status in _RELEASED:
++        assert status in UNIFIED_STATUS_VALUES
++        assert status in KNOWN_STATUS_VALUES
++        assert status in schema_allowed
+
+codex
+I’ll verify this as a review, focusing on the status taxonomy and the consume path where `release_outcome.status` is passed through `to_unified_status`. I’m going to inspect the relevant code and run the narrow regression surface if it is available locally.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "STATUS_|def compute_release_outcome|always_release_enabled|ReleaseOutcome|zero_usable|released_insufficient|released_with" src/polaris_graph/roles/release_policy.py src/polaris_graph/roles/sweep_integration.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"released_|PipelineStatus|startswith\\(\\\"released_\\\"\\)|KNOWN_STATUS_VALUES|_STATUS_TIERS\" src/polaris_v6 src/polaris_graph/audit_ir tests/polaris_graph/test_manifest_contract.py tests/polaris_v6/test_released_status_iperm001.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def to_unified_status|_SUMMARY_TO_UNIFIED|UNIFIED_STATUS_VALUES|summary_status =|release_outcome|always_release_enabled" scripts/run_honest_sweep_r3.py' in C:\POLARIS
+ succeeded in 7477ms:
+src/polaris_graph/roles/sweep_integration.py:58:    ReleaseOutcome,
+src/polaris_graph/roles/sweep_integration.py:158:    release_outcome: ReleaseOutcome | None = None
+src/polaris_graph/roles/sweep_integration.py:673:    # zero_usable_evidence = the NATIVE evidence signal (Codex slice-2 P1): no claim cites ANY
+src/polaris_graph/roles/sweep_integration.py:677:    _zero_usable_evidence = not any((c.evidence_documents or []) for c in claims)
+src/polaris_graph/roles/sweep_integration.py:688:        zero_usable_evidence=_zero_usable_evidence,
+src/polaris_graph/roles/release_policy.py:349:# Status vocabulary (mirrors scripts/run_honest_sweep_r3.py UNIFIED_STATUS_VALUES; slice 1 adds
+src/polaris_graph/roles/release_policy.py:351:STATUS_SUCCESS = "success"
+src/polaris_graph/roles/release_policy.py:352:STATUS_RELEASED_WITH_DISCLOSED_GAPS = "released_with_disclosed_gaps"
+src/polaris_graph/roles/release_policy.py:353:STATUS_RELEASED_INSUFFICIENT_SAFETY = "released_insufficient_safety_evidence"
+src/polaris_graph/roles/release_policy.py:354:STATUS_ABORT_NO_VERIFIED = "abort_no_verified_sections"
+src/polaris_graph/roles/release_policy.py:355:STATUS_ABORT_FOUR_ROLE_HELD = "abort_four_role_release_held"
+src/polaris_graph/roles/release_policy.py:356:STATUS_ABORT_FABRICATED = "abort_evaluator_critical"
+src/polaris_graph/roles/release_policy.py:363:    zero_usable_evidence: bool,
+src/polaris_graph/roles/release_policy.py:368:    return bool(fabricated_occurrence_latched or (zero_verified and zero_usable_evidence))
+src/polaris_graph/roles/release_policy.py:372:class ReleaseOutcome:
+src/polaris_graph/roles/release_policy.py:394:def always_release_enabled() -> bool:
+src/polaris_graph/roles/release_policy.py:401:def compute_release_outcome(
+src/polaris_graph/roles/release_policy.py:405:    zero_usable_evidence: bool,
+src/polaris_graph/roles/release_policy.py:409:) -> ReleaseOutcome:
+src/polaris_graph/roles/release_policy.py:418:    enabled = always_release_enabled() if always_release is None else always_release
+src/polaris_graph/roles/release_policy.py:422:        zero_usable_evidence=zero_usable_evidence,
+src/polaris_graph/roles/release_policy.py:427:    if zero_verified and zero_usable_evidence:
+src/polaris_graph/roles/release_policy.py:433:        status = STATUS_SUCCESS if decision.release_allowed else STATUS_ABORT_FOUR_ROLE_HELD
+src/polaris_graph/roles/release_policy.py:434:        return ReleaseOutcome(
+src/polaris_graph/roles/release_policy.py:448:            STATUS_ABORT_FABRICATED
+src/polaris_graph/roles/release_policy.py:450:            else STATUS_ABORT_NO_VERIFIED
+src/polaris_graph/roles/release_policy.py:452:        return ReleaseOutcome(
+src/polaris_graph/roles/release_policy.py:471:        return ReleaseOutcome(
+src/polaris_graph/roles/release_policy.py:475:            status=STATUS_RELEASED_INSUFFICIENT_SAFETY,
+src/polaris_graph/roles/release_policy.py:481:    status = STATUS_SUCCESS if not disclosed_gaps else STATUS_RELEASED_WITH_DISCLOSED_GAPS
+src/polaris_graph/roles/release_policy.py:482:    return ReleaseOutcome(
+
+2026-06-10T22:29:48.937442Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 10 seconds
+Output:
+rg: regex parse error:
+    (?:released_|PipelineStatus|startswith\(\)
+    ^
+error: unclosed group
+
+ exited 1 in 9991ms:
+rg: regex parse error:
+    (?:released_|PipelineStatus|startswith\(\)
+    ^
+error: unclosed group
+
+ succeeded in 12752ms:
+197:UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+230:    "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+238:_SUMMARY_TO_UNIFIED: dict[str, str] = {
+291:def to_unified_status(summary_status: str) -> str:
+295:    return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+6728:            summary_status = "fail_no_sources"
+6730:            summary_status = "fail_no_verified_prose"
+6735:            summary_status = "abort_evaluator_critical"
+6743:            summary_status = "abort_evaluator_critical"
+6746:            summary_status = "ok_outline_fallback"
+6750:            summary_status = "ok_evaluator_advisory"
+6752:            summary_status = "warn_rule_checks"
+6754:            summary_status = "ok_thin_corpus"
+6757:            summary_status = "ok_incomplete_corpus"
+6759:            summary_status = "ok"
+6775:            summary_status = "partial_saturation"
+6974:            summary_status = "four_role_held"
+7142:            from src.polaris_graph.roles.release_policy import always_release_enabled
+7143:            _release_outcome = getattr(four_role_result, "release_outcome", None)
+7144:            if always_release_enabled() and _release_outcome is not None:
+7145:                manifest["release_allowed"] = _release_outcome.released
+7146:                summary_status = _release_outcome.status
+7152:                    "hard_block": _release_outcome.hard_block,
+7153:                    "hard_block_reasons": list(_release_outcome.hard_block_reasons),
+7154:                    "normal_release_blocked": _release_outcome.normal_release_blocked,
+7155:                    "disclosed_gaps": list(_release_outcome.disclosed_gaps),
+7156:                    "release_quality_score": _release_outcome.release_quality_score,
+7157:                    "safety_floor": _release_outcome.safety_floor,
+7162:                summary_status = (
+7262:                    summary_status = "report_redaction_failed"
+7288:                        summary_status = "report_redaction_failed"
+7646:            summary_status = _fl05["override_status"]
+
+codex
+The first pass confirms the identity map is present and the always-release path assigns `summary_status` directly from `release_outcome.status`. One search expression had a quoting issue, so I’m rerunning that narrower check and then I’ll run the targeted tests.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'released_|PipelineStatus|KNOWN_STATUS_VALUES|_STATUS_TIERS' src/polaris_v6 src/polaris_graph/audit_ir tests/polaris_graph/test_manifest_contract.py tests/polaris_v6/test_released_status_iperm001.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py -TotalCount 320 | Select-Object -Skip 185' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/release_policy.py -TotalCount 500 | Select-Object -Skip 340' in C:\POLARIS
+ succeeded in 3765ms:
+# while abort runs DID include it. Documentation claimed
+# manifest.status was authoritative — it wasn't. See
+# outputs/codex_findings/deep_dive_round_1/findings.md for the full
+# scoping analysis.
+#
+# Post-fix, EVERY exit path writes a manifest.json with a "status"
+# field from this unified taxonomy. `summary["status"]` is preserved
+# as secondary sweep telemetry for backward compatibility with any
+# downstream counter that relied on the legacy labels.
+# ─────────────────────────────────────────────────────────────────
+
+UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
+    # success
+    "success",
+    # released-with-disclosure (I-perm-001 #1195 always-release): the report SHIPPED with honest
+    # disclosed gaps (BLOCK->LABEL) — a RELEASED terminal, not an abort. `released_insufficient_
+    # safety_evidence` is the honest clinical-safety-floor variant (normal render blocked, honest
+    # report still ships). The "released_" prefix is a documented exception to the 4-prefix scheme
+    # (alongside "cancelled") in tests/.../test_manifest_contract_status_prefixes.
+    "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence",
+    # partial — report produced but degraded signal
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "partial_outline_fallback",      # BUG-M-203: planner failed, fallback used
+    "partial_evaluator_advisory",    # BUG-M-205: judge flagged critical axes
+    "partial_qwen_advisory",         # I-modref-004 (#530): legacy alias, historical manifests
+    "partial_saturation",            # I-meta-005 Phase 4 (#988): pruned report, some sections under-covered
+    # abort — pipeline refused to produce a report
+    "abort_scope_rejected",
+    "abort_no_sources",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
+    "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
+    "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
+    "abort_discovery_degraded",      # FL-05 (#1124): a FORCE-ENABLED discovery feature (STORM/agentic) was on but did NOT fire (firing_status attempted_empty/error) — silently degraded to baseline; refuse to ship as success (gated by PG_RUN_HEALTH_GATE)
+    "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused BEFORE retrieval (PG_USE_SAFETY_REFUSAL); refuse-with-redirection, zero generator spend
+    "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — a required report-contract slot is bound to a non-journal entity; refuse rather than cite a non-journal source in a journal-restricted review
+    "error_journal_only_leak",       # I-ready-017 (#1134): journal_only — a non-journal row reached the generator past the source-filter (should never happen); fail-closed backstop, never synthesize
+    "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): the corpus-approval gate and the adequacy artifact would score DIFFERENT populations (total_sources OR tier_counts diverge) — refuse rather than gate/approve on a population the report does not consume (defensive; should never fire)
+    "abort_credibility_coverage_gap",  # I-cred-008b (#1162): the activated credibility-disclosure pass found a cited token whose evidence has no credibility/origin coverage — fail-loud rather than disclose a claim whose source was never scored (only fires under PG_SWEEP_CREDIBILITY_REDESIGN)
+    "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+    "cancelled",                     # I-ready-016 (#1086): user-requested cancel terminal; _abort_if_cancelled writes manifest.status="cancelled" (consumed by v6 UI + SSE — value preserved, NOT renamed). Does NOT match the 4-prefix scheme — see the documented exception in test_manifest_contract_status_prefixes.
+    # error — unhandled exception
+    "error_unexpected",
+})
+
+# Map legacy summary["status"] labels → unified manifest.status values.
+_SUMMARY_TO_UNIFIED: dict[str, str] = {
+    "ok": "success",
+    # I-perm-001 (#1195) slice 2: the always-release outcome's clean status IS already unified
+    # ("success") — without this identity map, to_unified_status("success") falls to the
+    # error_unexpected default and a clean PG_ALWAYS_RELEASE run is mis-classified (Codex slice-2
+    # iter-2 P1). The released_* identity maps below cover the disclosed-gap outcomes.
+    "success": "success",
+    "ok_thin_corpus": "partial_thin_corpus",
+    "ok_incomplete_corpus": "partial_incomplete_corpus",
+    "ok_outline_fallback": "partial_outline_fallback",
+    "ok_evaluator_advisory": "partial_evaluator_advisory",
+    "ok_qwen_advisory": "partial_qwen_advisory",  # I-modref-004 (#530): legacy alias
+    "warn_rule_checks": "partial_rule_check_warnings",
+    "fail_no_sources": "abort_no_sources",
+    "fail_no_verified_prose": "abort_no_verified_sections",
+    "abort_scope_rejected": "abort_scope_rejected",
+    "abort_corpus_inadequate": "abort_corpus_inadequate",
+    "abort_corpus_approval_denied": "abort_corpus_approval_denied",
+    "abort_no_verified_sections": "abort_no_verified_sections",
+    "abort_evaluator_critical": "abort_evaluator_critical",
+    # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
+    "partial_saturation": "partial_saturation",
+    # I-meta-002 sub-PR-6: 4-role D8 release decision (single binding gate). Released =>
+    # success; held => a release-blocking abort (D8 held: fabricated occurrence / coverage
+    # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
+    "four_role_released": "success",
+    "four_role_held": "abort_four_role_release_held",
+    # I-perm-001 (#1195) always-release: the outcome already carries a unified status; map it to
+    # itself so to_unified_status passes it through (NOT error_unexpected).
+    "released_with_disclosed_gaps": "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence": "released_insufficient_safety_evidence",
+    # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
+    # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
+    "report_redaction_failed": "abort_report_redaction_failed",
+    # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breach mid-run (generator OR 4-role verifier) is a
+    # clean budget abort, NOT error_unexpected.
+    "abort_budget_exceeded": "abort_budget_exceeded",
+    # I-ready-002 (#1071): binding verifier degraded (judge_error_rate over cap) is a release-blocking abort.
+    "abort_verifier_degraded": "abort_verifier_degraded",
+    # FL-05 (#1124): force-enabled discovery feature did not fire — run-health backstop abort.
+    "abort_discovery_degraded": "abort_discovery_degraded",
+    # I-ready-007 (#1072): input harm-refusal — explicit harm-intent query refused before retrieval.
+    "abort_safety_refused": "abort_safety_refused",
+    # I-ready-017 (#1134): journal_only fail-closed aborts emit their named status.
+    "abort_journal_only_contract_conflict": "abort_journal_only_contract_conflict",
+    "error_journal_only_leak": "error_journal_only_leak",
+    "error_corpus_population_mismatch": "error_corpus_population_mismatch",
+    # I-cred-008b (#1162): credibility-disclosure coverage gap — fail-loud named abort.
+    "abort_credibility_coverage_gap": "abort_credibility_coverage_gap",
+    "error": "error_unexpected",
+}
+
+
+def to_unified_status(summary_status: str) -> str:
+    """Map a legacy summary["status"] label to the unified
+    manifest.status taxonomy. Unknown labels become error_unexpected
+    (fail loudly for the reader; still a valid taxonomy value)."""
+    return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+
+
+def _credibility_abort_status(exc: BaseException) -> str | None:
+    """I-cred-008b (#1162) — Codex #008b P1-1: classify an exception that reached run_one_query's handler.
+
+    Returns ``"abort_credibility_coverage_gap"`` for a credibility-disclosure COVERAGE-GAP
+    ``CredibilityPassError`` (a cited token with no credibility/origin coverage); returns ``None`` for
+    EVERYTHING ELSE — including a NON-coverage ``CredibilityPassError`` (judge_error / independence gap
+    raised by the pass itself), which the caller then routes to ``error_unexpected``. Pure + behavioral so
+    the routing is unit-testable on real exception objects (not a mirrored predicate), which is exactly
+    what the original sibling-``except`` re-raise missed.
+    """
+    # Codex #008b iter-2 P2: classify by message PREFIX (the coverage gap is always raised as
+    # CredibilityPassError("abort_credibility_coverage_gap: ...")) — a prefix match is less brittle than a
+    # substring scan for a manifest-status classifier.
+    if isinstance(exc, _CredPassErrForAbort) and str(exc).startswith("abort_credibility_coverage_gap"):
+        return "abort_credibility_coverage_gap"
+    return None
+
+
+def _build_claim_disclosure_doc(multi: Any, quantified_telemetry: Any) -> dict | None:
+    """I-cred-008b (#1162): serialize the per-claim CREDIBILITY DISCLOSURE for claim_disclosure.json.
+
+    Returns ``None`` (=> no artifact, byte-identical) when ``multi.credibility_analysis`` is absent
+    (master flag off). Otherwise returns ``{"sections": [{"title", "claims": [...]}, ...]}`` where each
+
+ succeeded in 6860ms:
+tests/polaris_graph/test_manifest_contract.py:39:        "released_with_disclosed_gaps",            # I-perm-001 (#1195): always-release BLOCK->LABEL
+tests/polaris_graph/test_manifest_contract.py:40:        "released_insufficient_safety_evidence",   # I-perm-001 (#1195): clinical safety-floor honest report
+tests/polaris_graph/test_manifest_contract.py:332:            # (`released_with_disclosed_gaps` / `released_insufficient_safety_evidence`) — a report
+tests/polaris_graph/test_manifest_contract.py:335:            or status.startswith("released_")
+tests/polaris_v6/test_released_status_iperm001.py:1:"""I-perm-001 (#1195) slice 2 — the always-release `released_*` statuses are wired through the v6
+tests/polaris_v6/test_released_status_iperm001.py:11:from src.polaris_graph.audit_ir.regression_lab import KNOWN_STATUS_VALUES
+tests/polaris_v6/test_released_status_iperm001.py:12:from src.polaris_v6.schemas.run_status import PipelineStatus, RunStatusResponse
+tests/polaris_v6/test_released_status_iperm001.py:15:_RELEASED = ("released_with_disclosed_gaps", "released_insufficient_safety_evidence")
+tests/polaris_v6/test_released_status_iperm001.py:20:def test_released_statuses_validate_in_pipeline_schema():
+tests/polaris_v6/test_released_status_iperm001.py:21:    """RunStatusResponse must accept the released_* statuses (the actor loads manifest.status into
+tests/polaris_v6/test_released_status_iperm001.py:23:    allowed = set(typing.get_args(PipelineStatus))
+tests/polaris_v6/test_released_status_iperm001.py:25:        assert status in allowed, f"{status} missing from PipelineStatus schema mirror"
+tests/polaris_v6/test_released_status_iperm001.py:37:def test_actor_classifies_released_as_completed():
+tests/polaris_v6/test_released_status_iperm001.py:38:    """The actor completion classifier marks a released_* manifest as COMPLETED — not
+tests/polaris_v6/test_released_status_iperm001.py:39:    unknown_pipeline_status. Locks the `startswith('released_')` branch in run_research_run."""
+tests/polaris_v6/test_released_status_iperm001.py:41:    assert 'startswith("released_")' in source, (
+tests/polaris_v6/test_released_status_iperm001.py:42:        "actor completion classifier must treat released_* as a completed terminal"
+tests/polaris_v6/test_released_status_iperm001.py:49:            or status.startswith("released_")
+tests/polaris_v6/test_released_status_iperm001.py:53:def test_released_statuses_mirrored_across_all_taxonomies():
+tests/polaris_v6/test_released_status_iperm001.py:54:    """released_* must be in EVERY status mirror (runner / regression_lab / v6 schema) so no layer
+tests/polaris_v6/test_released_status_iperm001.py:56:    schema_allowed = set(typing.get_args(PipelineStatus))
+tests/polaris_v6/test_released_status_iperm001.py:59:        assert status in KNOWN_STATUS_VALUES
+src/polaris_v6\api\pins.py:44:        # PipelineStatus (run_status.py) — pipeline-A maps ok_qwen_advisory
+src/polaris_v6\queue\actors.py:261:        # (released_with_disclosed_gaps / released_insufficient_safety_evidence) — these are
+src/polaris_v6\queue\actors.py:263:        or pipeline_status.startswith("released_")
+src/polaris_v6\schemas\run_status.py:26:PipelineStatus = Literal[
+src/polaris_v6\schemas\run_status.py:30:    # RunStatusResponse 500s on a released_* run.
+src/polaris_v6\schemas\run_status.py:31:    "released_with_disclosed_gaps",
+src/polaris_v6\schemas\run_status.py:32:    "released_insufficient_safety_evidence",
+src/polaris_v6\schemas\run_status.py:45:    # I-ready-016 (#1086): sync the stale PipelineStatus mirror with UNIFIED_STATUS_VALUES — these
+src/polaris_v6\schemas\run_status.py:73:    pipeline_status: PipelineStatus | None = Field(
+src/polaris_graph/audit_ir\regression_lab.py:589:_STATUS_TIERS: dict[str, int] = {
+src/polaris_graph/audit_ir\regression_lab.py:593:    # `released_with_disclosed_gaps` is a release (tier 0); `released_insufficient_safety_evidence`
+src/polaris_graph/audit_ir\regression_lab.py:596:    "released_with_disclosed_gaps": 0,
+src/polaris_graph/audit_ir\regression_lab.py:597:    "released_insufficient_safety_evidence": 1,
+src/polaris_graph/audit_ir\regression_lab.py:623:    # (no report produced, tier 2). KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES.
+src/polaris_graph/audit_ir\regression_lab.py:626:    # taxonomy. KNOWN_STATUS_VALUES MUST equal runner.UNIFIED_STATUS_VALUES (test_saturation_phase4 +
+src/polaris_graph/audit_ir\regression_lab.py:654:KNOWN_STATUS_VALUES: frozenset[str] = frozenset(_STATUS_TIERS)
+src/polaris_graph/audit_ir\regression_lab.py:668:    return _STATUS_TIERS.get(status, -1)
+
+ succeeded in 9770ms:
+# release blockers. A FABRICATED occurrence is the one held reason that is NEVER a mere label.
+_NON_HARD_HELD_REASONS = frozenset(
+    {
+        _REASON_UNSUPPORTED_RESIDUAL_BELOW_COVERAGE,
+        _REASON_PENDING_REWRITE,
+    }
+)
+
+# Status vocabulary (mirrors scripts/run_honest_sweep_r3.py UNIFIED_STATUS_VALUES; slice 1 adds
+# the two released-with-disclosure terminals — both are RELEASED, not abort).
+STATUS_SUCCESS = "success"
+STATUS_RELEASED_WITH_DISCLOSED_GAPS = "released_with_disclosed_gaps"
+STATUS_RELEASED_INSUFFICIENT_SAFETY = "released_insufficient_safety_evidence"
+STATUS_ABORT_NO_VERIFIED = "abort_no_verified_sections"
+STATUS_ABORT_FOUR_ROLE_HELD = "abort_four_role_release_held"
+STATUS_ABORT_FABRICATED = "abort_evaluator_critical"
+
+
+def is_hard_block(
+    *,
+    fabricated_occurrence_latched: bool,
+    zero_verified: bool,
+    zero_usable_evidence: bool,
+) -> bool:
+    """The canonical no-fabrication hard line (blueprint R1): a report is HARD-blocked iff a
+    FABRICATED occurrence latched OR there is true zero-grounding (no VERIFIED claim AND no usable
+    evidence). Everything else releases (with labels) under always-release."""
+    return bool(fabricated_occurrence_latched or (zero_verified and zero_usable_evidence))
+
+
+@dataclass
+class ReleaseOutcome:
+    """The always-release-aware release outcome over a D8 ``ReleaseDecision`` (I-perm-001).
+
+    ``released`` — a report ships (normal OR honest-insufficient-safety variant).
+    ``hard_block`` — the no-fabrication hard line fired; NO report ships as clean.
+    ``normal_release_blocked`` — the polished normal report is withheld (hard_block OR the clinical
+        safety floor is insufficient), but an honest report may still ship.
+    ``status`` — the terminal pipeline status.
+    ``disclosed_gaps`` — the held reasons surfaced as DISPLAYED labels (not blockers).
+    ``release_quality_score`` — the displayed coverage fraction (NOT a trap-door threshold).
+    """
+
+    released: bool
+    hard_block: bool
+    normal_release_blocked: bool
+    status: str
+    disclosed_gaps: list[str]
+    hard_block_reasons: list[str]
+    release_quality_score: float
+    safety_floor: str  # "ok" | "insufficient"
+
+
+def always_release_enabled() -> bool:
+    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+    import os
+
+    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() in _ON_VALUES
+
+
+def compute_release_outcome(
+    decision: ReleaseDecision,
+    *,
+    zero_verified: bool,
+    zero_usable_evidence: bool,
+    safety_floor_insufficient: bool,
+    coverage_fraction: float,
+    always_release: bool | None = None,
+) -> ReleaseOutcome:
+    """Map a D8 ``ReleaseDecision`` to a release outcome under the always-release reframe.
+
+    When always-release is OFF (default), reproduce the LEGACY decision verbatim: ``released`` ==
+    ``decision.release_allowed``, the held reasons stay blockers, and the status is the legacy
+    held/success label — byte-identical behaviour. When ON, convert non-hard holds to disclosed
+    gaps and release, keeping only the fabricated/zero-grounding hard line and the clinical
+    safety-floor normal-render block (blueprint R1/R2).
+    """
+    enabled = always_release_enabled() if always_release is None else always_release
+    hard_block = is_hard_block(
+        fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
+        zero_verified=zero_verified,
+        zero_usable_evidence=zero_usable_evidence,
+    )
+    hard_block_reasons: list[str] = []
+    if decision.fabricated_occurrence_latched:
+        hard_block_reasons.append(_REASON_FABRICATED_OCCURRENCE)
+    if zero_verified and zero_usable_evidence:
+        hard_block_reasons.append("zero_grounding")
+    safety_floor = "insufficient" if safety_floor_insufficient else "ok"
+
+    if not enabled:
+        # Legacy withhold path — byte-identical to `decision.release_allowed`.
+        status = STATUS_SUCCESS if decision.release_allowed else STATUS_ABORT_FOUR_ROLE_HELD
+        return ReleaseOutcome(
+            released=decision.release_allowed,
+            hard_block=not decision.release_allowed and hard_block,
+            normal_release_blocked=not decision.release_allowed,
+            status=status,
+            disclosed_gaps=[],
+            hard_block_reasons=hard_block_reasons if not decision.release_allowed else [],
+            release_quality_score=coverage_fraction,
+            safety_floor=safety_floor,
+        )
+
+    # --- always-release ON ---
+    if hard_block:
+        status = (
+            STATUS_ABORT_FABRICATED
+            if decision.fabricated_occurrence_latched
+            else STATUS_ABORT_NO_VERIFIED
+        )
+        return ReleaseOutcome(
+            released=False,
+            hard_block=True,
+            normal_release_blocked=True,
+            status=status,
+            # A hard-block reason (fabricated) is NEVER a disclosed GAP (Codex slice-1 P2): it
+            # lives in hard_block_reasons. Surface only the non-hard holds as disclosed gaps.
+            disclosed_gaps=[
+                r for r in decision.held_reasons if r != _REASON_FABRICATED_OCCURRENCE
+            ],
+            hard_block_reasons=hard_block_reasons,
+            release_quality_score=coverage_fraction,
+            safety_floor=safety_floor,
+        )
+
+    # Every remaining held reason is a DISPLAYED disclosed-gap label, not a blocker.
+    disclosed_gaps = list(decision.held_reasons)
+    if safety_floor_insufficient:
+        # Clinical safety floor: ship the honest insufficient-safety report, block normal render.
+        return ReleaseOutcome(
+            released=True,
+            hard_block=False,
+            normal_release_blocked=True,
+            status=STATUS_RELEASED_INSUFFICIENT_SAFETY,
+            disclosed_gaps=disclosed_gaps,
+            hard_block_reasons=[],
+            release_quality_score=coverage_fraction,
+            safety_floor="insufficient",
+        )
+    status = STATUS_SUCCESS if not disclosed_gaps else STATUS_RELEASED_WITH_DISCLOSED_GAPS
+    return ReleaseOutcome(
+        released=True,
+        hard_block=False,
+        normal_release_blocked=False,
+        status=status,
+        disclosed_gaps=disclosed_gaps,
+        hard_block_reasons=[],
+        release_quality_score=coverage_fraction,
+        safety_floor="ok",
+    )
+
+codex
+The release policy statuses line up with the new manifest taxonomy, including the clean `success` identity. I’m checking the downstream assignment now because the P1 was specifically about the second mapping step, not just the constants.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7090 -First 230' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/sweep_integration.py | Select-Object -Skip 620 -First 100' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_v6/schemas/run_status.py | Select-Object -First 110' in C:\POLARIS
+ succeeded in 5975ms:
+                internal_ledger.covered_element_ids.update(claim.covered_element_ids)
+
+            # Snowball KG: persist EVERY outcome (audit); only VERIFIED rows are reusable
+            # (anti-poisoning is enforced inside the store). role_verdicts records the raw
+            # Mirror/Sentinel/Judge signals for provenance. KG writes stay PARENT-only (single
+            # SQLite connection) — never inside a worker (Codex Path-B risk #2).
+            kg_store.write_claim(
+                claim_text=claim.claim_text,
+                claim_id=claim.claim_id,
+                verdict=result.final_verdict,
+                role_verdicts={
+                    "mirror_classification": (
+                        result.mirror_result.classification
+                        if result.mirror_result is not None
+                        else None
+                    ),
+                    "sentinel_verdict": (
+                        result.sentinel_result.verdict.value
+                        if result.sentinel_result is not None
+                        else None
+                    ),
+                    "raw_judge_verdict": result.raw_judge_verdict,
+                    "final_verdict": result.final_verdict,
+                },
+                timestamp=timestamp,
+            )
+        kg_path = Path(kg_store.db_path)
+    finally:
+        kg_store.close()
+
+    # I-meta-002-q1b (#939): persist the per-role-call reasoning log next to the run — one JSON
+    # object per line, `reasoning` in its own field, NEVER mixed into the verdict. Reviewable
+    # line-by-line alongside the generator's reasoning_trace.jsonl. (Kept as the final write even
+    # though I-run11-001 also writes incrementally above — idempotent same-content rewrite.)
+    _write_role_call_log(role_calls_path, role_call_log)
+
+    # The D8 threshold is loaded from config (LAW VI, pure file read — no network).
+    config = load_d8_policy_config(d8_config_path)
+
+    decision: ReleaseDecision = apply_d8_release_policy(
+        d8_rows,
+        required_s0_categories=required_s0_categories,
+        coverage_ledger=internal_ledger,
+        coverage_threshold=config.coverage_threshold,
+        rewrite_already_attempted=rewrite_already_attempted,
+    )
+
+    # I-perm-001 (#1195) slice 2: compute the always-release-aware outcome HERE, where the
+    # required-S0 set + the per-claim verdicts are natively available. `compute_release_outcome`
+    # reads PG_ALWAYS_RELEASE (default OFF -> released == decision.release_allowed, byte-identical).
+    _final = final_verdicts or {}
+    _zero_verified = not any(v == "VERIFIED" for v in _final.values())
+    # zero_usable_evidence = the NATIVE evidence signal (Codex slice-2 P1): no claim cites ANY
+    # evidence document. `not final_verdicts` (no claims) was too weak — a claims-present-but-
+    # all-unsupported run with no cited evidence must still zero-grounding hard-block. Mirrors the
+    # replay harness's audit_map evidence_ids signal.
+    _zero_usable_evidence = not any((c.evidence_documents or []) for c in claims)
+    _missing_s0 = {
+        reason[len("d8_s0_must_cover_missing:"):]
+        for reason in decision.held_reasons
+        if reason.startswith("d8_s0_must_cover_missing:")
+    }
+    _required_s0 = set(required_s0_categories)
+    _safety_floor_insufficient = bool(_required_s0) and _required_s0 <= _missing_s0
+    release_outcome = compute_release_outcome(
+        decision,
+        zero_verified=_zero_verified,
+        zero_usable_evidence=_zero_usable_evidence,
+        safety_floor_insufficient=_safety_floor_insufficient,
+        coverage_fraction=internal_ledger.fraction(),
+    )
+
+    return FourRoleEvaluationResult(
+        release_allowed=decision.release_allowed,
+        held_reasons=decision.held_reasons,
+        gaps=decision.gaps,
+        final_verdicts=final_verdicts,
+        records=all_records,
+        coverage_fraction=internal_ledger.fraction(),
+        fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
+        needs_rewrite=decision.needs_rewrite,
+        kg_path=kg_path,
+        release_outcome=release_outcome,
+    )
+
+
+# --- M3b seam: the single thin core both the sweep branch and the offline test call --------
+# The builder is a KEYWORD-ARGUMENT closure that the SEAM calls AFTER generation with the
+# run-local objects (`multi`, `template`, `slug`, `domain`, `ev_pool`); it PRODUCES a bundle
+# with `.inputs` (FourRoleEvaluationInputs) and `.audit_map` (dict[str, dict]). It is wired in
+# scripts/dr_benchmark/run_gate_b.py over native_gate_b_inputs.build_native_gate_b_inputs +
+# the evidence normalization. The builder takes run-local objects (NOT captured at construction)
+# because `multi`/`ev_pool` only exist INSIDE run_one_query, after generation — the seam supplies
+# them. Kept as a structural `Callable` so this module never imports the builder (LAW VII CLI
+# isolation; the builder lives in roles/, the closure in scripts/).
+FourRoleBundleBuilder = Callable[..., object]
+
+# Filename of the per-claim audit map persisted next to the run (Codex M3 P2 #2). The SEAM
+# writes it; the builder does NO file I/O.
+FOUR_ROLE_CLAIM_AUDIT_FILENAME = "four_role_claim_audit.json"
+
+ succeeded in 10891ms:
+            finally:
+                # Codex AC1-gate iter-2 P1-1: clear the live flag UNDER _hb_lock so it is mutually
+                # exclusive with the worker's check-then-write in _hb_claims. An in-flight callback
+                # either completes its write BEFORE this acquires the lock, or is blocked and then sees
+                # the cleared flag and returns — so NO four_role_progress write can land after this
+                # point. Stops an orphaned post-timeout worker from overwriting the terminal heartbeat
+                # or bleeding stale progress into the next query's state/run_status.json.
+                with _hb_lock:
+                    _seam_hb_live[0] = False
+                # NON-BLOCKING shutdown so a wedged worker cannot delay the held manifest (P1).
+                _seam_pool.shutdown(wait=False, cancel_futures=True)
+                # Budget reconciliation: on the SUCCESS path the worker's `finally` already updated
+                # `_seam_cost_holder`, so this write-back is EXACT. On the TIMEOUT path the worker is
+                # still running (holder == parent cost -> delta 0), so the in-flight verifier spend is
+                # NOT added to the parent cap — an acceptable tradeoff (Codex P2): the run is ABORTING
+                # (release HELD), the operator authorized spend, the orphaned worker's cost is bounded
+                # by its own per-call timeout, and prompt fail-closed termination outranks exact
+                # budget accounting on an already-aborted run.
+                _seam_delta = _seam_cost_holder[0] - _seam_parent_cost
+                if _seam_delta > 0:
+                    _seam_cost_ctx.set(_seam_parent_cost + _seam_delta)
+            if _seam_held_reason is not None:
+                _log(
+                    f"[four_role]   SEAM {_seam_held_reason} after <= {_seam_timeout}s "
+                    "-> release HELD (fail-closed; terminal manifest written)"
+                )
+                four_role_result = FourRoleEvaluationResult(
+                    release_allowed=False,
+                    held_reasons=[_seam_held_reason],
+                    gaps=[],
+                    final_verdicts={},
+                    records=[],
+                    coverage_fraction=0.0,
+                    fabricated_occurrence_latched=False,
+                    needs_rewrite=[],
+                    kg_path=_seam_kg_path,
+                )
+            # I-obs-001 #1141 AC1: verifier phase complete — stamp claims processed.
+            try:
+                _n_claims = len(getattr(four_role_result, "final_verdicts", {}) or {})
+                _hb("four_role_done", claims_verified=_n_claims, claims_total=_n_claims)
+            except Exception:  # noqa: BLE001
+                pass
+            # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+            manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+            # I-perm-001 (#1195) slice 2: under PG_ALWAYS_RELEASE the D8 BLOCK becomes a LABEL —
+            # non-hard holds ship as disclosed gaps and the report RELEASES; only the
+            # no-fabrication hard line (fabricated / zero-grounding) withholds; the clinical
+            # safety floor ships the honest insufficient-safety report (normal render blocked).
+            # release_allowed = outcome.released, so bundle.py refuses ONLY a hard block. Default
+            # OFF: the legacy held/success path below is byte-identical.
+            from src.polaris_graph.roles.release_policy import always_release_enabled
+            _release_outcome = getattr(four_role_result, "release_outcome", None)
+            if always_release_enabled() and _release_outcome is not None:
+                manifest["release_allowed"] = _release_outcome.released
+                summary_status = _release_outcome.status
+                # release_disclosure is the D8 LABEL snapshot. It deliberately does NOT carry a
+                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
+                # binding decision, and a later fail-closed gate (redaction / run-health) can flip
+                # it to False — a duplicated `released` here would go stale and contradict it.
+                manifest["release_disclosure"] = {
+                    "hard_block": _release_outcome.hard_block,
+                    "hard_block_reasons": list(_release_outcome.hard_block_reasons),
+                    "normal_release_blocked": _release_outcome.normal_release_blocked,
+                    "disclosed_gaps": list(_release_outcome.disclosed_gaps),
+                    "release_quality_score": _release_outcome.release_quality_score,
+                    "safety_floor": _release_outcome.safety_floor,
+                }
+            else:
+                manifest["release_allowed"] = four_role_result.release_allowed
+                # Single binding status: released => success; held => release-blocking abort.
+                summary_status = (
+                    "four_role_released"
+                    if four_role_result.release_allowed
+                    else "four_role_held"
+                )
+            # Reassign BOTH the summary label AND the unified local so manifest.json,
+            # sweep_summary.json (summary["status"] at the function tail), and the status log
+            # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+            # assembly point (clinical_generator, Gate-B); they are surfaced here so the D8
+            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+            # VERIFIED->True / else->False (the helper lives in sweep_integration). The sweep's
+            # SectionResult path holds SentenceVerification, NOT VerifiedSentence, so there is no
+            # VerifiedSentence object to write here — populating one would be fake wiring.
+            manifest["four_role_evaluation"] = {
+                "release_allowed": four_role_result.release_allowed,
+                "held_reasons": four_role_result.held_reasons,
+                "coverage_fraction": round(four_role_result.coverage_fraction, 3),
+                "fabricated_occurrence_latched": (
+                    four_role_result.fabricated_occurrence_latched
+                ),
+                "needs_rewrite": four_role_result.needs_rewrite,
+                "final_verdicts": four_role_result.final_verdicts,
+                "gaps": [
+                    {
+                        "ref": gap.ref,
+                        "kind": gap.kind,
+                        "severity": gap.severity,
+                        "note": gap.note,
+                    }
+                    for gap in four_role_result.gaps
+                ],
+                "kg_path": str(four_role_result.kg_path),
+            }
+            # I-meta-002 PR-9/M5: ADDITIVE per-claim evaluator_agrees MAP for audit/inspector
+            # fidelity (NOT a release gate — D8 above stays the single binding gate). Joinable to
+            # four_role_claim_audit.json by claim_id. kept_claim_ids is None here: on the sweep
+            # path the FourRoleClaim set is built from KEPT (is_verified) sentences only, so every
+            # claim_id in final_verdicts is already a kept claim (invariant documented in the
+            # helper). The §-1.1 fail-safe rule (VERIFIED+kept -> True; every other verdict ->
+            # False) lives in build_evaluator_agrees_map -> evaluator_agrees_from_verdict.
+            manifest["four_role_evaluation"]["evaluator_agrees"] = (
+                build_evaluator_agrees_map(four_role_result.final_verdicts)
+            )
+            _log(
+                f"[four_role]   release_allowed={four_role_result.release_allowed} "
+                f"coverage={four_role_result.coverage_fraction:.3f} "
+                f"held_reasons={four_role_result.held_reasons}"
+            )
+
+            # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+            # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+            # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
+            # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
+            # report.md. So a sentence the strongest verifier rejected still ships as asserted
+            # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+            # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+            # redact every material non-VERIFIED claim's verbatim sentence to the existing
+            # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+            # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+            # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+            # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+            # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+            # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+            # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+            if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+                "0", "false", "False",
+            ):
+                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                    ReportRedactionError,
+                    reconcile_report_against_verdicts,
+                )
+                _redact_report_path = run_dir / "report.md"
+                _audit_map_path = run_dir / "four_role_claim_audit.json"
+                # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+                # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+                # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+                # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+                # claim's verbatim sentence.
+                _final_verdicts = four_role_result.final_verdicts or {}
+                _nonverified_verdicts = {
+                    cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+                }
+                if not _nonverified_verdicts:
+                    _log(
+                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                        "reconciliation skipped (no-op)"
+                    )
+                elif not _redact_report_path.is_file():
+                    _log(
+                        "[redact]      report.md absent; nothing to reconcile (no shipped "
+                        "artifact can leak)"
+                    )
+                elif not _audit_map_path.is_file():
+                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+                    # is missing -> fail closed rather than ship an unreconciled report.
+                    summary_status = "report_redaction_failed"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    manifest["report_redaction_error"] = (
+                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                    )
+                    _log(
+                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                        "verdicts -> abort_report_redaction_failed"
+                    )
+                else:
+                    _audit_map = json.loads(
+                        _audit_map_path.read_text(encoding="utf-8")
+                    )
+                    try:
+                        _redaction = reconcile_report_against_verdicts(
+                            _redact_report_path.read_text(encoding="utf-8"),
+                            _final_verdicts,
+                            _audit_map,
+                        )
+                    except ReportRedactionError as _redact_exc:
+                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                        # no audit row. Do NOT ship the report; take a terminal abort. The
+                        # unredacted report.md stays on disk for the curator to inspect.
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
+                        _redact_report_path.write_text(
+                            _reconciled_report, encoding="utf-8"
+                        )
+                        manifest["report_redaction"] = {
+                            "redacted_count": _redaction.redacted_count,
+                            "redacted_claim_ids": [
+                                rc.claim_id for rc in _redaction.redacted
+                            ],
+
+ succeeded in 12964ms:
+"""Run-status response schema.
+
+I-arch-001a (2026-05-12): split lifecycle (operational) from pipeline_status
+(pipeline-A manifest verdict). Old `status` retained as computed alias for
+tests/v6/ backcompat — populated from lifecycle_status.
+
+I-rdy-011 (2026-05-16): `cancel_requested` surfaced so the UI can show a
+cancel as in-flight in <5s, before an in-progress run reaches the next
+pipeline stage boundary and transitions to terminal `cancelled`.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, computed_field
+
+LifecycleStatus = Literal[
+    "queued",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "failed",
+]
+
+PipelineStatus = Literal[
+    "success",
+    # I-perm-001 (#1195): always-release RELEASED-with-disclosure terminals. The v6 actor loads
+    # manifest.status into pipeline_status, so these MUST mirror UNIFIED_STATUS_VALUES or
+    # RunStatusResponse 500s on a released_* run.
+    "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence",
+    "partial_outline_fallback",
+    "partial_qwen_advisory",  # legacy alias (I-modref-004 #530) — historical manifests
+    "partial_evaluator_advisory",
+    "partial_thin_corpus",
+    "partial_incomplete_corpus",
+    "partial_rule_check_warnings",
+    "abort_scope_rejected",
+    "abort_corpus_inadequate",
+    "abort_corpus_approval_denied",
+    "abort_no_verified_sections",
+    "abort_no_sources",
+    "abort_evaluator_critical",
+    # I-ready-016 (#1086): sync the stale PipelineStatus mirror with UNIFIED_STATUS_VALUES — these
+    # are real terminal manifest statuses the actor can load into pipeline_status, so omitting them
+    # would 500 RunStatusResponse Pydantic validation on a real run.
+    "partial_saturation",            # I-meta-005 Phase 4 (#988)
+    "abort_budget_exceeded",         # I-meta-008 (#1015)
+    "abort_verifier_degraded",       # I-ready-002 (#1071)
+    "abort_discovery_degraded",      # FL-05 (#1124): force-enabled discovery feature did not fire (run-health backstop) — must mirror UNIFIED_STATUS_VALUES or the actor 500s RunStatusResponse on an FL-05 abort
+    "abort_safety_refused",          # I-ready-007 (#1072): input harm-refusal before retrieval
+    "abort_four_role_release_held",  # 4-role D8 held release
+    "abort_report_redaction_failed",  # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation fail-closed — the v6 actor loads manifest.status into pipeline_status, so omitting this would 500 RunStatusResponse on a redaction-failure abort
+    "abort_journal_only_contract_conflict",  # I-ready-017 (#1134): journal_only — required contract slot bound to a non-journal entity
+    "cancelled",                     # user-cancel terminal (_abort_if_cancelled writes manifest.status)
+    "error_unexpected",
+    "error_journal_only_leak",       # I-ready-017 (#1134): journal_only fail-closed no-leak backstop
+    "error_corpus_population_mismatch",  # I-ready-017 FX-06b (#1121): corpus-approval gate vs adequacy artifact score different populations (total_sources or tier_counts diverge); defensive fail-loud
+]
+
+# Backcompat alias used by older code/tests (tests/v6/ asserts body['status']
+# and record.status). Computed from lifecycle_status by the model.
+RunStatus = LifecycleStatus
+
+
+class RunStatusResponse(BaseModel):
+    run_id: str = Field(..., description="Server-assigned UUID hex.")
+    lifecycle_status: LifecycleStatus = Field(
+        ...,
+        description="Operational lifecycle: queued → in_progress → completed|failed|cancelled.",
+    )
+    pipeline_status: PipelineStatus | None = Field(
+        default=None,
+        description="Pipeline-A manifest verdict. NULL until run reaches a terminal pipeline state.",
+    )
+    template: str
+    question: str
+    queued_at: str = Field(..., description="ISO8601 UTC.")
+    started_at: str | None = None
+    finished_at: str | None = None
+    result_json: str | None = None
+    error_json: str | None = None
+    # I-arch-001a new optional fields for UUID/slug/artifact_dir mapping.
+    query_slug: str | None = None
+    manifest_run_id: str | None = None
+    artifact_dir: str | None = None
+    cost_usd: float | None = None
+    decision_id: str | None = None
+    # I-rdy-011: True once a cancel has been requested. For a queued run the
+    # request is applied atomically (lifecycle_status flips to 'cancelled');
+    # for an in_progress run this stays True while lifecycle_status is still
+    # 'in_progress', until the worker observes it at a stage boundary.
+    cancel_requested: bool = Field(
+        default=False,
+        description="True iff cancellation has been requested for this run.",
+    )
+
+    @computed_field  # serialized in JSON and readable as attr
+    @property
+    def status(self) -> LifecycleStatus:
+        """Deprecated alias for lifecycle_status (kept for tests/v6/ backcompat).
+
+        New code should use lifecycle_status. This computed field will be
+        removed once tests/v6/ migrate (post-Carney-demo cleanup).
+        """
+        return self.lifecycle_status
+
+codex
+The downstream v6 schema and actor classifier include the `released_` terminals, and the manifest path now re-maps outcome statuses after assignment. I’m going to execute the small regression slice that directly covers the iter-2 P1 and the v6 mirrors.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/test_manifest_contract.py::test_always_release_outcome_statuses_round_trip tests/polaris_v6/test_released_status_iperm001.py' in C:\POLARIS
+2026-06-10T22:30:38.798180Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.1 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_manifest_contract.py::test_always_rel …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 4095ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_manifest_contract.py::test_always_rel …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m retrying through the active Python interpreter. If that also lacks pytest, I’ll fall back to import/probe checks for the exact status mapping.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_manifest_contract.py::test_always_release_outcome_statuses_round_trip tests/polaris_v6/test_released_status_iperm001.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from scripts.run_honest_sweep_r3 import UNIFIED_STATUS_VALUES, to_unified_status
+from src.polaris_graph.roles import release_policy as rp
+statuses = [
+    rp.STATUS_SUCCESS,
+    rp.STATUS_RELEASED_WITH_DISCLOSED_GAPS,
+    rp.STATUS_RELEASED_INSUFFICIENT_SAFETY,
+    rp.STATUS_ABORT_NO_VERIFIED,
+    rp.STATUS_ABORT_FABRICATED,
+]
+for status in statuses:
+    print(status, status in UNIFIED_STATUS_VALUES, to_unified_status(status))
+'@ | python -" in C:\POLARIS
+ succeeded in 15544ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/polaris_graph/test_manifest_contract.py::test_always_release_outcome_statuses_round_trip PASSED [ 25%]
+tests/polaris_v6/test_released_status_iperm001.py::test_released_statuses_validate_in_pipeline_schema PASSED [ 50%]
+tests/polaris_v6/test_released_status_iperm001.py::test_actor_classifies_released_as_completed PASSED [ 75%]
+tests/polaris_v6/test_released_status_iperm001.py::test_released_statuses_mirrored_across_all_taxonomies PASSED [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 4 passed, 1 warning in 3.63s =========================
+
+ succeeded in 17206ms:
+success True success
+released_with_disclosed_gaps True released_with_disclosed_gaps
+released_insufficient_safety_evidence True released_insufficient_safety_evidence
+abort_no_verified_sections True abort_no_verified_sections
+abort_evaluator_critical True abort_evaluator_critical
+
+codex
+The narrow regression is green: 4 passed, and the probe shows all five `compute_release_outcome` statuses are valid unified statuses and map to themselves. I’m doing one last scan for alternate status mirrors or consumers that might still reject `success`/`released_*`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"UNIFIED_STATUS_VALUES|KNOWN_STATUS_VALUES|PipelineStatus|to_unified_status\\(|_SUMMARY_TO_UNIFIED|startswith\\(\\\"partial_\\\"\\)|pipeline_status == \\\"success\\\"|status == \\\"success\\\"\" . --glob \""'!*.md" --glob "!outputs/**" --glob "!.git/**"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg --files | rg '("'^|/)replay(/|$)|replay'"'" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --stat && git diff -- scripts/run_honest_sweep_r3.py src/polaris_graph/audit_ir/regression_lab.py src/polaris_graph/roles/sweep_integration.py src/polaris_v6/queue/actors.py src/polaris_v6/schemas/run_status.py tests/polaris_graph/test_manifest_contract.py tests/polaris_v6/test_released_status_iperm001.py' in C:\POLARIS
+2026-06-10T22:31:20.743552Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 8.6 seconds
+Output:
+web\tests\e2e\pin_replay_g1_g8.spec.ts
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\lib\pin_replay_demo.ts
+web\lib\pin_replay_client.ts
+web\components\proof_replay\proof_replay.tsx
+web\app\pin_replay\page.tsx
+web\app\pin_replay\components\pin_timeseries.tsx
+web\app\pin_replay\components\diff_side_panel.tsx
+tests\v6\test_replay.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\replay\__init__.py
+tests\polaris_graph\replay\test_iperm001_release.py
+tests\polaris_graph\replay\test_drb76_baseline.py
+tests\polaris_graph\replay\saved_run_loader.py
+tests\polaris_graph\replay\d8_replay_harness.py
+tests\polaris_graph\replay\cited_span_audit.py
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+src\polaris_v6\replay\__init__.py
+src\polaris_v6\replay\schema.py
+src\polaris_v6\replay\differ.py
+tests\e2e\frontend_replay_smoke.py
+src\polaris_graph\audit_ir\pin_replay.py
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: ./codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_008budget_tax: Access is denied. (os error 5)
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: ./pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: ./codex_008budget_final2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: ./codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: ./codex_008budget_final: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: ./codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: ./POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: ./codex_iready005_pytest: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: ./codex_fullpower_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+ exited 1 in 8649ms:
+web\tests\e2e\pin_replay_g1_g8.spec.ts
+web\tests\e2e\pin_replay_diff.spec.ts
+web\tests\e2e\pin_replay.spec.ts
+web\lib\pin_replay_demo.ts
+web\lib\pin_replay_client.ts
+web\components\proof_replay\proof_replay.tsx
+web\app\pin_replay\page.tsx
+web\app\pin_replay\components\pin_timeseries.tsx
+web\app\pin_replay\components\diff_side_panel.tsx
+tests\v6\test_replay.py
+tests\polaris_graph\test_md11_phase2_pin_replay.py
+tests\polaris_graph\replay\__init__.py
+tests\polaris_graph\replay\test_iperm001_release.py
+tests\polaris_graph\replay\test_drb76_baseline.py
+tests\polaris_graph\replay\saved_run_loader.py
+tests\polaris_graph\replay\d8_replay_harness.py
+tests\polaris_graph\replay\cited_span_audit.py
+scripts\v6\run_pin_replay.py
+scripts\v6\replay_pin.py
+src\polaris_v6\replay\__init__.py
+src\polaris_v6\replay\schema.py
+src\polaris_v6\replay\differ.py
+tests\e2e\frontend_replay_smoke.py
+src\polaris_graph\audit_ir\pin_replay.py
+rg: ./zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: ./codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: ./probe-mfxdkp1r: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: ./codex_008budget_tax: Access is denied. (os error 5)
+rg: ./m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: ./codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: ./codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: ./codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: ./pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: ./codex_008budget_final2: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: ./m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: ./POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: ./codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: ./codex_008budget_final: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+rg: ./codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: ./live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: ./codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: ./POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: ./codex_iready005_pytest: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: ./codex_fullpower_tmp: Access is denied. (os error 5)
+rg: ./codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: ./codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: ./codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: ./codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: ./codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: ./codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: ./codex_pr5_pytest: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: ./codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: ./codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: ./codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: ./codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: ./codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: ./codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: ./codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: ./codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: ./outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./mode700_probe: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: ./outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+
+2026-06-10T22:31:27.167919Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 15.1 seconds
+Output:
+rg: regex parse error:
+    (?:UNIFIED_STATUS_VALUES|KNOWN_STATUS_VALUES|PipelineStatus|to_unified_status\(|_SUMMARY_TO_UNIFIED|startswith\(\)
+    ^
+error: unclosed group
+
+ exited 1 in 15073ms:
+rg: regex parse error:
+    (?:UNIFIED_STATUS_VALUES|KNOWN_STATUS_VALUES|PipelineStatus|to_unified_status\(|_SUMMARY_TO_UNIFIED|startswith\(\)
+    ^
+error: unclosed group
+
+ succeeded in 21757ms:
+ .claude/hooks/ultimate_goal_stop_reminder.py | 5 +++++
+ .gitignore                                   | 3 +++
+ tests/polaris_graph/roles/__init__.py        | 0
+ 3 files changed, 8 insertions(+)
+
+codex
+One note from inspection: the new round-trip test covers the statuses consumed from `release_outcome.status` when `PG_ALWAYS_RELEASE` is active. `compute_release_outcome` also has the legacy-off `abort_four_role_release_held` branch, but this runner does not feed that branch into `to_unified_status`; it still uses `four_role_held` there. I’m checking for other direct consumers before concluding.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -e "compute_release_outcome" -e "release_outcome.status" -e "abort_four_role_release_held" src scripts tests --glob "!**/__pycache__/**"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -e \"released_with_disclosed_gaps\" -e \"released_insufficient_safety_evidence\" -e \"startsWith\\('released_'\\)\" -e \"startswith\\('released_'\\)\" -e \"startswith\\(\\\"released_\\\"\\)\" src scripts tests --glob \""'!**/__pycache__/**"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_manifest_contract.py tests/polaris_v6/test_released_status_iperm001.py tests/polaris_graph/replay' in C:\POLARIS
+ succeeded in 6025ms:
+tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:137:    """FL-05 only overrides a would-be SUCCESS. The 2026-06-05 smoke ended abort_four_role_release_held
+tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:141:        unified_status="abort_four_role_release_held",
+tests\dr_benchmark\test_gate_b_seam.py:320:    assert to_unified_status(summary_status) == "abort_four_role_release_held"
+tests\fixtures\drb90_redaction\manifest.json:2056:  "status": "abort_four_role_release_held",
+tests\fixtures\drb72\run_log.txt:43:[status]      four_role_held (manifest.status=abort_four_role_release_held)
+src\polaris_v6\schemas\run_status.py:53:    "abort_four_role_release_held",  # 4-role D8 held release
+tests\fixtures\drb72\manifest.json:942:  "status": "abort_four_role_release_held",
+tests\fixtures\redaction_fixture_redact001.json:9:  "note_72_75": "drb_72 and drb_75 aborted with abort_four_role_release_held (release latch), NOT redaction. Their non-VERIFIED claims redacted fine. Only drb_76/78/90 hit abort_report_redaction_failed. The issue's drb_72/78 + drb_75/90 grouping is misleading.",
+scripts\run_honest_sweep_r3.py:230:    "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release (fabrication/coverage/S0/rewrite) — written via _SUMMARY_TO_UNIFIED["four_role_held"] at L4934/5065; was a real taxonomy gap
+scripts\run_honest_sweep_r3.py:264:    "four_role_held": "abort_four_role_release_held",
+scripts\run_honest_sweep_r3.py:7146:                summary_status = _release_outcome.status
+tests\roles\test_report_redactor_iready017.py:313:# abort_discovery_degraded / abort_safety_refused / abort_four_role_release_held.
+tests\polaris_graph\replay\d8_replay_harness.py:49:    compute_release_outcome,
+tests\polaris_graph\replay\d8_replay_harness.py:131:    return compute_release_outcome(
+tests\polaris_graph\replay\test_iperm001_release.py:12:    compute_release_outcome,
+tests\polaris_graph\replay\test_iperm001_release.py:38:    assert out.status == "abort_four_role_release_held"
+tests\polaris_graph\replay\test_iperm001_release.py:63:    out = compute_release_outcome(
+tests\polaris_graph\replay\test_iperm001_release.py:78:    out = compute_release_outcome(
+tests\polaris_graph\replay\test_iperm001_release.py:93:    out = compute_release_outcome(
+tests\polaris_graph\replay\test_iperm001_release.py:115:    out = compute_release_outcome(
+tests\polaris_graph\replay\test_iperm001_release.py:130:    out = compute_release_outcome(
+tests\polaris_graph\test_manifest_contract.py:58:        "abort_four_role_release_held",  # I-ready-016 (#1086): 4-role D8 held release
+tests\polaris_graph\test_manifest_contract.py:294:def test_always_release_outcome_statuses_round_trip() -> None:
+tests\polaris_graph\test_manifest_contract.py:295:    """Every status `compute_release_outcome` can emit must be a valid unified status AND map to
+src\polaris_graph\roles\sweep_integration.py:60:    compute_release_outcome,
+src\polaris_graph\roles\sweep_integration.py:669:    # required-S0 set + the per-claim verdicts are natively available. `compute_release_outcome`
+src\polaris_graph\roles\sweep_integration.py:685:    release_outcome = compute_release_outcome(
+src\polaris_graph\roles\release_policy.py:332:# DEFAULT OFF: PG_ALWAYS_RELEASE unset/0/false/no/off -> compute_release_outcome reproduces the
+src\polaris_graph\roles\release_policy.py:355:STATUS_ABORT_FOUR_ROLE_HELD = "abort_four_role_release_held"
+src\polaris_graph\roles\release_policy.py:401:def compute_release_outcome(
+src\polaris_graph\audit_ir\regression_lab.py:628:    "abort_four_role_release_held": 2,
+
+2026-06-10T22:32:03.458818Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 12.3 seconds
+Output:
+rg: regex parse error:
+    (?:released_with_disclosed_gaps)|(?:released_insufficient_safety_evidence)|(?:startsWith\('released_'\))|(?:startswith\('released_'\))|(?:startswith\(\)
+                                                                                                                                           ^
+error: unclosed group
+
+ exited 1 in 12335ms:
+rg: regex parse error:
+    (?:released_with_disclosed_gaps)|(?:released_insufficient_safety_evidence)|(?:startsWith\('released_'\))|(?:startswith\('released_'\))|(?:startswith\(\)
+                                                                                                                                           ^
+error: unclosed group
+
+ succeeded in 24316ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 45 items
+
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_unified_taxonomy_defined PASSED [  2%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_partial_status_mapping PASSED [  4%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_unknown_label_maps_to_error PASSED [  6%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_all_manifest_writes_have_status PASSED [  8%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_abort_statuses_are_authoritative PASSED [ 11%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_zero_sources_writes_abort_manifest PASSED [ 13%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_exception_writes_error_manifest PASSED [ 15%]
+tests/polaris_graph/test_manifest_contract.py::test_always_release_outcome_statuses_round_trip PASSED [ 17%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_status_prefixes PASSED [ 20%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_contract_success_path_includes_unified_status PASSED [ 22%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_envelope_helper_produces_full_shape PASSED [ 24%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_envelope_includes_retrieval_when_provided PASSED [ 26%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_envelope_retrieval_omitted_when_none PASSED [ 28%]
+tests/polaris_graph/test_manifest_contract.py::test_manifest_every_abort_site_uses_envelope_helper PASSED [ 31%]
+tests/polaris_v6/test_released_status_iperm001.py::test_released_statuses_validate_in_pipeline_schema PASSED [ 33%]
+tests/polaris_v6/test_released_status_iperm001.py::test_actor_classifies_released_as_completed PASSED [ 35%]
+tests/polaris_v6/test_released_status_iperm001.py::test_released_statuses_mirrored_across_all_taxonomies PASSED [ 37%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_reproduces_held_reasons PASSED [ 40%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_coverage_fraction PASSED [ 42%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_lock_needs_rewrite_count PASSED [ 44%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_baseline_not_release_allowed PASSED [ 46%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_zero_fabrication_invariant PASSED [ 48%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[5 mg dose-given 50 mg daily-True-substring 5-in-50 (lethal)] PASSED [ 51%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[change of -5%-change of 5%-True-measurement sign flip] PASSED [ 53%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p<0.001-p=0.001-True-comparator < vs =] PASSED [ 55%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p>0.05-p<0.05-True-comparator > vs <] PASSED [ 57%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p < 0.001-p=0.001-True-SPACED comparator < vs =] PASSED [ 60%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[RR > 1.2-RR=1.2-True-SPACED comparator > vs =] PASSED [ 62%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p <= 0.05-p=0.05-True-SPACED <= vs =] PASSED [ 64%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[p < 0.001-p < 0.001-False-SPACED comparator same value OK] PASSED [ 66%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[P value of 0.32-(P=0.32 for non-linearity)-False-bare vs '=' same value] PASSED [ 68%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[HR 0.65 (95% CI 0.47-0.89)-0.65, 95% CI 0.47 to 0.89-False-range endpoints] PASSED [ 71%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[26.2 \xb1 2.3%-26.2\xb12.3%-False-spacing/unicode] PASSED [ 73%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_numeric_matcher_no_false_negative[13,000 patients-13000 patients-False-thousands separator] PASSED [ 75%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_zero_fabrication_fails_loud_on_missing_pack PASSED [ 77%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_iperm002_evidence_id_credit_does_not_clear_safety_hold PASSED [ 80%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_safety_floor_input_has_verified_safety_claim PASSED [ 82%]
+tests/polaris_graph/replay/test_drb76_baseline.py::test_iperm002_production_flip XFAIL [ 84%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_off_is_legacy_byte_identical PASSED [ 86%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_on_releases_drb76_as_insufficient_safety PASSED [ 88%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_fabricated_is_always_hard_block PASSED [ 91%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_zero_grounding_is_hard_block PASSED [ 93%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_non_hard_holds_become_disclosed_gaps_and_release PASSED [ 95%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_clean_decision_is_success PASSED [ 97%]
+tests/polaris_graph/replay/test_iperm001_release.py::test_zero_verified_but_evidence_present_is_not_hard_block PASSED [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 44 passed, 1 xfailed, 1 warning in 5.92s ===================
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+34,186

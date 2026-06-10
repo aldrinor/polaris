@@ -55,7 +55,9 @@ from src.polaris_graph.roles.release_policy import (
     D8ClaimRow,
     Gap,
     ReleaseDecision,
+    ReleaseOutcome,
     apply_d8_release_policy,
+    compute_release_outcome,
     load_d8_policy_config,
 )
 from src.polaris_graph.roles.role_pipeline import (
@@ -150,6 +152,10 @@ class FourRoleEvaluationResult:
     fabricated_occurrence_latched: bool
     needs_rewrite: list[str]
     kg_path: Path
+    # I-perm-001 (#1195) slice 2: the always-release-aware outcome (BLOCK->LABEL). Default None
+    # for legacy/timeout construction sites; the headline D8 decision (release_allowed above) is
+    # unchanged, so consumers that ignore this field are byte-identical.
+    release_outcome: ReleaseOutcome | None = None
 
 
 def evaluator_agrees_from_verdict(final_verdict: str) -> bool:
@@ -659,6 +665,31 @@ def run_four_role_evaluation(
         rewrite_already_attempted=rewrite_already_attempted,
     )
 
+    # I-perm-001 (#1195) slice 2: compute the always-release-aware outcome HERE, where the
+    # required-S0 set + the per-claim verdicts are natively available. `compute_release_outcome`
+    # reads PG_ALWAYS_RELEASE (default OFF -> released == decision.release_allowed, byte-identical).
+    _final = final_verdicts or {}
+    _zero_verified = not any(v == "VERIFIED" for v in _final.values())
+    # zero_usable_evidence = the NATIVE evidence signal (Codex slice-2 P1): no claim cites ANY
+    # evidence document. `not final_verdicts` (no claims) was too weak — a claims-present-but-
+    # all-unsupported run with no cited evidence must still zero-grounding hard-block. Mirrors the
+    # replay harness's audit_map evidence_ids signal.
+    _zero_usable_evidence = not any((c.evidence_documents or []) for c in claims)
+    _missing_s0 = {
+        reason[len("d8_s0_must_cover_missing:"):]
+        for reason in decision.held_reasons
+        if reason.startswith("d8_s0_must_cover_missing:")
+    }
+    _required_s0 = set(required_s0_categories)
+    _safety_floor_insufficient = bool(_required_s0) and _required_s0 <= _missing_s0
+    release_outcome = compute_release_outcome(
+        decision,
+        zero_verified=_zero_verified,
+        zero_usable_evidence=_zero_usable_evidence,
+        safety_floor_insufficient=_safety_floor_insufficient,
+        coverage_fraction=internal_ledger.fraction(),
+    )
+
     return FourRoleEvaluationResult(
         release_allowed=decision.release_allowed,
         held_reasons=decision.held_reasons,
@@ -669,6 +700,7 @@ def run_four_role_evaluation(
         fabricated_occurrence_latched=decision.fabricated_occurrence_latched,
         needs_rewrite=decision.needs_rewrite,
         kg_path=kg_path,
+        release_outcome=release_outcome,
     )
 
 

@@ -589,6 +589,12 @@ def _diff_manifest(
 _STATUS_TIERS: dict[str, int] = {
     # success
     "success": 0,
+    # I-perm-001 (#1195) always-release: RELEASED-with-disclosure terminals (a report SHIPPED).
+    # `released_with_disclosed_gaps` is a release (tier 0); `released_insufficient_safety_evidence`
+    # ships the honest report but with degraded clinical safety signal (tier 1). MUST stay mirrored
+    # with runner.UNIFIED_STATUS_VALUES (test_md9_regression_lab + test_saturation_phase4).
+    "released_with_disclosed_gaps": 0,
+    "released_insufficient_safety_evidence": 1,
     # partial — report produced but degraded signal
     "partial_thin_corpus": 1,
     "partial_incomplete_corpus": 1,

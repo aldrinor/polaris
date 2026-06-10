@@ -197,6 +197,13 @@ from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
 UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     # success
     "success",
+    # released-with-disclosure (I-perm-001 #1195 always-release): the report SHIPPED with honest
+    # disclosed gaps (BLOCK->LABEL) — a RELEASED terminal, not an abort. `released_insufficient_
+    # safety_evidence` is the honest clinical-safety-floor variant (normal render blocked, honest
+    # report still ships). The "released_" prefix is a documented exception to the 4-prefix scheme
+    # (alongside "cancelled") in tests/.../test_manifest_contract_status_prefixes.
+    "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence",
     # partial — report produced but degraded signal
     "partial_thin_corpus",
     "partial_incomplete_corpus",
@@ -230,6 +237,11 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
 # Map legacy summary["status"] labels → unified manifest.status values.
 _SUMMARY_TO_UNIFIED: dict[str, str] = {
     "ok": "success",
+    # I-perm-001 (#1195) slice 2: the always-release outcome's clean status IS already unified
+    # ("success") — without this identity map, to_unified_status("success") falls to the
+    # error_unexpected default and a clean PG_ALWAYS_RELEASE run is mis-classified (Codex slice-2
+    # iter-2 P1). The released_* identity maps below cover the disclosed-gap outcomes.
+    "success": "success",
     "ok_thin_corpus": "partial_thin_corpus",
     "ok_incomplete_corpus": "partial_incomplete_corpus",
     "ok_outline_fallback": "partial_outline_fallback",
@@ -250,6 +262,10 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # shortfall / S0 must-cover missing / pending rewrite). Only set on the guarded 4-role path.
     "four_role_released": "success",
     "four_role_held": "abort_four_role_release_held",
+    # I-perm-001 (#1195) always-release: the outcome already carries a unified status; map it to
+    # itself so to_unified_status passes it through (NOT error_unexpected).
+    "released_with_disclosed_gaps": "released_with_disclosed_gaps",
+    "released_insufficient_safety_evidence": "released_insufficient_safety_evidence",
     # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation failed fail-closed
     # (a material non-VERIFIED claim present in the body could not be redacted) — terminal abort.
     "report_redaction_failed": "abort_report_redaction_failed",
@@ -7117,13 +7133,37 @@ async def run_one_query(
                 pass
             # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
             manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
-            manifest["release_allowed"] = four_role_result.release_allowed
-            # Single binding status: released => success; held => release-blocking abort.
-            summary_status = (
-                "four_role_released"
-                if four_role_result.release_allowed
-                else "four_role_held"
-            )
+            # I-perm-001 (#1195) slice 2: under PG_ALWAYS_RELEASE the D8 BLOCK becomes a LABEL —
+            # non-hard holds ship as disclosed gaps and the report RELEASES; only the
+            # no-fabrication hard line (fabricated / zero-grounding) withholds; the clinical
+            # safety floor ships the honest insufficient-safety report (normal render blocked).
+            # release_allowed = outcome.released, so bundle.py refuses ONLY a hard block. Default
+            # OFF: the legacy held/success path below is byte-identical.
+            from src.polaris_graph.roles.release_policy import always_release_enabled
+            _release_outcome = getattr(four_role_result, "release_outcome", None)
+            if always_release_enabled() and _release_outcome is not None:
+                manifest["release_allowed"] = _release_outcome.released
+                summary_status = _release_outcome.status
+                # release_disclosure is the D8 LABEL snapshot. It deliberately does NOT carry a
+                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
+                # binding decision, and a later fail-closed gate (redaction / run-health) can flip
+                # it to False — a duplicated `released` here would go stale and contradict it.
+                manifest["release_disclosure"] = {
+                    "hard_block": _release_outcome.hard_block,
+                    "hard_block_reasons": list(_release_outcome.hard_block_reasons),
+                    "normal_release_blocked": _release_outcome.normal_release_blocked,
+                    "disclosed_gaps": list(_release_outcome.disclosed_gaps),
+                    "release_quality_score": _release_outcome.release_quality_score,
+                    "safety_floor": _release_outcome.safety_floor,
+                }
+            else:
+                manifest["release_allowed"] = four_role_result.release_allowed
+                # Single binding status: released => success; held => release-blocking abort.
+                summary_status = (
+                    "four_role_released"
+                    if four_role_result.release_allowed
+                    else "four_role_held"
+                )
             # Reassign BOTH the summary label AND the unified local so manifest.json,
             # sweep_summary.json (summary["status"] at the function tail), and the status log
             # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
