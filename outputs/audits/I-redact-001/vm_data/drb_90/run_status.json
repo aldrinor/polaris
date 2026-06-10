@@ -1,0 +1,16 @@
+{
+  "budget_cap_usd": 25.0,
+  "claims_total": null,
+  "claims_verified": null,
+  "elapsed_s": 4163.2,
+  "last_update_utc": "2026-06-10T00:48:33.957115Z",
+  "query_index": 1,
+  "query_total": 1,
+  "run_id": "SWEEP_policy_drb_90_adas_liability_1781048350",
+  "running_cost_usd": 6.009892459999997,
+  "sections_done": null,
+  "sections_total": null,
+  "slug": "drb_90_adas_liability",
+  "sources_kept": 811,
+  "stage": "report_redaction_failed"
+}

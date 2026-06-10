@@ -1,0 +1,11 @@
+```yaml
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/roles/report_redactor.py:230: termination is not structurally guaranteed if a rejected stem normalizes to `_GAP_REPLACEMENT`: `_redact_sentence` can return removed=True with unchanged text, leaving `_prose_present` true forever. Low-likelihood input, but add a no-op progress guard or skip exact gap lines."
+  - "tests/roles/test_report_redactor_redact001.py and tests/polaris_graph/roles/__init__.py are still untracked (`??`), so the new regression tests will not ship/run in CI unless added."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
+```

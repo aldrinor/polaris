@@ -1,0 +1,770 @@
+{
+  "00-000-a4e18a8e": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 5:\nFull Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-001-8fbadbcc": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "The SAE J3016_202104 standard defines six levels of driving automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-002-aaf65e75": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 0 is No Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-003-95e32bc4": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "In contrast, Level 1 is Driver Assistance [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-004-cbad8991": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Level 0 and Level 1 are No Driving Automation and Driver Assistance, respectively [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-005-e9a6e46f": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Finally, Level 5 is Full Driving Automation [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "00-006-73dfcc36": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "These are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation, respectively [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "00-007-a0064c73": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "Although Level 0 is No Driving Automation, Level 1 is Driver Assistance [#ev:sae_j3016_automation_levels:200-1000].",
+    "severity": "S1"
+  },
+  "00-008-fb107a7d": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "In contrast, Level 2 is Partial Driving Automation, whereas Level 3 is Conditional Driving Automation [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "00-009-9eb8198c": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 0,
+    "section_title": "Technical_Standard",
+    "sentence": "The taxonomy's six levels are No Driving Automation, Driver Assistance, Partial Driving Automation, Conditional Driving Automation, High Driving Automation, and Full Driving Automation [#ev:sae_j3016_automation_levels:300-1100].",
+    "severity": "S1"
+  },
+  "01-000-2bfe564b": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Instrument: UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-001-0e971b39": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Scope: Entities named in the General Order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-002-832fd3a8": {
+    "covered_element_ids": [
+      "product_liability_doctrine"
+    ],
+    "evidence_ids": [
+      "product_liability_doctrine"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Defect categories: manufacturing defects; design defects; and inadequate instructions or warnings defects [#ev:product_liability_doctrine:6900-7700].",
+    "severity": "S1"
+  },
+  "01-003-85f4a879": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) is the instrument identified in the primary source [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-004-9e709104": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The subject matter is Automated Lane Keeping Systems [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-005-1ada93fc": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "In contrast, the regulation\u2019s title clearly indicates its focus on automated lane keeping [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-006-7b56000a": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The regulation\u2019s full designation is UN Regulation No. 157 - Automated Lane Keeping Systems (ALKS) [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-007-18f62f6f": {
+    "covered_element_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "evidence_ids": [
+      "unece_alks_regulation_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The regulation, UN Regulation No. 157, addresses Automated Lane Keeping Systems [#ev:unece_alks_regulation_framework:2100-2900].",
+    "severity": "S1"
+  },
+  "01-008-d77b8d5b": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The scope of this order is precisely defined, applying exclusively to entities named in the General Order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-009-4364b3ea": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "However, the reporting obligation is not triggered for every crash involving those entities; it is conditional upon specific temporal and outcome-based criteria [#ev:nhtsa_ads_policy_framework:11900-12700].",
+    "severity": "S2"
+  },
+  "01-010-abb06d20": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Alternatively, the obligation arises if the crash involved a vulnerable road user being struck [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-011-6365838f": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "In contrast, a crash that does not meet these consequence thresholds, even if ADS was active within the 30-second window, would not require reporting under the order [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-012-fdcf2765": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "The reporting criteria also encompass an air bag deployment [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-013-8509421c": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "Finally, any individual being transported to a hospital for medical treatment as a result of the crash mandates a report [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "01-014-24c9ef06": {
+    "covered_element_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "evidence_ids": [
+      "nhtsa_ads_policy_framework"
+    ],
+    "s0_categories": [],
+    "section_index": 1,
+    "section_title": "Legal_Framework",
+    "sentence": "By comparison, crashes where ADS was not in use within 30 seconds, or where the damage is below the specified property damage threshold, fall outside the mandatory reporting scope [#ev:nhtsa_ads_policy_framework:0-800].",
+    "severity": "S2"
+  },
+  "02-000-3542bc50": {
+    "covered_element_ids": [
+      "adas_crash_case_law"
+    ],
+    "evidence_ids": [
+      "adas_crash_case_law"
+    ],
+    "s0_categories": [],
+    "section_index": 2,
+    "section_title": "Case_Law",
+    "sentence": "Tesla, Inc [#ev:adas_crash_case_law:400-1200].",
+    "severity": "S1"
+  },
+  "04-000-32bc098d": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The Society of Automotive Engineers (SAE) International standard J3016_202104 defines six levels of driving automation, ranging from Level 0 (no driving automation) to Level 5 (full driving automation), and establishes a taxonomy for on-road motor vehicle driving automation systems [#ev:sae_j3016_automation_levels:0-800].",
+    "severity": "S1"
+  },
+  "04-001-84d7ab44": {
+    "covered_element_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "evidence_ids": [
+      "sae_j3016_automation_levels"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Active safety systems such as electronic stability control (ESC) and automatic emergency braking (AEB) are excluded from this taxonomy because they provide only momentary intervention rather than sustained performance of the dynamic driving task (DDT) [#ev:sae_j3016_automation_levels:2800-3600].",
+    "severity": "S1"
+  },
+  "04-002-0b782060": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_534"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Common ADAS functions include adaptive cruise control (ACC), blind spot detection (BSD), lane departure warning/lane keeping systems (LDW/LKS), intelligent headlamp control (IHC), and emergency brake assist (EBA) [#ev:ev_534:0-800].",
+    "severity": "S3"
+  },
+  "04-003-3f61f7e7": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_427"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Large-scale crash statistics indicate that among 7.7 million vehicles manufactured between 2015 and 2023, ADAS-equipped cars experienced on average a 27% reduction in forward-collision crashes and an 11% reduction in lane-departure crashes [#ev:ev_427:1700-2500].",
+    "severity": "S3"
+  },
+  "04-004-d3e7510b": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Blind Spot Monitoring (BSM) systems are estimated to reduce lane-change crashes by 14% and lane-change crashes with injuries by 23% [#ev:ev_434:4600-5400].",
+    "severity": "S3"
+  },
+  "04-005-5e0eea4c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_456"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "For example, lane departure warning (LDW) systems were found to be turned off in 67.2% of observed vehicles due to lack of trust and excessive false alarms [#ev:ev_456:3800-4600].",
+    "severity": "S3"
+  },
+  "04-006-f68233bb": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_030"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Camera-based DMS have been shown to detect driver distraction approximately 50 seconds sooner than steering-wheel-based DMS, and users of steering-wheel DMS were able to engage in 5.65 minutes of continuous distracted driving before an alert, compared to 2.25 minutes for camera-based DMS [#ev:ev_030:9500-10300].",
+    "severity": "S3"
+  },
+  "04-007-982912fd": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_174"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "The increasing complexity of ADAS and automated driving systems has prompted the development of specialized accident investigation frameworks, such as a comprehensive system proposed in China that integrates traffic accident boundary analysis, control action safety analysis, and causal scene restoration [#ev:ev_174:0-800].",
+    "severity": "S3"
+  },
+  "04-008-b6c0e9c6": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_459"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "To evaluate ADAS safety effectiveness, researchers have identified 94 influence parameters from sources including published literature, standardized tests, accident databases, and autonomous vehicle disengagement reports, with 77 parameters assigned importance levels through cluster analysis [#ev:ev_459:900-1700].",
+    "severity": "S3"
+  },
+  "04-009-fd4f26b9": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_550"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "Driver drowsiness remains a significant safety concern, with the World Health Organization reporting approximately 1.35 million traffic-related deaths annually, and research indicating that steering wheel angle variability increases from 0.5\u20131.5\u00b0 in alert drivers to 2\u20135\u00b0 in fatigued states [#ev:ev_550:1600-2400].",
+    "severity": "S3"
+  },
+  "04-010-e42c4c34": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "If the driver does not fully understand the capabilities and limitations of the system, this might lead to mode confusion and can cause surprises for the driver [#ev:ev_434:4900-5700].",
+    "severity": "S3"
+  },
+  "04-011-16c64931": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 4,
+    "section_title": "Background",
+    "sentence": "In the European Union, several SAE Level 0 ADAS will be mandatory by 2022, while no automated driving technology is yet permitted on the EU market [#ev:ev_434:2500-3300].",
+    "severity": "S3"
+  },
+  "05-000-bd96d290": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "In the European Union, a 2025 European Parliament study advocates for a strict liability regime targeting high-risk AI systems, structured around a single responsible operator to avoid regulatory fragmentation among Member States [#ev:ev_112:100-900].",
+    "severity": "S3"
+  },
+  "05-001-21a77b28": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "This verdict signals a shift toward manufacturer accountability for AI driving systems [#ev:ev_524:100-900].",
+    "severity": "S3"
+  },
+  "05-002-50c094a4": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "NHTSA investigations have identified patterns of failures in Tesla's ADAS, including a probe of 2.4 million vehicles for crashes at intersections and emergency vehicle collisions, and a subsequent probe of 2.88 million vehicles involving 58 traffic violation reports, 14 crashes, and 23 injuries [#ev:ev_524:1200-2000].",
+    "severity": "S3"
+  },
+  "05-003-71e7c5c5": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "One analysis argues that semi-autonomous systems create a collaborative driving endeavor, and that automakers' marketing efforts to gain public trust may render them primarily liable when that trust is misplaced, with a reduction for the driver's comparative fault [#ev:ev_008:400-1200].",
+    "severity": "S3"
+  },
+  "05-004-649074a3": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_496"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "The opacity of AI decision-making and the 'problem of many hands'\u2014diffusion of responsibility among multiple actors\u2014create a liability gap that traditional tort frameworks struggle to address [#ev:ev_496:0-800].",
+    "severity": "S3"
+  },
+  "05-005-b7e764ff": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_496",
+      "ev_506"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "A growing body of policy analysis advocates for strict liability for high-risk AI systems, with proposals ranging from a single responsible operator under EU law to no-fault insurance schemes [#ev:ev_112:400-1200][#ev:ev_496:0-800][#ev:ev_506:0-800].",
+    "severity": "S3"
+  },
+  "05-006-c46264ec": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_645"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "One scholar proposes extending strict products liability to defective software components in autonomous vehicles, treating software creators as strictly liable for injuries caused by dangerously defective code [#ev:ev_645:600-1400].",
+    "severity": "S3"
+  },
+  "05-007-58781f7d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_631"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "A law and economics analysis suggests that negligence-based rules can efficiently accommodate AV-human interactions, but require substantial doctrinal reforms, including reconceptualization of fault standards for both AVs and human drivers [#ev:ev_631:800-1600].",
+    "severity": "S3"
+  },
+  "05-008-730b60bf": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_011",
+      "ev_423",
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 5,
+    "section_title": "Key Findings",
+    "sentence": "Jurisdictional approaches vary: Michigan's product liability statutes govern claims involving defective ADAS [#ev:ev_011:1323-2123], Louisiana applies a comparative fault system to apportion liability between driver and manufacturer [#ev:ev_423:1200-2000], and the UK's Automated and Electric Vehicles Act 2018 explicitly addresses liability for accidents resulting from unauthorized software alterations or failure to update software [#ev:ev_524:2900-3700].",
+    "severity": "S3"
+  },
+  "06-000-f5808eb3": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_512"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The EU\u2019s revised Product Liability Directive explicitly extends to software and AI-driven products, including autonomous vehicles, and introduces presumptions of defect and causation to ease the burden on injured parties [#ev:ev_112:8700-9500][#ev:ev_512:11100-11900].",
+    "severity": "S3"
+  },
+  "06-001-faf38b5e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_174"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "In China, the undefined legal status of autonomous driving systems has prompted the development of a comprehensive accident investigation system that integrates boundary analysis, control action safety assessment, and causal scene restoration to allocate responsibility [#ev:ev_174:0-800].",
+    "severity": "S3"
+  },
+  "06-002-7d0f2d92": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "US legal scholarship argues that automakers\u2019 marketing of ADAS features fosters driver trust, and when that trust is misplaced, products liability law supports primary manufacturer liability with a potential reduction for the driver\u2019s comparative fault, rather than placing full responsibility on the human operator [#ev:ev_008:200-1000].",
+    "severity": "S3"
+  },
+  "06-003-e7446589": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_112",
+      "ev_512"
+    ],
+    "s0_categories": [],
+    "section_index": 6,
+    "section_title": "Evidence and Analysis",
+    "sentence": "The revised PLD is an EU instrument for AI-related harm [#ev:ev_112:8700-9500][#ev:ev_512:7100-7900]",
+    "severity": "S3"
+  },
+  "07-000-fc6403ed": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008",
+      "ev_434"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "A key challenge across jurisdictions is allocating liability when semi-autonomous systems require constant human oversight, as drivers may over-rely on automation, leading to mode confusion and delayed re-engagement [#ev:ev_008:0-800][#ev:ev_434:4900-5700].",
+    "severity": "S3"
+  },
+  "07-001-b3fea61d": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008",
+      "ev_011"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "Under U.S. products liability law, automakers may face primary liability for ADAS failures, though the driver's comparative fault can reduce recovery [#ev:ev_008:200-1000][#ev:ev_011:1323-2123]",
+    "severity": "S3"
+  },
+  "07-002-6bfb4290": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_008"
+    ],
+    "s0_categories": [],
+    "section_index": 7,
+    "section_title": "Comparative Assessment",
+    "sentence": "Legal scholars debate whether the human driver or the manufacturer bears responsibility when supervised autonomy fails in semi-autonomous vehicles [#ev:ev_008:0-800].",
+    "severity": "S3"
+  },
+  "08-000-d1f331d8": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "In the United Kingdom, the Automated and Electric Vehicles Act 2018 addresses liability for accidents caused by automated vehicles, including those resulting from unauthorized software alterations or failure to update software [#ev:ev_524:2900-3700].",
+    "severity": "S3"
+  },
+  "08-001-2357bc75": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_018"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Texas has legislatively limited lessors\u2019 liability for failing to retrofit optional safety systems, provided the vehicle met federal standards at purchase [#ev:ev_018:2700-3500].",
+    "severity": "S3"
+  },
+  "08-002-a2fecb16": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_566"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Empirical evidence from a survey of 260 drivers indicates that collision avoidance performance and system reliability are the strongest predictors of user trust, while road safety impact emerges as an independent societal benefit [#ev:ev_566:1700-2500].",
+    "severity": "S3"
+  },
+  "08-003-1057b9dc": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_438"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "On the cost side, an Italian analysis estimates that an average ADAS investment of \u20ac1,629 per vehicle yields nationwide savings of \u20ac1.89 billion in 2024, with most systems becoming cost-effective within two to three years [#ev:ev_438:1200-2000].",
+    "severity": "S3"
+  },
+  "08-004-14a7ca02": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_018"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "Daimler Trucks North America was granted summary judgment in a lawsuit [#ev:ev_018:1400-2200].",
+    "severity": "S3"
+  },
+  "08-005-00411e0e": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_524"
+    ],
+    "s0_categories": [],
+    "section_index": 8,
+    "section_title": "Implications",
+    "sentence": "However, the technology\u2019s safety promise is tempered by the emergence of algorithmic negligence as a liability [#ev:ev_524:0-800].",
+    "severity": "S3"
+  },
+  "09-000-cb209e13": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_550"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "For driver monitoring systems, reported performance is highly protocol-dependent, and the lack of standardized benchmarks and cross-dataset validation makes cross-study accuracy comparisons misleading [#ev:ev_550:500-1300].",
+    "severity": "S3"
+  },
+  "09-001-00f68cac": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_506"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The shift from driver to vehicle control complicates liability attribution; evidence from aviation and early AV incidents suggests that human operators may become a \u201cmoral crumple zone,\u201d blamed even when system design is a contributing factor [#ev:ev_506:700-1500].",
+    "severity": "S3"
+  },
+  "09-002-d1fb6fb1": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_468"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The lack of integrated, context-rich data from connected vehicles hinders user-centered evaluation of ADAS; data are often siloed within engineering departments and not readily accessible to design teams [#ev:ev_468:3800-4600].",
+    "severity": "S3"
+  },
+  "09-003-7168941c": {
+    "covered_element_ids": [],
+    "evidence_ids": [
+      "ev_051"
+    ],
+    "s0_categories": [],
+    "section_index": 9,
+    "section_title": "Limitations",
+    "sentence": "The complexity of AV software, with estimates of up to 300 million lines of code, far exceeds that of aircraft, yet current algorithms often achieve only 95\u201398% reliability, whereas safety-critical functions may require 99.9999% reliability [#ev:ev_051:9100-9900].",
+    "severity": "S3"
+  }
+}

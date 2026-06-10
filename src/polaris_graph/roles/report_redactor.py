@@ -30,14 +30,34 @@ redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring d
 but the runner never wired.
 
 The mapping is NOT 1:1 with strict_verify-kept (run_honest_sweep_r3.py:5660-5669 in-tree
-caveat: downstream dedup/repair passes mutate the body). Two cases:
-  * The claim's prose IS in the rendered report -> redact it (the leak).
-  * The claim's prose is genuinely ABSENT from the rendered report -> already not
-    shipped; record ``already_absent`` and ship nothing extra (the SAFE state).
-FAIL-CLOSED contract: if a material non-VERIFIED claim's normalized prose IS present in
-the normalized full report but the helper cannot pin a discrete rendered sentence to
-replace, it RAISES ``ReportRedactionError`` so the caller can take the terminal
-``abort_report_redaction_failed`` status rather than ship an unredacted leak.
+caveat: downstream dedup/repair passes mutate the body). THREE TIERS of locating the prose
+(I-redact-001 #1181 — high-recall detection, high-precision action):
+  * TIER 1 (precise, single span): the claim's prose IS one discrete rendered sentence
+    span (coverage >= ``_MIN_REDACTION_COVERAGE``) -> redact exactly that span, leaving
+    every VERIFIED neighbor sentence and its [N] markers byte-for-byte (the leak fix).
+  * TIER 2 (minimal containing unit): the claim's normalized prose is unambiguously
+    PRESENT but it does not cover one span at the coverage floor — because a boundary
+    under-split merged it with a VERIFIED neighbor, OR it straddles >=2 rendered spans.
+    Redact the SMALLEST set of consecutive spans (or, only if no span set bounds it, the
+    body line) whose concatenation contains the stem — over-redact SAFELY rather than
+    abort (issue acceptance 1+2). The cross-line projection makes table/line-join
+    rendering visible so this is never a silent ``already_absent``.
+  * TIER 3 (genuinely absent): the claim's prose is genuinely ABSENT from the rendered
+    report (downstream dedup/repair removed it) -> already not shipped; record
+    ``already_absent`` and ship nothing extra (the SAFE state).
+FAIL-CLOSED contract (I-redact-001 #1181): the helper RAISES ``ReportRedactionError`` ONLY
+when a material non-VERIFIED claim's normalized prose is genuinely ABSENT from the normalized
+report yet a real inconsistency demands a fail-closed abort — i.e. neither TIER-1 nor TIER-2
+can bound the prose AND the prose is not cleanly absent. A merely hard-to-pin-to-one-sentence
+claim is redacted via TIER 2, NOT aborted. The boundary hardening (``_SENTENCE_BOUNDARY_RE``,
+I-redact-001) splits ``...risk[1] Cereal...`` / ``...adherence.[16] 87.3%...`` so the common
+case resolves at TIER 1; TIER 2 is the defense-in-depth for any future under-split shape.
+
+MULTI-OCCURRENCE (I-redact-001 #1181, Codex iter-1 P1-1): the same non-VERIFIED stem can appear
+more than once (e.g. once cleanly + once in an under-split merge). The tiered redaction LOOPS
+per claim until the stem is absent from the line-join-normalized whole body (no occurrence left)
+or no tier makes further progress (fail-closed) — so a second occurrence can never leak. The
+claim is recorded in ``redacted`` exactly ONCE regardless of how many physical spans were removed.
 
 Pure function (string ops only; no network, no I/O). The CALLER reads/writes report.md.
 """
@@ -197,8 +217,52 @@ def reconcile_report_against_verdicts(
                 "cannot reconcile (fail-closed)."
             )
 
-        removed, working = _redact_sentence(working, stem_norm)
-        if removed:
+        # MULTI-OCCURRENCE LOOP (I-redact-001 #1181, Codex iter-1 P1-1): a non-VERIFIED stem can
+        # appear MORE THAN ONCE in the body — e.g. once cleanly (TIER 1 catches it) and once in a
+        # boundary-under-split span (only TIER 2 catches it). The prior single-pass logic marked
+        # the claim handled after the FIRST successful removal and `continue`d, leaving the second
+        # occurrence in result.report_text — a leak. We now loop the tiered redaction until the
+        # stem is ABSENT from the line-join-normalized whole-body projection (no occurrence left)
+        # OR no tier can make further progress (-> fail-closed). The loop terminates because each
+        # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
+        # re-match the stem), so occurrences are consumed monotonically.
+        redacted_any_for_claim = False
+        while _prose_present(working, stem_norm):
+            # TIER 1 — precise single-span redaction (coverage floor protects VERIFIED neighbors).
+            # One pass clears EVERY clean (pin-at-floor) occurrence across all lines at once.
+            removed, working = _redact_sentence(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # TIER 1 made no progress this pass, but the prose IS still present (line-join
+            # projection): it did not pin to one span at the coverage floor (a boundary
+            # under-split merged it with a VERIFIED neighbor, OR it straddles spans). TIER 2 —
+            # redact the minimal CONTAINING unit, over-redacting SAFELY rather than aborting a
+            # present-but-hard-to-pin claim (#1181). TIER 2 removes ONE under-split unit per pass;
+            # the loop re-checks presence and keeps going for any further occurrence.
+            removed, working = _redact_minimal_containing_unit(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # FAIL-CLOSED: the prose registers as present in the line-join projection (e.g. it
+            # spans a heading/bibliography line the redactor must not touch, or its alignment is
+            # unbounded across non-adjacent units) but NEITHER tier could bound it to a redactable
+            # unit without nuking a forbidden line. A real inconsistency — refuse to ship a partial
+            # report (#1174). Raising here (not after the loop) means we never spin: no progress +
+            # still present == abort.
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
+                "but could not be bounded to any redactable unit (span set or body line); "
+                "refusing to ship a partially-reconciled report (fail-closed). "
+                f"prose_stem={stem_norm[:120]!r}"
+            )
+
+        # Record the claim ONCE after the loop (Codex iter-1 P1-1: appending per removal would
+        # double-count a claim that occurred twice and inflate redacted_count). If the loop body
+        # never ran, the prose was genuinely ABSENT from the start — the SAFE state (TIER 3).
+        if redacted_any_for_claim:
             result.redacted.append(
                 RedactedClaim(
                     claim_id=claim_id,
@@ -207,17 +271,8 @@ def reconcile_report_against_verdicts(
                     claim_text=sentence,
                 )
             )
-            continue
-
-        # Not redacted: either genuinely absent (SAFE) or present-but-unlocatable (FAIL).
-        if stem_norm in _normalize(working):
-            raise ReportRedactionError(
-                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
-                "but could not be pinned to a discrete rendered sentence for redaction; "
-                "refusing to ship a partially-reconciled report (fail-closed). "
-                f"prose_stem={stem_norm[:120]!r}"
-            )
-        result.already_absent.append(claim_id)
+        else:
+            result.already_absent.append(claim_id)  # TIER 3 — genuinely absent, ship nothing
 
     result.report_text = working
     return result
@@ -261,9 +316,38 @@ def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
 # "...crashes.[8]" immediately before the UNSUPPORTED 05-001 sentence — the [8] belongs to
 # 05-000 and must survive redaction of 05-001.
 #
-# A decimal like "0.457" or "No. 157" is never a boundary: the lookahead demands whitespace +
-# a sentence-start char (uppercase/quote/open-paren/hash), never a digit.
-_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])")
+# I-redact-001 #1181 — three ALTERNATION ARMS so a real boundary is not under-split (the
+# under-split merged a non-VERIFIED sentence with a VERIFIED neighbor into one over-long span,
+# dropping coverage below the floor and forcing a whole-report abort). Each arm still demands
+# inter-sentence whitespace + a sentence-start, so decimals/abbreviations never become a split:
+#   ARM 1 (terminator, sentence-start char): "...crashes.[8] The..." — the original behavior.
+#   ARM 2 (terminator + >=1 marker, digit-start next): "...adherence.[16] 87.3% of..." — the
+#          next sentence begins with a digit (defeating ARM 1's [A-Z"'(#] lookahead). REQUIRES
+#          at least one [N] marker between the period and the digit, so a bare decimal
+#          "0.90 (0.83 to 0.97) was found." (period, space, digit, NO marker) never matches.
+#   ARM 3 (>=1 marker as terminator, NO preceding period): "...risk[1] Cereal...",
+#          "...recovery[17][22] Legal..." — the renderer emitted the citation marker(s) with no
+#          terminal period before them; the marker(s) ARE the boundary. The marker stays with
+#          the LEFT (cited) sentence (it is m.start()-anchored, then rstrip-included in the span),
+#          so a VERIFIED neighbor keeps its [N] byte-for-byte (the Codex iter-1 P1 invariant).
+#          Codex iter-1 P2: ARM 3 is WORD-ANCHORED — the marker run must immediately follow a
+#          word character ``(?<=\w)`` (NO whitespace between the sentence-final word and its
+#          marker), so it fires only on a plausible sentence end where the renderer dropped the
+#          terminal period ("risk[1]", "recovery[17][22]"). A MID-sentence inline citation —
+#          "...as shown [5] In vivo..." or "the [5] Group reported..." — has WHITESPACE before
+#          the bracket, so ``(?<=\w)`` rejects it and the inline-cited sentence stays intact (no
+#          false split -> no over-redaction of a VERIFIED sentence). This only ever causes an
+#          UNDER-split, which TIER 2 then bounds safely; it can never over-split a survivor.
+# A decimal like "0.457" or "No. 157" or "U.S." is never a boundary: ARM 1/2 require whitespace
+# before the next char and ARM 2 requires an intervening [N] marker; "U.S. products" splits only
+# if "products" were uppercase (it is not), and "No. 157" has no marker so ARM 2 cannot fire.
+_SENTENCE_BOUNDARY_RE = re.compile(
+    r"(?:"
+    r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
+    r"|[.!?](?:\s*\[\d+\])+\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
+    r"|(?<=\w)(?:\[\d+\])+\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
+    r")"
+)
 
 # The claim stem must cover at least this fraction of a rendered sentence to redact it. Guards
 # against a short non-VERIFIED claim whose normalized prose is a substring of a LONGER VERIFIED
@@ -323,3 +407,104 @@ def _redact_line(line: str, stem_norm: str) -> tuple[str, bool]:
         cursor = end
     out.append(line[cursor:])
     return "".join(out), hit
+
+
+def _is_redactable_body_line(line: str) -> bool:
+    """A body line the redactor is allowed to rewrite: NOT a heading (#…), a bibliography /
+    already-gap row ([…), or blank. Mirrors the skip in ``_redact_sentence`` so TIER-2 honors
+    the exact same no-touch set (a claim that exists ONLY inside a heading stays a fail-closed
+    inconsistency, not a TIER-2 redaction — preserving the present-but-unlocatable contract).
+    """
+    stripped = line.lstrip()
+    return bool(stripped) and not stripped.startswith("#") and not stripped.startswith("[")
+
+
+def _prose_present(report_text: str, stem_norm: str) -> bool:
+    """High-RECALL presence detector over a LINE-JOIN-NORMALIZED projection of the whole body
+    (research practice: cross-line / table rendering is a blind spot — never silently treat a
+    line-straddling claim as already-absent). Returns True iff the claim stem is normalized-
+    present either within one body line OR across the join of consecutive redactable body lines.
+
+    Recall here only guards against a FALSE ``already_absent`` (a leak); the high-PRECISION
+    decision of WHICH unit to remove stays in ``_redact_minimal_containing_unit`` (exact
+    normalized containment + the coverage floor), so this projection never itself redacts.
+    """
+    if stem_norm in _normalize(report_text):
+        return True
+    # Cross-line projection: join only the redactable body lines (skip headings / bib / blanks),
+    # normalized, and look for the stem straddling a soft line break.
+    body = " ".join(
+        line for line in report_text.split("\n") if _is_redactable_body_line(line)
+    )
+    return stem_norm in _normalize(body)
+
+
+def _redact_minimal_containing_unit(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """TIER-2 fallback (#1181): the stem is present but did NOT pin to one span at the coverage
+    floor. Remove the SMALLEST containing unit, over-redacting SAFELY rather than aborting:
+
+      1. Within a single redactable body line, find the smallest set of CONSECUTIVE spans whose
+         concatenation (normalized) contains the stem, and replace exactly that span set with one
+         gap sentence — preserving every OTHER span (and its [N] markers) and all inter-span
+         whitespace byte-for-byte. This handles both the boundary-under-split residue and a TRUE
+         multi-span straddle (issue acceptance 1+2) with the same walk.
+      2. If no within-line consecutive-span set bounds the stem (it straddles a soft line break),
+         replace the smallest run of consecutive redactable body lines whose join contains the
+         stem with one gap line — the coarsest safe unit.
+
+    Returns (redacted_any, new_text). Returns (False, unchanged) iff the stem cannot be bounded
+    by any redactable unit (the caller then fails closed). NEVER touches a heading/bib line.
+    """
+    lines = report_text.split("\n")
+
+    # ---- 1) within-line minimal consecutive-span set -------------------------------------
+    for idx, line in enumerate(lines):
+        if not _is_redactable_body_line(line):
+            continue
+        if stem_norm not in _normalize(line):
+            continue
+        spans = _sentence_spans(line)
+        span_set = _minimal_consecutive_span_set(line, spans, stem_norm)
+        if span_set is not None:
+            lo, hi = span_set  # inclusive span indices
+            start = spans[lo][0]
+            end = spans[hi][1]
+            new_line = line[:start] + _GAP_REPLACEMENT + line[end:]
+            lines[idx] = new_line
+            return True, "\n".join(lines)
+
+    # ---- 2) cross-line: smallest consecutive redactable-body-line run --------------------
+    redactable_idx = [i for i, ln in enumerate(lines) if _is_redactable_body_line(lines[i])]
+    for span_len in range(1, len(redactable_idx) + 1):
+        for offset in range(0, len(redactable_idx) - span_len + 1):
+            window = redactable_idx[offset : offset + span_len]
+            # The window must be CONTIGUOUS in the body-line sequence to be one rendered unit.
+            if window[-1] - window[0] != span_len - 1:
+                continue
+            joined = " ".join(lines[i] for i in window)
+            if stem_norm in _normalize(joined):
+                first = window[0]
+                # Replace the first line of the run with the gap; blank the remaining lines so the
+                # leak prose is fully removed while preserving the line count (no structural churn).
+                lines[first] = _GAP_REPLACEMENT
+                for i in window[1:]:
+                    lines[i] = ""
+                return True, "\n".join(lines)
+
+    return False, report_text
+
+
+def _minimal_consecutive_span_set(
+    line: str, spans: list[tuple[int, int]], stem_norm: str
+) -> tuple[int, int] | None:
+    """Smallest (lo, hi) inclusive index window over ``spans`` whose concatenated source text is
+    normalized-containing ``stem_norm``. Grows the window by length so the FIRST hit is minimal;
+    prefers the smallest unit (precision: do not nuke a section when a span-pair suffices)."""
+    n = len(spans)
+    for window in range(1, n + 1):
+        for lo in range(0, n - window + 1):
+            hi = lo + window - 1
+            seg = line[spans[lo][0] : spans[hi][1]]
+            if stem_norm in _normalize(seg):
+                return (lo, hi)
+    return None
