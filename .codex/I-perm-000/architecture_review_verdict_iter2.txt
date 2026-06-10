@@ -1,0 +1,61 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "P2 accepted_remaining: Revision 1 defines `hard_block` and `safety_floor`, but still does not explicitly name a `hard_block_reasons` field on `ReleaseDisclosure`; implement during I-perm-001 so fabricated vs zero-grounding telemetry stays unambiguous."
+  - "P2 accepted_remaining: clarify implementation wording for zero-grounding access: R1 says the honest-report variant ships unless `hard_block` while R10 says zero-grounding hard_block renders the honest report. The bundle refusal predicate is coherent, so this is API/artifact wording, not a P1."
+per_iter1_finding_resolution:
+  - finding: "P1-shippability-split-brain"
+    status: RESOLVED
+    evidence: "R1 at docs/permanent_fix_migration_blueprint.md:365 defines `hard_block` and `normal_release_blocked`, and requires manifest, status map, bundle.py, UI, and regression alerts to key on that predicate family; bundle 422 is hard_block-only."
+  - finding: "P1-clinical-1-of-N-release-floor"
+    status: RESOLVED
+    evidence: "Operator decision at docs/permanent_fix_migration_blueprint.md:363 and R2 at :366 add a per-safety-section `safety_floor`; zero VERIFIED safety claims or all S0 gaps block normal clinical render."
+  - finding: "P1-caveat-prominence-not-structural"
+    status: RESOLVED
+    evidence: "R3 at docs/permanent_fix_migration_blueprint.md:367 requires top-of-report, Safety-section-local, Key-Findings, and machine-readable caveat placement."
+  - finding: "P1-non-VERIFIED-moderate-confidence"
+    status: RESOLVED
+    evidence: "R4 at docs/permanent_fix_migration_blueprint.md:368 requires both `high` and `moderate` to have `verdict==VERIFIED`; non-VERIFIED renders only `low` or `no-source-found`."
+  - finding: "P1-cross-document-safety-compatibility"
+    status: RESOLVED
+    evidence: "R6 at docs/permanent_fix_migration_blueprint.md:370 requires same substance/intervention and compatible risk-population/contraindication target before pooled S0 safety credit; I-perm-004 stays row-scoped."
+  - finding: "P1-key-findings-ordering-leak"
+    status: RESOLVED
+    evidence: "R7 at docs/permanent_fix_migration_blueprint.md:371 promotes the Key-Findings ordering fix to Wave 0 and makes it a precondition for enabling `PG_ALWAYS_RELEASE`."
+  - finding: "P1-annotator-fabricated-and-fail-closed"
+    status: RESOLVED
+    evidence: "R8 at docs/permanent_fix_migration_blueprint.md:372 requires FABRICATED rows to hard-block before annotation and unlabelable material non-VERIFIED claims to fail closed."
+  - finding: "REQ-canonical-bundleable-predicate"
+    status: RESOLVED
+    evidence: "R1 at docs/permanent_fix_migration_blueprint.md:365 replaces the old `release_allowed`/`hard_block` split and aligns manifest, status map, bundle.py, UI, and regression alerts."
+  - finding: "REQ-clinical-safety-floor"
+    status: RESOLVED
+    evidence: "Operator decision at docs/permanent_fix_migration_blueprint.md:363 plus R2 at :366 define `safety_floor: ok | insufficient` and the honest insufficient-safety report status."
+  - finding: "REQ-structural-clinical-caveats"
+    status: RESOLVED
+    evidence: "R3 at docs/permanent_fix_migration_blueprint.md:367 makes prominence structural across top block, Safety section, Key Findings, and machine-readable fields."
+  - finding: "REQ-moderate-high-require-VERIFIED"
+    status: RESOLVED
+    evidence: "R4 at docs/permanent_fix_migration_blueprint.md:368 explicitly requires `verdict==VERIFIED` for both `high` and `moderate`."
+  - finding: "REQ-credibility-gated-origin-count"
+    status: RESOLVED
+    evidence: "R5 at docs/permanent_fix_migration_blueprint.md:369 displays `credible_independent_origins` only above the credibility floor and separates raw `echo_count` as advisory."
+  - finding: "REQ-safety-cross-document-guard"
+    status: RESOLVED
+    evidence: "R6 at docs/permanent_fix_migration_blueprint.md:370 adds same substance/intervention and compatible risk-population/contraindication checks before safety credit."
+  - finding: "REQ-promote-I-perm-008-before-always-release"
+    status: RESOLVED
+    evidence: "R7 at docs/permanent_fix_migration_blueprint.md:371 makes the ordering fix Wave 0 and a hard precondition for `PG_ALWAYS_RELEASE`."
+  - finding: "REQ-annotator-inherits-fail-closed"
+    status: RESOLVED
+    evidence: "R8 at docs/permanent_fix_migration_blueprint.md:372 blocks FABRICATED rows before annotation and preserves ReportRedactionError-equivalent fail-closed behavior."
+  - finding: "REQ-regression-thresholds-and-binary-alerts"
+    status: RESOLVED
+    evidence: "R9 at docs/permanent_fix_migration_blueprint.md:373 sets HIGH/CRITICAL release_quality_score thresholds and retains binary alerts for hard_block, fabricated latch, unexpected abort, and predicate contradiction."
+  - finding: "REQ-status-vocabulary"
+    status: RESOLVED
+    evidence: "R10 at docs/permanent_fix_migration_blueprint.md:374 locks `released_with_disclosed_gaps`, drops `released_with_labels`, and defines `success`, `released_insufficient_safety_evidence`, and `abort_no_verified_sections`."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

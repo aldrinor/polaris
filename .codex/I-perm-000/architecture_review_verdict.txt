@@ -1,0 +1,155 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - >-
+    P1: The shippability contract is split-brained. The blueprint defines
+    `release_allowed = NOT fabricated_latched AND has_any_verified_claim`
+    (`docs/permanent_fix_migration_blueprint.md:49`, `:141`) but defines
+    `hard_block` only as fabricated OR zero-verified-and-zero-evidence (`:121`)
+    and changes bundle refusal to hard_block-only (`:62`, `:144`). Current
+    consumers hard-gate on `manifest.release_allowed`
+    (`src/polaris_v6/api/bundle.py:116`, `:215`). Define one canonical
+    shippability predicate before implementation.
+  - >-
+    P1: Reject the per-report 1-of-N release floor for clinical reports.
+    `has_any_verified_claim` lets a report with one irrelevant verified claim
+    and zero verified Safety/S0 content release (`docs/...blueprint.md:347`).
+    Clinical release needs a per-safety-section floor: a Safety section with
+    zero VERIFIED claims, or all required S0 safety categories disclosed as
+    gaps, must hard-block normal clinical release and render an honest
+    insufficient-safety-evidence report.
+  - >-
+    P1: Top-of-report caveat prominence is assumed, not structurally guaranteed
+    (`docs/...blueprint.md:54`, `:120`, `:345`). For clinical safety gaps, require
+    a prominent top block plus repeated/nearby Safety-section and Key-Findings
+    disclosure; if all safety categories are gaps, do not ship a normal report.
+  - >-
+    P1: Non-VERIFIED claims can still over-signal confidence. Decision B only
+    forbids `high` for non-VERIFIED claims (`docs/...blueprint.md:123`) and the
+    smoke spec allows `moderate` for non-VERIFIED claims (`:320`). That permits
+    “moderate · 3 sources” on echoed unsupported content. Adopt the stricter
+    existing pattern in `src/polaris_graph/synthesis/disclosure_population.py:69`:
+    non-VERIFIED is always `low` or `no-source-found`, never `moderate`.
+  - >-
+    P1: Cross-document safety satisfaction needs a compatibility guard.
+    I-perm-002 searches every kept VERIFIED claim in the whole pool
+    (`docs/...blueprint.md:158`) and §6 explicitly questions title-anchor-only
+    safety matching (`:351`). Title matching is insufficient for safety credit;
+    require same substance/intervention and risk-population/contraindication
+    compatibility before suppressing an S0 safety gap.
+  - >-
+    P1: The Key Findings ordering leak must be an early hard dependency, not a
+    later cleanup. Current code builds Key Findings before four-role
+    reconciliation (`scripts/run_honest_sweep_r3.py:6309`) and reconciles/redacts
+    only after D8 (`:7120` onward). The blueprint identifies this as a
+    no-fabrication leak (`docs/...blueprint.md:268`) but schedules I-perm-008 in
+    Wave 3 (`:290`). Move this fix before enabling `PG_ALWAYS_RELEASE`.
+  - >-
+    P1: The label-not-delete path must explicitly exclude FABRICATED claims and
+    preserve fail-closed locatability. I-perm-005 says “for each non-VERIFIED
+    claim, KEEP the sentence” (`docs/...blueprint.md:203`), while current
+    non-verified includes FABRICATED (`src/polaris_graph/roles/report_redactor.py:77`).
+    Fabricated rows must hard-block before annotation, and any material
+    non-VERIFIED claim that cannot be labeled in-place must fail closed, matching
+    `ReportRedactionError` semantics (`report_redactor.py:102`).
+p2:
+  - >-
+    P2: Regression-alert semantics are under-specified. Add env-overridable
+    defaults: HIGH on `release_quality_score` absolute drop >= 0.10 or relative
+    drop >= 20%; CRITICAL on absolute drop >= 0.20, crossing a clinical safety
+    floor, new fabricated latch, new hard_block, or unexpected abort/systematic
+    withholding.
+  - >-
+    P2: Status vocabulary is incomplete. Decision C adds
+    `released_with_disclosed_gaps` (`docs/...blueprint.md:127`), while I-perm-005
+    also mentions `released_with_labels` (`:204`). Either collapse these or add
+    both to `PipelineStatus`, `UNIFIED_STATUS_VALUES`, and summary maps.
+  - >-
+    P2: I-perm-003 can merge behind default-off flags with synthetic enlarged-pool
+    proof, but default-on activation and any “90% loss fixed” claim must wait for
+    I-perm-007 or a real serialized pre-selection fixture (`docs/...blueprint.md:167`,
+    `:296`, `:333`).
+  - >-
+    P2: Add explicit `hard_block_reasons` and `safety_floor_status` to
+    `ReleaseDisclosure`; otherwise fabricated, zero-grounding, and clinical
+    safety-floor failures collapse into ambiguous status handling.
+  - >-
+    P2: Fix the blueprint path typo from `generator/report_redactor.py` to
+    `src/polaris_graph/roles/report_redactor.py`; low risk, but it matters for
+    implementation ownership.
+convergence_call: continue
+tension_rulings:
+  tension_1_caveat_prominence_vs_clinical_floor: >-
+    REQUEST_CHANGES. Top-of-report caveats are necessary but not sufficient.
+    For ordinary disclosed gaps, release with labels is correct. For clinical
+    reports where all S0 safety categories are disclosed gaps, or the Safety
+    section has zero VERIFIED safety claims, normal release should hard-block
+    into an honest insufficient-safety-evidence report or an acknowledgement
+    flow. Prominence must be structural, not just placement.
+  tension_2_per_section_vs_per_report_floor: >-
+    Per-report `has_any_verified_claim` is rejected. Use a clinical
+    per-safety-section floor: non-safety sections may be gaps, but a required
+    Safety/Contraindications section cannot have zero VERIFIED safety content
+    while the report ships as normal. A subset of missing S0 categories may
+    release with prominent caveats after I-perm-002 residual satisfaction; all
+    safety missing must hard-block normal clinical release.
+  tension_3_credibility_echo: >-
+    Independent origin count must be credibility-qualified for display, and
+    non-VERIFIED claims must never upgrade above `low`/`no-source-found`.
+    Display total echoes separately from credible independent origins, e.g.
+    “unsupported; 3 low-credibility echoes,” not “moderate · 3 sources.”
+  tension_4_cross_document_reanchor: >-
+    Title-anchor-only is insufficient for safety. I-perm-004 citation re-anchor
+    should remain row-scoped for actual claim citations. I-perm-002 may credit
+    pooled safety satisfaction only when the supporting VERIFIED claim matches
+    the same intervention/substance and compatible risk population or
+    contraindication target.
+  tension_5_regression_signal: >-
+    Use `release_quality_score` drops as the continuous signal, but retain
+    binary alerts on new hard_block, fabricated latch, unexpected abort, and
+    release predicate contradictions. Suggested defaults: HIGH at >=0.10
+    absolute or >=20% relative drop; CRITICAL at >=0.20 absolute drop, safety
+    floor crossing, new fabricated latch, or new systematic hard-blocking.
+  tension_6_iperm003_no_op_sequencing: >-
+    Acceptable to merge I-perm-003 behind default-off flags with synthetic-pool
+    proof only. It must not be claimed as a beatboth8 fix or enabled by default
+    until I-perm-007 provides a real larger pool or an equivalent saved
+    pre-selection fixture proves the cap/rerank/LITM path on real data.
+required_design_changes:
+  - >-
+    Replace the current `release_allowed`/`hard_block` split with one canonical
+    `bundleable` or `hard_block` predicate, and align manifest, status mapping,
+    bundle APIs, UI, and regression alerts to that predicate.
+  - >-
+    Add a clinical safety floor to `ReleaseDisclosure`: Safety section zero
+    VERIFIED claims, or all required S0 safety categories disclosed as gaps,
+    hard-blocks normal clinical release and renders an honest insufficient
+    safety evidence report.
+  - >-
+    Make clinical caveat prominence structural: top block, Safety-section-local
+    disclosure, Key-Findings disclosure, and machine-readable safety floor
+    status.
+  - >-
+    Revise Decision B so `moderate` and `high` require `verdict == VERIFIED`;
+    non-VERIFIED claims render only `low` or `no-source-found` plus explicit
+    verdict text.
+  - >-
+    Gate displayed independent-origin counts by source credibility; keep raw
+    echo count separate from credible-origin count.
+  - >-
+    Add same-intervention/substance and compatible risk-population checks before
+    I-perm-002 credits cross-document satisfaction of safety categories.
+  - >-
+    Promote the I-perm-008 Key Findings ordering fix to Wave 0/Wave 1 and make
+    it a precondition for enabling `PG_ALWAYS_RELEASE`.
+  - >-
+    Specify that the annotator inherits report_redactor fail-closed behavior and
+    never keeps FABRICATED claims in a shippable report.
+  - >-
+    Define release-quality regression thresholds and retain binary alerts for
+    new hard_block, fabricated latch, unexpected abort, and predicate
+    contradictions.
+  - >-
+    Resolve the `released_with_labels` vs `released_with_disclosed_gaps` status
+    vocabulary before 001/005 implementation.

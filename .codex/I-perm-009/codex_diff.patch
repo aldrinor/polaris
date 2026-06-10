@@ -1,0 +1,609 @@
+diff --git a/tests/polaris_graph/replay/__init__.py b/tests/polaris_graph/replay/__init__.py
+new file mode 100644
+index 00000000..703a8387
+--- /dev/null
++++ b/tests/polaris_graph/replay/__init__.py
+@@ -0,0 +1,15 @@
++"""I-perm-009 behavioral replay harness.
++
++Offline, deterministic replay of the D8 release policy + the §-1.1 zero-fabrication
++invariant over SAVED real-run evidence (outputs/audits/beatboth8/drb_76/). This is the
++proof ledger for the permanent-fix program (I-perm-001..008): every fix is proven on real
++saved data BEFORE any paid re-run. No network, no spend, no model calls.
++
++Modules:
++    saved_run_loader   - typed loader for a saved run directory's artifacts.
++    d8_replay_harness  - reconstruct D8 inputs from saved data + replay apply_d8_release_policy
++                         (reuses the production helpers -> zero drift), with a labelled
++                         corpus-wide-satisfaction SIMULATION of the I-perm-002 target.
++    cited_span_audit   - the §-1.1 zero-fabrication invariant: every numeric shipped in a
++                         claim appears verbatim in its cited span.
++"""
+diff --git a/tests/polaris_graph/replay/cited_span_audit.py b/tests/polaris_graph/replay/cited_span_audit.py
+new file mode 100644
+index 00000000..3db18cdc
+--- /dev/null
++++ b/tests/polaris_graph/replay/cited_span_audit.py
+@@ -0,0 +1,118 @@
++"""§-1.1 ZERO-FABRICATION invariant over a saved run's audit pack (I-perm-009).
++
++For every claim shipped in the report, every NUMERIC EXPRESSION it asserts (dose, %, HR, RR,
++CI bound, p-value, count) must appear — as a WHOLE token with its sign/operator/percent
++context — in that claim's CITED span. A number present in the claim but ABSENT from its cited
++span is a fabrication OR a mis-bound citation (I-perm-004): either way a real faithfulness
++signal, never a banned keyword-presence check.
++
++Matching is **exact-token-set membership**, mirroring the production faithfulness gate
++``clinical_generator/strict_verify.py`` (`sentence_decimals.issubset(span_decimals)`), so a
++claim's "5 mg" can NEVER pass against a span's "50 mg" (the substring false-negative Codex
++flagged). It is STRICTER than the production decimal check on three axes Codex called out:
++  * percent is bound: "5%" != "5".
++  * a measurement sign is bound: "-5%" != "5%".
++  * a comparator is bound: "p<0.001" != "p=0.001".
++A range dash ("0.47-0.89") is NOT treated as a sign (lookbehind), so range endpoints match.
++"""
++
++from __future__ import annotations
++
++import re
++import unicodedata
++from dataclasses import dataclass
++from typing import Any
++
++# Provenance token [#ev:evidence_id:start-end] and rendered numbered marker [12] — citation
++# plumbing, never asserted numerics; stripped before extraction.
++_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
++_NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
++
++# A numeric EXPRESSION: optional comparator (with optional whitespace before the number, so a
++# SPACED inequality "p < 0.001" still binds the "<" — Codex iter-2 A3 residual), optional
++# measurement sign (NOT a range dash — the lookbehind blocks a "-" that directly follows a
++# digit/dot), the number (decimals + grouped thousands), optional immediate percent.
++_COMPARATOR = r"(?:<=|>=|≤|≥|<|>|=)?\s?"
++_SIGNED_NUMBER = r"(?<![\d.])[+\-−]?\d[\d,]*(?:\.\d+)?"
++_PERCENT = r"(?:\s?%)?"
++_NUMERIC_EXPR_RE = re.compile(_COMPARATOR + _SIGNED_NUMBER + _PERCENT)
++
++
++class AuditPackMissingClaimsError(ValueError):
++    """The audit pack has no ``claims`` — the §-1.1 audit cannot pass vacuously (LAW II)."""
++
++
++@dataclass
++class SpanFinding:
++    """One numeric expression asserted in a claim but absent from its cited span."""
++
++    idx: Any
++    section: str
++    evidence_id: str
++    numeric: str
++    claim_text: str
++    cited_span_text: str
++
++
++def _normalize(text: str) -> str:
++    """NFKC + lowercase + unify minus + strip thousands separators + collapse whitespace."""
++    text = unicodedata.normalize("NFKC", text)
++    text = text.replace("–", "-").replace("—", "-").replace("−", "-").replace("≤", "<=").replace("≥", ">=")
++    text = re.sub(r"(?<=\d),(?=\d)", "", text)  # drop thousands separators inside numbers
++    return re.sub(r"\s+", " ", text).strip().lower()
++
++
++def _canonical_expr(raw: str) -> str:
++    """Strip internal whitespace + unify minus + drop a bare '=' so claim and span tokenize alike.
++
++    A bare ``=`` carries no faithfulness meaning ("P value of 0.32" == "P=0.32"), so it is
++    dropped to avoid false positives. The MEANINGFUL inequalities ``<`` ``>`` ``<=`` ``>=`` are
++    KEPT bound to the number, so "p<0.001" still never matches "p=0.001" (Codex A3).
++    """
++    expr = raw.replace(" ", "").replace("−", "-").replace("≤", "<=").replace("≥", ">=").replace(",", "")
++    if expr.startswith("="):
++        expr = expr[1:]
++    return expr
++
++
++def _numeric_exprs(text: str) -> set[str]:
++    cleaned = _NUMBERED_MARKER_RE.sub(" ", _PROVENANCE_TOKEN_RE.sub(" ", text))
++    cleaned = _normalize(cleaned)
++    out: set[str] = set()
++    for match in _NUMERIC_EXPR_RE.finditer(cleaned):
++        token = _canonical_expr(match.group(0))
++        # A lone comparator / sign with no digit is not a numeric; require a digit.
++        if any(ch.isdigit() for ch in token):
++            out.add(token)
++    return out
++
++
++def audit_cited_spans(audit_pack: dict[str, Any]) -> list[SpanFinding]:
++    """Return every numeric expression asserted in a claim that is absent from its cited span.
++
++    Raises ``AuditPackMissingClaimsError`` if the pack has no claims (fail loud — a missing or
++    empty audit pack must NEVER read as a clean zero-fabrication pass). Empty list == every
++    shipped numeric is grounded verbatim (with sign/operator/percent) in its cited span.
++    """
++    claims = audit_pack.get("claims")
++    if not claims:
++        raise AuditPackMissingClaimsError(
++            "audit_pack has no non-empty 'claims'; the §-1.1 zero-fabrication invariant "
++            "cannot be evaluated and must NOT pass vacuously"
++        )
++    findings: list[SpanFinding] = []
++    for claim in claims:
++        span_exprs = _numeric_exprs(str(claim.get("cited_span_text", "")))
++        for numeric in _numeric_exprs(str(claim.get("claim_text", ""))):
++            if numeric not in span_exprs:
++                findings.append(
++                    SpanFinding(
++                        idx=claim.get("idx"),
++                        section=str(claim.get("section", "")),
++                        evidence_id=str(claim.get("evidence_id", "")),
++                        numeric=numeric,
++                        claim_text=str(claim.get("claim_text", "")),
++                        cited_span_text=str(claim.get("cited_span_text", "")),
++                    )
++                )
++    return findings
+diff --git a/tests/polaris_graph/replay/d8_replay_harness.py b/tests/polaris_graph/replay/d8_replay_harness.py
+new file mode 100644
+index 00000000..8dff6ba5
+--- /dev/null
++++ b/tests/polaris_graph/replay/d8_replay_harness.py
+@@ -0,0 +1,174 @@
++"""Offline replay of the D8 release policy over a SAVED run (I-perm-009).
++
++Reconstructs the D8 inputs from a ``SavedRun`` and replays ``apply_d8_release_policy``.
++It REUSES the production helpers (``load_required_entities``, ``validate_entity_severity``,
++``load_d8_policy_config``, ``apply_d8_release_policy``, AND the S0 content-requirement matcher
++``_content_requirements_satisfied``) so there is ZERO logic drift — the harness exercises the
++real release policy and the real S0 coverage rule, not a copy.
++
++Two modes:
++
++* ``corpus_satisfaction=False`` (BASELINE-LOCK): reconstruct coverage + S0 categories from the
++  saved per-claim ``covered_element_ids`` / ``s0_categories`` exactly as the production run
++  recorded them. Reproduces the saved ``held_reasons`` bit-for-bit.
++
++* ``corpus_satisfaction=True`` (I-perm-002 candidate): credit a required element from ANY
++  VERIFIED claim that cites that element's evidence_id — BUT, faithful to production
++  ``_claim_covers_entity``, an S0 SAFETY category is credited ONLY when the VERIFIED claim's
++  text ALSO satisfies the entity's deterministic ``coverage_content_requirements``
++  (``_content_requirements_satisfied``). This is NOT evidence_id-alone crediting (Codex A4):
++  on drb_76 the VERIFIED Safety claims cite the contraindication evidence but their text lacks
++  the literal required token ``contraindicated`` (they say "not recommended"/"should be
++  avoided"), so the S0 ``contraindications`` category is NOT credited and the false hold does
++  NOT clear. That HONEST result proves the real B2 fix needs semantic/qualitative
++  contraindication recognition (I-perm-002) or the always-release relabel (I-perm-001), not a
++  naive corpus-wide evidence_id credit. The R6 same-substance/risk-population guard is the
++  production responsibility of I-perm-002.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Any
++
++import yaml
++
++from src.polaris_graph.roles.native_gate_b_inputs import (
++    _KEY_ENTITY_ID,
++    _content_requirements_satisfied,
++    load_required_entities,
++    validate_entity_severity,
++)
++from src.polaris_graph.roles.release_policy import (
++    CoverageLedger,
++    D8ClaimRow,
++    ReleaseDecision,
++    apply_d8_release_policy,
++    load_d8_policy_config,
++)
++
++from tests.polaris_graph.replay.saved_run_loader import SavedRun, default_template_path
++
++_VERDICT_VERIFIED = "VERIFIED"
++
++
++@dataclass
++class D8ReplayResult:
++    """Outcome of one offline D8 replay over a saved run."""
++
++    decision: ReleaseDecision
++    coverage_fraction: float
++    required_element_ids: list[str]
++    required_s0_categories: list[str]
++    covered_element_ids: set[str] = field(default_factory=set)
++    credited_categories: set[str] = field(default_factory=set)
++
++
++@dataclass
++class _RequiredEntities:
++    element_ids: list[str]
++    s0_categories: list[str]
++    s0_by_element: dict[str, str | None]
++    entity_by_id: dict[str, dict]
++
++
++def _load_required_entities(template_path: Path, slug: str) -> _RequiredEntities:
++    """Reuse the production helpers so the required-set + S0 derivation match the real builder."""
++    template = yaml.safe_load(template_path.read_text(encoding="utf-8"))
++    d8_config = load_d8_policy_config()
++    entities = load_required_entities(template, slug)
++    element_ids = [e[_KEY_ENTITY_ID] for e in entities]
++    entity_by_id = {e[_KEY_ENTITY_ID]: e for e in entities}
++    s0_by_element: dict[str, str | None] = {}
++    required_s0: set[str] = set()
++    for entity in entities:
++        _severity, s0_category = validate_entity_severity(entity, d8_config)
++        s0_by_element[entity[_KEY_ENTITY_ID]] = s0_category
++        if s0_category is not None:
++            required_s0.add(s0_category)
++    return _RequiredEntities(element_ids, sorted(required_s0), s0_by_element, entity_by_id)
++
++
++def verified_claims_citing(run: SavedRun, evidence_id: str) -> list[str]:
++    """Claim ids that are VERIFIED AND cite ``evidence_id`` (the per-safety-section floor input)."""
++    out: list[str] = []
++    for claim_id, verdict in run.final_verdicts.items():
++        if verdict != _VERDICT_VERIFIED:
++            continue
++        if evidence_id in run.audit_map[claim_id].get("evidence_ids", []):
++            out.append(claim_id)
++    return out
++
++
++def replay_d8(
++    run: SavedRun,
++    *,
++    template_path: Path | None = None,
++    corpus_satisfaction: bool = False,
++    rewrite_already_attempted: bool = False,
++) -> D8ReplayResult:
++    """Replay the production D8 release policy over a saved run's recorded verdicts."""
++    tpath = template_path or default_template_path()
++    req = _load_required_entities(tpath, run.slug)
++    required_set = set(req.element_ids)
++
++    credited_categories: set[str] = set()
++    d8_rows: list[D8ClaimRow] = []
++    covered: set[str] = set()
++
++    for claim_id, verdict in run.final_verdicts.items():
++        audit_row = run.audit_map[claim_id]
++        claim_text = str(audit_row.get("sentence", ""))
++        s0_categories = list(audit_row.get("s0_categories", []))
++
++        if corpus_satisfaction and verdict == _VERDICT_VERIFIED:
++            for evidence_id in audit_row.get("evidence_ids", []):
++                if evidence_id not in required_set:
++                    continue
++                category = req.s0_by_element.get(evidence_id)
++                if category is None:
++                    # Non-S0 required element: canonical (evidence_id) match credits coverage,
++                    # mirroring production _claim_covers_entity for a non-S0 entity.
++                    covered.add(evidence_id)
++                    continue
++                # S0 SAFETY: credit ONLY when the claim text satisfies the deterministic
++                # content requirements (faithful to production; no evidence_id-alone credit).
++                entity = req.entity_by_id[evidence_id]
++                if _content_requirements_satisfied(claim_text, entity):
++                    covered.add(evidence_id)
++                    if category not in s0_categories:
++                        s0_categories.append(category)
++                    credited_categories.add(category)
++
++        if verdict == _VERDICT_VERIFIED:
++            covered.update(audit_row.get("covered_element_ids", []))
++
++        d8_rows.append(
++            D8ClaimRow(
++                claim_id=claim_id,
++                severity=audit_row["severity"],
++                verdict=verdict,
++                s0_categories=s0_categories,
++            )
++        )
++
++    covered &= required_set
++    ledger = CoverageLedger(required_element_ids=req.element_ids, covered_element_ids=covered)
++    d8_config = load_d8_policy_config()
++    decision = apply_d8_release_policy(
++        d8_rows,
++        required_s0_categories=req.s0_categories,
++        coverage_ledger=ledger,
++        coverage_threshold=d8_config.coverage_threshold,
++        rewrite_already_attempted=rewrite_already_attempted,
++        prior_fabricated_latched=run.saved_fabricated_latched,
++    )
++    return D8ReplayResult(
++        decision=decision,
++        coverage_fraction=ledger.fraction(),
++        required_element_ids=req.element_ids,
++        required_s0_categories=req.s0_categories,
++        covered_element_ids=covered,
++        credited_categories=credited_categories,
++    )
+diff --git a/tests/polaris_graph/replay/saved_run_loader.py b/tests/polaris_graph/replay/saved_run_loader.py
+new file mode 100644
+index 00000000..a1941219
+--- /dev/null
++++ b/tests/polaris_graph/replay/saved_run_loader.py
+@@ -0,0 +1,118 @@
++"""Typed loader for a SAVED POLARIS run directory's audit artifacts (I-perm-009).
++
++A saved run directory (e.g. ``outputs/audits/beatboth8/drb_76/``) holds the real,
++already-paid-for artifacts of a completed run. This loader reads them into a typed
++``SavedRun`` so the replay harness can reconstruct the D8 decision and audit the report
++WITHOUT re-running the pipeline (no network, no spend).
++
++Fails loudly (FileNotFoundError / KeyError) on a missing artifact — never silently
++defaults (LAW II).
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++# Default saved run + scope template. Overridable via env (LAW VI, zero hard-coding):
++# the harness must run against the committed beatboth8 evidence by default but stay
++# repointable at any saved run dir without code edits.
++_REPO_ROOT = Path(__file__).resolve().parents[3]
++_ENV_RUN_DIR = "PG_REPLAY_RUN_DIR"
++_ENV_TEMPLATE = "PG_REPLAY_TEMPLATE_PATH"
++_DEFAULT_RUN_DIR = _REPO_ROOT / "outputs" / "audits" / "beatboth8" / "drb_76"
++_DEFAULT_TEMPLATE = _REPO_ROOT / "config" / "scope_templates" / "clinical.yaml"
++
++# Artifact filenames inside a saved run directory.
++_FILE_AUDIT_MAP = "four_role_claim_audit.json"
++_FILE_MANIFEST = "manifest.json"
++_FILE_REPORT = "report.md"
++_FILE_AUDIT_PACK = "audit_pack.json"
++
++_MANIFEST_KEY_SLUG = "slug"
++_MANIFEST_KEY_FOUR_ROLE = "four_role_evaluation"
++_FOUR_ROLE_KEY_FINAL_VERDICTS = "final_verdicts"
++
++
++@dataclass
++class SavedRun:
++    """All artifacts of one saved run, typed for the replay harness."""
++
++    run_dir: Path
++    slug: str
++    audit_map: dict[str, dict[str, Any]]  # four_role_claim_audit.json (claim_id -> row)
++    manifest: dict[str, Any]
++    four_role: dict[str, Any]  # manifest["four_role_evaluation"]
++    final_verdicts: dict[str, str]  # claim_id -> "VERIFIED"|"UNSUPPORTED"|...
++    report_md: str
++    audit_pack: dict[str, Any]  # claims[] with cited_span_text (None if not present)
++
++    @property
++    def saved_held_reasons(self) -> list[str]:
++        return list(self.four_role.get("held_reasons", []))
++
++    @property
++    def saved_coverage_fraction(self) -> float:
++        return float(self.four_role.get("coverage_fraction", 0.0))
++
++    @property
++    def saved_needs_rewrite(self) -> list[str]:
++        return list(self.four_role.get("needs_rewrite", []))
++
++    @property
++    def saved_fabricated_latched(self) -> bool:
++        return bool(self.four_role.get("fabricated_occurrence_latched", False))
++
++
++def default_run_dir() -> Path:
++    return Path(os.environ.get(_ENV_RUN_DIR) or _DEFAULT_RUN_DIR)
++
++
++def default_template_path() -> Path:
++    return Path(os.environ.get(_ENV_TEMPLATE) or _DEFAULT_TEMPLATE)
++
++
++def _read_json(path: Path) -> Any:
++    if not path.is_file():
++        raise FileNotFoundError(f"saved-run artifact missing: {path}")
++    return json.loads(path.read_text(encoding="utf-8"))
++
++
++def load_saved_run(run_dir: Path | str | None = None) -> SavedRun:
++    """Load every artifact a saved run directory must contain.
++
++    ``audit_pack.json`` is optional (only present after a build_audit_pack pass); when
++    absent ``audit_pack`` is ``{}`` and the §-1.1 span audit is skipped by the caller.
++    """
++    run_path = Path(run_dir) if run_dir is not None else default_run_dir()
++    if not run_path.is_dir():
++        raise FileNotFoundError(f"saved-run directory not found: {run_path}")
++
++    manifest = _read_json(run_path / _FILE_MANIFEST)
++    if _MANIFEST_KEY_FOUR_ROLE not in manifest:
++        raise KeyError(
++            f"{_FILE_MANIFEST} has no {_MANIFEST_KEY_FOUR_ROLE!r} block: {run_path}"
++        )
++    four_role = manifest[_MANIFEST_KEY_FOUR_ROLE]
++    final_verdicts = four_role.get(_FOUR_ROLE_KEY_FINAL_VERDICTS)
++    if not isinstance(final_verdicts, dict):
++        raise KeyError(
++            f"{_MANIFEST_KEY_FOUR_ROLE}.{_FOUR_ROLE_KEY_FINAL_VERDICTS} missing/invalid: {run_path}"
++        )
++
++    audit_pack_path = run_path / _FILE_AUDIT_PACK
++    audit_pack = _read_json(audit_pack_path) if audit_pack_path.is_file() else {}
++
++    return SavedRun(
++        run_dir=run_path,
++        slug=str(manifest.get(_MANIFEST_KEY_SLUG, run_path.name)),
++        audit_map=_read_json(run_path / _FILE_AUDIT_MAP),
++        manifest=manifest,
++        four_role=four_role,
++        final_verdicts=final_verdicts,
++        report_md=(run_path / _FILE_REPORT).read_text(encoding="utf-8"),
++        audit_pack=audit_pack,
++    )
+diff --git a/tests/polaris_graph/replay/test_drb76_baseline.py b/tests/polaris_graph/replay/test_drb76_baseline.py
+new file mode 100644
+index 00000000..d8bf4502
+--- /dev/null
++++ b/tests/polaris_graph/replay/test_drb76_baseline.py
+@@ -0,0 +1,154 @@
++"""I-perm-009 proof ledger — drb_76 baseline locks + fix-target asserts.
++
++OFFLINE on the committed saved run ``outputs/audits/beatboth8/drb_76/`` (no network, no spend,
++no model calls). The proof ledger for the permanent-fix program:
++
++* BASELINE-LOCK tests prove the offline replay reproduces the real run's D8 decision exactly.
++* The §-1.1 ZERO-FABRICATION test + its adversarial unit tests prove the numeric invariant has
++  no substring/sign/operator false-negative (the clinical-safety load-bearing check) and never
++  passes vacuously on a missing audit pack.
++* The I-perm-002 HONEST-FINDING test proves, with the FAITHFUL production S0 content-requirement
++  matcher, that a naive corpus-wide evidence_id credit does NOT clear the false contraindications
++  hold (the VERIFIED Safety claims lack the literal token ``contraindicated``) — so the real fix
++  needs semantic recognition or the always-release relabel.
++* The PRODUCTION-FLIP test is xfail(strict) — the ledger entry that flips when I-perm-002/001 land.
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from tests.polaris_graph.replay.cited_span_audit import (
++    AuditPackMissingClaimsError,
++    _numeric_exprs,
++    audit_cited_spans,
++)
++from tests.polaris_graph.replay.d8_replay_harness import replay_d8, verified_claims_citing
++from tests.polaris_graph.replay.saved_run_loader import load_saved_run
++
++# Locked drb_76 baseline (the real run's recorded four_role_evaluation).
++_BASELINE_HELD_REASONS = {
++    "d8_unsupported_residual_below_coverage",
++    "d8_s0_must_cover_missing:contraindications",
++    "d8_pending_rewrite",
++}
++_BASELINE_COVERAGE = 0.40
++_BASELINE_NEEDS_REWRITE = 10
++_CONTRAINDICATIONS_HOLD = "d8_s0_must_cover_missing:contraindications"
++_CONTRAINDICATION_EVIDENCE = "probiotic_immunocompromised_contraindication"
++
++
++@pytest.fixture(scope="module")
++def saved_run():
++    return load_saved_run()
++
++
++# --- BASELINE-LOCK: the offline replay is faithful to the real run --------------------------
++
++
++def test_baseline_lock_reproduces_held_reasons(saved_run):
++    result = replay_d8(saved_run, corpus_satisfaction=False)
++    assert set(result.decision.held_reasons) == _BASELINE_HELD_REASONS
++    assert set(result.decision.held_reasons) == set(saved_run.saved_held_reasons)
++
++
++def test_baseline_lock_coverage_fraction(saved_run):
++    result = replay_d8(saved_run, corpus_satisfaction=False)
++    assert result.coverage_fraction == pytest.approx(_BASELINE_COVERAGE)
++    assert result.coverage_fraction == pytest.approx(saved_run.saved_coverage_fraction)
++
++
++def test_baseline_lock_needs_rewrite_count(saved_run):
++    result = replay_d8(saved_run, corpus_satisfaction=False)
++    assert len(result.decision.needs_rewrite) == _BASELINE_NEEDS_REWRITE
++    assert len(result.decision.needs_rewrite) == len(saved_run.saved_needs_rewrite)
++
++
++def test_baseline_not_release_allowed(saved_run):
++    result = replay_d8(saved_run, corpus_satisfaction=False)
++    assert result.decision.release_allowed is False
++
++
++# --- §-1.1 ZERO-FABRICATION invariant (content audit, not string-presence) ------------------
++
++
++def test_zero_fabrication_invariant(saved_run):
++    """Every numeric expression shipped in a claim appears (with sign/operator/percent) in its
++    cited span — re-confirms DRB76_FORENSIC "zero fabrications" mechanically."""
++    findings = audit_cited_spans(saved_run.audit_pack)
++    assert findings == [], (
++        "ungrounded numerics (fabrication / mis-bound citation): "
++        + "; ".join(f"idx={f.idx} num={f.numeric!r} eid={f.evidence_id}" for f in findings)
++    )
++
++
++@pytest.mark.parametrize(
++    "claim, span, must_flag, label",
++    [
++        ("5 mg dose", "given 50 mg daily", True, "substring 5-in-50 (lethal)"),
++        ("change of -5%", "change of 5%", True, "measurement sign flip"),
++        ("p<0.001", "p=0.001", True, "comparator < vs ="),
++        ("p>0.05", "p<0.05", True, "comparator > vs <"),
++        ("p < 0.001", "p=0.001", True, "SPACED comparator < vs ="),
++        ("RR > 1.2", "RR=1.2", True, "SPACED comparator > vs ="),
++        ("p <= 0.05", "p=0.05", True, "SPACED <= vs ="),
++        ("p < 0.001", "p < 0.001", False, "SPACED comparator same value OK"),
++        ("P value of 0.32", "(P=0.32 for non-linearity)", False, "bare vs '=' same value"),
++        ("HR 0.65 (95% CI 0.47-0.89)", "0.65, 95% CI 0.47 to 0.89", False, "range endpoints"),
++        ("26.2 ± 2.3%", "26.2±2.3%", False, "spacing/unicode"),
++        ("13,000 patients", "13000 patients", False, "thousands separator"),
++    ],
++)
++def test_numeric_matcher_no_false_negative(claim, span, must_flag, label):
++    """Adversarial guard on the §-1.1 matcher: it must catch substring/sign/operator drift
++    (no false-negative) without flagging legitimate reformatting (no false-positive)."""
++    missing = _numeric_exprs(claim) - _numeric_exprs(span)
++    assert bool(missing) is must_flag, f"{label}: missing={sorted(missing)}"
++
++
++def test_zero_fabrication_fails_loud_on_missing_pack():
++    """A missing/empty audit pack must FAIL LOUD, never pass the §-1.1 test vacuously (LAW II)."""
++    with pytest.raises(AuditPackMissingClaimsError):
++        audit_cited_spans({})
++    with pytest.raises(AuditPackMissingClaimsError):
++        audit_cited_spans({"claims": []})
++
++
++# --- I-perm-002 HONEST FINDING: naive corpus credit is insufficient under the prod matcher --
++
++
++def test_iperm002_evidence_id_credit_does_not_clear_safety_hold(saved_run):
++    """With the FAITHFUL production S0 content-requirement matcher, crediting from a VERIFIED
++    claim's evidence_id does NOT clear the contraindications hold: the VERIFIED Safety claims
++    cite the contraindication evidence but their text lacks the literal token 'contraindicated'.
++    Proves the real B2 fix needs semantic recognition or the always-release relabel, NOT a naive
++    corpus-wide evidence_id credit (Codex A4)."""
++    sim = replay_d8(saved_run, corpus_satisfaction=True)
++    assert _CONTRAINDICATIONS_HOLD in sim.decision.held_reasons
++    assert "contraindications" not in sim.credited_categories
++    assert sim.coverage_fraction == pytest.approx(_BASELINE_COVERAGE)
++
++
++def test_safety_floor_input_has_verified_safety_claim(saved_run):
++    """R2 per-safety-section floor input: >=1 VERIFIED claim cites the contraindication evidence,
++    so the Safety section is NOT zero-verified. Under always-release (I-perm-001) this releases
++    with a prominent contraindication-completeness caveat (R3), not 'insufficient safety evidence'
++    and not a normal-render block."""
++    verified = verified_claims_citing(saved_run, _CONTRAINDICATION_EVIDENCE)
++    assert len(verified) >= 1, "expected >=1 VERIFIED claim citing the contraindication evidence"
++
++
++@pytest.mark.xfail(
++    strict=True,
++    reason=(
++        "I-perm-002/I-perm-001 (#1196/#1195) ledger entry: flips green when the production binding "
++        "credits the contraindication via semantic/qualitative recognition (#1196) OR the "
++        "always-release relabel converts the literal-token S0 gap into a displayed caveat (#1195), "
++        "and this test is re-pointed at that production replay. Today the production binding still "
++        "emits the false hold (the VERIFIED Safety claims lack the literal token 'contraindicated')."
++    ),
++)
++def test_iperm002_production_flip(saved_run):
++    """PENDING I-perm-002/001: the production-equivalent binding must stop emitting the false hold."""
++    result = replay_d8(saved_run, corpus_satisfaction=False)
++    assert _CONTRAINDICATIONS_HOLD not in result.decision.held_reasons
