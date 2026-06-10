@@ -901,6 +901,287 @@ MIN_CONTENT_WORD_OVERLAP = int(
     os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
 )
 
+# I-complete-003 (#1189) — PROVENANCE RE-ANCHOR.
+#
+# When a findings sentence FAILS verification on its CURRENTLY-cited span,
+# before the sentence is dropped the re-anchor enumerates a BOUNDED set of
+# candidate spans WITHIN the SAME cited evidence row (or, for an UNCITED but
+# verbatim-grounded sentence, the pool row that verbatim-contains it) and
+# re-runs the EXACT same `verify_sentence_provenance` acceptance gate against
+# each candidate. The FIRST candidate that passes the FULL gate (numeric +
+# >=MIN_CONTENT_WORD_OVERLAP content overlap + trial-name + NLI entailment)
+# re-binds the sentence's [#ev:...] token to that span and the sentence is
+# kept as RECOVERED. If NO candidate passes, the original drop stands — there
+# is NO new acceptance path, so the re-anchor can ONLY ever bind to a span
+# that already passes the full bar and therefore CANNOT introduce an
+# unsupported / fabricated claim.
+#
+# Default-OFF: when PG_PROVENANCE_REANCHOR is falsy the re-anchor is a no-op
+# and behaviour is BYTE-IDENTICAL to before (matches the gap-#18 /
+# PG_VERIFICATION_MODE precedent). It is ALSO gated on entailment ==
+# "enforce": under off/warn the reused verifier accepts on numeric +
+# content-overlap ALONE with NO enforced entailment bind, and because the
+# re-anchor ACTIVELY SEARCHES up to MAX_CANDIDATES windows for a coincidental
+# mechanical match, accepting under off/warn would launder a drop into a pass
+# (the §-1.1 lethal failure mode). So accept is permitted ONLY under enforce.
+
+PG_PROVENANCE_REANCHOR_MAX_CANDIDATES = int(
+    os.getenv("PG_PROVENANCE_REANCHOR_MAX_CANDIDATES", "40")
+)
+
+# Sliding-window size (chars) for enumerating candidate spans inside a row's
+# direct_quote. Mirrors the _find_local_support_window / _find_local_content_window
+# discipline (window=400) so a candidate is a bounded local slice, never the
+# whole row.
+PG_PROVENANCE_REANCHOR_WINDOW = int(
+    os.getenv("PG_PROVENANCE_REANCHOR_WINDOW", "400")
+)
+
+
+def _provenance_reanchor_enabled() -> bool:
+    """True iff PG_PROVENANCE_REANCHOR is set truthy. Read at call time so
+    tests can toggle without re-import. Falsy (unset/0/false/no/off) => the
+    re-anchor is a no-op and strict_verify is byte-identical to pre-#1189."""
+    v = os.getenv("PG_PROVENANCE_REANCHOR", "").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+# I-complete-003 (#1189) — re-anchor telemetry. Module-level counters, read +
+# reset by the sweep. ONLY mutated inside the flag-on path, so OFF-mode never
+# touches them (byte-identity).
+_REANCHOR_TELEMETRY: dict[str, int] = {
+    "reanchor_attempts": 0,
+    "reanchor_recovered": 0,
+    "reanchor_uncited_bound": 0,
+}
+
+
+def get_reanchor_telemetry() -> dict[str, int]:
+    """Snapshot of the re-anchor counters (attempts / recovered / uncited-bound)."""
+    return dict(_REANCHOR_TELEMETRY)
+
+
+def reset_reanchor_telemetry() -> None:
+    """Zero the re-anchor counters (call between runs / tests)."""
+    for k in _REANCHOR_TELEMETRY:
+        _REANCHOR_TELEMETRY[k] = 0
+
+
+# I-complete-003 iter-2 (#1189) P2-1: DECIMAL-AWARE sentence terminator. A period
+# (``.``) that sits BETWEEN two digits (``1.5``, ``23.5``) is a decimal point, NOT
+# a sentence boundary — segmenting on it would split a decimal number across two
+# candidate spans, so the decimal-bearing support falls through to the sliding
+# window (and, for short rows, to a whole-row rebind that weakens citation
+# precision). ``!``/``?`` and a period NOT flanked by digits remain terminators.
+_REANCHOR_SENTENCE_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
+
+
+def _reanchor_candidate_spans(direct_quote: str) -> list[tuple[int, int]]:
+    """Enumerate a BOUNDED set of candidate (start, end) spans inside a row's
+    ``direct_quote``.
+
+    Candidates are produced by (a) DECIMAL-AWARE sentence-segmenting the row text
+    and (b) a sliding window of PG_PROVENANCE_REANCHOR_WINDOW chars stepped by
+    half the window. Both are clamped to PG_PROVENANCE_REANCHOR_MAX_CANDIDATES
+    total so there is NO compute blow-up on a large row. Each span is a valid
+    ``0 <= start < end <= len(direct_quote)`` slice, so the reused verifier's
+    span-bounds checks pass naturally.
+
+    I-complete-003 iter-2 (#1189) P2-1:
+      * segmentation does NOT split a decimal number at its period (a period
+        between two digits is a decimal point, not a terminator), so a sentence
+        like ``...reduction of 1.5 percent.`` stays in ONE candidate segment;
+      * the DEGENERATE whole-row sliding-window candidate is SUPPRESSED for rows
+        shorter than the window — re-binding the token to the WHOLE row weakens
+        the claimed citation precision (it is not a tight supporting span). A
+        sentence SEGMENT that legitimately spans the entire row (a single-sentence
+        verbatim lift) is still emitted by branch (a), so genuine recovery on a
+        one-sentence row is preserved.
+    """
+    if not direct_quote:
+        return []
+    n = len(direct_quote)
+    cap = max(1, PG_PROVENANCE_REANCHOR_MAX_CANDIDATES)
+    seen: set[tuple[int, int]] = set()
+    candidates: list[tuple[int, int]] = []
+
+    def _add(start: int, end: int) -> None:
+        start = max(0, start)
+        end = min(n, end)
+        if start >= end:
+            return
+        key = (start, end)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(key)
+
+    # (a) DECIMAL-AWARE sentence-segment candidates: split on sentence
+    # terminators that are NOT decimal points, keeping the trailing terminator
+    # with its segment. Each non-blank segment becomes a candidate span.
+    seg_start = 0
+    for m in _REANCHOR_SENTENCE_TERMINATOR_RE.finditer(direct_quote):
+        if len(candidates) >= cap:
+            return candidates[:cap]
+        seg_end = m.end()  # include the terminator char in the segment
+        if direct_quote[seg_start:seg_end].strip():
+            _add(seg_start, seg_end)
+        seg_start = seg_end
+    # Trailing segment (no terminating punctuation at end of row).
+    if seg_start < n and direct_quote[seg_start:n].strip() and len(candidates) < cap:
+        _add(seg_start, n)
+
+    # (b) Sliding-window candidates (half-window step) over the full row, to
+    # catch support that straddles sentence boundaries. P2-1: SKIP the degenerate
+    # whole-row window — when the window is >= the row length the only candidate
+    # the sliding loop would add is (0, n), a whole-row rebind that weakens
+    # citation precision. Branch (a) already supplies any legitimate full-row
+    # SENTENCE segment, so genuine recovery is unaffected.
+    window = max(1, PG_PROVENANCE_REANCHOR_WINDOW)
+    if window < n:
+        step = max(1, window // 2)
+        pos = 0
+        while pos < n and len(candidates) < cap:
+            _add(pos, pos + window)
+            pos += step
+
+    return candidates[:cap]
+
+
+def _rebind_single_token(sentence: str, evidence_id: str, start: int, end: int) -> str:
+    """Rewrite the sentence's [#ev:...] provenance token(s) to a new
+    (evidence_id, start, end) span. SCOPE (v1, per ledger): single-token
+    re-anchor — every [#ev:...] occurrence is rewritten to the same rescued
+    span. Multi-token sentences with a UNION numeric failure
+    (which-token-to-move combinatorics) are explicitly OUT-OF-SCOPE for v1 and
+    are filtered out by the caller before this is reached."""
+    return _PROVENANCE_TOKEN_RE.sub(
+        f"[#ev:{evidence_id}:{start}-{end}]", sentence,
+    )
+
+
+def _try_reanchor(
+    sentence: str,
+    evidence_pool: dict[str, dict[str, Any]],
+    *,
+    require_number_match: bool,
+    quantified_models: dict[tuple[str, str], Any] | None,
+) -> Optional[SentenceVerification]:
+    """I-complete-003 (#1189) — attempt to RE-ANCHOR a sentence that just
+    FAILED ``verify_sentence_provenance`` on its currently-cited span.
+
+    Returns a RECOVERED ``SentenceVerification`` (token re-bound, is_verified=
+    True) when a candidate span in the relevant row passes the FULL reused
+    gate, else ``None`` (caller keeps the existing drop). NO recursion: this
+    is invoked from the ``strict_verify`` caller loop, and the reused
+    ``verify_sentence_provenance`` is the SAME single acceptance entry point —
+    not re-implemented and not called from inside itself.
+
+    HARD CONSTRAINTS:
+      * accept ONLY under entailment ``enforce`` (the search-for-a-match shape
+        would otherwise launder a drop into a pass under off/warn);
+      * candidates are bounded (<= MAX_CANDIDATES) per row;
+      * v1 scope = single-token (cited) OR uncited verbatim-lift; multi-token
+        union-numeric is out-of-scope (returns None).
+    """
+    # Enforce-only accept gate (faithfulness-critical, mirrors gap-#18 L1407).
+    from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+        _entailment_mode as _emode_reanchor,
+    )
+    if _emode_reanchor() != "enforce":
+        return None
+
+    tokens = parse_provenance_tokens(sentence)
+
+    # ---- Path 1: CITED sentence — re-anchor within its cited row(s) ----
+    if tokens:
+        # v1 scope: a SINGLE [#ev] token. I-complete-003 iter-2 (#1189) P2-2:
+        # the prior `len(distinct_ids) != 1` filter only caught MULTI-ID
+        # sentences, but `_rebind_single_token` rewrites EVERY [#ev] occurrence
+        # to one span — so a sentence with TWO same-id tokens citing DIFFERENT
+        # spans (e.g. [#ev:a:0-10] ... [#ev:a:50-60]) would have BOTH collapsed
+        # onto a single rescued span, silently discarding the second citation.
+        # An explicit single-token guard keeps the v1 scope honest: multi-token
+        # sentences (same-id or multi-id) carry the which-token-to-move union
+        # combinatorics that v1 does NOT handle — leave the existing drop.
+        if len(tokens) != 1:
+            return None
+        distinct_ids = {t.evidence_id for t in tokens}
+        if len(distinct_ids) != 1:
+            return None
+        evidence_id = next(iter(distinct_ids))
+        ev = evidence_pool.get(evidence_id)
+        if ev is None:
+            return None
+        direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+        if not direct_quote:
+            return None
+        _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+        for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+            rebound = _rebind_single_token(
+                sentence, evidence_id, cand_start, cand_end,
+            )
+            # I-complete-003 iter-2 (#1189) P1: the FINAL BOUND SPAN ITSELF must
+            # directly support — allow_local_window_fallback=False forbids a
+            # different in-row window from rescuing this candidate. So a candidate
+            # passes ONLY if its OWN span clears content+numeric AND directly
+            # entails, closing the Codex iter-1 leak.
+            v = verify_sentence_provenance(
+                rebound, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                allow_local_window_fallback=False,
+            )
+            if v.is_verified:
+                _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+                v.soft_warnings = list(v.soft_warnings) + [
+                    f"reanchored:{evidence_id}:{cand_start}-{cand_end}",
+                ]
+                return v
+        return None
+
+    # ---- Path 2: UNCITED sentence — find the pool row that verbatim-grounds it ----
+    # No [#ev] token: search the pool for the row whose direct_quote/text
+    # contains the verbatim (case-insensitive) sentence prose, then re-anchor
+    # within that row. Same full-gate bar applies.
+    bare = _verifier_cleaned_text(sentence).strip()
+    if not bare:
+        return None
+    bare_lower = bare.lower()
+    for evidence_id, ev in evidence_pool.items():
+        if not isinstance(ev, dict):
+            continue
+        direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+        if not direct_quote:
+            continue
+        if bare_lower not in direct_quote.lower():
+            continue
+        _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+        for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+            # Append a fresh token (the sentence had none) and verify.
+            candidate_sentence = (
+                f"{sentence.rstrip()} [#ev:{evidence_id}:{cand_start}-{cand_end}]"
+            )
+            # I-complete-003 iter-2 (#1189) P1: same bound-span-itself-supports
+            # invariant on the uncited path — no in-row window rescue.
+            v = verify_sentence_provenance(
+                candidate_sentence, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                allow_local_window_fallback=False,
+            )
+            if v.is_verified:
+                _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+                _REANCHOR_TELEMETRY["reanchor_uncited_bound"] += 1
+                v.soft_warnings = list(v.soft_warnings) + [
+                    f"reanchored_uncited:{evidence_id}:{cand_start}-{cand_end}",
+                ]
+                return v
+        # Only the first verbatim-containing row is attempted (bounded).
+        return None
+
+    return None
+
 
 def _verification_mode() -> str:
     """Phase 0b (I-meta-005, gap-#18): verification-mode router for the three
@@ -1167,6 +1448,7 @@ def verify_sentence_provenance(
     *,
     require_number_match: bool = True,
     quantified_models: dict[tuple[str, str], Any] | None = None,
+    allow_local_window_fallback: bool = True,
 ) -> SentenceVerification:
     """Verify every provenance token in a sentence.
 
@@ -1182,6 +1464,17 @@ def verify_sentence_provenance(
     ``verify_modeled_atom`` BEFORE the Regime-A machinery below and that result is
     returned. ``quantified_models=None`` (default) skips the router entirely →
     Regime A is byte-identical.
+
+    I-complete-003 iter-2 (#1189) — ``allow_local_window_fallback`` (default
+    True, byte-identical to pre-iter-2). When FALSE, the two gap-#18 LOCAL-WINDOW
+    rescue sites are DISABLED so the sentence passes ONLY if its OWN bound span
+    directly clears the content/numeric floor AND directly entails — no different
+    in-row window may rescue it. This is set FALSE from ``_try_reanchor`` so the
+    re-anchored token's FINAL BOUND SPAN ITSELF DIRECTLY SUPPORTS the claim; the
+    Codex iter-1 P1 leak (a candidate span kept on the back of a DIFFERENT
+    entailing window while the token stays bound to the non-entailing span) is
+    structurally closed. Production strict_verify keeps the default True, so the
+    Phase 0b grounded-prose rescue is unchanged outside the re-anchor accept gate.
     """
     if quantified_models is not None:
         _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
@@ -1400,7 +1693,13 @@ def verify_sentence_provenance(
                 # enforce-entailment + window = clear, deferring to the bind.
                 _vmode_c = _verification_mode()
                 _rescued_c = False
-                if _vmode_c in ("shadow", "enforce"):
+                # I-complete-003 iter-2 (#1189) P1: when allow_local_window_fallback
+                # is False (the re-anchor accept gate), this full-row content-floor
+                # rescue is DISABLED — the bound span's OWN narrow content overlap
+                # must clear the floor, so a different in-row window can never
+                # rescue a non-supporting candidate span. Default True preserves
+                # the Phase 0b grounded-prose rescue byte-for-byte.
+                if allow_local_window_fallback and _vmode_c in ("shadow", "enforce"):
                     from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
                         _entailment_mode as _emode_c,
                     )
@@ -1495,7 +1794,21 @@ def verify_sentence_provenance(
                 # (pre-0b fail-open preserved — filed as a separate gated issue).
                 if verdict == "ENTAILED" and reason.startswith("judge_error:"):
                     judge_error_flag = True
-                if verdict in ("NEUTRAL", "CONTRADICTED"):
+                if verdict in ("NEUTRAL", "CONTRADICTED") and not allow_local_window_fallback:
+                    # I-complete-003 iter-2 (#1189) P1: the re-anchor accept gate
+                    # passes allow_local_window_fallback=False so the BOUND SPAN
+                    # ITSELF must directly entail. A NEUTRAL/CONTRADICTED on the
+                    # narrow bound span fails closed HERE (under enforce) — no
+                    # different in-row window may rescue a non-supporting candidate
+                    # span. Mirrors the existing no-window branch (warn = log-only,
+                    # off = unchanged); the rescue search below is skipped entirely.
+                    if mode == "enforce":
+                        ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+                        failures.append(
+                            f"entailment_failed:{ev_ids}:"
+                            f"verdict={verdict}:reason={reason[:80]}"
+                        )
+                elif verdict in ("NEUTRAL", "CONTRADICTED"):
                     # I-gen-005 Step 1 (Codex iter 1 P1 #3): localize
                     # entailment fallback. Codex iter 1 caught that
                     # passing whole `direct_quote` to the judge is the
@@ -1847,6 +2160,23 @@ def strict_verify(
         if v.is_verified:
             kept.append(v)
         else:
+            # I-complete-003 (#1189): before dropping, try to RE-ANCHOR the
+            # sentence to a different span in its cited row (or, if uncited
+            # but verbatim-grounded, to a pool row). The env gate early-outs
+            # so OFF-mode is BYTE-IDENTICAL (no _try_reanchor call, no judge
+            # call, no counter mutation). A rescued result has already passed
+            # the SAME full gate, so no fabrication path is introduced; it
+            # flows through the SAME downstream (kept[]) as a normally-verified
+            # sentence.
+            if _provenance_reanchor_enabled():
+                rescued = _try_reanchor(
+                    s, evidence_pool,
+                    require_number_match=require_number_match,
+                    quantified_models=quantified_models,
+                )
+                if rescued is not None:
+                    kept.append(rescued)
+                    continue
             dropped.append(v)
 
     # Limitations: telemetry-grounded verification if block supplied,

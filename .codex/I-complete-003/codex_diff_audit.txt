@@ -1,0 +1,9 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/generator/provenance_generator.py:976: continuing P2-1 edge: `(?<!\\d)[.](?!\\d)|[!?]` does not split sentence-ending periods immediately after digits, e.g. `Value was 1.5. Next sentence.` or `Value was 15. Next sentence.` become one candidate. That violates the stated 'period NOT flanked by digits remain terminators' condition and can weaken citation precision, but accepted re-anchor spans still verify as their own bound candidates, so this is not P1."
+  - "Non-default surface: `_try_reanchor` passes through `require_number_match`; if a caller uses `strict_verify(..., require_number_match=False)`, the verifier skips the numeric/content/trial/entailment block, so the full-gate guarantee is not enforced for that call mode. I found no production call setting it false, and the default strict path is closed, so this is P2."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
