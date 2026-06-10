@@ -15,6 +15,11 @@ import os
 import re
 from typing import Optional
 
+from src.polaris_graph.tools.numeric_sanitizer import (
+    is_structural_identifier_number,
+    numeric_sanitizer_enabled,
+)
+
 logger = logging.getLogger("polaris_graph")
 
 _MAX_EVIDENCE = int(os.getenv("PG_EXTRACT_MAX_EVIDENCE", "500"))
@@ -102,6 +107,8 @@ def extract_numbers_from_evidence(
     """
     data_points = []
     processed = 0
+    # I-perm-007 (#1201): read the sanitizer flag ONCE (default OFF -> byte-identical).
+    _sanitize_numbers = numeric_sanitizer_enabled()
 
     for ev_id, ev in evidence_store.items():
         if processed >= max_evidence:
@@ -138,6 +145,15 @@ def extract_numbers_from_evidence(
 
                 value = _clean_number(value_str)
                 if value is None:
+                    continue
+
+                # I-perm-007 (#1201): drop a number EMBEDDED in a structural identifier
+                # (DOI/URL/accession) — cruft parsed as clinical data (e.g. the DOI prefix
+                # `10.1038` extracted as a percent). Default OFF -> byte-identical; keeps a clean
+                # number that merely has a trailing citation URL in a later token.
+                if _sanitize_numbers and is_structural_identifier_number(
+                    text_to_scan, match.start(), match.end()
+                ):
                     continue
 
                 # Handle multipliers
