@@ -96,6 +96,11 @@ _PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
 # Rendered numbered citation marker: [1], [12]. The final report converts each provenance
 # token into one of these, so the stem matcher must ignore them on BOTH sides.
 _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+# I-perm-005 (#1199): the annotator's appended confidence label. Stripped in the stem so an
+# already-annotated sentence still matches its claim stem at the coverage floor (annotate is
+# idempotent). The redactor never sees this marker (annotate XOR reconcile per PG_ALWAYS_RELEASE),
+# so stripping it is a no-op on the redaction path.
+_CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -146,7 +151,10 @@ class RedactionResult:
 
 
 def _prose_stem(text: str) -> str:
-    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose."""
+    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose.
+
+    (The annotator's confidence marker is stripped LOCALLY in the annotator path only — never here —
+    so the shared redaction normalization is byte-unchanged; Codex slice-2 P0-2.)"""
     text = _PROVENANCE_TOKEN_RE.sub("", text)
     text = _NUMBERED_MARKER_RE.sub("", text)
     return text
@@ -508,3 +516,162 @@ def _minimal_consecutive_span_set(
             if stem_norm in _normalize(seg):
                 return (lo, hi)
     return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I-perm-005 (#1199) — ANNOTATE (keep + label), the always-release sibling of REDACT
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class AnnotatedClaim:
+    """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
+
+    claim_id: str
+    severity: str
+    verdict: str
+    marker: str
+
+
+@dataclass
+class AnnotationResult:
+    """Outcome of annotating report.md against the 4-role verdicts (keep + label)."""
+
+    report_text: str
+    annotated: list["AnnotatedClaim"] = field(default_factory=list)
+    already_absent: list[str] = field(default_factory=list)
+
+    @property
+    def annotated_count(self) -> int:
+        return len(self.annotated)
+
+
+def _claim_fully_pinnable(working: str, stem_norm: str) -> bool:
+    """True iff EVERY occurrence of ``stem_norm`` is a clean TIER-1 single-sentence span the annotator
+    can label — checked on the MARKER-STRIPPED text using the REDACTOR's own TIER-1 locate.
+
+    Completeness guard for the annotator (Codex slice-2 P0-1/P0-2 + iter-2): the appended confidence
+    marker (no terminator) can ALTER ``_sentence_spans`` segmentation, so any post-marker scan is
+    unreliable. Instead this strips ALL confidence markers FIRST (clean segmentation, immune to the
+    marker even across claims; LOCAL strip — shared `_prose_stem` untouched), then runs the exact
+    same TIER-1 removal the redactor uses (``_redact_sentence``): if removing every TIER-1-pinnable
+    occurrence leaves the stem STILL present in the line-join projection, a non-TIER-1 occurrence
+    (a boundary-straddle / under-split) remains that the per-line annotator CANNOT cleanly label ->
+    fail closed. This is the SAME notion of "pinnable" the annotate pass acts on.
+    """
+    stripped = _CONFIDENCE_MARKER_RE.sub("", working)
+    _removed, after = _redact_sentence(stripped, stem_norm)
+    return not _prose_present(after, stem_norm)
+
+
+def annotate_report_against_verdicts(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+    marker_by_claim: dict[str, str],
+) -> AnnotationResult:
+    """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
+
+    The always-release (I-perm-001) counterpart of ``reconcile_report_against_verdicts``: under the
+    reframe a non-VERIFIED claim is shown LABELED (user judges) instead of DELETED. Severity-
+    independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
+    computed from ``claim_labeler`` (a non-VERIFIED claim is always low / no-source-found — never
+    high). A non-VERIFIED claim with no marker falls back to a generic low marker (never silently
+    unlabeled).
+
+    Single-pass per claim (appending a marker does not remove the stem, so there is no
+    multi-occurrence loop): every matching sentence span across the body is labeled exactly once.
+
+    Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
+    PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
+    never ship a non-VERIFIED claim as bare unlabeled prose.
+    """
+    # IDEMPOTENCE (Codex slice-2 iter-4 P1): strip any PRE-EXISTING confidence markers up front so a
+    # re-run over already-annotated output segments cleanly (the no-terminator marker would otherwise
+    # collapse two same-line sentences into one span). Markers are deterministic, so stripping then
+    # re-labeling reproduces them exactly; a fresh report has none, so this is a byte no-op there.
+    report_text = _CONFIDENCE_MARKER_RE.sub("", report_text)
+
+    # Collect every non-VERIFIED claim (validate + pinnability), THEN label in a SINGLE pass over the
+    # ORIGINAL report (Codex slice-2 iter-3 P0): sequentially mutating `working` per claim let claim
+    # A's appended marker (no terminator) perturb claim B's same-line segmentation, leaking B
+    # unlabeled. Computing all sentence spans ONCE off the unmutated text removes that coupling.
+    claims: list[tuple[str, str, str, str, str]] = []  # (claim_id, verdict, severity, stem, marker)
+    already_absent: list[str] = []
+    for claim_id, verdict in sorted(final_verdicts.items()):
+        if verdict == _VERDICT_VERIFIED:
+            continue
+        meta = audit_map.get(claim_id)
+        if meta is None:
+            raise ReportRedactionError(
+                f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+                "cannot locate its sentence to annotate (fail-closed)."
+            )
+        severity = str(meta.get("severity", ""))
+        stem_norm = _normalize(str(meta.get("sentence", "")))
+        if not stem_norm:
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+                "cannot annotate (fail-closed)."
+            )
+        if not _prose_present(report_text, stem_norm):
+            already_absent.append(claim_id)  # downstream dedup removed it; nothing to label
+            continue
+        # COMPLETENESS: every occurrence must be a clean TIER-1 single sentence (checked on the
+        # marker-stripped text via the redactor's TIER-1 — immune to the marker). A straddle /
+        # under-split occurrence the per-line pass cannot pin -> fail closed (never ship unlabeled).
+        if not _claim_fully_pinnable(report_text, stem_norm):
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md but at least "
+                "one occurrence could not be pinned to a discrete sentence to annotate (fail-closed)."
+            )
+        marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+        claims.append((claim_id, verdict, severity, stem_norm, marker))
+
+    # SINGLE labeling pass: spans come from the ORIGINAL line (never a marker-mutated one), so two
+    # same-line claims each get their own marker. Each sentence is matched marker-stripped (idempotent)
+    # and labeled once with the FIRST claim it matches.
+    labeled: set[str] = set()
+    new_lines: list[str] = []
+    for line in report_text.split("\n"):
+        if not _is_redactable_body_line(line):
+            new_lines.append(line)
+            continue
+        out: list[str] = []
+        cursor = 0
+        for (start, end) in _sentence_spans(line):
+            out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+            sentence = line[start:end]
+            stripped_sentence = _CONFIDENCE_MARKER_RE.sub("", sentence)
+            chosen: tuple[str, str] | None = None
+            for claim_id, _v, _s, stem_norm, marker in claims:
+                if _sentence_matches_stem(stripped_sentence, stem_norm):
+                    chosen = (claim_id, marker)
+                    break
+            if chosen is None:
+                out.append(sentence)  # byte-identical — VERIFIED / unrelated sentence
+            else:
+                claim_id, marker = chosen
+                labeled.add(claim_id)
+                out.append(sentence if marker in sentence else f"{sentence} {marker}")
+            cursor = end
+        out.append(line[cursor:])
+        new_lines.append("".join(out))
+    working = "\n".join(new_lines)
+
+    # Defensive: a collected (present + pinnable) claim MUST have been labeled in the pass.
+    annotated: list[AnnotatedClaim] = []
+    for claim_id, verdict, severity, _stem, marker in claims:
+        if claim_id not in labeled:
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) was pinnable but no sentence matched it in "
+                "the labeling pass (fail-closed)."
+            )
+        annotated.append(
+            AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+        )
+
+    return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+
+
+# A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
+# (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
+_DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
