@@ -1,0 +1,106 @@
+{
+  "_meta": {
+    "issue": "I-faith-006 (#1180) — specific->general widening judge-prompt bakeoff",
+    "purpose": "§-1.1 ground-truth labeled set for the entailment-judge widening bakeoff. Each row is a (span, sentence, gold) triple. gold=NEUTRAL means the SENTENCE generalizes a SPECIFIC entity/strain/subgroup/population/mechanism in the SPAN to a BROADER class (specific->general = NOT entailed). gold=ENTAILED rows are STRAIN/SCOPE-PRESERVING true positives that a widening-aware prompt MUST NOT start false-dropping. gold=CONTRADICTED rows are sanity anchors. The bakeoff picks the candidate prompt that maximizes balanced accuracy (NEUTRAL recall on widening WITHOUT regressing ENTAILED precision).",
+    "scoring": "Per candidate prompt, run the real entailment judge over every row; report confusion matrix + widening_neutral_recall (recall on gold=NEUTRAL widening rows) and entailed_precision (fraction of gold=ENTAILED rows kept ENTAILED). Winner = max widening_neutral_recall subject to entailed_precision >= 0.95 (no faithfulness regression on legitimate support).",
+    "banned": "This is NOT a metadata/pattern audit — each row is a real claim-vs-span entailment judgment graded against the clinical-faithfulness ground truth (§-1.1)."
+  },
+  "rows": [
+    {
+      "id": "F02_drb76_strain_to_class",
+      "category": "entity_strain_widening",
+      "span": "Saccharomyces cerevisiae var. boulardii probiotics are not recommended for patients who are immunocompromised, critically ill, or have indwelling catheters.",
+      "sentence": "Current evidence advises against routine probiotic use.",
+      "gold": "NEUTRAL",
+      "rationale": "The span warns about ONE specific strain (S. boulardii) in SPECIFIC at-risk populations; the sentence widens to ALL probiotics for the GENERAL population. Specific->general; not entailed (the drb_76 BB5-F02 case)."
+    },
+    {
+      "id": "F02_strain_preserving_positive",
+      "category": "entity_strain_preserving",
+      "span": "Saccharomyces cerevisiae var. boulardii probiotics are not recommended for patients who are immunocompromised.",
+      "sentence": "S. boulardii probiotics are not recommended for immunocompromised patients.",
+      "gold": "ENTAILED",
+      "rationale": "Same strain, same population — a conservative paraphrase. MUST stay ENTAILED (a widening-aware prompt must not false-drop strain-preserving support)."
+    },
+    {
+      "id": "drug_class_to_member",
+      "category": "entity_class_to_member",
+      "span": "GLP-1 receptor agonists reduced HbA1c across the pooled trials.",
+      "sentence": "Semaglutide reduced HbA1c across the pooled trials.",
+      "gold": "NEUTRAL",
+      "rationale": "Span names the class (GLP-1 RAs); sentence narrows to a specific member (semaglutide). This is the existing _ENTAILMENT_PROMPT exemplar — kept so the bakeoff never regresses it. (Direction is member-vs-class; not entailed.)"
+    },
+    {
+      "id": "class_preserving_positive",
+      "category": "entity_class_preserving",
+      "span": "GLP-1 receptor agonists reduced HbA1c by about 1.0 percent across the pooled trials.",
+      "sentence": "GLP-1 receptor agonists lowered HbA1c by roughly 1 percent in the pooled analysis.",
+      "gold": "ENTAILED",
+      "rationale": "Same class, same magnitude, conservative paraphrase. MUST stay ENTAILED."
+    },
+    {
+      "id": "subgroup_to_overall",
+      "category": "population_subgroup_widening",
+      "span": "In adults aged 65 and older, the vaccine reduced hospitalization by 40 percent.",
+      "sentence": "The vaccine reduced hospitalization by 40 percent in adults.",
+      "gold": "NEUTRAL",
+      "rationale": "Span result is restricted to the 65+ subgroup; sentence generalizes to ALL adults. Subgroup->overall population widening; not entailed."
+    },
+    {
+      "id": "subgroup_preserving_positive",
+      "category": "population_subgroup_preserving",
+      "span": "In adults aged 65 and older, the vaccine reduced hospitalization by 40 percent.",
+      "sentence": "Among adults 65 and older, hospitalization fell by 40 percent with the vaccine.",
+      "gold": "ENTAILED",
+      "rationale": "Same subgroup, same effect, paraphrase. MUST stay ENTAILED."
+    },
+    {
+      "id": "indication_widening",
+      "category": "indication_widening",
+      "span": "Drug X is approved for moderate-to-severe plaque psoriasis.",
+      "sentence": "Drug X is effective for psoriasis.",
+      "gold": "NEUTRAL",
+      "rationale": "Span is the specific approved indication (moderate-to-severe plaque); sentence widens to all psoriasis and asserts effectiveness. Indication/severity widening; not entailed."
+    },
+    {
+      "id": "mechanism_widening",
+      "category": "mechanism_widening",
+      "span": "The compound inhibits adipocyte lipogenesis in vitro.",
+      "sentence": "The compound regulates systemic lipid metabolism.",
+      "gold": "NEUTRAL",
+      "rationale": "Span is a narrow in-vitro mechanism in adipocytes; sentence widens to systemic lipid metabolism. Mechanism granularity widening; not entailed."
+    },
+    {
+      "id": "setting_widening",
+      "category": "setting_widening",
+      "span": "In a single-center retrospective cohort, the protocol shortened ICU stay by one day.",
+      "sentence": "The protocol shortens ICU stay across hospitals.",
+      "gold": "NEUTRAL",
+      "rationale": "Span is one center, retrospective; sentence generalizes to all hospitals. Setting/generalizability widening; not entailed."
+    },
+    {
+      "id": "conservative_paraphrase_positive",
+      "category": "paraphrase_preserving",
+      "span": "Metformin was associated with a 0.8 percent reduction in HbA1c over 24 weeks.",
+      "sentence": "Over 24 weeks, metformin lowered HbA1c by 0.8 percent.",
+      "gold": "ENTAILED",
+      "rationale": "Identical scope + magnitude, voice change only. MUST stay ENTAILED (anchors that the widening clause does not over-trigger on plain paraphrase)."
+    },
+    {
+      "id": "numeric_preserving_positive",
+      "category": "numeric_preserving",
+      "span": "The hazard ratio for cardiovascular death was 0.85 (95% CI 0.74-0.98).",
+      "sentence": "The hazard ratio for cardiovascular death was 0.85.",
+      "gold": "ENTAILED",
+      "rationale": "Sentence is a faithful subset of the span's reported statistic. MUST stay ENTAILED (dropping a CI is not a widening; it is a conservative restatement)."
+    },
+    {
+      "id": "contradiction_anchor",
+      "category": "contradiction",
+      "span": "The trial found no significant difference in mortality between arms.",
+      "sentence": "The trial showed a significant mortality benefit.",
+      "gold": "CONTRADICTED",
+      "rationale": "Direct contradiction sanity anchor — the widening clause must not turn a CONTRADICTED into NEUTRAL/ENTAILED."
+    }
+  ]
+}

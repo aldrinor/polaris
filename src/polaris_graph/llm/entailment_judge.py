@@ -116,6 +116,24 @@ SENTENCE:
 JSON:"""
 
 
+def _select_entailment_prompt() -> str:
+    """I-faith-006 (#1180): return the active entailment-prompt template.
+
+    Default (``PG_ENTAILMENT_PROMPT_VARIANT`` unset/"baseline"/unknown) -> the canonical
+    ``_ENTAILMENT_PROMPT`` above, BYTE-IDENTICAL to pre-#1180. A widening-aware candidate
+    ("widen_a"/"widen_b"/"widen_c") is returned ONLY when explicitly selected — the bakeoff
+    (`scripts/dr_benchmark/widening_prompt_bakeoff.py`) scores the candidates against the labeled set
+    and the empirical winner is wired by setting this env in the run slate. Read at call time so the
+    bakeoff/tests can switch variants without re-import."""
+    variant = os.environ.get("PG_ENTAILMENT_PROMPT_VARIANT", "baseline").strip().lower()
+    if variant in ("", "baseline"):
+        return _ENTAILMENT_PROMPT
+    # Lazy import keeps this leaf module free of the candidates dependency in the default path.
+    from src.polaris_graph.llm.widening_prompt_candidates import WIDENING_VARIANTS  # noqa: PLC0415
+
+    return WIDENING_VARIANTS.get(variant, _ENTAILMENT_PROMPT)
+
+
 class _EntailmentJudge:
     """Synchronous httpx wrapper around an OpenRouter entailment call.
 
@@ -186,7 +204,7 @@ class _EntailmentJudge:
         sweep cleanly instead of being masked as a transient judge error
         or being retried.
         """
-        prompt = _ENTAILMENT_PROMPT.format(span=span, sentence=sentence)
+        prompt = _select_entailment_prompt().format(span=span, sentence=sentence)
         started = time.monotonic()
         # I-bug-946 (#932): when Path-B gate is active, force singleton provider routing in
         # the request body to match the resolved-at-preflight per-role provider. Without this,
