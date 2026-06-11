@@ -1,0 +1,260 @@
+diff --git a/.claude/hooks/ultimate_goal_stop_reminder.py b/.claude/hooks/ultimate_goal_stop_reminder.py
+index d1f6887d..2908f88f 100644
+--- a/.claude/hooks/ultimate_goal_stop_reminder.py
++++ b/.claude/hooks/ultimate_goal_stop_reminder.py
+@@ -36,6 +36,11 @@ import os
+ import sys
+ from pathlib import Path
+ 
++# ── DISABLED 2026-06-08 at operator request ("kill that stupid stop hook"). The hook was over-firing
++# during a legitimate live-run wait. Registration ALSO removed from .claude/settings.local.json.
++# To re-enable: delete this sys.exit(0) line AND restore the Stop hook in settings.local.json.
++sys.exit(0)
++
+ # --- CWD / project guard: only act inside the POLARIS tree. ------------------ #
+ POLARIS_ROOT = Path(__file__).resolve().parents[2]
+ STATUS_FILE = POLARIS_ROOT / "state" / "beat_both_status.json"
+diff --git a/.gitignore b/.gitignore
+index 0b1b8a76..434b160e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -272,3 +272,6 @@ outputs/codex_findings/round_*/last_message.txt
+ # I-meta-001 (#933) Step 12: drift reports must stay tracked for audit history.
+ !state/drift_reports/
+ !state/drift_reports/**
++
++# Legal/business NDA drafts — local only, never push (company + director details)
++nda/
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index de2a9182..cbf0ad7f 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -86,6 +86,53 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+ )
+ 
++# I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
++#
++# WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
++# takes the legacy `_call_outline` branch, which serialized EVERY row of the ~544-row
++# evidence pool into the outline prompt (one ~100-300-char summary block per row). The
++# generator (deepseek-v4-pro) is reasoning-first: the larger serialized input induced a
++# longer reasoning stream that consumed the WHOLE 16384-token completion ceiling
++# (PG_REASONING_FIRST_HARD_CAP on the default provider) on reasoning, emitting ZERO content
++# -> finish_reason=length -> the FX-01/SF-15 guard correctly raised
++# ReasoningFirstTruncationError rather than ship the scratchpad as VERIFIED prose. This is
++# the OUTLINE-level analog of the M-24 per-section >100K-token bug, which was fixed at the
++# SECTION level by PG_MAX_EV_PER_SECTION but never applied to the OUTLINE prompt.
++#
++# THE CAP IS MENU-ONLY: only the rows SERIALIZED into the outline prompt are bounded. The
++# evidence pool is deterministically priority/tier/relevance-ORDERED before it reaches the
++# outline (evidence_selector relevance-floor + Gate-B tier-balanced selection), so a top-N
++# slice keeps exactly the rows the sections prioritize and drops only the low-relevance tail
++# that no section would cite. `allowed_ev_ids` validation, full-text resolution
++# (evidence_pool[ev_id]), the deterministic fallback, the M-44/M-52 primary-anchor
++# injection, and the per-section PG_MAX_EV_PER_SECTION selection ALL stay on the FULL pool.
++# Faithfulness gates (strict_verify / NLI / 4-role) are downstream of full-pool text
++# resolution and are untouched.
++#
++# DEFAULT 150 is COVERAGE-FAVORING: sized ABOVE the realized OFF-mode section demand
++# (~120 ev_ids = 5-6 sections x 12-20 each) so the planner still sees every row a section
++# would pick — that is what keeps per-section selection effectively unchanged in OFF mode
++# (where the section ev_ids ARE the outline LLM's picks from this menu). On the LARGE-pool
++# branch the per-row digest is also TERSED (ev_id + tier + title only; the 160-char
++# statement is dropped) because the outline only PLANS section structure, so the statement
++# text is not needed there; tersing roughly halves per-row chars, widening reasoning
++# headroom at the same N. Env-tunable; read at CALL time (not import) so the cap and digest
++# are tunable per-run and unit-testable.
++#
++# HONEST SCOPE / SIZING CAVEAT: the two bounds do NOT yet provably coincide at 150.
++#   * coverage LOWER bound: N >= ~120 (section demand) — 150 clears this with headroom.
++#   * truncation UPPER bound: argued from a SINGLE known-good datapoint (53 VERBOSE rows
++#     worked pre-a030b024 ~= 13K menu chars; 544 verbose failed). 150 TERSE rows ~= 16-17K
++#     menu chars — i.e. ~20-25% LARGER than the only known-good input, NOT demonstrably
++#     within it. So 150 is chosen for coverage, and the truncation fit is a HYPOTHESIS that
++#     a live V4 Pro 1-query canary must confirm; it is NOT proven by this offline diff.
++#   * If the canary truncates at 150, the documented levers (in priority order) are: lower
++#     PG_OUTLINE_MAX_EV toward ~120 (where the two bounds nearly coincide), then the Novita
++#     no-row-cut route (raise PG_REASONING_FIRST_HARD_CAP to 32000 + pin
++#     OPENROUTER_PROVIDER_ORDER=novita), which is the separate I-provider-001 env/provider
++#     lever, NOT this code change.
++PG_OUTLINE_MAX_EV_DEFAULT: str = "150"
++
+ 
+ # Allowed section labels. The outline call is constrained to pick from
+ # this list; prevents the model from inventing off-topic section titles.
+@@ -993,30 +1040,79 @@ async def _call_outline(
+     # LLM literally didn't see it. Title is now included (truncated to
+     # 120 chars) so trigger-vocabulary rules can match against title
+     # text. Minor increase in prompt size (~60 extra chars per row).
+-    summary_blocks = []
+-    for ev in evidence:
+-        ev_id = ev.get("evidence_id", "")
+-        title = (ev.get("title", "") or "")[:120]
+-        stmt = (ev.get("statement", "") or "")[:160]
+-        tier = ev.get("tier", "")
+-        # Sanitize via the provenance sanitizer (both title and stmt).
+-        title_clean, _ = sanitize_evidence_text(title)
+-        stmt_clean, _ = sanitize_evidence_text(stmt)
+-        if title_clean:
+-            summary_blocks.append(
+-                f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+-            )
+-        else:
+-            summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+-    summary_text = "\n".join(summary_blocks)
+-
+-    prompt = (
+-        f"Research question: {research_question}\n\n"
+-        f"Evidence summaries ({len(evidence)} rows):\n"
+-        f"{summary_text}\n\n"
+-        f"Return the JSON section plan."
+-    )
++    # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap. Read at CALL time (not an
++    # import-time constant) so the cap + digest mode are tunable per-run and unit-testable
++    # via monkeypatch. `outline_max_ev` bounds ONLY the rows serialized into the outline
++    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
++    # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
++    try:
++        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
++    except (TypeError, ValueError):
++        _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
++    if _outline_max_ev <= 0:
++        # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
++        _outline_max_ev = len(evidence)
++
++    if len(evidence) <= _outline_max_ev:
++        # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
++        # that the outline never truncated before, so this branch is left exactly as it was
++        # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
++        summary_blocks = []
++        for ev in evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            stmt = (ev.get("statement", "") or "")[:160]
++            tier = ev.get("tier", "")
++            # Sanitize via the provenance sanitizer (both title and stmt).
++            title_clean, _ = sanitize_evidence_text(title)
++            stmt_clean, _ = sanitize_evidence_text(stmt)
++            if title_clean:
++                summary_blocks.append(
++                    f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
++                )
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
++    else:
++        # LARGE-POOL PATH — bound the OUTLINE menu to the top-N highest-priority rows AND
++        # terse each digest (ev_id + tier + title only; DROP the 160-char statement). The
++        # pool is deterministically priority/tier/relevance-ORDERED upstream, so [:N] keeps
++        # exactly the rows sections prioritize and drops only the low-relevance tail. The
++        # statement text is unnecessary here because the outline only PLANS section
++        # structure; dropping it widens reasoning headroom at the same N, which is what
++        # prevents the reasoning-first writer from spending the whole completion ceiling on
++        # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
++        outline_evidence = evidence[:_outline_max_ev]
++        summary_blocks = []
++        for ev in outline_evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            tier = ev.get("tier", "")
++            title_clean, _ = sanitize_evidence_text(title)
++            if title_clean:
++                summary_blocks.append(f"{ev_id} [{tier}] | title: {title_clean}")
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(outline_evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
+ 
++    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
++    # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
++    # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
++    # the validation/resolution surface.
+     allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+     allowed_ev_ids.discard("")
+ 
+diff --git a/state/active_fix_campaign.json b/state/active_fix_campaign.json
+index 10a0a0f8..23ee7556 100644
+--- a/state/active_fix_campaign.json
++++ b/state/active_fix_campaign.json
+@@ -92,6 +92,8 @@
+     ],
+     "review_discipline": "operator: read every line + monitor ~10min; each agent diff reviewed line-by-line + Codex-gated; Codex gate caught the unobserved-LLM-call, masked-budget, and preflight self-host bugs"
+   },
++  "spend_authorized_2026_06_10": "OPERATOR AUTHORIZED SPEND for the #1204 funnel-fix campaign + beat-both run: 'money is not the issue, time is \u2014 use money to chase back lost time, execute via claude codex workflows, give me results.' Claude MAY set PG_AUTHORIZED_SWEEP_APPROVAL on the OVH VM for THESE runs (overrides the operator-sets-token default for this campaign), announce each paid launch (operator blind), per-run cost cap stated. CARE binding: runs INSTRUMENTED + \u00a7-1.1 audited, faithfulness gates never relaxed. DONE so far: Task 2a telemetry committed 3cb0aae7 (Codex APPROVE iter2). NEXT: rejected-sample instrumentation + SOTA prefetch-encoder research (offline, workflow) -> deploy branch to VM -> instrumented beat-both run -> \u00a7-1.1 audit + filter judgment -> fix + deliver.",
+   "resumed_2026_06_10_funnel_first": "OPERATOR RE-DIRECTED execution: source-funnel-first plan #1204. The 9-issue release LOGIC is done+Codex-approved, but the source-QUANTITY layer was unmeasured (cap 20->150->now 1500; per-section 40 = stale OpenRouter guard; dominant ~90% loss is UPSTREAM at extraction not the cap \u2014 drb_76 manifest: ~500 fetched -> 46 evidence rows, cap never engaged). 3 tasks via Claude Codex Workflow, VM, real-time monitored: (1) funnel trace offline, (2) fix dominant stage + bake-off the guessed caps, (3) paid VM run + \u00a7-1.1 audit. Spend boundary: operator sets PG_AUTHORIZED_SWEEP_APPROVAL; Claude does NOT. DONE: PG_LIVE_MAX_EV_TO_GEN 150->1500 + preflight floor 1500 + 3 test fixtures (run_gate_b.py, committed). LESSON: briefs asserted quantities never measured; Codex verifies diff-vs-brief, cannot catch a wrong-number/wrong-stage brief \u2014 measure funnel FIRST then brief.",
+-  "program": "I-perm-000 #1194: 9 issues #1195-1203; reframe withhold->always-release+label; research->line-by-line->migrate->stress-smoke->Codex; then preflight; then operator go for full run"
++  "program": "I-perm-000 #1194: 9 issues #1195-1203; reframe withhold->always-release+label; research->line-by-line->migrate->stress-smoke->Codex; then preflight; then operator go for full run",
++  "overnight_loop_2026_06_11": "Operator asleep, authorized autonomous loop: iterate drb_76 fix->run->\u00a7-1.1 audit until LARGE faithful citation pool + report releases, THEN 4 questions parallel, audit+beat-both, DONE. Ledger state/overnight_starvation_loop.json; #1205. Run-1 (drb_76) = FAITHFUL (dual \u00a7-1.1 APPROVE, 0 fabrication) but SOURCE-STARVED (53 of 2689; rerank cull dropped 1949 = operator-flagged 'crime' + 524->58 evidence collapse). Faithfulness engine PROVEN live (released_with_disclosed_gaps, always-release + labels work)."
+ }
+\ No newline at end of file
+diff --git a/state/polaris_restart/iteration_trajectory.md b/state/polaris_restart/iteration_trajectory.md
+index 7e626562..efe2d8b6 100644
+--- a/state/polaris_restart/iteration_trajectory.md
++++ b/state/polaris_restart/iteration_trajectory.md
+@@ -1470,3 +1470,52 @@ Consulting Codex (full detail) on A-vs-B + completeness of the tag-site list bef
+ - iter 2: REQUEST_CHANGES — ZERO P0, 1 P1 (continuing A3 residual): SPACED comparators ("p < 0.001") still unbound. A3-substring/sign + A4 + A6 all confirmed RESOLVED (exact-token-set matcher mirroring strict_verify._decimals; faithful _content_requirements_satisfied reuse — honest finding that the naive contraindications credit does NOT clear the hold because claims lack literal "contraindicated"; fail-loud AuditPackMissingClaimsError). subagent_tokens≈56.6k.
+ - iter 3: submitted — spaced-comparator bound (`_COMPARATOR` += `\s?`); 4 new spaced regression cases PASS; drb_76 still 0 findings; suite 20 passed / 1 xfailed. (pending verdict)
+ - KEY EMPIRICAL WIN (operator "verify before fixing"): the KF ordering LEAK is already closed by the post-D8 redactor (0/14 non-VERIFIED stems in KF); I-perm-008's real scope = KF carry-up cruft (header+stub) + preamble overclaim + "curator" wording + verdict-filter KF for the always-release reframe (captured `.codex/I-perm-008/empirical_finding.md`).
++
++## I-perm-002 (#1196) diff gate — Codex APPROVE iter 4 (2026-06-10)
++- iter1 REQUEST_CHANGES: P0 contiguous-negation list missed interposed qualifiers ("no known contraindications", "not generally contraindicated", "need not be contraindicated", "not recommended against"); P2 whole-claim "are safe" under-credited a contrastive warning. (72k tok)
++- iter2 REQUEST_CHANGES: P0-1/P2-1 confirmed resolved; NEW P0 contraction negations ("aren't contraindicated", "haven't been established"). (118k tok)
++- iter3 REQUEST_CHANGES: P0-2 confirmed resolved; NEW P0 "recommend against" interposed beyond the fixed 16-char window; P2 plural "contraindications" token not relaxed. (132k tok)
++- iter4 APPROVE: zero P0/P1/P2, accept_remaining. (94k tok)
++- Fix arc: brittle contiguous list -> windowed pre/post stem-negation regex -> contraction+curly-apostrophe normalization -> whole-tail "against" scan for the recommend family + plural concept token. Every Codex finding was a real §-1.1-lethal over-credit; each fixed structurally, not by phrase whack-a-mole. drb_76 flips released_insufficient_safety_evidence -> released_with_disclosed_gaps without fabricating. 101 tests green.
++
++## I-perm-004 (#1198) — Verification recovery + label-not-delete (sliced)
++- Grounded on saved drb_76: 40 verified / 41 dropped of 81; 29 entailment_failed with in-row support (the recoverable class). Existing _try_reanchor accepted FIRST passing candidate -> rebound to the row TITLE.
++- slice 1 (span_resolver keystone, pure): classify_span boilerplate classifier + resolve_best_entailing_span argmax. Codex APPROVE iter2 (zero P0/P1; 3 P2 nav-classifier fixed). commit fb53fe80.
++- slice 2 (wire argmax into cited _try_reanchor Path 1, PG_SPAN_RESOLVER default OFF): judge = the full gate (verify_sentence_provenance allow_local_window_fallback=False); argmax only chooses among gate-passers -> no laundering; OFF byte-identical. Codex APPROVE iter1 (zero P0/P1/P2, no-laundering confirmed structurally). commit 2ea4fc11. 23 tests green incl. argmax-beats-first-passing behavioral.
++- REMAINING slices: gap-#18 ACCEPT path re-point (pass-without-repoint -> resolver re-point) + uncited Path 2; #1180 widening prompt + labeled bakeoff; then per-claim confidence surfacing (overlaps I-perm-005).
++
++## I-perm-004 (#1198) slice 3 — gap-#18 ACCEPT-path token re-point — Codex APPROVE iter1
++- When the bounded local-window rescue accepts a claim whose narrow span did not directly entail, RE-POINT the [#ev] token to the rescue window (the genuinely-entailing span) instead of shipping the original mis-pointed span (idx-9 "bound to a badge span" bug). PG_SPAN_RESOLVER-gated (OFF byte-identical), single-token, applied at return only when is_verified -> never a new pass. commit 2e555f2e.
++- Codex confirmed C1 (re-point never changes is_verified) + C2 (OFF byte-identical) structurally; no laundering / non-entailed re-point path. 3 new re-point + 62 faithfulness-suite tests green.
++
++## I-perm-004 slice4 (#1180 widening bakeoff substrate) — Codex APPROVE iter2 (8b4e5090)
++- iter1 REQUEST_CHANGES: P1 pick_winner ignored the CONTRADICTED anchor (a variant could accept a direct contradiction and still win); P2 validate_variants didn't enforce both placeholders. (labeled set confirmed good, no gold label changed)
++- iter2 APPROVE: contradiction_accepted gate makes any contradiction-accepting variant ineligible (fail-safe to baseline); validator proves both {span}/{sentence}. 10 substrate tests green. Empirical winner-pick is spend-gated (runs with the operator-authorized beat-both step).
++
++## I-perm-005 slice1 (claim_labeler keystone) — Codex APPROVE iter1 (a0bd8098)
++- pure Decision-B confidence_bucket (4 buckets; reuses disclosure thresholds, non-verified never high) + marker. P2 test-fixture env-leak fixed (monkeypatch.delenv). 6 tests green.
++
++## I-perm-006 slice1 (kill phantom d8_pending_rewrite) — Codex APPROVE iter1 (4e4ff701)
++- gate the d8_pending_rewrite held_reason append behind `not always_release_enabled()`; phantom block (rewrite never executes) removed under always-release, needs_rewrite stays pure reporting, FABRICATED/coverage blocks intact. OFF byte-identical (44 release_policy/replay tests). 2 tests green. Param-threading cleanup + tighter_retry flag = follow-up.
++
++## I-perm-005 slice2 (annotate_report_against_verdicts — keep+label) — Codex APPROVE iter5 (884e77b3)
++- the always-release verb: a non-VERIFIED claim is KEPT + LABELED with its confidence marker instead of DELETED by the redactor. Additive/inert until the runner call-site flip.
++- iter1 P0-1 partial-label leak (clean+straddle) + P0-2 shared-_prose_stem mutation; iter2 P0 marker perturbs completeness segmentation; iter3 P0 marker perturbs same-line LABELING pass (B unlabeled but recorded); iter4 P1 re-run idempotence broke on already-marked input; iter5 APPROVE.
++- Final design: up-front marker pre-strip (idempotent) -> collect+pinnability-check (_claim_fully_pinnable via redactor TIER-1 on marker-stripped text) -> SINGLE labeling pass off the unmutated text (two same-line claims each labeled). Shared _prose_stem untouched (marker strip local). 11 annotator + 44 redactor tests green. Every Codex finding was a real §-1.1 keep-and-label leak.
++
++## I-perm-005 slice3 (runner flip: annotate under PG_ALWAYS_RELEASE) — Codex APPROVE iter1 (4e4eb8e0)
++- run_honest_sweep_r3.py: elif always_release_enabled() -> annotate_report_against_verdicts (KEEP+LABEL each non-VERIFIED claim) instead of reconcile (DELETE); marker from claim_labeler (low / no-source-found, never high); writes claim_confidence.json + manifest.report_annotation; same fail-closed abort. OFF byte-identical. Codex APPROVE clean.
++## I-perm-004: PG_SPAN_RESOLVER ACTIVATED in the Gate-B slate (4f315a05) — cited-recovery now live on the next run.
++
++## PERMANENT-FIX PROGRAM — BACKEND COMPLETE (2026-06-10): all 9 issues' core fixes Codex-APPROVED + pushed.
++- 001 keystone, 002 semantic-contraindication, 003 selection, 004 recovery (span_resolver argmax + gap-#18 repoint + #1180 widening substrate), 005 confidence keystone + annotator + runner flip, 006 phantom-block removal, 007 sanitizer, 008 key-findings, 009 proof harness.
++- LIVE flags in the slate: PG_ALWAYS_RELEASE, PG_SWEEP_NUMERIC_SANITIZER, PG_SWEEP_SEMANTIC_CONTRAINDICATION, PG_SPAN_RESOLVER.
++- REMAINING (not core fixes): UI confidence chip (frontend); I-perm-006 vestigial param cleanup; SPEND-GATED — the #1180 widening empirical winner pick (PG_ENTAILMENT_PROMPT_VARIANT) + the final beat-both run on the OVH VM (operator-authorized).
++
++## I-perm-011 (#1205) — open the 0.30 relevance-floor over-cut + extraction_yield telemetry
++- [2026-06-11] BUILD complete (uncommitted on bot/I-ready-017-faithfulness per task).
++- Primary fix: max-over-subqueries relevance floor in evidence_selector.py (flag PG_SELECT_SUBQUERY_FLOOR, default OFF). Monotonic-up: max(whole-question, best-facet) score => on-mode keeps a SUPERSET; throttle can only OPEN. Threaded `sub_queries` to the 2 floor-path call sites in run_one_query (4650, 5240).
++- Secondary fix (lower PG_LIVE_MAX_EV_TO_GEN 1500->200): DELIBERATELY NOT applied — contradicts the run_gate_b.py:475-482 OPERATOR DECISION 2026-06-10 (pool is intentional; PG_MAX_EV_PER_SECTION=40 is the binding per-prompt guard; cap non-binding by construction since post-fix pool <= 597 < 1500). Documented in slate comment + claude_audit.md.
++- Telemetry: gated extraction_yield.total_extracted_rows (post-merge pre-select=597) + manifest selected_to_generator (post-floor/dedup). Byte-identical when flag off (existing exact-dict telemetry tests stay green).
++- Slate: PG_SELECT_SUBQUERY_FLOOR added (force-on exact "1"), NOT required-flag (I-perm-003 stance).
++- Tests: 8 new (test_subquery_floor_relevance.py) + 77 impacted-area + 25 gate_b + 55 consumers, all green. Faithfulness gates (strict_verify/4-role/D8) untouched.

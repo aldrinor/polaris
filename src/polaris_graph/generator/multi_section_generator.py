@@ -86,6 +86,53 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
 )
 
+# I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
+#
+# WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
+# takes the legacy `_call_outline` branch, which serialized EVERY row of the ~544-row
+# evidence pool into the outline prompt (one ~100-300-char summary block per row). The
+# generator (deepseek-v4-pro) is reasoning-first: the larger serialized input induced a
+# longer reasoning stream that consumed the WHOLE 16384-token completion ceiling
+# (PG_REASONING_FIRST_HARD_CAP on the default provider) on reasoning, emitting ZERO content
+# -> finish_reason=length -> the FX-01/SF-15 guard correctly raised
+# ReasoningFirstTruncationError rather than ship the scratchpad as VERIFIED prose. This is
+# the OUTLINE-level analog of the M-24 per-section >100K-token bug, which was fixed at the
+# SECTION level by PG_MAX_EV_PER_SECTION but never applied to the OUTLINE prompt.
+#
+# THE CAP IS MENU-ONLY: only the rows SERIALIZED into the outline prompt are bounded. The
+# evidence pool is deterministically priority/tier/relevance-ORDERED before it reaches the
+# outline (evidence_selector relevance-floor + Gate-B tier-balanced selection), so a top-N
+# slice keeps exactly the rows the sections prioritize and drops only the low-relevance tail
+# that no section would cite. `allowed_ev_ids` validation, full-text resolution
+# (evidence_pool[ev_id]), the deterministic fallback, the M-44/M-52 primary-anchor
+# injection, and the per-section PG_MAX_EV_PER_SECTION selection ALL stay on the FULL pool.
+# Faithfulness gates (strict_verify / NLI / 4-role) are downstream of full-pool text
+# resolution and are untouched.
+#
+# DEFAULT 150 is COVERAGE-FAVORING: sized ABOVE the realized OFF-mode section demand
+# (~120 ev_ids = 5-6 sections x 12-20 each) so the planner still sees every row a section
+# would pick — that is what keeps per-section selection effectively unchanged in OFF mode
+# (where the section ev_ids ARE the outline LLM's picks from this menu). On the LARGE-pool
+# branch the per-row digest is also TERSED (ev_id + tier + title only; the 160-char
+# statement is dropped) because the outline only PLANS section structure, so the statement
+# text is not needed there; tersing roughly halves per-row chars, widening reasoning
+# headroom at the same N. Env-tunable; read at CALL time (not import) so the cap and digest
+# are tunable per-run and unit-testable.
+#
+# HONEST SCOPE / SIZING CAVEAT: the two bounds do NOT yet provably coincide at 150.
+#   * coverage LOWER bound: N >= ~120 (section demand) — 150 clears this with headroom.
+#   * truncation UPPER bound: argued from a SINGLE known-good datapoint (53 VERBOSE rows
+#     worked pre-a030b024 ~= 13K menu chars; 544 verbose failed). 150 TERSE rows ~= 16-17K
+#     menu chars — i.e. ~20-25% LARGER than the only known-good input, NOT demonstrably
+#     within it. So 150 is chosen for coverage, and the truncation fit is a HYPOTHESIS that
+#     a live V4 Pro 1-query canary must confirm; it is NOT proven by this offline diff.
+#   * If the canary truncates at 150, the documented levers (in priority order) are: lower
+#     PG_OUTLINE_MAX_EV toward ~120 (where the two bounds nearly coincide), then the Novita
+#     no-row-cut route (raise PG_REASONING_FIRST_HARD_CAP to 32000 + pin
+#     OPENROUTER_PROVIDER_ORDER=novita), which is the separate I-provider-001 env/provider
+#     lever, NOT this code change.
+PG_OUTLINE_MAX_EV_DEFAULT: str = "150"
+
 
 # Allowed section labels. The outline call is constrained to pick from
 # this list; prevents the model from inventing off-topic section titles.
@@ -993,30 +1040,79 @@ async def _call_outline(
     # LLM literally didn't see it. Title is now included (truncated to
     # 120 chars) so trigger-vocabulary rules can match against title
     # text. Minor increase in prompt size (~60 extra chars per row).
-    summary_blocks = []
-    for ev in evidence:
-        ev_id = ev.get("evidence_id", "")
-        title = (ev.get("title", "") or "")[:120]
-        stmt = (ev.get("statement", "") or "")[:160]
-        tier = ev.get("tier", "")
-        # Sanitize via the provenance sanitizer (both title and stmt).
-        title_clean, _ = sanitize_evidence_text(title)
-        stmt_clean, _ = sanitize_evidence_text(stmt)
-        if title_clean:
-            summary_blocks.append(
-                f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
-            )
-        else:
-            summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
-    summary_text = "\n".join(summary_blocks)
+    # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap. Read at CALL time (not an
+    # import-time constant) so the cap + digest mode are tunable per-run and unit-testable
+    # via monkeypatch. `outline_max_ev` bounds ONLY the rows serialized into the outline
+    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
+    # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
+    try:
+        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
+    except (TypeError, ValueError):
+        _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
+    if _outline_max_ev <= 0:
+        # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
+        _outline_max_ev = len(evidence)
 
-    prompt = (
-        f"Research question: {research_question}\n\n"
-        f"Evidence summaries ({len(evidence)} rows):\n"
-        f"{summary_text}\n\n"
-        f"Return the JSON section plan."
-    )
+    if len(evidence) <= _outline_max_ev:
+        # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
+        # that the outline never truncated before, so this branch is left exactly as it was
+        # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
+        summary_blocks = []
+        for ev in evidence:
+            ev_id = ev.get("evidence_id", "")
+            title = (ev.get("title", "") or "")[:120]
+            stmt = (ev.get("statement", "") or "")[:160]
+            tier = ev.get("tier", "")
+            # Sanitize via the provenance sanitizer (both title and stmt).
+            title_clean, _ = sanitize_evidence_text(title)
+            stmt_clean, _ = sanitize_evidence_text(stmt)
+            if title_clean:
+                summary_blocks.append(
+                    f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+                )
+            else:
+                summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+        summary_text = "\n".join(summary_blocks)
 
+        prompt = (
+            f"Research question: {research_question}\n\n"
+            f"Evidence summaries ({len(evidence)} rows):\n"
+            f"{summary_text}\n\n"
+            f"Return the JSON section plan."
+        )
+    else:
+        # LARGE-POOL PATH — bound the OUTLINE menu to the top-N highest-priority rows AND
+        # terse each digest (ev_id + tier + title only; DROP the 160-char statement). The
+        # pool is deterministically priority/tier/relevance-ORDERED upstream, so [:N] keeps
+        # exactly the rows sections prioritize and drops only the low-relevance tail. The
+        # statement text is unnecessary here because the outline only PLANS section
+        # structure; dropping it widens reasoning headroom at the same N, which is what
+        # prevents the reasoning-first writer from spending the whole completion ceiling on
+        # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
+        outline_evidence = evidence[:_outline_max_ev]
+        summary_blocks = []
+        for ev in outline_evidence:
+            ev_id = ev.get("evidence_id", "")
+            title = (ev.get("title", "") or "")[:120]
+            tier = ev.get("tier", "")
+            title_clean, _ = sanitize_evidence_text(title)
+            if title_clean:
+                summary_blocks.append(f"{ev_id} [{tier}] | title: {title_clean}")
+            else:
+                summary_blocks.append(f"{ev_id} [{tier}]")
+        summary_text = "\n".join(summary_blocks)
+
+        prompt = (
+            f"Research question: {research_question}\n\n"
+            f"Evidence summaries ({len(outline_evidence)} rows):\n"
+            f"{summary_text}\n\n"
+            f"Return the JSON section plan."
+        )
+
+    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
+    # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
+    # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
+    # the validation/resolution surface.
     allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
     allowed_ev_ids.discard("")
 

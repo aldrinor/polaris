@@ -1,0 +1,24 @@
+No P0/P1 blockers found.
+
+(a) Large-pool prompt is bounded: env parse/fallback is at `src/polaris_graph/generator/multi_section_generator.py:1048-1055`; large branch slices `evidence[:_outline_max_ev]` and emits title-only rows at `1092-1107`. Primary and retry both pass the same `prompt` at `1128-1133` and `1215-1219`. Tests assert bounded header/count, tail absence, and statement absence at `tests/polaris_graph/test_iperm011_outline_evidence_cap.py:151-182`.
+
+(b) Validation/resolution still spans the full pool: `allowed_ev_ids` is built from full `evidence` at `1116-1117`; `_parse_outline` rejects only IDs outside that full set at `702-706`; section resolution uses full `evidence_pool` at `2268-2272` and full-pool strict verify at `2311-2315`. The tail-ID acceptance test proves validation is full-pool at `239-278`. Important caveat: in normal OFF mode, the LLM only naturally sees the capped menu, so arbitrary dropped tail rows are not really “selected unchanged” unless fallback or M-44/M-52 recovery applies. That is a P2 residual quality risk, not an execution blocker.
+
+(c) Faithfulness gates are untouched. The edit is upstream prompt serialization only; full-pool rewrite/strict verification remains at `2311-2315`, and downstream section generation uses `evidence_pool` built from full evidence at `4825`.
+
+(d) Small-pool path is byte-identical: the verbose branch is the original loop/prompt at `1056-1082`. Test helper reproduces the old prompt at `120-144`, and equality is asserted at `190-205`; at-cap verbose behavior is asserted at `222-228`.
+
+(e) Tests are meaningful: they exercise `_call_outline` with a patched real import surface at `65-100`; large bounded path at `151-182`; small byte-identical path at `190-205`; default and at-cap at `213-228`; full-pool allowed IDs via dropped tail at `239-278`; disabled cap/full verbose at `286-293`. Non-blocking gaps: retry-bounded behavior is proven by code but not forced by a retrying test, invalid env fallback is not tested, and no numeric char-count ceiling is asserted.
+
+Sizing caveat: shipping default `150` is acceptable for this offline diff gate because the prompt is structurally bounded and tunable, but the live V4 Pro canary remains the real proof that `150` avoids reasoning-first truncation.
+
+Tests run:
+`5 passed` new test file; corrected `117 passed` regression set; `79 passed` generator dir.
+
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["OFF-mode tail rows beyond PG_OUTLINE_MAX_EV are validation-eligible but not naturally visible to the outline LLM; mitigated by top-N ordering, N=150 coverage margin, deterministic fallback on invalid outline, and M-44/M-52 primary recovery.", "Default 150 truncation safety is an offline hypothesis pending the documented live V4 Pro canary."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE

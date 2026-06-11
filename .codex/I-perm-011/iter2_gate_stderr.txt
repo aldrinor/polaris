@@ -1,0 +1,3116 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb722-ba60-73d3-ac88-3c65f3532154
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+# I-perm-011 (#1182) iter-2 diff gate — OFF-mode OUTLINE-prompt evidence-menu cap
+
+## What this change is
+
+drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> `generate_multi_section_report`
+takes the legacy `_call_outline` branch, which serialized EVERY row of the ~544-row
+evidence pool into the outline prompt. The generator (deepseek-v4-pro) is reasoning-first;
+the larger serialized input induced a longer reasoning stream that consumed the WHOLE
+16384-token completion ceiling (PG_REASONING_FIRST_HARD_CAP) on reasoning, emitting ZERO
+content -> finish_reason=length -> the FX-01/SF-15 guard raised ReasoningFirstTruncationError.
+
+The fix bounds ONLY the rows serialized into the OUTLINE prompt to a new call-time env knob
+`PG_OUTLINE_MAX_EV` (default constant `PG_OUTLINE_MAX_EV_DEFAULT='150'`, read via os.getenv
+inside `_call_outline` so it is per-run tunable + monkeypatch-testable):
+- SMALL pool (len(evidence) <= cap): pre-cap build runs VERBATIM (verbose per-row digest incl
+  160-char statement, header count == len(evidence)). Intended byte-identical.
+- LARGE pool (len(evidence) > cap): menu sliced to evidence[:N] AND each digest TERSED to
+  ev_id + tier + title only (160-char statement dropped). Header count reflects bounded N.
+- cap<=0 disables (full pool, verbose).
+
+CRITICAL claimed invariant: `allowed_ev_ids` (outline validation) stays computed from the
+FULL pool, and the per-section path (deterministic fallback, M-44/M-52 primary-anchor
+injection, per-section PG_MAX_EV_PER_SECTION=40 selection, full-text resolution
+evidence_pool[ev_id]) all stay on the FULL pool. Edit confined inside `_call_outline`;
+ON-mode (_assign_evidence_to_planned_outline) untouched.
+
+## RED-TEAM CHECKLIST — answer each (a)-(e) explicitly with cited diff/test lines
+
+(a) Does the OUTLINE no longer truncate on a large pool? i.e. is the serialized input
+    bounded (row count capped to N, per-row digest tersed) so the induced reasoning stream
+    no longer consumes the whole completion ceiling? Confirm the large-pool branch slices
+    evidence[:N] AND drops the statement, and that BOTH the primary and retry generate()
+    calls reuse the same bounded `prompt` (so retry is also bounded). Flag if the cap can be
+    bypassed (e.g. env parse, non-positive handling, off-by-one at exactly cap).
+
+(b) Do the per-section generators STILL get the FULL 544-pool selection — i.e. is ONLY the
+    outline menu bounded, NOT validation/selection/resolution? Verify `allowed_ev_ids` is
+    built from the full `evidence` list (not the sliced `outline_evidence`). Verify an ev_id
+    the LLM picks that was DROPPED from the menu is still accepted. CRITICAL: in OFF mode the
+    section ev_ids ARE the outline LLM's picks from this very menu — so if the LLM never SEES
+    a dropped tail row, can it still pick it? Assess whether "per-section selection unchanged"
+    actually holds in OFF mode, or whether it holds only because (i) N=150 > section demand
+    ~120 AND (ii) the full-pool re-add nets (deterministic fallback + M-44/M-52 primary-anchor
+    injection) recover anything important the bounded menu didn't show. State plainly whether
+    this is a real regression risk or adequately mitigated.
+
+(c) Are the faithfulness gates (strict_verify / NLI / 4-role) untouched? Confirm the edit is
+    confined to outline-prompt serialization and runs upstream of full-pool text resolution,
+    so no fabricated-claim can pass that previously failed.
+
+(d) Is the small-pool path BYTE-IDENTICAL to the pre-cap build? Verify the <=cap branch is
+    the unmodified original loop+prompt, and that the byte-identical test reproduces the
+    pre-change build and asserts equality.
+
+(e) Are the tests MEANINGFUL (not tautological)? Do they pin: large-pool bounded header+row
+    count + terse digest + dropped tail absent; small-pool byte-identical; default cap when
+    env unset; at-cap pool verbose; the CRITICAL allowed_ev_ids-spans-full-pool invariant via
+    a dropped-tail ev_id still accepted by _parse_outline; cap-disabled full verbose. Flag any
+    invariant asserted in prose but NOT covered by a test.
+
+## SIZING CAVEAT the author DISCLOSES (assess, do not re-derive)
+
+N=150 is coverage-favoring (>= ~120 OFF-mode section demand) but the truncation upper-bound
+fit is a HYPOTHESIS from a SINGLE known-good datapoint: 53 verbose rows worked / 544 failed;
+150 terse rows (~16-17K menu chars) are ~20-25% LARGER than the 53-verbose known-good (~13K).
+The author states a live V4 Pro 1-query canary is the real acceptance step beyond this offline
+diff, with documented fallbacks (lower PG_OUTLINE_MAX_EV toward ~120, then the Novita
+no-row-cut route = raise PG_REASONING_FIRST_HARD_CAP to 32000 + pin novita, a separate
+I-provider-001 env lever NOT in this diff). Judge whether shipping at 150 with a canary
+gate is acceptable for an OFFLINE DIFF approval, or whether the default must be lowered NOW.
+Note: this gate is the offline diff gate; the live canary is a SEPARATE downstream step.
+
+## DIFF (git --no-pager diff HEAD -- src/polaris_graph/generator/multi_section_generator.py)
+
+```diff
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index de2a9182..cbf0ad7f 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -86,6 +86,53 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+ )
+ 
++# I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
++#
++# WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
++# takes the legacy `_call_outline` branch, which serialized EVERY row of the ~544-row
++# evidence pool into the outline prompt (one ~100-300-char summary block per row). The
++# generator (deepseek-v4-pro) is reasoning-first: the larger serialized input induced a
++# longer reasoning stream that consumed the WHOLE 16384-token completion ceiling
++# (PG_REASONING_FIRST_HARD_CAP on the default provider) on reasoning, emitting ZERO content
++# -> finish_reason=length -> the FX-01/SF-15 guard correctly raised
++# ReasoningFirstTruncationError rather than ship the scratchpad as VERIFIED prose. This is
++# the OUTLINE-level analog of the M-24 per-section >100K-token bug, which was fixed at the
++# SECTION level by PG_MAX_EV_PER_SECTION but never applied to the OUTLINE prompt.
++#
++# THE CAP IS MENU-ONLY: only the rows SERIALIZED into the outline prompt are bounded. The
++# evidence pool is deterministically priority/tier/relevance-ORDERED before it reaches the
++# outline (evidence_selector relevance-floor + Gate-B tier-balanced selection), so a top-N
++# slice keeps exactly the rows the sections prioritize and drops only the low-relevance tail
++# that no section would cite. `allowed_ev_ids` validation, full-text resolution
++# (evidence_pool[ev_id]), the deterministic fallback, the M-44/M-52 primary-anchor
++# injection, and the per-section PG_MAX_EV_PER_SECTION selection ALL stay on the FULL pool.
++# Faithfulness gates (strict_verify / NLI / 4-role) are downstream of full-pool text
++# resolution and are untouched.
++#
++# DEFAULT 150 is COVERAGE-FAVORING: sized ABOVE the realized OFF-mode section demand
++# (~120 ev_ids = 5-6 sections x 12-20 each) so the planner still sees every row a section
++# would pick — that is what keeps per-section selection effectively unchanged in OFF mode
++# (where the section ev_ids ARE the outline LLM's picks from this menu). On the LARGE-pool
++# branch the per-row digest is also TERSED (ev_id + tier + title only; the 160-char
++# statement is dropped) because the outline only PLANS section structure, so the statement
++# text is not needed there; tersing roughly halves per-row chars, widening reasoning
++# headroom at the same N. Env-tunable; read at CALL time (not import) so the cap and digest
++# are tunable per-run and unit-testable.
++#
++# HONEST SCOPE / SIZING CAVEAT: the two bounds do NOT yet provably coincide at 150.
++#   * coverage LOWER bound: N >= ~120 (section demand) — 150 clears this with headroom.
++#   * truncation UPPER bound: argued from a SINGLE known-good datapoint (53 VERBOSE rows
++#     worked pre-a030b024 ~= 13K menu chars; 544 verbose failed). 150 TERSE rows ~= 16-17K
++#     menu chars — i.e. ~20-25% LARGER than the only known-good input, NOT demonstrably
++#     within it. So 150 is chosen for coverage, and the truncation fit is a HYPOTHESIS that
++#     a live V4 Pro 1-query canary must confirm; it is NOT proven by this offline diff.
++#   * If the canary truncates at 150, the documented levers (in priority order) are: lower
++#     PG_OUTLINE_MAX_EV toward ~120 (where the two bounds nearly coincide), then the Novita
++#     no-row-cut route (raise PG_REASONING_FIRST_HARD_CAP to 32000 + pin
++#     OPENROUTER_PROVIDER_ORDER=novita), which is the separate I-provider-001 env/provider
++#     lever, NOT this code change.
++PG_OUTLINE_MAX_EV_DEFAULT: str = "150"
++
+ 
+ # Allowed section labels. The outline call is constrained to pick from
+ # this list; prevents the model from inventing off-topic section titles.
+@@ -993,30 +1040,79 @@ async def _call_outline(
+     # LLM literally didn't see it. Title is now included (truncated to
+     # 120 chars) so trigger-vocabulary rules can match against title
+     # text. Minor increase in prompt size (~60 extra chars per row).
+-    summary_blocks = []
+-    for ev in evidence:
+-        ev_id = ev.get("evidence_id", "")
+-        title = (ev.get("title", "") or "")[:120]
+-        stmt = (ev.get("statement", "") or "")[:160]
+-        tier = ev.get("tier", "")
+-        # Sanitize via the provenance sanitizer (both title and stmt).
+-        title_clean, _ = sanitize_evidence_text(title)
+-        stmt_clean, _ = sanitize_evidence_text(stmt)
+-        if title_clean:
+-            summary_blocks.append(
+-                f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+-            )
+-        else:
+-            summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+-    summary_text = "\n".join(summary_blocks)
+-
+-    prompt = (
+-        f"Research question: {research_question}\n\n"
+-        f"Evidence summaries ({len(evidence)} rows):\n"
+-        f"{summary_text}\n\n"
+-        f"Return the JSON section plan."
+-    )
++    # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap. Read at CALL time (not an
++    # import-time constant) so the cap + digest mode are tunable per-run and unit-testable
++    # via monkeypatch. `outline_max_ev` bounds ONLY the rows serialized into the outline
++    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
++    # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
++    try:
++        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
++    except (TypeError, ValueError):
++        _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
++    if _outline_max_ev <= 0:
++        # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
++        _outline_max_ev = len(evidence)
++
++    if len(evidence) <= _outline_max_ev:
++        # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
++        # that the outline never truncated before, so this branch is left exactly as it was
++        # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
++        summary_blocks = []
++        for ev in evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            stmt = (ev.get("statement", "") or "")[:160]
++            tier = ev.get("tier", "")
++            # Sanitize via the provenance sanitizer (both title and stmt).
++            title_clean, _ = sanitize_evidence_text(title)
++            stmt_clean, _ = sanitize_evidence_text(stmt)
++            if title_clean:
++                summary_blocks.append(
++                    f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
++                )
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
++    else:
++        # LARGE-POOL PATH — bound the OUTLINE menu to the top-N highest-priority rows AND
++        # terse each digest (ev_id + tier + title only; DROP the 160-char statement). The
++        # pool is deterministically priority/tier/relevance-ORDERED upstream, so [:N] keeps
++        # exactly the rows sections prioritize and drops only the low-relevance tail. The
++        # statement text is unnecessary here because the outline only PLANS section
++        # structure; dropping it widens reasoning headroom at the same N, which is what
++        # prevents the reasoning-first writer from spending the whole completion ceiling on
++        # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
++        outline_evidence = evidence[:_outline_max_ev]
++        summary_blocks = []
++        for ev in outline_evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            tier = ev.get("tier", "")
++            title_clean, _ = sanitize_evidence_text(title)
++            if title_clean:
++                summary_blocks.append(f"{ev_id} [{tier}] | title: {title_clean}")
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(outline_evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
+ 
++    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
++    # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
++    # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
++    # the validation/resolution surface.
+     allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+     allowed_ev_ids.discard("")
+ 
+```
+
+## NEW TEST FILE (untracked: tests/polaris_graph/test_iperm011_outline_evidence_cap.py)
+
+```python
+"""
+I-perm-011 (#1182) regression tests: OFF-mode OUTLINE-prompt evidence-menu cap.
+
+CONTEXT
+-------
+drb_76 ran OFF-mode (`PG_USE_RESEARCH_PLANNER` unset) -> the legacy
+`_call_outline` path serialized EVERY row of the ~544-row evidence pool into the
+outline prompt. deepseek-v4-pro is reasoning-first; the larger serialized input
+induced a longer reasoning stream that consumed the WHOLE 16384-token completion
+ceiling on reasoning, emitting ZERO content -> finish_reason=length -> the
+FX-01/SF-15 guard correctly raised `ReasoningFirstTruncationError` rather than
+ship the scratchpad as VERIFIED prose.
+
+THE FIX (this test exercises it)
+--------------------------------
+`_call_outline` now bounds the rows SERIALIZED into the outline prompt to
+`PG_OUTLINE_MAX_EV` (default 150, env-tunable, read at call time):
+
+  * SMALL pool (`len(evidence) <= cap`): the pre-cap build is BYTE-IDENTICAL —
+    verbose per-row digest (incl. the 160-char statement), count == len(evidence).
+  * LARGE pool (`len(evidence) > cap`): the menu is sliced to the top-N
+    highest-priority rows AND each digest is TERSED (ev_id + tier + title only;
+    the 160-char statement is dropped). The count string reflects the bounded N.
+
+INVARIANTS THIS TEST PINS
+-------------------------
+1. Large pool -> the outline prompt row-count + char-count are bounded, and the
+   `Evidence summaries (N rows)` header reflects the bounded N (not the full pool).
+2. Small pool -> the outline prompt is BYTE-IDENTICAL to the pre-change build
+   (verbose digest, full count).
+3. `allowed_ev_ids` validation STILL spans the FULL pool: an ev_id from the
+   dropped low-relevance tail is still accepted by `_parse_outline` — proving the
+   MENU shrank but the per-section selection/validation/resolution surface did
+   NOT (the CRITICAL per-section-unaffected invariant).
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+import src.polaris_graph.llm.openrouter_client as orc_module
+from src.polaris_graph.generator.multi_section_generator import (
+    PG_OUTLINE_MAX_EV_DEFAULT,
+    _call_outline,
+    _parse_outline,
+)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test harness: a fake OpenRouterClient that CAPTURES the outline prompt.
+# `_call_outline` imports OpenRouterClient via a function-local
+# `from src.polaris_graph.llm.openrouter_client import OpenRouterClient`,
+# so we patch the symbol on that SOURCE module.
+# ─────────────────────────────────────────────────────────────────
+
+class _FakeResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.input_tokens = 10
+        self.output_tokens = 10
+        self.reasoning_tokens = 0
+
+
+class _CapturingClient:
+    """Records every prompt sent to .generate and returns a fixed valid outline."""
+
+    captured_prompts: list[str] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def generate(self, *, prompt, system, max_tokens, temperature):  # noqa: D401
+        type(self).captured_prompts.append(prompt)
+        # Return a valid 5-section outline JSON so no retry fires (keeps the
+        # captured-prompt list to exactly one entry on the happy path).
+        outline = {
+            "sections": [
+                {"title": "Efficacy", "focus": "f", "ev_ids": ["ev_000", "ev_001", "ev_002"]},
+                {"title": "Safety", "focus": "f", "ev_ids": ["ev_003", "ev_004", "ev_005"]},
+                {"title": "Comparative Effectiveness", "focus": "f", "ev_ids": ["ev_006", "ev_007"]},
+                {"title": "Dose Response", "focus": "f", "ev_ids": ["ev_008", "ev_009"]},
+                {"title": "Regulatory", "focus": "f", "ev_ids": ["ev_010", "ev_011"]},
+            ]
+        }
+        return _FakeResponse(json.dumps(outline))
+
+    async def close(self) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _patch_client(monkeypatch):
+    _CapturingClient.captured_prompts = []
+    monkeypatch.setattr(orc_module, "OpenRouterClient", _CapturingClient)
+    # Neutralise the reasoning-trace context tagger (it is a no-op here but keep
+    # the import surface stable regardless of sink registration).
+    monkeypatch.setattr(
+        orc_module, "set_reasoning_call_context", lambda *a, **k: None, raising=False
+    )
+    yield
+
+
+def _make_evidence(n: int) -> list[dict]:
+    """n evidence rows with a LONG statement so the verbose vs terse digest
+    difference is observable in prompt length."""
+    long_stmt = "This is a long evidence statement sentence repeated. " * 6  # >160 chars
+    rows = []
+    for i in range(n):
+        rows.append({
+            "evidence_id": f"ev_{i:03d}",
+            "title": f"Source title number {i} about the research topic",
+            "statement": f"[{i}] {long_stmt}",
+            "tier": "T2",
+        })
+    return rows
+
+
+def _build_expected_verbose_prompt(research_question: str, evidence: list[dict]) -> str:
+    """Reproduce the PRE-CAP verbose build byte-for-byte so we can assert the
+    small-pool path is byte-identical."""
+    from src.polaris_graph.generator.provenance_generator import sanitize_evidence_text
+
+    summary_blocks = []
+    for ev in evidence:
+        ev_id = ev.get("evidence_id", "")
+        title = (ev.get("title", "") or "")[:120]
+        stmt = (ev.get("statement", "") or "")[:160]
+        tier = ev.get("tier", "")
+        title_clean, _ = sanitize_evidence_text(title)
+        stmt_clean, _ = sanitize_evidence_text(stmt)
+        if title_clean:
+            summary_blocks.append(
+                f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+            )
+        else:
+            summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+    summary_text = "\n".join(summary_blocks)
+    return (
+        f"Research question: {research_question}\n\n"
+        f"Evidence summaries ({len(evidence)} rows):\n"
+        f"{summary_text}\n\n"
+        f"Return the JSON section plan."
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test 1: LARGE pool -> outline prompt is bounded (row-count + header).
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_large_pool_outline_prompt_bounded(monkeypatch):
+    cap = 150
+    monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+    big_pool = _make_evidence(544)
+
+    parse_result, _retry, _in, _out = await _call_outline(
+        "Does drug X work?", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500,
+    )
+
+    # At least the primary call fired; the retry (if any) reuses the SAME bounded
+    # prompt, so EVERY captured prompt must be bounded — assert on all of them.
+    assert len(_CapturingClient.captured_prompts) >= 1
+    for prompt in _CapturingClient.captured_prompts:
+        # The header count must be the BOUNDED N, not the 544 full-pool size.
+        assert f"Evidence summaries ({cap} rows):" in prompt
+        assert "(544 rows)" not in prompt
+
+        # Exactly `cap` evidence-row lines are serialized (one per `ev_NNN` prefix
+        # appearing at a line start in the summary block).
+        ev_line_count = sum(
+            1 for line in prompt.splitlines() if line.startswith("ev_")
+        )
+        assert ev_line_count == cap, f"expected {cap} serialized rows, got {ev_line_count}"
+
+        # Only the TOP-N (deterministically-ordered) rows are present; the dropped
+        # tail (e.g. ev_543) is NOT serialized into the menu.
+        assert "ev_000 " in prompt
+        assert "ev_543" not in prompt
+
+        # TERSE digest: the long statement text must NOT appear in the large-pool menu.
+        assert "long evidence statement sentence" not in prompt
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test 2: SMALL pool -> outline prompt is BYTE-IDENTICAL to the pre-cap build.
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_small_pool_outline_prompt_byte_identical(monkeypatch):
+    monkeypatch.setenv("PG_OUTLINE_MAX_EV", "150")
+    small_pool = _make_evidence(40)  # 40 <= 150 -> small-pool path
+    rq = "Does drug X work?"
+
+    await _call_outline(rq, small_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+
+    assert len(_CapturingClient.captured_prompts) >= 1
+    prompt = _CapturingClient.captured_prompts[0]
+
+    expected = _build_expected_verbose_prompt(rq, small_pool)
+    assert prompt == expected, "small-pool outline prompt must be byte-identical"
+
+    # Sanity: the verbose statement text IS present on the small-pool path.
+    assert "long evidence statement sentence" in prompt
+    assert "Evidence summaries (40 rows):" in prompt
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test 3: default (env UNSET) still caps a >150 pool, leaves <=150 verbatim.
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_default_cap_applies_when_env_unset(monkeypatch):
+    monkeypatch.delenv("PG_OUTLINE_MAX_EV", raising=False)
+    default_cap = int(PG_OUTLINE_MAX_EV_DEFAULT)
+    big_pool = _make_evidence(default_cap + 200)
+
+    await _call_outline("q", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+    prompt = _CapturingClient.captured_prompts[0]
+    assert f"Evidence summaries ({default_cap} rows):" in prompt
+
+    # And a pool exactly AT the default cap is the byte-identical verbose path.
+    _CapturingClient.captured_prompts = []
+    at_cap_pool = _make_evidence(default_cap)
+    await _call_outline("q", at_cap_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+    prompt2 = _CapturingClient.captured_prompts[0]
+    assert f"Evidence summaries ({default_cap} rows):" in prompt2
+    assert "long evidence statement sentence" in prompt2  # verbose digest retained
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test 4: CRITICAL per-section invariant — validation still spans the FULL pool.
+# An ev_id from the DROPPED low-relevance tail is still accepted by the outline
+# validator, proving the cap shrank only the MENU, not the per-section
+# selection/validation/resolution surface.
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_allowed_ev_ids_still_full_pool(monkeypatch):
+    cap = 150
+    monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+    big_pool = _make_evidence(544)
+
+    # The LLM picks ev_543 — a row that was DROPPED from the bounded outline menu
+    # (only ev_000..ev_149 are serialized). If allowed_ev_ids regressed to the
+    # capped set, this id would be rejected as unknown. The outline must accept it.
+    tail_id = "ev_543"
+
+    class _TailPickClient(_CapturingClient):
+        async def generate(self, *, prompt, system, max_tokens, temperature):
+            type(self).captured_prompts.append(prompt)
+            outline = {
+                "sections": [
+                    {"title": "Efficacy", "focus": "f", "ev_ids": ["ev_000", "ev_001", tail_id]},
+                    {"title": "Safety", "focus": "f", "ev_ids": ["ev_002", "ev_003", "ev_004"]},
+                    {"title": "Comparative Effectiveness", "focus": "f", "ev_ids": ["ev_005", "ev_006"]},
+                    {"title": "Dose Response", "focus": "f", "ev_ids": ["ev_007", "ev_008"]},
+                    {"title": "Regulatory", "focus": "f", "ev_ids": ["ev_009", "ev_010"]},
+                ]
+            }
+            return _FakeResponse(json.dumps(outline))
+
+    _TailPickClient.captured_prompts = []
+    monkeypatch.setattr(orc_module, "OpenRouterClient", _TailPickClient)
+
+    parse_result, _retry, _in, _out = await _call_outline(
+        "q", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500,
+    )
+
+    # tail_id was NOT in the serialized menu...
+    assert tail_id not in _TailPickClient.captured_prompts[0]
+    # ...but the outline validator (allowed_ev_ids = FULL pool) still ACCEPTED it.
+    assert parse_result.ok is True, parse_result.reason_codes
+    eff = next(p for p in parse_result.plans if p.title == "Efficacy")
+    assert tail_id in eff.ev_ids, (
+        "ev_id from the dropped tail must remain selectable — proves allowed_ev_ids "
+        "still spans the full pool (per-section selection unaffected)"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# Test 5: disabling the cap (PG_OUTLINE_MAX_EV<=0) -> full pool, verbose digest.
+# ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_cap_disabled_serializes_full_pool_verbose(monkeypatch):
+    monkeypatch.setenv("PG_OUTLINE_MAX_EV", "0")  # disabled
+    pool = _make_evidence(300)
+    await _call_outline("q", pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+    prompt = _CapturingClient.captured_prompts[0]
+    assert "Evidence summaries (300 rows):" in prompt
+    assert "long evidence statement sentence" in prompt  # verbose retained
+    assert "ev_299 " in prompt  # full tail present
+```
+
+## Build-agent reported test result (VERIFY plausibility against the diff+test; do not trust blindly)
+
+New test file: 5/5 passed. Regression: 117/117 passed across test_m203_outline_collapse,
+test_m31_outline_resilience, test_m40_mechanism_section, test_m57_contract_outline,
+test_m62_non_clinical_regression, test_multi_section_gap4,
+test_generator_domain_outline_iready009, test_domain_general_sections_phase6. Full generator
+dir: 79/79 passed.
+
+## OUTPUT SCHEMA (REQUIRED — §8.3.9). End with a line starting `verdict:`
+
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+
+The final line MUST start with `verdict: APPROVE` or `verdict: REQUEST_CHANGES`.
+
+codex
+I’ll verify the actual workspace diff and tests so the review can cite file lines, then I’ll answer each checklist item directly and keep the verdict tied to P0/P1 execution risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git --no-pager diff HEAD -- src/polaris_graph/generator/multi_section_generator.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"PG_OUTLINE_MAX_EV|allowed_ev_ids|outline_evidence|captured_prompts|test_large_pool|test_small_pool|test_default_cap|test_allowed_ev_ids|test_cap_disabled|def _call_outline|\\.generate\\(\" src/polaris_graph/generator/multi_section_generator.py tests/polaris_graph/test_iperm011_outline_evidence_cap.py" in C:\POLARIS
+ succeeded in 4311ms:
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index de2a9182..cbf0ad7f 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -86,6 +86,53 @@ PG_CONTRACT_SLOT_MIN_MAX_TOKENS: int = int(
+     os.getenv("PG_CONTRACT_SLOT_MIN_MAX_TOKENS", "6000")
+ )
+ 
++# I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
++#
++# WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
++# takes the legacy `_call_outline` branch, which serialized EVERY row of the ~544-row
++# evidence pool into the outline prompt (one ~100-300-char summary block per row). The
++# generator (deepseek-v4-pro) is reasoning-first: the larger serialized input induced a
++# longer reasoning stream that consumed the WHOLE 16384-token completion ceiling
++# (PG_REASONING_FIRST_HARD_CAP on the default provider) on reasoning, emitting ZERO content
++# -> finish_reason=length -> the FX-01/SF-15 guard correctly raised
++# ReasoningFirstTruncationError rather than ship the scratchpad as VERIFIED prose. This is
++# the OUTLINE-level analog of the M-24 per-section >100K-token bug, which was fixed at the
++# SECTION level by PG_MAX_EV_PER_SECTION but never applied to the OUTLINE prompt.
++#
++# THE CAP IS MENU-ONLY: only the rows SERIALIZED into the outline prompt are bounded. The
++# evidence pool is deterministically priority/tier/relevance-ORDERED before it reaches the
++# outline (evidence_selector relevance-floor + Gate-B tier-balanced selection), so a top-N
++# slice keeps exactly the rows the sections prioritize and drops only the low-relevance tail
++# that no section would cite. `allowed_ev_ids` validation, full-text resolution
++# (evidence_pool[ev_id]), the deterministic fallback, the M-44/M-52 primary-anchor
++# injection, and the per-section PG_MAX_EV_PER_SECTION selection ALL stay on the FULL pool.
++# Faithfulness gates (strict_verify / NLI / 4-role) are downstream of full-pool text
++# resolution and are untouched.
++#
++# DEFAULT 150 is COVERAGE-FAVORING: sized ABOVE the realized OFF-mode section demand
++# (~120 ev_ids = 5-6 sections x 12-20 each) so the planner still sees every row a section
++# would pick — that is what keeps per-section selection effectively unchanged in OFF mode
++# (where the section ev_ids ARE the outline LLM's picks from this menu). On the LARGE-pool
++# branch the per-row digest is also TERSED (ev_id + tier + title only; the 160-char
++# statement is dropped) because the outline only PLANS section structure, so the statement
++# text is not needed there; tersing roughly halves per-row chars, widening reasoning
++# headroom at the same N. Env-tunable; read at CALL time (not import) so the cap and digest
++# are tunable per-run and unit-testable.
++#
++# HONEST SCOPE / SIZING CAVEAT: the two bounds do NOT yet provably coincide at 150.
++#   * coverage LOWER bound: N >= ~120 (section demand) — 150 clears this with headroom.
++#   * truncation UPPER bound: argued from a SINGLE known-good datapoint (53 VERBOSE rows
++#     worked pre-a030b024 ~= 13K menu chars; 544 verbose failed). 150 TERSE rows ~= 16-17K
++#     menu chars — i.e. ~20-25% LARGER than the only known-good input, NOT demonstrably
++#     within it. So 150 is chosen for coverage, and the truncation fit is a HYPOTHESIS that
++#     a live V4 Pro 1-query canary must confirm; it is NOT proven by this offline diff.
++#   * If the canary truncates at 150, the documented levers (in priority order) are: lower
++#     PG_OUTLINE_MAX_EV toward ~120 (where the two bounds nearly coincide), then the Novita
++#     no-row-cut route (raise PG_REASONING_FIRST_HARD_CAP to 32000 + pin
++#     OPENROUTER_PROVIDER_ORDER=novita), which is the separate I-provider-001 env/provider
++#     lever, NOT this code change.
++PG_OUTLINE_MAX_EV_DEFAULT: str = "150"
++
+ 
+ # Allowed section labels. The outline call is constrained to pick from
+ # this list; prevents the model from inventing off-topic section titles.
+@@ -993,30 +1040,79 @@ async def _call_outline(
+     # LLM literally didn't see it. Title is now included (truncated to
+     # 120 chars) so trigger-vocabulary rules can match against title
+     # text. Minor increase in prompt size (~60 extra chars per row).
+-    summary_blocks = []
+-    for ev in evidence:
+-        ev_id = ev.get("evidence_id", "")
+-        title = (ev.get("title", "") or "")[:120]
+-        stmt = (ev.get("statement", "") or "")[:160]
+-        tier = ev.get("tier", "")
+-        # Sanitize via the provenance sanitizer (both title and stmt).
+-        title_clean, _ = sanitize_evidence_text(title)
+-        stmt_clean, _ = sanitize_evidence_text(stmt)
+-        if title_clean:
+-            summary_blocks.append(
+-                f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+-            )
+-        else:
+-            summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+-    summary_text = "\n".join(summary_blocks)
+-
+-    prompt = (
+-        f"Research question: {research_question}\n\n"
+-        f"Evidence summaries ({len(evidence)} rows):\n"
+-        f"{summary_text}\n\n"
+-        f"Return the JSON section plan."
+-    )
++    # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap. Read at CALL time (not an
++    # import-time constant) so the cap + digest mode are tunable per-run and unit-testable
++    # via monkeypatch. `outline_max_ev` bounds ONLY the rows serialized into the outline
++    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
++    # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
++    try:
++        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
++    except (TypeError, ValueError):
++        _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
++    if _outline_max_ev <= 0:
++        # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
++        _outline_max_ev = len(evidence)
++
++    if len(evidence) <= _outline_max_ev:
++        # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
++        # that the outline never truncated before, so this branch is left exactly as it was
++        # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
++        summary_blocks = []
++        for ev in evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            stmt = (ev.get("statement", "") or "")[:160]
++            tier = ev.get("tier", "")
++            # Sanitize via the provenance sanitizer (both title and stmt).
++            title_clean, _ = sanitize_evidence_text(title)
++            stmt_clean, _ = sanitize_evidence_text(stmt)
++            if title_clean:
++                summary_blocks.append(
++                    f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
++                )
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
++    else:
++        # LARGE-POOL PATH — bound the OUTLINE menu to the top-N highest-priority rows AND
++        # terse each digest (ev_id + tier + title only; DROP the 160-char statement). The
++        # pool is deterministically priority/tier/relevance-ORDERED upstream, so [:N] keeps
++        # exactly the rows sections prioritize and drops only the low-relevance tail. The
++        # statement text is unnecessary here because the outline only PLANS section
++        # structure; dropping it widens reasoning headroom at the same N, which is what
++        # prevents the reasoning-first writer from spending the whole completion ceiling on
++        # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
++        outline_evidence = evidence[:_outline_max_ev]
++        summary_blocks = []
++        for ev in outline_evidence:
++            ev_id = ev.get("evidence_id", "")
++            title = (ev.get("title", "") or "")[:120]
++            tier = ev.get("tier", "")
++            title_clean, _ = sanitize_evidence_text(title)
++            if title_clean:
++                summary_blocks.append(f"{ev_id} [{tier}] | title: {title_clean}")
++            else:
++                summary_blocks.append(f"{ev_id} [{tier}]")
++        summary_text = "\n".join(summary_blocks)
++
++        prompt = (
++            f"Research question: {research_question}\n\n"
++            f"Evidence summaries ({len(outline_evidence)} rows):\n"
++            f"{summary_text}\n\n"
++            f"Return the JSON section plan."
++        )
+ 
++    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
++    # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
++    # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
++    # the validation/resolution surface.
+     allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+     allowed_ev_ids.discard("")
+ 
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 7355ms:
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:17:`PG_OUTLINE_MAX_EV` (default 150, env-tunable, read at call time):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:31:3. `allowed_ev_ids` validation STILL spans the FULL pool: an ev_id from the
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:44:    PG_OUTLINE_MAX_EV_DEFAULT,
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:68:    captured_prompts: list[str] = []
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:74:        type(self).captured_prompts.append(prompt)
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:94:    _CapturingClient.captured_prompts = []
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:152:async def test_large_pool_outline_prompt_bounded(monkeypatch):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:154:    monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:163:    assert len(_CapturingClient.captured_prompts) >= 1
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:164:    for prompt in _CapturingClient.captured_prompts:
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:190:async def test_small_pool_outline_prompt_byte_identical(monkeypatch):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:191:    monkeypatch.setenv("PG_OUTLINE_MAX_EV", "150")
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:197:    assert len(_CapturingClient.captured_prompts) >= 1
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:198:    prompt = _CapturingClient.captured_prompts[0]
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:213:async def test_default_cap_applies_when_env_unset(monkeypatch):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:214:    monkeypatch.delenv("PG_OUTLINE_MAX_EV", raising=False)
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:215:    default_cap = int(PG_OUTLINE_MAX_EV_DEFAULT)
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:219:    prompt = _CapturingClient.captured_prompts[0]
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:223:    _CapturingClient.captured_prompts = []
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:226:    prompt2 = _CapturingClient.captured_prompts[0]
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:239:async def test_allowed_ev_ids_still_full_pool(monkeypatch):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:241:    monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:245:    # (only ev_000..ev_149 are serialized). If allowed_ev_ids regressed to the
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:251:            type(self).captured_prompts.append(prompt)
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:263:    _TailPickClient.captured_prompts = []
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:271:    assert tail_id not in _TailPickClient.captured_prompts[0]
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:272:    # ...but the outline validator (allowed_ev_ids = FULL pool) still ACCEPTED it.
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:276:        "ev_id from the dropped tail must remain selectable — proves allowed_ev_ids "
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:282:# Test 5: disabling the cap (PG_OUTLINE_MAX_EV<=0) -> full pool, verbose digest.
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:286:async def test_cap_disabled_serializes_full_pool_verbose(monkeypatch):
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:287:    monkeypatch.setenv("PG_OUTLINE_MAX_EV", "0")  # disabled
+tests/polaris_graph/test_iperm011_outline_evidence_cap.py:290:    prompt = _CapturingClient.captured_prompts[0]
+src/polaris_graph/generator/multi_section_generator.py:106:# that no section would cite. `allowed_ev_ids` validation, full-text resolution
+src/polaris_graph/generator/multi_section_generator.py:130:#     PG_OUTLINE_MAX_EV toward ~120 (where the two bounds nearly coincide), then the Novita
+src/polaris_graph/generator/multi_section_generator.py:134:PG_OUTLINE_MAX_EV_DEFAULT: str = "150"
+src/polaris_graph/generator/multi_section_generator.py:604:    allowed_ev_ids: set[str] | None = None,
+src/polaris_graph/generator/multi_section_generator.py:610:    with validation metadata. If allowed_ev_ids is provided, rejects
+src/polaris_graph/generator/multi_section_generator.py:702:        if allowed_ev_ids is not None:
+src/polaris_graph/generator/multi_section_generator.py:703:            unknown = [e for e in ev_ids if e not in allowed_ev_ids]
+src/polaris_graph/generator/multi_section_generator.py:1012:async def _call_outline(
+src/polaris_graph/generator/multi_section_generator.py:1046:    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
+src/polaris_graph/generator/multi_section_generator.py:1047:    # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
+src/polaris_graph/generator/multi_section_generator.py:1049:        _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
+src/polaris_graph/generator/multi_section_generator.py:1051:        _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
+src/polaris_graph/generator/multi_section_generator.py:1092:        outline_evidence = evidence[:_outline_max_ev]
+src/polaris_graph/generator/multi_section_generator.py:1094:        for ev in outline_evidence:
+src/polaris_graph/generator/multi_section_generator.py:1107:            f"Evidence summaries ({len(outline_evidence)} rows):\n"
+src/polaris_graph/generator/multi_section_generator.py:1112:    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
+src/polaris_graph/generator/multi_section_generator.py:1116:    allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+src/polaris_graph/generator/multi_section_generator.py:1117:    allowed_ev_ids.discard("")
+src/polaris_graph/generator/multi_section_generator.py:1128:        response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:1138:            raw, allowed_ev_ids=allowed_ev_ids,
+src/polaris_graph/generator/multi_section_generator.py:1150:        corpus_supports_five = len(allowed_ev_ids) >= 100
+src/polaris_graph/generator/multi_section_generator.py:1173:                    + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
+src/polaris_graph/generator/multi_section_generator.py:1184:                    + ", ".join(sorted(allowed_ev_ids)[:100])
+src/polaris_graph/generator/multi_section_generator.py:1201:                    + f"report. The corpus has {len(allowed_ev_ids)} candidate evidence rows; that "
+src/polaris_graph/generator/multi_section_generator.py:1208:                    + ", ".join(sorted(allowed_ev_ids)[:100])
+src/polaris_graph/generator/multi_section_generator.py:1215:            retry_response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:1225:                retry_raw, allowed_ev_ids=allowed_ev_ids,
+src/polaris_graph/generator/multi_section_generator.py:1986:        response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:3133:        response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:3250:        response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:3384:        response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:4954:            response = await client.generate(
+src/polaris_graph/generator/multi_section_generator.py:5095:                    return await client.generate(
+
+ succeeded in 10391ms:
+ M .claude/hooks/ultimate_goal_stop_reminder.py
+ M .gitignore
+ M src/polaris_graph/generator/multi_section_generator.py
+ M state/active_fix_campaign.json
+ M state/polaris_restart/iteration_trajectory.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-beatboth-429/verdict.stderr.txt
+?? .codex/I-beatboth-429/verdict_iter2.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-complete-002/
+?? .codex/I-complete-004/codex_diff.patch
+?? .codex/I-complete-004/codex_diff_audit.stderr.txt
+?? .codex/I-complete-004/codex_diff_audit.txt
+?? .codex/I-complete-004/commit_msg.txt
+?? .codex/I-complete-004/diff_gate_input.md
+?? .codex/I-faith-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-perm-010/comment_2a_done.md
+?? .codex/I-perm-010/comment_2b_finding.md
+?? .codex/I-perm-010/comment_run_result.md
+?? .codex/I-perm-010/s11_audit_input.md
+?? .codex/I-perm-010/s11_audit_stderr.txt
+?? .codex/I-perm-010/s11_audit_verdict.txt
+?? .codex/I-perm-011/_diff_head.txt
+?? .codex/I-perm-011/_gen_diff.txt
+?? .codex/I-perm-011/comment_fix_committed.md
+?? .codex/I-perm-011/comment_iter1_result.md
+?? .codex/I-perm-011/iter2_gate_input.md
+?? .codex/I-perm-011/iter2_gate_stderr.txt
+?? .codex/I-perm-011/iter2_gate_verdict.txt
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/_inspect_redact.py
+?? .codex/I-ready-017/_verify_fix.py
+?? .codex/I-ready-017/breadth_collapse_fix_design.md
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/faithfulness_diff_verdict.stderr.txt
+?? .codex/I-ready-017/faithfulness_gate_input.md
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_1171_faithfulness_landed.md
+?? .codex/I-ready-017/gh_1171_progress_comment.md
+?? .codex/I-ready-017/gh_entailment_inert_issue.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/preflight_audit_input.md
+?? .codex/I-ready-017/preflight_audit_verdict.stderr.txt
+?? .codex/I-ready-017/preflight_audit_verdict.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/I-transport-001/codex_diff_audit.stderr.txt
+?? .codex/I-transport-001/vm_p1.sh
+?? .codex/I-transport-001/vm_p2.sh
+?? .codex/I-transport-001/vm_p3.sh
+?? .codex/beatboth5/audit_72_input.md
+?? .codex/beatboth5/audit_75_input.md
+?? .codex/beatboth5/audit_75b_input.md
+?? .codex/beatboth5/audit_76_input.md
+?? .codex/beatboth5/audit_76b_input.md
+?? .codex/beatboth5/audit_78_input.md
+?? .codex/beatboth5/audit_78b_input.md
+?? .codex/beatboth5/audit_90b_input.md
+?? .codex/beatboth5/bug_forensic_input.md
+?? .codex/beatboth5/bug_forensic_verdict.stderr.txt
+?? .codex/beatboth5/bug_forensic_verdict.txt
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? .codex/forensic/
+?? .codex/nda-audit/
+?? .codex/retrieval-params/
+?? .codex/tool-verification/
+?? .codex/workflows/
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_numeric_review_tmp/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-perm-010/
+?? outputs/audits/I-perm-011/
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/beatboth5/
+?? outputs/audits/beatboth6/
+?? outputs/audits/beatboth7/I_complete_002_drop_decomposition.md
+?? outputs/audits/beatboth7/_competitors_clean/
+?? outputs/audits/beatboth7/completeness_gap_diagnosis.md
+?? outputs/audits/beatboth7/drb_72_ai_labor/
+?? outputs/audits/beatboth7/drb_75_metal_ions_cvd/
+?? outputs/audits/beatboth7/drb_76_gut_microbiota_crc/
+?? outputs/audits/beatboth7/drb_78_parkinsons_dbs/
+?? outputs/audits/beatboth7/drb_90_adas_liability/
+?? outputs/audits/beatboth8/FAILURE_AUDIT.md
+?? outputs/audits/beatboth8/I-perm-002_corpus_satisfaction_design.md
+?? outputs/audits/beatboth8/REMAINING_RISKS.md
+?? outputs/audits/beatboth8/drb_76/
+?? outputs/audits/beatboth8/manifests/
+?? outputs/audits/codex_audit_sitecustomize/
+?? outputs/audits/codex_pytest_temp_audit/
+?? outputs/audits/f02_bakeoff/
+?? outputs/audits/global_consistency_research.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? outputs/audits/retrieval_width_1000_math.md
+?? scope_verify_tmp_codex/
+?? scope_verify_tmp_codex_floor008/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? scripts/probe_discovery_and_residual.py
+?? scripts/probe_paid_credits.py
+?? scripts/probe_website_access_tools.py
+?? tests/polaris_graph/test_iperm011_outline_evidence_cap.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_audit_tmp/chmod_after_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/mode_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/tmpbm_z34u3/': Permission denied
+warning: could not open directory 'codex_audit_tmp/tmp6mj6akgl/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4pldgytu/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4ub_c1tz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_b225i01s/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_bnezcyw_/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_f3_ntj9m/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_gbznmdhq/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_k8cuhaqf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ku5c2fnz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ll7c4m6w/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_lqomtwho/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_q7irc_xy/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_r9l_fwzf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_vnbmb3pa/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_xr_17rct/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_y372lrb2/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/probe_63cxyz6o/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/tmptcv_wpgb/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/polaris_scope_ed94b46c36074f439046d1e25553efb6/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-7lnb1r6l/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-fvafx2nw/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp2/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/mode_700/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/audits/codex_pytest_temp_scope_one/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+codex
+The workspace diff matches the supplied patch. I’m checking the retry path and the downstream section evidence flow now, because the important risk is whether the menu cap accidentally becomes a selection cap.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/generator/multi_section_generator.py | ForEach-Object { $i++; if ($i -ge 600 -and $i -le 725) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/generator/multi_section_generator.py | ForEach-Object { $i++; if ($i -ge 1012 -and $i -le 1230) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "deterministic fallback|fallback|primary-anchor|M-44|M-52|PG_MAX_EV_PER_SECTION|evidence_pool|selected_ev|section.ev_ids|plan.ev_ids|_select.*evidence|allowed_ev_ids" src/polaris_graph/generator/multi_section_generator.py' in C:\POLARIS
+ succeeded in 4328ms:
+ 1012: async def _call_outline(
+ 1013:     research_question: str,
+ 1014:     evidence: list[dict[str, Any]],
+ 1015:     model: str,
+ 1016:     temperature: float,
+ 1017:     max_tokens: int,
+ 1018:     retry_on_invalid: bool = True,
+ 1019:     domain: str = "",
+ 1020: ) -> tuple[OutlineParseResult, bool, int, int]:
+ 1021:     """Call the planner. Returns (parse_result, retry_attempted, in_tok, out_tok).
+ 1022: 
+ 1023:     BUG-M-203 fix (deep-dive R4): one retry with a tighter prompt when
+ 1024:     validation fails. Retries are capped at 1. I-ready-009 (#1081):
+ 1025:     `domain` selects the clinical (byte-identical) or generic outline
+ 1026:     prompt + the allowed section titles validation uses.
+ 1027:     """
+ 1028:     _outline_allowed_sections = _allowed_sections_for_domain(domain)
+ 1029:     _outline_system_prompt = _select_outline_system_prompt(domain)
+ 1030:     from src.polaris_graph.llm.openrouter_client import (
+ 1031:         OpenRouterClient,
+ 1032:         set_reasoning_call_context,
+ 1033:     )
+ 1034: 
+ 1035:     # Build a compact evidence summary (title + tier + 160 chars of
+ 1036:     # statement). M-40 pass-2 (Codex audit medium): previously the
+ 1037:     # summary omitted the title field, which meant outline rules that
+ 1038:     # trigger on title vocabulary (M-40 Mechanism rule) couldn't fire
+ 1039:     # when the mechanism term lived only in the source title — the
+ 1040:     # LLM literally didn't see it. Title is now included (truncated to
+ 1041:     # 120 chars) so trigger-vocabulary rules can match against title
+ 1042:     # text. Minor increase in prompt size (~60 extra chars per row).
+ 1043:     # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap. Read at CALL time (not an
+ 1044:     # import-time constant) so the cap + digest mode are tunable per-run and unit-testable
+ 1045:     # via monkeypatch. `outline_max_ev` bounds ONLY the rows serialized into the outline
+ 1046:     # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
+ 1047:     # pool. See PG_OUTLINE_MAX_EV_DEFAULT for the full rationale.
+ 1048:     try:
+ 1049:         _outline_max_ev = int(os.getenv("PG_OUTLINE_MAX_EV", PG_OUTLINE_MAX_EV_DEFAULT))
+ 1050:     except (TypeError, ValueError):
+ 1051:         _outline_max_ev = int(PG_OUTLINE_MAX_EV_DEFAULT)
+ 1052:     if _outline_max_ev <= 0:
+ 1053:         # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
+ 1054:         _outline_max_ev = len(evidence)
+ 1055: 
+ 1056:     if len(evidence) <= _outline_max_ev:
+ 1057:         # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
+ 1058:         # that the outline never truncated before, so this branch is left exactly as it was
+ 1059:         # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
+ 1060:         summary_blocks = []
+ 1061:         for ev in evidence:
+ 1062:             ev_id = ev.get("evidence_id", "")
+ 1063:             title = (ev.get("title", "") or "")[:120]
+ 1064:             stmt = (ev.get("statement", "") or "")[:160]
+ 1065:             tier = ev.get("tier", "")
+ 1066:             # Sanitize via the provenance sanitizer (both title and stmt).
+ 1067:             title_clean, _ = sanitize_evidence_text(title)
+ 1068:             stmt_clean, _ = sanitize_evidence_text(stmt)
+ 1069:             if title_clean:
+ 1070:                 summary_blocks.append(
+ 1071:                     f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+ 1072:                 )
+ 1073:             else:
+ 1074:                 summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+ 1075:         summary_text = "\n".join(summary_blocks)
+ 1076: 
+ 1077:         prompt = (
+ 1078:             f"Research question: {research_question}\n\n"
+ 1079:             f"Evidence summaries ({len(evidence)} rows):\n"
+ 1080:             f"{summary_text}\n\n"
+ 1081:             f"Return the JSON section plan."
+ 1082:         )
+ 1083:     else:
+ 1084:         # LARGE-POOL PATH — bound the OUTLINE menu to the top-N highest-priority rows AND
+ 1085:         # terse each digest (ev_id + tier + title only; DROP the 160-char statement). The
+ 1086:         # pool is deterministically priority/tier/relevance-ORDERED upstream, so [:N] keeps
+ 1087:         # exactly the rows sections prioritize and drops only the low-relevance tail. The
+ 1088:         # statement text is unnecessary here because the outline only PLANS section
+ 1089:         # structure; dropping it widens reasoning headroom at the same N, which is what
+ 1090:         # prevents the reasoning-first writer from spending the whole completion ceiling on
+ 1091:         # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
+ 1092:         outline_evidence = evidence[:_outline_max_ev]
+ 1093:         summary_blocks = []
+ 1094:         for ev in outline_evidence:
+ 1095:             ev_id = ev.get("evidence_id", "")
+ 1096:             title = (ev.get("title", "") or "")[:120]
+ 1097:             tier = ev.get("tier", "")
+ 1098:             title_clean, _ = sanitize_evidence_text(title)
+ 1099:             if title_clean:
+ 1100:                 summary_blocks.append(f"{ev_id} [{tier}] | title: {title_clean}")
+ 1101:             else:
+ 1102:                 summary_blocks.append(f"{ev_id} [{tier}]")
+ 1103:         summary_text = "\n".join(summary_blocks)
+ 1104: 
+ 1105:         prompt = (
+ 1106:             f"Research question: {research_question}\n\n"
+ 1107:             f"Evidence summaries ({len(outline_evidence)} rows):\n"
+ 1108:             f"{summary_text}\n\n"
+ 1109:             f"Return the JSON section plan."
+ 1110:         )
+ 1111: 
+ 1112:     # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
+ 1113:     # ev_id the LLM picks is accepted iff it is anywhere in the pool, and full-text resolution
+ 1114:     # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
+ 1115:     # the validation/resolution surface.
+ 1116:     allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+ 1117:     allowed_ev_ids.discard("")
+ 1118: 
+ 1119:     client = OpenRouterClient(model=model)
+ 1120:     total_in = 0
+ 1121:     total_out = 0
+ 1122:     retry_attempted = False
+ 1123:     try:
+ 1124:         # I-gen-004 (#496): tag the outline call for the reasoning-trace sink.
+ 1125:         set_reasoning_call_context(
+ 1126:             section="_outline", call_type="outline", attempt_n=1,
+ 1127:         )
+ 1128:         response = await client.generate(
+ 1129:             prompt=prompt,
+ 1130:             system=_outline_system_prompt,
+ 1131:             max_tokens=max_tokens,
+ 1132:             temperature=temperature,
+ 1133:         )
+ 1134:         total_in += response.input_tokens
+ 1135:         total_out += response.output_tokens
+ 1136:         raw = (response.content or "").strip()
+ 1137:         parse_result = _parse_outline(
+ 1138:             raw, allowed_ev_ids=allowed_ev_ids,
+ 1139:             allowed_sections=_outline_allowed_sections,
+ 1140:         )
+ 1141: 
+ 1142:         # BUG-M-203 + M-25b hardening + M-41a pass-2: retry the outline
+ 1143:         # LLM call when (a) validation failed OR (b) the LLM returned
+ 1144:         # fewer sections than the corpus supports. The retry prompt
+ 1145:         # carries the SAME section-count rule as the primary prompt
+ 1146:         # (M-41a: 5 by default, 6 when Mechanism + Regulatory both
+ 1147:         # trigger). Pre-pass-2 the retry hard-coded "EXACTLY 5" which
+ 1148:         # contradicted M-41a and could re-trigger the V24 Mechanism-
+ 1149:         # displaces-Regulatory regression.
+ 1150:         corpus_supports_five = len(allowed_ev_ids) >= 100
+ 1151:         wants_more_sections = (
+ 1152:             corpus_supports_five and len(parse_result.plans) < 5
+ 1153:         )
+ 1154:         if ((not parse_result.ok) or wants_more_sections) and retry_on_invalid:
+ 1155:             retry_attempted = True
+ 1156:             reason_summary = "; ".join(parse_result.reason_codes[:5]) or (
+ 1157:                 f"section_count_under_target:{len(parse_result.plans)}/5"
+ 1158:                 if wants_more_sections else "invalid"
+ 1159:             )
+ 1160:             if str(domain or "").strip().lower() in ("", "clinical"):
+ 1161:                 # Clinical / unknown — BYTE-IDENTICAL to the prior retry behavior.
+ 1162:                 tighter_system = (
+ 1163:                     OUTLINE_SYSTEM_PROMPT
+ 1164:                     + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
+ 1165:                     + reason_summary
+ 1166:                     + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
+ 1167:                     + "1. Return 5 OR 6 sections per the M-25b + M-41a rule: "
+ 1168:                     + "5 by default; 6 when BOTH the M-40 Mechanism trigger "
+ 1169:                     + "fires AND regulatory evidence is present. DO NOT emit "
+ 1170:                     + "fewer than 5 sections — that produces a directional "
+ 1171:                     + "brief, not a Deep Research report. When in doubt "
+ 1172:                     + f"between 5 and 6, prefer 6. The corpus has "
+ 1173:                     + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
+ 1174:                     + "enough to populate 5-6 distinct sections with ≥8 ev_ids "
+ 1175:                     + "each. Mechanism must be ADDITIVE: it MUST NOT displace "
+ 1176:                     + "Regulatory, Safety, Efficacy, Comparative, or Dose "
+ 1177:                     + "Response if those topics have evidence support. Pick "
+ 1178:                     + "the section titles best supported by the evidence from "
+ 1179:                     + "the allowed title list.\n"
+ 1180:                     + "2. Every section must have at least 8 distinct ev_ids "
+ 1181:                     + "(target 12-20). Evidence IDs MAY be shared across "
+ 1182:                     + "sections when the same study supports both topics.\n"
+ 1183:                     + "3. Only use evidence IDs from this allowed set: "
+ 1184:                     + ", ".join(sorted(allowed_ev_ids)[:100])
+ 1185:                     + "\n4. Return ONLY the JSON object — no preamble, no "
+ 1186:                     + "markdown, no explanation.\n"
+ 1187:                 )
+ 1188:             else:
+ 1189:                 # I-ready-009 (#1081): domain-NEUTRAL retry — base on the selected (generic) outline
+ 1190:                 # prompt + generic hard requirements, so a non-clinical retry does NOT re-inject
+ 1191:                 # clinical section names (Efficacy/Safety/Regulatory) only to have them parsed out
+ 1192:                 # against the generic allow-list (which would force the deterministic fallback). The
+ 1193:                 # retry now applies the generic outline switch end-to-end.
+ 1194:                 tighter_system = (
+ 1195:                     _outline_system_prompt
+ 1196:                     + "\n\nPREVIOUS ATTEMPT FAILED VALIDATION: "
+ 1197:                     + reason_summary
+ 1198:                     + "\n\nHARD REQUIREMENTS — NO EXCEPTIONS:\n"
+ 1199:                     + "1. Return 4-6 sections best supported by the evidence. DO NOT emit fewer "
+ 1200:                     + "than 4 sections — that produces a directional brief, not a Deep Research "
+ 1201:                     + f"report. The corpus has {len(allowed_ev_ids)} candidate evidence rows; that "
+ 1202:                     + "is enough to populate 4-6 distinct sections with >=8 ev_ids each. Pick the "
+ 1203:                     + "section titles best supported by the evidence from the allowed title list.\n"
+ 1204:                     + "2. Every section must have at least 8 distinct ev_ids "
+ 1205:                     + "(target 12-20). Evidence IDs MAY be shared across "
+ 1206:                     + "sections when the same source supports both topics.\n"
+ 1207:                     + "3. Only use evidence IDs from this allowed set: "
+ 1208:                     + ", ".join(sorted(allowed_ev_ids)[:100])
+ 1209:                     + "\n4. Return ONLY the JSON object — no preamble, no "
+ 1210:                     + "markdown, no explanation.\n"
+ 1211:                 )
+ 1212:             set_reasoning_call_context(
+ 1213:                 section="_outline", call_type="outline", attempt_n=2,
+ 1214:             )
+ 1215:             retry_response = await client.generate(
+ 1216:                 prompt=prompt,
+ 1217:                 system=tighter_system,
+ 1218:                 max_tokens=max_tokens,
+ 1219:                 temperature=max(0.0, temperature - 0.2),  # cooler retry
+ 1220:             )
+ 1221:             total_in += retry_response.input_tokens
+ 1222:             total_out += retry_response.output_tokens
+ 1223:             retry_raw = (retry_response.content or "").strip()
+ 1224:             retry_parse = _parse_outline(
+ 1225:                 retry_raw, allowed_ev_ids=allowed_ev_ids,
+ 1226:                 allowed_sections=_outline_allowed_sections,
+ 1227:             )
+ 1228:             # Use the retry result if it's better (ok OR more plans).
+ 1229:             if retry_parse.ok or len(retry_parse.plans) > len(parse_result.plans):
+ 1230:                 parse_result = retry_parse
+
+ succeeded in 7118ms:
+100:# SECTION level by PG_MAX_EV_PER_SECTION but never applied to the OUTLINE prompt.
+106:# that no section would cite. `allowed_ev_ids` validation, full-text resolution
+107:# (evidence_pool[ev_id]), the deterministic fallback, the M-44/M-52 primary-anchor
+108:# injection, and the per-section PG_MAX_EV_PER_SECTION selection ALL stay on the FULL pool.
+115:# (where the section ev_ids ARE the outline LLM's picks from this menu). On the LARGE-pool
+211:# (M-44 / M-47) consults the tag, never a clinical title literal. The set is
+242:# archetype outline / parser / fallback / routing are byte-identical regardless
+310:    # tag here so M-44/M-47 route on archetype, not on a clinical title.
+381:    # post-generation M-44/M-47 checks resolve the archetype from the plan
+436:    # trial_summary_table_text being empty OR populated by LLM fallback
+458:    # M-44 (2026-04-22): primary-trial citation injection + validator
+500:    # the orchestrator can emit partial_outline_fallback when planner
+504:    outline_fallback_used: bool = False
+604:    allowed_ev_ids: set[str] | None = None,
+610:    with validation metadata. If allowed_ev_ids is provided, rejects
+636:    # failures → 3-section deterministic fallback → 755 words; V20: 2
+637:    # failures → similar fallback → 790 words. The cost is catastrophic:
+638:    # the deterministic fallback loses the LLM's evidence selection,
+702:        if allowed_ev_ids is not None:
+703:            unknown = [e for e in ev_ids if e not in allowed_ev_ids]
+753:def _build_deterministic_fallback_outline(
+757:    """BUG-M-203 fix (deep-dive R4): deterministic 3-section fallback
+763:    fallback does not stamp clinical headers on an economics/policy report.
+807:    # (PG_MAX_EV_PER_SECTION, default 30 = byte-identical when unset); the full-cap slate raises it in
+809:    _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
+834:# `_build_deterministic_fallback_outline` run byte-identically.
+837:# Archetype-driven deterministic fallback titles (field-invariant). Used only
+850:    max_ev_per_section: int = int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),  # I-ready-001 (#1070): env-tunable, default 30
+866:    use the content-word fallback), via the SAME `relevant_section_indices`
+988:def _build_archetype_fallback_outline(
+991:    """On-mode deterministic fallback (brief §2.3): when the planner outline is
+1046:    # prompt; `allowed_ev_ids` (validation) and every downstream consumer stay on the FULL
+1112:    # allowed_ev_ids stays on the FULL pool so outline validation does NOT regress: a section
+1114:    # downstream (evidence_pool[ev_id]) spans every row. The cap shrank only the MENU, never
+1116:    allowed_ev_ids = {ev.get("evidence_id", "") for ev in evidence}
+1117:    allowed_ev_ids.discard("")
+1138:            raw, allowed_ev_ids=allowed_ev_ids,
+1150:        corpus_supports_five = len(allowed_ev_ids) >= 100
+1173:                    + f"{len(allowed_ev_ids)} candidate evidence rows; that is "
+1184:                    + ", ".join(sorted(allowed_ev_ids)[:100])
+1192:                # against the generic allow-list (which would force the deterministic fallback). The
+1201:                    + f"report. The corpus has {len(allowed_ev_ids)} candidate evidence rows; that "
+1208:                    + ", ".join(sorted(allowed_ev_ids)[:100])
+1225:                retry_raw, allowed_ev_ids=allowed_ev_ids,
+1668:      - atom extraction errored (fail-soft fallback in atom block)
+2239:    evidence_pool: dict[str, dict[str, Any]],
+2270:        evidence_pool[ev_id] for ev_id in section.ev_ids
+2271:        if ev_id in evidence_pool
+2280:            ev_ids_assigned=section.ev_ids,
+2311:    rewritten, _converted, _unver = _rewrite_draft_with_spans(raw, evidence_pool)
+2313:    # Strict verify against full evidence_pool (not subset — the model
+2315:    report = strict_verify(rewritten, evidence_pool)
+2338:                evidence_pool=evidence_pool,
+2413:        rewritten2, _c2, _u2 = _rewrite_draft_with_spans(raw2, evidence_pool)
+2414:        report2 = strict_verify(rewritten2, evidence_pool)
+2452:        report.kept_sentences, evidence_pool,
+2483:        ev_ids_assigned=section.ev_ids,
+2515:        # onto the result so on-mode M-44/M-47 route on the tag, not title.
+2677:# evidence is available; LLM path retained as fallback.
+2754:    2. The effect cell is empty AND the fallback would render as
+2869:    (from the generator's evidence_pool) + the sweep's
+2879:    Thin-content fallback:
+2926:        # Source content: direct_quote primary, refetch fallback,
+2928:        # pre-pass-2 used `statement` as an additional fallback, which
+2991:            # fallback per contract).
+3027:        # Not enough rows for a meaningful table — signal LLM fallback
+3030:            "(below threshold of 2); LLM fallback will be used",
+3098:    out-of-range citations are dropped; no deterministic fallback
+3273:    evidence_pool: dict[str, dict[str, Any]],
+3308:            row = evidence_pool.get(ev_id)
+3357:    deterministic fallback Limitations paragraph so the report never
+3404:    # If the response is empty or broken, emit a deterministic fallback
+3407:        fallback_parts = ["Limitations:"]
+3410:            fallback_parts.append(
+3418:                fallback_parts.append(
+3425:                fallback_parts.append(
+3429:        text = " ".join(fallback_parts)
+3430:        logger.info("[multi_section] Limitations: used deterministic fallback")
+3505:# M-44 (2026-04-22): scorer/subset primary-trial boost + same-sentence
+3514:# Pre-M-44 M-20 had a prompt-only trial-specific citation rule that
+3515:# failed in practice. M-44 adds section-subset INJECTION (forcing
+3537:# Codex plan §M-44 section scope. Not in _ALLOWED_SECTIONS directly
+3544:    """M-44 (2026-04-22): True iff this section title qualifies for
+3592:    evidence_pool: dict[str, dict[str, Any]],
+3602:      in the final `evidence_pool` (single source of truth).
+3669:        selected_ev_id: str = ""
+3670:        for ev_id, pool_row in evidence_pool.items():
+3672:                selected_ev_id = ev_id
+3674:        selected_into_pool = bool(selected_ev_id)
+3685:            evidence_pool.get(selected_ev_id)
+3686:            if selected_ev_id
+3699:        if selected_ev_id and selected_ev_id in ev_id_to_biblio_num:
+3700:            biblio_num = ev_id_to_biblio_num[selected_ev_id]
+3724:    evidence_pool: dict[str, dict[str, Any]],
+3728:    """M-52 (2026-04-23): V29 Strategy β cycle 1, item 2. Belt-and-
+3730:    from `live_corpus` into `evidence_pool` when the selector-
+3736:      not colliding with a different row already in evidence_pool.
+3744:    Mutates `evidence_pool` in place; returns list of pulled row
+3754:    pool_ev_ids = set(evidence_pool.keys())
+3771:        for ev_id, row in evidence_pool.items()
+3782:            for row in evidence_pool.values()
+3815:                # different content) OR missing ID → prefixed fallback
+3828:            # Title accessor fallback (M-48 live-row schema): prefer
+3836:            evidence_pool[ev_id] = new_row
+3853:    evidence_pool: dict[str, dict[str, Any]],
+3856:    """M-44 (2026-04-22): for each anchor, list the ev_ids in the pool
+3866:    M-52 (V29-b) extension: caller should run
+3867:    `_m52_pull_from_live_corpus(evidence_pool, live_corpus, anchors)`
+3870:    `evidence_pool` (single source of truth after M-52 pull).
+3880:        for ev_id, row in evidence_pool.items():
+3888:# M-44 pass-2 (Codex audit medium #3): per-anchor → section-focus
+3912:    """M-44 pass-2 (Codex medium #3): categorize a trial anchor into
+3930:    """M-44 pass-2 (Codex medium #3): check whether a primary-trial
+3979:    """M-44 (2026-04-22): ensure primary-trial ev_ids appear in
+3980:    section-focus-matched section ev_ids lists.
+4007:    # identity through M-44. Without this guard the rebuild-as-
+4028:        # Contract plans bypass M-44 entirely (type-preserving pass-through).
+4039:        new_ev_ids = list(plan.ev_ids)  # copy
+4062:            # M-44 pass-2: section-focus affinity check.
+4115:    """M-44 (2026-04-22): scan prose for named-trial tokens.
+4165:    """M-44 (2026-04-22): same-sentence / adjacent-sentence validator.
+4209:        # M-44 pass-2 (Codex audit finding #4): "immediately adjacent
+4490:    evidence_pool: dict[str, dict[str, Any]],
+4526:    if not verified_text or not evidence_pool or not ev_ids_in_subset:
+4531:        row = evidence_pool.get(ev_id)
+4540:        row = evidence_pool[ev_id]
+4623:    # trial-table/timeline builder. When None/empty, LLM fallback
+4643:    # M-52 (2026-04-23): V29-b. Full live_corpus (pre-selector
+4645:    # primaries into evidence_pool when the selector missed them.
+4646:    # When None/empty, M-52 pull is a no-op (backwards-compatible).
+4661:    # call). Routing of M-44/M-47 then keys on archetype, not title.
+4707:    # (_run_legacy_bounded / _bounded_run, incl. the M-44/M-47 regen paths)
+4721:    # rest of the body (section generation, M-44/M-47, assembly) is shared and
+4741:        outline_fallback_used = False
+4745:                "archetype-driven deterministic fallback",
+4747:            fallback_plans = _build_archetype_fallback_outline(evidence)
+4748:            if fallback_plans:
+4749:                plans = fallback_plans
+4750:                outline_fallback_used = True
+4763:        outline_fallback_used = False
+4767:    # fallback from the evidence pool instead of a single generic
+4768:    # "Efficacy" section. Record the fallback so the orchestrator can
+4769:    # emit manifest.status=partial_outline_fallback.
+4770:    # ON-mode (research_plan set) uses the archetype fallback above and skips
+4771:    # the legacy `_ALLOWED_SECTIONS` deterministic fallback.
+4775:            "deterministic fallback",
+4778:        fallback_plans = _build_deterministic_fallback_outline(evidence, domain=domain)
+4779:        if fallback_plans:
+4780:            plans = fallback_plans
+4781:            outline_fallback_used = True
+4785:            # Not enough evidence even for the deterministic fallback.
+4788:            outline_reason_codes.append("insufficient_evidence_for_fallback")
+4820:        "[multi_section] outline: %d sections: %s (ok=%s fallback=%s retry=%s)",
+4822:        outline_ok, outline_fallback_used, retry_attempted,
+4825:    evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
+4827:    # M-44 (2026-04-22): detect M-42e primary-trial rows in the pool
+4836:        # M-52 (2026-04-23) V29-b: pull anchor-matched primaries from
+4837:        # live_corpus into evidence_pool when the selector missed them.
+4842:            evidence_pool, live_corpus, primary_trial_anchors,
+4846:                "[multi_section] M-52 pulled %d primary row(s) from "
+4847:                "live_corpus into evidence_pool: %s",
+4852:            evidence_pool, primary_trial_anchors,
+4854:        # Merge M-52 pulls into the M-44 injection_log under a new
+4884:                    "[multi_section] M-44 injected=%d swapped=%d "
+4890:    # I-cred-012a (#1164): ADVISORY credibility-analysis pass over the EFFECTIVE evidence_pool (after the
+4891:    # M-52/M-44 effective-pool assembly above; evidence_pool is the {evidence_id: row} the report cites).
+4894:    # the pass annotates row COPIES; evidence_pool is unchanged (no capability downgrade / pool shrink).
+4904:            research_question, list(evidence_pool.values()),
+4989:                plan, evidence_pool,
+5015:                plan, evidence_pool,
+5033:    # V33 unified dispatch helper for downstream (M-44 regen) callers
+5060:    # quality analysis) but BEFORE M-44 regen + final assembly. Identifies
+5147:                        "\n".join(rewrite_candidates), evidence_pool,
+5194:                new_text, new_biblio = _resolve(final_svs, evidence_pool)
+5224:                "redundants_dropped_by_llm_fallback=%d",
+5247:    # supplied) the M-44/M-47 post-generation validators route on the field-
+5252:    # M-44 (2026-04-22): post-generation same-sentence validator +
+5263:        # First validator pass — M-44 pass-3 (Codex audit): record the
+5292:                "[multi_section] M-44 validator regen pass for %d "
+5328:                    ev_ids=orig_plan.ev_ids,
+5342:                    # I-cred-008b (#1162): a credibility-disclosure coverage gap raised during M-44
+5349:                        "[multi_section] M-44 regen raised for %s: %s",
+5358:                # M-44 pass-3 (Codex audit): use first-pass violation
+5372:                        "[multi_section] M-44 regen replaced %s "
+5428:            evidence_pool=evidence_pool,
+5429:            ev_ids_in_subset=mechanism_section.ev_ids_assigned,
+5492:                            ev_ids=orig_plan.ev_ids,
+5501:                                    evidence_pool=evidence_pool,
+5773:        # Primary anchors come from the caller; if None, LLM fallback.
+5801:            # M-42b pass-2 (Codex audit blocker #2): LLM fallback
+5808:            # direct_quote, LLM fallback is SKIPPED (table stays
+5820:                fallback_source = "\n\n".join(primary_direct_quotes)
+5826:                    verified_prose=fallback_source,
+5837:                        "[multi_section] M-42b LLM fallback emitted table "
+5844:                    "available for LLM fallback; table suppressed"
+5876:            evidence_pool=evidence_pool,
+5999:        # M-44 (2026-04-22)
+6015:            evidence_pool=evidence_pool,
+6027:        outline_fallback_used=outline_fallback_used,
+
+ succeeded in 10360ms:
+  600: 
+  601: 
+  602: def _parse_outline(
+  603:     raw: str,
+  604:     allowed_ev_ids: set[str] | None = None,
+  605:     allowed_sections: list[str] | None = None,
+  606: ) -> OutlineParseResult:
+  607:     """Extract JSON from an outline response and validate.
+  608: 
+  609:     BUG-M-203 fix (deep-dive R4): returns structured OutlineParseResult
+  610:     with validation metadata. If allowed_ev_ids is provided, rejects
+  611:     sections that reference unknown evidence IDs. I-ready-009 (#1081):
+  612:     `allowed_sections` is the domain-appropriate title set (defaults to
+  613:     the clinical `_ALLOWED_SECTIONS`); titles outside it are dropped.
+  614:     """
+  615:     reason_codes: list[str] = []
+  616:     if not raw:
+  617:         return OutlineParseResult(
+  618:             plans=[], ok=False, reason_codes=["empty_response"], raw=raw,
+  619:         )
+  620:     stripped = raw.strip()
+  621:     # Strip code fences
+  622:     stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+  623:     stripped = re.sub(r"\s*```\s*$", "", stripped)
+  624:     # Find first { and last }
+  625:     start = stripped.find("{")
+  626:     end = stripped.rfind("}")
+  627:     if start == -1 or end == -1:
+  628:         return OutlineParseResult(
+  629:             plans=[], ok=False, reason_codes=["no_json_object"], raw=raw,
+  630:         )
+  631:     payload = stripped[start:end + 1]
+  632: 
+  633:     # M-31 (2026-04-21): DeepSeek V3.2 intermittently emits JSON with
+  634:     # trailing commas that break strict json.loads. This is a stochastic
+  635:     # generator quirk, not a content defect. V18: 0 failures; V19: 3
+  636:     # failures → 3-section deterministic fallback → 755 words; V20: 2
+  637:     # failures → similar fallback → 790 words. The cost is catastrophic:
+  638:     # the deterministic fallback loses the LLM's evidence selection,
+  639:     # which in V20 dropped all 48 T3 regulatory sources from the final
+  640:     # bibliography despite M-28 retrieving them.
+  641:     #
+  642:     # Fix: attempt a lenient re-parse that strips trailing commas
+  643:     # before the closing `]` / `}`. This is a safe transformation on
+  644:     # JSON syntax — well-formed JSON has no trailing commas, so
+  645:     # stripping them cannot change the meaning of valid JSON. Only
+  646:     # apply the lenient pass if strict parsing failed.
+  647:     obj = None
+  648:     try:
+  649:         obj = json.loads(payload)
+  650:     except json.JSONDecodeError as strict_exc:
+  651:         # Trailing-comma cleanup: `,` immediately before `]` or `}`
+  652:         # (with optional whitespace/newlines in between). This is the
+  653:         # pattern that produced "Expecting ',' delimiter: line 22
+  654:         # column 6" errors in V19 and V20.
+  655:         lenient = re.sub(r",(\s*[}\]])", r"\1", payload)
+  656:         try:
+  657:             obj = json.loads(lenient)
+  658:             logger.info(
+  659:                 "[multi_section] outline JSON recovered via lenient "
+  660:                 "trailing-comma cleanup (M-31)"
+  661:             )
+  662:         except json.JSONDecodeError as lenient_exc:
+  663:             logger.warning(
+  664:                 "[multi_section] outline JSON decode failed "
+  665:                 "(strict: %s; lenient: %s)",
+  666:                 strict_exc, lenient_exc,
+  667:             )
+  668:             return OutlineParseResult(
+  669:                 plans=[], ok=False, reason_codes=["json_decode_error"],
+  670:                 raw=raw,
+  671:             )
+  672: 
+  673:     sections_raw = obj.get("sections", [])
+  674:     if not isinstance(sections_raw, list):
+  675:         return OutlineParseResult(
+  676:             plans=[], ok=False, reason_codes=["sections_not_list"], raw=raw,
+  677:         )
+  678: 
+  679:     plans: list[SectionPlan] = []
+  680:     allowed = {s.lower() for s in (allowed_sections or _ALLOWED_SECTIONS)}
+  681:     seen_titles: set[str] = set()
+  682:     all_ev_ids: list[str] = []  # tracks overlap across sections
+  683:     for entry in sections_raw:
+  684:         if not isinstance(entry, dict):
+  685:             continue
+  686:         title = str(entry.get("title", "")).strip()
+  687:         title_lower = title.lower()
+  688:         if title_lower not in allowed:
+  689:             logger.info("[multi_section] outline dropped off-list title %r", title)
+  690:             continue
+  691:         if title_lower in seen_titles:
+  692:             reason_codes.append(f"duplicate_title:{title_lower}")
+  693:             continue
+  694:         focus = str(entry.get("focus", "")).strip()
+  695:         ev_ids_raw = entry.get("ev_ids", [])
+  696:         if not isinstance(ev_ids_raw, list):
+  697:             continue
+  698:         ev_ids = [str(e).strip() for e in ev_ids_raw if isinstance(e, (str, int))]
+  699:         # Deduplicate within a section BEFORE counting.
+  700:         ev_ids = list(dict.fromkeys(ev_ids))
+  701:         # Reject unknown evidence IDs if pool is supplied.
+  702:         if allowed_ev_ids is not None:
+  703:             unknown = [e for e in ev_ids if e not in allowed_ev_ids]
+  704:             if unknown:
+  705:                 reason_codes.append(f"unknown_ev_ids:{','.join(unknown[:3])}")
+  706:                 continue
+  707:         if len(ev_ids) < 2:
+  708:             logger.info("[multi_section] outline dropped %r (<2 unique ev_ids)", title)
+  709:             continue
+  710:         plans.append(SectionPlan(
+  711:             title=title, focus=focus or title, ev_ids=ev_ids,
+  712:         ))
+  713:         seen_titles.add(title_lower)
+  714:         all_ev_ids.extend(ev_ids)
+  715: 
+  716:     # Overall outline validation (not per-section)
+  717:     # M-41a: accept up to 6 sections (was 5). The outline prompt
+  718:     # instructs the LLM to emit 6 only when both the M-40 Mechanism
+  719:     # trigger fires AND regulatory evidence is present — making
+  720:     # Mechanism additive rather than substitutive. The parser is
+  721:     # permissive: 3-6 sections pass; >6 is truncated and flagged.
+  722:     ok = True
+  723:     if len(plans) < 3:
+  724:         reason_codes.append("section_count_below_min")
+  725:         ok = False
+
+codex
+The retry uses the same bounded `prompt` for attempt 2, while its retry system message still references the full allowed set count and a first-100 allowed-id hint. I’m going one layer downstream to distinguish “validation spans full pool” from “the LLM can actually choose unseen tail IDs.”
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/generator/multi_section_generator.py | ForEach-Object { $i++; if ($i -ge 753 -and $i -le 930) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/generator/multi_section_generator.py | ForEach-Object { $i++; if ($i -ge 2239 -and $i -le 2330) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path src/polaris_graph/generator/multi_section_generator.py | ForEach-Object { $i++; if ($i -ge 4720 -and $i -le 5035) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest -q tests/polaris_graph/test_iperm011_outline_evidence_cap.py' in C:\POLARIS
+ succeeded in 3632ms:
+ 2239:     evidence_pool: dict[str, dict[str, Any]],
+ 2240:     *,
+ 2241:     model: str,
+ 2242:     temperature: float,
+ 2243:     max_tokens_per_section: int,
+ 2244:     min_kept_fraction: float,
+ 2245:     contradictions: list[dict[str, Any]] | None = None,
+ 2246:     cross_trial_block: Any = None,  # CrossTrialSynthesisBlock | None
+ 2247:     use_field_agnostic_prompt: bool = False,
+ 2248:     advisory_text: str = "",  # I-meta-005 Phase 6 (#990): domain advisory append
+ 2249:     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
+ 2250: ) -> SectionResult:
+ 2251:     """Run one section: generate, rewrite, verify, optionally regenerate.
+ 2252: 
+ 2253:     V32 (M-71) addition: when `contradictions` is non-None, this
+ 2254:     function injects a SECTION-LOCAL hedging instruction block into
+ 2255:     the prompt for sections whose subject/predicate keywords match
+ 2256:     high-severity contradictions. Codex strategic review 2026-04-25:
+ 2257:     Qwen flags hedging_appropriateness because explicit contradictions
+ 2258:     live only in the appendix; M-71 routes them into the body prose.
+ 2259: 
+ 2260:     V33 (M-72) addition: when `cross_trial_block` is non-None, this
+ 2261:     function injects per-section CROSS-TRIAL SYNTHESIS suggestions
+ 2262:     derived from already-rendered contract slot payloads. Codex
+ 2263:     run-12 verdict: V31+V32 lifted slot quality but Narrative depth
+ 2264:     stayed LB because Efficacy + Mechanism were slot-stacked. M-72
+ 2265:     generates 1-2 connective inferences (dose-response, comparator
+ 2266:     progression, safety class) per body section.
+ 2267:     """
+ 2268:     # Build evidence subset
+ 2269:     ev_subset = [
+ 2270:         evidence_pool[ev_id] for ev_id in section.ev_ids
+ 2271:         if ev_id in evidence_pool
+ 2272:     ]
+ 2273:     if not ev_subset:
+ 2274:         # BB5-C07 (#1178) sibling vanish path: a planned section with NO assigned evidence must
+ 2275:         # NOT silently disappear either. Render the no-evidence gap stub and ship the section
+ 2276:         # (dropped_due_to_failure=False, is_gap_stub=True) so the gap is visible + curator-actionable.
+ 2277:         # `error="no_evidence_in_pool"` is preserved for telemetry so the cause stays auditable.
+ 2278:         return SectionResult(
+ 2279:             title=section.title, focus=section.focus,
+ 2280:             ev_ids_assigned=section.ev_ids,
+ 2281:             raw_draft="", rewritten_draft="",
+ 2282:             verified_text=_NO_EVIDENCE_GAP_STUB_SENTENCE, biblio_slice=[],
+ 2283:             sentences_verified=0, sentences_dropped=0,
+ 2284:             regen_attempted=False, dropped_due_to_failure=False,
+ 2285:             error="no_evidence_in_pool",
+ 2286:             # I-meta-005 Phase 1 (#985, P2 note B): carry the plan's archetype
+ 2287:             # onto the result so on-mode audit routing keys on the tag.
+ 2288:             archetype=getattr(section, "archetype", ""),
+ 2289:             is_gap_stub=True,
+ 2290:         )
+ 2291: 
+ 2292:     total_in_tok = 0
+ 2293:     total_out_tok = 0
+ 2294: 
+ 2295:     # First pass
+ 2296:     # Step 3b commit 3: _call_section now returns the atom_catalog as
+ 2297:     # 4th tuple element. Preserve for Step 3b commit 4 final-hook
+ 2298:     # validator wiring on SectionResult.
+ 2299:     raw, in_tok, out_tok, section_atom_catalog = await _call_section(
+ 2300:         section, ev_subset, model, temperature, max_tokens_per_section,
+ 2301:         tighter_retry=False,
+ 2302:         contradictions=contradictions,
+ 2303:         cross_trial_block=cross_trial_block,
+ 2304:         use_field_agnostic_prompt=use_field_agnostic_prompt,
+ 2305:         advisory_text=advisory_text,
+ 2306:     )
+ 2307:     total_in_tok += in_tok
+ 2308:     total_out_tok += out_tok
+ 2309: 
+ 2310:     # Rewrite provenance tokens
+ 2311:     rewritten, _converted, _unver = _rewrite_draft_with_spans(raw, evidence_pool)
+ 2312: 
+ 2313:     # Strict verify against full evidence_pool (not subset — the model
+ 2314:     # might cite an ev from outside the assigned subset; still valid).
+ 2315:     report = strict_verify(rewritten, evidence_pool)
+ 2316: 
+ 2317:     # I-bug-108: verifier-driven sentence repair loop. Per Codex
+ 2318:     # strategic-review iter 1 path B (recommended after PR #350 D).
+ 2319:     # When strict_verify drops sentences for "drift" reasons (entailment
+ 2320:     # failed, number/trial-name mismatches, content overlap), feed the
+ 2321:     # dropped sentence + cited spans + failure reason back to the
+ 2322:     # generator and ask for one rewrite that the cited span entails.
+ 2323:     # Repaired sentences re-run the FULL verification chain before
+ 2324:     # entering kept[]; failures stay dropped (no double-counting).
+ 2325:     # Per Codex iter-1 brief verdict: 1 retry per sentence, MAX 10
+ 2326:     # repairs per section, deterministic order, token-set preservation
+ 2327:     # check. Telemetry (attempts/successes/failures) accumulates on
+ 2328:     # the SectionResult so the manifest can report recovery rate.
+ 2329:     section_repair_telemetry = None
+ 2330:     try:
+
+ succeeded in 6858ms:
+  753: def _build_deterministic_fallback_outline(
+  754:     evidence: list[dict[str, Any]],
+  755:     domain: str = "",
+  756: ) -> list[SectionPlan]:
+  757:     """BUG-M-203 fix (deep-dive R4): deterministic 3-section fallback
+  758:     when the planner collapses. Uses round-robin evidence assignment
+  759:     to three allowed titles so each section has >=2 unique,
+  760:     non-overlapping evidence IDs. Returns [] if evidence is insufficient.
+  761:     I-ready-009 (#1081): clinical/unknown uses the clinical titles
+  762:     (byte-identical); non-clinical uses domain-neutral titles so the
+  763:     fallback does not stamp clinical headers on an economics/policy report.
+  764:     """
+  765:     ev_ids = [ev.get("evidence_id", "") for ev in evidence]
+  766:     ev_ids = [e for e in ev_ids if e]  # drop empty
+  767:     # Need at least 6 unique IDs to guarantee 3 sections with >=2 each.
+  768:     if len(set(ev_ids)) < 6:
+  769:         return []
+  770: 
+  771:     if str(domain or "").strip().lower() in ("", "clinical"):
+  772:         titles = ["Efficacy", "Safety", "Comparative"]
+  773:         focuses = {
+  774:             "Efficacy": "Summarize the efficacy endpoints supported by the evidence.",
+  775:             "Safety": "Summarize the safety signals and adverse-event profile.",
+  776:             "Comparative": (
+  777:                 "Summarize comparisons against alternative interventions "
+  778:                 "when evidence supports such comparison."
+  779:             ),
+  780:         }
+  781:     else:
+  782:         titles = ["Key Findings", "Evidence and Analysis", "Implications"]
+  783:         focuses = {
+  784:             "Key Findings": "Summarize the principal findings supported by the evidence.",
+  785:             "Evidence and Analysis": "Analyze the supporting evidence and its strength.",
+  786:             "Implications": (
+  787:                 "Summarize the implications and consequences the evidence supports."
+  788:             ),
+  789:         }
+  790:     # Filter to titles that exist in the domain-appropriate allowed list.
+  791:     _allowed = _allowed_sections_for_domain(domain)
+  792:     allowed_titles = [t for t in titles if t in _allowed]
+  793:     if len(allowed_titles) < 3:
+  794:         # Extremely defensive; the three titles above are in the relevant canonical set.
+  795:         return []
+  796: 
+  797:     # Round-robin: section i gets ev_ids[i::3], capped at 30 per section.
+  798:     # M-24 fix: Without the cap, a 289-row corpus produces 96 ev_ids per
+  799:     # section; inlining 96 evidence blocks in the section prompt created
+  800:     # >100K-token request bodies that OpenRouter rejects as 400 Bad Request
+  801:     # (V10 FATAL 2026-04-19). Cap at 30 keeps per-section prompts within
+  802:     # DeepSeek V3.2-Exp's effective request limit while still giving the
+  803:     # section writer a rich citation pool.
+  804:     # I-ready-001 (#1070) P0: 30 was tuned for the OLD V3.2-Exp model; the generator is now
+  805:     # deepseek-v4-pro (1M context), so this stale per-section ceiling — combined with the global
+  806:     # PG_LIVE_MAX_EV_TO_GEN cap — held total generation evidence below corpus size. Env-tunable now
+  807:     # (PG_MAX_EV_PER_SECTION, default 30 = byte-identical when unset); the full-cap slate raises it in
+  808:     # lockstep. Still bounded to keep per-section bodies under the >100K-token OpenRouter 400 limit.
+  809:     _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
+  810:     plans: list[SectionPlan] = []
+  811:     for i, title in enumerate(allowed_titles):
+  812:         section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
+  813:         if len(section_ev) < 2:
+  814:             # If slicing leaves a section too thin, bail out.
+  815:             return []
+  816:         plans.append(SectionPlan(
+  817:             title=title,
+  818:             focus=focuses[title],
+  819:             ev_ids=section_ev,
+  820:         ))
+  821:     return plans
+  822: 
+  823: 
+  824: # ─────────────────────────────────────────────────────────────────────────────
+  825: # I-meta-005 Phase 1 (#985): ON-MODE archetype outline (field-agnostic).
+  826: #
+  827: # This is the dual-path's ON branch (brief §2.3 + §2.5). It is LLM-FREE: the
+  828: # section STRUCTURE (titles + archetype tags + count) is FIXED by the
+  829: # pre-retrieval, SHA-pinned `ResearchPlan.outline`; this code only ASSIGNS
+  830: # retrieved evidence rows to those pre-declared sections (populate `ev_ids`).
+  831: # It constructs NO OpenRouterClient and makes NO LLM call — so on-mode outline
+  832: # is spend-free (P1-11) and the handoff is deterministically testable (P1-12).
+  833: # OFF mode never reaches here; the legacy `_call_outline` / `_parse_outline` /
+  834: # `_build_deterministic_fallback_outline` run byte-identically.
+  835: # ─────────────────────────────────────────────────────────────────────────────
+  836: 
+  837: # Archetype-driven deterministic fallback titles (field-invariant). Used only
+  838: # when an on-mode plan outline is empty AND we still need a minimal structure.
+  839: _ARCHETYPE_FALLBACK: list[tuple[str, str]] = [
+  840:     ("Background", "Background and Context"),
+  841:     ("Quantitative-Comparison", "Quantitative Comparison"),
+  842:     ("Decision", "Decision Synthesis"),
+  843: ]
+  844: 
+  845: 
+  846: def _assign_evidence_to_planned_outline(
+  847:     planned_outline: list[Any],
+  848:     evidence: list[dict[str, Any]],
+  849:     *,
+  850:     max_ev_per_section: int = int(os.getenv("PG_MAX_EV_PER_SECTION", "30")),  # I-ready-001 (#1070): env-tunable, default 30
+  851:     sub_queries: list[str] | None = None,
+  852:     authority_floor: float | None = None,
+  853: ) -> list[SectionPlan]:
+  854:     """Assign retrieved evidence rows to the planner's pre-declared sections
+  855:     (brief §2.5 / §2.2b). The titles + archetype tags + section COUNT come from
+  856:     `planned_outline` (each item exposes `.archetype`, `.title`, and optionally
+  857:     `.evidence_target`). Pure / no-LLM / no-network.
+  858: 
+  859:     `planned_outline` items are `planning.SectionOutlineItem` instances (or any
+  860:     object with `.archetype` / `.title` attributes). Returns on-mode
+  861:     `SectionPlan`s carrying the question-specific title + archetype tag.
+  862: 
+  863:     I-meta-005 Phase 3 (#987): when `sub_queries` is provided (on-mode plan
+  864:     present), assignment is PROVENANCE-FIRST — each row goes to the section(s)
+  865:     whose `sub_query_indices` its `query_origin` matches (sentinel/empty origins
+  866:     use the content-word fallback), via the SAME `relevant_section_indices`
+  867:     mapping the plan-sufficiency gate uses to COUNT coverage. So a section the
+  868:     gate certified SUFFICIENT actually RECEIVES its credited rows. When
+  869:     `sub_queries` is None (off-path / legacy callers), the byte-identical
+  870:     round-robin `ev_ids[i::n_sections]` slice is used.
+  871:     """
+  872:     n_sections = len(planned_outline)
+  873:     plans: list[SectionPlan] = []
+  874: 
+  875:     if sub_queries is not None:
+  876:         # PROVENANCE-FIRST (on-mode). Shared mapping + floor imported lazily to
+  877:         # avoid a module-load cycle (adequacy -> generator.provenance_generator).
+  878:         from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+  879:             _authority_floor_default,
+  880:             _enrich_authority_if_missing,
+  881:             _facets_matched_for_row,
+  882:             _min_per_facet_default,
+  883:             relevant_section_indices,
+  884:         )
+  885:         # Use the SAME floor the gate used (threaded by the caller; default env)
+  886:         # so the assignment's above/below bucketing matches the gate's coverage
+  887:         # decision exactly (architect P3 — gate/assignment floor consistency).
+  888:         floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
+  889:         min_per_facet = _min_per_facet_default()
+  890:         # PER-SECTION, PER-FACET buckets of above-floor matched rows (architect
+  891:         # P1): a section the gate certified SUFFICIENT requires EVERY mapped
+  892:         # sub_query_index to have >= min_per_facet above-floor rows. A flat
+  893:         # concat-then-slice at evidence_target could truncate out a facet's only
+  894:         # credited row, billing the generator a section whose certified facet has
+  895:         # ZERO evidence in the billed set — the facet-level money-trap at the cap
+  896:         # boundary. So we RESERVE min_per_facet from each mapped facet first.
+  897:         section_facet_above: list[dict[int, list[str]]] = [
+  898:             {} for _ in planned_outline
+  899:         ]
+  900:         section_above_any: list[list[str]] = [[] for _ in planned_outline]
+  901:         section_below_any: list[list[str]] = [[] for _ in planned_outline]
+  902:         for row in evidence:
+  903:             ev_id = row.get("evidence_id", "")
+  904:             if not ev_id:
+  905:                 continue
+  906:             matched = [
+  907:                 s for s in relevant_section_indices(
+  908:                     row, planned_outline, sub_queries
+  909:                 )
+  910:                 if 0 <= s < n_sections
+  911:             ]
+  912:             if not matched:
+  913:                 continue
+  914:             above = _enrich_authority_if_missing(row) >= floor
+  915:             for sec_idx in matched:
+  916:                 if above:
+  917:                     section_above_any[sec_idx].append(ev_id)
+  918:                     for f in _facets_matched_for_row(
+  919:                         row, planned_outline[sec_idx], sub_queries
+  920:                     ):
+  921:                         section_facet_above[sec_idx].setdefault(f, []).append(ev_id)
+  922:                 else:
+  923:                     section_below_any[sec_idx].append(ev_id)
+  924:         for i, item in enumerate(planned_outline):
+  925:             archetype = getattr(item, "archetype", "") or ""
+  926:             title = getattr(item, "title", "") or archetype or f"Section {i + 1}"
+  927:             target = int(getattr(item, "evidence_target", 0) or 0)
+  928:             mapped_facets = [
+  929:                 q for q in (getattr(item, "sub_query_indices", []) or [])
+  930:                 if 0 <= q < len(sub_queries)
+
+ succeeded in 10459ms:
+ 4720:     # I-meta-005 Phase 1 (#985): TRUE dual path at the OUTLINE seam only — the
+ 4721:     # rest of the body (section generation, M-44/M-47, assembly) is shared and
+ 4722:     # routes on `research_plan is not None`. ON branch: the section structure
+ 4723:     # is FIXED by `research_plan.outline` and we ASSIGN retrieved evidence to
+ 4724:     # those pre-declared sections with NO LLM outline call (spend-free,
+ 4725:     # P1-11/P1-12). OFF branch (`research_plan is None`): the legacy
+ 4726:     # `_call_outline` path runs BYTE-IDENTICALLY (P1-1).
+ 4727:     if research_plan is not None:
+ 4728:         retry_attempted = False
+ 4729:         outline_in_tok = 0
+ 4730:         outline_out_tok = 0
+ 4731:         planned_outline = list(getattr(research_plan, "outline", []) or [])
+ 4732:         # I-meta-005 Phase 3 (#987): pass the plan's sub_queries so assignment is
+ 4733:         # PROVENANCE-FIRST (query_origin x sub_query_indices), matching the
+ 4734:         # plan-sufficiency gate's coverage mapping. None -> round-robin (legacy).
+ 4735:         plans = _assign_evidence_to_planned_outline(
+ 4736:             planned_outline, evidence,
+ 4737:             sub_queries=list(getattr(research_plan, "sub_queries", []) or []),
+ 4738:         )
+ 4739:         outline_ok = bool(plans)
+ 4740:         outline_reason_codes = [] if plans else ["planner_outline_empty"]
+ 4741:         outline_fallback_used = False
+ 4742:         if not plans:
+ 4743:             logger.warning(
+ 4744:                 "[multi_section] on-mode planner outline empty; using "
+ 4745:                 "archetype-driven deterministic fallback",
+ 4746:             )
+ 4747:             fallback_plans = _build_archetype_fallback_outline(evidence)
+ 4748:             if fallback_plans:
+ 4749:                 plans = fallback_plans
+ 4750:                 outline_fallback_used = True
+ 4751:                 if not outline_reason_codes:
+ 4752:                     outline_reason_codes = ["planner_outline_empty"]
+ 4753:     else:
+ 4754:         outline_parse, retry_attempted, outline_in_tok, outline_out_tok = \
+ 4755:             await _call_outline(
+ 4756:                 research_question, evidence, gen_model,
+ 4757:                 outline_temperature, outline_max_tokens,
+ 4758:                 domain=domain,
+ 4759:             )
+ 4760:         plans = outline_parse.plans
+ 4761:         outline_ok = outline_parse.ok
+ 4762:         outline_reason_codes = list(outline_parse.reason_codes)
+ 4763:         outline_fallback_used = False
+ 4764: 
+ 4765:     # BUG-M-203 fix (deep-dive R4): if the planner (plus retry) did not
+ 4766:     # produce a valid 3-5 section plan, build a DETERMINISTIC 3-section
+ 4767:     # fallback from the evidence pool instead of a single generic
+ 4768:     # "Efficacy" section. Record the fallback so the orchestrator can
+ 4769:     # emit manifest.status=partial_outline_fallback.
+ 4770:     # ON-mode (research_plan set) uses the archetype fallback above and skips
+ 4771:     # the legacy `_ALLOWED_SECTIONS` deterministic fallback.
+ 4772:     if research_plan is None and (not plans or not outline_ok):
+ 4773:         logger.warning(
+ 4774:             "[multi_section] outline invalid (reasons=%s); using "
+ 4775:             "deterministic fallback",
+ 4776:             outline_reason_codes,
+ 4777:         )
+ 4778:         fallback_plans = _build_deterministic_fallback_outline(evidence, domain=domain)
+ 4779:         if fallback_plans:
+ 4780:             plans = fallback_plans
+ 4781:             outline_fallback_used = True
+ 4782:             if not outline_reason_codes:
+ 4783:                 outline_reason_codes = ["empty_plans"]
+ 4784:         elif not plans:
+ 4785:             # Not enough evidence even for the deterministic fallback.
+ 4786:             # Leave plans empty so the rest of the pipeline fails into
+ 4787:             # abort_no_verified_sections downstream.
+ 4788:             outline_reason_codes.append("insufficient_evidence_for_fallback")
+ 4789: 
+ 4790:     # V30 Phase-2 M-63: when contract plans are supplied, REPLACE
+ 4791:     # the LLM-generated outline with contract sections. Any legacy
+ 4792:     # section whose title doesn't already have a contract
+ 4793:     # counterpart can stay as an enrichment section (Contradictions,
+ 4794:     # Limitations, etc.). Contract sections run via
+ 4795:     # `_run_contract_section` (M-58 slot-bound). Legacy sections
+ 4796:     # run via `_run_section` (existing LLM path).
+ 4797:     # I-meta-005 Phase 4 (#988): in partial_mode, V30 contract sections are an
+ 4798:     # OUT-OF-PLAN appender (they enter the outline `plans`, not appended text, so
+ 4799:     # the runner's `if getattr(multi, ...):` guards cannot suppress them). Hard-
+ 4800:     # skip the injection here so the partial report renders ONLY the pruned plan's
+ 4801:     # sufficient sections.
+ 4802:     if v30_contract_plans and not partial_mode:
+ 4803:         _contract_titles = {p.title for p in v30_contract_plans}
+ 4804:         _enrichment_plans = [
+ 4805:             p for p in plans if p.title not in _contract_titles
+ 4806:         ]
+ 4807:         plans = list(v30_contract_plans) + _enrichment_plans
+ 4808:         logger.info(
+ 4809:             "[multi_section] V30-P2: %d contract sections + %d "
+ 4810:             "enrichment sections",
+ 4811:             len(v30_contract_plans), len(_enrichment_plans),
+ 4812:         )
+ 4813:     elif v30_contract_plans and partial_mode:
+ 4814:         logger.info(
+ 4815:             "[multi_section] Phase-4 partial_mode: V30 contract section "
+ 4816:             "injection DISABLED (pruned-plan sections only)",
+ 4817:         )
+ 4818: 
+ 4819:     logger.info(
+ 4820:         "[multi_section] outline: %d sections: %s (ok=%s fallback=%s retry=%s)",
+ 4821:         len(plans), [p.title for p in plans],
+ 4822:         outline_ok, outline_fallback_used, retry_attempted,
+ 4823:     )
+ 4824: 
+ 4825:     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
+ 4826: 
+ 4827:     # M-44 (2026-04-22): detect M-42e primary-trial rows in the pool
+ 4828:     # and inject them into primary-eligible sections' ev_ids lists.
+ 4829:     # Addresses V27 failure where primary ev_id was in the pool but
+ 4830:     # outline planner picked post-hoc/meta-analysis derivatives.
+ 4831:     # No-op when primary_trial_anchors is None/empty.
+ 4832:     m44_primary_by_anchor: dict[str, list[str]] = {}
+ 4833:     m44_injection_log: list[dict[str, Any]] = []
+ 4834:     m52_pulled_rows: list[dict[str, Any]] = []
+ 4835:     if primary_trial_anchors:
+ 4836:         # M-52 (2026-04-23) V29-b: pull anchor-matched primaries from
+ 4837:         # live_corpus into evidence_pool when the selector missed them.
+ 4838:         # Belt-and-suspenders safety net for M-51 at the selector.
+ 4839:         # Codex plan pass-1 revisions #4-5 applied inside
+ 4840:         # `_m52_pull_from_live_corpus`.
+ 4841:         m52_pulled_rows = _m52_pull_from_live_corpus(
+ 4842:             evidence_pool, live_corpus, primary_trial_anchors,
+ 4843:         )
+ 4844:         if m52_pulled_rows:
+ 4845:             logger.info(
+ 4846:                 "[multi_section] M-52 pulled %d primary row(s) from "
+ 4847:                 "live_corpus into evidence_pool: %s",
+ 4848:                 len(m52_pulled_rows),
+ 4849:                 [p["anchor"] for p in m52_pulled_rows],
+ 4850:             )
+ 4851:         m44_primary_by_anchor = _m44_detect_primary_ev_ids(
+ 4852:             evidence_pool, primary_trial_anchors,
+ 4853:         )
+ 4854:         # Merge M-52 pulls into the M-44 injection_log under a new
+ 4855:         # action type so downstream telemetry (m44_primary_citation_
+ 4856:         # telemetry.json) shows the corpus-pull origin.
+ 4857:         for pull in m52_pulled_rows:
+ 4858:             m44_injection_log.append({
+ 4859:                 "section": "<pool-level>",
+ 4860:                 "anchor": pull["anchor"],
+ 4861:                 "ev_id": pull["evidence_id"],
+ 4862:                 "action": "injected_from_corpus",
+ 4863:                 "preserved_live_corpus_id":
+ 4864:                     pull.get("preserved_live_corpus_id", False),
+ 4865:             })
+ 4866:         if m44_primary_by_anchor and plans:
+ 4867:             # I-meta-005 Phase 1 FIX 2 (Codex diff-gate iter-1 P1 #2): on-mode
+ 4868:             # (research_plan present) the PRE-generation injection routes on
+ 4869:             # archetype, not clinical title/focus. OFF: use_archetype=False
+ 4870:             # keeps title routing byte-identical.
+ 4871:             plans, m44_injection_log = _m44_inject_primaries_into_outline(
+ 4872:                 plans, m44_primary_by_anchor,
+ 4873:                 use_archetype=research_plan is not None,
+ 4874:             )
+ 4875:             injected_count = sum(
+ 4876:                 1 for e in m44_injection_log if e["action"] == "injected"
+ 4877:             )
+ 4878:             swapped_count = sum(
+ 4879:                 1 for e in m44_injection_log
+ 4880:                 if e["action"].startswith("swap_in_for_")
+ 4881:             )
+ 4882:             if injected_count or swapped_count:
+ 4883:                 logger.info(
+ 4884:                     "[multi_section] M-44 injected=%d swapped=%d "
+ 4885:                     "anchors_matched=%d",
+ 4886:                     injected_count, swapped_count,
+ 4887:                     len(m44_primary_by_anchor),
+ 4888:                 )
+ 4889: 
+ 4890:     # I-cred-012a (#1164): ADVISORY credibility-analysis pass over the EFFECTIVE evidence_pool (after the
+ 4891:     # M-52/M-44 effective-pool assembly above; evidence_pool is the {evidence_id: row} the report cites).
+ 4892:     # default-OFF master flag => credibility_analysis stays None => byte-identical. FAIL-LOUD: master-on
+ 4893:     # but no production judge/gov_suffixes threaded => abort, never a priors-only false-green. READ-ONLY:
+ 4894:     # the pass annotates row COPIES; evidence_pool is unchanged (no capability downgrade / pool shrink).
+ 4895:     credibility_analysis = None
+ 4896:     if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
+ 4897:         from ..synthesis import credibility_pass as _credibility_pass  # gated import: inert when flag OFF
+ 4898:         if credibility_pass_judge is None or not credibility_pass_gov_suffixes:
+ 4899:             raise _credibility_pass.CredibilityPassError(
+ 4900:                 "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
+ 4901:                 "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
+ 4902:             )
+ 4903:         credibility_analysis = _credibility_pass.run_credibility_analysis(
+ 4904:             research_question, list(evidence_pool.values()),
+ 4905:             gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=None,
+ 4906:             judge=credibility_pass_judge,
+ 4907:         )
+ 4908: 
+ 4909:     # Stage 2: per-section generation (bounded parallelism)
+ 4910:     sem = asyncio.Semaphore(max_parallel_sections)
+ 4911: 
+ 4912:     # V30 Phase-2 M-63: dispatch contract sections (M-58 slot-bound)
+ 4913:     # vs legacy LLM sections. ContractSectionPlanExt instances go
+ 4914:     # through run_contract_section; plain SectionPlan uses _run_section.
+ 4915:     from .contract_section_runner import (
+ 4916:         is_contract_section,
+ 4917:         run_contract_section,
+ 4918:     )
+ 4919:     from .live_deepseek_generator import _rewrite_draft_with_spans
+ 4920:     from .provenance_generator import strict_verify
+ 4921: 
+ 4922:     # Collected M-58 payloads from contract sections, threaded back
+ 4923:     # to the sweep integration layer via MultiSectionResult for
+ 4924:     # M-64 real-validation promotion.
+ 4925:     contract_slot_payloads: list = []
+ 4926: 
+ 4927:     async def _m63_llm_call(prompt: str) -> tuple[str, int, int]:
+ 4928:         """Adapter: one OpenRouter call per M-58 slot prompt.
+ 4929:         Returns (response_text, input_tokens, output_tokens).
+ 4930:         M-58's `parse_slot_fill_response` handles the JSON
+ 4931:         parsing; we just hand the raw text through.
+ 4932: 
+ 4933:         V30 Phase-2 M-66 run-5 diagnostic: contract slots with
+ 4934:         25K-char direct_quote (e.g. FDA Mounjaro label via
+ 4935:         M-66b-T OA full-text fetch) produced JSON truncation
+ 4936:         (`Unterminated string starting at pos 10561`) when the
+ 4937:         LLM tried to echo a long regulatory prose span under the
+ 4938:         default section_max_tokens=2400 budget. Raise the cap
+ 4939:         for contract extraction calls — the JSON schema is much
+ 4940:         terser than legacy section prose (max 10 fields × verbatim
+ 4941:         quotes × ~500 chars = ~5K tokens), so 6000 gives safe
+ 4942:         headroom without inviting runaway verbosity.
+ 4943:         """
+ 4944:         from ..llm.openrouter_client import (
+ 4945:             OpenRouterClient,
+ 4946:             set_reasoning_call_context,
+ 4947:         )
+ 4948:         client = OpenRouterClient(model=gen_model)
+ 4949:         try:
+ 4950:             # I-gen-004 (#496): tag the V30 contract-slot extraction call.
+ 4951:             set_reasoning_call_context(
+ 4952:                 section="_contract_slot", call_type="contract_slot",
+ 4953:             )
+ 4954:             response = await client.generate(
+ 4955:                 prompt=prompt,
+ 4956:                 system=(
+ 4957:                     "You are a JSON-only extraction assistant. "
+ 4958:                     "Output ONLY the JSON schema the user prompt "
+ 4959:                     "specifies. Do not include prose, preamble, "
+ 4960:                     "code fences, or any text outside the JSON "
+ 4961:                     "object."
+ 4962:                 ),
+ 4963:                 max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
+ 4964:                 temperature=section_temperature,
+ 4965:             )
+ 4966:         finally:
+ 4967:             if hasattr(client, "close"):
+ 4968:                 try:
+ 4969:                     await client.close()
+ 4970:                 except Exception:
+ 4971:                     pass
+ 4972:         return (
+ 4973:             (response.content or "").strip(),
+ 4974:             response.input_tokens,
+ 4975:             response.output_tokens,
+ 4976:         )
+ 4977: 
+ 4978:     # V33 (M-72) cross-trial synthesis: contract sections must
+ 4979:     # render BEFORE legacy sections so the synthesis block has
+ 4980:     # access to extracted slot payloads. Pre-V33 ordering ran
+ 4981:     # everything concurrently; post-V33, contract runs first,
+ 4982:     # then legacy runs with the synthesis block.
+ 4983:     contract_plans = [p for p in plans if is_contract_section(p)]
+ 4984:     legacy_plans = [p for p in plans if not is_contract_section(p)]
+ 4985: 
+ 4986:     async def _run_contract_bounded(plan: SectionPlan) -> SectionResult:
+ 4987:         async with sem:
+ 4988:             result, payloads = await run_contract_section(
+ 4989:                 plan, evidence_pool,
+ 4990:                 llm_call=_m63_llm_call,
+ 4991:                 section_result_cls=SectionResult,
+ 4992:                 strict_verify_fn=strict_verify,
+ 4993:                 rewrite_fn=_rewrite_draft_with_spans,
+ 4994:                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
+ 4995:                 credibility_analysis=credibility_analysis,
+ 4996:             )
+ 4997:             contract_slot_payloads.extend(payloads)
+ 4998:             return result
+ 4999: 
+ 5000:     contract_results = await asyncio.gather(*[
+ 5001:         _run_contract_bounded(p) for p in contract_plans
+ 5002:     ])
+ 5003: 
+ 5004:     # V33 M-72: build the cross-trial synthesis block AFTER contract
+ 5005:     # payloads land. Empty block when fewer than 2 trial frames
+ 5006:     # have extracted content.
+ 5007:     from .cross_trial_synthesis import build_cross_trial_synthesis
+ 5008:     cross_trial_block = build_cross_trial_synthesis(
+ 5009:         contract_slot_payloads,
+ 5010:     )
+ 5011: 
+ 5012:     async def _run_legacy_bounded(plan: SectionPlan) -> SectionResult:
+ 5013:         async with sem:
+ 5014:             return await _run_section(
+ 5015:                 plan, evidence_pool,
+ 5016:                 model=gen_model,
+ 5017:                 temperature=section_temperature,
+ 5018:                 max_tokens_per_section=section_max_tokens,
+ 5019:                 min_kept_fraction=min_kept_fraction,
+ 5020:                 contradictions=contradictions,
+ 5021:                 cross_trial_block=cross_trial_block,
+ 5022:                 # I-meta-005 Phase 1 FIX 4 (Codex diff-gate iter-1 P1 #4):
+ 5023:                 # on-mode the base section prompt is field-agnostic. OFF:
+ 5024:                 # research_plan is None -> the unchanged clinical template.
+ 5025:                 use_field_agnostic_prompt=research_plan is not None,
+ 5026:                 # I-meta-005 Phase 6 (#990): domain advisory writing-guidance,
+ 5027:                 # resolved once above (closure-captured; "" OFF -> no append).
+ 5028:                 advisory_text=advisory_text,
+ 5029:                 # I-cred-008b (#1162): closure-captured local; None (master flag off) => byte-identical.
+ 5030:                 credibility_analysis=credibility_analysis,
+ 5031:             )
+ 5032: 
+ 5033:     # V33 unified dispatch helper for downstream (M-44 regen) callers
+ 5034:     # that need to re-run a single SectionPlan and don't care whether
+ 5035:     # it's a contract section or a legacy section.
+
+2026-06-11T14:43:58.240270Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 13.9 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/test_iperm011_outline_evidence_cap.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 13946ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m -q tests/polaris_graph/test_iperm011_outline_evidence_cap.py[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+The local shell does not have a `pytest` executable on PATH. I’ll try the module form and the repo virtualenv if present; if neither works, I’ll report that separately from the diff verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -Force -Name | Where-Object { $_ -match '"'"'^('"\\.venv|venv|env)"'$'"' }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest -q tests/polaris_graph/test_iperm011_outline_evidence_cap.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Command python,py -ErrorAction SilentlyContinue | Select-Object Name,Source,Version' in C:\POLARIS
+ succeeded in 3922ms:
+ succeeded in 10628ms:
+
+[32;1mName      [0m[32;1m Source                 [0m[32;1m Version[0m
+[32;1m----      [0m [32;1m------                 [0m [32;1m-------[0m
+python.exe C:\Python313\python.exe 3.13.13150.1013
+py.exe     C:\WINDOWS\py.exe       3.13.13150.1013
+
+
+ succeeded in 13652ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 5 items
+
+tests\polaris_graph\test_iperm011_outline_evidence_cap.py .....          [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 5 passed, 1 warning in 3.19s =========================
+
+codex
+The five new tests pass under `python -m pytest`; the earlier failure was just the missing console-script shim. I’m doing a quick existence/count check on the named regression files rather than rerunning the whole broader set unless it looks necessary for the review.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem tests/polaris_graph -Name | Where-Object { $_ -in @('"'test_m203_outline_collapse.py','test_m31_outline_resilience.py','test_m40_mechanism_section.py','test_m57_contract_outline.py','test_m62_non_clinical_regression.py','test_multi_section_gap4.py','test_generator_domain_outline_iready009.py','test_domain_general_sections_phase6.py') }" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest --collect-only -q tests/polaris_graph/test_m203_outline_collapse.py tests/polaris_graph/test_m31_outline_resilience.py tests/polaris_graph/test_m40_mechanism_section.py tests/polaris_graph/test_m57_contract_outline.py tests/polaris_graph/test_m62_non_clinical_regression.py tests/polaris_graph/test_multi_section_gap4.py tests/polaris_graph/test_generator_domain_outline_iready009.py tests/polaris_graph/test_domain_general_sections_phase6.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path tests/polaris_graph/test_iperm011_outline_evidence_cap.py | ForEach-Object { $i++; if ($i -ge 120 -and $i -le 295) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 3494ms:
+test_generator_domain_outline_iready009.py
+test_m203_outline_collapse.py
+test_m31_outline_resilience.py
+test_m40_mechanism_section.py
+test_m57_contract_outline.py
+test_m62_non_clinical_regression.py
+test_multi_section_gap4.py
+
+2026-06-11T14:44:46.419445Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 10 seconds
+Output:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items
+
+========================= no tests collected in 0.28s =========================
+ERROR: file or directory not found: tests/polaris_graph/test_domain_general_sections_phase6.py
+
+
+ exited 1 in 10022ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 0 items
+
+========================= no tests collected in 0.28s =========================
+ERROR: file or directory not found: tests/polaris_graph/test_domain_general_sections_phase6.py
+
+
+ succeeded in 10048ms:
+  120:     """Reproduce the PRE-CAP verbose build byte-for-byte so we can assert the
+  121:     small-pool path is byte-identical."""
+  122:     from src.polaris_graph.generator.provenance_generator import sanitize_evidence_text
+  123: 
+  124:     summary_blocks = []
+  125:     for ev in evidence:
+  126:         ev_id = ev.get("evidence_id", "")
+  127:         title = (ev.get("title", "") or "")[:120]
+  128:         stmt = (ev.get("statement", "") or "")[:160]
+  129:         tier = ev.get("tier", "")
+  130:         title_clean, _ = sanitize_evidence_text(title)
+  131:         stmt_clean, _ = sanitize_evidence_text(stmt)
+  132:         if title_clean:
+  133:             summary_blocks.append(
+  134:                 f"{ev_id} [{tier}] | title: {title_clean} | {stmt_clean}"
+  135:             )
+  136:         else:
+  137:             summary_blocks.append(f"{ev_id} [{tier}]: {stmt_clean}")
+  138:     summary_text = "\n".join(summary_blocks)
+  139:     return (
+  140:         f"Research question: {research_question}\n\n"
+  141:         f"Evidence summaries ({len(evidence)} rows):\n"
+  142:         f"{summary_text}\n\n"
+  143:         f"Return the JSON section plan."
+  144:     )
+  145: 
+  146: 
+  147: # ─────────────────────────────────────────────────────────────────
+  148: # Test 1: LARGE pool -> outline prompt is bounded (row-count + header).
+  149: # ─────────────────────────────────────────────────────────────────
+  150: 
+  151: @pytest.mark.asyncio
+  152: async def test_large_pool_outline_prompt_bounded(monkeypatch):
+  153:     cap = 150
+  154:     monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+  155:     big_pool = _make_evidence(544)
+  156: 
+  157:     parse_result, _retry, _in, _out = await _call_outline(
+  158:         "Does drug X work?", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500,
+  159:     )
+  160: 
+  161:     # At least the primary call fired; the retry (if any) reuses the SAME bounded
+  162:     # prompt, so EVERY captured prompt must be bounded — assert on all of them.
+  163:     assert len(_CapturingClient.captured_prompts) >= 1
+  164:     for prompt in _CapturingClient.captured_prompts:
+  165:         # The header count must be the BOUNDED N, not the 544 full-pool size.
+  166:         assert f"Evidence summaries ({cap} rows):" in prompt
+  167:         assert "(544 rows)" not in prompt
+  168: 
+  169:         # Exactly `cap` evidence-row lines are serialized (one per `ev_NNN` prefix
+  170:         # appearing at a line start in the summary block).
+  171:         ev_line_count = sum(
+  172:             1 for line in prompt.splitlines() if line.startswith("ev_")
+  173:         )
+  174:         assert ev_line_count == cap, f"expected {cap} serialized rows, got {ev_line_count}"
+  175: 
+  176:         # Only the TOP-N (deterministically-ordered) rows are present; the dropped
+  177:         # tail (e.g. ev_543) is NOT serialized into the menu.
+  178:         assert "ev_000 " in prompt
+  179:         assert "ev_543" not in prompt
+  180: 
+  181:         # TERSE digest: the long statement text must NOT appear in the large-pool menu.
+  182:         assert "long evidence statement sentence" not in prompt
+  183: 
+  184: 
+  185: # ─────────────────────────────────────────────────────────────────
+  186: # Test 2: SMALL pool -> outline prompt is BYTE-IDENTICAL to the pre-cap build.
+  187: # ─────────────────────────────────────────────────────────────────
+  188: 
+  189: @pytest.mark.asyncio
+  190: async def test_small_pool_outline_prompt_byte_identical(monkeypatch):
+  191:     monkeypatch.setenv("PG_OUTLINE_MAX_EV", "150")
+  192:     small_pool = _make_evidence(40)  # 40 <= 150 -> small-pool path
+  193:     rq = "Does drug X work?"
+  194: 
+  195:     await _call_outline(rq, small_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+  196: 
+  197:     assert len(_CapturingClient.captured_prompts) >= 1
+  198:     prompt = _CapturingClient.captured_prompts[0]
+  199: 
+  200:     expected = _build_expected_verbose_prompt(rq, small_pool)
+  201:     assert prompt == expected, "small-pool outline prompt must be byte-identical"
+  202: 
+  203:     # Sanity: the verbose statement text IS present on the small-pool path.
+  204:     assert "long evidence statement sentence" in prompt
+  205:     assert "Evidence summaries (40 rows):" in prompt
+  206: 
+  207: 
+  208: # ─────────────────────────────────────────────────────────────────
+  209: # Test 3: default (env UNSET) still caps a >150 pool, leaves <=150 verbatim.
+  210: # ─────────────────────────────────────────────────────────────────
+  211: 
+  212: @pytest.mark.asyncio
+  213: async def test_default_cap_applies_when_env_unset(monkeypatch):
+  214:     monkeypatch.delenv("PG_OUTLINE_MAX_EV", raising=False)
+  215:     default_cap = int(PG_OUTLINE_MAX_EV_DEFAULT)
+  216:     big_pool = _make_evidence(default_cap + 200)
+  217: 
+  218:     await _call_outline("q", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+  219:     prompt = _CapturingClient.captured_prompts[0]
+  220:     assert f"Evidence summaries ({default_cap} rows):" in prompt
+  221: 
+  222:     # And a pool exactly AT the default cap is the byte-identical verbose path.
+  223:     _CapturingClient.captured_prompts = []
+  224:     at_cap_pool = _make_evidence(default_cap)
+  225:     await _call_outline("q", at_cap_pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+  226:     prompt2 = _CapturingClient.captured_prompts[0]
+  227:     assert f"Evidence summaries ({default_cap} rows):" in prompt2
+  228:     assert "long evidence statement sentence" in prompt2  # verbose digest retained
+  229: 
+  230: 
+  231: # ─────────────────────────────────────────────────────────────────
+  232: # Test 4: CRITICAL per-section invariant — validation still spans the FULL pool.
+  233: # An ev_id from the DROPPED low-relevance tail is still accepted by the outline
+  234: # validator, proving the cap shrank only the MENU, not the per-section
+  235: # selection/validation/resolution surface.
+  236: # ─────────────────────────────────────────────────────────────────
+  237: 
+  238: @pytest.mark.asyncio
+  239: async def test_allowed_ev_ids_still_full_pool(monkeypatch):
+  240:     cap = 150
+  241:     monkeypatch.setenv("PG_OUTLINE_MAX_EV", str(cap))
+  242:     big_pool = _make_evidence(544)
+  243: 
+  244:     # The LLM picks ev_543 — a row that was DROPPED from the bounded outline menu
+  245:     # (only ev_000..ev_149 are serialized). If allowed_ev_ids regressed to the
+  246:     # capped set, this id would be rejected as unknown. The outline must accept it.
+  247:     tail_id = "ev_543"
+  248: 
+  249:     class _TailPickClient(_CapturingClient):
+  250:         async def generate(self, *, prompt, system, max_tokens, temperature):
+  251:             type(self).captured_prompts.append(prompt)
+  252:             outline = {
+  253:                 "sections": [
+  254:                     {"title": "Efficacy", "focus": "f", "ev_ids": ["ev_000", "ev_001", tail_id]},
+  255:                     {"title": "Safety", "focus": "f", "ev_ids": ["ev_002", "ev_003", "ev_004"]},
+  256:                     {"title": "Comparative Effectiveness", "focus": "f", "ev_ids": ["ev_005", "ev_006"]},
+  257:                     {"title": "Dose Response", "focus": "f", "ev_ids": ["ev_007", "ev_008"]},
+  258:                     {"title": "Regulatory", "focus": "f", "ev_ids": ["ev_009", "ev_010"]},
+  259:                 ]
+  260:             }
+  261:             return _FakeResponse(json.dumps(outline))
+  262: 
+  263:     _TailPickClient.captured_prompts = []
+  264:     monkeypatch.setattr(orc_module, "OpenRouterClient", _TailPickClient)
+  265: 
+  266:     parse_result, _retry, _in, _out = await _call_outline(
+  267:         "q", big_pool, "deepseek/deepseek-v4-pro", 0.2, 2500,
+  268:     )
+  269: 
+  270:     # tail_id was NOT in the serialized menu...
+  271:     assert tail_id not in _TailPickClient.captured_prompts[0]
+  272:     # ...but the outline validator (allowed_ev_ids = FULL pool) still ACCEPTED it.
+  273:     assert parse_result.ok is True, parse_result.reason_codes
+  274:     eff = next(p for p in parse_result.plans if p.title == "Efficacy")
+  275:     assert tail_id in eff.ev_ids, (
+  276:         "ev_id from the dropped tail must remain selectable — proves allowed_ev_ids "
+  277:         "still spans the full pool (per-section selection unaffected)"
+  278:     )
+  279: 
+  280: 
+  281: # ─────────────────────────────────────────────────────────────────
+  282: # Test 5: disabling the cap (PG_OUTLINE_MAX_EV<=0) -> full pool, verbose digest.
+  283: # ─────────────────────────────────────────────────────────────────
+  284: 
+  285: @pytest.mark.asyncio
+  286: async def test_cap_disabled_serializes_full_pool_verbose(monkeypatch):
+  287:     monkeypatch.setenv("PG_OUTLINE_MAX_EV", "0")  # disabled
+  288:     pool = _make_evidence(300)
+  289:     await _call_outline("q", pool, "deepseek/deepseek-v4-pro", 0.2, 2500)
+  290:     prompt = _CapturingClient.captured_prompts[0]
+  291:     assert "Evidence summaries (300 rows):" in prompt
+  292:     assert "long evidence statement sentence" in prompt  # verbose retained
+  293:     assert "ev_299 " in prompt  # full tail present
+
+codex
+One named regression file in the handoff is not present at the path given, so that part of the build-agent report cannot be reproduced literally from this workspace. I’m checking the existing named files separately to avoid letting that path mismatch obscure the actual code risk.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg --files tests | rg "domain_general_sections_phase6|phase6|domain_general"' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest --collect-only -q tests/polaris_graph/test_m203_outline_collapse.py tests/polaris_graph/test_m31_outline_resilience.py tests/polaris_graph/test_m40_mechanism_section.py tests/polaris_graph/test_m57_contract_outline.py tests/polaris_graph/test_m62_non_clinical_regression.py tests/polaris_graph/test_multi_section_gap4.py tests/polaris_graph/test_generator_domain_outline_iready009.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=0; Get-Content -Path tests/polaris_graph/test_iperm011_outline_evidence_cap.py | ForEach-Object { $i++; if ($i -ge 40 -and $i -le 115) { '"'{0,5}: {1}' -f "'$i, $_ } }' in C:\POLARIS
+ succeeded in 8131ms:
+tests\polaris_graph\synthesis\test_weight_mass_phase6.py
+tests\polaris_graph\generator\test_domain_general_sections_phase6.py
+
+ succeeded in 10236ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 107 items
+
+<Dir POLARIS>
+  <Package tests>
+    <Dir polaris_graph>
+      <Module test_m203_outline_collapse.py>
+        <Function test_m203_parser_rejects_section_count_below_min>
+        <Function test_m24_parser_allows_overlapping_ev_ids>
+        <Function test_m203_parser_dedupes_within_section_ev_ids>
+        <Function test_m203_parser_rejects_unknown_ev_ids>
+        <Function test_m203_deterministic_fallback_builds_3_balanced_sections>
+        <Function test_m203_deterministic_fallback_returns_empty_on_insufficient_evidence>
+        <Function test_m203_multisection_result_has_outline_telemetry_fields>
+        <Function test_m203_orchestrator_status_precedence_includes_outline_fallback>
+        <Function test_m203_ok_outline_fallback_maps_to_partial_outline_fallback>
+      <Module test_m31_outline_resilience.py>
+        <Class TestLenientTrailingCommaRecovery>
+          <Function test_trailing_comma_in_ev_ids_list>
+          <Function test_trailing_comma_in_sections_list>
+          <Function test_well_formed_json_still_parses>
+          <Function test_truncation_error_still_fails>
+          <Function test_lenient_pass_preserves_semantics_on_valid_input>
+        <Class TestSweepOutlineMaxTokens>
+          <Function test_all_script_callers_use_adequate_outline_max_tokens>
+      <Module test_m40_mechanism_section.py>
+        <Class TestM40RulePresent>
+          <Function test_m40_marker_present>
+          <Function test_rule_title_present>
+        <Class TestM40TriggerVocabulary>
+          <Function test_rule_names_key_trigger_terms>
+          <Function test_rule_specifies_minimum_evidence_count>
+        <Class TestM40ReasoningIsStated>
+          <Function test_rule_explains_narrative_depth_value>
+        <Class TestM40Generalization>
+          <Function test_rule_names_non_clinical_domains>
+          <Function test_rule_body_uses_no_drug_names>
+        <Class TestM40NonRegression>
+          <Function test_m25b_five_section_rule_still_present>
+          <Function test_tier_hierarchy_still_present>
+          <Function test_output_format_requirement_still_present>
+        <Class TestM40OutlineSummaryIncludesTitle>
+          <Function test_outline_prompt_includes_title_when_present>
+          <Function test_rule_mentions_title_field>
+        <Class TestM40FormatSafety>
+          <Function test_outline_prompt_has_no_unescaped_placeholders>
+      <Module test_m57_contract_outline.py>
+        <Class TestWellFormedCompose>
+          <Function test_single_section_single_slot>
+          <Function test_multi_section_multi_slot>
+        <Class TestSectionOrdering>
+          <Function test_explicit_non_alphabetic_order>
+          <Function test_no_section_order_falls_back_alphabetic>
+        <Class TestSlotOrdering>
+          <Function test_slots_sorted_by_ordering>
+        <Class TestGapSlotPreservation>
+          <Function test_gap_slot_still_appears_flagged>
+          <Function test_gap_slot_ids_accessor>
+        <Class TestPartialSlot>
+          <Function test_multi_entity_mixed_provenance_is_partial>
+        <Class TestParallelValidation>
+          <Function test_length_mismatch_raises>
+          <Function test_order_mismatch_raises>
+        <Class TestEntityTypeAgnostic>
+          <Function test_statute_dft_novel_types_compose>
+        <Class TestDeterminism>
+          <Function test_same_inputs_yield_same_outline>
+        <Class TestLegacyAdapter>
+          <Function test_to_section_plan_dicts_shape>
+          <Function test_intra_slot_entity_order_inherits_from_compiler>
+          <Function test_all_entity_ids_flattened>
+        <Class TestFocusComposition>
+          <Function test_focus_counts_and_lists>
+          <Function test_focus_flags_gap_count>
+          <Function test_focus_caps_long_title_list>
+          <Function test_focus_zero_slots>
+        <Class TestRealClinicalYaml>
+          <Function test_clinical_compiles_to_outline>
+      <Module test_m62_non_clinical_regression.py>
+        <Class TestM54NonClinicalLoader>
+          <Function test_policy_contract_loads>
+          <Function test_five_entities_five_slots>
+          <Function test_non_clinical_entity_types_accepted>
+          <Function test_section_order_non_clinical>
+          <Function test_no_entities_have_doi>
+        <Class TestM55NonClinicalCompiler>
+          <Function test_compiles_without_error>
+          <Function test_all_bindings_url_primary>
+          <Function test_compiler_no_warnings>
+        <Class TestM57NonClinicalOutline>
+          <Function test_outline_honors_section_order>
+          <Function test_litigation_section_has_two_slots_ordered>
+        <Class TestM58NonClinicalSlotFill>
+          <Function test_statute_prompt_structure>
+          <Function test_court_decision_parse_and_render>
+        <Class TestM59NonClinicalValidator>
+          <Function test_validates_all_five_policy_slots>
+        <Class TestM60NonClinicalManifest>
+          <Function test_coverage_report_for_policy>
+        <Class TestM56UrlPatternFetcherIntegration>
+          <Function test_url_pattern_entity_fetches_content_via_access_bypass>
+          <Function test_url_pattern_entity_falls_back_to_metadata_only_on_empty_fetch>
+        <Class TestM61NonClinicalHumanCompletion>
+          <Function test_statute_completion_with_null_doi>
+          <Function test_court_decision_completion_with_case_citation_locator>
+          <Function test_statute_task_generation>
+        <Class TestArchitectureNotHardcoded>
+          <Function test_policy_contract_runs_without_clinical_imports>
+          <Function test_no_clinical_types_leak_into_policy_run>
+      <Module test_multi_section_gap4.py>
+        <Function test_gap4_parse_outline_basic>
+        <Function test_gap4_parse_outline_with_markdown_fence>
+        <Function test_gap4_parse_outline_rejects_off_list_title>
+        <Function test_gap4_parse_outline_rejects_singleton_evidence>
+        <Function test_gap4_parse_outline_malformed_returns_empty>
+        <Function test_gap4_merge_bibliographies_dedupes_and_renumbers>
+        <Function test_gap4_remap_markers_section_local_to_global>
+        <Function test_gap4_remap_skips_unmapped_markers>
+        <Function test_gap4_allowed_sections_non_empty>
+      <Module test_generator_domain_outline_iready009.py>
+        <Function test_clinical_and_unknown_keep_clinical_sections_byte_identical[clinical]>
+        <Function test_clinical_and_unknown_keep_clinical_sections_byte_identical[Clinical]>
+        <Function test_clinical_and_unknown_keep_clinical_sections_byte_identical[ CLINICAL ]>
+        <Function test_clinical_and_unknown_keep_clinical_sections_byte_identical[]>
+        <Function test_clinical_and_unknown_keep_clinical_sections_byte_identical[None]>
+        <Function test_non_clinical_domains_get_generic_set[economic]>
+        <Function test_non_clinical_domains_get_generic_set[workforce]>
+        <Function test_non_clinical_domains_get_generic_set[policy]>
+        <Function test_non_clinical_domains_get_generic_set[tech]>
+        <Function test_non_clinical_domains_get_generic_set[due_diligence]>
+        <Function test_non_clinical_domains_get_generic_set[source_critical]>
+        <Function test_clinical_unknown_select_clinical_outline_prompt[clinical]>
+        <Function test_clinical_unknown_select_clinical_outline_prompt[]>
+        <Function test_clinical_unknown_select_clinical_outline_prompt[None]>
+        <Function test_non_clinical_select_generic_outline_prompt[economic]>
+        <Function test_non_clinical_select_generic_outline_prompt[policy]>
+        <Function test_non_clinical_select_generic_outline_prompt[workforce]>
+        <Function test_clinical_outline_prompt_is_unchanged>
+        <Function test_generic_outline_prompt_drops_clinical_rules_keeps_rigor>
+        <Function test_parse_outline_accepts_generic_title_with_generic_allowed>
+        <Function test_parse_outline_drops_clinical_title_under_generic_allowed>
+        <Function test_parse_outline_default_is_clinical_byte_identical>
+        <Function test_deterministic_fallback_clinical_uses_clinical_titles>
+        <Function test_deterministic_fallback_non_clinical_uses_generic_titles>
+        <Function test_no_research_planner_env_in_new_outline_code>
+        <Function test_generate_multi_section_report_has_domain_param_default_empty>
+        <Function test_section_prose_prompt_selection_is_unchanged>
+        <Function test_non_clinical_retry_prompt_has_no_clinical_leak>
+        <Function test_clinical_retry_prompt_is_unchanged>
+
+======================== 107 tests collected in 2.69s =========================
+
+ succeeded in 11476ms:
+   40: import pytest
+   41: 
+   42: import src.polaris_graph.llm.openrouter_client as orc_module
+   43: from src.polaris_graph.generator.multi_section_generator import (
+   44:     PG_OUTLINE_MAX_EV_DEFAULT,
+   45:     _call_outline,
+   46:     _parse_outline,
+   47: )
+   48: 
+   49: 
+   50: # ─────────────────────────────────────────────────────────────────
+   51: # Test harness: a fake OpenRouterClient that CAPTURES the outline prompt.
+   52: # `_call_outline` imports OpenRouterClient via a function-local
+   53: # `from src.polaris_graph.llm.openrouter_client import OpenRouterClient`,
+   54: # so we patch the symbol on that SOURCE module.
+   55: # ─────────────────────────────────────────────────────────────────
+   56: 
+   57: class _FakeResponse:
+   58:     def __init__(self, content: str) -> None:
+   59:         self.content = content
+   60:         self.input_tokens = 10
+   61:         self.output_tokens = 10
+   62:         self.reasoning_tokens = 0
+   63: 
+   64: 
+   65: class _CapturingClient:
+   66:     """Records every prompt sent to .generate and returns a fixed valid outline."""
+   67: 
+   68:     captured_prompts: list[str] = []
+   69: 
+   70:     def __init__(self, *args, **kwargs) -> None:
+   71:         pass
+   72: 
+   73:     async def generate(self, *, prompt, system, max_tokens, temperature):  # noqa: D401
+   74:         type(self).captured_prompts.append(prompt)
+   75:         # Return a valid 5-section outline JSON so no retry fires (keeps the
+   76:         # captured-prompt list to exactly one entry on the happy path).
+   77:         outline = {
+   78:             "sections": [
+   79:                 {"title": "Efficacy", "focus": "f", "ev_ids": ["ev_000", "ev_001", "ev_002"]},
+   80:                 {"title": "Safety", "focus": "f", "ev_ids": ["ev_003", "ev_004", "ev_005"]},
+   81:                 {"title": "Comparative Effectiveness", "focus": "f", "ev_ids": ["ev_006", "ev_007"]},
+   82:                 {"title": "Dose Response", "focus": "f", "ev_ids": ["ev_008", "ev_009"]},
+   83:                 {"title": "Regulatory", "focus": "f", "ev_ids": ["ev_010", "ev_011"]},
+   84:             ]
+   85:         }
+   86:         return _FakeResponse(json.dumps(outline))
+   87: 
+   88:     async def close(self) -> None:
+   89:         pass
+   90: 
+   91: 
+   92: @pytest.fixture(autouse=True)
+   93: def _patch_client(monkeypatch):
+   94:     _CapturingClient.captured_prompts = []
+   95:     monkeypatch.setattr(orc_module, "OpenRouterClient", _CapturingClient)
+   96:     # Neutralise the reasoning-trace context tagger (it is a no-op here but keep
+   97:     # the import surface stable regardless of sink registration).
+   98:     monkeypatch.setattr(
+   99:         orc_module, "set_reasoning_call_context", lambda *a, **k: None, raising=False
+  100:     )
+  101:     yield
+  102: 
+  103: 
+  104: def _make_evidence(n: int) -> list[dict]:
+  105:     """n evidence rows with a LONG statement so the verbose vs terse digest
+  106:     difference is observable in prompt length."""
+  107:     long_stmt = "This is a long evidence statement sentence repeated. " * 6  # >160 chars
+  108:     rows = []
+  109:     for i in range(n):
+  110:         rows.append({
+  111:             "evidence_id": f"ev_{i:03d}",
+  112:             "title": f"Source title number {i} about the research topic",
+  113:             "statement": f"[{i}] {long_stmt}",
+  114:             "tier": "T2",
+  115:         })
+
+codex
+The misplaced regression file exists under `tests/polaris_graph/generator/`, which explains the reported 117 count: 107 collected from the listed root files plus 10 from that generator subdir file. I’m running that exact corrected regression set now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest -q tests/polaris_graph/test_m203_outline_collapse.py tests/polaris_graph/test_m31_outline_resilience.py tests/polaris_graph/test_m40_mechanism_section.py tests/polaris_graph/test_m57_contract_outline.py tests/polaris_graph/test_m62_non_clinical_regression.py tests/polaris_graph/test_multi_section_gap4.py tests/polaris_graph/test_generator_domain_outline_iready009.py tests/polaris_graph/generator/test_domain_general_sections_phase6.py' in C:\POLARIS
+ succeeded in 12954ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 117 items
+
+tests\polaris_graph\test_m203_outline_collapse.py .........              [  7%]
+tests\polaris_graph\test_m31_outline_resilience.py ......                [ 12%]
+tests\polaris_graph\test_m40_mechanism_section.py .............          [ 23%]
+tests\polaris_graph\test_m57_contract_outline.py ....................    [ 41%]
+tests\polaris_graph\test_m62_non_clinical_regression.py ................ [ 54%]
+.....                                                                    [ 58%]
+tests\polaris_graph\test_multi_section_gap4.py .........                 [ 66%]
+tests\polaris_graph\test_generator_domain_outline_iready009.py ......... [ 74%]
+....................                                                     [ 91%]
+tests\polaris_graph\generator\test_domain_general_sections_phase6.py ... [ 94%]
+.......                                                                  [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 117 passed, 1 warning in 5.82s ========================
+
+codex
+The corrected 117-test regression set passes locally. I’m also running the reported generator subdirectory sweep so the verification note can be explicit.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest -q tests/polaris_graph/generator' in C:\POLARIS
+ succeeded in 11857ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 79 items
+
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py ..... [  6%]
+                                                                         [  6%]
+tests\polaris_graph\generator\test_claim_labeler_iperm005.py ......      [ 13%]
+tests\polaris_graph\generator\test_credibility_pass_wiring_012a.py ....  [ 18%]
+tests\polaris_graph\generator\test_disclosure_failloud_wiring_icred008b.py . [ 20%]
+......                                                                   [ 27%]
+tests\polaris_graph\generator\test_disclosure_resolve_sites_icred008b.py . [ 29%]
+....                                                                     [ 34%]
+tests\polaris_graph\generator\test_domain_general_sections_phase6.py ... [ 37%]
+.......                                                                  [ 46%]
+tests\polaris_graph\generator\test_key_findings_iperm008.py ........     [ 56%]
+tests\polaris_graph\generator\test_span_repoint_iperm004.py ...          [ 60%]
+tests\polaris_graph\generator\test_span_resolver_iperm004.py .........   [ 72%]
+tests\polaris_graph\generator\test_verification_mode_phase0b.py ........ [ 82%]
+..............                                                           [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 79 passed, 1 warning in 4.22s ========================
+
+codex
+No P0/P1 blockers found.
+
+(a) Large-pool prompt is bounded: env parse/fallback is at `src/polaris_graph/generator/multi_section_generator.py:1048-1055`; large branch slices `evidence[:_outline_max_ev]` and emits title-only rows at `1092-1107`. Primary and retry both pass the same `prompt` at `1128-1133` and `1215-1219`. Tests assert bounded header/count, tail absence, and statement absence at `tests/polaris_graph/test_iperm011_outline_evidence_cap.py:151-182`.
+
+(b) Validation/resolution still spans the full pool: `allowed_ev_ids` is built from full `evidence` at `1116-1117`; `_parse_outline` rejects only IDs outside that full set at `702-706`; section resolution uses full `evidence_pool` at `2268-2272` and full-pool strict verify at `2311-2315`. The tail-ID acceptance test proves validation is full-pool at `239-278`. Important caveat: in normal OFF mode, the LLM only naturally sees the capped menu, so arbitrary dropped tail rows are not really “selected unchanged” unless fallback or M-44/M-52 recovery applies. That is a P2 residual quality risk, not an execution blocker.
+
+(c) Faithfulness gates are untouched. The edit is upstream prompt serialization only; full-pool rewrite/strict verification remains at `2311-2315`, and downstream section generation uses `evidence_pool` built from full evidence at `4825`.
+
+(d) Small-pool path is byte-identical: the verbose branch is the original loop/prompt at `1056-1082`. Test helper reproduces the old prompt at `120-144`, and equality is asserted at `190-205`; at-cap verbose behavior is asserted at `222-228`.
+
+(e) Tests are meaningful: they exercise `_call_outline` with a patched real import surface at `65-100`; large bounded path at `151-182`; small byte-identical path at `190-205`; default and at-cap at `213-228`; full-pool allowed IDs via dropped tail at `239-278`; disabled cap/full verbose at `286-293`. Non-blocking gaps: retry-bounded behavior is proven by code but not forced by a retrying test, invalid env fallback is not tested, and no numeric char-count ceiling is asserted.
+
+Sizing caveat: shipping default `150` is acceptable for this offline diff gate because the prompt is structurally bounded and tunable, but the live V4 Pro canary remains the real proof that `150` avoids reasoning-first truncation.
+
+Tests run:
+`5 passed` new test file; corrected `117 passed` regression set; `79 passed` generator dir.
+
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["OFF-mode tail rows beyond PG_OUTLINE_MAX_EV are validation-eligible but not naturally visible to the outline LLM; mitigated by top-N ordering, N=150 coverage margin, deterministic fallback on invalid outline, and M-44/M-52 primary recovery.", "Default 150 truncation safety is an offline hypothesis pending the documented live V4 Pro canary."]
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+verdict: APPROVE
+tokens used
+71,388
