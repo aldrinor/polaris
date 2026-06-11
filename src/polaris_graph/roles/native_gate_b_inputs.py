@@ -412,6 +412,23 @@ def _semantic_contraindication_enabled() -> bool:
     return os.environ.get(_ENV_SEMANTIC_CONTRAINDICATION, "").strip().lower() not in _SEMANTIC_OFF_VALUES
 
 
+# I-perm-020 (#1212): the S0 coverage-binder activation flag. Read HERE at CALL TIME (never at import)
+# so flag-OFF means the coverage_binder module is NEVER imported and the seam stays byte-identical. ON
+# only on an explicit truthy token (a stray value must NOT silently enable it). The flag NAME mirrors
+# `coverage_binder._ENV_S0_COVERAGE_BINDER`; this reader is duplicated (not imported) precisely so the
+# OFF path never pulls the binder module.
+_ENV_S0_COVERAGE_BINDER = "PG_S0_COVERAGE_BINDER"
+_S0_COVERAGE_BINDER_ON_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _s0_coverage_binder_enabled() -> bool:
+    """``PG_S0_COVERAGE_BINDER`` (default OFF; explicit-truthy ON). Read at call time, no import."""
+    return (
+        os.environ.get(_ENV_S0_COVERAGE_BINDER, "").strip().lower()
+        in _S0_COVERAGE_BINDER_ON_VALUES
+    )
+
+
 def _contraindication_direction_present(lowered_claim: str) -> bool:
     """True iff the claim asserts a contraindication DIRECTION for the population (not its negation).
 
@@ -444,18 +461,24 @@ def _contraindication_direction_present(lowered_claim: str) -> bool:
     return False
 
 
-def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
-    """All `coverage_content_requirements` present in the claim (case-insensitive, exact).
+def _content_requirements_satisfied_impl(
+    claim_text: str, entity: dict, *, semantic: bool
+) -> bool:
+    """Shared content-requirement matcher with an EXPLICIT semantic flag (no env read).
 
-    FAIL CLOSED (Codex P1): if the requirements list is empty — or somehow all-blank — return
-    False rather than vacuously True. A bare canonical-evidence citation must NEVER earn S0
-    credit without a real deterministic content match. (Validation in `validate_entity_severity`
-    already blocks empty/blank S0 requirements at load; this is the matcher-side backstop.)
+    All `coverage_content_requirements` present in the claim (case-insensitive, exact). FAIL CLOSED
+    (Codex P1): if the requirements list is empty — or somehow all-blank — return False rather than
+    vacuously True. A bare canonical-evidence citation must NEVER earn S0 credit without a real
+    deterministic content match. (Validation in `validate_entity_severity` already blocks empty/blank
+    S0 requirements at load; this is the matcher-side backstop.)
 
-    I-perm-002 (#1196): when `PG_SWEEP_SEMANTIC_CONTRAINDICATION` is ON, a requirement token that
-    NAMES the contraindication concept ("contraindicated"/"contraindication") is satisfied by any
-    high-precision contraindication-DIRECTION phrase (negation-guarded); every OTHER token (e.g.
-    "immunocompromised") stays literal-exact. Default OFF -> byte-identical literal-exact match.
+    I-perm-002 (#1196): when `semantic` is True, a requirement token that NAMES the contraindication
+    concept ("contraindicated"/"contraindication(s)") is satisfied by any high-precision
+    contraindication-DIRECTION phrase (negation-guarded); every OTHER token (e.g. "immunocompromised")
+    stays literal-exact. `semantic=False` -> byte-identical literal-exact match. The semantic decision
+    is taken by the CALLER (the public `_content_requirements_satisfied` reads the
+    PG_SWEEP_SEMANTIC_CONTRAINDICATION env flag; the I-perm-020 coverage_binder forces it True), so this
+    impl never reads the environment — keeping the credit policy at the call sites, not buried here.
     """
     lowered = claim_text.lower()
     requirements = [
@@ -465,7 +488,6 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
     ]
     if not requirements:
         return False
-    semantic = _semantic_contraindication_enabled()
     for token in requirements:
         token_lower = token.lower()
         if semantic and token_lower in _CONTRAINDICATION_CONCEPT_TOKENS:
@@ -474,6 +496,19 @@ def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
         elif token_lower not in lowered:
             return False
     return True
+
+
+def _content_requirements_satisfied(claim_text: str, entity: dict) -> bool:
+    """All `coverage_content_requirements` present in the claim (case-insensitive, exact).
+
+    Thin wrapper over `_content_requirements_satisfied_impl` that takes the semantic decision from the
+    `PG_SWEEP_SEMANTIC_CONTRAINDICATION` env flag (default OFF -> byte-identical literal-exact match).
+    Behavior is unchanged from the pre-refactor function: OFF reads identical, ON relaxes ONLY the
+    contraindication concept token to a negation-guarded direction phrase.
+    """
+    return _content_requirements_satisfied_impl(
+        claim_text, entity, semantic=_semantic_contraindication_enabled()
+    )
 
 
 def _claim_covers_entity(
@@ -636,6 +671,40 @@ def build_native_gate_b_inputs(
                 best_rank = max(best_rank, _SEVERITY_RANK[severity])
                 if is_s0 and s0_category is not None:
                     covered_s0_categories.append(s0_category)
+
+            # I-perm-020 (#1212): S0 coverage binder. AFTER per-claim verification (these are the
+            # strict_verify-VERIFIED sentences, `verification.is_verified` is the loop guard above),
+            # credit a required S0 SAFETY category whose entity this VERIFIED claim satisfies via the
+            # FULL I-perm-002 conjunction (canonical evidence match + population anchor +
+            # contraindication DIRECTION + negation guard, semantic recognition forced ON inside the
+            # binder). Fixes the measured drb_76 false hold (a faithful "not recommended for the
+            # immunocompromised" contraindication that the literal-token era left un-credited). DEFAULT
+            # OFF: the `PG_S0_COVERAGE_BINDER` flag is read at CALL TIME here (never at import); when OFF
+            # the binder module is NEVER imported and NEVER called, so `covered_s0_categories` /
+            # `covered_element_ids` / `best_rank` are byte-identical to legacy. The credit is an
+            # idempotent set-UNION (harmless if the existing literal path or
+            # PG_SWEEP_SEMANTIC_CONTRAINDICATION already credited the same category) and is STILL gated
+            # downstream by the 4-role `verdict==VERIFIED` check in release_policy — additive credit, NOT
+            # a gate relaxation. The D8 threshold and the release rule are untouched. A bound element is
+            # an S0 entity by construction, so it also raises `best_rank` to S0 (a claim that earns an S0
+            # category is an S0 claim — keeping severity coherent with s0_categories, exactly as the
+            # native loop above promotes severity when it covers an S0 entity).
+            if _s0_coverage_binder_enabled():
+                from src.polaris_graph.roles.coverage_binder import bind_s0_coverage
+
+                bound_categories, bound_element_ids = bind_s0_coverage(
+                    claim_text=sentence,
+                    claim_evidence_records=records,
+                    validated_entities=validated,
+                )
+                for category in bound_categories:
+                    if category not in covered_s0_categories:
+                        covered_s0_categories.append(category)
+                for element_id in bound_element_ids:
+                    if element_id not in covered_element_ids:
+                        covered_element_ids.append(element_id)
+                if bound_element_ids:
+                    best_rank = max(best_rank, _SEVERITY_RANK[_SEVERITY_S0])
 
             claim_severity = next(
                 sev for sev, rank in _SEVERITY_RANK.items() if rank == best_rank
