@@ -115,6 +115,10 @@ def score_predictions(rows: list[dict], predictions: list[str]) -> dict:
     confusion: dict[tuple[str, str], int] = {}
     gold_neutral = pred_neutral_on_gold_neutral = 0
     gold_entailed = pred_entailed_on_gold_entailed = 0
+    # Codex slice-4 P1: a CONTRADICTED row predicted ENTAILED is the §-1.1-LETHAL failure (the
+    # prompt accepts a direct contradiction). Count it so the winner picker can reject any variant
+    # that ever does this, regardless of its widening recall / entailed precision.
+    contradiction_accepted = 0
     for row, pred in zip(rows, predictions):
         gold = str(row.get("gold", "")).upper()
         pred = str(pred).upper()
@@ -127,6 +131,8 @@ def score_predictions(rows: list[dict], predictions: list[str]) -> dict:
             gold_entailed += 1
             if pred == "ENTAILED":
                 pred_entailed_on_gold_entailed += 1
+        elif gold == "CONTRADICTED" and pred == "ENTAILED":
+            contradiction_accepted += 1
     widening_neutral_recall = (
         pred_neutral_on_gold_neutral / gold_neutral if gold_neutral else 0.0
     )
@@ -139,18 +145,22 @@ def score_predictions(rows: list[dict], predictions: list[str]) -> dict:
         "gold_entailed": gold_entailed,
         "widening_neutral_recall": round(widening_neutral_recall, 4),
         "entailed_precision": round(entailed_precision, 4),
+        "contradiction_accepted": contradiction_accepted,
     }
 
 
 def pick_winner(scores_by_variant: dict[str, dict], *, min_entailed_precision: float = 0.95) -> str:
     """Select the variant with the highest ``widening_neutral_recall`` subject to
     ``entailed_precision >= min_entailed_precision`` (no faithfulness regression on legitimate
-    support). Ties break toward higher entailed_precision then variant name. Returns the variant key,
-    or "baseline" if NO candidate clears the precision floor (fail-safe: do not regress)."""
+    support) AND zero ``contradiction_accepted`` (the §-1.1-LETHAL gate: a prompt that ever grades a
+    gold CONTRADICTED row as ENTAILED is INELIGIBLE no matter how good its widening recall — Codex
+    slice-4 P1). Ties break toward higher entailed_precision then variant name. Returns the variant
+    key, or "baseline" if NO candidate clears both floors (fail-safe: do not regress)."""
     eligible = [
         (name, s)
         for name, s in scores_by_variant.items()
         if s.get("entailed_precision", 0.0) >= min_entailed_precision
+        and int(s.get("contradiction_accepted", 0)) == 0
     ]
     if not eligible:
         return "baseline"

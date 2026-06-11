@@ -94,6 +94,34 @@ def test_pick_winner_prefers_recall_within_precision_floor():
     assert wpc.pick_winner(scores, min_entailed_precision=0.95) == "widen_a"
 
 
+def test_pick_winner_rejects_contradiction_acceptance():
+    """Codex slice-4 P1 (§-1.1-lethal): a variant that grades a gold CONTRADICTED row as ENTAILED is
+    INELIGIBLE no matter how good its widening recall / entailed precision."""
+    scores = {
+        "widen_a": {
+            "widening_neutral_recall": 1.0,
+            "entailed_precision": 1.0,
+            "contradiction_accepted": 1,  # accepted a direct contradiction -> must lose
+        },
+        "widen_b": {
+            "widening_neutral_recall": 0.6,
+            "entailed_precision": 0.98,
+            "contradiction_accepted": 0,
+        },
+    }
+    assert wpc.pick_winner(scores, min_entailed_precision=0.95) == "widen_b"
+    # If the ONLY high-recall variant accepts a contradiction and no other clears, fail safe.
+    only_bad = {"widen_a": {"widening_neutral_recall": 1.0, "entailed_precision": 1.0, "contradiction_accepted": 2}}
+    assert wpc.pick_winner(only_bad, min_entailed_precision=0.95) == "baseline"
+
+
+def test_score_tracks_contradiction_accepted():
+    rows = _rows(["CONTRADICTED", "CONTRADICTED", "NEUTRAL"])
+    preds = ["ENTAILED", "CONTRADICTED", "NEUTRAL"]
+    s = wpc.score_predictions(rows, preds)
+    assert s["contradiction_accepted"] == 1
+
+
 def test_pick_winner_fails_safe_to_baseline():
     scores = {
         "widen_a": {"widening_neutral_recall": 0.9, "entailed_precision": 0.5},

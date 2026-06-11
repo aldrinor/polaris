@@ -47,9 +47,13 @@ def load_rows() -> list[dict]:
 
 def validate_variants() -> None:
     """Every candidate must be a drop-in: keep the {span}/{sentence} fields + STRICT-JSON contract."""
-    probe = {"span": "X", "sentence": "Y"}
+    probe = {"span": "PROBE_SPAN_TOKEN", "sentence": "PROBE_SENTENCE_TOKEN"}
     for name, tmpl in candidates.WIDENING_VARIANTS.items():
-        formatted = tmpl.format(**probe)  # raises KeyError if a field is missing/extra
+        formatted = tmpl.format(**probe)  # raises KeyError on an unexpected/extra field
+        # Codex slice-4 P2: prove BOTH placeholders are actually present (a template omitting
+        # {sentence} would otherwise pass) — the substituted tokens must appear in the output.
+        if probe["span"] not in formatted or probe["sentence"] not in formatted:
+            raise ValueError(f"variant {name!r} dropped a required {{span}}/{{sentence}} placeholder")
         if "JSON" not in formatted or '"verdict"' not in formatted:
             raise ValueError(f"variant {name!r} lost the STRICT-JSON output contract")
 
