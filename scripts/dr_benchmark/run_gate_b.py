@@ -636,9 +636,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION": "1",
     # I-perm-004 (#1198) cited-recovery: re-anchor a wrongly-cited claim to the best ENTAILING span
     # (argmax) + re-point on the gap-#18 local-window rescue, instead of dropping / shipping a
-    # mis-pointed citation. Slices 1-3 Codex-APPROVE'd. (The #1180 widening prompt variant is NOT
-    # activated here — its empirical winner is picked in the operator-authorized run.)
+    # mis-pointed citation. Slices 1-3 Codex-APPROVE'd.
     "PG_SPAN_RESOLVER": "1",
+    # I-perm-004 #1180 widening: the EMPIRICALLY-PICKED widening-aware entailment prompt. The bake-off
+    # (`scripts/dr_benchmark/widening_prompt_bakeoff.py --run` over `tests/fixtures/widening_labeled_set.json`)
+    # scored widen_a/b/c at widening_neutral_recall=1.0 + entailed_precision=1.0 + zero
+    # contradiction-acceptance (baseline missed the F02 strain->class widening); widen_c (the explicit
+    # scope-then-support checklist) won. Force-exact so a stray .env cannot revert to baseline.
+    "PG_ENTAILMENT_PROMPT_VARIANT": "widen_c",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -791,6 +796,9 @@ _BENCHMARK_FORCE_EXACT_FLAGS = frozenset({
     "PG_SCOPE_SIM_MEASURE",
     # BB-007: the real Unpaywall contact email (placeholder => resolver fails loud + no-ops).
     "PG_UNPAYWALL_EMAIL",
+    # I-perm-004 #1180: the empirically-picked widening-aware entailment prompt variant (widen_c).
+    # Force-exact so a stray PG_ENTAILMENT_PROMPT_VARIANT=baseline cannot silently revert the fix.
+    "PG_ENTAILMENT_PROMPT_VARIANT",
 })
 
 # I-ready-017 FX-03 (#1107) Codex iter-2 P1: hard CEILING on the cited-span window (defense-in-depth on

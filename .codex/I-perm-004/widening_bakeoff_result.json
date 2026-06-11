@@ -1,0 +1,54 @@
+{
+  "scores": {
+    "baseline": {
+      "confusion": {
+        "CONTRADICTED->CONTRADICTED": 1,
+        "ENTAILED->ENTAILED": 5,
+        "NEUTRAL->ENTAILED": 1,
+        "NEUTRAL->NEUTRAL": 5
+      },
+      "gold_neutral": 6,
+      "gold_entailed": 5,
+      "widening_neutral_recall": 0.8333,
+      "entailed_precision": 1.0,
+      "contradiction_accepted": 0
+    },
+    "widen_a": {
+      "confusion": {
+        "CONTRADICTED->CONTRADICTED": 1,
+        "ENTAILED->ENTAILED": 5,
+        "NEUTRAL->NEUTRAL": 6
+      },
+      "gold_neutral": 6,
+      "gold_entailed": 5,
+      "widening_neutral_recall": 1.0,
+      "entailed_precision": 1.0,
+      "contradiction_accepted": 0
+    },
+    "widen_b": {
+      "confusion": {
+        "CONTRADICTED->CONTRADICTED": 1,
+        "ENTAILED->ENTAILED": 5,
+        "NEUTRAL->NEUTRAL": 6
+      },
+      "gold_neutral": 6,
+      "gold_entailed": 5,
+      "widening_neutral_recall": 1.0,
+      "entailed_precision": 1.0,
+      "contradiction_accepted": 0
+    },
+    "widen_c": {
+      "confusion": {
+        "CONTRADICTED->CONTRADICTED": 1,
+        "ENTAILED->ENTAILED": 5,
+        "NEUTRAL->NEUTRAL": 6
+      },
+      "gold_neutral": 6,
+      "gold_entailed": 5,
+      "widening_neutral_recall": 1.0,
+      "entailed_precision": 1.0,
+      "contradiction_accepted": 0
+    }
+  },
+  "winner": "widen_c"
+}
