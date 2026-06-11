@@ -946,6 +946,27 @@ def _provenance_reanchor_enabled() -> bool:
     return v in ("1", "true", "yes", "on", "enabled")
 
 
+# I-perm-004 (#1198) slice 2 — when PG_SPAN_RESOLVER is truthy, the re-anchor recovery uses the
+# span_resolver BOILERPLATE-AWARE ARGMAX (best entailing prose span) instead of accepting the FIRST
+# passing candidate in enumeration order (which let drb_76 rebind to the row TITLE). Default OFF =>
+# the existing first-passing loop is byte-identical. The argmax still accepts ONLY a candidate that
+# passes the SAME full gate (verify_sentence_provenance, allow_local_window_fallback=False) — the
+# resolver's judge IS that gate — so no new fabrication path; it only CHOOSES a better span among
+# the ones that already pass.
+def _span_resolver_enabled() -> bool:
+    """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
+    v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+def _span_resolve_topk() -> int:
+    """Bound on judge calls per row in the argmax recovery (PG_SPAN_RESOLVE_TOPK, default 4)."""
+    try:
+        return max(1, int(os.getenv("PG_SPAN_RESOLVE_TOPK", "4")))
+    except ValueError:
+        return 4
+
+
 # I-complete-003 (#1189) — re-anchor telemetry. Module-level counters, read +
 # reset by the sweep. ONLY mutated inside the flag-on path, so OFF-mode never
 # touches them (byte-identity).
@@ -953,6 +974,8 @@ _REANCHOR_TELEMETRY: dict[str, int] = {
     "reanchor_attempts": 0,
     "reanchor_recovered": 0,
     "reanchor_uncited_bound": 0,
+    # I-perm-004 (#1198) slice 2: recoveries via the boilerplate-aware argmax (subset of recovered).
+    "reanchor_argmax_recovered": 0,
 }
 
 
@@ -1117,6 +1140,56 @@ def _try_reanchor(
         if not direct_quote:
             return None
         _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+
+        # I-perm-004 (#1198) slice 2: a candidate "passes" iff re-binding the token to its span and
+        # running the SAME full gate (content + numeric + entailment, allow_local_window_fallback=
+        # False) verifies. This closure is the binding judge handed to the resolver — so the resolver
+        # can only ever choose among spans that already pass this exact gate.
+        def _candidate_passes(_sentence: str, span: tuple[int, int], _span_text: str) -> bool:
+            cand = _rebind_single_token(sentence, evidence_id, span[0], span[1])
+            return verify_sentence_provenance(
+                cand, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                allow_local_window_fallback=False,
+            ).is_verified
+
+        if _span_resolver_enabled():
+            # BOILERPLATE-AWARE ARGMAX: choose the best ENTAILING prose span instead of the first
+            # passing candidate in enumeration order (drb_76 rebound to the TITLE). Bounded judge
+            # calls (top_k). A title-only-supported claim is still recovered but LABELED with its
+            # provenance_quality so the report ships it caveated, never silently high-confidence.
+            from src.polaris_graph.generator.span_resolver import (  # noqa: PLC0415
+                resolve_best_entailing_span,
+            )
+            best = resolve_best_entailing_span(
+                direct_quote,
+                sentence,
+                _reanchor_candidate_spans(direct_quote),
+                judge_fn=_candidate_passes,
+                top_k=_span_resolve_topk(),
+            )
+            if best is None:
+                return None
+            rebound = _rebind_single_token(
+                sentence, evidence_id, best.best_span[0], best.best_span[1],
+            )
+            v = verify_sentence_provenance(
+                rebound, evidence_pool,
+                require_number_match=require_number_match,
+                quantified_models=quantified_models,
+                allow_local_window_fallback=False,
+            )
+            if not v.is_verified:  # defensive: the judge already passed this span; never launder.
+                return None
+            _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+            _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
+            v.soft_warnings = list(v.soft_warnings) + [
+                f"reanchored_argmax:{evidence_id}:{best.best_span[0]}-{best.best_span[1]}:"
+                f"q={best.provenance_quality}:c={best.confidence:.2f}",
+            ]
+            return v
+
         for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
             rebound = _rebind_single_token(
                 sentence, evidence_id, cand_start, cand_end,

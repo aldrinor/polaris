@@ -98,10 +98,12 @@ _NAV_RE = re.compile(
     r"\bcontact us\b|\babout the journal\b",
     re.IGNORECASE,
 )
-# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about").
-# Two or more separators is a link bar, not prose (Codex slice-1 P2 — the keyword set alone missed
-# the structural pipe-list form, which would otherwise classify as prose at confidence 1.0).
-_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
+# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about" OR
+# the compact "home|articles|archive|podcasts"). Two or more separators is a link bar, not prose
+# (Codex slice-1 P2 — the keyword set alone missed the pipe-list form, and the whitespace-required
+# form missed the compact bar; both would classify as prose@conf-1.0). Whitespace around the
+# separator is optional.
+_NAV_SEPARATOR_RE = re.compile(r"\s*[|•·▪»]\s*")
 _SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
 # A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
@@ -207,7 +209,7 @@ def resolve_best_entailing_span(
     sentence: str,
     candidate_spans: list[tuple[int, int]],
     *,
-    judge_fn: Callable[[str, str], bool],
+    judge_fn: Callable[[str, tuple[int, int], str], bool],
     numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
     top_k: int = 4,
 ) -> Optional[SpanResolution]:
@@ -216,11 +218,14 @@ def resolve_best_entailing_span(
     ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
     via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
     (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
-    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
-    returns ONLY a span the judge accepted, so a non-entailing span can never be manufactured into
-    support. Among entailing candidates the ARGMAX prefers higher provenance quality (prose over
-    boilerplate) then higher confidence. Returns ``None`` when no candidate entails (caller keeps the
-    drop / labels "no grounded source").
+    calls). ``judge_fn(sentence, span, span_text) -> bool`` is the BINDING gate — the wiring passes a
+    closure that RE-BINDS the [#ev] token to ``span`` and runs the SAME full faithfulness gate
+    (content + numeric + entailment, ``allow_local_window_fallback=False``), so the resolver returns
+    ONLY a span the gate accepted and a non-entailing span can never be manufactured into support.
+    The span OFFSETS are passed (not just the text) precisely so the judge can re-bind. Among
+    accepted candidates the ARGMAX prefers higher provenance quality (prose over boilerplate) then
+    higher confidence. Returns ``None`` when no candidate is accepted (caller keeps the drop /
+    labels "no grounded source").
 
     ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
     sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
@@ -247,7 +252,7 @@ def resolve_best_entailing_span(
     best: Optional[SpanResolution] = None
     best_key: tuple[float, float] = (-1.0, -1.0)
     for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
-        if not judge_fn(sentence, span_text):
+        if not judge_fn(sentence, span, span_text):
             continue
         numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
         confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)

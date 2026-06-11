@@ -202,6 +202,8 @@ def test_reanchor_disabled_is_byte_identical(monkeypatch):
         "reanchor_attempts": 0,
         "reanchor_recovered": 0,
         "reanchor_uncited_bound": 0,
+        # I-perm-004 (#1198) slice 2: argmax-recovery counter, untouched in OFF mode.
+        "reanchor_argmax_recovered": 0,
     }
     # Helper must agree it is disabled.
     assert _pg._provenance_reanchor_enabled() is False
@@ -645,3 +647,63 @@ def test_reanchor_straddling_support_no_single_span_entails_drops(monkeypatch):
         "FAIL CLOSED, not bridge two segments via a whole-row window"
     )
     assert report.total_dropped == 1
+
+
+# ---------------------------------------------------------------------------
+# (k) I-perm-004 (#1198) slice 2 — boilerplate-aware ARGMAX picks the entailing
+#     PROSE span where first-passing bound the earlier Title-cased span.
+# ---------------------------------------------------------------------------
+def _argmax_offsets(soft_warnings):
+    """Pull (start, end) from a `reanchored*:ev:S-E[:...]` soft-warning."""
+    for w in soft_warnings:
+        if w.startswith("reanchored"):
+            span = w.split(":")[2]  # ev id is field 1, S-E is field 2
+            s, e = span.split("-")
+            return int(s), int(e)
+    return None
+
+
+def test_argmax_prefers_prose_span_over_earlier_title(monkeypatch):
+    """The supporting clause appears in BOTH a Title-Case segment (enumerated
+    first) and a later prose segment. First-passing binds the title; the
+    PG_SPAN_RESOLVER argmax binds the prose span and labels it q=prose."""
+    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+    _install_judge(monkeypatch, _FakeJudge("hba1c reduction of 1.5 percent"))
+
+    admin = "Adults were enrolled at five sites."
+    title = " HbA1c Reduction Of 1.5 Percent In Adults: Trial Result."
+    prose = " The treatment produced an hba1c reduction of 1.5 percent in enrolled adults overall."
+    direct_quote = admin + title + prose
+    pool = {"ev_k": {"direct_quote": direct_quote}}
+    wrong_end = len(admin)  # cite the admin clause (no support there) -> recovery fires
+    draft = (
+        f"Treatment produced an HbA1c reduction of 1.5 percent in adults "
+        f"[#ev:ev_k:0-{wrong_end}]."
+    )
+
+    title_start = len(admin)
+    prose_start = len(admin) + len(title)
+
+    # --- flag OFF (first-passing): binds the earlier TITLE segment ---
+    monkeypatch.delenv("PG_SPAN_RESOLVER", raising=False)
+    reset_reanchor_telemetry()
+    rep_off = strict_verify(draft, pool)
+    assert rep_off.total_kept == 1
+    off_warn = rep_off.kept_sentences[0].soft_warnings
+    assert any(w.startswith("reanchored:ev_k:") for w in off_warn)
+    off_s, off_e = _argmax_offsets(off_warn)
+    assert "Trial Result" in direct_quote[off_s:off_e], "first-passing should bind the title segment"
+    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
+
+    # --- flag ON (argmax): binds the PROSE segment, labeled q=prose ---
+    monkeypatch.setenv("PG_SPAN_RESOLVER", "1")
+    reset_reanchor_telemetry()
+    rep_on = strict_verify(draft, pool)
+    assert rep_on.total_kept == 1
+    on_warn = rep_on.kept_sentences[0].soft_warnings
+    assert any(w.startswith("reanchored_argmax:ev_k:") and ":q=prose:" in w for w in on_warn), on_warn
+    on_s, on_e = _argmax_offsets(on_warn)
+    assert "the treatment produced" in direct_quote[on_s:on_e].lower(), "argmax should bind the prose span"
+    assert on_s != off_s, "argmax must pick a DIFFERENT (better) span than first-passing"
+    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1

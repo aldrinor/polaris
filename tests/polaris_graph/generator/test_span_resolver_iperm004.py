@@ -68,11 +68,15 @@ _BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
 
 
 def _judge_only(*entailing_texts):
-    """A stub judge that entails iff the span text is one of the given (stripped) texts."""
+    """A stub judge that entails iff the span text is one of the given (stripped) texts.
+
+    Signature mirrors production: ``judge(sentence, span, span_text)`` — the wiring closure re-binds
+    the token to ``span`` and runs the full gate; the stub only needs the text.
+    """
     targets = {t.strip() for t in entailing_texts}
     calls = {"n": 0}
 
-    def judge(sentence: str, span_text: str) -> bool:
+    def judge(sentence: str, span: tuple[int, int], span_text: str) -> bool:
         calls["n"] += 1
         return span_text.strip() in targets
 
