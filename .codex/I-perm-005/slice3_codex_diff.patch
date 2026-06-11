@@ -1,0 +1,121 @@
+commit 4e4eb8e0b098bbbf86550a447f4694f75f07161a
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 19:23:22 2026 -0700
+
+    I-perm-005 (#1199) slice 3: runner flip — KEEP+LABEL under PG_ALWAYS_RELEASE (annotate not reconcile)
+    
+    Production activation of the keep-and-label verb. In run_honest_sweep_r3.py's post-4-role
+    report-reconciliation block, the verdict-vs-report step now branches: when `always_release_enabled()`
+    (PG_ALWAYS_RELEASE, already slate-activated) the runner calls `annotate_report_against_verdicts`
+    (KEEP each non-VERIFIED claim + append its confidence marker) instead of
+    `reconcile_report_against_verdicts` (DELETE). Flag OFF -> the existing reconcile/delete path is
+    byte-identical.
+    
+    The per-claim marker is deterministic from `claim_labeler.confidence_bucket`: a non-VERIFIED claim
+    is `low` when it cites evidence (audit_map.evidence_ids non-empty) or `no-source-found` when it does
+    not — NEVER `high` (the §-1.1 invariant). Writes the labeled report.md + a `claim_confidence.json`
+    sidecar (claim_id -> verdict/severity/marker) + `manifest.report_annotation`. SAME fail-closed
+    contract as the redactor: a present-but-unpinnable claim aborts (report_redaction_failed) rather than
+    ship unlabeled.
+    
+    Control flow: the `elif always_release_enabled():` is inserted BEFORE the legacy reconcile `else:` in
+    the existing `if not non-VERIFIED / report-absent / audit_map-absent` chain, so both paths still
+    require the audit_map; the absent/no-op guards are unchanged.
+    
+    Smoke (offline, replicating the branch logic): an UNSUPPORTED claim is KEPT + carries `[confidence:
+    low ...]`; the VERIFIED neighbor + its [N] marker are byte-identical (one marker total); a
+    no-cited-evidence non-VERIFIED claim resolves to the `no grounded source` marker. Runner compiles.
+    
+    This makes I-perm-005's keep-and-label LIVE on the next always-release run. Remaining: the report
+    render of claim_confidence into the UI chip (frontend) + activate PG_SPAN_RESOLVER in the slate.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 0b9df7c3..ac733cef 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -7271,6 +7271,83 @@ async def run_one_query(
+                         "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                         "verdicts -> abort_report_redaction_failed"
+                     )
++                elif always_release_enabled():
++                    # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
++                    # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
++                    # deterministic from claim_labeler — a non-VERIFIED claim is `low` (has cited
++                    # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
++                    # (a present-but-unpinnable claim aborts rather than ship unlabeled).
++                    _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
++                    from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
++                        annotate_report_against_verdicts,
++                    )
++                    from src.polaris_graph.generator.claim_labeler import (  # noqa: PLC0415
++                        confidence_bucket,
++                        render_confidence_marker,
++                    )
++                    _marker_by_claim = {
++                        _cid: render_confidence_marker(
++                            confidence_bucket(
++                                is_verified=False,
++                                credibility=None,
++                                origin_count=0,
++                                has_cited_evidence=bool(
++                                    _audit_map.get(_cid, {}).get("evidence_ids")
++                                ),
++                            )
++                        )
++                        for _cid in _nonverified_verdicts
++                    }
++                    try:
++                        _annotation = annotate_report_against_verdicts(
++                            _redact_report_path.read_text(encoding="utf-8"),
++                            _final_verdicts,
++                            _audit_map,
++                            _marker_by_claim,
++                        )
++                    except ReportRedactionError as _annot_exc:
++                        summary_status = "report_redaction_failed"
++                        unified_status = to_unified_status(summary_status)
++                        manifest["status"] = unified_status
++                        manifest["release_allowed"] = False
++                        manifest["report_redaction_error"] = str(_annot_exc)
++                        _log(
++                            f"[label]       FAIL-CLOSED: {_annot_exc} -> "
++                            "abort_report_redaction_failed"
++                        )
++                    else:
++                        _redact_report_path.write_text(
++                            _annotation.report_text, encoding="utf-8"
++                        )
++                        (run_dir / "claim_confidence.json").write_text(
++                            json.dumps(
++                                {
++                                    _ac.claim_id: {
++                                        "verdict": _ac.verdict,
++                                        "severity": _ac.severity,
++                                        "marker": _ac.marker,
++                                    }
++                                    for _ac in _annotation.annotated
++                                },
++                                indent=2,
++                                sort_keys=True,
++                            )
++                            + "\n",
++                            encoding="utf-8",
++                        )
++                        manifest["report_annotation"] = {
++                            "annotated_count": _annotation.annotated_count,
++                            "annotated_claim_ids": [
++                                _ac.claim_id for _ac in _annotation.annotated
++                            ],
++                            "already_absent_claim_ids": _annotation.already_absent,
++                        }
++                        _log(
++                            "[label]       keep+label report.md vs 4-role verdicts: "
++                            f"labeled={_annotation.annotated_count} "
++                            f"already_absent={len(_annotation.already_absent)} "
++                            "(always-release; non-VERIFIED kept + labeled, never deleted)"
++                        )
+                 else:
+                     _audit_map = json.loads(
+                         _audit_map_path.read_text(encoding="utf-8")

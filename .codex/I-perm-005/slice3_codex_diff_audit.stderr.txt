@@ -1,0 +1,2441 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb47e-2a15-7442-add9-f67c9b35ea55
+--------
+user
+# Codex DIFF review — I-perm-005 (#1199) SLICE 3: runner flip (annotate under PG_ALWAYS_RELEASE)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Reserve P0/P1 for real execution risks. If iter 5 REQUEST_CHANGES, force-APPROVE on remaining-non-P0/P1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this slice does
+In `run_honest_sweep_r3.py`'s post-4-role report-vs-verdict block, adds an `elif always_release_enabled():` branch BEFORE the legacy reconcile `else:`. Under PG_ALWAYS_RELEASE it calls `annotate_report_against_verdicts` (KEEP each non-VERIFIED claim + append its confidence marker) instead of `reconcile_report_against_verdicts` (DELETE). Writes the labeled report.md + `claim_confidence.json` + `manifest.report_annotation`. Flag OFF -> the reconcile path is byte-identical.
+
+## Safety properties to verify (P0 class)
+1. **OFF byte-identical.** The legacy reconcile `else:` block is UNCHANGED; the new branch only runs when `always_release_enabled()`. Confirm the reconcile path (and the absent/no-op/no-audit-map guards before it) is untouched.
+2. **No non-VERIFIED claim ships unlabeled.** The annotate path uses the same fail-closed `ReportRedactionError -> report_redaction_failed` abort as reconcile. A present-but-unpinnable claim aborts, not ships. Confirm the except sets release_allowed=False + report_redaction_failed.
+3. **Marker never `high`.** `marker_by_claim` is built with `confidence_bucket(is_verified=False, ...)` for every non-VERIFIED claim -> low / no-source-found only. Confirm is_verified=False is hardcoded (a non-VERIFIED claim can never be labeled high).
+4. **Control-flow / scope.** `always_release_enabled` is imported unconditionally earlier in the same function (line ~7142, before this block); confirm it is in scope at the `elif`. The `elif` sits in the `if not non-VERIFIED / report absent / audit_map absent / elif always_release / else reconcile` chain — confirm both annotate + reconcile still require the audit_map and the no-op guards are preserved.
+
+## Claims ledger
+| # | Claim | Where | Status |
+|---|---|---|---|
+| C1 | OFF byte-identical (reconcile path unchanged) | new branch guarded by always_release_enabled(); else: reconcile verbatim | claims-true |
+| C2 | non-VERIFIED never ships unlabeled | annotate raises ReportRedactionError -> report_redaction_failed abort | claims-true |
+| C3 | marker never high | confidence_bucket(is_verified=False, ...) | claims-true |
+| C4 | always_release_enabled in scope | imported ~7142 unconditionally before the block | claims-true |
+| C5 | claim_confidence.json + manifest.report_annotation emitted | the else branch writes both | claims-true |
+
+## Smoke evidence (offline, replicating the branch logic)
+UNSUPPORTED claim KEPT + `[confidence: low ...]`; VERIFIED neighbor + its [N] byte-identical (one marker total); no-cited-evidence non-VERIFIED -> `no grounded source` marker. Runner py_compiles.
+
+## Files (full diff: `.codex/I-perm-005/slice3_codex_diff.patch`)
+- `scripts/run_honest_sweep_r3.py` (+~95): the annotate elif branch + marker assembly + claim_confidence.json.
+
+Review the diff. Confirm C1 (OFF byte-identical) + C2 (fail-closed, never unlabeled) + C3 (never high). Hunt any path where the annotate branch ships a non-VERIFIED claim unlabeled or alters the reconcile path.
+
+codex
+I’ll review the provided patch and surrounding runner control flow directly, then return the requested YAML verdict with only execution-relevant blockers called out.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"always_release_enabled|annotate_report_against_verdicts|reconcile_report_against_verdicts|report_redaction_failed|claim_confidence|manifest\\.report_annotation|confidence_bucket|ReportRedactionError\" scripts/run_honest_sweep_r3.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- scripts/run_honest_sweep_r3.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-perm-005/slice3_codex_diff.patch' in C:\POLARIS
+ succeeded in 7786ms:
+231:    "abort_report_redaction_failed", # I-beatboth-fix-000 (#1171): post-gate report.md reconciliation could not redact a material non-VERIFIED claim that IS present in the body (unlocatable / missing audit row) — fail-closed, refuse to ship a partially-reconciled report (no trustworthy artifact)
+271:    "report_redaction_failed": "abort_report_redaction_failed",
+7142:            from src.polaris_graph.roles.release_policy import always_release_enabled
+7144:            if always_release_enabled() and _release_outcome is not None:
+7227:            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+7234:                    ReportRedactionError,
+7235:                    reconcile_report_against_verdicts,
+7242:                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+7262:                    summary_status = "report_redaction_failed"
+7272:                        "verdicts -> abort_report_redaction_failed"
+7274:                elif always_release_enabled():
+7282:                        annotate_report_against_verdicts,
+7285:                        confidence_bucket,
+7290:                            confidence_bucket(
+7302:                        _annotation = annotate_report_against_verdicts(
+7308:                    except ReportRedactionError as _annot_exc:
+7309:                        summary_status = "report_redaction_failed"
+7316:                            "abort_report_redaction_failed"
+7322:                        (run_dir / "claim_confidence.json").write_text(
+7356:                        _redaction = reconcile_report_against_verdicts(
+7361:                    except ReportRedactionError as _redact_exc:
+7365:                        summary_status = "report_redaction_failed"
+7372:                            "abort_report_redaction_failed"
+
+ succeeded in 14475ms:
+commit 4e4eb8e0b098bbbf86550a447f4694f75f07161a
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 19:23:22 2026 -0700
+
+    I-perm-005 (#1199) slice 3: runner flip — KEEP+LABEL under PG_ALWAYS_RELEASE (annotate not reconcile)
+    
+    Production activation of the keep-and-label verb. In run_honest_sweep_r3.py's post-4-role
+    report-reconciliation block, the verdict-vs-report step now branches: when `always_release_enabled()`
+    (PG_ALWAYS_RELEASE, already slate-activated) the runner calls `annotate_report_against_verdicts`
+    (KEEP each non-VERIFIED claim + append its confidence marker) instead of
+    `reconcile_report_against_verdicts` (DELETE). Flag OFF -> the existing reconcile/delete path is
+    byte-identical.
+    
+    The per-claim marker is deterministic from `claim_labeler.confidence_bucket`: a non-VERIFIED claim
+    is `low` when it cites evidence (audit_map.evidence_ids non-empty) or `no-source-found` when it does
+    not — NEVER `high` (the §-1.1 invariant). Writes the labeled report.md + a `claim_confidence.json`
+    sidecar (claim_id -> verdict/severity/marker) + `manifest.report_annotation`. SAME fail-closed
+    contract as the redactor: a present-but-unpinnable claim aborts (report_redaction_failed) rather than
+    ship unlabeled.
+    
+    Control flow: the `elif always_release_enabled():` is inserted BEFORE the legacy reconcile `else:` in
+    the existing `if not non-VERIFIED / report-absent / audit_map-absent` chain, so both paths still
+    require the audit_map; the absent/no-op guards are unchanged.
+    
+    Smoke (offline, replicating the branch logic): an UNSUPPORTED claim is KEPT + carries `[confidence:
+    low ...]`; the VERIFIED neighbor + its [N] marker are byte-identical (one marker total); a
+    no-cited-evidence non-VERIFIED claim resolves to the `no grounded source` marker. Runner compiles.
+    
+    This makes I-perm-005's keep-and-label LIVE on the next always-release run. Remaining: the report
+    render of claim_confidence into the UI chip (frontend) + activate PG_SPAN_RESOLVER in the slate.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 0b9df7c3..ac733cef 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -7271,6 +7271,83 @@ async def run_one_query(
+                         "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                         "verdicts -> abort_report_redaction_failed"
+                     )
++                elif always_release_enabled():
++                    # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
++                    # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
++                    # deterministic from claim_labeler — a non-VERIFIED claim is `low` (has cited
++                    # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
++                    # (a present-but-unpinnable claim aborts rather than ship unlabeled).
++                    _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
++                    from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
++                        annotate_report_against_verdicts,
++                    )
++                    from src.polaris_graph.generator.claim_labeler import (  # noqa: PLC0415
++                        confidence_bucket,
++                        render_confidence_marker,
++                    )
++                    _marker_by_claim = {
++                        _cid: render_confidence_marker(
++                            confidence_bucket(
++                                is_verified=False,
++                                credibility=None,
++                                origin_count=0,
++                                has_cited_evidence=bool(
++                                    _audit_map.get(_cid, {}).get("evidence_ids")
++                                ),
++                            )
++                        )
++                        for _cid in _nonverified_verdicts
++                    }
++                    try:
++                        _annotation = annotate_report_against_verdicts(
++                            _redact_report_path.read_text(encoding="utf-8"),
++                            _final_verdicts,
++                            _audit_map,
++                            _marker_by_claim,
++                        )
++                    except ReportRedactionError as _annot_exc:
++                        summary_status = "report_redaction_failed"
++                        unified_status = to_unified_status(summary_status)
++                        manifest["status"] = unified_status
++                        manifest["release_allowed"] = False
++                        manifest["report_redaction_error"] = str(_annot_exc)
++                        _log(
++                            f"[label]       FAIL-CLOSED: {_annot_exc} -> "
++                            "abort_report_redaction_failed"
++                        )
++                    else:
++                        _redact_report_path.write_text(
++                            _annotation.report_text, encoding="utf-8"
++                        )
++                        (run_dir / "claim_confidence.json").write_text(
++                            json.dumps(
++                                {
++                                    _ac.claim_id: {
++                                        "verdict": _ac.verdict,
++                                        "severity": _ac.severity,
++                                        "marker": _ac.marker,
++                                    }
++                                    for _ac in _annotation.annotated
++                                },
++                                indent=2,
++                                sort_keys=True,
++                            )
++                            + "\n",
++                            encoding="utf-8",
++                        )
++                        manifest["report_annotation"] = {
++                            "annotated_count": _annotation.annotated_count,
++                            "annotated_claim_ids": [
++                                _ac.claim_id for _ac in _annotation.annotated
++                            ],
++                            "already_absent_claim_ids": _annotation.already_absent,
++                        }
++                        _log(
++                            "[label]       keep+label report.md vs 4-role verdicts: "
++                            f"labeled={_annotation.annotated_count} "
++                            f"already_absent={len(_annotation.already_absent)} "
++                            "(always-release; non-VERIFIED kept + labeled, never deleted)"
++                        )
+                 else:
+                     _audit_map = json.loads(
+                         _audit_map_path.read_text(encoding="utf-8")
+
+ succeeded in 21670ms:
+codex
+The patch is applied in the working tree as a commit, and the local `git diff` is clean for this file. I’m checking the pre-change parent version against the current fallback branch, plus the redactor and marker helpers so the verdict isn’t based only on the commit message.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7128 -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show 4e4eb8e0b098bbbf86550a447f4694f75f07161a''^:scripts/run_honest_sweep_r3.py | Select-Object -Skip 7218 -First 170' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/generator/claim_labeler.py | Select-Object -Skip 1 -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def annotate_report_against_verdicts|def reconcile_report_against_verdicts|class ReportRedactionError|Annotated|already_absent|marker_by_claim" src/polaris_graph/roles/report_redactor.py src/polaris_graph/generator/claim_labeler.py' in C:\POLARIS
+ succeeded in 8745ms:
+src/polaris_graph/roles/report_redactor.py:44:    rendering visible so this is never a silent ``already_absent``.
+src/polaris_graph/roles/report_redactor.py:47:    ``already_absent`` and ship nothing extra (the SAFE state).
+src/polaris_graph/roles/report_redactor.py:107:class ReportRedactionError(RuntimeError):
+src/polaris_graph/roles/report_redactor.py:131:    already_absent: list[str] = field(default_factory=list)
+src/polaris_graph/roles/report_redactor.py:172:def reconcile_report_against_verdicts(
+src/polaris_graph/roles/report_redactor.py:283:            result.already_absent.append(claim_id)  # TIER 3 — genuinely absent, ship nothing
+src/polaris_graph/roles/report_redactor.py:436:    Recall here only guards against a FALSE ``already_absent`` (a leak); the high-PRECISION
+src/polaris_graph/roles/report_redactor.py:525:class AnnotatedClaim:
+src/polaris_graph/roles/report_redactor.py:539:    annotated: list["AnnotatedClaim"] = field(default_factory=list)
+src/polaris_graph/roles/report_redactor.py:540:    already_absent: list[str] = field(default_factory=list)
+src/polaris_graph/roles/report_redactor.py:565:def annotate_report_against_verdicts(
+src/polaris_graph/roles/report_redactor.py:569:    marker_by_claim: dict[str, str],
+src/polaris_graph/roles/report_redactor.py:575:    independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
+src/polaris_graph/roles/report_redactor.py:598:    already_absent: list[str] = []
+src/polaris_graph/roles/report_redactor.py:616:            already_absent.append(claim_id)  # downstream dedup removed it; nothing to label
+src/polaris_graph/roles/report_redactor.py:626:        marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+src/polaris_graph/roles/report_redactor.py:661:    annotated: list[AnnotatedClaim] = []
+src/polaris_graph/roles/report_redactor.py:669:            AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+src/polaris_graph/roles/report_redactor.py:672:    return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+
+ succeeded in 17324ms:
+            # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+            # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+            # redact every material non-VERIFIED claim's verbatim sentence to the existing
+            # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+            # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+            # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+            # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+            # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+            # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+            # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+            if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+                "0", "false", "False",
+            ):
+                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                    ReportRedactionError,
+                    reconcile_report_against_verdicts,
+                )
+                _redact_report_path = run_dir / "report.md"
+                _audit_map_path = run_dir / "four_role_claim_audit.json"
+                # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+                # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+                # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+                # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+                # claim's verbatim sentence.
+                _final_verdicts = four_role_result.final_verdicts or {}
+                _nonverified_verdicts = {
+                    cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+                }
+                if not _nonverified_verdicts:
+                    _log(
+                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                        "reconciliation skipped (no-op)"
+                    )
+                elif not _redact_report_path.is_file():
+                    _log(
+                        "[redact]      report.md absent; nothing to reconcile (no shipped "
+                        "artifact can leak)"
+                    )
+                elif not _audit_map_path.is_file():
+                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+                    # is missing -> fail closed rather than ship an unreconciled report.
+                    summary_status = "report_redaction_failed"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    manifest["report_redaction_error"] = (
+                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                    )
+                    _log(
+                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                        "verdicts -> abort_report_redaction_failed"
+                    )
+                else:
+                    _audit_map = json.loads(
+                        _audit_map_path.read_text(encoding="utf-8")
+                    )
+                    try:
+                        _redaction = reconcile_report_against_verdicts(
+                            _redact_report_path.read_text(encoding="utf-8"),
+                            _final_verdicts,
+                            _audit_map,
+                        )
+                    except ReportRedactionError as _redact_exc:
+                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                        # no audit row. Do NOT ship the report; take a terminal abort. The
+                        # unredacted report.md stays on disk for the curator to inspect.
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
+                        _redact_report_path.write_text(
+                            _reconciled_report, encoding="utf-8"
+                        )
+                        manifest["report_redaction"] = {
+                            "redacted_count": _redaction.redacted_count,
+                            "redacted_claim_ids": [
+                                rc.claim_id for rc in _redaction.redacted
+                            ],
+                            "already_absent_claim_ids": _redaction.already_absent,
+                        }
+                        if _redaction.redacted:
+                            _gaps_redact_path = run_dir / "gaps.json"
+                            _existing_gaps: list = []
+                            if _gaps_redact_path.is_file():
+                                try:
+                                    _loaded = json.loads(
+                                        _gaps_redact_path.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(_loaded, list):
+                                        _existing_gaps = _loaded
+                                except Exception:  # noqa: BLE001 — corrupt sidecar must not lose redaction gaps
+                                    _existing_gaps = []
+                            _existing_gaps.extend(_redaction.gaps_json())
+                            _gaps_redact_path.write_text(
+                                json.dumps(_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                        _log(
+                            f"[redact]      reconciled report.md vs 4-role verdicts: "
+                            f"redacted={_redaction.redacted_count} "
+                            f"already_absent={len(_redaction.already_absent)} "
+                            "(refuse-in-place; held-path safe)"
+                        )
+
+        # V30 Report Contract Architecture integration (Phase 1 of
+        # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
+        # complete no-op — the runner doesn't even import the V30
+        # module (Codex sweep-integration audit Medium: fully
+        # hermetic gating). When enabled, runs M-54→M-55→M-56→M-57→
+        # M-60→M-61 post-generation: compiles the per-query
+        # contract, fetches deterministic DOI/PMID/Unpaywall content
+        # for each contracted entity, composes the outline, emits
+        # the structured frame_coverage_report +
+        # human_gap_tasks.json.
+        #
+        # Phase 2 (separate cycle) will wire M-58 slot-bound prompts
+        # + M-59 validator into the generator. At Phase 1 we only
+        # attach the coverage block to manifest and append the
+        # Methods disclosure to report.md — existing generator
+        # output is untouched.
+        if os.environ.get("PG_V30_ENABLED", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.honest_sweep_integration import (
+                    append_disclosure_to_report,
+                    merge_v30_into_manifest,
+                    run_v30_post_generation,
+                )
+                # Phase 1 ships RETRIEVAL-coverage semantics only.
+                # Legacy report / bibliography cross-check was
+                # deprecated after three Codex audit rounds of
+                # heuristic false-passes (see pass-4 scope narrow
+                # in honest_sweep_integration module docstring).
+                # Phase 2 (M-58 + M-59 generator integration)
+                # will claim true report-coverage.
+                _report_path = run_dir / "report.md"
+                v30_result = run_v30_post_generation(
+                    research_question=q["question"],
+                    scope_template=_template,
+                    slug=q["slug"],
+                    run_dir=run_dir,
+                    log=_log,
+                    # I-ready-017 FX-07b leg-2 (#1111): pass the generation run's
+                    # per-(slot,entity) strict_verify telemetry so compose_frame_
+                    # coverage can flip a validated-but-all-dropped slot to
+
+ succeeded in 28570ms:
+            try:
+                _n_claims = len(getattr(four_role_result, "final_verdicts", {}) or {})
+                _hb("four_role_done", claims_verified=_n_claims, claims_total=_n_claims)
+            except Exception:  # noqa: BLE001
+                pass
+            # Demote the legacy gate to ADVISORY metadata; D8 owns the headline decision.
+            manifest["evaluator_gate_advisory"] = manifest.pop("evaluator_gate")
+            # I-perm-001 (#1195) slice 2: under PG_ALWAYS_RELEASE the D8 BLOCK becomes a LABEL —
+            # non-hard holds ship as disclosed gaps and the report RELEASES; only the
+            # no-fabrication hard line (fabricated / zero-grounding) withholds; the clinical
+            # safety floor ships the honest insufficient-safety report (normal render blocked).
+            # release_allowed = outcome.released, so bundle.py refuses ONLY a hard block. Default
+            # OFF: the legacy held/success path below is byte-identical.
+            from src.polaris_graph.roles.release_policy import always_release_enabled
+            _release_outcome = getattr(four_role_result, "release_outcome", None)
+            if always_release_enabled() and _release_outcome is not None:
+                manifest["release_allowed"] = _release_outcome.released
+                summary_status = _release_outcome.status
+                # release_disclosure is the D8 LABEL snapshot. It deliberately does NOT carry a
+                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
+                # binding decision, and a later fail-closed gate (redaction / run-health) can flip
+                # it to False — a duplicated `released` here would go stale and contradict it.
+                manifest["release_disclosure"] = {
+                    "hard_block": _release_outcome.hard_block,
+                    "hard_block_reasons": list(_release_outcome.hard_block_reasons),
+                    "normal_release_blocked": _release_outcome.normal_release_blocked,
+                    "disclosed_gaps": list(_release_outcome.disclosed_gaps),
+                    "release_quality_score": _release_outcome.release_quality_score,
+                    "safety_floor": _release_outcome.safety_floor,
+                }
+            else:
+                manifest["release_allowed"] = four_role_result.release_allowed
+                # Single binding status: released => success; held => release-blocking abort.
+                summary_status = (
+                    "four_role_released"
+                    if four_role_result.release_allowed
+                    else "four_role_held"
+                )
+            # Reassign BOTH the summary label AND the unified local so manifest.json,
+            # sweep_summary.json (summary["status"] at the function tail), and the status log
+            # line are all D8-driven and cannot disagree (no double-gate, Codex P2).
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            # final_verdicts (keyed by EXISTING claim_id) drive evaluator_agrees at the real
+            # assembly point (clinical_generator, Gate-B); they are surfaced here so the D8
+            # decision is fully auditable from the manifest. evaluator_agrees_from_verdict maps
+            # VERIFIED->True / else->False (the helper lives in sweep_integration). The sweep's
+            # SectionResult path holds SentenceVerification, NOT VerifiedSentence, so there is no
+            # VerifiedSentence object to write here — populating one would be fake wiring.
+            manifest["four_role_evaluation"] = {
+                "release_allowed": four_role_result.release_allowed,
+                "held_reasons": four_role_result.held_reasons,
+                "coverage_fraction": round(four_role_result.coverage_fraction, 3),
+                "fabricated_occurrence_latched": (
+                    four_role_result.fabricated_occurrence_latched
+                ),
+                "needs_rewrite": four_role_result.needs_rewrite,
+                "final_verdicts": four_role_result.final_verdicts,
+                "gaps": [
+                    {
+                        "ref": gap.ref,
+                        "kind": gap.kind,
+                        "severity": gap.severity,
+                        "note": gap.note,
+                    }
+                    for gap in four_role_result.gaps
+                ],
+                "kg_path": str(four_role_result.kg_path),
+            }
+            # I-meta-002 PR-9/M5: ADDITIVE per-claim evaluator_agrees MAP for audit/inspector
+            # fidelity (NOT a release gate — D8 above stays the single binding gate). Joinable to
+            # four_role_claim_audit.json by claim_id. kept_claim_ids is None here: on the sweep
+            # path the FourRoleClaim set is built from KEPT (is_verified) sentences only, so every
+            # claim_id in final_verdicts is already a kept claim (invariant documented in the
+            # helper). The §-1.1 fail-safe rule (VERIFIED+kept -> True; every other verdict ->
+            # False) lives in build_evaluator_agrees_map -> evaluator_agrees_from_verdict.
+            manifest["four_role_evaluation"]["evaluator_agrees"] = (
+                build_evaluator_agrees_map(four_role_result.final_verdicts)
+            )
+            _log(
+                f"[four_role]   release_allowed={four_role_result.release_allowed} "
+                f"coverage={four_role_result.coverage_fraction:.3f} "
+                f"held_reasons={four_role_result.held_reasons}"
+            )
+
+            # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+            # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+            # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
+            # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
+            # report.md. So a sentence the strongest verifier rejected still ships as asserted
+            # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+            # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+            # redact every material non-VERIFIED claim's verbatim sentence to the existing
+            # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+            # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+            # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+            # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+            # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+            # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+            # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+            # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+            if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+                "0", "false", "False",
+            ):
+                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                    ReportRedactionError,
+                    reconcile_report_against_verdicts,
+                )
+                _redact_report_path = run_dir / "report.md"
+                _audit_map_path = run_dir / "four_role_claim_audit.json"
+                # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+                # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+                # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+                # NOT be mislabeled abort_report_redaction_failed merely because the audit
+                # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+                # claim's verbatim sentence.
+                _final_verdicts = four_role_result.final_verdicts or {}
+                _nonverified_verdicts = {
+                    cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+                }
+                if not _nonverified_verdicts:
+                    _log(
+                        "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                        "reconciliation skipped (no-op)"
+                    )
+                elif not _redact_report_path.is_file():
+                    _log(
+                        "[redact]      report.md absent; nothing to reconcile (no shipped "
+                        "artifact can leak)"
+                    )
+                elif not _audit_map_path.is_file():
+                    # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+                    # is missing -> fail closed rather than ship an unreconciled report.
+                    summary_status = "report_redaction_failed"
+                    unified_status = to_unified_status(summary_status)
+                    manifest["status"] = unified_status
+                    manifest["release_allowed"] = False
+                    manifest["report_redaction_error"] = (
+                        "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                        "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                    )
+                    _log(
+                        "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                        "verdicts -> abort_report_redaction_failed"
+                    )
+                elif always_release_enabled():
+                    # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
+                    # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
+                    # deterministic from claim_labeler — a non-VERIFIED claim is `low` (has cited
+                    # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
+                    # (a present-but-unpinnable claim aborts rather than ship unlabeled).
+                    _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
+                    from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                        annotate_report_against_verdicts,
+                    )
+                    from src.polaris_graph.generator.claim_labeler import (  # noqa: PLC0415
+                        confidence_bucket,
+                        render_confidence_marker,
+                    )
+                    _marker_by_claim = {
+                        _cid: render_confidence_marker(
+                            confidence_bucket(
+                                is_verified=False,
+                                credibility=None,
+                                origin_count=0,
+                                has_cited_evidence=bool(
+                                    _audit_map.get(_cid, {}).get("evidence_ids")
+                                ),
+                            )
+                        )
+                        for _cid in _nonverified_verdicts
+                    }
+                    try:
+                        _annotation = annotate_report_against_verdicts(
+                            _redact_report_path.read_text(encoding="utf-8"),
+                            _final_verdicts,
+                            _audit_map,
+                            _marker_by_claim,
+                        )
+                    except ReportRedactionError as _annot_exc:
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_annot_exc)
+                        _log(
+                            f"[label]       FAIL-CLOSED: {_annot_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        _redact_report_path.write_text(
+                            _annotation.report_text, encoding="utf-8"
+                        )
+                        (run_dir / "claim_confidence.json").write_text(
+                            json.dumps(
+                                {
+                                    _ac.claim_id: {
+                                        "verdict": _ac.verdict,
+                                        "severity": _ac.severity,
+                                        "marker": _ac.marker,
+                                    }
+                                    for _ac in _annotation.annotated
+                                },
+                                indent=2,
+                                sort_keys=True,
+                            )
+                            + "\n",
+                            encoding="utf-8",
+                        )
+                        manifest["report_annotation"] = {
+                            "annotated_count": _annotation.annotated_count,
+                            "annotated_claim_ids": [
+                                _ac.claim_id for _ac in _annotation.annotated
+                            ],
+                            "already_absent_claim_ids": _annotation.already_absent,
+                        }
+                        _log(
+                            "[label]       keep+label report.md vs 4-role verdicts: "
+                            f"labeled={_annotation.annotated_count} "
+                            f"already_absent={len(_annotation.already_absent)} "
+                            "(always-release; non-VERIFIED kept + labeled, never deleted)"
+                        )
+                else:
+                    _audit_map = json.loads(
+                        _audit_map_path.read_text(encoding="utf-8")
+                    )
+                    try:
+                        _redaction = reconcile_report_against_verdicts(
+                            _redact_report_path.read_text(encoding="utf-8"),
+                            _final_verdicts,
+                            _audit_map,
+                        )
+                    except ReportRedactionError as _redact_exc:
+                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                        # no audit row. Do NOT ship the report; take a terminal abort. The
+                        # unredacted report.md stays on disk for the curator to inspect.
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+
+ succeeded in 39733ms:
+
+Under the always-release reframe (I-perm-001), a non-VERIFIED claim is no longer DELETED by the
+4-role redactor (`roles/report_redactor.reconcile_report_against_verdicts`) — it is KEPT and LABELED
+with an honest per-claim confidence so the user judges. This module is the PURE deterministic core:
+the Decision-B confidence bucket + the inline marker text. No LLM, no I/O, no global state.
+
+THE clinical-safety invariant (Decision B): a non-VERIFIED claim can NEVER render `high`. `high`
+requires verdict==VERIFIED AND credibility>=high AND origins>=2. Unknown credibility -> `low` (never
+inflates). Zero resolvable cited evidence -> `no-source-found`. The bucket is a pure function of the
+already-computed disclosure fields — it never re-runs a verifier and never flips `is_verified`. The
+high/moderate/low thresholds are REUSED verbatim from `synthesis.disclosure_population._certainty_label`
+(one source of truth, no drift); this module only adds the 4th `no-source-found` bucket + the marker.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+# The four rendered buckets (the discrete per-claim chip).
+BUCKET_HIGH = "high"
+BUCKET_MODERATE = "moderate"
+BUCKET_LOW = "low"
+BUCKET_NO_SOURCE = "no-source-found"
+
+VALID_BUCKETS = (BUCKET_HIGH, BUCKET_MODERATE, BUCKET_LOW, BUCKET_NO_SOURCE)
+
+
+def confidence_bucket(
+    *,
+    is_verified: bool,
+    credibility: Optional[float],
+    origin_count: int,
+    has_cited_evidence: bool,
+) -> str:
+    """Decision-B per-claim confidence bucket (pure, deterministic, no LLM).
+
+    - ``no-source-found`` when the claim resolves NO cited evidence at all (a genuinely ungrounded
+      statement) — this is a first-class DISPLAYED outcome, not a hidden drop.
+    - otherwise the high/moderate/low bucket from the shared disclosure thresholds, which already
+      enforce: not-verified -> low; verified + unknown credibility -> low; high iff
+      origins>=PG_DISCLOSURE_HIGH_MIN_ORIGINS AND credibility>=PG_DISCLOSURE_HIGH_CRED.
+
+    A non-VERIFIED claim therefore can never be ``high`` (the lethal over-confidence the reframe
+    must not introduce): `_certainty_label` returns `low` for `is_verified=False`.
+    """
+    if not has_cited_evidence:
+        return BUCKET_NO_SOURCE
+    # Reuse the disclosure certainty thresholds verbatim (single source of truth, no drift).
+    from src.polaris_graph.synthesis.disclosure_population import _certainty_label  # noqa: PLC0415
+
+    bucket = _certainty_label(is_verified, origin_count, credibility)
+    return bucket if bucket in VALID_BUCKETS else BUCKET_LOW
+
+
+# Human-facing marker text per bucket. The wording is deliberately unmistakable: a `low` /
+# `no-source-found` chip must read as NOT-asserted-as-fact (the §-1.1 invariant that a low chip is
+# never mistaken for support). Kept short for the screen-reader / inline render.
+_MARKER_TEXT = {
+    BUCKET_HIGH: "high confidence — verified against multiple independent sources",
+    BUCKET_MODERATE: "moderate confidence — verified against the cited source",
+    BUCKET_LOW: "low confidence — NOT confirmed by the cited source; treat as unverified",
+    BUCKET_NO_SOURCE: "no grounded source was found for this statement; shown unverified",
+}
+
+
+def render_confidence_marker(bucket: str) -> str:
+    """The inline marker appended to a KEPT claim, e.g. ``[confidence: low — NOT confirmed ...]``.
+
+    Deterministic; unknown bucket falls back to the low wording (fail-safe: never imply support)."""
+    text = _MARKER_TEXT.get(bucket, _MARKER_TEXT[BUCKET_LOW])
+    label = bucket if bucket in VALID_BUCKETS else BUCKET_LOW
+    return f"[confidence: {label} — {text}]"
+
+
+def is_asserted_as_fact(bucket: str) -> bool:
+    """True only for buckets that may read as an asserted fact (high/moderate). low / no-source-found
+    must always be visibly hedged. Helper for renderers/UI that style the chip."""
+    return bucket in (BUCKET_HIGH, BUCKET_MODERATE)
+
+codex
+The fallback branch in the parent commit matches the current `else:` body after the new `elif`, so C1 is holding at the code level. I’m reading the annotation helper now for the unlabeled-claim path and any default-marker behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/report_redactor.py | Select-Object -Skip 220 -First 240' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/report_redactor.py | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/report_redactor.py | Select-Object -Skip 520 -First 180' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def _certainty_label|PG_DISCLOSURE_HIGH|return .*low|not.*verified|is_verified" src/polaris_graph/synthesis/disclosure_population.py' in C:\POLARIS
+ succeeded in 14388ms:
+# ─────────────────────────────────────────────────────────────────────────────
+# I-perm-005 (#1199) — ANNOTATE (keep + label), the always-release sibling of REDACT
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class AnnotatedClaim:
+    """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
+
+    claim_id: str
+    severity: str
+    verdict: str
+    marker: str
+
+
+@dataclass
+class AnnotationResult:
+    """Outcome of annotating report.md against the 4-role verdicts (keep + label)."""
+
+    report_text: str
+    annotated: list["AnnotatedClaim"] = field(default_factory=list)
+    already_absent: list[str] = field(default_factory=list)
+
+    @property
+    def annotated_count(self) -> int:
+        return len(self.annotated)
+
+
+def _claim_fully_pinnable(working: str, stem_norm: str) -> bool:
+    """True iff EVERY occurrence of ``stem_norm`` is a clean TIER-1 single-sentence span the annotator
+    can label — checked on the MARKER-STRIPPED text using the REDACTOR's own TIER-1 locate.
+
+    Completeness guard for the annotator (Codex slice-2 P0-1/P0-2 + iter-2): the appended confidence
+    marker (no terminator) can ALTER ``_sentence_spans`` segmentation, so any post-marker scan is
+    unreliable. Instead this strips ALL confidence markers FIRST (clean segmentation, immune to the
+    marker even across claims; LOCAL strip — shared `_prose_stem` untouched), then runs the exact
+    same TIER-1 removal the redactor uses (``_redact_sentence``): if removing every TIER-1-pinnable
+    occurrence leaves the stem STILL present in the line-join projection, a non-TIER-1 occurrence
+    (a boundary-straddle / under-split) remains that the per-line annotator CANNOT cleanly label ->
+    fail closed. This is the SAME notion of "pinnable" the annotate pass acts on.
+    """
+    stripped = _CONFIDENCE_MARKER_RE.sub("", working)
+    _removed, after = _redact_sentence(stripped, stem_norm)
+    return not _prose_present(after, stem_norm)
+
+
+def annotate_report_against_verdicts(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+    marker_by_claim: dict[str, str],
+) -> AnnotationResult:
+    """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
+
+    The always-release (I-perm-001) counterpart of ``reconcile_report_against_verdicts``: under the
+    reframe a non-VERIFIED claim is shown LABELED (user judges) instead of DELETED. Severity-
+    independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
+    computed from ``claim_labeler`` (a non-VERIFIED claim is always low / no-source-found — never
+    high). A non-VERIFIED claim with no marker falls back to a generic low marker (never silently
+    unlabeled).
+
+    Single-pass per claim (appending a marker does not remove the stem, so there is no
+    multi-occurrence loop): every matching sentence span across the body is labeled exactly once.
+
+    Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
+    PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
+    never ship a non-VERIFIED claim as bare unlabeled prose.
+    """
+    # IDEMPOTENCE (Codex slice-2 iter-4 P1): strip any PRE-EXISTING confidence markers up front so a
+    # re-run over already-annotated output segments cleanly (the no-terminator marker would otherwise
+    # collapse two same-line sentences into one span). Markers are deterministic, so stripping then
+    # re-labeling reproduces them exactly; a fresh report has none, so this is a byte no-op there.
+    report_text = _CONFIDENCE_MARKER_RE.sub("", report_text)
+
+    # Collect every non-VERIFIED claim (validate + pinnability), THEN label in a SINGLE pass over the
+    # ORIGINAL report (Codex slice-2 iter-3 P0): sequentially mutating `working` per claim let claim
+    # A's appended marker (no terminator) perturb claim B's same-line segmentation, leaking B
+    # unlabeled. Computing all sentence spans ONCE off the unmutated text removes that coupling.
+    claims: list[tuple[str, str, str, str, str]] = []  # (claim_id, verdict, severity, stem, marker)
+    already_absent: list[str] = []
+    for claim_id, verdict in sorted(final_verdicts.items()):
+        if verdict == _VERDICT_VERIFIED:
+            continue
+        meta = audit_map.get(claim_id)
+        if meta is None:
+            raise ReportRedactionError(
+                f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+                "cannot locate its sentence to annotate (fail-closed)."
+            )
+        severity = str(meta.get("severity", ""))
+        stem_norm = _normalize(str(meta.get("sentence", "")))
+        if not stem_norm:
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+                "cannot annotate (fail-closed)."
+            )
+        if not _prose_present(report_text, stem_norm):
+            already_absent.append(claim_id)  # downstream dedup removed it; nothing to label
+            continue
+        # COMPLETENESS: every occurrence must be a clean TIER-1 single sentence (checked on the
+        # marker-stripped text via the redactor's TIER-1 — immune to the marker). A straddle /
+        # under-split occurrence the per-line pass cannot pin -> fail closed (never ship unlabeled).
+        if not _claim_fully_pinnable(report_text, stem_norm):
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md but at least "
+                "one occurrence could not be pinned to a discrete sentence to annotate (fail-closed)."
+            )
+        marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+        claims.append((claim_id, verdict, severity, stem_norm, marker))
+
+    # SINGLE labeling pass: spans come from the ORIGINAL line (never a marker-mutated one), so two
+    # same-line claims each get their own marker. Each sentence is matched marker-stripped (idempotent)
+    # and labeled once with the FIRST claim it matches.
+    labeled: set[str] = set()
+    new_lines: list[str] = []
+    for line in report_text.split("\n"):
+        if not _is_redactable_body_line(line):
+            new_lines.append(line)
+            continue
+        out: list[str] = []
+        cursor = 0
+        for (start, end) in _sentence_spans(line):
+            out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+            sentence = line[start:end]
+            stripped_sentence = _CONFIDENCE_MARKER_RE.sub("", sentence)
+            chosen: tuple[str, str] | None = None
+            for claim_id, _v, _s, stem_norm, marker in claims:
+                if _sentence_matches_stem(stripped_sentence, stem_norm):
+                    chosen = (claim_id, marker)
+                    break
+            if chosen is None:
+                out.append(sentence)  # byte-identical — VERIFIED / unrelated sentence
+            else:
+                claim_id, marker = chosen
+                labeled.add(claim_id)
+                out.append(sentence if marker in sentence else f"{sentence} {marker}")
+            cursor = end
+        out.append(line[cursor:])
+        new_lines.append("".join(out))
+    working = "\n".join(new_lines)
+
+    # Defensive: a collected (present + pinnable) claim MUST have been labeled in the pass.
+    annotated: list[AnnotatedClaim] = []
+    for claim_id, verdict, severity, _stem, marker in claims:
+        if claim_id not in labeled:
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) was pinnable but no sentence matched it in "
+                "the labeling pass (fail-closed)."
+            )
+        annotated.append(
+            AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+        )
+
+    return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+
+
+# A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
+# (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
+_DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+
+ succeeded in 25280ms:
+            # Defensive: an empty/whitespace-only claim sentence cannot be matched. A
+            # material non-VERIFIED claim with no usable text is a fail-closed condition.
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+                "cannot reconcile (fail-closed)."
+            )
+
+        # MULTI-OCCURRENCE LOOP (I-redact-001 #1181, Codex iter-1 P1-1): a non-VERIFIED stem can
+        # appear MORE THAN ONCE in the body — e.g. once cleanly (TIER 1 catches it) and once in a
+        # boundary-under-split span (only TIER 2 catches it). The prior single-pass logic marked
+        # the claim handled after the FIRST successful removal and `continue`d, leaving the second
+        # occurrence in result.report_text — a leak. We now loop the tiered redaction until the
+        # stem is ABSENT from the line-join-normalized whole-body projection (no occurrence left)
+        # OR no tier can make further progress (-> fail-closed). The loop terminates because each
+        # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
+        # re-match the stem), so occurrences are consumed monotonically.
+        redacted_any_for_claim = False
+        while _prose_present(working, stem_norm):
+            # TIER 1 — precise single-span redaction (coverage floor protects VERIFIED neighbors).
+            # One pass clears EVERY clean (pin-at-floor) occurrence across all lines at once.
+            removed, working = _redact_sentence(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # TIER 1 made no progress this pass, but the prose IS still present (line-join
+            # projection): it did not pin to one span at the coverage floor (a boundary
+            # under-split merged it with a VERIFIED neighbor, OR it straddles spans). TIER 2 —
+            # redact the minimal CONTAINING unit, over-redacting SAFELY rather than aborting a
+            # present-but-hard-to-pin claim (#1181). TIER 2 removes ONE under-split unit per pass;
+            # the loop re-checks presence and keeps going for any further occurrence.
+            removed, working = _redact_minimal_containing_unit(working, stem_norm)
+            if removed:
+                redacted_any_for_claim = True
+                continue
+
+            # FAIL-CLOSED: the prose registers as present in the line-join projection (e.g. it
+            # spans a heading/bibliography line the redactor must not touch, or its alignment is
+            # unbounded across non-adjacent units) but NEITHER tier could bound it to a redactable
+            # unit without nuking a forbidden line. A real inconsistency — refuse to ship a partial
+            # report (#1174). Raising here (not after the loop) means we never spin: no progress +
+            # still present == abort.
+            raise ReportRedactionError(
+                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
+                "but could not be bounded to any redactable unit (span set or body line); "
+                "refusing to ship a partially-reconciled report (fail-closed). "
+                f"prose_stem={stem_norm[:120]!r}"
+            )
+
+        # Record the claim ONCE after the loop (Codex iter-1 P1-1: appending per removal would
+        # double-count a claim that occurred twice and inflate redacted_count). If the loop body
+        # never ran, the prose was genuinely ABSENT from the start — the SAFE state (TIER 3).
+        if redacted_any_for_claim:
+            result.redacted.append(
+                RedactedClaim(
+                    claim_id=claim_id,
+                    severity=severity,
+                    verdict=verdict,
+                    claim_text=sentence,
+                )
+            )
+        else:
+            result.already_absent.append(claim_id)  # TIER 3 — genuinely absent, ship nothing
+
+    result.report_text = working
+    return result
+
+
+def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """Replace each rendered sentence whose normalized prose contains ``stem_norm`` with the
+    visible gap language. Returns (redacted_any, new_text).
+
+    Matching is done at the rendered-sentence granularity: each body line is split into
+    sentence spans (each span KEEPS its own trailing citation markers), normalized (citation +
+    whitespace insensitive), and a span is redacted iff its normalized prose CONTAINS the claim
+    stem with sufficient coverage. Every NON-matching sentence — and its [N] markers — is
+    preserved byte-for-byte, so redacting one sentence never strips citations off its VERIFIED
+    neighbors (Codex iter-1 P1). Robust to the provenance-token -> [N] render shift; never
+    matches across unrelated sentences.
+    """
+    redacted_any = False
+    out_lines: list[str] = []
+    for line in report_text.split("\n"):
+        # Never touch headings, bibliography rows, or already-gap lines.
+        stripped = line.lstrip()
+        if stripped.startswith("#") or stripped.startswith("[") or not stripped:
+            out_lines.append(line)
+            continue
+        new_line, hit = _redact_line(line, stem_norm)
+        redacted_any = redacted_any or hit
+        out_lines.append(new_line)
+    return redacted_any, "\n".join(out_lines)
+
+
+# A rendered-sentence boundary: a terminator [.!?], then any run of the sentence's OWN
+# trailing citation markers ([N], optionally space-separated), then the inter-sentence
+# whitespace, then the start of the next sentence. The trailing markers stay attached to the
+# sentence they cite (the LEFT side) — they are NOT consumed as a separator.
+#
+# Codex iter-1 P1 fix: the prior `re.split(r"(?<=[.!?])(?:\[\d+\])?\s+...")` discarded the
+# boundary marker (it was part of the matched, dropped separator), so redacting one sentence
+# stripped the [8]/[4] citation markers off its VERIFIED neighbors on the same line and turned
+# cited claims into uncited prose. The real drb_90 case: the VERIFIED 05-000 sentence renders
+# "...crashes.[8]" immediately before the UNSUPPORTED 05-001 sentence — the [8] belongs to
+# 05-000 and must survive redaction of 05-001.
+#
+# I-redact-001 #1181 — three ALTERNATION ARMS so a real boundary is not under-split (the
+# under-split merged a non-VERIFIED sentence with a VERIFIED neighbor into one over-long span,
+# dropping coverage below the floor and forcing a whole-report abort). Each arm still demands
+# inter-sentence whitespace + a sentence-start, so decimals/abbreviations never become a split:
+#   ARM 1 (terminator, sentence-start char): "...crashes.[8] The..." — the original behavior.
+#   ARM 2 (terminator + >=1 marker, digit-start next): "...adherence.[16] 87.3% of..." — the
+#          next sentence begins with a digit (defeating ARM 1's [A-Z"'(#] lookahead). REQUIRES
+#          at least one [N] marker between the period and the digit, so a bare decimal
+#          "0.90 (0.83 to 0.97) was found." (period, space, digit, NO marker) never matches.
+#   ARM 3 (>=1 marker as terminator, NO preceding period): "...risk[1] Cereal...",
+#          "...recovery[17][22] Legal..." — the renderer emitted the citation marker(s) with no
+#          terminal period before them; the marker(s) ARE the boundary. The marker stays with
+#          the LEFT (cited) sentence (it is m.start()-anchored, then rstrip-included in the span),
+#          so a VERIFIED neighbor keeps its [N] byte-for-byte (the Codex iter-1 P1 invariant).
+#          Codex iter-1 P2: ARM 3 is WORD-ANCHORED — the marker run must immediately follow a
+#          word character ``(?<=\w)`` (NO whitespace between the sentence-final word and its
+#          marker), so it fires only on a plausible sentence end where the renderer dropped the
+#          terminal period ("risk[1]", "recovery[17][22]"). A MID-sentence inline citation —
+#          "...as shown [5] In vivo..." or "the [5] Group reported..." — has WHITESPACE before
+#          the bracket, so ``(?<=\w)`` rejects it and the inline-cited sentence stays intact (no
+#          false split -> no over-redaction of a VERIFIED sentence). This only ever causes an
+#          UNDER-split, which TIER 2 then bounds safely; it can never over-split a survivor.
+# A decimal like "0.457" or "No. 157" or "U.S." is never a boundary: ARM 1/2 require whitespace
+# before the next char and ARM 2 requires an intervening [N] marker; "U.S. products" splits only
+# if "products" were uppercase (it is not), and "No. 157" has no marker so ARM 2 cannot fire.
+_SENTENCE_BOUNDARY_RE = re.compile(
+    r"(?:"
+    r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
+    r"|[.!?](?:\s*\[\d+\])+\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
+    r"|(?<=\w)(?:\[\d+\])+\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
+    r")"
+)
+
+# The claim stem must cover at least this fraction of a rendered sentence to redact it. Guards
+# against a short non-VERIFIED claim whose normalized prose is a substring of a LONGER VERIFIED
+# sentence wrongly redacting that survivor (over-redaction). Internal matching-precision floor,
+# named per §9.4 (no magic numbers) — not an operator-tunable parameter.
+_MIN_REDACTION_COVERAGE = 0.6
+
+
+def _sentence_spans(line: str) -> list[tuple[int, int]]:
+    """(start, end) spans over ``line``, one per rendered sentence, each span INCLUDING the
+    sentence's trailing citation markers. The gaps between spans are pure inter-sentence
+    whitespace, which the caller preserves verbatim — so a redaction never disturbs a
+    neighbor's text or markers.
+    """
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for m in _SENTENCE_BOUNDARY_RE.finditer(line):
+        # m.group() == terminator + markers + trailing whitespace; the sentence (with its
+        # markers) ends where that trailing whitespace begins.
+        sentence_end = m.start() + len(m.group().rstrip())
+        spans.append((start, sentence_end))
+        start = m.end()  # next sentence begins after the inter-sentence whitespace
+    spans.append((start, len(line)))
+    return spans
+
+
+def _sentence_matches_stem(sentence: str, stem_norm: str) -> bool:
+    """A rendered sentence IS the rejected claim iff its normalized prose contains the claim
+    stem AND the stem covers >= _MIN_REDACTION_COVERAGE of it (no short-substring false hit)."""
+    sent_norm = _normalize(sentence)
+    if not sent_norm or stem_norm not in sent_norm:
+        return False
+    return len(stem_norm) >= _MIN_REDACTION_COVERAGE * len(sent_norm)
+
+
+def _redact_line(line: str, stem_norm: str) -> tuple[str, bool]:
+    """Redact matching rendered sentences within a single body line, byte-preserving EVERY
+    non-matching sentence (its exact text + citation markers) and all inter-sentence
+    whitespace. Only the matching sentence span (including its own trailing markers) is
+    replaced with the gap language.
+    """
+    # Fast reject: if the normalized line does not contain the stem, nothing to do.
+    if stem_norm not in _normalize(line):
+        return line, False
+
+    out: list[str] = []
+    cursor = 0
+    hit = False
+    for (start, end) in _sentence_spans(line):
+        out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+        sentence = line[start:end]
+        if _sentence_matches_stem(sentence, stem_norm):
+            out.append(_GAP_REPLACEMENT)
+            hit = True
+        else:
+            out.append(sentence)  # byte-identical — markers intact
+        cursor = end
+    out.append(line[cursor:])
+    return "".join(out), hit
+
+
+def _is_redactable_body_line(line: str) -> bool:
+    """A body line the redactor is allowed to rewrite: NOT a heading (#…), a bibliography /
+    already-gap row ([…), or blank. Mirrors the skip in ``_redact_sentence`` so TIER-2 honors
+    the exact same no-touch set (a claim that exists ONLY inside a heading stays a fail-closed
+    inconsistency, not a TIER-2 redaction — preserving the present-but-unlocatable contract).
+    """
+    stripped = line.lstrip()
+    return bool(stripped) and not stripped.startswith("#") and not stripped.startswith("[")
+
+
+def _prose_present(report_text: str, stem_norm: str) -> bool:
+    """High-RECALL presence detector over a LINE-JOIN-NORMALIZED projection of the whole body
+    (research practice: cross-line / table rendering is a blind spot — never silently treat a
+    line-straddling claim as already-absent). Returns True iff the claim stem is normalized-
+    present either within one body line OR across the join of consecutive redactable body lines.
+
+    Recall here only guards against a FALSE ``already_absent`` (a leak); the high-PRECISION
+    decision of WHICH unit to remove stays in ``_redact_minimal_containing_unit`` (exact
+    normalized containment + the coverage floor), so this projection never itself redacts.
+    """
+    if stem_norm in _normalize(report_text):
+        return True
+    # Cross-line projection: join only the redactable body lines (skip headings / bib / blanks),
+    # normalized, and look for the stem straddling a soft line break.
+    body = " ".join(
+        line for line in report_text.split("\n") if _is_redactable_body_line(line)
+    )
+    return stem_norm in _normalize(body)
+
+
+def _redact_minimal_containing_unit(report_text: str, stem_norm: str) -> tuple[bool, str]:
+    """TIER-2 fallback (#1181): the stem is present but did NOT pin to one span at the coverage
+    floor. Remove the SMALLEST containing unit, over-redacting SAFELY rather than aborting:
+
+      1. Within a single redactable body line, find the smallest set of CONSECUTIVE spans whose
+         concatenation (normalized) contains the stem, and replace exactly that span set with one
+         gap sentence — preserving every OTHER span (and its [N] markers) and all inter-span
+         whitespace byte-for-byte. This handles both the boundary-under-split residue and a TRUE
+         multi-span straddle (issue acceptance 1+2) with the same walk.
+      2. If no within-line consecutive-span set bounds the stem (it straddles a soft line break),
+         replace the smallest run of consecutive redactable body lines whose join contains the
+
+ succeeded in 34474ms:
+"""Post-gate report.md reconciliation against the 4-role D8 verdicts (I-beatboth-fix-000 #1171).
+
+THE FAITHFULNESS LEAK this module closes
+----------------------------------------
+``scripts/run_honest_sweep_r3.py`` assembles ``report.md`` from strict_verify-KEPT
+sentences (L5780) BEFORE the authoritative 4-role D8 seam runs (L6407+). The seam
+re-judges every kept sentence with the stronger Mirror/Sentinel/Judge stack and can
+flip a strict_verify-kept sentence to a non-VERIFIED verdict
+(UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at ANY severity). Today the runner
+consumes that verdict ONLY as a manifest flag (``release_allowed=False`` +
+``needs_rewrite``); it NEVER reconciles the assembled ``report.md`` against the
+verdicts. So a sentence the strongest verifier rejected still ships as asserted prose.
+
+drb_90 proof: ``needs_rewrite`` carried 7 material UNSUPPORTED claim_ids and at least
+six of those sentences (e.g. the "$27,874 per violation" penalty figure, the
+"UN Regulation No. 157 — ALKS" instrument line) were physically present in the shipped
+``report.md`` body and carried-up Key Findings.
+
+WHAT THIS HELPER DOES (fail-closed)
+-----------------------------------
+For every claim whose 4-role ``final_verdict`` is non-VERIFIED, it locates the
+claim's verbatim sentence in the rendered ``report.md`` and REPLACES it with the
+existing visible gap language ("did not survive verification; curator-actionable gap").
+Redaction is SEVERITY-INDEPENDENT (I-faith-003 #1174): a claim is redacted iff its verdict
+is non-VERIFIED, at ANY severity. S3 "observe-only" governs the release LATCH only
+(release_policy.py) — it never exempts an unverified claim from redaction.
+
+It is REFUSE-IN-PLACE, not a generative rewrite: no new spend, no new claims. The
+redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring designs
+but the runner never wired.
+
+The mapping is NOT 1:1 with strict_verify-kept (run_honest_sweep_r3.py:5660-5669 in-tree
+caveat: downstream dedup/repair passes mutate the body). THREE TIERS of locating the prose
+(I-redact-001 #1181 — high-recall detection, high-precision action):
+  * TIER 1 (precise, single span): the claim's prose IS one discrete rendered sentence
+    span (coverage >= ``_MIN_REDACTION_COVERAGE``) -> redact exactly that span, leaving
+    every VERIFIED neighbor sentence and its [N] markers byte-for-byte (the leak fix).
+  * TIER 2 (minimal containing unit): the claim's normalized prose is unambiguously
+    PRESENT but it does not cover one span at the coverage floor — because a boundary
+    under-split merged it with a VERIFIED neighbor, OR it straddles >=2 rendered spans.
+    Redact the SMALLEST set of consecutive spans (or, only if no span set bounds it, the
+    body line) whose concatenation contains the stem — over-redact SAFELY rather than
+    abort (issue acceptance 1+2). The cross-line projection makes table/line-join
+    rendering visible so this is never a silent ``already_absent``.
+  * TIER 3 (genuinely absent): the claim's prose is genuinely ABSENT from the rendered
+    report (downstream dedup/repair removed it) -> already not shipped; record
+    ``already_absent`` and ship nothing extra (the SAFE state).
+FAIL-CLOSED contract (I-redact-001 #1181): the helper RAISES ``ReportRedactionError`` ONLY
+when a material non-VERIFIED claim's normalized prose is genuinely ABSENT from the normalized
+report yet a real inconsistency demands a fail-closed abort — i.e. neither TIER-1 nor TIER-2
+can bound the prose AND the prose is not cleanly absent. A merely hard-to-pin-to-one-sentence
+claim is redacted via TIER 2, NOT aborted. The boundary hardening (``_SENTENCE_BOUNDARY_RE``,
+I-redact-001) splits ``...risk[1] Cereal...`` / ``...adherence.[16] 87.3%...`` so the common
+case resolves at TIER 1; TIER 2 is the defense-in-depth for any future under-split shape.
+
+MULTI-OCCURRENCE (I-redact-001 #1181, Codex iter-1 P1-1): the same non-VERIFIED stem can appear
+more than once (e.g. once cleanly + once in an under-split merge). The tiered redaction LOOPS
+per claim until the stem is absent from the line-join-normalized whole body (no occurrence left)
+or no tier makes further progress (fail-closed) — so a second occurrence can never leak. The
+claim is recorded in ``redacted`` exactly ONCE regardless of how many physical spans were removed.
+
+Pure function (string ops only; no network, no I/O). The CALLER reads/writes report.md.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+# REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
+# mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
+# regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
+# (a non-required-entity S3 claim does not BLOCK release), NEVER this redaction path: previously
+# the S3 "observe-only" scope guard wrongly let 26 UNSUPPORTED claims (incl. clinical-safety
+# guidance) ship across the 5 beat-both questions (BB5-F01). VERIFIED survives; every other
+# verdict is a leak if it ships as prose.
+_NON_VERIFIED_VERDICTS = frozenset(
+    {"UNSUPPORTED", "FABRICATED", "UNREACHABLE", "PARTIAL"}
+)
+_VERDICT_VERIFIED = "VERIFIED"
+
+# The visible gap sentence a redacted claim is replaced with. Mirrors the existing gap
+# language already used by contract_section_runner ("did not survive strict
+# verification; curator-actionable gap.") so a redacted body reads consistently.
+_GAP_REPLACEMENT = (
+    "A claim previously stated here did not survive 4-role verification and was "
+    "redacted; this is a curator-actionable gap."
+)
+
+# gaps.json kind for a post-gate redaction (mirrors release_policy._GAP_RESIDUAL_UNSUPPORTED
+# vocabulary but is distinct so the audit trail shows the redaction happened in report.md).
+GAP_KIND_REDACTED_UNSUPPORTED = "redacted_unsupported"
+
+# POLARIS provenance token: [#ev:evidence_id:start-end].
+_PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+# Rendered numbered citation marker: [1], [12]. The final report converts each provenance
+# token into one of these, so the stem matcher must ignore them on BOTH sides.
+_NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+# I-perm-005 (#1199): the annotator's appended confidence label. Stripped in the stem so an
+# already-annotated sentence still matches its claim stem at the coverage floor (annotate is
+# idempotent). The redactor never sees this marker (annotate XOR reconcile per PG_ALWAYS_RELEASE),
+# so stripping it is a no-op on the redaction path.
+_CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+class ReportRedactionError(RuntimeError):
+    """Raised when a material non-VERIFIED claim is present-but-unlocatable for a discrete
+    rendered-sentence replacement. The caller MUST fail closed (do NOT ship the report).
+    """
+
+
+@dataclass
+class RedactedClaim:
+    """One claim whose verbatim sentence was removed from report.md (-> gaps.json)."""
+
+    claim_id: str
+    severity: str
+    verdict: str
+    claim_text: str  # the verbatim sentence (with its original provenance token)
+
+
+@dataclass
+class RedactionResult:
+    """Outcome of reconciling report.md against the 4-role verdicts."""
+
+    report_text: str
+    redacted: list[RedactedClaim] = field(default_factory=list)
+    # Material non-VERIFIED claims whose prose was already absent from the rendered report
+    # (downstream dedup/repair had removed them) — recorded for the audit trail, not a leak.
+    already_absent: list[str] = field(default_factory=list)
+
+    @property
+    def redacted_count(self) -> int:
+        return len(self.redacted)
+
+    def gaps_json(self) -> list[dict]:
+        """Serialize the redactions as gaps.json entries (one per removed claim)."""
+        return [
+            {
+                "ref": rc.claim_id,
+                "kind": GAP_KIND_REDACTED_UNSUPPORTED,
+                "severity": rc.severity,
+                "note": (
+                    f"claim re-judged {rc.verdict} by the 4-role seam and removed from "
+                    "report.md (refuse-in-place); curator-actionable gap"
+                ),
+            }
+            for rc in self.redacted
+        ]
+
+
+def _prose_stem(text: str) -> str:
+    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose.
+
+    (The annotator's confidence marker is stripped LOCALLY in the annotator path only — never here —
+    so the shared redaction normalization is byte-unchanged; Codex slice-2 P0-2.)"""
+    text = _PROVENANCE_TOKEN_RE.sub("", text)
+    text = _NUMBERED_MARKER_RE.sub("", text)
+    return text
+
+
+def _normalize(text: str) -> str:
+    """Citation-insensitive, whitespace-insensitive prose for matching across the
+    provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
+    """
+    text = _prose_stem(text)
+    text = _WHITESPACE_RE.sub(" ", text)
+    return text.strip().rstrip(".").strip()
+
+
+def reconcile_report_against_verdicts(
+    report_text: str,
+    final_verdicts: dict[str, str],
+    audit_map: dict[str, dict],
+) -> RedactionResult:
+    """Remove every non-VERIFIED claim's verbatim sentence from ``report_text``.
+
+    Redaction is severity-independent (I-faith-003 #1174): a claim is redacted iff its
+    4-role verdict is not VERIFIED, at ANY severity (S0..S3). Severity governs the release
+    latch in release_policy.py, never this redaction path.
+
+    Args:
+      report_text: the assembled report.md content.
+      final_verdicts: claim_id -> 4-role final verdict (UNSUPPORTED/VERIFIED/...).
+      audit_map: claim_id -> {"sentence": <verbatim>, "severity": <S0..S3>, ...}
+                 (the persisted four_role_claim_audit.json structure).
+
+    Returns a RedactionResult with the redacted text + per-claim records.
+
+    Raises:
+      ReportRedactionError — fail closed when a material non-VERIFIED claim's prose is
+      present in the report but cannot be pinned to a discrete sentence to replace.
+    """
+    result = RedactionResult(report_text=report_text)
+    working = report_text
+
+    for claim_id, verdict in sorted(final_verdicts.items()):
+        meta = audit_map.get(claim_id)
+        if meta is None:
+            # A verdict with no audit row is itself a fail-closed condition: we cannot
+            # know the claim_text to redact, and a material non-VERIFIED claim might be
+            # shipping. Only raise for non-VERIFIED verdicts (VERIFIED never redacts).
+            if verdict != _VERDICT_VERIFIED:
+                raise ReportRedactionError(
+                    f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+                    "cannot locate its sentence to reconcile (fail-closed)."
+                )
+            continue
+
+        severity = str(meta.get("severity", ""))
+        if verdict == _VERDICT_VERIFIED:
+            # VERIFIED survives at ANY severity. Every non-VERIFIED verdict is redacted
+            # regardless of severity (I-faith-003 #1174): S3 "observe-only" governs the
+            # release LATCH (release_policy.py), never this redaction path.
+            continue
+
+        sentence = str(meta.get("sentence", ""))
+        stem_norm = _normalize(sentence)
+        if not stem_norm:
+
+ succeeded in 47275ms:
+16:  * ADVISORY ONLY. NEVER changes ``is_verified`` / ``failure_reasons`` / ``tokens`` / ``sentence`` or any
+33:_ENV_HIGH_CRED = "PG_DISCLOSURE_HIGH_CRED"
+35:_ENV_HIGH_MIN_ORIGINS = "PG_DISCLOSURE_HIGH_MIN_ORIGINS"
+43:    return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
+69:def _certainty_label(is_verified: bool, origin_count: int, credibility: float | None) -> str:
+71:    if not is_verified:
+72:        return "low"
+74:        return "low"  # unknown credibility must NOT inflate certainty (Codex #1157)
+81:        return "low"
+94:    Inputs are NOT mutated; ``strict_verify`` is NOT re-run; ``is_verified`` is NEVER changed.
+101:        is_verified = bool(getattr(sv, "is_verified", False))
+110:            span_verdict="SUPPORTS" if is_verified else "UNSUPPORTED",
+113:            certainty_label=_certainty_label(is_verified, origin_count, credibility),
+
+codex
+The annotation helper is fail-closed on the important cases: missing audit row, empty claim text, present-but-not-single-sentence-pinnable, and “validated pinnable but not labeled” all raise `ReportRedactionError`. The runner catches that exact exception in the new branch and flips `release_allowed` false with `report_redaction_failed`, matching the reconcile failure pattern.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7360 -First 260' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"manifest\\[\\\"release_allowed\\\"\\]|summary_status\\s*=|manifest\\[\\\"status\\\"\\]\" scripts/run_honest_sweep_r3.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/synthesis/disclosure_population.py | Select-Object -Skip 60 -First 30' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m py_compile scripts/run_honest_sweep_r3.py src/polaris_graph/roles/report_redactor.py src/polaris_graph/generator/claim_labeler.py' in C:\POLARIS
+ succeeded in 20465ms:
+                    except ReportRedactionError as _redact_exc:
+                        # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                        # no audit row. Do NOT ship the report; take a terminal abort. The
+                        # unredacted report.md stays on disk for the curator to inspect.
+                        summary_status = "report_redaction_failed"
+                        unified_status = to_unified_status(summary_status)
+                        manifest["status"] = unified_status
+                        manifest["release_allowed"] = False
+                        manifest["report_redaction_error"] = str(_redact_exc)
+                        _log(
+                            f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                            "abort_report_redaction_failed"
+                        )
+                    else:
+                        # Write the reconciled body back BEFORE the V30 append so the disclosure
+                        # reflects the redacted report. Emit one redacted_unsupported gap per
+                        # removed claim into gaps.json (append; never overwrite curator gaps).
+                        _reconciled_report = _redaction.report_text
+                        if _redaction.redacted:
+                            # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                            # lifted headline the four-role seam later marks non-VERIFIED was just
+                            # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                            # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                            from src.polaris_graph.generator.key_findings import (
+                                refilter_key_findings_block,
+                            )
+                            _reconciled_report = refilter_key_findings_block(
+                                _reconciled_report
+                            )
+                        _redact_report_path.write_text(
+                            _reconciled_report, encoding="utf-8"
+                        )
+                        manifest["report_redaction"] = {
+                            "redacted_count": _redaction.redacted_count,
+                            "redacted_claim_ids": [
+                                rc.claim_id for rc in _redaction.redacted
+                            ],
+                            "already_absent_claim_ids": _redaction.already_absent,
+                        }
+                        if _redaction.redacted:
+                            _gaps_redact_path = run_dir / "gaps.json"
+                            _existing_gaps: list = []
+                            if _gaps_redact_path.is_file():
+                                try:
+                                    _loaded = json.loads(
+                                        _gaps_redact_path.read_text(encoding="utf-8")
+                                    )
+                                    if isinstance(_loaded, list):
+                                        _existing_gaps = _loaded
+                                except Exception:  # noqa: BLE001 — corrupt sidecar must not lose redaction gaps
+                                    _existing_gaps = []
+                            _existing_gaps.extend(_redaction.gaps_json())
+                            _gaps_redact_path.write_text(
+                                json.dumps(_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                encoding="utf-8",
+                            )
+                        _log(
+                            f"[redact]      reconciled report.md vs 4-role verdicts: "
+                            f"redacted={_redaction.redacted_count} "
+                            f"already_absent={len(_redaction.already_absent)} "
+                            "(refuse-in-place; held-path safe)"
+                        )
+
+        # V30 Report Contract Architecture integration (Phase 1 of
+        # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
+        # complete no-op — the runner doesn't even import the V30
+        # module (Codex sweep-integration audit Medium: fully
+        # hermetic gating). When enabled, runs M-54→M-55→M-56→M-57→
+        # M-60→M-61 post-generation: compiles the per-query
+        # contract, fetches deterministic DOI/PMID/Unpaywall content
+        # for each contracted entity, composes the outline, emits
+        # the structured frame_coverage_report +
+        # human_gap_tasks.json.
+        #
+        # Phase 2 (separate cycle) will wire M-58 slot-bound prompts
+        # + M-59 validator into the generator. At Phase 1 we only
+        # attach the coverage block to manifest and append the
+        # Methods disclosure to report.md — existing generator
+        # output is untouched.
+        if os.environ.get("PG_V30_ENABLED", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.honest_sweep_integration import (
+                    append_disclosure_to_report,
+                    merge_v30_into_manifest,
+                    run_v30_post_generation,
+                )
+                # Phase 1 ships RETRIEVAL-coverage semantics only.
+                # Legacy report / bibliography cross-check was
+                # deprecated after three Codex audit rounds of
+                # heuristic false-passes (see pass-4 scope narrow
+                # in honest_sweep_integration module docstring).
+                # Phase 2 (M-58 + M-59 generator integration)
+                # will claim true report-coverage.
+                _report_path = run_dir / "report.md"
+                v30_result = run_v30_post_generation(
+                    research_question=q["question"],
+                    scope_template=_template,
+                    slug=q["slug"],
+                    run_dir=run_dir,
+                    log=_log,
+                    # I-ready-017 FX-07b leg-2 (#1111): pass the generation run's
+                    # per-(slot,entity) strict_verify telemetry so compose_frame_
+                    # coverage can flip a validated-but-all-dropped slot to
+                    # generation_failed (pipeline fault) instead of pass.
+                    # Defensive getattr: None on any non-MultiSectionResult path.
+                    strict_verify_by_key=getattr(
+                        multi, "slot_strict_verify_by_key", None,
+                    ),
+                )
+                # Manifest merge via factored helper (unit-tested
+                # in tests/polaris_graph/test_honest_sweep_integration.py).
+                merge_v30_into_manifest(manifest, v30_result)
+                # Append Methods disclosure to report.md only if
+                # the report actually exists — helper never
+                # creates a disclosure-only file.
+                if v30_result.enabled and v30_result.methods_disclosure_text:
+                    try:
+                        appended = append_disclosure_to_report(
+                            _report_path,
+                            v30_result.methods_disclosure_text,
+                        )
+                        if appended:
+                            _log(
+                                "[V30]         appended frame-"
+                                "coverage disclosure to report.md"
+                            )
+                        else:
+                            _log(
+                                "[V30]         skipped disclosure "
+                                "append: report.md missing"
+                            )
+                    except Exception as _report_exc:
+                        _log(
+                            f"[V30]         WARN report.md "
+                            f"append failed: {_report_exc}"
+                        )
+            except Exception as _v30_exc:
+                _log(
+                    f"[V30]         ERROR integration exception: "
+                    f"{type(_v30_exc).__name__}: {_v30_exc}"
+                )
+                manifest["v30_error"] = (
+                    f"{type(_v30_exc).__name__}: {_v30_exc}"
+                )
+
+        # I-bug-111: surface synthesis [N] scrub alert in manifest.
+        # `synthesis_n_scrub_alert: bool` is True iff any single
+        # synthesis call in this run scrubbed more than
+        # SYNTHESIS_SCRUB_ALERT_THRESHOLD (=5) [N] markers, indicating
+        # the synthesis prompt or bibliography may be degenerating.
+        # Defensive lazy import: tolerate environments where the
+        # module isn't available.
+        try:
+            from src.polaris_graph.generator.analyst_synthesis import (
+                synthesis_scrub_alert_state,
+            )
+            manifest["synthesis_n_scrub_alert"] = synthesis_scrub_alert_state()
+        except Exception:  # noqa: BLE001 — defensive: surfacing failure must not abort manifest write
+            pass
+
+        # I-meta-007b (#meta-007): write run_dir/tool_summary.json and add the
+        # additive manifest['tool_utilization'] summary via the shared helper
+        # (same helper now called on every abort/error path — single source of
+        # truth, identical shape). ON-mode only (gated on PG_ENABLE_TOOL_TRACKER
+        # inside the helper): when OFF, neither the file nor the key is produced,
+        # so manifest.json is byte-identical to the pre-I-meta-007b output.
+        manifest = _attach_tool_utilization(manifest, run_dir)
+        # I-ready-005 (#1076): the per-feature firing keys (storm_query_expansion / agentic_search) are
+        # stamped on EVERY manifest path by _attach_tool_utilization (via _FEATURE_TELEMETRY_CTX). Here on
+        # the SUCCESS path we additionally fail LOUD (log, non-gating) if a feature was force-ENABLED but
+        # did NOT fire — the silent-degrade the operator's no-downgrade directive forbids.
+        for _feat in (_storm_telemetry, _agentic_telemetry):
+            _feat_warn = feature_firing_warning(_feat)
+            if _feat_warn:
+                _log(f"[feature]     WARNING {_feat_warn}")
+
+        manifest = augment_v6_manifest(
+            manifest,
+            external_run_id=q.get("external_run_id"),
+            decision_id=q.get("decision_id"),
+            query_slug=q.get("slug"),
+        )
+        # I-meta-008 (#1015): `run_cost` was snapshotted (line ~4250) BEFORE the 4-role seam,
+        # which now threads verifier spend into the run-budget accumulator. Recompute from the
+        # accumulator so a successful Gate-B manifest reports generator + verifier cost, not
+        # generator-only (a LAW-II under-reporting smell otherwise). No-op on non-4-role runs.
+        run_cost = current_run_cost()
+        manifest["cost_usd"] = run_cost
+
+        # I-cap-002 feature 2/4 (#1060): ADVISORY analytical-depth annotation. NEVER gates.
+        # Placed here — AFTER the 4-role seam status/release overwrite (L~4740-4751), the V30
+        # block (which appends the Methods disclosure to report.md, L~4810+), and the cost
+        # recompute above — so status / release_allowed / report.md are all FINAL. It only ADDS
+        # manifest['analytical_depth_advisory'] + an analytical_depth.json sidecar; it reads the
+        # delivered report but never mutates status/release/abort. Default OFF in run_one_query
+        # (legacy honest-sweep manifest byte-unchanged); the Gate-B entry turns it ON via
+        # PG_DEPTH_ANNOTATION_IN_BENCHMARK so the paid benchmark emits it. Fail-open: any error
+        # logs + skips. Surface = the FULL on-disk report.md (front Key Findings, body, tables,
+        # Limitations, V30 disclosure), split on ATX headers — see analytical_depth module. The
+        # 'passed'/'deficient_sections' here are a benchmark-split ADVISORY read, NOT the RC-8 gate.
+        if os.environ.get("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.generator.analytical_depth import (
+                    evaluate_analytical_depth,
+                    split_report_into_sections,
+                )
+                try:
+                    _report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+                except Exception:  # noqa: BLE001 — fall back to the in-memory assembly
+                    _report_text = final_report
+                _depth = evaluate_analytical_depth(
+                    split_report_into_sections(_report_text)
+                )
+                _depth["advisory"] = True       # the benchmark NEVER gates on this signal
+                _depth["surface"] = "benchmark_atx_split"
+                # P2.3 (Codex iter-1): write the sidecar FIRST, then stamp the manifest key, so the
+                # manifest can never carry the key while the sidecar is absent.
+                (run_dir / "analytical_depth.json").write_text(
+                    json.dumps(_depth, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                manifest["analytical_depth_advisory"] = _depth
+                _log(
+                    f"[depth]       advisory comparisons={_depth['comparison_markers']} "
+                    f"tables={_depth['tables']} key_findings={_depth['key_findings']} "
+                    f"challenges={_depth['challenge_markers']} "
+                    f"deficient={len(_depth['deficient_sections'])} (non-gating)"
+                )
+            except Exception as _depth_exc:  # noqa: BLE001 — advisory; never abort the run
+                _log(
+                    f"[depth]       WARN advisory annotation skipped (fail-open): {_depth_exc}"
+                )
+
+        # I-cap-002 feature 4/4 (#1060): NLI entailment as an ADDITIVE, advisory verification.
+        # strict_verify is regex/numeric and can pass a qualitative-negation hallucination whose
+        # numbers/content-words still match the span; NLI is the second validator path — it scores
+        # whether each delivered sentence's CITED span entails it. ADVISORY ONLY: adds
+        # manifest['nli_verification'] (+ sidecar); never changes status/release_allowed (4-role D8 is
+        # the single binding gate). NO SILENT DEGRADE: if the model/deps are unavailable the run records
+        # nli_status:"unavailable" LOUDLY (NliUnavailableError), never a false clean pass. Default OFF
+        # (heavy deps; the live model loads on the VM, not the dev loop — §8.4); Gate-B activates it.
+        if os.environ.get("PG_NLI_IN_BENCHMARK", "0").strip() in ("1", "true", "True"):
+            # Codex diff-gate iter-1 P1: ALL NLI setup (import + threshold parse + pair build) lives
+            # inside fail-open guards so a bad PG_NLI_DISPUTE_THRESHOLD value or an import hiccup records
+            # nli_status:"error" instead of ABORTING run_one_query before the manifest is written.
+            # NliUnavailableError is imported first and handled distinctly (model-missing -> unavailable).
+            try:
+                from src.polaris_graph.retrieval.nli_benchmark_annotator import (
+                    NliUnavailableError,
+                    annotate_nli_entailment,
+                    build_nli_pairs,
+                )
+            except Exception as _nli_imp_exc:  # noqa: BLE001 — advisory; import failure must not abort
+                _log(f"[nli]         WARN annotator import failed (fail-open): {_nli_imp_exc}")
+                manifest["nli_verification"] = {
+                    "nli_status": "error", "reason": f"import failed: {_nli_imp_exc}",
+
+2026-06-11T02:27:14.163855Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 32.3 seconds
+Output:
+rg: regex parse error:
+    (?:manifest\[\)
+    ^
+error: unclosed group
+
+ exited 1 in 32273ms:
+rg: regex parse error:
+    (?:manifest\[\)
+    ^
+error: unclosed group
+
+ succeeded in 48974ms:
+    out: list[str] = []
+    for token in (getattr(sv, "tokens", None) or []):
+        eid = str(getattr(token, "evidence_id", "") or "")
+        if eid:
+            out.append(eid)
+    return out
+
+
+def _certainty_label(is_verified: bool, origin_count: int, credibility: float | None) -> str:
+    """Deterministic, advisory certainty bucket. NEVER consulted by any verifier."""
+    if not is_verified:
+        return "low"
+    if credibility is None:
+        return "low"  # unknown credibility must NOT inflate certainty (Codex #1157)
+    high_cred = _float_env(_ENV_HIGH_CRED, _DEFAULT_HIGH_CRED)
+    low_cred = _float_env(_ENV_LOW_CRED, _DEFAULT_LOW_CRED)
+    high_min_origins = _int_env(_ENV_HIGH_MIN_ORIGINS, _DEFAULT_HIGH_MIN_ORIGINS)
+    if origin_count >= high_min_origins and credibility >= high_cred:
+        return "high"
+    if origin_count < 1 or credibility < low_cred:
+        return "low"
+    return "moderate"
+
+
+def populate_disclosure(
+    verifications: list,
+    credibility_by_evidence: dict,
+    origin_by_evidence: dict,
+) -> list:
+    """Return NEW ``SentenceVerification``s with the four disclosure fields populated — ADVISORY, pure.
+
+ succeeded in 69152ms:
+codex
+The marker path is hard-coded through `confidence_bucket(is_verified=False, ...)`; `_certainty_label` immediately returns `low` when `is_verified` is false, and no cited evidence returns `no-source-found` before that. I also ran `py_compile` on the touched runner/helper files successfully.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F 'manifest[\"release_allowed\"]' scripts/run_honest_sweep_r3.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -F 'manifest[\"status\"]' scripts/run_honest_sweep_r3.py" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def merge_v30_into_manifest|release_allowed|status" src/polaris_graph/honest_sweep_integration.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "summary_status|sweep_summary|release_allowed" scripts/run_honest_sweep_r3.py | Select-Object -Last 80' in C:\POLARIS
+ succeeded in 19553ms:
+6976:            manifest["release_allowed"] = False
+7145:                manifest["release_allowed"] = _release_outcome.released
+7148:                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
+7160:                manifest["release_allowed"] = four_role_result.release_allowed
+7265:                    manifest["release_allowed"] = False
+7312:                        manifest["release_allowed"] = False
+7368:                        manifest["release_allowed"] = False
+7731:            manifest["release_allowed"] = False
+
+ succeeded in 38422ms:
+99:def merge_v30_into_manifest(
+592:        "manifest.frame_coverage_report.entries[*].status = "
+
+ succeeded in 56298ms:
+291:def to_unified_status(summary_status: str) -> str:
+295:    return _SUMMARY_TO_UNIFIED.get(summary_status, "error_unexpected")
+2283:    overrides BOTH ``manifest['release_allowed']`` AND ``manifest['status']`` from the D8
+6595:                "release_allowed": False,
+6724:             f"release_allowed={eval_gate.release_allowed} "
+6728:            summary_status = "fail_no_sources"
+6730:            summary_status = "fail_no_verified_prose"
+6735:            summary_status = "abort_evaluator_critical"
+6736:        elif not eval_gate.release_allowed:
+6740:            # (gate_class="advisory_unavailable" + release_allowed=False) and any future
+6741:            # release-withholding gate_class, so the manifest status and release_allowed flag can
+6742:            # never contradict (a False release_allowed reading as a shippable "ok").
+6743:            summary_status = "abort_evaluator_critical"
+6746:            summary_status = "ok_outline_fallback"
+6750:            summary_status = "ok_evaluator_advisory"
+6752:            summary_status = "warn_rule_checks"
+6754:            summary_status = "ok_thin_corpus"
+6757:            summary_status = "ok_incomplete_corpus"
+6759:            summary_status = "ok"
+6760:        unified_status = to_unified_status(summary_status)
+6775:            summary_status = "partial_saturation"
+6789:            "release_allowed": eval_gate.release_allowed,
+6904:        # text) in the per-run manifest too. It already lands in sweep_summary.json
+6939:        # eval_gate already drove manifest['release_allowed'] + status above.
+6942:        # gate. We OVERRIDE both manifest['release_allowed'] AND manifest['status'] from the
+6943:        # D8 decision (so status and release_allowed cannot contradict — the double-gate the
+6970:            # Codex diff-gate iter-1 P1: set the LOCAL summary_status/unified_status too, not just the
+6971:            # manifest fields. The tail writes `summary["status"] = summary_status` (~L4813) and
+6972:            # sweep_summary.{json,md} read that top-level status — without this a held misconfiguration
+6974:            summary_status = "four_role_held"
+6975:            unified_status = to_unified_status(summary_status)
+6976:            manifest["release_allowed"] = False
+7118:                    release_allowed=False,
+7140:            # release_allowed = outcome.released, so bundle.py refuses ONLY a hard block. Default
+7145:                manifest["release_allowed"] = _release_outcome.released
+7146:                summary_status = _release_outcome.status
+7148:                # `released` field (Codex slice-2 P2): manifest["release_allowed"] is the SINGLE
+7160:                manifest["release_allowed"] = four_role_result.release_allowed
+7162:                summary_status = (
+7164:                    if four_role_result.release_allowed
+7168:            # sweep_summary.json (summary["status"] at the function tail), and the status log
+7170:            unified_status = to_unified_status(summary_status)
+7179:                "release_allowed": four_role_result.release_allowed,
+7209:                f"[four_role]   release_allowed={four_role_result.release_allowed} "
+7262:                    summary_status = "report_redaction_failed"
+7263:                    unified_status = to_unified_status(summary_status)
+7265:                    manifest["release_allowed"] = False
+7309:                        summary_status = "report_redaction_failed"
+7310:                        unified_status = to_unified_status(summary_status)
+7312:                        manifest["release_allowed"] = False
+7365:                        summary_status = "report_redaction_failed"
+7366:                        unified_status = to_unified_status(summary_status)
+7368:                        manifest["release_allowed"] = False
+7555:        # recompute above — so status / release_allowed / report.md are all FINAL. It only ADDS
+7602:        # manifest['nli_verification'] (+ sidecar); never changes status/release_allowed (4-role D8 is
+7723:            summary_status = _fl05["override_status"]
+7724:            unified_status = to_unified_status(summary_status)
+7726:            # Codex iter-1 P1: a would-be-success carries release_allowed=True from the evaluator/D8
+7728:            # audit consumers keying on release_allowed would still treat the silently-degraded report
+7729:            # as shippable. Keep status and release_allowed consistent (mirrors the eval-gate invariant
+7731:            manifest["release_allowed"] = False
+7756:        summary["status"] = summary_status
+7759:        _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+8207:    sweep_summary_path = out_root / "sweep_summary.json"
+8208:    sweep_summary_path.write_text(
+8256:    (out_root / "sweep_summary.md").write_text(
+8267:    print(f"Summary: {sweep_summary_path}")
+8268:    print(f"Matrix:  {out_root / 'sweep_summary.md'}")
+
+ succeeded in 74751ms:
+4115:            _pm_manifest["status"] = "error_corpus_population_mismatch"
+6977:            manifest["status"] = unified_status
+7171:            manifest["status"] = unified_status
+7264:                    manifest["status"] = unified_status
+7311:                        manifest["status"] = unified_status
+7367:                        manifest["status"] = unified_status
+7685:        manifest["status"] = unified_status
+7725:            manifest["status"] = unified_status
+7816:                _ja_manifest["status"] = _ja.status
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/honest_sweep_integration.py | Select-Object -Skip 90 -First 45' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7660 -First 120' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/run_honest_sweep_r3.py | Select-Object -Skip 7748 -First 38' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --stat --oneline 4e4eb8e0b098bbbf86550a447f4694f75f07161a' in C:\POLARIS
+ succeeded in 21595ms:
+                except NliUnavailableError as _nli_unavail:
+                    # FAIL LOUD — surfaced, NOT a silent clean pass (LAW II + no-downgrade directive).
+                    _log(
+                        f"[nli]         WARN model UNAVAILABLE ({_nli_unavail}) — NLI annotation NOT "
+                        f"produced; surfaced as nli_status=unavailable (NOT a silent clean pass)"
+                    )
+                    manifest["nli_verification"] = {
+                        "nli_status": "unavailable", "reason": str(_nli_unavail),
+                        "eligible_sentences": len(_nli_kept), "advisory": True,
+                    }
+                except Exception as _nli_exc:  # noqa: BLE001 — transient fault; advisory, never abort
+                    _log(f"[nli]         WARN NLI scoring failed (fail-open): {_nli_exc}")
+                    manifest["nli_verification"] = {
+                        "nli_status": "error", "reason": str(_nli_exc),
+                        "eligible_sentences": len(_nli_kept), "advisory": True,
+                    }
+
+        # I-ready-016 (#1086): re-stamp the unified status at the SUCCESS write site (idempotent —
+        # `manifest['status']` was already set to `unified_status` when the success manifest was built
+        # ~600 lines up at L4744/4939/5071). The additive V30/depth/NLI blocks between construction and
+        # this write pushed the original assignment past the manifest-contract gate's 200-line lookback
+        # window, false-flagging this write as status-less. Re-stamping documents the invariant AT the
+        # write site and keeps the contract honest WITHOUT widening the gate's window (LAW II — not a
+        # relaxation; `unified_status` is unchanged here).
+        manifest["status"] = unified_status
+        # FL-05 (#1124): run-health backstop. A FORCE-ENABLED discovery feature (STORM / agentic)
+        # that was turned ON but did NOT fire (firing_status in {attempted_empty, error}) means the
+        # run silently degraded to the Serper/S2 baseline — it must NOT ship as success. ALWAYS emit
+        # the two additive degradation fields (observability — existing consumers ignore unknown
+        # keys); GATE the abort behind PG_RUN_HEALTH_GATE (default OFF: status + control-flow + the
+        # release decision are UNCHANGED — only the two additive observability fields are written; the
+        # benchmark slate forces it ON). Promotes run_log's advisory warning to a gating signal. Pairs
+        # with CANARY-01 (pre-spend) — FL-05 is the mid/post-run regression backstop. Only overrides a
+        # would-be SUCCESS (partial_* already signals degradation; aborts/errors are more specific).
+        # Codex iter-1 P2: robust truthy parse for this DEFAULT-OFF flag (so PG_RUN_HEALTH_GATE=false
+        # / empty does NOT accidentally enable it, unlike the bare `!= "0"` default-ON pattern).
+        # I-fetch-002 (#1168): the STORM UNDER-fire floor (post-validator collapse). 0/absent = disabled
+        # (the classic FL-05 TOTAL no-fire path is unchanged); the Gate-B slate sets it to 12. Fail-loud
+        # on a non-int env so a typo cannot silently disable the floor.
+        try:
+            _storm_min_eff = int(os.getenv("PG_STORM_MIN_EFFECTIVE_QUERIES", "0"))
+        except ValueError as _eff_exc:
+            raise RuntimeError(
+                f"PG_STORM_MIN_EFFECTIVE_QUERIES={os.getenv('PG_STORM_MIN_EFFECTIVE_QUERIES')!r} "
+                f"is not an int"
+            ) from _eff_exc
+        _fl05 = compute_run_health_gate(
+            [_storm_telemetry, _agentic_telemetry],
+            unified_status=unified_status,
+            gate_on=os.getenv("PG_RUN_HEALTH_GATE", "0").strip().lower() in {"1", "true", "yes", "on"},
+            storm_min_effective_queries=_storm_min_eff,
+        )
+        manifest["discovery_llm_degraded"] = _fl05["discovery_llm_degraded"]
+        manifest["discovery_rounds_on_fallback"] = _fl05["discovery_rounds_on_fallback"]
+        if _fl05["override_status"]:
+            _fl05_names = ", ".join(
+                f"{d['feature']}={d['firing_status']}" for d in _fl05["degraded_features"]
+            )
+            _log(
+                f"[run-health]  ABORT: force-enabled discovery feature(s) did not fire "
+                f"({_fl05_names}) — refusing to ship a silently-degraded run as success."
+            )
+            summary_status = _fl05["override_status"]
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            # Codex iter-1 P1: a would-be-success carries release_allowed=True from the evaluator/D8
+            # gate. An abort_discovery_degraded manifest MUST also be non-releasable, or non-v6/UI/
+            # audit consumers keying on release_allowed would still treat the silently-degraded report
+            # as shippable. Keep status and release_allowed consistent (mirrors the eval-gate invariant
+            # at L5156-5158: a held status can never read as releasable).
+            manifest["release_allowed"] = False
+            manifest["discovery_degraded_features"] = _fl05["degraded_features"]
+        # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
+        # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when
+        # PG_COMPLEXITY_ROUTING is unset). Auditable: complexity, confidence, reasons, whether it was
+        # right-sized, and the resolved fetch cap.
+        if _complexity_routing_on and _routing_decision is not None:
+            manifest["complexity_routing"] = {
+                "enabled": True,
+                "complexity": _routing_decision.complexity,
+                "confidence": _routing_decision.confidence,
+                "reasons": list(_routing_decision.reasons),
+                "simple_routed": _simple_routed,
+                "fetch_cap": _fetch_cap,
+            }
+        (run_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        _log(f"[cost]        ${run_cost:.4f} (cap ${get_max_cost_per_run():.4f})")
+
+        # Status was computed above (line ~851) and written into the
+        # manifest. Mirror to summary for backward compatibility with
+        # sweep counters that read the legacy labels.
+        summary["status"] = summary_status
+        summary["manifest"] = manifest
+        summary["cost_usd"] = run_cost
+        _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+        _hb("manifest_written")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): success manifest written
+    except BudgetExceededError as budget_exc:
+        # I-meta-008 (#1015): PG_MAX_COST_PER_RUN was breached mid-run — generator OR (now) a
+        # 4-role verifier call via the RecordingTransport cost hook. This is a CLEAN budget
+        # abort, NOT error_unexpected: catch-and-set (do NOT re-raise) so the teardown below
+        # (per-run ledger copy, emit_terminal_event, run_id/sink reset at ~4710) still runs —
+        # those are OUTSIDE this try with no `finally`, so a bare `raise` would leak a stale
+        # run_id/sink into the next question. Status maps to abort_budget_exceeded via
+        # to_unified_status; the generator and the verifier now abort identically.
+        run_cost = current_run_cost()
+        _log(
+            f"[BUDGET]      PG_MAX_COST_PER_RUN breached: {budget_exc} "
+            f"(run_cost=${run_cost:.4f}, cap=${get_max_cost_per_run():.4f})"
+        )
+        summary["status"] = "abort_budget_exceeded"
+        summary["error"] = str(budget_exc)[:300]
+        try:
+            if run_dir is not None:
+                budget_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+
+ succeeded in 39757ms:
+        )
+
+        _log(f"[cost]        ${run_cost:.4f} (cap ${get_max_cost_per_run():.4f})")
+
+        # Status was computed above (line ~851) and written into the
+        # manifest. Mirror to summary for backward compatibility with
+        # sweep counters that read the legacy labels.
+        summary["status"] = summary_status
+        summary["manifest"] = manifest
+        summary["cost_usd"] = run_cost
+        _log(f"[status]      {summary_status} (manifest.status={unified_status})")
+        _hb("manifest_written")  # I-obs-001 #1141 AC1 (Codex AC1-gate P1-2): success manifest written
+    except BudgetExceededError as budget_exc:
+        # I-meta-008 (#1015): PG_MAX_COST_PER_RUN was breached mid-run — generator OR (now) a
+        # 4-role verifier call via the RecordingTransport cost hook. This is a CLEAN budget
+        # abort, NOT error_unexpected: catch-and-set (do NOT re-raise) so the teardown below
+        # (per-run ledger copy, emit_terminal_event, run_id/sink reset at ~4710) still runs —
+        # those are OUTSIDE this try with no `finally`, so a bare `raise` would leak a stale
+        # run_id/sink into the next question. Status maps to abort_budget_exceeded via
+        # to_unified_status; the generator and the verifier now abort identically.
+        run_cost = current_run_cost()
+        _log(
+            f"[BUDGET]      PG_MAX_COST_PER_RUN breached: {budget_exc} "
+            f"(run_cost=${run_cost:.4f}, cap=${get_max_cost_per_run():.4f})"
+        )
+        summary["status"] = "abort_budget_exceeded"
+        summary["error"] = str(budget_exc)[:300]
+        try:
+            if run_dir is not None:
+                budget_manifest = {
+                    "run_id": run_id,
+                    "slug": q.get("slug", ""),
+                    "domain": q.get("domain", ""),
+                    "question": q.get("question", ""),
+                    "status": "abort_budget_exceeded",
+                    "error": str(budget_exc)[:500],
+                    "cost_usd": run_cost,
+                    "budget_cap_usd": get_max_cost_per_run(),
+
+ succeeded in 57626ms:
+
+_ENABLED_ENV = "PG_V30_ENABLED"
+
+
+def _is_enabled() -> bool:
+    return os.environ.get(_ENABLED_ENV, "0").strip() in ("1", "true", "True")
+
+
+def merge_v30_into_manifest(
+    manifest: dict[str, Any], v30_result: V30SweepResult,
+) -> None:
+    """Runner-hook helper (Codex sweep-integration audit Medium):
+    factored out of the sweep runner so the manifest merge can
+    be unit-tested without running a full sweep. Mutates
+    `manifest` in place per the Phase 1 contract:
+
+      - PG_V30_ENABLED=0 → no mutation whatsoever.
+      - enabled + error → manifest["v30_error"] populated.
+      - enabled + skipped_reason → manifest["v30_skipped_reason"]
+        populated.
+      - enabled + warnings → manifest["v30_warnings"] list.
+      - enabled + frame_coverage_report → inline merged.
+    """
+    if not v30_result.enabled:
+        return
+    manifest["v30_enabled"] = True
+    if v30_result.frame_coverage_report is not None:
+        manifest["frame_coverage_report"] = (
+            v30_result.frame_coverage_report
+        )
+    if v30_result.skipped_reason is not None:
+        manifest["v30_skipped_reason"] = v30_result.skipped_reason
+    if v30_result.error is not None:
+        manifest["v30_error"] = v30_result.error
+    if v30_result.warnings:
+        manifest["v30_warnings"] = list(v30_result.warnings)
+
+
+def append_disclosure_to_report(
+    report_path: Path, disclosure_text: str,
+) -> bool:
+    """Append the V30 Phase-1 retrieval-coverage disclosure to
+    report.md.
+
+    Runner-hook helper (Codex sweep-integration audit Medium +
+
+ succeeded in 75293ms:
+4e4eb8e0 I-perm-005 (#1199) slice 3: runner flip — KEEP+LABEL under PG_ALWAYS_RELEASE (annotate not reconcile)
+ scripts/run_honest_sweep_r3.py | 77 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 77 insertions(+)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "def always_release_enabled|PG_ALWAYS_RELEASE|_OFF_VALUES" src/polaris_graph/roles/release_policy.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/release_policy.py | Select-Object -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git show --unified=80 --format=short 4e4eb8e0b098bbbf86550a447f4694f75f07161a -- scripts/run_honest_sweep_r3.py' in C:\POLARIS
+ succeeded in 21361ms:
+302:    # block is removed: when PG_ALWAYS_RELEASE is on, `needs_rewrite` stays a pure REPORTING channel
+340:# DEFAULT OFF: PG_ALWAYS_RELEASE unset/0/false/no/off -> compute_release_outcome reproduces the
+345:_ENV_ALWAYS_RELEASE = "PG_ALWAYS_RELEASE"
+402:def always_release_enabled() -> bool:
+403:    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+
+ succeeded in 38976ms:
+"""D8 production release policy — occurrence / residual / S0-must-cover gate.
+
+I-meta-002 sub-PR-3. This is the PRODUCTION release gate (a pure function over D8 claim
+rows; no network, no I/O except the config loader). It is a SEPARATE layer from the
+FROZEN, pre-registered benchmark scorer (`claim_audit_scorer.py`): this module REUSES the
+canonical `Verdict` vocabulary (for the type hint only) but does NOT mutate the scorer, does
+NOT import its private constants, and does NOT change its 0.70 frozen benchmark threshold.
+
+The clinical occurrence/residual split (from the I-meta-002 iter-2 D8 design ruling):
+
+  * FABRICATED is OCCURRENCE-gated with zero tolerance, via a true one-way LATCH. A
+    fabricated *citation identity* arrives already stamped `verdict=="FABRICATED"` — the
+    CALLER (sub-PR-5) runs `judge_contract.classify_unreachable` UPSTREAM with the evidence
+    pool and writes the result into the row. D8 reads `verdict` only; it never re-classifies
+    and never receives the evidence pool.
+  * UNSUPPORTED is RESIDUAL-gated: one rewrite/refuse-in-place attempt, then gate only if the
+    `CoverageLedger` fraction is below the configured `coverage_threshold`. The ledger
+    denominator is the FIXED per-question required-element set, so dropping/refusing a claim
+    LOWERS coverage rather than dodging the gate.
+  * Genuine UNREACHABLE fetch-misses follow the SAME residual path as UNSUPPORTED (never
+    silently passed). Only fabricated identities (already `FABRICATED`) occurrence-gate.
+  * S0 must-cover categories abort release if any required category lacks a VERIFIED claim,
+    regardless of the overall coverage fraction.
+  * PARTIAL S0/S1 claims get one rewrite attempt, then ship as a visible advisory gap.
+
+Refused-in-place / residual gaps are always emitted as visible `Gap`s — never silent drops.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from src.polaris_graph.benchmark.claim_audit_scorer import Verdict
+
+# --- canonical verdict tokens (Verdict is a Literal of plain strings, NOT an Enum) -------
+# Mirror judge_contract's _CLASS_* string-constant pattern; never write `Verdict.X`.
+_VERDICT_VERIFIED = "VERIFIED"
+_VERDICT_PARTIAL = "PARTIAL"
+_VERDICT_UNSUPPORTED = "UNSUPPORTED"
+_VERDICT_FABRICATED = "FABRICATED"
+_VERDICT_UNREACHABLE = "UNREACHABLE"
+
+# --- local materiality (do NOT import the frozen scorer's private _MATERIAL_SEVERITIES) ---
+# Material = decision-relevant. Kept in sync with config/architecture/d8_release_policy.yaml
+# `material_severities`. S3 is observe-only and never gates / never latches.
+_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
+# Severities at which a PARTIAL claim earns a rewrite-then-advisory pass.
+_PARTIAL_REWRITE_SEVERITIES = ("S0", "S1")
+
+# --- stable reason codes (held_reasons) ---------------------------------------------------
+_REASON_FABRICATED_OCCURRENCE = "d8_fabricated_occurrence"
+_REASON_S0_MUST_COVER_MISSING_PREFIX = "d8_s0_must_cover_missing:"
+_REASON_UNSUPPORTED_RESIDUAL_BELOW_COVERAGE = "d8_unsupported_residual_below_coverage"
+# A pass with claims still routed to a rewrite/refuse-in-place attempt is NOT releasable yet
+# (the required attempt has not happened). Blocks release on the first pass (Codex diff P1-a).
+_REASON_PENDING_REWRITE = "d8_pending_rewrite"
+
+# --- stable gap kinds ---------------------------------------------------------------------
+_GAP_UNCOVERED_S0 = "uncovered_s0"
+_GAP_REFUSED_IN_PLACE = "refused_in_place"
+_GAP_RESIDUAL_UNSUPPORTED = "residual_unsupported"
+_GAP_PARTIAL_ADVISORY = "partial_advisory"
+_GAP_COVERAGE_SHORTFALL = "coverage_shortfall"
+
+# --- config loader -----------------------------------------------------------------------
+_CONFIG_KEY_COVERAGE_THRESHOLD = "coverage_threshold"
+_CONFIG_KEY_MATERIAL_SEVERITIES = "material_severities"
+_CONFIG_KEY_S0_MUST_COVER = "s0_must_cover_categories"
+
+# Default config path: <repo_root>/config/architecture/d8_release_policy.yaml.
+# parents[3] of .../src/polaris_graph/roles/release_policy.py == the repo root.
+_DEFAULT_CONFIG_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "config"
+    / "architecture"
+    / "d8_release_policy.yaml"
+)
+
+
+@dataclass
+class D8ClaimRow:
+    """Production-side D8 claim row (wrapper; does NOT mutate the frozen `ClaimRow`).
+
+    `verdict` is a `claim_audit_scorer.Verdict` value already stamped by the caller
+    (sub-PR-5): fabricated citation identity -> "FABRICATED"; genuine fetch-miss ->
+    "UNREACHABLE". D8 reads it; it never calls `classify_unreachable`.
+
+
+ succeeded in 56810ms:
+commit 4e4eb8e0b098bbbf86550a447f4694f75f07161a
+Author: msn <msn@polaris.dev>
+
+    I-perm-005 (#1199) slice 3: runner flip — KEEP+LABEL under PG_ALWAYS_RELEASE (annotate not reconcile)
+
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 0b9df7c3..ac733cef 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -7194,160 +7194,237 @@ async def run_one_query(
+                     for gap in four_role_result.gaps
+                 ],
+                 "kg_path": str(four_role_result.kg_path),
+             }
+             # I-meta-002 PR-9/M5: ADDITIVE per-claim evaluator_agrees MAP for audit/inspector
+             # fidelity (NOT a release gate — D8 above stays the single binding gate). Joinable to
+             # four_role_claim_audit.json by claim_id. kept_claim_ids is None here: on the sweep
+             # path the FourRoleClaim set is built from KEPT (is_verified) sentences only, so every
+             # claim_id in final_verdicts is already a kept claim (invariant documented in the
+             # helper). The §-1.1 fail-safe rule (VERIFIED+kept -> True; every other verdict ->
+             # False) lives in build_evaluator_agrees_map -> evaluator_agrees_from_verdict.
+             manifest["four_role_evaluation"]["evaluator_agrees"] = (
+                 build_evaluator_agrees_map(four_role_result.final_verdicts)
+             )
+             _log(
+                 f"[four_role]   release_allowed={four_role_result.release_allowed} "
+                 f"coverage={four_role_result.coverage_fraction:.3f} "
+                 f"held_reasons={four_role_result.held_reasons}"
+             )
+ 
+             # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+             # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+             # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
+             # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
+             # report.md. So a sentence the strongest verifier rejected still ships as asserted
+             # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+             # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+             # redact every material non-VERIFIED claim's verbatim sentence to the existing
+             # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+             # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+             # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+             # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+             # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+             # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+             # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+             # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+             if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+                 "0", "false", "False",
+             ):
+                 from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+                     ReportRedactionError,
+                     reconcile_report_against_verdicts,
+                 )
+                 _redact_report_path = run_dir / "report.md"
+                 _audit_map_path = run_dir / "four_role_claim_audit.json"
+                 # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+                 # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+                 # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+                 # NOT be mislabeled abort_report_redaction_failed merely because the audit
+                 # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+                 # claim's verbatim sentence.
+                 _final_verdicts = four_role_result.final_verdicts or {}
+                 _nonverified_verdicts = {
+                     cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+                 }
+                 if not _nonverified_verdicts:
+                     _log(
+                         "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+                         "reconciliation skipped (no-op)"
+                     )
+                 elif not _redact_report_path.is_file():
+                     _log(
+                         "[redact]      report.md absent; nothing to reconcile (no shipped "
+                         "artifact can leak)"
+                     )
+                 elif not _audit_map_path.is_file():
+                     # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+                     # is missing -> fail closed rather than ship an unreconciled report.
+                     summary_status = "report_redaction_failed"
+                     unified_status = to_unified_status(summary_status)
+                     manifest["status"] = unified_status
+                     manifest["release_allowed"] = False
+                     manifest["report_redaction_error"] = (
+                         "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+                         "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+                     )
+                     _log(
+                         "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+                         "verdicts -> abort_report_redaction_failed"
+                     )
++                elif always_release_enabled():
++                    # I-perm-005 (#1199) slice 3: under the always-release reframe, KEEP + LABEL each
++                    # non-VERIFIED claim (annotate) instead of DELETING it (reconcile). The marker is
++                    # deterministic from claim_labeler — a non-VERIFIED claim is `low` (has cited
++                    # evidence) or `no-source-found` (none); never `high`. Same fail-closed contract
++                    # (a present-but-unpinnable claim aborts rather than ship unlabeled).
++                    _audit_map = json.loads(_audit_map_path.read_text(encoding="utf-8"))
++                    from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
++                        annotate_report_against_verdicts,
++                    )
++                    from src.polaris_graph.generator.claim_labeler import (  # noqa: PLC0415
++                        confidence_bucket,
++                        render_confidence_marker,
++                    )
++                    _marker_by_claim = {
++                        _cid: render_confidence_marker(
++                            confidence_bucket(
++                                is_verified=False,
++                                credibility=None,
++                                origin_count=0,
++                                has_cited_evidence=bool(
++                                    _audit_map.get(_cid, {}).get("evidence_ids")
++                                ),
++                            )
++                        )
++                        for _cid in _nonverified_verdicts
++                    }
++                    try:
++                        _annotation = annotate_report_against_verdicts(
++                            _redact_report_path.read_text(encoding="utf-8"),
++                            _final_verdicts,
++                            _audit_map,
++                            _marker_by_claim,
++                        )
++                    except ReportRedactionError as _annot_exc:
++                        summary_status = "report_redaction_failed"
++                        unified_status = to_unified_status(summary_status)
++                        manifest["status"] = unified_status
++                        manifest["release_allowed"] = False
++                        manifest["report_redaction_error"] = str(_annot_exc)
++                        _log(
++                            f"[label]       FAIL-CLOSED: {_annot_exc} -> "
++                            "abort_report_redaction_failed"
++                        )
++                    else:
++                        _redact_report_path.write_text(
++                            _annotation.report_text, encoding="utf-8"
++                        )
++                        (run_dir / "claim_confidence.json").write_text(
++                            json.dumps(
++                                {
++                                    _ac.claim_id: {
++                                        "verdict": _ac.verdict,
++                                        "severity": _ac.severity,
++                                        "marker": _ac.marker,
++                                    }
++                                    for _ac in _annotation.annotated
++                                },
++                                indent=2,
++                                sort_keys=True,
++                            )
++                            + "\n",
++                            encoding="utf-8",
++                        )
++                        manifest["report_annotation"] = {
++                            "annotated_count": _annotation.annotated_count,
++                            "annotated_claim_ids": [
++                                _ac.claim_id for _ac in _annotation.annotated
++                            ],
++                            "already_absent_claim_ids": _annotation.already_absent,
++                        }
++                        _log(
++                            "[label]       keep+label report.md vs 4-role verdicts: "
++                            f"labeled={_annotation.annotated_count} "
++                            f"already_absent={len(_annotation.already_absent)} "
++                            "(always-release; non-VERIFIED kept + labeled, never deleted)"
++                        )
+                 else:
+                     _audit_map = json.loads(
+                         _audit_map_path.read_text(encoding="utf-8")
+                     )
+                     try:
+                         _redaction = reconcile_report_against_verdicts(
+                             _redact_report_path.read_text(encoding="utf-8"),
+                             _final_verdicts,
+                             _audit_map,
+                         )
+                     except ReportRedactionError as _redact_exc:
+                         # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+                         # no audit row. Do NOT ship the report; take a terminal abort. The
+                         # unredacted report.md stays on disk for the curator to inspect.
+                         summary_status = "report_redaction_failed"
+                         unified_status = to_unified_status(summary_status)
+                         manifest["status"] = unified_status
+                         manifest["release_allowed"] = False
+                         manifest["report_redaction_error"] = str(_redact_exc)
+                         _log(
+                             f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+                             "abort_report_redaction_failed"
+                         )
+                     else:
+                         # Write the reconciled body back BEFORE the V30 append so the disclosure
+                         # reflects the redacted report. Emit one redacted_unsupported gap per
+                         # removed claim into gaps.json (append; never overwrite curator gaps).
+                         _reconciled_report = _redaction.report_text
+                         if _redaction.redacted:
+                             # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+                             # lifted headline the four-role seam later marks non-VERIFIED was just
+                             # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+                             # stub bullets from the KF block (no-op when no KF bullet was redacted).
+                             from src.polaris_graph.generator.key_findings import (
+                                 refilter_key_findings_block,
+                             )
+                             _reconciled_report = refilter_key_findings_block(
+                                 _reconciled_report
+                             )
+                         _redact_report_path.write_text(
+                             _reconciled_report, encoding="utf-8"
+                         )
+                         manifest["report_redaction"] = {
+                             "redacted_count": _redaction.redacted_count,
+                             "redacted_claim_ids": [
+                                 rc.claim_id for rc in _redaction.redacted
+                             ],
+                             "already_absent_claim_ids": _redaction.already_absent,
+                         }
+                         if _redaction.redacted:
+                             _gaps_redact_path = run_dir / "gaps.json"
+                             _existing_gaps: list = []
+                             if _gaps_redact_path.is_file():
+                                 try:
+                                     _loaded = json.loads(
+                                         _gaps_redact_path.read_text(encoding="utf-8")
+                                     )
+                                     if isinstance(_loaded, list):
+                                         _existing_gaps = _loaded
+                                 except Exception:  # noqa: BLE001 — corrupt sidecar must not lose redaction gaps
+                                     _existing_gaps = []
+                             _existing_gaps.extend(_redaction.gaps_json())
+                             _gaps_redact_path.write_text(
+                                 json.dumps(_existing_gaps, indent=2, sort_keys=True) + "\n",
+                                 encoding="utf-8",
+                             )
+                         _log(
+                             f"[redact]      reconciled report.md vs 4-role verdicts: "
+                             f"redacted={_redaction.redacted_count} "
+                             f"already_absent={len(_redaction.already_absent)} "
+                             "(refuse-in-place; held-path safe)"
+                         )
+ 
+         # V30 Report Contract Architecture integration (Phase 1 of
+         # two). Opt-in via PG_V30_ENABLED=1. When disabled this is a
+         # complete no-op — the runner doesn't even import the V30
+         # module (Codex sweep-integration audit Medium: fully
+         # hermetic gating). When enabled, runs M-54→M-55→M-56→M-57→
+         # M-60→M-61 post-generation: compiles the per-query
+         # contract, fetches deterministic DOI/PMID/Unpaywall content
+
+codex
+I checked the actual commit diff with context: the only runner change in this block is the inserted `elif always_release_enabled():` branch before the prior `else:`. The old `else:` body is not modified in the patch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/release_policy.py | Select-Object -Skip 396 -First 16' in C:\POLARIS
+ succeeded in 20758ms:
+    hard_block_reasons: list[str]
+    release_quality_score: float
+    safety_floor: str  # "ok" | "insufficient"
+
+
+def always_release_enabled() -> bool:
+    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+    import os
+
+    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() in _ON_VALUES
+
+
+def compute_release_outcome(
+    decision: ReleaseDecision,
+    *,
+    zero_verified: bool,
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+64,655
