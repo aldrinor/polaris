@@ -1617,6 +1617,17 @@ def _anti_verbosity_enabled() -> bool:
     )
 
 
+def _section_distill_enabled() -> bool:
+    """I-perm-016 (#1209): read the `PG_SECTION_DISTILL` flag at CALL TIME (never
+    at import — the I-cap-005 import-time-cache class of bug). Default OFF: any
+    unset / empty / "0" / "false" / "off" / "no" value keeps the legacy
+    map-less generation path BYTE-IDENTICAL (no distiller import, no distill
+    call, no prompt change, unchanged retry)."""
+    return os.getenv("PG_SECTION_DISTILL", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def _select_section_system_prompt(
     use_field_agnostic: bool, anti_verbosity: bool = False
 ) -> str:
@@ -1651,6 +1662,7 @@ async def _call_section(
     cross_trial_block: Any = None,
     use_field_agnostic_prompt: bool = False,
     advisory_text: str = "",
+    distillate: Any | None = None,
 ) -> tuple[str, int, int, dict[str, Any]]:
     """Single LLM call for one section.
 
@@ -1684,6 +1696,60 @@ async def _call_section(
         ReasoningFirstTruncationError,
         set_reasoning_call_context,
     )
+
+    # I-perm-016 (#1209) KEYSTONE: REDUCE path. When a validated distillate is
+    # threaded in, the section is written REFERENCE-FIRST over the validated
+    # findings ledger — NOT over raw quote blocks. The legacy allow-list +
+    # legacy atom-catalog prompt text is skipped (the ledger rows already carry
+    # validated numbers, spans, and atom IDs). `distillate is None` (the
+    # default) falls through to the byte-identical legacy path below.
+    if distillate is not None:
+        from src.polaris_graph.generator.evidence_distiller import (
+            _REDUCE_SYSTEM,
+            _reduce_max_tokens,
+            _reduce_reasoning_tokens,
+            render_reduce_user,
+        )
+        # _section_atoms comes straight from the distillate (same section-filtered
+        # catalog construction as the legacy path) and is returned as today so the
+        # downstream atom_refusal_validator sees the EXACT catalog.
+        _section_atoms = dict(distillate.atom_catalog)
+        reduce_system = _REDUCE_SYSTEM
+        reduce_prompt = render_reduce_user(distillate)
+        client = OpenRouterClient(model=model)
+        try:
+            set_reasoning_call_context(
+                section=section.title,
+                call_type="section_reduce",
+                attempt_n=1,
+                regen_reason=None,
+            )
+            response = await client.generate(
+                prompt=reduce_prompt,
+                system=reduce_system,
+                max_tokens=_reduce_max_tokens(),
+                temperature=temperature,
+                reasoning_max_tokens=_reduce_reasoning_tokens(),
+            )
+        except ReasoningFirstTruncationError as exc:
+            logger.warning(
+                "[multi_section] %s: reasoning-first truncation on REDUCE %s "
+                "(max_tokens=%d) — empty draft returned. detail: %s",
+                section.title, model, _reduce_max_tokens(), exc,
+            )
+            return "", 0, 0, _section_atoms
+        finally:
+            if hasattr(client, "close"):
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+        return (
+            (response.content or "").strip(),
+            response.input_tokens,
+            response.output_tokens,
+            _section_atoms,
+        )
 
     blocks = []
     for ev in evidence_subset:
@@ -2292,6 +2358,24 @@ async def _run_section(
     total_in_tok = 0
     total_out_tok = 0
 
+    # I-perm-016 (#1209) KEYSTONE: when PG_SECTION_DISTILL is ON, MAP-distill the
+    # section evidence into a VALIDATED findings ledger BEFORE the first
+    # _call_section. The ledger is threaded into _call_section so the section is
+    # written reference-first over validated findings (not raw quotes). When the
+    # flag is OFF, distillate stays None and the legacy path is byte-identical
+    # (no import, no call). The distiller's own MAP/validation token usage is
+    # accounted into the section totals.
+    distillate = None
+    if _section_distill_enabled():
+        from src.polaris_graph.generator.evidence_distiller import (
+            distill_section_evidence,
+        )
+        distillate = await distill_section_evidence(
+            section, ev_subset, evidence_pool, model=model,
+        )
+        total_in_tok += distillate.input_tokens
+        total_out_tok += distillate.output_tokens
+
     # First pass
     # Step 3b commit 3: _call_section now returns the atom_catalog as
     # 4th tuple element. Preserve for Step 3b commit 4 final-hook
@@ -2303,9 +2387,21 @@ async def _run_section(
         cross_trial_block=cross_trial_block,
         use_field_agnostic_prompt=use_field_agnostic_prompt,
         advisory_text=advisory_text,
+        distillate=distillate,
     )
     total_in_tok += in_tok
     total_out_tok += out_tok
+
+    # I-perm-016 (#1209): in REDUCE mode, drop any uncited reducer prose and
+    # strip the [[finding:...]] markers BEFORE the unchanged
+    # _rewrite_draft_with_spans + strict_verify run. A sentence survives only
+    # when it cites a KNOWN finding marker AND its matching full [#ev:...] token.
+    # Distillate None (legacy) -> raw is unchanged (byte-identical).
+    if distillate is not None:
+        from src.polaris_graph.generator.evidence_distiller import (
+            filter_and_strip_reduce_markers,
+        )
+        raw = filter_and_strip_reduce_markers(raw, distillate)
 
     # Rewrite provenance tokens
     rewritten, _converted, _unver = _rewrite_draft_with_spans(raw, evidence_pool)
@@ -2390,7 +2486,18 @@ async def _run_section(
     post_filter_fraction = post_filter_kept / max(1, report.total_in)
 
     regen_attempted = False
-    if post_filter_fraction < min_kept_fraction and report.total_in > 0:
+    # I-perm-016 (#1209): the legacy tighter_retry injects a "[ev_XXX]-end every
+    # sentence" HARD CONTRACT (the reasoning-first retry block) that is
+    # INCOMPATIBLE with the REDUCE finding-marker format + marker-stripping. In
+    # distill mode the retry would also have to re-run MAP to produce a fresh
+    # ledger. Skip the legacy retry entirely under distill mode so the legacy
+    # contract is never mixed with the REDUCE path. OFF mode (distillate is None)
+    # keeps the retry behavior byte-identical.
+    if (
+        distillate is None
+        and post_filter_fraction < min_kept_fraction
+        and report.total_in > 0
+    ):
         logger.info(
             "[multi_section] %s post-M-41c kept_fraction=%.2f below "
             "min %.2f — retrying",

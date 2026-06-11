@@ -672,6 +672,16 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # contradiction-acceptance (baseline missed the F02 strain->class widening); widen_c (the explicit
     # scope-then-support checklist) won. Force-exact so a stray .env cannot revert to baseline.
     "PG_ENTAILMENT_PROMPT_VARIANT": "widen_c",
+    # I-perm-016 (#1209) KEYSTONE: the map-reduce evidence distiller. DEFAULT OFF
+    # (byte-identical legacy) and INERT in production unless the slate turns it on
+    # — the exact "fix built but not live" trap. Force-on + required below so a
+    # stray operator =0 cannot survive the setdefault slate and silently restore
+    # the single-pass raw-quote generation path on the paid beat-both run (the
+    # I-cap-005 P1-1 force-on pattern). The distiller only TIGHTENS faithfulness
+    # (every finding pre-validated by the SAME production verifier; the unchanged
+    # strict_verify re-checks the REDUCE output) so forcing it on can never weaken
+    # a gate.
+    "PG_SECTION_DISTILL": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -745,6 +755,11 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_SWEEP_NUMERIC_SANITIZER",
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
     "PG_SPAN_RESOLVER",
+    # I-perm-016 (#1209): the map-reduce evidence distiller must be ON for the
+    # paid beat-both run — OFF silently restores the single-pass raw-quote
+    # generation path the distiller was built to replace. Fail closed if it is
+    # not active so a stray operator =0 can never reach the paid run.
+    "PG_SECTION_DISTILL",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -815,6 +830,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # introduced selection fix, kept active-by-slate but not yet a mandatory paid-
     # run precondition (the I-perm-003 selection-scale stance).
     "PG_SELECT_SUBQUERY_FLOOR",
+    # I-perm-016 (#1209): force-on the map-reduce evidence distiller so an
+    # explicit operator PG_SECTION_DISTILL=0 cannot survive the setdefault slate
+    # and silently restore the single-pass raw-quote generation path on the paid
+    # beat-both run (the I-cap-005 P1-1 force-on pattern).
+    "PG_SECTION_DISTILL",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
@@ -1220,6 +1240,13 @@ async def run_gate_b_query(
     os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
     os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
+    # I-perm-016 (#1209) KEYSTONE: activate the map-reduce evidence distiller for
+    # the benchmark/paid run ONLY here (gate-B entry), never globally. The
+    # distiller MAP-validates every finding against the SAME production verifier
+    # and the unchanged strict_verify re-checks the REDUCE output, so it only
+    # TIGHTENS faithfulness. Force-on (Codex iter-2 P1-1: an operator .env=0 must
+    # not win); preflight_full_capability below fails closed if it is off.
+    os.environ["PG_SECTION_DISTILL"] = "1"                 # force-on (Codex iter-2 P1-1: .env=0 must not win)
     # I-ready-019 (#1146): journal_only is DISABLED for the whole benchmark (empty
     # JOURNAL_ONLY_BENCHMARK_SLUGS) per the operator credibility-model directive (2026-06-07). With an
     # empty set this call DETERMINISTICALLY CLEARS the runtime flag for every slug, so no question is
