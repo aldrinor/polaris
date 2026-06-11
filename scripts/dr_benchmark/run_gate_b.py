@@ -538,6 +538,23 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_USE_FINDING_DEDUP": "1",
     "PG_CAPPED_FINDING_DEDUP": "1",
     "PG_RELEVANCE_FLOOR": "0.30",
+    # I-perm-011 (#1205): max-over-subqueries relevance floor. `_row_relevance`
+    # normalizes overlap by the WHOLE multi-part question token set, so a ~73-token
+    # research question makes the 0.30 floor demand >=22 exact-word matches — which
+    # over-drops on-topic top-tier papers whose domain vocabulary doesn't lexically
+    # match the question's exact words (drb_76: 597->53 pre-select; 74 on-topic T1
+    # shed). ON => each row is scored against the BEST-MATCHING decomposed sub-query
+    # (q1d + planner facets, small per-facet denominators) and the floor uses
+    # max(whole-question, best-facet) — MONOTONIC-UP, so it can only OPEN the
+    # throttle (keeps a SUPERSET), never tighten it. PG_LIVE_MAX_EV_TO_GEN stays
+    # 1500 (DELIBERATELY UNCHANGED): the post-fix surviving pool is <= the
+    # pre-select total (597 for drb_76) which is < 1500, so the global pool cap is
+    # non-binding by construction; the BINDING per-prompt guard is
+    # PG_MAX_EV_PER_SECTION=40 (line 490). Lowering the pool cap would re-impose the
+    # niche-section starvation the 2026-06-10 operator decision (lines 475-482)
+    # explicitly removed — so the diagnosis's secondary "lower to 200" is NOT
+    # applied here. Default OFF in code => slate-absent runs are byte-identical.
+    "PG_SELECT_SUBQUERY_FLOOR": "1",
     # I-ready-017 FX-03 (#1107): the 4-role seam MUST judge each claim against the cited [start:end]
     # BOUNDED window, not the whole source doc (BUG-02 confirmed out-of-span false-accept, claim
     # 06-004). OFF feeds whole-record evidence to Sentinel/Judge so a claim can be VERIFIED on support
@@ -786,6 +803,18 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_SWEEP_NUMERIC_SANITIZER",
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
     "PG_SPAN_RESOLVER",
+    # I-perm-011 (#1205): force-on the max-over-subqueries relevance floor (exact
+    # "1", not the numeric-floor path which would mangle a non-"1" string the same
+    # way it would PG_RELEVANCE_FLOOR). The lift is CONFINED to the relevance-floor
+    # selection path (the Gate-B path: PG_USE_FINDING_DEDUP + PG_RELEVANCE_FLOOR are
+    # both on here), where it is MONOTONIC-UP (keeps a SUPERSET; faithfulness gates
+    # untouched), so forcing it on can only OPEN the over-aggressive floor that shed
+    # 74 on-topic T1 rows on drb_76 — never tighten it. (It does NOT apply to the
+    # tier-balanced truncating path, where a score lift could reorder top-N.) NOT
+    # added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate): a newly
+    # introduced selection fix, kept active-by-slate but not yet a mandatory paid-
+    # run precondition (the I-perm-003 selection-scale stance).
+    "PG_SELECT_SUBQUERY_FLOOR",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is

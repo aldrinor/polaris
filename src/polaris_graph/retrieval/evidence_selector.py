@@ -423,6 +423,75 @@ def _row_relevance(
     return len(overlap) / max(1, len(anchors))
 
 
+# ── I-perm-011 (#1205): max-over-subqueries relevance (default OFF) ──────────
+# `_row_relevance` normalizes overlap by the WHOLE question+protocol token set.
+# That denominator scales with question LENGTH: a ~73-content-token multi-part
+# research question makes the 0.30 floor demand >=22 exact-word matches, so an
+# excellent on-topic top-tier paper whose domain vocabulary (Fusobacterium,
+# butyrate, tumorigenesis) doesn't lexically overlap the question's exact words
+# (predominant, mitigate, retard) is dropped (drb_76: 597->53; 74 on-topic T1
+# shed). The run already decomposes the question into focused sub-queries
+# (q1d + STORM). Scoring each row against the BEST-MATCHING sub-query (each with
+# a SMALL denominator) lets a row matching ONE facet clear the floor instead of
+# being diluted by the other ~60 paragraph tokens.
+#
+# This is MONOTONIC-UP: it returns max(whole_question_score, best_subquery_score)
+# so a row NEVER scores lower than today. Flag-ON therefore keeps a SUPERSET of
+# flag-OFF rows — it can only OPEN the throttle, never tighten it.
+#
+# Flag `PG_SELECT_SUBQUERY_FLOOR` (default OFF). OFF, or no sub-query token sets,
+# => the score equals `_row_relevance` exactly (byte-identical selection).
+
+
+def _subquery_floor_enabled() -> bool:
+    """Kill-switch `PG_SELECT_SUBQUERY_FLOOR` (default OFF). OFF => the
+    whole-question `_row_relevance` score is used unchanged (byte-identical)."""
+    raw = os.environ.get("PG_SELECT_SUBQUERY_FLOOR", "0").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _subquery_token_sets(sub_queries: list[str] | None) -> list[set[str]]:
+    """Per-sub-query content-token sets, dropping empties. Returns [] when the
+    feature is disabled OR no usable sub-queries are supplied — the empty list
+    makes `_row_relevance_facet` fall back to the whole-question score."""
+    if not sub_queries or not _subquery_floor_enabled():
+        return []
+    sets: list[set[str]] = []
+    for sq in sub_queries:
+        toks = _content_tokens(str(sq or ""))
+        if toks:
+            sets.append(toks)
+    return sets
+
+
+def _row_relevance_facet(
+    row: dict[str, Any],
+    question_tokens: set[str],
+    protocol_tokens: set[str],
+    subquery_token_sets: list[set[str]],
+) -> float:
+    """Relevance score that takes the MAX of the whole-question score and the
+    best per-sub-query score. `subquery_token_sets` empty => identical to
+    `_row_relevance` (the only caller-visible difference is the max-up lift when
+    the flag is on AND sub-queries are present). Result clamped to [0, 1]."""
+    base = _row_relevance(row, question_tokens, protocol_tokens)
+    if not subquery_token_sets:
+        return base
+    text = " ".join(
+        str(row.get(k, "") or "") for k in ("statement", "direct_quote")
+    )
+    ev_toks = _content_tokens(text)
+    best = base
+    for subq_toks in subquery_token_sets:
+        denom = len(subq_toks)
+        if denom <= 0:
+            continue
+        score = len(ev_toks & subq_toks) / denom
+        if score > best:
+            best = score
+    return min(1.0, best)
+
+
 # ── #955 (S2, 2026-05-30): within-tier-band recency tiebreaker ──────────────
 # Semantic Scholar `year` is fetched (live_retriever.py) and lands on the row
 # (row["year"] or row["metadata"]["year"]) but the selector never used it, so a
@@ -1078,6 +1147,7 @@ def select_evidence_for_generation(
     max_rows: int,
     primary_trial_anchors: list[str] | None = None,
     relevance_floor: float | None = None,
+    sub_queries: list[str] | None = None,
 ) -> EvidenceSelection:
     """Pick up to max_rows evidence rows, tier-balanced + relevance-ranked.
 
@@ -1138,11 +1208,27 @@ def select_evidence_for_generation(
             if v:
                 protocol_tokens |= _content_tokens(str(v))
 
+    # I-perm-011 (#1205): per-sub-query token sets for the max-over-subqueries
+    # floor (default OFF). CONFINED TO THE RELEVANCE-FLOOR PATH (`relevance_floor
+    # is not None`): the lift is MONOTONIC-UP, so on the keep-everything-above-floor
+    # path it only OPENS the floor (keeps a SUPERSET) — a true "can only open, never
+    # tighten" guarantee. On the tier-balanced TRUNCATING path it must NOT apply:
+    # lifting a row's score there reorders the top-N and could DISPLACE a
+    # previously-kept row (a tighten). So for the tier-balanced path the sets stay
+    # empty and `_row_relevance_facet` == `_row_relevance` exactly (byte-identical
+    # regardless of the flag). `_subquery_token_sets` also returns [] when the flag
+    # is OFF or no usable sub-queries are supplied.
+    _subq_token_sets = (
+        _subquery_token_sets(sub_queries) if relevance_floor is not None else []
+    )
+
     # Score every row and tag with tier + original index.
     scored: list[tuple[int, float, str, dict[str, Any]]] = []
     for idx, row in enumerate(evidence_rows):
         tier = _row_tier(row, url_to_tier)
-        score = _row_relevance(row, question_tokens, protocol_tokens)
+        score = _row_relevance_facet(
+            row, question_tokens, protocol_tokens, _subq_token_sets,
+        )
         scored.append((idx, score, tier, row))
 
     # Full tier counts (FROM evidence_rows, the selectable universe).

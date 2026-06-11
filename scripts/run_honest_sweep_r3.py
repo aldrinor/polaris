@@ -1143,6 +1143,21 @@ def _retrieval_manifest_section(retrieval) -> dict:
         "extraction_yield": {
             "fetched": getattr(retrieval, "candidates_fetched", 0),
             "finding_rows": getattr(retrieval, "extraction_finding_rows", 0),
+            # I-perm-011 (#1205): the frozen `finding_rows` above is a MAIN-LANE
+            # snapshot (counted at run_live_retrieval return, BEFORE the additive
+            # agentic/STORM merges), so it is neither the true pre-select pool nor
+            # the final generator count. `total_extracted_rows` is the TRUE
+            # post-merge pre-selection pool (`len(retrieval.evidence_rows)` after
+            # all lanes). Added only when PG_SELECT_SUBQUERY_FLOOR is on so a
+            # flag-OFF / slate-absent run keeps a byte-identical `extraction_yield`
+            # dict (the existing exact-shape telemetry tests stay green).
+            **(
+                {"total_extracted_rows": len(
+                    getattr(retrieval, "evidence_rows", []) or []
+                )}
+                if _env_flag("PG_SELECT_SUBQUERY_FLOOR", default=False)
+                else {}
+            ),
         },
     }
 
@@ -4579,6 +4594,20 @@ async def run_one_query(
             _relevance_floor = parse_relevance_floor(
                 os.getenv("PG_RELEVANCE_FLOOR")
             )
+        # I-perm-011 (#1205): collect the decomposed sub-query TEXT (q1d +
+        # research-planner facets) so the selector can score each row against the
+        # BEST-MATCHING sub-query (small per-facet denominator) instead of the
+        # whole multi-part question (whose long denominator over-cuts on-topic
+        # T1 papers at the 0.30 floor). The selector itself is gated on
+        # PG_SELECT_SUBQUERY_FLOOR (default OFF -> the list is ignored and scoring
+        # is byte-identical), so building it unconditionally is safe + side-effect
+        # free. `_research_plan` is None when the planner is OFF; `_decomposed`
+        # defaults to [].
+        _subquery_texts: list[str] = list(_decomposed or [])
+        if _research_plan is not None:
+            _subquery_texts += [
+                str(sq) for sq in (getattr(_research_plan, "sub_queries", []) or [])
+            ]
         # M-42e (2026-04-22): pass primary_trial_anchors to the
         # selector so it can reserve T1 slots for named-trial
         # primary papers. Anchors come from the loaded scope
@@ -4655,6 +4684,7 @@ async def run_one_query(
             max_rows=max_ev,
             primary_trial_anchors=_primary_anchors,
             relevance_floor=_relevance_floor,   # Phase 5: None OFF -> 20-cap path
+            sub_queries=_subquery_texts,        # I-perm-011: flag-gated facet floor
         )
         evidence_for_gen = evidence_selection.selected_rows
         # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
@@ -5245,6 +5275,7 @@ async def run_one_query(
                         max_rows=max_ev,
                         primary_trial_anchors=_primary_anchors,
                         relevance_floor=_relevance_floor,   # Phase 5 (#989)
+                        sub_queries=_subquery_texts,        # I-perm-011: facet floor
                     )
                     # I-ready-004 (#1078) Codex diff-gate iter-1 P1-1: the gap-round reselect uses the
                     # NO-CAP relevance-floor selector too — without this, a saturation-expansion run
@@ -6823,6 +6854,25 @@ async def run_one_query(
             "evaluator_gate": eval_gate.to_dict(),
             # BUG-M-201: generator-visible evidence provenance.
             "evidence_selection": evidence_selection.to_dict(),
+            # I-perm-011 (#1205): the post-floor extraction funnel endpoint —
+            # rows that survived the relevance floor + capped-dedup and form the
+            # generator BASE (pre-prepend; the contract/upload prepends are added
+            # later, and the post-floor base is the inflation-free count). This is
+            # the honest counterpart to extraction_yield.total_extracted_rows (the
+            # pre-select pool). It is read from the SAME `evidence_selection` object
+            # the manifest already exposes above (the round-0 post-floor/dedup
+            # selection — NOT reassigned by the saturation loop, which tracks its
+            # rounds via `evidence_for_gen`/`_resel`), so the two keys are always
+            # consistent. This is exactly the drb_76 `selected=53 of 597` endpoint.
+            # Gated on PG_SELECT_SUBQUERY_FLOOR so a flag-OFF / slate-absent run
+            # keeps a byte-identical manifest.
+            **(
+                {"selected_to_generator_initial": len(
+                    evidence_selection.selected_rows
+                )}
+                if _env_flag("PG_SELECT_SUBQUERY_FLOOR", default=False)
+                else {}
+            ),
             "protocol_sha256": scope.protocol_sha256,
             # #958 (S2): use the shared retrieval-section writer so the
             # corpus-truncation flag + counts land on the SUCCESS path too

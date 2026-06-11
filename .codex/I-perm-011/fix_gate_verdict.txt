@@ -1,0 +1,17 @@
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "P2: `PG_SELECT_SUBQUERY_FLOOR` parsing is inconsistent. The selector enables any non-false string, while manifest telemetry uses `_env_flag` true tokens only. A typo like `2` would change selection without emitting the new telemetry keys. Slate uses exact `1`, so this is not an execution blocker."
+  - "P2: New tests cover the selector contract well, but they do not directly test manifest key absence/presence or `total_extracted_rows` semantics. The telemetry claim is code-inspection-supported, not test-locked."
+convergence_call: continue
+remaining_blockers_for_execution: []
+
+Red-team checklist:
+(a) PASS: facet max scoring can move the target row from below floor to above floor; `_relevance_floor_selection` then keeps all rows above floor and applies no max-row cap.
+(b) PASS: flag off/no subqueries returns empty token sets and falls back to `_row_relevance`; tier-balanced truncating path forces empty sets even when flag is on.
+(c) PASS: strict_verify / 4-role / D8 / NLI paths are not modified.
+(d) PASS with caveat: `total_extracted_rows` is `len(retrieval.evidence_rows)` at manifest write time; `finding_rows` is unchanged. For expansion-mutated runs this is final corpus size, not necessarily initial round-0 selector input.
+(e) PASS: selector tests are meaningful for lift, monotonicity, off behavior, and tier-balanced confinement; telemetry is the main uncovered area.
+
+verdict: APPROVE
