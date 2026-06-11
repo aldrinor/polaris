@@ -1,0 +1,14 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+C1/C2 confirmed structurally. The re-point is applied only after `is_verified = len(failures) == 0`, and `reanchor_local_to` is only assigned under `_span_resolver_enabled()` plus single-token/window guards. I found no laundering path and no non-entailed re-point path within the validated judge contract.
+
+Verification run:
+`3 + 32 + 14` targeted related tests passed.
