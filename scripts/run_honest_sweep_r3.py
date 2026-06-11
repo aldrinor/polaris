@@ -1111,6 +1111,39 @@ def _retrieval_manifest_section(retrieval) -> dict:
         ),
         "fetch_workers": getattr(retrieval, "fetch_workers", None),
         "distinct_hosts": getattr(retrieval, "distinct_hosts", None),
+        # I-ready-017 Task 2a (#1204): ADDITIVE source-funnel telemetry. These
+        # persist counts already computed inside run_live_retrieval so the
+        # ~90% pre-fetch source loss is MEASURABLE on a fresh run. Pure
+        # read-only mirroring — retrieval behavior is byte-identical.
+        #
+        # kept_by_offtopic makes the pre-fetch funnel explicit: with pre_filter
+        # and candidates_total already emitted above, the
+        #   candidates_total -> (off-topic filter) -> kept_by_offtopic -> (cap) -> ...
+        # split is now visible. The field already existed on
+        # LiveRetrievalResult; it was simply never written to the manifest.
+        "kept_by_offtopic": getattr(
+            retrieval, "candidates_kept_by_offtopic", 0,
+        ),
+        # The off-topic filter's kept/rejected/threshold (the dominant ~90%
+        # drop). None when the filter is disabled or only seeds are present —
+        # honestly absent rather than a faked count.
+        "prefetch_offtopic": getattr(retrieval, "prefetch_offtopic", None),
+        # Per-reason drop aggregate (offtopic / rerank_not_selected /
+        # fetch_failed / content_starved) so each stage's loss is attributable.
+        "drop_reasons": getattr(retrieval, "drop_reasons", {}),
+        # The fetched -> finding-row extraction stage (the 2nd-biggest drop,
+        # previously uncounted). finding_rows is the number of evidence rows
+        # EXTRACTED from fetched content at retrieval RETURN time. Codex diff-gate
+        # iter-1 P1: read the FROZEN `extraction_finding_rows` snapshot, NOT
+        # len(retrieval.evidence_rows) — run_one_query mutates evidence_rows after
+        # run_live_retrieval returns (expansion/deepener/agentic lanes), so a
+        # manifest-time len() would report the post-expansion total, not the
+        # extraction yield this key names. finding_dedup.raw_row_count is a
+        # separate POST-selection dedup-gated count (absent when dedup is OFF).
+        "extraction_yield": {
+            "fetched": getattr(retrieval, "candidates_fetched", 0),
+            "finding_rows": getattr(retrieval, "extraction_finding_rows", 0),
+        },
     }
 
 

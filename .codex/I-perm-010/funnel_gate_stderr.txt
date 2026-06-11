@@ -1,0 +1,1650 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb510-c0f1-7962-bd44-cd702195d4e0
+--------
+user
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings; do not bank issues for iter 6.
+- If you detect "I'm holding back a P1 to surface in the next round" — DON'T. Surface it now. The 5-cap means iter 6 doesn't exist; banked findings die at iter 5.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+---
+
+# Codex gate: verify the offline source-funnel trace for run drb_76 (#1204 / I-perm-010, Task 1)
+
+## What you are gating
+
+Claude built an OFFLINE forensic source-funnel for a saved POLARIS run (`drb_76`, gut microbiota / colorectal cancer, status `abort_four_role_release_held`). The funnel reconstructs, stage by stage, how many candidate sources entered the pipeline and where they were dropped, ending at the 4-role claim audit. The deliverable is `outputs/audits/I-perm-010/funnel_trace_drb76.json` (reproduced below).
+
+The PURPOSE of #1204 is to locate where the "~90% source loss" actually happens and to honestly classify each drop as **legitimate** (genuinely-unusable source or correct faithfulness gate) vs **throttle** (a good source discarded by an arbitrary number/cap). **The dangerous error this gate must catch is a THROTTLE wrongly classified as LEGITIMATE** — that would hide a quality-suppressing cap behind a "working as intended" label, which in a clinical pipeline is exactly the silent-downgrade failure mode POLARIS forbids.
+
+You have read access to the real saved artifacts. Verify against them; do not take the trace's word.
+
+## Ground-truth artifact locations (all under repo root)
+
+- Manifest:        `outputs/audits/beatboth8/drb_76/manifest.json`
+- Evidence pool:   `outputs/audits/beatboth8/drb_76/evidence_pool.json` (a JSON list)
+- Verification:    `outputs/audits/beatboth8/drb_76/verification_details.json`
+- 4-role audit:    `outputs/audits/beatboth8/drb_76/four_role_claim_audit.json`
+- Code paths cited: `src/polaris_graph/retrieval/live_retriever.py`
+
+## The funnel trace under review (verbatim JSON)
+
+```json
+{
+  "stages": [
+    {"name": "discovered (unique candidate pool, all backends)", "count_in": 2981, "count_out": 2981, "dropped": 0, "source_field": "retrieval.pre_filter (=2981). Task anchor agentic_search.urls_discovered_total=800 is the AGENTIC SUB-LANE only; raw backend returns s2=1402/serper=1251/openalex=700 (discovery_funnel.*.returned) deduped to 2981."},
+    {"name": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation)", "count_in": 2981, "count_out": 740, "dropped": 2241, "source_field": "in=retrieval.pre_filter(2981); out=retrieval.candidates_processed=candidates_total=740. Off-topic-vs-cap split ABSENT (live_retriever notes list not persisted to manifest.json)."},
+    {"name": "fetched (HTTP fetch loop over capped candidates)", "count_in": 740, "count_out": 500, "dropped": 240, "source_field": "in=retrieval.candidates_total(740); out=retrieval.fetched(500); dropped=retrieval.failed(240); fetch_success_rate=0.6757."},
+    {"name": "fetched-non-empty / extracted to evidence (finding) rows", "count_in": 500, "count_out": 55, "dropped": 445, "source_field": "in=retrieval.fetched(500); out=finding_dedup.raw_row_count=55 (==len(evidence_pool.json)=55). Per-source extraction yield ABSENT (no fetched->finding-row counter); partial: tool_utilization fetched_200_but_empty_extract=26, frame_coverage_report.frame_gap_count=3."},
+    {"name": "merged / deduped findings -> selection pool", "count_in": 55, "count_out": 46, "dropped": 9, "source_field": "in=finding_dedup.raw_row_count(55); out=evidence_selection.evidence_total(46). finding_dedup.collapsed_row_count=0. 9-row reduction = pool-assembly pruning (metadata_only=2 + curator_gap=3 + curator/quant); NOT a single counter."},
+    {"name": "relevance-floored / tier-balanced selection -> generator", "count_in": 46, "count_out": 46, "dropped": 0, "source_field": "evidence_selection.evidence_selected=46, dropped_count=0, note 'pool_size<=max_rows (46/150)' — cap never bound."},
+    {"name": "generated sentences (across 5 kept sections) [EXPANSION not drop]", "count_in": 46, "count_out": 81, "dropped": 0, "source_field": "generator.sentences_verified(40)+sentences_dropped(41)=81 candidate sentences; count_in is the 46 evidence rows. This is a generation fan-out, not a drop (verification_details.sections total_in 23+18+14+13+13=81)."},
+    {"name": "survived strict_verify (provenance + numeric + content-overlap + NLI entailment)", "count_in": 81, "count_out": 40, "dropped": 41, "source_field": "verification_details.totals.sentences_dropped=41, sentences_verified=40. drop_reason_counts: entailment_failed=29, no_provenance_token=5, no_content_word_overlap_any_cited_span=4, no_integer_overlap_any_cited_span=2."},
+    {"name": "survived 4-role claim audit (after D8 redaction)", "count_in": 37, "count_out": 23, "dropped": 14, "source_field": "four_role_evaluation.final_verdicts: 37 judged, 23 VERIFIED/14 UNSUPPORTED; report_redaction.redacted_count=14. Run HELD on D8 coverage 0.40<0.70 + S0 contraindications must-cover missing (NOT a source-count problem)."}
+  ],
+  "dominant_loss_stage": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation): 2981 -> 740, absolute drop 2241. This is ~5x the next stage (extraction 500->55, drop 445) and ~55x the strict_verify drop (41). The headline '~90% source loss' lives HERE, not in the verifier. The 800-discovered anchor in the task is the agentic sub-lane only; the real discovered pool is retrieval.pre_filter=2981.",
+  "dominant_reason_breakdown": [
+    {"reason": "off-topic / low semantic-relevance rejection (prefetch_offtopic filter)", "count": 0, "classification": "unknown", "evidence": "live_retriever.py:2962-2982 filter_search_results appends 'prefetch_offtopic: N kept / M rejected' to a local notes list NOT persisted in manifest.json; no tool_trace.jsonl in outputs/audits/beatboth8/drb_76/. Count ABSENT -> unknown. Borderline (legitimate if genuinely off-topic, throttle if threshold over-aggressive)."},
+    {"reason": "fetch_cap hard truncation of ranked-but-uncapped candidates (candidates[:fetch_cap+seeds] slice)", "count": 0, "classification": "throttle", "evidence": "live_retriever.py:2573-2647 _rerank_and_reserve returns candidates[:fetch_cap + n_seed_injected] — a HARD slice discarding every ranked candidate past the cap. DEFAULT_FETCH_CAP=40 (line 92); this sweep raised it (740 entered loop). The cap slice is PURE THROTTLE. Exact count ABSENT in manifest; count=0 is a placeholder, not a measured zero. corpus_truncated=false covers only the POST-fetch loop, not this pre-fetch cap."},
+    {"reason": "aggregate measured pre-fetch drop (off-topic + cap combined)", "count": 2241, "classification": "throttle", "evidence": "retrieval.pre_filter(2981) - retrieval.candidates_total(740) = 2241 (measured). Internal off-topic/cap split is ABSENT. Classified throttle-leaning because the fetch_cap component is a pure number-driven throttle; the off-topic component is unmeasured."}
+  ],
+  "legitimacy_call": "MIXED, leaning THROTTLE at the dominant stage but UNMEASURED. The dominant loss (2981->740 pre-fetch cull, drop 2241) contains a PURE-THROTTLE component (fetch_cap hard slice) AND a borderline off-topic-filter component. NEITHER sub-count is persisted in the manifest, so the throttle-vs-legitimate split of the single largest drop CANNOT be adjudicated from the saved artifacts — this absence is itself the #1 forensic finding for #1204. What IS measured and legitimate: the fetch-failure tail (no_content=247 / empty_extract=26 / S2-landing=2 / timeout=2, whole-run 906-call superset) and the entire back-half verifier drop (41 sentences = 29 entailment + 5 no-token + 4 no-overlap + 2 no-integer) are genuinely-unusable-source or correct-faithfulness drops. The run was NOT held on source count — it was held by the 4-role D8 coverage gate (0.40<0.70 + S0 contraindications must-cover missing). NET: the headline ~90% source loss is NOT primarily a verifier over-drop; it is the pre-fetch cull, whose throttle component (fetch_cap) is a real number-driven throttle but whose exact magnitude is not instrumented."
+}
+```
+
+(The full saved file `outputs/audits/I-perm-010/funnel_trace_drb76.json` additionally carries `meta.anchor_reconciliation`, `secondary_loss_stage`, `fetch_failure_breakdown_whole_run`, `verifier_drop_breakdown`, and `instrumentation_gaps_for_1204`. Open it if you want the long form; the summarized stages above are the load-bearing claims.)
+
+## Independent verification Claude already ran (verify these, don't trust them)
+
+Every count below was pulled directly from the artifacts:
+
+- `retrieval.pre_filter=2981`, `retrieval.candidates_processed=740`, `retrieval.candidates_total=740`, `retrieval.fetched=500`, `retrieval.failed=240`, `retrieval.fetch_success_rate=0.67567...` — all present in manifest.json, exact.
+- discovery_funnel backends: `s2.returned=1402`, `serper.returned=1251`, `openalex_search.returned=700` — present.
+- `agentic_search.urls_discovered_total=800` — present (correctly footnoted as agentic sub-lane only, NOT the discovered pool).
+- `len(evidence_pool.json)=55` == `finding_dedup.raw_row_count=55`; `finding_dedup.collapsed_row_count=0`.
+- `evidence_selection.evidence_total=46`, `evidence_selected=46`, `dropped_count=0`.
+- `generator.sentences_verified=40`, `sentences_dropped=41`; verification_details per-section `total_in` = 23+18+14+13+13 = 81; `drop_reason_counts` = entailment_failed 29 / no_provenance_token 5 / no_content_word_overlap 4 / no_integer_overlap 2 (sum 40) + `dedup_redundant_count=1` = 41.
+- `four_role_evaluation.final_verdicts` = 37 entries, dist {VERIFIED:23, UNSUPPORTED:14}; `release_allowed=false`; `coverage_fraction=0.4`; `held_reasons=["d8_unsupported_residual_below_coverage","d8_s0_must_cover_missing:contraindications","d8_pending_rewrite"]`; `report_redaction.redacted_count=14`.
+- `retrieval.corpus_truncated=false` (only location; trace correctly states this covers the POST-fetch loop, not the pre-fetch cap).
+- fetch_content `error_reasons` = {no_content:247, fetched_200_but_empty_extract:26, "S2 landing pages have no content":2, access_bypass_timeout_90s:2}; `total_calls=906` (the 906-call superset, NOT the 740-loop — so `failed=240` cannot be reason-decomposed, which the trace states).
+- Code: `live_retriever.py:92` = `DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP","40"))`; `:2647` = `return candidates[:fetch_cap + n_seed_injected]` (the hard slice); `:2979-2980` appends `prefetch_offtopic: N kept / M rejected` to a local `notes` list. String `prefetch_offtopic`/`offtopic` is NOT present anywhere in manifest.json, and `retrieval` has no `notes` key — confirming the off-topic-vs-cap split is genuinely absent from saved artifacts.
+- Arithmetic: every drop-stage reconciles (in - out = dropped); the two non-reconciling lines (generated 46->81, and 4-role 37<-40) are correctly labeled a generation fan-out and a post-strict_verify entry respectively.
+
+## Your job (4 checks)
+
+(a) **Counts trace to real keys.** Spot-check the key manifest paths above against the actual files. Confirm every funnel count maps to a real artifact key (not invented). Flag any count that does NOT resolve, OR any case where the cited key holds a different value than the trace states.
+
+(b) **Dominant-loss-stage pick is correct.** By the task's definition (largest absolute drop), confirm the pre-fetch cull (drop 2241) is the dominant loss and that the trace did not mis-rank it. Confirm the trace correctly corrected the task's "discovered=800" anchor to `pre_filter=2981` (same unit as 740/500) rather than chaining mismatched units (e.g. chaining 800 or corpus.count=849 into the funnel, which would create fake drops).
+
+(c) **Legitimate-vs-throttle honesty (the critical check).** For EACH classified drop reason, confirm the legitimate/throttle/unknown label is honest and evidence-backed. Specifically:
+   - Is any **throttle** wrongly labeled **legitimate**? (the dangerous direction — hidden quality suppression)
+   - Is the fetch_cap slice correctly called THROTTLE (a hard `candidates[:fetch_cap+seeds]` numeric cut), and is the trace honest that its exact magnitude is ABSENT (count=0 = placeholder, not a measured zero)?
+   - Is the off-topic component correctly left UNKNOWN rather than assumed legitimate?
+   - Are the verifier drops (entailment/no-token/overlap/integer) and the fetch-failure tail (no_content/empty_extract/S2/timeout) correctly LEGITIMATE?
+   - Is the trace honest that the run was held by the D8 coverage gate, NOT by source count?
+
+(d) **Final line.** Emit, as the LAST line, EXACTLY one of:
+   `verdict: APPROVE`
+   `verdict: REQUEST_CHANGES`
+
+APPROVE iff: every count resolves to a real key with the stated value, the dominant-loss pick is correct, and no throttle is dishonestly labeled legitimate (unknowns honestly marked unknown is acceptable and expected given the instrumentation gap). REQUEST_CHANGES if any count is wrong/invented, the dominant stage is mis-ranked, OR any drop is mis-classified in the dangerous direction.
+
+Also emit the schema before the final line:
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+codex
+I’ll verify this from the saved artifacts rather than the reproduced trace. I’m going to pull the load-bearing manifest fields, evidence pool length, verification totals, audit verdict counts, and the cited retriever code lines, then compare the classifications.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'outputs/audits/beatboth8/drb_76/manifest.json'; "'$m=Get-Content $p -Raw | ConvertFrom-Json; $m | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'outputs/audits/beatboth8/drb_76/evidence_pool.json'; "'$e=Get-Content $p -Raw | ConvertFrom-Json; $e.Count' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Test-Path outputs/audits/I-perm-010/funnel_trace_drb76.json; Test-Path outputs/audits/beatboth8/drb_76/verification_details.json; Test-Path outputs/audits/beatboth8/drb_76/four_role_claim_audit.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"DEFAULT_FETCH_CAP|return candidates\\[:fetch_cap \\+ n_seed_injected\\]|prefetch_offtopic|offtopic\" src/polaris_graph/retrieval/live_retriever.py" in C:\POLARIS
+ succeeded in 3301ms:
+11:    4. prefetch_offtopic_filter on candidates (if embedder available)
+42:from src.polaris_graph.retrieval.prefetch_offtopic_filter import (
+92:DEFAULT_FETCH_CAP = int(os.getenv("PG_LIVE_FETCH_CAP", "40"))
+135:    candidates_kept_by_offtopic: int
+2647:        return candidates[:fetch_cap + n_seed_injected]
+2662:    fetch_cap: int = DEFAULT_FETCH_CAP,
+2974:            _pre_offtopic_urls = {c.url for c in _nonseed_cands}
+2977:            for _dropped_url in _pre_offtopic_urls - {c.url for c in filt.kept}:
+2978:                _trace_drop(_dropped_url, "offtopic")
+2980:                f"prefetch_offtopic: {filt.total_kept} kept / "
+2984:    kept_by_offtopic = len(candidates)
+3475:        candidates_kept_by_offtopic=kept_by_offtopic,
+
+ succeeded in 6251ms:
+55
+
+ succeeded in 9168ms:
+adequacy
+agentic_search
+analytical_depth_advisory
+budget_cap_usd
+completeness
+contradictions_found
+corpus
+corpus_credibility_disclosure
+cost_usd
+discovery_funnel
+discovery_llm_degraded
+discovery_rounds_on_fallback
+domain
+evaluator_gate_advisory
+evaluator_rule_fail
+evaluator_rule_pass
+evidence_selection
+fact_dedup
+finding_dedup
+four_role_evaluation
+frame_coverage_report
+generator
+judge_verdicts
+nli_verification
+protocol_sha256
+quantified_analysis
+question
+reasoning_trace
+release_allowed
+report_redaction
+retrieval
+run_id
+slug
+status
+storm_query_expansion
+synthesis_n_scrub_alert
+tool_utilization
+uploaded_documents_blocked
+uploaded_documents_used
+v30_enabled
+v30_warnings
+
+ succeeded in 12064ms:
+True
+True
+True
+
+codex
+The key files are present, and the retriever has the hard fetch-cap slice at the cited code path. Next I’m extracting the exact nested values and checking whether any of the trace’s counters are derived rather than persisted.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference='"'Stop'
+"'$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json
+"'$rows = @()
+function Add($name,$value){ $script:rows += [pscustomobject]@{key=$name; value=$value} }
+Add '"'retrieval.pre_filter' "'$m.retrieval.pre_filter
+Add '"'retrieval.candidates_processed' "'$m.retrieval.candidates_processed
+Add '"'retrieval.candidates_total' "'$m.retrieval.candidates_total
+Add '"'retrieval.fetched' "'$m.retrieval.fetched
+Add '"'retrieval.failed' "'$m.retrieval.failed
+Add '"'retrieval.fetch_success_rate' "'$m.retrieval.fetch_success_rate
+Add '"'retrieval.corpus_truncated' "'$m.retrieval.corpus_truncated
+Add '"'discovery_funnel.s2.returned' "'$m.discovery_funnel.s2.returned
+Add '"'discovery_funnel.serper.returned' "'$m.discovery_funnel.serper.returned
+Add '"'discovery_funnel.openalex_search.returned' "'$m.discovery_funnel.openalex_search.returned
+Add '"'agentic_search.urls_discovered_total' "'$m.agentic_search.urls_discovered_total
+Add '"'finding_dedup.raw_row_count' "'$m.finding_dedup.raw_row_count
+Add '"'finding_dedup.collapsed_row_count' "'$m.finding_dedup.collapsed_row_count
+Add '"'evidence_selection.evidence_total' "'$m.evidence_selection.evidence_total
+Add '"'evidence_selection.evidence_selected' "'$m.evidence_selection.evidence_selected
+Add '"'evidence_selection.dropped_count' "'$m.evidence_selection.dropped_count
+Add '"'generator.sentences_verified' "'$m.generator.sentences_verified
+Add '"'generator.sentences_dropped' "'$m.generator.sentences_dropped
+Add '"'four_role_evaluation.release_allowed' "'$m.four_role_evaluation.release_allowed
+Add '"'four_role_evaluation.coverage_fraction' "'$m.four_role_evaluation.coverage_fraction
+Add '"'report_redaction.redacted_count' "'$m.report_redaction.redacted_count
+Add '"'fetch_content.total_calls' "'$m.tool_utilization.fetch_content.total_calls
+Add '"'fetch_content.error_reasons.no_content' "'$m.tool_utilization.fetch_content.error_reasons.no_content
+Add '"'fetch_content.error_reasons.fetched_200_but_empty_extract' "'$m.tool_utilization.fetch_content.error_reasons.fetched_200_but_empty_extract
+Add '"'fetch_content.error_reasons.S2 landing pages have no content' "'$m.tool_utilization.fetch_content.error_reasons.'"'S2 landing pages have no content'
+Add 'fetch_content.error_reasons.access_bypass_timeout_90s' "'$m.tool_utilization.fetch_content.error_reasons.access_bypass_timeout_90s
+$rows | Format-Table -AutoSize' in C:\POLARIS
+ succeeded in 3286ms:
+
+[32;1mkey                                                         [0m[32;1m value[0m
+[32;1m---                                                         [0m [32;1m-----[0m
+retrieval.pre_filter                                          2981
+retrieval.candidates_processed                                 740
+retrieval.candidates_total                                     740
+retrieval.fetched                                              500
+retrieval.failed                                               240
+retrieval.fetch_success_rate                                  0.68
+retrieval.corpus_truncated                                   False
+discovery_funnel.s2.returned                                  1402
+discovery_funnel.serper.returned                              1251
+discovery_funnel.openalex_search.returned                      700
+agentic_search.urls_discovered_total                           800
+finding_dedup.raw_row_count                                     55
+finding_dedup.collapsed_row_count                                0
+evidence_selection.evidence_total                               46
+evidence_selection.evidence_selected                            46
+evidence_selection.dropped_count                                 0
+generator.sentences_verified                                    40
+generator.sentences_dropped                                     41
+four_role_evaluation.release_allowed                         False
+four_role_evaluation.coverage_fraction                        0.40
+report_redaction.redacted_count                                 14
+fetch_content.total_calls                                         
+fetch_content.error_reasons.no_content                            
+fetch_content.error_reasons.fetched_200_but_empty_extract         
+fetch_content.error_reasons.S2 landing pages have no content      
+fetch_content.error_reasons.access_bypass_timeout_90s             
+
+
+codex
+The main manifest counts match the trace so far. The fetch-content reason path is not under `tool_utilization.fetch_content` in the shape I tried, so I’m locating the exact stored path before judging that part.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; "'$m.tool_utilization | ConvertTo-Json -Depth 8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n 'fetch_content|error_reasons|total_calls|fetched_200_but_empty_extract|S2 landing pages|access_bypass_timeout_90s|no_content' outputs/audits/beatboth8/drb_76/manifest.json" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; "'$m.retrieval | ConvertTo-Json -Depth 8' in C:\POLARIS
+ succeeded in 3040ms:
+6042:    "fetch_content": {
+6398:            "outcome": "error:core_returned_no_content",
+6405:            "outcome": "error:fetch_returned_no_content",
+6480:            "outcome": "error:core_returned_no_content",
+6538:            "outcome": "error:core_returned_no_content",
+6595:            "outcome": "error:core_returned_no_content",
+6602:            "outcome": "error:fetch_returned_no_content",
+6895:      "fetch_content": {
+6909:        "error_reasons": {
+6910:          "S2 landing pages have no content": 2,
+6911:          "access_bypass_timeout_90s": 2,
+6912:          "fetched_200_but_empty_extract": 26,
+6913:          "no_content": 247
+6924:        "total_calls": 906
+6930:        "error_reasons": {},
+6940:        "total_calls": 45
+6946:        "error_reasons": {
+6958:        "total_calls": 45
+6964:        "error_reasons": {},
+6974:        "total_calls": 45
+
+ succeeded in 5944ms:
+{
+  "summary_by_tool": {
+    "fetch_content": {
+      "backends_used": [
+        "archive.org",
+        "direct",
+        "failed",
+        "httpx_naive",
+        "jina_reader",
+        "oa_resolver",
+        "pdf_extract",
+        "pmc_bioc",
+        "skipped_s2_landing",
+        "trafilatura",
+        "zyte"
+      ],
+      "error_reasons": {
+        "S2 landing pages have no content": 2,
+        "access_bypass_timeout_90s": 2,
+        "fetched_200_but_empty_extract": 26,
+        "no_content": 247
+      },
+      "fail_count": 277,
+      "latency_stats": {
+        "max_ms": 167972.71013259888,
+        "mean_ms": 8795.970332280427,
+        "min_ms": 2.046823501586914,
+        "p95_ms": 40710.88528633118
+      },
+      "ok_count": 629,
+      "success_rate": 0.6942604856512141,
+      "total_calls": 906
+    },
+    "openalex_search": {
+      "backends_used": [
+        "openalex_works_api"
+      ],
+      "error_reasons": {},
+      "fail_count": 0,
+      "latency_stats": {
+        "max_ms": 15050.219297409058,
+        "mean_ms": 826.4184686872694,
+        "min_ms": 276.2341499328613,
+        "p95_ms": 1598.8266468048096
+      },
+      "ok_count": 45,
+      "success_rate": 1.0,
+      "total_calls": 45
+    },
+    "s2": {
+      "backends_used": [
+        "semantic_scholar_api"
+      ],
+      "error_reasons": {
+        "HTTP 500": 1
+      },
+      "fail_count": 23,
+      "latency_stats": {
+        "max_ms": 3034.1367721557617,
+        "mean_ms": 678.9302243126763,
+        "min_ms": 121.12998962402344,
+        "p95_ms": 1969.8643684387207
+      },
+      "ok_count": 22,
+      "success_rate": 0.4888888888888889,
+      "total_calls": 45
+    },
+    "serper": {
+      "backends_used": [
+        "serper_api_v1"
+      ],
+      "error_reasons": {},
+      "fail_count": 0,
+      "latency_stats": {
+        "max_ms": 2209.0752124786377,
+        "mean_ms": 943.0512958102756,
+        "min_ms": 549.8008728027344,
+        "p95_ms": 1538.8939380645752
+      },
+      "ok_count": 45,
+      "success_rate": 1.0,
+      "total_calls": 45
+    }
+  },
+  "summary_file": "tool_summary.json",
+  "tool_success_rate": 0.7118155619596542,
+  "total_fail": 300,
+  "total_ok": 741,
+  "total_tool_calls": 1041,
+  "trace_file": "tool_trace.jsonl"
+}
+
+ succeeded in 8802ms:
+{
+  "api_calls": {
+    "bypass_leaked_worker_count": 6,
+    "europe_pmc": 1,
+    "fetch": 740,
+    "openalex": 0,
+    "openalex_search": 45,
+    "parallel_fetch_errored_count": 0,
+    "parallel_fetch_success_count": 737,
+    "parallel_fetch_timeout_count": 3,
+    "s2": 45,
+    "serper": 135
+  },
+  "candidates_processed": 740,
+  "candidates_total": 740,
+  "corpus_truncated": false,
+  "distinct_hosts": 235,
+  "failed": 240,
+  "fetch_success_rate": 0.6756756756756757,
+  "fetch_workers": 32,
+  "fetched": 500,
+  "parallel_completion_rate": 0.995945945945946,
+  "pre_filter": 2981
+}
+
+codex
+Fetch failure reasons are present under `tool_utilization.summary_by_tool.fetch_content`, with the stated 906-call superset. I’m now checking the verification and 4-role audit objects independently, including the 37-vs-40 transition.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$a=Get-Content '"'outputs/audits/beatboth8/drb_76/four_role_claim_audit.json' -Raw | ConvertFrom-Json; "'$a | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$v=Get-Content '"'outputs/audits/beatboth8/drb_76/verification_details.json' -Raw | ConvertFrom-Json; "'$v | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$f=Get-Content '"'outputs/audits/I-perm-010/funnel_trace_drb76.json' -Raw | ConvertFrom-Json; "'$f | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name' in C:\POLARIS
+ succeeded in 3179ms:
+dedup_redundant_count
+drop_reason_counts
+judge_calls
+judge_error_count
+judge_error_degraded
+judge_error_rate
+judge_error_rate_cap
+judge_error_sentences_checked
+m41c_underframed_count
+sections
+totals
+verifier_sentences_checked
+
+ succeeded in 5765ms:
+00-000-7d070947
+00-001-f3487d54
+00-002-0e20a7f4
+00-003-158afde6
+00-004-8f8e4bf3
+00-005-b682ddc6
+00-006-0a6b04a5
+00-007-85585271
+00-008-11c0450b
+00-009-8055b74f
+00-010-ae811dd8
+01-000-df9a6a78
+01-001-918f21b0
+01-002-3ebfbb93
+01-003-e5e8fc21
+01-004-9a535956
+01-005-b4f26b9e
+01-006-9804d823
+01-007-9954783f
+03-000-58d3f10c
+03-001-1595ee4d
+03-002-ffa17930
+03-003-1cb689d0
+03-004-89b0408f
+03-005-a9c14841
+04-000-765df12e
+04-001-cfd50bf7
+04-002-b0e4bbe0
+04-003-920fe168
+04-004-65965d94
+05-000-d2470559
+05-001-d169f820
+05-002-9a57f51c
+05-003-d3b05337
+05-004-6c42b3ed
+05-005-c81ae696
+05-006-0f0145a6
+
+ succeeded in 8400ms:
+dominant_loss_rationale
+dominant_loss_stage
+dominant_reason_breakdown
+fetch_failure_breakdown_whole_run
+instrumentation_gaps_for_1204
+legitimacy_call
+meta
+secondary_loss_stage
+stages
+trace_file
+verifier_drop_breakdown
+
+codex
+The 4-role audit file is keyed by claim IDs rather than by a wrapper object, so I’m counting verdict values across entries directly. That also lets me confirm whether the post-redaction count is exactly the trace’s 37 judged claims.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference='"'Stop'
+"'$v=Get-Content '"'outputs/audits/beatboth8/drb_76/verification_details.json' -Raw | ConvertFrom-Json
+'VERIFICATION_TOTALS'
+"'$v.totals | ConvertTo-Json -Depth 8
+'"'DROP_REASONS'
+"'$v.drop_reason_counts | ConvertTo-Json -Depth 8
+'"'DEDUP_REDUNDANT'
+"'$v.dedup_redundant_count
+'"'SECTIONS'
+"'$v.sections.PSObject.Properties | ForEach-Object { [pscustomobject]@{section=$_.Name; total_in=$_.Value.total_in; verified=$_.Value.verified; dropped=$_.Value.dropped} } | Format-Table -AutoSize
+'"'SECTION_TOTAL_IN_SUM'
+("'$v.sections.PSObject.Properties | Measure-Object -Property { $_.Value.total_in } -Sum).Sum' in C:\POLARIS
+2026-06-11T05:05:26.641396Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 3.3 seconds
+Output:
+VERIFICATION_TOTALS
+{
+  "sentences_dropped": 41,
+  "sentences_verified": 40
+}
+DROP_REASONS
+{
+  "entailment_failed": 29,
+  "no_content_word_overlap_any_cited_span": 4,
+  "no_integer_overlap_any_cited_span": 2,
+  "no_provenance_token": 5
+}
+DEDUP_REDUNDANT
+1
+SECTIONS
+
+[32;1msection       [0m[32;1m total_in         [0m[32;1m verified                     [0m[32;1m dropped[0m
+[32;1m-------       [0m [32;1m--------         [0m [32;1m--------                     [0m [32;1m-------[0m
+Length                                                         
+LongLength                                                     
+Rank                                                           
+SyncRoot       {23, 18, 14, 13…} {$null, $null, $null, $null…} {@{failure_reasons=System.Object[]; sentence=Included s…
+IsReadOnly                                                     
+IsFixedSize                                                    
+IsSynchronized                                                 
+Count                                                          
+
+SECTION_TOTAL_IN_SUM
+[31;1mMeasure-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m  13 | [0m … Properties | [36;1mMeasure-Object -Property { $_.Value.total_in } -Sum[0m).Sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mInput object "23 18 14 13 13" is not numeric.[0m
+
+ exited 1 in 3332ms:
+VERIFICATION_TOTALS
+{
+  "sentences_dropped": 41,
+  "sentences_verified": 40
+}
+DROP_REASONS
+{
+  "entailment_failed": 29,
+  "no_content_word_overlap_any_cited_span": 4,
+  "no_integer_overlap_any_cited_span": 2,
+  "no_provenance_token": 5
+}
+DEDUP_REDUNDANT
+1
+SECTIONS
+
+[32;1msection       [0m[32;1m total_in         [0m[32;1m verified                     [0m[32;1m dropped[0m
+[32;1m-------       [0m [32;1m--------         [0m [32;1m--------                     [0m [32;1m-------[0m
+Length                                                         
+LongLength                                                     
+Rank                                                           
+SyncRoot       {23, 18, 14, 13…} {$null, $null, $null, $null…} {@{failure_reasons=System.Object[]; sentence=Included s…
+IsReadOnly                                                     
+IsFixedSize                                                    
+IsSynchronized                                                 
+Count                                                          
+
+SECTION_TOTAL_IN_SUM
+[31;1mMeasure-Object: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m  13 | [0m … Properties | [36;1mMeasure-Object -Property { $_.Value.total_in } -Sum[0m).Sum[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mInput object "23 18 14 13 13" is not numeric.[0m
+
+codex
+Verification totals and drop reasons match; the section object is an array, not a keyed object, so I’m rerunning that piece with array iteration to get the exact 23+18+14+13+13 reconciliation.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$a=Get-Content '"'outputs/audits/beatboth8/drb_76/four_role_claim_audit.json' -Raw | ConvertFrom-Json; "'$entries=$a.PSObject.Properties.Value; $entries | Group-Object -Property final_verdict | Select-Object Name,Count | Format-Table -AutoSize; '"'total=' + "'$entries.Count' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$v=Get-Content '"'outputs/audits/beatboth8/drb_76/verification_details.json' -Raw | ConvertFrom-Json; "'$v.sections | ForEach-Object { [pscustomobject]@{section=$_.section; total_in=$_.total_in; verified=$_.verified.Count; dropped=$_.dropped.Count} } | Format-Table -AutoSize; '"'sum=' + (("'$v.sections | Measure-Object -Property total_in -Sum).Sum)' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; 'four_role_eval'; "'$m.four_role_evaluation | ConvertTo-Json -Depth 8; '"'held/release'; [pscustomobject]@{release_allowed="'$m.release_allowed; status=$m.status; redacted=$m.report_redaction.redacted_count} | Format-List' in C:\POLARIS
+ succeeded in 3064ms:
+
+[32;1mName[0m[32;1m Count[0m
+[32;1m----[0m [32;1m-----[0m
+        37
+
+total=37
+
+ succeeded in 6033ms:
+
+[32;1msection[0m[32;1m total_in[0m[32;1m verified[0m[32;1m dropped[0m
+[32;1m-------[0m [32;1m--------[0m [32;1m--------[0m [32;1m-------[0m
+              23        0      10
+              18        0       9
+              14        0       8
+              13        0       8
+              13        0       5
+
+sum=81
+
+ succeeded in 9157ms:
+four_role_eval
+{
+  "coverage_fraction": 0.4,
+  "evaluator_agrees": {
+    "00-000-7d070947": true,
+    "00-001-f3487d54": false,
+    "00-002-0e20a7f4": true,
+    "00-003-158afde6": true,
+    "00-004-8f8e4bf3": false,
+    "00-005-b682ddc6": true,
+    "00-006-0a6b04a5": true,
+    "00-007-85585271": false,
+    "00-008-11c0450b": true,
+    "00-009-8055b74f": false,
+    "00-010-ae811dd8": false,
+    "01-000-df9a6a78": false,
+    "01-001-918f21b0": true,
+    "01-002-3ebfbb93": true,
+    "01-003-e5e8fc21": true,
+    "01-004-9a535956": true,
+    "01-005-b4f26b9e": true,
+    "01-006-9804d823": false,
+    "01-007-9954783f": false,
+    "03-000-58d3f10c": false,
+    "03-001-1595ee4d": true,
+    "03-002-ffa17930": true,
+    "03-003-1cb689d0": true,
+    "03-004-89b0408f": true,
+    "03-005-a9c14841": true,
+    "04-000-765df12e": false,
+    "04-001-cfd50bf7": true,
+    "04-002-b0e4bbe0": true,
+    "04-003-920fe168": false,
+    "04-004-65965d94": false,
+    "05-000-d2470559": false,
+    "05-001-d169f820": true,
+    "05-002-9a57f51c": false,
+    "05-003-d3b05337": true,
+    "05-004-6c42b3ed": true,
+    "05-005-c81ae696": true,
+    "05-006-0f0145a6": true
+  },
+  "fabricated_occurrence_latched": false,
+  "final_verdicts": {
+    "00-000-7d070947": "VERIFIED",
+    "00-001-f3487d54": "UNSUPPORTED",
+    "00-002-0e20a7f4": "VERIFIED",
+    "00-003-158afde6": "VERIFIED",
+    "00-004-8f8e4bf3": "UNSUPPORTED",
+    "00-005-b682ddc6": "VERIFIED",
+    "00-006-0a6b04a5": "VERIFIED",
+    "00-007-85585271": "UNSUPPORTED",
+    "00-008-11c0450b": "VERIFIED",
+    "00-009-8055b74f": "UNSUPPORTED",
+    "00-010-ae811dd8": "UNSUPPORTED",
+    "01-000-df9a6a78": "UNSUPPORTED",
+    "01-001-918f21b0": "VERIFIED",
+    "01-002-3ebfbb93": "VERIFIED",
+    "01-003-e5e8fc21": "VERIFIED",
+    "01-004-9a535956": "VERIFIED",
+    "01-005-b4f26b9e": "VERIFIED",
+    "01-006-9804d823": "UNSUPPORTED",
+    "01-007-9954783f": "UNSUPPORTED",
+    "03-000-58d3f10c": "UNSUPPORTED",
+    "03-001-1595ee4d": "VERIFIED",
+    "03-002-ffa17930": "VERIFIED",
+    "03-003-1cb689d0": "VERIFIED",
+    "03-004-89b0408f": "VERIFIED",
+    "03-005-a9c14841": "VERIFIED",
+    "04-000-765df12e": "UNSUPPORTED",
+    "04-001-cfd50bf7": "VERIFIED",
+    "04-002-b0e4bbe0": "VERIFIED",
+    "04-003-920fe168": "UNSUPPORTED",
+    "04-004-65965d94": "UNSUPPORTED",
+    "05-000-d2470559": "UNSUPPORTED",
+    "05-001-d169f820": "VERIFIED",
+    "05-002-9a57f51c": "UNSUPPORTED",
+    "05-003-d3b05337": "VERIFIED",
+    "05-004-6c42b3ed": "VERIFIED",
+    "05-005-c81ae696": "VERIFIED",
+    "05-006-0f0145a6": "VERIFIED"
+  },
+  "gaps": [
+    {
+      "kind": "coverage_shortfall",
+      "note": "required-element coverage 0.400 is below the 0.700 threshold (fixed required-set denominator)",
+      "ref": "__coverage__",
+      "severity": "S0"
+    },
+    {
+      "kind": "uncovered_s0",
+      "note": "required S0 must-cover category has no VERIFIED claim (PARTIAL/citation-only does not satisfy it)",
+      "ref": "contraindications",
+      "severity": "S0"
+    }
+  ],
+  "held_reasons": [
+    "d8_unsupported_residual_below_coverage",
+    "d8_s0_must_cover_missing:contraindications",
+    "d8_pending_rewrite"
+  ],
+  "kg_path": "outputs/honest_sweep_r3/verified_claim_graph_campaign.db",
+  "needs_rewrite": [
+    "00-001-f3487d54",
+    "00-004-8f8e4bf3",
+    "00-007-85585271",
+    "00-009-8055b74f",
+    "00-010-ae811dd8",
+    "01-000-df9a6a78",
+    "01-006-9804d823",
+    "01-007-9954783f",
+    "05-000-d2470559",
+    "05-002-9a57f51c"
+  ],
+  "release_allowed": false
+}
+held/release
+
+[32;1mrelease_allowed : [0mFalse
+[32;1mstatus          : [0mabort_four_role_release_held
+[32;1mredacted        : [0m14
+
+
+codex
+The manifest’s 4-role evaluation contains the stated 37 final verdicts and held reasons. I’m checking the standalone audit file’s entry schema now because its verdict field name differs from the manifest wrapper.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$a=Get-Content '"'outputs/audits/beatboth8/drb_76/four_role_claim_audit.json' -Raw | ConvertFrom-Json; "'$first=$a.PSObject.Properties[0]; $first.Name; $first.Value | ConvertTo-Json -Depth 8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; "'$m.four_role_evaluation.final_verdicts.PSObject.Properties.Value | Group-Object | Select-Object Name,Count | Format-Table -AutoSize; '"'total=' + "'$m.four_role_evaluation.final_verdicts.PSObject.Properties.Count' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; "'$m.report_redaction | ConvertTo-Json -Depth 8' in C:\POLARIS
+ succeeded in 3468ms:
+
+[32;1mName       [0m[32;1m Count[0m
+[32;1m----       [0m [32;1m-----[0m
+UNSUPPORTED    14
+VERIFIED       23
+
+total=1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+
+ succeeded in 6545ms:
+null
+
+ succeeded in 9191ms:
+{
+  "already_absent_claim_ids": [],
+  "redacted_claim_ids": [
+    "00-001-f3487d54",
+    "00-004-8f8e4bf3",
+    "00-007-85585271",
+    "00-009-8055b74f",
+    "00-010-ae811dd8",
+    "01-000-df9a6a78",
+    "01-006-9804d823",
+    "01-007-9954783f",
+    "03-000-58d3f10c",
+    "04-000-765df12e",
+    "04-003-920fe168",
+    "04-004-65965d94",
+    "05-000-d2470559",
+    "05-002-9a57f51c"
+  ],
+  "redacted_count": 14
+}
+
+codex
+The standalone audit JSON is still readable, but PowerShell’s property collection indexing gave a null for the first access. I’m normalizing it to an array and then counting the verdict field from actual entries.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$ErrorActionPreference='"'Stop'
+"'$a=Get-Content '"'outputs/audits/beatboth8/drb_76/four_role_claim_audit.json' -Raw | ConvertFrom-Json
+"'$props=@($a.PSObject.Properties)
+'"'prop_count=' + "'$props.Count
+'"'first_name=' + "'$props[0].Name
+'"'first_fields:'
+"'$props[0].Value | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+'"'first_json:'
+"'$props[0].Value | ConvertTo-Json -Depth 6' in C:\POLARIS
+ succeeded in 3444ms:
+prop_count=37
+first_name=00-000-7d070947
+first_fields:
+covered_element_ids
+evidence_ids
+s0_categories
+section_index
+section_title
+sentence
+severity
+first_json:
+{
+  "covered_element_ids": [
+    "prebiotic_fiber_scfa_meta"
+  ],
+  "evidence_ids": [
+    "prebiotic_fiber_scfa_meta"
+  ],
+  "s0_categories": [],
+  "section_index": 0,
+  "section_title": "Efficacy",
+  "sentence": "Exposure: intake of dietary fibre and whole grains [#ev:prebiotic_fiber_scfa_meta:100-900].",
+  "severity": "S1"
+}
+
+codex
+The standalone claim-audit file has 37 claim records, while the verdict distribution lives in `manifest.json` under `four_role_evaluation.final_verdicts`. That matches the trace’s source wording for the verdicts. I’m checking the saved funnel file itself now for any extra load-bearing counters beyond the reproduced summary.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$f=Get-Content '"'outputs/audits/I-perm-010/funnel_trace_drb76.json' -Raw | ConvertFrom-Json; 'meta'; "'$f.meta | ConvertTo-Json -Depth 8; '"'secondary'; "'$f.secondary_loss_stage; '"'fetch_failure'; "'$f.fetch_failure_breakdown_whole_run | ConvertTo-Json -Depth 8; '"'verifier'; "'$f.verifier_drop_breakdown | ConvertTo-Json -Depth 8; '"'gaps'; "'$f.instrumentation_gaps_for_1204 | ConvertTo-Json -Depth 8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$f=Get-Content '"'outputs/audits/I-perm-010/funnel_trace_drb76.json' -Raw | ConvertFrom-Json; "'$f.stages | Select-Object name,count_in,count_out,dropped,classification | Format-Table -AutoSize' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$f=Get-Content '"'outputs/audits/I-perm-010/funnel_trace_drb76.json' -Raw | ConvertFrom-Json; "'$f.dominant_reason_breakdown | ConvertTo-Json -Depth 8' in C:\POLARIS
+ succeeded in 3652ms:
+meta
+{
+  "task": "GitHub #1204 Task 1 / I-perm-010 — offline source-funnel forensic trace",
+  "run_id": "SWEEP_clinical_drb_76_gut_microbiota_crc_1781102748",
+  "slug": "drb_76_gut_microbiota_crc",
+  "status_of_run": "abort_four_role_release_held",
+  "manifest": "outputs/audits/beatboth8/drb_76/manifest.json",
+  "evidence_pool": "outputs/audits/beatboth8/drb_76/evidence_pool.json",
+  "verification_details": "outputs/audits/beatboth8/drb_76/verification_details.json",
+  "four_role": "outputs/audits/beatboth8/drb_76/four_role_claim_audit.json",
+  "code_paths": [
+    "src/polaris_graph/retrieval/live_retriever.py (pre_filter, off-topic filter, _rerank_and_reserve fetch_cap slice, post-fetch loop)",
+    "src/polaris_graph/retrieval/evidence_selector.py (selection pool, max_rows)",
+    "src/polaris_graph/synthesis/finding_dedup.py (raw_row_count / dedup)",
+    "src/polaris_graph/generator/provenance strict_verify + four_role_evaluation (manifest)"
+  ],
+  "anchor_reconciliation": {
+    "task_anchor_discovered_800": "agentic_search.urls_discovered_total = 800 is the AGENTIC SUB-LANE only, NOT the full discovered pool. The true unique candidate pool across ALL backends is retrieval.pre_filter = 2981, which is the same unit as candidates_processed (740) and fetched (500). The funnel below uses 2981 as 'discovered' and footnotes the 800.",
+    "task_anchor_fetched_500": "CONFIRMED: retrieval.fetched = 500 (ok fetches inside the 740-candidate post-fetch loop).",
+    "task_anchor_parallel_fetch_success_737": "CONFIRMED: retrieval.api_calls.parallel_fetch_success_count = 737. NOTE this is the parallel-fetch worker success count over the 740-candidate batch; retrieval.fetched=500 is the count of fetches that yielded usable content (ok=True) inside the post-fetch classification loop. The two are different denominators (737 = HTTP-level parallel completions; 500 = content-usable).",
+    "task_anchor_fetch_success_rate_068": "CONFIRMED: retrieval.fetch_success_rate = 0.6757 = 500/740.",
+    "task_anchor_empty_extract_26": "CONFIRMED: tool_utilization.summary_by_tool.fetch_content.error_reasons.fetched_200_but_empty_extract = 26, but this is on the 906-CALL fetch_content SUPERSET (740 retrieval loop + ~166 frame/required-entity fetches), NOT the 740-candidate loop. See denominator note below.",
+    "task_anchor_storm_merged_48": "CONFIRMED: storm_query_expansion.web_result_rows_merged = 48 (of 200 harvested STORM URLs).",
+    "task_anchor_sourced_numbers_474": "CONFIRMED: quantified_analysis.sourced_numbers_extracted = 474 (raw numeric tokens scraped; quantified_analysis.fired=false, no spec produced, so this fed nothing downstream).",
+    "task_anchor_evidence_selected_46_dropped_0": "CONFIRMED: evidence_selection.evidence_selected = 46, dropped_count = 0. Selection itself dropped NOTHING; the pool handed to selection was already only 46 rows.",
+    "task_anchor_generator_sentences_dropped_41": "CONFIRMED: generator.sentences_dropped = 41, generator.sentences_verified = 40 (81 generated total).",
+    "fetch_failure_denominator_note": "The fetch_content error_reasons (no_content=247, fetched_200_but_empty_extract=26, S2-landing=2, access_bypass_timeout=2; fail_count=277 over total_calls=906) belong to the 906-call fetch_content SUPERSET. They do NOT sum to the retrieval-loop's failed=240, and no_content (247) alone EXCEEDS 240. So the per-reason fetch-failure breakdown cannot be cleanly attributed to the 740-candidate loop; it is the whole-run fetch accounting.",
+    "corpus_849_note": "corpus.count = 849 is a PARALLEL classification accounting (classified sources incl. metadata-only and search-result rows), NOT a funnel node. 849 > fetched(500) and > candidates(740); chaining it would create a fake negative drop. Footnoted, not placed in the funnel chain."
+  }
+}
+secondary
+
+[32;1mname                                                  [0m[32;1m note[0m
+[32;1m----                                                  [0m [32;1m----[0m
+extraction: fetched(500) -> finding rows(55), drop 445 Second-largest absolute drop. Per-source extraction yield is AB…
+fetch_failure
+[
+  {
+    "reason": "no_content (fetch returned empty body)",
+    "count": 247,
+    "classification": "legitimate",
+    "evidence": "tool_utilization.summary_by_tool.fetch_content.error_reasons.no_content=247 (906-call superset). Empty body = genuinely unusable source. Legitimate."
+  },
+  {
+    "reason": "fetched_200_but_empty_extract",
+    "count": 26,
+    "classification": "legitimate",
+    "evidence": "tool_utilization...error_reasons.fetched_200_but_empty_extract=26. 200 OK but extractor found no usable text (JS-walled/boilerplate). live_retriever.py:2292-2304 records this as a fetch failure. Legitimate (source delivered no extractable content)."
+  },
+  {
+    "reason": "S2 landing pages have no content",
+    "count": 2,
+    "classification": "legitimate",
+    "evidence": "tool_utilization...error_reasons 'S2 landing pages have no content'=2. Semantic Scholar landing stub, no full text. Legitimate."
+  },
+  {
+    "reason": "access_bypass_timeout_90s",
+    "count": 2,
+    "classification": "legitimate",
+    "evidence": "tool_utilization...error_reasons.access_bypass_timeout_90s=2. Timed out after 90s. Legitimate (unreachable in budget)."
+  }
+]
+verifier
+[
+  {
+    "reason": "NLI entailment_failed (cited span does not entail the sentence)",
+    "count": 29,
+    "classification": "legitimate",
+    "evidence": "verification_details.drop_reason_counts.entailment_failed=29. A sentence whose cited span does not entail it is an unsupported/hallucinated claim — correct to drop in a clinical faithfulness pipeline. Legitimate (faithfulness gate working as designed)."
+  },
+  {
+    "reason": "no_provenance_token (sentence carried no [#ev:...] token)",
+    "count": 5,
+    "classification": "legitimate",
+    "evidence": "verification_details.drop_reason_counts.no_provenance_token=5. POLARIS invariant 9.1.2: untokened sentences are dropped. Legitimate."
+  },
+  {
+    "reason": "no_content_word_overlap_any_cited_span",
+    "count": 4,
+    "classification": "legitimate",
+    "evidence": "verification_details.drop_reason_counts.no_content_word_overlap_any_cited_span=4. <2 shared content words with span (invariant 9.1.3). Legitimate."
+  },
+  {
+    "reason": "no_integer_overlap_any_cited_span",
+    "count": 2,
+    "classification": "legitimate",
+    "evidence": "verification_details.drop_reason_counts.no_integer_overlap_any_cited_span=2. A decimal in the sentence is absent from the span (invariant 9.1.3c). Legitimate."
+  }
+]
+gaps
+[
+  "ABSENT: prefetch_offtopic kept/rejected counts (live_retriever notes list, not persisted to manifest.json).",
+  "ABSENT: effective fetch_cap value for this run and how many ranked candidates the cap slice discarded (the pure-throttle number).",
+  "ABSENT: extraction yield — which of 500 fetched bodies produced 0 finding rows and why (no fetched->finding-row counter).",
+  "PARTIAL: 55->46 pool-assembly pruning is not a single counter (inferred from metadata_only=2 + curator_gap=3).",
+  "DENOMINATOR MISMATCH: fetch_content error_reasons are on the 906-call superset, not the 740-candidate retrieval loop; failed=240 cannot be reason-decomposed from the manifest."
+]
+
+
+ succeeded in 6081ms:
+
+[32;1mname                                                                                 [0m[32;1m count_in[0m[32;1m count_out[0m[32;1m dropped[0m[32;1m classi[0m
+[32;1m                                                                                     [0m[32;1m         [0m[32;1m          [0m[32;1m        [0m[32;1m ficati[0m
+[32;1m                                                                                     [0m[32;1m         [0m[32;1m          [0m[32;1m        [0m[32;1m on[0m
+[32;1m----                                                                                 [0m [32;1m--------[0m [32;1m---------[0m [32;1m-------[0m [32;1m------[0m
+discovered (unique candidate pool, all backends)                                          2981      2981       0 
+pre-fetch cull (off-topic relevance filter + fetch_cap truncation)                        2981       740    2241 
+fetched (HTTP fetch loop over capped candidates)                                           740       500     240 
+fetched-non-empty / extracted to evidence (finding) rows                                   500        55     445 
+merged / deduped findings -> selection pool                                                 55        46       9 
+relevance-floored / tier-balanced selection -> generator                                    46        46       0 
+generated sentences (across 5 kept sections)                                                46        81       0 
+survived strict_verify (per-sentence provenance + numeric + overlap + NLI entailment)       81        40      41 
+survived 4-role claim audit (after D8 redaction)                                            37        23      14 
+
+
+ succeeded in 9064ms:
+[
+  {
+    "reason": "off-topic / low semantic-relevance rejection (prefetch_offtopic filter)",
+    "count": 0,
+    "classification": "unknown",
+    "evidence": "live_retriever.py:2962-2982 filter_search_results appends 'prefetch_offtopic: N kept / M rejected' to a local `notes` list; that note is NOT in manifest.json and no tool_trace.jsonl was copied into outputs/audits/beatboth8/drb_76/. Count ABSENT -> classification unknown. Borderline by nature (legitimate if genuinely off-topic, throttle if threshold over-aggressive)."
+  },
+  {
+    "reason": "fetch_cap hard truncation of ranked-but-uncapped candidates (candidates[:fetch_cap+seeds] slice)",
+    "count": 0,
+    "classification": "throttle",
+    "evidence": "live_retriever.py:2573-2647 _rerank_and_reserve returns candidates[:fetch_cap + n_seed_injected] — a HARD slice that discards every ranked candidate beyond the cap. DEFAULT_FETCH_CAP=40 (live_retriever.py:92); this sweep raised it (740 entered the loop). Whatever portion of the 2241 drop is the cap slice is PURE THROTTLE (good, relevance-ranked sources lost to a number, not to unusability). Exact count ABSENT in manifest, so count=0 is a placeholder, not a measured zero. corpus_truncated=false covers only the POST-fetch loop, not this pre-fetch cap."
+  },
+  {
+    "reason": "candidate pool exceeded what the cap+filter would ever admit (sheer volume: 2981 discovered vs ~740 admitted)",
+    "count": 2241,
+    "classification": "throttle",
+    "evidence": "retrieval.pre_filter(2981) - retrieval.candidates_total(740) = 2241. This TOTAL drop is split between the two mechanisms above; since the fetch_cap component is a pure number-driven throttle and the off-topic component is unmeasured, the aggregate is classified throttle-leaning. The 2241 figure is measured; its internal off-topic/cap split is ABSENT."
+  }
+]
+
+codex
+The saved funnel’s extra metadata includes several anchor-reconciliation counts outside the main funnel. I’m spot-checking those too so the gate covers the actual file, not just the abbreviated prompt.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json
+[pscustomobject]@{
+  'retrieval.api_calls.parallel_fetch_success_count' = "'$m.retrieval.api_calls.parallel_fetch_success_count
+  '"'retrieval.api_calls.fetch' = "'$m.retrieval.api_calls.fetch
+  '"'storm_query_expansion.web_result_rows_merged' = "'$m.storm_query_expansion.web_result_rows_merged
+  '"'quantified_analysis.sourced_numbers_extracted' = "'$m.quantified_analysis.sourced_numbers_extracted
+  '"'quantified_analysis.fired' = "'$m.quantified_analysis.fired
+  '"'corpus.count' = "'$m.corpus.count
+  '"'tool_utilization.summary_by_tool.fetch_content.total_calls' = "'$m.tool_utilization.summary_by_tool.fetch_content.total_calls
+  '"'tool_utilization.summary_by_tool.fetch_content.fail_count' = "'$m.tool_utilization.summary_by_tool.fetch_content.fail_count
+  '"'tool_utilization.summary_by_tool.fetch_content.ok_count' = "'$m.tool_utilization.summary_by_tool.fetch_content.ok_count
+} | Format-List' in C:\POLARIS
+ succeeded in 3382ms:
+
+[32;1mretrieval.api_calls.parallel_fetch_success_count           : [0m737
+[32;1mretrieval.api_calls.fetch                                  : [0m740
+[32;1mstorm_query_expansion.web_result_rows_merged               : [0m48
+[32;1mquantified_analysis.sourced_numbers_extracted              : [0m474
+[32;1mquantified_analysis.fired                                  : [0mFalse
+[32;1mcorpus.count                                               : [0m849
+[32;1mtool_utilization.summary_by_tool.fetch_content.total_calls : [0m906
+[32;1mtool_utilization.summary_by_tool.fetch_content.fail_count  : [0m277
+[32;1mtool_utilization.summary_by_tool.fetch_content.ok_count    : [0m629
+
+
+codex
+The auxiliary anchor counts in the saved trace resolve as well. I’m doing one more classification-critical check: whether the off-topic/cap split is genuinely absent from the saved run artifacts.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Test-Path 'outputs/audits/beatboth8/drb_76/tool_trace.jsonl'; Get-ChildItem 'outputs/audits/beatboth8/drb_76' -Force | Select-Object -ExpandProperty Name" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=2560; $end=2655; $i=0; Get-Content '"'src/polaris_graph/retrieval/live_retriever.py' | ForEach-Object { "'$i++; if($i -ge $start -and $i -le $end){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "prefetch_offtopic|offtopic|notes|kept_by_offtopic|fetch_cap" outputs/audits/beatboth8/drb_76/manifest.json outputs/audits/beatboth8/drb_76/*.json outputs/audits/I-perm-010/funnel_trace_drb76.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=2958; $end=2984; $i=0; Get-Content '"'src/polaris_graph/retrieval/live_retriever.py' | ForEach-Object { "'$i++; if($i -ge $start -and $i -le $end){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 3686ms:
+False
+audit_pack.json
+bibliography.json
+build_audit_pack.py
+codex_audit_input.md
+codex_audit.stderr.txt
+codex_audit.txt
+DRB76_FORENSIC.md
+evidence_pool.json
+four_role_claim_audit.json
+gaps.json
+manifest.json
+nli_verification.json
+report.md
+verification_details.json
+
+ succeeded in 6349ms:
+2560:    network. Returns True iff the URL is a pure listing/nav page that should be dropped.
+2561:    """
+2562:    if not url:
+2563:        return False
+2564:    u = url.lower()
+2565:    if any(marker in u for marker in _LOW_CONTENT_PATH_MARKERS):
+2566:        return True
+2567:    # Paginated SERP / search-result listing pages (not an article).
+2568:    if "search-results" in u or "per-page=" in u:
+2569:        return True
+2570:    return False
+2571:
+2572:
+2573:def _rerank_and_reserve(
+2574:    candidates: list["SearchCandidate"],
+2575:    *,
+2576:    research_question: str,
+2577:    fetch_cap: int,
+2578:    n_seed_injected: int,
+2579:) -> list["SearchCandidate"]:
+2580:    """Replace arrival-order truncation with a no-spend, no-model-load relevance rerank
+2581:    that reserves at least one slot per sub-query (I-meta-002-q1d #951, Codex brief-gate
+2582:    iter-1 required-changes).
+2583:
+2584:    Seed lane (I-bug-776 #817): primary-trial DOI seeds carry empty title/snippet, so
+2585:    relevance scoring would drop them. They are SPLIT OUT by `source in _SEED_SOURCE_LABELS`
+2586:    (FX-15a #1118: the set `{primary_trial_doi, agentic_seed}` — both injected seed classes keep
+2587:    the additive/reserved lane) and prepended AFTER ranking — never ranked, never dropped, exactly
+2588:    additive as before.
+2589:
+2590:    Reservation: group non-seeds by `query_origin`; sort each group by (-score, index);
+2591:    take at most ONE reserved item per origin while capacity remains (origins with the best
+2592:    candidate score reserved first when origins exceed cap); then fill the remaining slots
+2593:    by global (-score, index). The long full-paragraph/anchor query is not starved.
+2594:
+2595:    Fail-open (never raise): on any error fall back to the previous arrival-order behavior
+2596:    `candidates[:fetch_cap + n_seed_injected]`.
+2597:    """
+2598:    try:
+2599:        seeds = [c for c in candidates if getattr(c, "source", "") in _SEED_SOURCE_LABELS]
+2600:        non_seeds = [c for c in candidates if getattr(c, "source", "") not in _SEED_SOURCE_LABELS]
+2601:        if fetch_cap <= 0 or not non_seeds:
+2602:            return seeds + non_seeds[:max(fetch_cap, 0)]
+2603:
+2604:        question_tokens = _rerank_content_tokens(research_question)
+2605:        # (score, original_index, candidate) so ties + zero-overlap fall back to arrival order.
+2606:        scored = [
+2607:            (_lexical_relevance_score(c, question_tokens), i, c)
+2608:            for i, c in enumerate(non_seeds)
+2609:        ]
+2610:        # Group by origin, each group sorted by (-score, index).
+2611:        groups: dict[str, list[tuple[float, int, "SearchCandidate"]]] = {}
+2612:        for entry in scored:
+2613:            origin = getattr(entry[2], "query_origin", "") or "_unlabeled"
+2614:            groups.setdefault(origin, []).append(entry)
+2615:        for entries in groups.values():
+2616:            entries.sort(key=lambda e: (-e[0], e[1]))
+2617:
+2618:        selected_idx: set[int] = set()
+2619:        chosen: list[tuple[float, int, "SearchCandidate"]] = []
+2620:        # Phase 1 — reserve >=1 slot per origin (origins ranked by their best candidate score),
+2621:        # bounded by capacity.
+2622:        origins_by_best = sorted(
+2623:            groups.items(), key=lambda kv: (-kv[1][0][0], kv[1][0][1])
+2624:        )
+2625:        for _origin, entries in origins_by_best:
+2626:            if len(chosen) >= fetch_cap:
+2627:                break
+2628:            top = entries[0]
+2629:            chosen.append(top)
+2630:            selected_idx.add(top[1])
+2631:        # Phase 2 — fill remaining slots by global (-score, index).
+2632:        if len(chosen) < fetch_cap:
+2633:            remainder = sorted(
+2634:                (e for e in scored if e[1] not in selected_idx),
+2635:                key=lambda e: (-e[0], e[1]),
+2636:            )
+2637:            for entry in remainder:
+2638:                if len(chosen) >= fetch_cap:
+2639:                    break
+2640:                chosen.append(entry)
+2641:                selected_idx.add(entry[1])
+2642:        # Emit non-seeds in original arrival order among the selected set (stable corpus).
+2643:        selected_non_seeds = [c for i, c in enumerate(non_seeds) if i in selected_idx]
+2644:        return seeds + selected_non_seeds
+2645:    except Exception as exc:  # fail-open: never break retrieval on a ranking error
+2646:        logger.warning("[live_retriever] rerank failed (%s) — arrival-order fallback", exc)
+2647:        return candidates[:fetch_cap + n_seed_injected]
+2648:
+2649:
+2650:# ─────────────────────────────────────────────────────────────────────────────
+2651:# Main entry
+2652:# ─────────────────────────────────────────────────────────────────────────────
+2653:
+2654:
+2655:def run_live_retrieval(
+
+ succeeded in 9030ms:
+2958:    total_pre_filter = len(candidates)
+2959:    logger.info("[live_retriever] %d unique candidates from search", total_pre_filter)
+2960:
+2961:    # ── Step 3: prefetch off-topic filter ──────────────────────────
+2962:    if enable_prefetch_filter and candidates:
+2963:        # FX-15b (#1119): EXCLUDE the injected seeds (empty title/snippet, source in
+2964:        # _SEED_SOURCE_LABELS) from the semantic off-topic filter. They have no snippet to embed,
+2965:        # so `filter_search_results` would score them ~0 similarity and REJECT the entire reserved
+2966:        # seed lane (e.g. all agentic seeds). Filter only the non-seed search candidates; re-prepend
+2967:        # the seeds untouched (mirrors the seed split in `_rerank_and_reserve`). Seeds are never
+2968:        # off-topic-dropped — exactly as before this lane could enable the filter.
+2969:        _seed_cands = [c for c in candidates if getattr(c, "source", "") in _SEED_SOURCE_LABELS]
+2970:        _nonseed_cands = [
+2971:            c for c in candidates if getattr(c, "source", "") not in _SEED_SOURCE_LABELS
+2972:        ]
+2973:        if _nonseed_cands:
+2974:            _pre_offtopic_urls = {c.url for c in _nonseed_cands}
+2975:            filt = filter_search_results(_nonseed_cands, research_question)
+2976:            candidates = _seed_cands + filt.kept
+2977:            for _dropped_url in _pre_offtopic_urls - {c.url for c in filt.kept}:
+2978:                _trace_drop(_dropped_url, "offtopic")
+2979:            notes.append(
+2980:                f"prefetch_offtopic: {filt.total_kept} kept / "
+2981:                f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
+2982:            )
+2983:        # else: only seeds present (e.g. seed_only mode) — nothing to off-topic filter.
+2984:    kept_by_offtopic = len(candidates)
+
+2026-06-11T05:07:16.127244Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 11.8 seconds
+Output:
+outputs/audits/I-perm-010/funnel_trace_drb76.json:12:      "src/polaris_graph/retrieval/live_retriever.py (pre_filter, off-topic filter, _rerank_and_reserve fetch_cap slice, post-fetch loop)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:18:      "task_anchor_discovered_800": "agentic_search.urls_discovered_total = 800 is the AGENTIC SUB-LANE only, NOT the full discovered pool. The true unique candidate pool across ALL backends is retrieval.pre_filter = 2981, which is the same unit as candidates_processed (740) and fetched (500). The funnel below uses 2981 as 'discovered' and footnotes the 800.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:40:      "name": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:44:      "source_field": "in = retrieval.pre_filter (2981); out = retrieval.candidates_processed = candidates_total = 740. The two sub-mechanisms (prefetch_offtopic kept/rejected note + _rerank_and_reserve fetch_cap slice candidates[:fetch_cap+seeds]) are emitted to a local `notes` list in live_retriever.py that is NOT persisted in manifest.json. Off-topic-vs-cap split = ABSENT."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:72:      "source_field": "evidence_selection.evidence_selected=46, dropped_count=0. notes: 'pool_size<=max_rows (46/150)' — the cap (150) never bound; every pool row was passed. selected_tier_counts T1=18,T4=2,T6=1,T7=2,UNKNOWN=23."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:96:  "dominant_loss_stage": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation): 2981 -> 740, absolute drop 2241",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:97:  "dominant_loss_rationale": "By the task's mechanical definition (largest absolute drop), the pre-fetch cull (drop 2241) is the dominant loss, ~5x larger than the next stage (extraction, drop 445) and ~55x the strict_verify drop (41). It dwarfs every other stage. The funnel's headline '~90% source loss' lives HERE, not in the verifier. CRITICAL CAVEAT: the manifest does not split this drop into its off-topic-filter vs fetch_cap components, so the legitimacy of the dominant stage cannot be fully adjudicated from the saved artifacts alone — see legitimacy_call.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:100:      "reason": "off-topic / low semantic-relevance rejection (prefetch_offtopic filter)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:103:      "evidence": "live_retriever.py:2962-2982 filter_search_results appends 'prefetch_offtopic: N kept / M rejected' to a local `notes` list; that note is NOT in manifest.json and no tool_trace.jsonl was copied into outputs/audits/beatboth8/drb_76/. Count ABSENT -> classification unknown. Borderline by nature (legitimate if genuinely off-topic, throttle if threshold over-aggressive)."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:106:      "reason": "fetch_cap hard truncation of ranked-but-uncapped candidates (candidates[:fetch_cap+seeds] slice)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:109:      "evidence": "live_retriever.py:2573-2647 _rerank_and_reserve returns candidates[:fetch_cap + n_seed_injected] — a HARD slice that discards every ranked candidate beyond the cap. DEFAULT_FETCH_CAP=40 (live_retriever.py:92); this sweep raised it (740 entered the loop). Whatever portion of the 2241 drop is the cap slice is PURE THROTTLE (good, relevance-ranked sources lost to a number, not to unusability). Exact count ABSENT in manifest, so count=0 is a placeholder, not a measured zero. corpus_truncated=false covers only the POST-fetch loop, not this pre-fetch cap."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:115:      "evidence": "retrieval.pre_filter(2981) - retrieval.candidates_total(740) = 2241. This TOTAL drop is split between the two mechanisms above; since the fetch_cap component is a pure number-driven throttle and the off-topic component is unmeasured, the aggregate is classified throttle-leaning. The 2241 figure is measured; its internal off-topic/cap split is ABSENT."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:174:  "legitimacy_call": "MIXED, leaning THROTTLE at the dominant stage but UNMEASURED. The dominant loss (2981->740 pre-fetch cull, drop 2241) contains a PURE-THROTTLE component (the fetch_cap hard slice candidates[:fetch_cap+seeds], live_retriever.py:2573-2647 — good relevance-ranked sources discarded by a number) AND a borderline off-topic-filter component. Neither sub-count is persisted in the manifest, so the throttle-vs-legitimate split of the single largest drop CANNOT be adjudicated from the saved artifacts — this absence is itself the #1 forensic finding for #1204. What IS measured and legitimate: the fetch-failure tail (no_content 247 / empty_extract 26 / etc.) and the entire back-half verifier drop (41 sentences: 29 entailment + 5 no-token + 4 no-overlap + 2 no-integer) are all genuinely-unusable-source or correct-faithfulness drops. The run was NOT held on source count — it was held by the 4-role D8 coverage gate (0.40<0.70 + S0 contraindications must-cover missing). NET: the headline '~90% source loss' is NOT primarily a verifier over-drop; it is the pre-fetch cull, whose throttle component (fetch_cap) is a real number-driven throttle but whose exact magnitude is not instrumented.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:176:    "ABSENT: prefetch_offtopic kept/rejected counts (live_retriever notes list, not persisted to manifest.json).",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:177:    "ABSENT: effective fetch_cap value for this run and how many ranked candidates the cap slice discarded (the pure-throttle number).",
+outputs/audits/beatboth8/drb_76/manifest.json:47:    "notes": [],
+outputs/audits/beatboth8/drb_76/manifest.json:1854:        "domain": "bmcresnotes.biomedcentral.com",
+outputs/audits/beatboth8/drb_76/manifest.json:1856:        "url": "https://bmcresnotes.biomedcentral.com/track/pdf/10.1186/1756-0500-5-371",
+outputs/audits/beatboth8/drb_76/manifest.json:6095:    "notes": [
+rg: outputs/audits/beatboth8/drb_76/*.json: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+ exited 1 in 11773ms:
+outputs/audits/I-perm-010/funnel_trace_drb76.json:12:      "src/polaris_graph/retrieval/live_retriever.py (pre_filter, off-topic filter, _rerank_and_reserve fetch_cap slice, post-fetch loop)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:18:      "task_anchor_discovered_800": "agentic_search.urls_discovered_total = 800 is the AGENTIC SUB-LANE only, NOT the full discovered pool. The true unique candidate pool across ALL backends is retrieval.pre_filter = 2981, which is the same unit as candidates_processed (740) and fetched (500). The funnel below uses 2981 as 'discovered' and footnotes the 800.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:40:      "name": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:44:      "source_field": "in = retrieval.pre_filter (2981); out = retrieval.candidates_processed = candidates_total = 740. The two sub-mechanisms (prefetch_offtopic kept/rejected note + _rerank_and_reserve fetch_cap slice candidates[:fetch_cap+seeds]) are emitted to a local `notes` list in live_retriever.py that is NOT persisted in manifest.json. Off-topic-vs-cap split = ABSENT."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:72:      "source_field": "evidence_selection.evidence_selected=46, dropped_count=0. notes: 'pool_size<=max_rows (46/150)' — the cap (150) never bound; every pool row was passed. selected_tier_counts T1=18,T4=2,T6=1,T7=2,UNKNOWN=23."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:96:  "dominant_loss_stage": "pre-fetch cull (off-topic relevance filter + fetch_cap truncation): 2981 -> 740, absolute drop 2241",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:97:  "dominant_loss_rationale": "By the task's mechanical definition (largest absolute drop), the pre-fetch cull (drop 2241) is the dominant loss, ~5x larger than the next stage (extraction, drop 445) and ~55x the strict_verify drop (41). It dwarfs every other stage. The funnel's headline '~90% source loss' lives HERE, not in the verifier. CRITICAL CAVEAT: the manifest does not split this drop into its off-topic-filter vs fetch_cap components, so the legitimacy of the dominant stage cannot be fully adjudicated from the saved artifacts alone — see legitimacy_call.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:100:      "reason": "off-topic / low semantic-relevance rejection (prefetch_offtopic filter)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:103:      "evidence": "live_retriever.py:2962-2982 filter_search_results appends 'prefetch_offtopic: N kept / M rejected' to a local `notes` list; that note is NOT in manifest.json and no tool_trace.jsonl was copied into outputs/audits/beatboth8/drb_76/. Count ABSENT -> classification unknown. Borderline by nature (legitimate if genuinely off-topic, throttle if threshold over-aggressive)."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:106:      "reason": "fetch_cap hard truncation of ranked-but-uncapped candidates (candidates[:fetch_cap+seeds] slice)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:109:      "evidence": "live_retriever.py:2573-2647 _rerank_and_reserve returns candidates[:fetch_cap + n_seed_injected] — a HARD slice that discards every ranked candidate beyond the cap. DEFAULT_FETCH_CAP=40 (live_retriever.py:92); this sweep raised it (740 entered the loop). Whatever portion of the 2241 drop is the cap slice is PURE THROTTLE (good, relevance-ranked sources lost to a number, not to unusability). Exact count ABSENT in manifest, so count=0 is a placeholder, not a measured zero. corpus_truncated=false covers only the POST-fetch loop, not this pre-fetch cap."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:115:      "evidence": "retrieval.pre_filter(2981) - retrieval.candidates_total(740) = 2241. This TOTAL drop is split between the two mechanisms above; since the fetch_cap component is a pure number-driven throttle and the off-topic component is unmeasured, the aggregate is classified throttle-leaning. The 2241 figure is measured; its internal off-topic/cap split is ABSENT."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:174:  "legitimacy_call": "MIXED, leaning THROTTLE at the dominant stage but UNMEASURED. The dominant loss (2981->740 pre-fetch cull, drop 2241) contains a PURE-THROTTLE component (the fetch_cap hard slice candidates[:fetch_cap+seeds], live_retriever.py:2573-2647 — good relevance-ranked sources discarded by a number) AND a borderline off-topic-filter component. Neither sub-count is persisted in the manifest, so the throttle-vs-legitimate split of the single largest drop CANNOT be adjudicated from the saved artifacts — this absence is itself the #1 forensic finding for #1204. What IS measured and legitimate: the fetch-failure tail (no_content 247 / empty_extract 26 / etc.) and the entire back-half verifier drop (41 sentences: 29 entailment + 5 no-token + 4 no-overlap + 2 no-integer) are all genuinely-unusable-source or correct-faithfulness drops. The run was NOT held on source count — it was held by the 4-role D8 coverage gate (0.40<0.70 + S0 contraindications must-cover missing). NET: the headline '~90% source loss' is NOT primarily a verifier over-drop; it is the pre-fetch cull, whose throttle component (fetch_cap) is a real number-driven throttle but whose exact magnitude is not instrumented.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:176:    "ABSENT: prefetch_offtopic kept/rejected counts (live_retriever notes list, not persisted to manifest.json).",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:177:    "ABSENT: effective fetch_cap value for this run and how many ranked candidates the cap slice discarded (the pure-throttle number).",
+outputs/audits/beatboth8/drb_76/manifest.json:47:    "notes": [],
+outputs/audits/beatboth8/drb_76/manifest.json:1854:        "domain": "bmcresnotes.biomedcentral.com",
+outputs/audits/beatboth8/drb_76/manifest.json:1856:        "url": "https://bmcresnotes.biomedcentral.com/track/pdf/10.1186/1756-0500-5-371",
+outputs/audits/beatboth8/drb_76/manifest.json:6095:    "notes": [
+rg: outputs/audits/beatboth8/drb_76/*.json: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+
+codex
+The run directory does not include `tool_trace.jsonl`, and the only `prefetch_offtopic` hits are in the funnel trace and source code. The manifest has unrelated `notes` fields, but not the persisted off-topic kept/rejected note.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; 'top_notes=' + (("'$m.notes | ConvertTo-Json -Depth 4)); '"'corpus_notes=' + (("'$m.corpus.notes | ConvertTo-Json -Depth 4))' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "prefetch_offtopic|offtopic|kept_by_offtopic|fetch_cap" outputs/audits/beatboth8/drb_76/manifest.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$start=6088; $end=6102; $i=0; Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' | ForEach-Object { "'$i++; if($i -ge $start -and $i -le $end){ '"'{0}:{1}' -f "'$i,$_ } }' in C:\POLARIS
+ succeeded in 3414ms:
+top_notes=null
+corpus_notes=null
+
+2026-06-11T05:07:31.599351Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 6.3 seconds
+Output:
+
+ exited 1 in 6261ms:
+ succeeded in 8966ms:
+6088:    "full_tier_counts": {
+6089:      "T1": 18,
+6090:      "T4": 2,
+6091:      "T6": 1,
+6092:      "T7": 2,
+6093:      "UNKNOWN": 23
+6094:    },
+6095:    "notes": [
+6096:      "pool_size<=max_rows (46/150)",
+6097:      "m46_short_pool_ordered_selection",
+6098:      "m42c_mechanism_floor pool_mech_rows=45 reserved=3 slots=3",
+6099:      "recency_tiebreak enabled epsilon=0.05 dated=0/46"
+6100:    ],
+6101:    "selected_tier_counts": {
+6102:      "T1": 18,
+
+codex
+The selection cap note also matches: `pool_size<=max_rows (46/150)`, so the 46-row selector did not throttle. I’m checking the smaller 55-to-46 reduction language now because it is inferred rather than a single explicit counter.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "metadata_only|curator_gap|curator|quant|raw_row_count|collapsed_row_count|pool_size|evidence_total|evidence_selected|dropped_count" outputs/audits/beatboth8/drb_76/manifest.json outputs/audits/I-perm-010/funnel_trace_drb76.json' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json; 'finding_dedup'; "'$m.finding_dedup | ConvertTo-Json -Depth 8; '"'evidence_selection'; "'$m.evidence_selection | ConvertTo-Json -Depth 8; '"'fact_dedup'; "'$m.fact_dedup | ConvertTo-Json -Depth 8' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$e=Get-Content '"'outputs/audits/beatboth8/drb_76/evidence_pool.json' -Raw | ConvertFrom-Json; "'$e | Group-Object -Property tier | Select-Object Name,Count | Format-Table -AutoSize; $e | Select-Object -First 3 | ConvertTo-Json -Depth 6' in C:\POLARIS
+ succeeded in 3202ms:
+outputs/audits/I-perm-010/funnel_trace_drb76.json:14:      "src/polaris_graph/synthesis/finding_dedup.py (raw_row_count / dedup)",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:24:      "task_anchor_sourced_numbers_474": "CONFIRMED: quantified_analysis.sourced_numbers_extracted = 474 (raw numeric tokens scraped; quantified_analysis.fired=false, no spec produced, so this fed nothing downstream).",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:25:      "task_anchor_evidence_selected_46_dropped_0": "CONFIRMED: evidence_selection.evidence_selected = 46, dropped_count = 0. Selection itself dropped NOTHING; the pool handed to selection was already only 46 rows.",
+outputs/audits/I-perm-010/funnel_trace_drb76.json:58:      "source_field": "in = retrieval.fetched (500); out = finding_dedup.raw_row_count = 55 (== len(evidence_pool.json) = 55). The per-source extraction yield (which of 500 fetched bodies produced a span-verified finding row, and WHY the other ~445 produced none) is ABSENT — no manifest counter bridges fetched->finding-rows. Partial signal only: tool_utilization fetched_200_but_empty_extract=26 (whole-run), frame_coverage_report.frame_gap_count=3 curator gaps."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:65:      "source_field": "in = finding_dedup.raw_row_count (55) == evidence_pool.json rows (55); out = evidence_selection.evidence_total (46). finding_dedup.collapsed_row_count=0 (semantic dedup collapsed nothing). The 9-row reduction is pool-assembly pruning (2 metadata_only rows + 3 curator_gap_no_substantive_content + curator/quant pruning) and is NOT itemized in a single counter. STORM contributed web_result_rows_merged=48 INTO the upstream finding set; fact_dedup.n_rewrites_strict_verify_drop=1."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:72:      "source_field": "evidence_selection.evidence_selected=46, dropped_count=0. notes: 'pool_size<=max_rows (46/150)' — the cap (150) never bound; every pool row was passed. selected_tier_counts T1=18,T4=2,T6=1,T7=2,UNKNOWN=23."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:120:    "note": "Second-largest absolute drop. Per-source extraction yield is ABSENT from the manifest (no counter says which fetched bodies produced zero finding rows or why). Partial signals: fetch_content fetched_200_but_empty_extract=26 and no_content=247 (whole-run, 906-call superset), frame curator gaps=3. Classification of the bulk of this 445-row drop is UNKNOWN from artifacts; plausibly a mix of legitimate (paywalled/thin pages yielding no span-verifiable quote) and throttle (aggressive extraction/quote gates), but unmeasured."
+outputs/audits/I-perm-010/funnel_trace_drb76.json:179:    "PARTIAL: 55->46 pool-assembly pruning is not a single counter (inferred from metadata_only=2 + curator_gap=3).",
+outputs/audits/beatboth8/drb_76/manifest.json:6085:    "dropped_count": 0,
+outputs/audits/beatboth8/drb_76/manifest.json:6086:    "evidence_selected": 46,
+outputs/audits/beatboth8/drb_76/manifest.json:6087:    "evidence_total": 46,
+outputs/audits/beatboth8/drb_76/manifest.json:6096:      "pool_size<=max_rows (46/150)",
+outputs/audits/beatboth8/drb_76/manifest.json:6228:    "collapsed_row_count": 0,
+outputs/audits/beatboth8/drb_76/manifest.json:6230:    "raw_row_count": 55
+outputs/audits/beatboth8/drb_76/manifest.json:6349:      "curator_gap_no_substantive_content": 3,
+outputs/audits/beatboth8/drb_76/manifest.json:6362:        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+outputs/audits/beatboth8/drb_76/manifest.json:6368:        "provenance_class": "metadata_only",
+outputs/audits/beatboth8/drb_76/manifest.json:6433:        "status": "curator_gap_no_substantive_content",
+outputs/audits/beatboth8/drb_76/manifest.json:6564:        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+outputs/audits/beatboth8/drb_76/manifest.json:6570:        "provenance_class": "metadata_only",
+outputs/audits/beatboth8/drb_76/manifest.json:6630:        "status": "curator_gap_no_substantive_content",
+outputs/audits/beatboth8/drb_76/manifest.json:6641:        "failure_reason": "no substantive verified prose \u2014 only not-extractable disclosures; curator must supply a licensed copy covering the required fields",
+outputs/audits/beatboth8/drb_76/manifest.json:6665:        "status": "curator_gap_no_substantive_content",
+outputs/audits/beatboth8/drb_76/manifest.json:6768:  "quantified_analysis": {
+
+ succeeded in 5798ms:
+finding_dedup
+{
+  "clusters": [
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "prebiotic_fiber_scfa_meta",
+        0
+      ],
+      "member_hosts": [
+        "nih.gov"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "probiotic_immunocompromised_contraindication",
+        0
+      ],
+      "member_hosts": [
+        "cdc.gov"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "ev_558",
+        0
+      ],
+      "member_hosts": [
+        "drugs.com"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "semaglutide",
+        "weight loss",
+        22.5,
+        "%",
+        "0.5 mg",
+        "treatment",
+        ""
+      ],
+      "member_hosts": [
+        "drugs.com"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "nivolumab",
+        "precision",
+        20.0,
+        "%",
+        "",
+        "treatment",
+        ""
+      ],
+      "member_hosts": [
+        "nature.com"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "ev_717",
+        0
+      ],
+      "member_hosts": [
+        "nih.gov"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "ev_656",
+        0
+      ],
+      "member_hosts": [
+        "jksus.org"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "ev_647",
+        0
+      ],
+      "member_hosts": [
+        "mednexus.org"
+      ]
+    },
+    {
+      "corroboration_count": 1,
+      "finding_key": [
+        "__unknown__",
+        "ev_716",
+        0
+      ],
+      "member_hosts": [
+        "ijbs.com"
+      ]
+    }
+  ],
+  "collapsed_row_count": 0,
+  "distinct_finding_count": 9,
+  "raw_row_count": 55
+}
+evidence_selection
+{
+  "dropped_count": 0,
+  "evidence_selected": 46,
+  "evidence_total": 46,
+  "full_tier_counts": {
+    "T1": 18,
+    "T4": 2,
+    "T6": 1,
+    "T7": 2,
+    "UNKNOWN": 23
+  },
+  "notes": [
+    "pool_size<=max_rows (46/150)",
+    "m46_short_pool_ordered_selection",
+    "m42c_mechanism_floor pool_mech_rows=45 reserved=3 slots=3",
+    "recency_tiebreak enabled epsilon=0.05 dated=0/46"
+  ],
+  "selected_tier_counts": {
+    "T1": 18,
+    "T4": 2,
+    "T6": 1,
+    "T7": 2,
+    "UNKNOWN": 23
+  },
+  "selection_strategy": "tier_balanced_v1_all_m46_ordered"
+}
+fact_dedup
+{
+  "n_drops": 0,
+  "n_groups": 1,
+  "n_redundants": 1,
+  "n_rewrites_applied": 1,
+  "n_rewrites_strict_verify_drop": 1,
+  "n_rewrites_strict_verify_pass": 0
+}
+
+ succeeded in 8491ms:
+
+[32;1mName   [0m[32;1m Count[0m
+[32;1m----   [0m [32;1m-----[0m
+T1         23
+T3          2
+T4          2
+T6          3
+T7          2
+UNKNOWN    23
+
+[
+  {
+    "authors": [
+      "Rafter J",
+      "Bennett M",
+      "Caderni G",
+      "Clune Y",
+      "Hughes R",
+      "Karlsson P",
+      "Klinder A",
+      "O'Riordan M",
+      "O'Sullivan G",
+      "Pool-Zobel B",
+      "Rechkemmer G",
+      "Roller M",
+      "Rowland I",
+      "Salvadori M",
+      "Thijs H",
+      "Van Loo J",
+      "Watzl B",
+      "Collins J"
+    ],
+    "direct_quote": "",
+    "doi": "10.1093/ajcn/85.2.488",
+    "evidence_id": "probiotic_crc_inflammation_rct",
+    "journal": "The American Journal of Clinical Nutrition",
+    "pmid": "",
+    "provenance_class": "metadata_only",
+    "source_url": "https://ajcn.nutrition.org/article/S0002-9165(23)27938-1/pdf",
+    "statement": "Dietary synbiotics reduce cancer risk factors in polypectomized and colon cancer patients",
+    "tier": "T1",
+    "title": "Dietary synbiotics reduce cancer risk factors in polypectomized and colon cancer patients",
+    "v30_entity_id": "probiotic_crc_inflammation_rct",
+    "v30_frame_row": true,
+    "year": 2007
+  },
+  {
+    "authors": [
+      "Aune D",
+      "Chan D",
+      "Lau R",
+      "Vieira R",
+      "Greenwood D",
+      "Kampman E",
+      "Norat T"
+    ],
+    "corroboration_count": 1,
+    "direct_quote": "Dietary fibre, whole grains, and risk of colorectal\ncancer: systematic review and dose-response\nmeta-analysis of prospective studies\nOPEN ACCESS\nDagfinn Aune research associate\n1, Doris S M Chan research associate\n1, Rosa Lau research\nassociate\n1, Rui Vieira data manager\n1, Darren C Greenwood senior lecturer in biostatistics\n2, Ellen\nKampman professor of diet and cancer\n3, Teresa Norat principal investigator\n1\n1Department of Epidemiology and Biostatistics, School of Public Health, Imperial College London, St Mary’s Campus, London W2 1PG, UK;\n2Biostatistics Unit, Centre for Epidemiology and Biostatistics, University of Leeds, Leeds, UK;\n3Division of Human Nutrition, Wageningen University\nand Research Centre, Wageningen, Netherlands\nAbstract\nObjective To investigate the association between intake of dietary fibre\nand whole grains and risk of colorectal cancer.\nDesign Systematic review and meta-analysis of prospective\nobservational studies.\nData sources PubMed and several other databases up to December\n2010 and the reference lists of studies included in the analysis as well\nas those listed in published meta-analyses.\nStudy selection Prospective cohort and nested case-control studies of\ndietary fibre or whole grain intake and incidence of colorectal cancer.\nResults 25 prospective studies were included in the analysis. The\nsummary relative risk of developing colorectal cancer for 10 g daily of\ntotal dietary fibre (16 studies) was 0.90 (95% confidence interval 0.86\nto 0.94, I\n2=0%), for fruit fibre (n=9) was 0.93 (0.82 to 1.05, I\n2=23%), for\nvegetable fibre (n=9) was 0.98 (0.91 to 1.06, I\n2=0%), for legume fibre\n(n=4) was 0.62 (0.27 to 1.42, I\n2=58%), and for cereal fibre (n=8) was\n0.90 (0.83 to 0.97, I\n2=0%). The summary relative risk for an increment\nof three servings daily of whole grains (n=6) was 0.83 (0.78 to 0.89,\nI\n2=18%).\nConclusion A high intake of dietary fibre, in particular cereal fibre and\nwhole grains, was associated with a reduced risk of colorectal cancer.\nFurther studies should report more detailed results, including those for\nsubtypes of fibre and be stratified by other risk factors to rule out residual\nconfounding. Further assessment of the impact of measurement errors\non the risk estimates is also warranted.\nIntroduction\nColorectalcanceristhethirdmostcommontypeofcancer,with\n1.2millionnewcasesdiagnosedin2008worldwide,accounting\nforabout9.7%ofallcasesofcancer.\n1Evidencefromecological\nstudies, migrant studies, and secular trend studies suggest that\nenvironmental risk factors are of major importance in the cause\nof colorectal cancer.\n2-4 Dietary factors have been suspected as\nimportant, but only intakes of red and processed meat and\nalcohol are considered to be convincing dietary risk factors for\ncolorectal cancer.\n5\nIn the 1970s, Burkitt proposed the hypothesis that dietary fibre\nreduces the risk of colorectal cancer, based on the observation\nof low rates of such cancer among rural Africans who ate a diet\nwith a high fibre content.\n6 Several plausible mechanisms have\nbeen proposed to explain the hypothesis, including increased\nstool bulk and dilution of carcinogens in the colonic lumen,\nreducedtransittime,andbacterialfermentationoffibretoshort\nchain fatty acids.\n7 However, although many epidemiological\nstudies have investigated the association between fibre intake\nandriskofcolorectalcancer,theresultshavenotbeenconsistent\nand the possibility of residual confounding by folate intake\nremains a controversial issue.\n8 Case-control studies have\ngenerallyshownaprotectiveassociation,\n9 10whereastheresults\nfrom cohort studies have been mixed.\n8 11-31 In addition, it is not\nclear whether only specific types or sources of fibre are\nassociatedwiththerisk.Althoughinitialcohortstudiesgenerally\nreportednosignificantassociationbetweenfibreintakeandrisk\nof colorectal cancer, the hypothesis regained interest when the\nCorrespondence to: D Aune d.aune@imperial.ac.uk\nExtra material supplied by the author (see http://www.bmj.com/content/343/bmj.d6617/suppl/DC1)\nHigh versus low intake of dietary fibre and whole grains and risk of colorectal cancer\nHigh versus low intake of fruit, vegetable, legume, and cereal fibre and risk of colorectal cancer\nNo commercial reuse: See rights and reprints http://www.bmj.com/permissions Subscribe: http://www.bmj.com/subscribe\nBMJ 2011;343:d6617 doi: 10.1136/bmj.d6617 (Published 10 November 2011) Page 1 of 20\nResearch\nRESEARCHEuropean Prospective Investigation into Cancer and Nutrition\n(EPIC) study reported a linear decrease in the risk of colorectal\ncancer with increasing fibre intake.\n19 A subsequent pooled\nanalysis of 13 North American and European cohort studies\n(not including the EPIC study) reported an 18% increased risk\nof colorectal cancer with low fibre intake (<10 g/day v 10-15\ng/day), but no further reductions in risk were observed with\nhigher intake.\n31 More recently, results from additional large\ncohort studies\n23-30 have been published and, together with the\nEPIC study, included more than 1.7 million participants and 12\n000 cases and included several studies from Asian\npopulations.\n23 24 26 30 With such a large number of additional\nstudies we had sufficient statistical power to clarify the\ndose-responserelationbetweenfibreintakeandriskofcolorectal\ncancer.Inadditionweexaminedwhetherspecifictypesoffibre\nare associated with risk.\nWhole grains are a major source of dietary fibre and contain\ngerm, endosperm, and bran, in contrast with refined grains that\ncontain only the endosperm. The germ and bran contain\nnumerous nutrients, which are removed during the refining\nprocess. In addition, whole grains are a major source of several\nvitamins,minerals,andphytochemicals,whichhaveanticancer\nproperties and could plausibly influence the risk of colorectal\ncancerbyseveralpotentialmechanisms.\n32Anearlierreviewand\nmeta-analysis of case-control studies of whole grain intake and\ncolorectal cancer and polyps reported a summary odds ratio of\n0.79 for the highest versus the lowest intake.\n33 However, the\ninterpretation of case-control studies is hampered by possible\nrecall and selection biases, which make it difficult to draw firm\nconclusions. Over the past decade results from several cohort\nstudies have been published on whole grain intake and risk of\ncolorectal cancer, with mixed results.\n16 20 25 27 34-39 Some studies\nsuggested no association,\n16 20 34 36 whereas others reported an\ninverse association with higher whole grain intake.\n25 27 35 37-39 To\nclarify the association between dietary fibre and whole grain\nintake and risk of colorectal cancer we carried out a systematic\nreview and meta-analysis of published prospective studies. We\nalso did meta-regression and sensitivity analyses to evaluate\npotential sources of heterogeneity in the analyses.\nMethods\nSeveral reviewers at Wageningen University carried out the\nliterature search and extracted data up to December 2005. They\nsearched several databases, including PubMed, Embase, CAB\nAbstracts, ISI Web of Science, BIOSIS, Latin American and\nCaribbean Center on Health Sciences Information, Cochrane\nlibrary, Cumulative Index to Nursing and Allied Health\nLiterature, the Allied and Complementary Medicine Database,\nNational Research Register, and In Process Medline. As all the\nrelevant prospective studies were identified by the PubMed\nsearches the protocol was modified and only PubMed was used\nfor the updated searches from January 2006 to December 2010.\nNo language restrictions were imposed. This review was done\nas part of the Continuous Update Project of the World Cancer\nResearch Fund and has been published online (www.wcrf.org/\nPDFs/Colorectal-cancer-CUP-report-2010.pdf). A predefined\nprotocol was used for the review (www.dietandcancerreport.\norg/downloads/SLR_Manual.pdf) and we followed standard\ncriteria for meta-analyses of observational studies.\n40 Abstracts,\ngreyliterature,andunpublishedresultsorinformationwerenot\nincluded.Wealsosearchedthereferencelistsofthestudiesthat\nwere included in our analysis as well as those listed in the\npublished meta-analyses.\n33 41\nStudy selection\nTo be included studies had to have a prospective cohort,\ncase-cohort, or nested case-control design and investigate the\nassociation between dietary fibre or whole grain intake and\nincidence of colorectal cancer. We excluded retrospective\ncase-controlstudiesandcrosssectionalstudies.Thepublication\nhad to include estimates of the relative risk (hazard ratio, risk\nratio)withthe95%confidenceintervals.Forthedose-response\nanalysis, a quantitative measure of intake and the total number\nof cases and person years had to be provided. When several\npublications were from the same study we selected the\npublication with the largest number of cases. We identified 40\npotentially relevant full text publications.\n8 11-30 34-39 42-54 We\nexcludedseventhatreportedmeanexposureonly,\n42-48seventhat\nwereduplicatepublications,\n19 49-54andonethatwasonmortality\nfrom colorectal cancer.\n34 Two publications that were included\nin the dietary fibre analyses reported on specific whole grain\nfoods,notoverallintake,andweexcludedthesefromthewhole\ngrain analysis.\n16 20 For the dose-response analysis we further\nexcluded two publications that reported results only for the\nhighest versus the lowest levels of intake,\n30 37 and two\npublications that did not report quantities of intake.\n11 15\nData extraction\nFrom each study we extracted data on the first author’s last\nname, year of publication, country where the study was done,\nstudy name, follow-up period, sample size, sex, age, number of\ncases,methodofdietaryassessment(type,numberoffooditems,\nand whether the assessment method had been validated),\nexposure(bytypeofoutcome),quantityofintake,relativerisks\nand 95% confidence intervals for the highest versus the lowest\nintake, and variables adjusted for in the analysis. Several\nreviewers at Wageningen University carried out the search and\nextracteddataofarticlespublisheduptoDecember2005during\nthe systematic literature review for the World Cancer Research\nFund and Association for International Cancer Research report\n(www.dietandcancerreport.org/downloads/SLR/Colon_and_\nRectum_SLR.pdf).Twooftheauthors(DSMCandRL)didthe\nsearch from January 2006 to December 2010. Three authors\n(DSMC, RL, and DA) extracted the data into a database, and\ntwo authors (TN and DA) checked these for accuracy.\nStatistical analysis\nWe used random effects models to calculate summary relative\nrisks and 95% confidence intervals for the highest versus the\nlowest levels of dietary fibre and whole grain intake and for the\ndose-responseanalysis.Theaverageofthenaturallogarithmof\nthe relative risks was estimated and we weighted the relative\nrisk from each study by the inverse of its variance. A two tailed\nP<0.05 was considered statistically significant. For studies that\nreported results separately for colon and rectal cancer or for\nmen and women separately, we combined the estimates using\nafixedeffectsmodeltoobtainanoverallestimateforcolorectal\ncancer or both sexes combined.\nWe used a previously described method\n55 for the dose-response\nanalysis and computed study specific slopes (linear trends) and\n95% confidence intervals from the natural logs of the relative\nrisks and confidence intervals across categories of dietary fibre\nandwholegrainintake.Themethodrequiresthatthedistribution\nof cases and person years or non-cases and the relative risks\nwith the variance estimates are known for at least three\nquantitative categories of use. We estimated the distribution of\ncases or person years in studies that did not report these but\nreported the total number of cases or person years if the results\nNo commercial reuse: See rights and reprints http://www.bmj.com/permissions Subscribe: http://www.bmj.com/subscribe\nBMJ 2011;343:d6617 doi: 10.1136/bmj.d6617 (Published 10 November 2011) Page 2 of 20\nRESEARCHwere analysed by quantiles (and could be approximated)—for\nexample, the total number of person years was divided by 5\nwhen data were analysed by quintiles to derive the number of\nperson years in each fifth. We assigned the median or mean\nlevel of dietary fibre or whole grain intake in each category to\nthe corresponding relative risk for each study. For studies that\nreported the intake by ranges of intake we estimated the\nmidpoint in each category by calculating the average of the\nlower and upper bound. When the highest category was open\nended we assumed the length of the open ended interval to be\nthe same as that of the adjacent interval. When the lowest\ncategory was open ended we set the lower boundary to zero. If\nthe intakes were reported in densities (servings per 1000 kcal)\nwe recalculated the reported intakes to absolute intakes using\nthemeanormedianenergyintake.\n18 21 27 28Instudiesthatreported\nthe whole grain intake in grams daily we used 30 g as a serving\nsizeforrecalculationoftheintakestoacommonscale(servings\ndaily).Thedose-responseresultsintheforestplotsarepresented\nfor a 10 g daily increment for dietary fibre and for an increment\nof three servings daily (90 g) for whole grains. We examined a\npotentialnon-lineardose-responserelationbetweendietaryfibre\nandwholegrainintakeandcolorectalcancerbyusingfractional\npolynomial models.\n56 We determined the best fitting second\norder fractional polynomial regression model, defined as the\none with the lowest deviance. A likelihood ratio test was used\ntoassessthedifferencebetweenthenon-linearandlinearmodels\nto test for non-linearity.\n57\nHeterogeneity between studies was assessed by the Q test and\nI\n2 statistic.\n58 I\n2 is the amount of total variation that is explained\nby variation between studies. We did not use a score to assess\nstudy quality but in subgroup analyses we determined whether\nindicators of study quality, such as study size, number of cases,\ndurationoffollow-up,andadjustmentforconfoundersmodified\ntheresults.Heterogeneitybetweensubgroupswasevaluatedby\nmeta-regression.\nPublication bias was assessed with Egger’s test\n59 and Begg’s\ntest,\n60 with the results considered to indicate publication bias\nwhenP<0.10.Inaddition,wevisuallyexploredfunnelplotsfor\nasymmetry. We carried out sensitivity analyses excluding one\nstudy at a time to explore whether the results were driven by\none large study or by a study with an extreme result.\nResults\nDietary fibre\nTwenty one prospective studies\n8 11-18 20-30 36 were identified and\nincluded in the analysis of the highest versus the lowest intake\nof dietary fibre and risk of colorectal cancer, 18 of\nwhich\n8 12-14 16-18 20-29 36wereincludedinthedose-responseanalyses\n(table 1⇓, fig 1⇓). Twelve of the studies were from the United\nStates, five from Europe, and four from Asia. Table 1\nsummarises the characteristics of the included studies. The\nranges of intake varied: 6.3-21.4 g/day for total dietary fibre,\n1.8-15.5 g/day for fruit fibre, 1.9-16.8 g/day for vegetable fibre,\n3.0-16.9 g/day for cereal fibre, and 1.3-3.8 g/day for legume\nfibre (results not shown).\nTotal dietary fibre\nHigh versus low intake\nNineteen prospective studies (18 publications) were included\nin the analysis of high versus low intake of total dietary fibre\nand risk of colorectal cancer (table 1).\n8 11 12 15-18 20-30 The summary\nrelative risk was 0.88 (95% confidence interval 0.82 to 0.94),\nwith no evidence of heterogeneity (I\n2=0%, P=0.48, see web\nextra figure 1a).\nDose-response analysis\nSixteen prospective studies (15 publications)\n8 12 16-18 20-29 were\nincludedinthedose-responseanalysis,with14514casesamong\n1 985 552 participants. The summary relative risk was 0.90\n(0.86 to 0.94) for each 10 g/day intake, with no significant\nheterogeneity(I\n2=0%,P=0.48,fig2⇓).Astatisticallysignificant\ninverse association was seen for colon cancer\n8 12-14 21 23 24 26-29 36\n(13 studies, summary relative risk 0.89, 0.81 to 0.97, I\n2=35%,\nP=0.11) but not for rectal cancer\n8 12 21 23 24 26-29 (10 studies, 0.91,\n0.83 to 1.03, I\n2=15%, P=0.31), although evidence was lacking\nfor heterogeneity between subsites (P=0.86, see table 3).\nPublication bias was not evident with either Egger’s test\n(P=0.62) or Begg’s test (P=0.56). In a sensitivity analysis\nexcluding one study at a time, the summary relative risk for\ncolorectal cancer ranged from 0.89 (0.85 to 0.93) when the\nNational Institutes of Health-American Association for Retired\nPersons (NIH-AARP) Diet and Health Study was excluded to\n0.91 (0.88 to 0.96) when the EPIC study was excluded. A\nnon-linear association was not evident between intake of total\ndietary fibre and risk of colorectal cancer (P=0.32 for\nnon-linearity, fig 2).\nFruit fibre\nHigh versus low intake\nNine cohort studies (eight publications)\n8 17 18 21 22 26-28 were\nincluded in the analysis of high versus low intake of fruit fibre\nand risk of colorectal cancer. The summary relative risk was\n0.94 (0.85 to 1.04; see also web extra figure 2a), with little\nevidence of heterogeneity (I\n2=39%, P=0.11).\nDose-response analysis\nNine cohort studies (eight publications)\n8 17 18 21 22 26-28 were\nincluded in the dose-response analysis of fruit fibre and risk of\ncolorectalcancer,with9930casesamong1514871participants.\nThe summary relative risk for each 10 g/day intake was 0.93\n(0.82 to 1.05, fig 3⇓), with little evidence of heterogeneity\n(I\n2=23%,P=0.24).PublicationbiaswasnotevidentwithEgger’s\ntest (P=0.83) or Begg’s test (P=0.47). The summary relative\nrisk ranged from 0.87 (0.78 to 0.96) when the NIH-AARP Diet\nand Health Study was excluded to 0.95 (0.84 to 1.07) when the\nNurses’ Health Study was excluded.\nVegetable fibre\nHigh versus low intake\nNine cohort studies (eight publications)\n8 17 18 21 22 26-28 were\nincluded in the analysis of high versus low intake of vegetable\nfibre and risk of colorectal cancer. The summary relative risk\nwas 0.98 (0.91 to 1.06, also see web extra figure 2b), with no\nevidence of heterogeneity (I\n2=0%, P=0.48).\nDose-response analysis\nNine cohort studies (eight publications)\n8 17 18 21 22 26-28 were\nincluded in the dose-response analysis of vegetable fibre and\nrisk of colorectal cancer, with 9930 cases among 1 514 871\nparticipants.Thesummaryrelativeriskforeach10g/dayintake\nwas0.98(0.91to1.06,fig3),withnoevidenceofheterogeneity\n(I\n2=0%,P=0.60).PublicationbiaswasnotevidentwithEgger’s\ntest (P=0.51) or Begg’s test (P=0.92). The summary relative\nrisk ranged from 0.96 (0.89 to 1.04) when the Nurses’ Health\nNo commercial reuse: See rights and reprints http://www.bmj.com/permissions Subscribe: http://www.bmj.com/subscribe\nBMJ 2011;343:d6617 doi: 10.1136/bmj.d6617 (Published 10 November 2011) Page 3 of 20\nRESEARCHStudywasexcludedto1.02(0.94to1.10)whentheMultiethnic\nCohort Study was excluded.\nLegume fibre\nHigh versus low intake\nFour cohort studies\n8 18 22 27 were included in the analysis of high\nversus low intake of legume fibre and risk of colorectal cancer.\nThe summary relative risk was 0.89 (0.78 to 1.02, see also web\nextra figure 2c), with moderate heterogeneity (I\n2=40.8%,\nP=0.17).\nDose-response analysis\nFour cohort studies\n8 18 22 27 were included in the dose-response\nanalysis of legume fibre intake and risk of colorectal cancer,\nwith 5405 cases among 1 095 056 participants. The summary\nrelative risk for each 10 g/day intake was 0.62 (0.27 to 1.42, fig\n3), with moderate to high heterogeneity (I\n2=58%, P=0.07). The\nsummary relative risk ranged from 0.38 (0.08 to 1.87) when\nexcluding the NIH-AARP Diet and Health Study to 0.84 (0.65\nto 1.09) when excluding the Women’s Health Study.\nCereal fibre\nHigh versus low intake\nEight cohort studies (seven publications)\n8 17 18 21 22 27 28 were\nincludedintheanalysisofhighversuslowintakeofcerealfibre\nand risk of colorectal cancer. The summary relative risk was\n0.90 (0.83 to 0.96, also see web extra figure 2d), with no\nsignificant heterogeneity (I\n2=0%, P=0.94).\nDose-response analysis\nEight cohort studies (seven publications)\n8 17 18 21 22 27 28 were\nincluded in the dose-response analysis of cereal fibre and risk\nof colorectal cancer, with 9487 cases among 1 471 756\nparticipants.Thesummaryrelativeriskforeach10g/dayintake\nwas0.90(0.83to0.97,fig3),withnoevidenceofheterogeneity\n(I\n2=0%,P=0.78).PublicationbiaswasnotevidentwithEgger’s\ntest (P=0.90) or Begg’s test (P=1.00). The summary relative\nrisk ranged from 0.85 (0.76 to 0.95) when the Multiethnic\nCohort Study was excluded to 0.93 (0.85 to 1.03) when the\nNIH-AARP Diet and Health Study was excluded.\nWhole grains\nSevencohortstudieswereincludedintheanalysisoftotalwhole\ngrain intake and risk of colorectal cancer (table 2⇓, fig\n1⇓).\n25 27 35-39 Two studies were from Europe and the other five\nfrom the United States (table 2). Total whole grains included\nwhole grain rye breads, whole grain breads, oatmeal, whole\ngrain cereals, high fibre cereals, brown rice, and porridge. The\nrange of whole grain intake varied from and 61-128 g/day\n(results not shown).\nHigh versus low intake\nFourcohortstudies\n25 27 35 38wereincludedintheanalysisofhigh\nversus low intake of whole grains and risk of colorectal cancer.\nThe summary relative risk was 0.79 (0.72 to 0.86), with no\nevidenceofheterogeneity(I\n2=0%,P=0.98,seewebextrafigure\n1b). The results for colon and rectal cancer were similar:\nsummaryrelativerisks0.82(0.72to0.92,I\n2=23%,P=0.27)\n27 35-38\nand 0.80 (0.59 to 1.07, I\n2=58%, P=0.10).\n27 35 38 The results for\nrectal cancer were, however, not statistically significant.\nDose-response analysis\nSix studies (five publications)\n25 27 35 38 39 were included in the\ndose-response analysis, with a total of 7941 cases among 774\n806participants.Thesummaryrelativeriskforcolorectalcancer\nwith an increment of three servings daily (90 g/day) of whole\ngrains was 0.83 (0.78 to 0.89, fig 4⇓), with no evidence of\nheterogeneity (I\n2=18%, P=0.30). The summary relative risk for\ncolon cancer\n27 35 36 38 was 0.86 (0.79 to 0.94), with no evidence\nof heterogeneity (I\n2=0%, P=0.42), and for rectal cancer\n27 35 38\nwas0.80(0.56to1.14),withsubstantialheterogeneity(I\n2=91%,\nP<0.001, table 4). In a sensitivity analysis excluding one study\natatime,noparticularstudyexplainedtheresultsforcolorectal\ncancer; the summary relative risk ranged from 0.82 (0.77 to\n0.88) when the Swedish Mammography Study was excluded to\n0.86(0.80to0.92)whentheNIH-AARPDietandHealthStudy\nwas excluded. Publication bias was not evident with Egger’s\ntest (P=0.54) or Begg’s test (P=1.00), although the number of\nstudies was low. However, the funnel plots did not suggest\nasymmetry.Anon-linearassociationbetweenwholegrainintake\nand risk of colorectal cancer was not indicated (P=0.26, fig 4).\nSubgroup, sensitivity, and meta-regression\nanalyses\nIn subgroup analyses defined by sex, subsite, adjustment for\nconfounders, number of cases, duration of follow-up,\ngeographical location, and range of intake, total dietary fibre\nintake was inversely associated with risk of colorectal cancer\ninmostsubgroups,withnoevidenceofsignificantheterogeneity\nbetween subgroups with meta-regression analyses (table 3⇓).\nSimilar results were observed for intake of cereal fibre and\nwholegrains(table4⇓).Intakeoffruitfibrewasnotsignificantly\nassociated with risk of colorectal cancer in most subgroup\nanalyses. In the subgroups of studies that adjusted for alcohol\nintake and body mass index or weight, however, inverse\nassociations were significant, with evidence of heterogeneity\nbetween subgroups (P=0.04, table 3). When stratified by the\nrange of intake, an inverse association was observed for intake\nof fruit fibre in studies with a range of 10 g/day or more but not\namong studies with a range of 10 g/day or less (P=0.04 for\nheterogeneity), but evidence of a difference in the results for\nthe other fibre types was lacking when stratified by the range\nof intake (tables 3 and 4). Intake of vegetable fibre consistently\nwas not associated with risk of colorectal cancer in subgroup\nanalyses (table 3⇓). Too few studies of legume fibre precluded\nany meaningful subgroup analyses.\nIn addition, the effect on the results of excluding studies from\nthe dose-response analysis was explored. When the analysis of\nhigh versus low intake was restricted to the studies that were\nincluded in the dose-response analysis of total dietary fibre, the\nsummary relative risk was 0.86 (0.80 to 0.92, I\n2=0%, P=0.46\nfor heterogeneity), similar to the original analysis including all\nstudies.\nTheinfluenceontheresultsofthemethodusedtoestimatetotal\nfibre intake was assessed. For the eight studies\n17 21 22 24 26-28 using\nthe Association of Official Analytical Chemists method, the\nsummaryrelativeriskwas0.91(0.85to0.97,I\n2=13.3%,P=0.33\nfor heterogeneity), for the four studies\n8 16 21 using the Englyst\nmethod it was 0.91 (0.81 to 1.02, I\n2=37.0%, P=0.19 for\nheterogeneity), and for the six studies\n12 18 20 23 25 29 with an\nunknown method it was 0.93 (0.86 to 1.00, I\n2=0%, P=0.89 for\nheterogeneity).Inthissensitivityanalysisnoheterogeneitywas\nfound between subgroups (P=0.39 for heterogeneity). In\naddition, in one study the results did not differ materially\nbetween the two methods.\n21\nNo commercial reuse: See rights and r",
+    "doi": "10.1136/bmj.d6617",
+    "evidence_id": "prebiotic_fiber_scfa_meta",
+    "finding_keys": [
+      [
+        "__unknown__",
+        "prebiotic_fiber_scfa_meta",
+        0
+      ]
+    ],
+    "independent_hosts": [
+      "nih.gov"
+    ],
+    "journal": "BMJ",
+    "pmid": "",
+    "provenance_class": "open_access",
+    "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/3213242",
+    "statement": "Dietary fibre, whole grains, and risk of colorectal cancer: systematic review and dose-response meta-analysis of prospective studies",
+    "tier": "T1",
+    "title": "Dietary fibre, whole grains, and risk of colorectal cancer: systematic review and dose-response meta-analysis of prospective studies",
+    "v30_entity_id": "prebiotic_fiber_scfa_meta",
+    "v30_frame_row": true,
+    "year": 2011
+  },
+  {
+    "authors": [
+      "Pleguezuelos-Manzano C",
+      "Puschhof J",
+      "Rosendahl Huber A",
+      "van Hoeck A",
+      "Wood H",
+      "Nomburg J",
+      "Gurjao C",
+      "Manders F",
+      "Dalmasso G",
+      "Stege P",
+      "Paganelli F",
+      "Geurts M",
+      "Beumer J",
+      "Mizutani T",
+      "Miao Y",
+      "van der Linden R",
+      "van der Elst S",
+      "Ambrose J",
+      "Arumugam P",
+      "Baple E",
+      "Bleda M",
+      "Boardman-Pretty F",
+      "Boissiere J",
+      "Boustred C",
+      "Brittain H",
+      "Caulfield M",
+      "Chan G",
+      "Craig C",
+      "Daugherty L",
+      "de Burca A",
+      "Devereau A",
+      "Elgar G",
+      "Foulger R",
+      "Fowler T",
+      "Furió-Tarí P",
+      "Hackett J",
+      "Halai D",
+      "Hamblin A",
+      "Henderson S",
+      "Holman J",
+      "Hubbard T",
+      "Ibáñez K",
+      "Jackson R",
+      "Jones L",
+      "Kasperaviciute D",
+      "Kayikci M",
+      "Lahnstein L",
+      "Lawson L",
+      "Leigh S",
+      "Leong I",
+      "Lopez F",
+      "Maleady-Crowe F",
+      "Mason J",
+      "McDonagh E",
+      "Moutsianas L",
+      "Mueller M",
+      "Murugaesu N",
+      "Need A",
+      "Odhams C",
+      "Patch C",
+      "Perez-Gil D",
+      "Polychronopoulos D",
+      "Pullinger J",
+      "Rahim T",
+      "Rendon A",
+      "Riesgo-Ferreiro P",
+      "Rogers T",
+      "Ryten M",
+      "Savage K",
+      "Sawant K",
+      "Scott R",
+      "Siddiq A",
+      "Sieghart A",
+      "Smedley D",
+      "Smith K",
+      "Sosinsky A",
+      "Spooner W",
+      "Stevens H",
+      "Stuckey A",
+      "Sultana R",
+      "Thomas E",
+      "Thompson S",
+      "Tregidgo C",
+      "Tucci A",
+      "Walsh E",
+      "Watters S",
+      "Welland M",
+      "Williams E",
+      "Witkowska K",
+      "Wood S",
+      "Zarowiecki M",
+      "Garcia K",
+      "Top J",
+      "Willems R",
+      "Giannakis M",
+      "Bonnet R",
+      "Quirke P",
+      "Meyerson M",
+      "Cuppen E",
+      "van Boxtel R",
+      "Clevers H"
+    ],
+    "direct_quote": "Title: Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli\n\nURL Source: https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0\n\nMarkdown Content:\n# Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli - Royal Netherlands Academy of Arts and Sciences (KNAW)\n(https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#main-navigation)(https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#main-search)(https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#main-content)\n\n[Royal Netherlands Academy of Arts and Sciences (KNAW) Home![Image 1: Royal Netherlands Academy of Arts and Sciences (KNAW) Logo](https://pure.knaw.nl/portal/skin/headerImage/)](https://pure.knaw.nl/portal/en/)\n*   [Help & FAQ Link opens in a new tab](https://adminpure.knaw.nl/?p=6284)\n*   \n    *   [English](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/)\n    *   [Nederlands](https://pure.knaw.nl/portal/nl/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/)\n\nSearch content at Royal Netherlands Academy of Arts and Sciences (KNAW) \n\n*   [Home](https://pure.knaw.nl/portal/en/)\n*   [Profiles](https://pure.knaw.nl/portal/en/persons/)\n*   [Organizational Units](https://pure.knaw.nl/portal/en/organisations/)\n*   [Research output](https://pure.knaw.nl/portal/en/publications/)\n*   [Activities](https://pure.knaw.nl/portal/en/activities/)\n*   [Projects](https://pure.knaw.nl/portal/en/projects/)\n*   [Datasets](https://pure.knaw.nl/portal/en/datasets/)\n*   [Press/Media](https://pure.knaw.nl/portal/en/clippings/)\n*   [Prizes](https://pure.knaw.nl/portal/en/prizes/)\n*   [Impacts](https://pure.knaw.nl/portal/en/impacts/)\n*   [Equipment](https://pure.knaw.nl/portal/en/equipments/)\n\n# Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli\n\n*   Cayetano Pleguezuelos-Manzano\n*   , Jens Puschhof\n*   , Axel Rosendahl Huber\n*   , Arne van Hoeck\n*   , Henry M Wood\n*   , Jason Nomburg\n*   , Carino Gurjao\n*   , Freek Manders\n*   , Guillaume Dalmasso\n*   , Paul B Stege\n*   , Fernanda L Paganelli\n*   , Maarten H Geurts\n*   , Joep Beumer\n*   , Tomohiro Mizutani\n*   , Yi Miao\n*   , Reinier van der Linden\n*   , Stefan van der Elst\n*   , K Christopher Garcia\n*   , Janetta Top\n*   , Rob J L Willems\nMarios Giannakis, Richard Bonnet, Phil Quirke, Matthew Meyerson, Edwin Cuppen, Ruben van Boxtel, [Hans Clevers](https://pure.knaw.nl/portal/en/persons/hans-clevers/)Show 7 more Show less\n\n*   [Hubrecht Institute](https://pure.knaw.nl/portal/en/organisations/hubrecht-institute/)\n\n*   [Oncode Institute, 3521 AL Utrecht, Netherlands.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Princess Máxima Center for Pediatric Oncology, Utrecht 3584CT, The Netherlands.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Radiology, University Medical Centre Utrecht, Utrecht, Netherlands.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [University of Leeds](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Broad Institute of MIT and Harvard, Cambridge, Massachusetts, United States of America.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [University Clermont Auvergne](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Surgery, University Medical Center Utrecht.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Hubrecht Institute, Royal Netherlands Academy of Arts and Sciences (KNAW) and University Medical Center (UMC) Utrecht, Utrecht, the Netherlands.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Department of Medicine, Division of Hematology, Stanford University School of Medicine, Stanford, California 94305, USA.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [University Hospital of Clermont-Ferrand](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Howard Hughes Medical Institute, Harvard Medical School, Boston, MA 02115, USA.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [Hartwig Medical Foundation, 1098 XH Amsterdam, Netherlands.](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n*   [CPCT Consortium](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n\nResearch output: Contribution to journal/periodical › Article › Scientific › peer-review\n\n967 Citations (Scopus)\n\n[](https://plu.mx/plum/a/?doi=10.1038/s41586-020-2080-8)\n\n[![Image 2: Article has an altmetric score of 1051](https://badges.altmetric.com/?size=128&score=1051&types=mabvrtwf)](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423)\n\n*   [Overview](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/)\n*   [Fingerprint](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/fingerprints/)\n\n## Abstract\n\nVarious species of the intestinal microbiota have been associated with the development of colorectal cancer1,2, but it has not been demonstrated that bacteria have a direct role in the occurrence of oncogenic mutations. Escherichia coli can carry the pathogenicity island pks, which encodes a set of enzymes that synthesize colibactin3. This compound is believed to alkylate DNA on adenine residues4,5 and induces double-strand breaks in cultured cells3. Here we expose human intestinal organoids to genotoxic pks+ E. coli by repeated luminal injection over five months. Whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria. The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer. Our study describes a distinct mutational signature in colorectal cancer and implies that the underlying mutational process results directly from past exposure to bacteria carrying the colibactin-producing pks pathogenicity island.\n\n| Original language | English |\n| --- |\n| Pages (from-to) | 269-273 |\n| Number of pages | 5 |\n| Journal | [Nature](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#) |\n| Volume | 580 |\n| Issue number | 7802 |\n| DOIs | * [https://doi.org/10.1038/s41586-020-2080-8](https://doi.org/10.1038/s41586-020-2080-8) |\n| Publication status | Published - Apr 2020 |\n\n## Keywords\n\n*   Coculture Techniques\n*   Cohort Studies\n*   Colorectal Neoplasms/genetics\n*   Consensus Sequence\n*   DNA Damage\n*   Escherichia coli/genetics\n*   Gastrointestinal Microbiome\n*   Genomic Islands/genetics\n*   Humans\n*   Mutagenesis\n*   Mutation\n*   Organoids/cytology\n*   Peptides/genetics\n*   Polyketides\n\n## Access to Document\n\n*   [10.1038/s41586-020-2080-8](https://doi.org/10.1038/s41586-020-2080-8) \n\n## Fingerprint\n\n Dive into the research topics of 'Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli'. Together they form a unique fingerprint. \n\n*   Colorectal Cancer Keyphrases 100% \n*   Mutational Signatures Keyphrases 100% \n*   Pks+ E. Coli Keyphrases 100% \n*   Escherichia coli Immunology and Microbiology 100% \n*   Organoid Immunology and Microbiology 100% \n*   Colorectal Carcinoma Immunology and Microbiology 100% \n*   Pathogenicity Island Immunology and Microbiology 66% \n*   Bacterium Immunology and Microbiology 66% \n\n[View full fingerprint](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/fingerprints/)\n\n## Cite this\n\n*    APA \n*    Author \n*    BIBTEX \n*    Harvard \n*    Standard \n*    RIS \n*    Vancouver \n\nPleguezuelos-Manzano, C., Puschhof, J., Rosendahl Huber, A., van Hoeck, A., Wood, H. M., Nomburg, J., Gurjao, C., Manders, F., Dalmasso, G., Stege, P. B., Paganelli, F. L., Geurts, M. H., Beumer, J., Mizutani, T., Miao, Y., van der Linden, R., van der Elst, S., Garcia, K. C., Top, J.[, ... Clevers, H.](https://pure.knaw.nl/portal/en/persons/hans-clevers/) (2020). [Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/). [_Nature_](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#), _580_(7802), 269-273. [https://doi.org/10.1038/s41586-020-2080-8](https://doi.org/10.1038/s41586-020-2080-8)\n\nPleguezuelos-Manzano, Cayetano ; Puschhof, Jens ; Rosendahl Huber, Axel et al. / [**Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli**](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/). In: [Nature](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#). 2020 ; Vol. 580, No. 7802. pp. 269-273.\n\n@article{ee7dd56a51e143468ca5ade452d7c9f0,\n\n title = \"Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli\",\n\n abstract = \"Various species of the intestinal microbiota have been associated with the development of colorectal cancer1,2, but it has not been demonstrated that bacteria have a direct role in the occurrence of oncogenic mutations. Escherichia coli can carry the pathogenicity island pks, which encodes a set of enzymes that synthesize colibactin3. This compound is believed to alkylate DNA on adenine residues4,5 and induces double-strand breaks in cultured cells3. Here we expose human intestinal organoids to genotoxic pks+ E. coli by repeated luminal injection over five months. Whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria. The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer. Our study describes a distinct mutational signature in colorectal cancer and implies that the underlying mutational process results directly from past exposure to bacteria carrying the colibactin-producing pks pathogenicity island.\",\n\n keywords = \"Coculture Techniques, Cohort Studies, Colorectal Neoplasms/genetics, Consensus Sequence, DNA Damage, Escherichia coli/genetics, Gastrointestinal Microbiome, Genomic Islands/genetics, Humans, Mutagenesis, Mutation, Organoids/cytology, Peptides/genetics, Polyketides\",\n\n author = \"Cayetano Pleguezuelos-Manzano and Jens Puschhof and \\{Rosendahl Huber\\}, Axel and \\{van Hoeck\\}, Arne and Wood, \\{Henry M\\} and Jason Nomburg and Carino Gurjao and Freek Manders and Guillaume Dalmasso and Stege, \\{Paul B\\} and Paganelli, \\{Fernanda L\\} and Geurts, \\{Maarten H\\} and Joep Beumer and Tomohiro Mizutani and Yi Miao and \\{van der Linden\\}, Reinier and \\{van der Elst\\}, Stefan and Garcia, \\{K Christopher\\} and Janetta Top and Willems, \\{Rob J L\\} and Marios Giannakis and Richard Bonnet and Phil Quirke and Matthew Meyerson and Edwin Cuppen and \\{van Boxtel\\}, Ruben and Hans Clevers\",\n\n year = \"2020\",\n\n month = apr,\n\n doi = \"10.1038/s41586-020-2080-8\",\n\n language = \"English\",\n\n volume = \"580\",\n\n pages = \"269--273\",\n\n journal = \"Nature\",\n\n issn = \"0028-0836\",\n\n publisher = \"Nature Research\",\n\n number = \"7802\",\n\n}\n\nPleguezuelos-Manzano, C, Puschhof, J, Rosendahl Huber, A, van Hoeck, A, Wood, HM, Nomburg, J, Gurjao, C, Manders, F, Dalmasso, G, Stege, PB, Paganelli, FL, Geurts, MH, Beumer, J, Mizutani, T, Miao, Y, van der Linden, R, van der Elst, S, Garcia, KC, Top, J, Willems, RJL, Giannakis, M, Bonnet, R, Quirke, P, Meyerson, M, Cuppen, E, van Boxtel, R[& Clevers, H](https://pure.knaw.nl/portal/en/persons/hans-clevers/) 2020, '[Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/)', [_Nature_](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#), vol. 580, no. 7802, pp. 269-273. [https://doi.org/10.1038/s41586-020-2080-8](https://doi.org/10.1038/s41586-020-2080-8)\n\n[**Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli.**](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/) / Pleguezuelos-Manzano, Cayetano; Puschhof, Jens; Rosendahl Huber, Axel et al. \n\nIn: [Nature](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#), Vol. 580, No. 7802, 04.2020, p. 269-273.\nResearch output: Contribution to journal/periodical › Article › Scientific › peer-review\n\nTY - JOUR\n\nT1 - Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli\n\nAU - Pleguezuelos-Manzano, Cayetano\n\nAU - Puschhof, Jens\n\nAU - Rosendahl Huber, Axel\n\nAU - van Hoeck, Arne\n\nAU - Wood, Henry M\n\nAU - Nomburg, Jason\n\nAU - Gurjao, Carino\n\nAU - Manders, Freek\n\nAU - Dalmasso, Guillaume\n\nAU - Stege, Paul B\n\nAU - Paganelli, Fernanda L\n\nAU - Geurts, Maarten H\n\nAU - Beumer, Joep\n\nAU - Mizutani, Tomohiro\n\nAU - Miao, Yi\n\nAU - van der Linden, Reinier\n\nAU - van der Elst, Stefan\n\nAU - Garcia, K Christopher\n\nAU - Top, Janetta\n\nAU - Willems, Rob J L\n\nAU - Giannakis, Marios\n\nAU - Bonnet, Richard\n\nAU - Quirke, Phil\n\nAU - Meyerson, Matthew\n\nAU - Cuppen, Edwin\n\nAU - van Boxtel, Ruben\n\nAU - Clevers, Hans\n\nPY - 2020/4\n\nY1 - 2020/4\n\nN2 - Various species of the intestinal microbiota have been associated with the development of colorectal cancer1,2, but it has not been demonstrated that bacteria have a direct role in the occurrence of oncogenic mutations. Escherichia coli can carry the pathogenicity island pks, which encodes a set of enzymes that synthesize colibactin3. This compound is believed to alkylate DNA on adenine residues4,5 and induces double-strand breaks in cultured cells3. Here we expose human intestinal organoids to genotoxic pks+ E. coli by repeated luminal injection over five months. Whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria. The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer. Our study describes a distinct mutational signature in colorectal cancer and implies that the underlying mutational process results directly from past exposure to bacteria carrying the colibactin-producing pks pathogenicity island.\n\nAB - Various species of the intestinal microbiota have been associated with the development of colorectal cancer1,2, but it has not been demonstrated that bacteria have a direct role in the occurrence of oncogenic mutations. Escherichia coli can carry the pathogenicity island pks, which encodes a set of enzymes that synthesize colibactin3. This compound is believed to alkylate DNA on adenine residues4,5 and induces double-strand breaks in cultured cells3. Here we expose human intestinal organoids to genotoxic pks+ E. coli by repeated luminal injection over five months. Whole-genome sequencing of clonal organoids before and after this exposure revealed a distinct mutational signature that was absent from organoids injected with isogenic pks-mutant bacteria. The same mutational signature was detected in a subset of 5,876 human cancer genomes from two independent cohorts, predominantly in colorectal cancer. Our study describes a distinct mutational signature in colorectal cancer and implies that the underlying mutational process results directly from past exposure to bacteria carrying the colibactin-producing pks pathogenicity island.\n\nKW - Coculture Techniques\n\nKW - Cohort Studies\n\nKW - Colorectal Neoplasms/genetics\n\nKW - Consensus Sequence\n\nKW - DNA Damage\n\nKW - Escherichia coli/genetics\n\nKW - Gastrointestinal Microbiome\n\nKW - Genomic Islands/genetics\n\nKW - Humans\n\nKW - Mutagenesis\n\nKW - Mutation\n\nKW - Organoids/cytology\n\nKW - Peptides/genetics\n\nKW - Polyketides\n\nU2 - 10.1038/s41586-020-2080-8\n\nDO - 10.1038/s41586-020-2080-8\n\nM3 - Article\n\nC2 - 32106218\n\nSN - 0028-0836\n\nVL - 580\n\nSP - 269\n\nEP - 273\n\nJO - Nature\n\nJF - Nature\n\nIS - 7802\n\nER -\n\nPleguezuelos-Manzano C, Puschhof J, Rosendahl Huber A, van Hoeck A, Wood HM, Nomburg J et al. [Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli](https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/). [Nature](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#). 2020 Apr;580(7802):269-273. doi: 10.1038/s41586-020-2080-8\n\n*   [](https://www.facebook.com/sharer.php?u=https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/%3Futm_source%3Dfacebook%26utm_medium%3Dsocial%26utm_campaign%3Dsharelink%26doi%3D10.1038%2Fs41586-020-2080-8&p[summary]=Check+out+this+research+output+at+Royal+Netherlands+Academy+of+Arts+and+Sciences+%28KNAW%29%3A+Mutational+signature+in+colorectal+cancer+caused+by+genotoxic+pks%2B+E.+coli)\n*   [](https://twitter.com/intent/tweet?url=https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/%3Futm_source%3Dtwitter%26utm_medium%3Dsocial%26utm_campaign%3Dsharelink%26doi%3D10.1038%2Fs41586-020-2080-8&text=Check+out+this+research+output+at+Royal+Netherlands+Academy+of+Arts+and+Sciences+%28KNAW%29%3A+Mutational+signature+in+colorectal+cancer+caused+by+genotoxic+pks%2B+E.+coli)\n*   [](https://www.linkedin.com/shareArticle?mini=true&url=https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/%3Futm_source%3Dlinkedin%26utm_medium%3Dsocial%26utm_campaign%3Dsharelink%26doi%3D10.1038%2Fs41586-020-2080-8&summary=Check+out+this+research+output+at+Royal+Netherlands+Academy+of+Arts+and+Sciences+%28KNAW%29%3A+Mutational+signature+in+colorectal+cancer+caused+by+genotoxic+pks%2B+E.+coli)\n*   [](mailto:?subject=Mutational%20signature%20in%20colorectal%20cancer%20caused%20by%20genotoxic%20pks%2B%20E.%20coli&body=Check%20out%20this%20research%20output%20at%20Royal%20Netherlands%20Academy%20of%20Arts%20and%20Sciences%20(KNAW)%3A%20Mutational%20signature%20in%20colorectal%20cancer%20caused%20by%20genotoxic%20pks%2B%20E.%20coli%20|%20https://pure.knaw.nl/portal/en/publications/mutational-signature-in-colorectal-cancer-caused-by-genotoxic-pks/?utm_source=email&utm_medium=email&utm_campaign=sharelink)\n\nPowered by [Pure Link opens in a new tab](http://www.elsevier.com/online-tools/research-intelligence/products-and-services/pure), [Scopus Link opens in a new tab](http://www.scopus.com/)&[Elsevier Fingerprint Engine™ Link opens in a new tab](https://www.elsevier.com/products/elsevier-fingerprint-engine)\n\nAll content on this site: Copyright © 2026 Royal Netherlands Academy of Arts and Sciences (KNAW), its licensors, and contributors. All rights are reserved, including those for text and data mining, AI training, and similar technologies. For all open access content, the relevant licensing terms apply\n\nWe use cookies to help provide and enhance our service and tailor content. By continuing you agree to the [use of cookies](https://pure.knaw.nl/portal/en/about/cookies/)\n\nCookie settings\n\n[Log in to Pure Link opens in a new tab](https://pure.knaw.nl/admin/workspace.xhtml)\n\n[Royal Netherlands Academy of Arts and Sciences (KNAW) data protection policy Link opens in a new tab](https://pure.knaw.nl/invalid-url)\n\n[About web accessibility Link opens in a new tab](https://pure.knaw.nl/portal/en/web-accessibility/)\n\n[Report vulnerability Link opens in a new tab](https://elsevier.responsibledisclosure.com/hc/en-us/requests/new)\n\n[Contact us](mailto:pure@knaw.nl)\n\n[](https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0#)\n\n[Picked up by **85** news outlets](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=news)\n\n[Blogged by **14**](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=blogs)\n\n[Posted by **532** X users](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=twitter)\n\n[Referenced in **5** patents](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=patents)\n\n[On **8** Facebook pages](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=facebook)\n\n[Referenced in **3** Wikipedia pages](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=wikipedia)\n\n[Reddited by **13**](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=reddit)\n\n[Highlighted by **1** platforms](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=research-highlights)\n\n[On **3** videos](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=video)\n\n[Referenced in **1** clinical guideline sources](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=guidelines)\n\n[Referenced by **1** Bluesky users](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=bluesky)\n\n[Picked up by **1** podcasts](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423&tab=podcasts)\n\n**1128** readers on Mendeley \n\n[See more details](https://www.altmetric.com/details.php?domain=pure.knaw.nl&citation_id=76751423)\n\nWe use cookies to analyse and improve our service.[Cookie Policy](https://pure.knaw.nl/en/about/cookies/)\n\nCookies Settings Accept All Cookies\n\n![Image 3: Company Logo](https://cdn.cookielaw.org/logos/static/ot_company_logo.png)\n\nOpt-Out Request Honored\n\n## Cookie Preference Centre\n\nWe process your information to deliver content, extract insights, and generate reports to understand service usage; and/or access or store information on devices for that purpose. See the below section for more information, or to change our default settings. \n\n You may also be able to exercise your privacy choices ![Image 4: Cookie Settings | Your Privacy Choices](https://cdn-assets-eu.frontify.com/s3/frontify-enterprise-files-eu/eyJwYXRoIjoiZWxzZXZpZXJcL2ZpbGVcL05DSmJ6RDhNV3M1dlU5QlJ1djduLnBuZyJ9:elsevier:Yp1j0Yyk-ykfbG0S8wnos_RNIKx91C44OIjUpaxPXWE?width=2400) as described in our Privacy Policy \n\n[Cookie Policy](https://pure.knaw.nl/en/about/cookies/)\n\nAllow All\n### Manage Consent Preferences\n\n#### Strictly Necessary Cookies\n\nAlways Active\n\nThese cookies are necessary for the website to function and cannot be switched off in our systems. They are usually only set in response to actions made by you which amount to a request for services, such as setting your privacy preferences, logging in or filling in forms. You can set your browser to block or alert you about these cookies, but some parts of the site will not then work.\n\nCookies Details‎\n\n#### Performance Cookies\n\n- [x] Performance Cookies \n\nThese cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site. They help us to know which pages are the most and least popular and see how visitors move around the site.\n\nCookies Details‎\n\n#### Functional Cookies\n\n- [x] Functional Cookies \n\nThese cookies enable the website to provide enhanced functionality and personalisation. They may be set by us or by third party providers whose services we have added to our pages. If you do not allow these cookies then some or all of these services may not function properly.\n\nCookies Details‎\n\n#### Targeting Cookies\n\n- [x] Targeting Cookies \n\nThese cookies may be set through our site by our advertising partners. They may be used by those companies to build a profile of your interests and show you relevant adverts on other sites. If you do not allow these cookies, you will experience less targeted advertising.\n\nCookies Details‎\n\n### Cookie List\n\nClear\n\n- [x] checkbox label label\n\nApply Cancel\n\nConsent Leg.Interest\n\n- [x] checkbox label label\n\n- [x] checkbox label label\n\n- [x] checkbox label label\n\nConfirm My Choices\n\n[![Image 5: Powered by Onetrust](https://cdn.cookielaw.org/logos/static/powered_by_logo.svg)](https://www.onetrust.com/products/cookie-consent/)",
+    "doi": "10.1038/s41586-020-2080-8",
+    "evidence_id": "colibactin_pks_ecoli_mechanism",
+    "journal": "Nature",
+    "pmid": "",
+    "provenance_class": "open_access",
+    "source_url": "https://pure.knaw.nl/portal/en/publications/ee7dd56a-51e1-4346-8ca5-ade452d7c9f0",
+    "statement": "Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli",
+    "tier": "T1",
+    "title": "Mutational signature in colorectal cancer caused by genotoxic pks+ E. coli",
+    "v30_entity_id": "colibactin_pks_ecoli_mechanism",
+    "v30_frame_row": true,
+    "year": 2020
+  }
+]
+
+codex
+The 55-to-46 step is a measured delta, but its detailed row-level attribution is only partial, as the trace says. I’m now doing the final reconciliation arithmetic and ranking check across all stages.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$m=Get-Content '"'outputs/audits/beatboth8/drb_76/manifest.json' -Raw | ConvertFrom-Json
+"'$v=Get-Content '"'outputs/audits/beatboth8/drb_76/verification_details.json' -Raw | ConvertFrom-Json
+"'$e=Get-Content '"'outputs/audits/beatboth8/drb_76/evidence_pool.json' -Raw | ConvertFrom-Json
+"'$fv=@($m.four_role_evaluation.final_verdicts.PSObject.Properties.Value)
+$stages=@(
+  [pscustomobject]@{stage='"'pre-fetch cull'; drop="'$m.retrieval.pre_filter-$m.retrieval.candidates_total},
+  [pscustomobject]@{stage='"'fetch loop'; drop="'$m.retrieval.candidates_total-$m.retrieval.fetched},
+  [pscustomobject]@{stage='"'extraction rows'; drop="'$m.retrieval.fetched-$m.finding_dedup.raw_row_count},
+  [pscustomobject]@{stage='"'selection pool'; drop="'$m.finding_dedup.raw_row_count-$m.evidence_selection.evidence_total},
+  [pscustomobject]@{stage='"'selection cap'; drop="'$m.evidence_selection.evidence_total-$m.evidence_selection.evidence_selected},
+  [pscustomobject]@{stage='"'strict_verify'; drop="'$v.totals.sentences_dropped},
+  [pscustomobject]@{stage='"'4-role audit'; drop=(@("'$fv | Where-Object {$_ -eq '"'UNSUPPORTED'})).Count}
+)
+"'$stages | Sort-Object drop -Descending | Format-Table -AutoSize
+'"'drop_reason_sum=' + (("'$v.drop_reason_counts.PSObject.Properties.Value | Measure-Object -Sum).Sum)
+'"'drop_reason_plus_dedup=' + ((("'$v.drop_reason_counts.PSObject.Properties.Value | Measure-Object -Sum).Sum) + $v.dedup_redundant_count)
+'"'evidence_pool_len=' + "'$e.Count
+'"'frame_gap_count=' + "'$m.frame_coverage_report.frame_gap_count' in C:\POLARIS
+ succeeded in 3451ms:
+
+[32;1mstage          [0m[32;1m drop[0m
+[32;1m-----          [0m [32;1m----[0m
+pre-fetch cull  2241
+extraction rows  445
+fetch loop       240
+strict_verify     41
+4-role audit      14
+selection pool     9
+selection cap      0
+
+drop_reason_sum=40
+drop_reason_plus_dedup=41
+evidence_pool_len=55
+frame_gap_count=3
+
+codex
+No P0/P1 findings. I verified the funnel against the saved artifacts and source code: the load-bearing counts resolve, the dominant loss is correctly ranked as `2981 -> 740` pre-fetch cull, and the dangerous misclassification case is not present. The trace honestly calls `fetch_cap` a throttle, leaves the off-topic split unknown, and does not hide a throttle as legitimate.
+
+One minor nuance: `four_role_claim_audit.json` has the 37 claim records, while the 23/14 verdict distribution is in `manifest.json` under `four_role_evaluation.final_verdicts`. The trace cites that manifest path correctly.
+
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+verdict: APPROVE
+tokens used
+55,754

@@ -1,0 +1,9 @@
+novel_p0: []
+continuing_p0: []
+p1:
+  - "P1: `extraction_yield` can report a fetched-to-finding_rows pair that never existed. `_retrieval_manifest_section` pairs original `candidates_fetched` with `len(retrieval.evidence_rows)` at manifest-write time (`scripts/run_honest_sweep_r3.py:1141-1143`), but `run_one_query` mutates `retrieval.evidence_rows` after `run_live_retrieval` returns via expansion/deepener/agentic/STORM/journal-only/gap paths (`scripts/run_honest_sweep_r3.py:3585`, `3715`, `3912`, `3974`, `4028`, `5228`) before the success manifest writes retrieval telemetry (`scripts/run_honest_sweep_r3.py:6828`). That is no longer the return-time extraction count from `live_retriever.py:3514/3518`. Fix by snapshotting the `run_live_retrieval` return-time finding row count or explicitly aggregating all retrieval lanes, and add a regression for post-retrieval row mutation before manifest writing."
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Make `extraction_yield` source a stable real count instead of reading mutable `retrieval.evidence_rows` at manifest-write time."
+verdict: REQUEST_CHANGES

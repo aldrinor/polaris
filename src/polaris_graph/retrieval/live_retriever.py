@@ -158,6 +158,29 @@ class LiveRetrievalResult:
     parallel_completion_rate: float | None = None
     fetch_workers: int | None = None
     distinct_hosts: int | None = None
+    # I-ready-017 Task 2a (#1204): ADDITIVE source-funnel telemetry (read-only).
+    # Persists existing-but-unsaved retrieval counts so the ~90% pre-fetch
+    # source loss is MEASURABLE on a fresh run. NONE of these change what is
+    # discovered/filtered/fetched/selected — they only mirror locals already
+    # computed inside run_live_retrieval.
+    #   prefetch_offtopic: the off-topic filter's kept/rejected/threshold. None
+    #     when the filter is disabled or only seeds are present (seed_only) —
+    #     honestly absent, never a faked count.
+    #   drop_reasons: per-reason aggregate of the in-run _trace_drop calls
+    #     (offtopic / rerank_not_selected / fetch_failed / content_starved). The
+    #     four statically-known reasons are pre-seeded to 0 so the schema is
+    #     stable; counts derive locally (not from the pathB trace contextvar,
+    #     which is empty on a normal sweep).
+    prefetch_offtopic: dict[str, Any] | None = None
+    drop_reasons: dict[str, int] = field(default_factory=dict)
+    #   extraction_finding_rows: the EXTRACTION-stage finding-row count captured
+    #     at run_live_retrieval RETURN time (== len(evidence_rows) here), frozen
+    #     as an int. Codex diff-gate iter-1 P1: run_one_query MUTATES
+    #     retrieval.evidence_rows AFTER this returns (expansion append, deepener/
+    #     agentic reassign), so reading len(evidence_rows) at manifest-write time
+    #     reports the POST-expansion total, not the extraction yield. This frozen
+    #     int is the stable fetched->finding extraction count.
+    extraction_finding_rows: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2715,6 +2738,21 @@ def run_live_retrieval(
     """
     api_calls: dict[str, int] = {"serper": 0, "s2": 0, "openalex": 0, "fetch": 0}
     notes: list[str] = []
+    # I-ready-017 Task 2a (#1204): ADDITIVE source-funnel telemetry. Local
+    # aggregate of every _trace_drop call by reason, mirrored onto the result so
+    # the per-stage source loss is persisted (not just the pathB trace, which is
+    # empty on a normal sweep). Pre-seed the four statically-known reasons to 0
+    # so the manifest schema is stable; incrementing beside each _trace_drop
+    # leaves _trace_drop itself byte-identical (no behavior change).
+    drop_reasons: dict[str, int] = {
+        "offtopic": 0,
+        "rerank_not_selected": 0,
+        "fetch_failed": 0,
+        "content_starved": 0,
+    }
+    # Populated inside the Step-3 off-topic block; stays None when the filter is
+    # disabled or only seeds are present (honest absence, never a faked count).
+    prefetch_offtopic: dict[str, Any] | None = None
 
     # ── Step 0: UP-FRONT plan validation (I-meta-005 Phase 2, P2-note-1) ──
     # A malformed frame (bad evidence_need / bad jurisdiction SHAPE) must FAIL
@@ -2976,10 +3014,19 @@ def run_live_retrieval(
             candidates = _seed_cands + filt.kept
             for _dropped_url in _pre_offtopic_urls - {c.url for c in filt.kept}:
                 _trace_drop(_dropped_url, "offtopic")
+                drop_reasons["offtopic"] += 1
             notes.append(
                 f"prefetch_offtopic: {filt.total_kept} kept / "
                 f"{filt.total_rejected} rejected (threshold={filt.threshold_used:.2f})"
             )
+            # I-ready-017 Task 2a (#1204): persist the off-topic split. Store the
+            # raw threshold float (not the :.2f note string) so the manifest
+            # carries the unrounded value used in the filter decision.
+            prefetch_offtopic = {
+                "kept": filt.total_kept,
+                "rejected": filt.total_rejected,
+                "threshold": filt.threshold_used,
+            }
         # else: only seeds present (e.g. seed_only mode) — nothing to off-topic filter.
     kept_by_offtopic = len(candidates)
 
@@ -2999,6 +3046,7 @@ def run_live_retrieval(
     )
     for _dropped_url in _pre_rerank_urls - {c.url for c in candidates}:
         _trace_drop(_dropped_url, "rerank_not_selected")
+        drop_reasons["rerank_not_selected"] += 1
 
     classified_sources: list[CorpusSource] = []
     evidence_rows: list[dict[str, Any]] = []
@@ -3282,6 +3330,7 @@ def run_live_retrieval(
         if not ok:
             failed_fetch += 1
             _trace_drop(cand.url, "fetch_failed")
+            drop_reasons["fetch_failed"] += 1
         else:
             fetched += 1
 
@@ -3434,6 +3483,7 @@ def run_live_retrieval(
                     "for %r (len=%d)", cand.url, len(content),
                 )
                 _trace_drop(cand.url, "content_starved")
+                drop_reasons["content_starved"] += 1
             else:
                 direct_quote = _build_provenance_quote(
                     content, head_chars=1500, window_chars=500,
@@ -3485,4 +3535,11 @@ def run_live_retrieval(
         parallel_completion_rate=_parallel_completion_rate,
         fetch_workers=_fetch_workers,
         distinct_hosts=_distinct_hosts,
+        # I-ready-017 Task 2a (#1204): additive source-funnel telemetry.
+        prefetch_offtopic=prefetch_offtopic,
+        drop_reasons=drop_reasons,
+        # Codex diff-gate iter-1 P1: freeze the extraction-stage count HERE (at
+        # return), before run_one_query mutates evidence_rows via the expansion/
+        # deepener/agentic lanes.
+        extraction_finding_rows=len(evidence_rows),
     )
