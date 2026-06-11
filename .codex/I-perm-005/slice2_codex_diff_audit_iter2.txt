@@ -1,0 +1,23 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0:
+  - >
+    P0-1 is not fully fixed. If a clean labeled occurrence is followed on the same body line by
+    the start of a boundary-straddling unlabeled occurrence, the inserted `[confidence: ...]`
+    marker prevents `_sentence_spans` from splitting at the original sentence boundary. Then
+    `_all_occurrences_labeled` treats the merged span as labeled because it contains the marker,
+    blanks the merged span, and removes the first half of the straddling occurrence from the
+    residual scan. The function returns successfully while the report still contains bare
+    unlabeled non-VERIFIED prose. Relevant code: `src/polaris_graph/roles/report_redactor.py:562`,
+    `src/polaris_graph/roles/report_redactor.py:595`, `src/polaris_graph/roles/report_redactor.py:604`.
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - >
+    Add/fix coverage for: clean occurrence and same-line straddle tail, e.g.
+    `claim + " The therapy reversed organ\nfailure in the cohort..."`. Current result ships with
+    only one marker and no raise. The confidence marker must not alter later sentence segmentation
+    for the completeness pass, or labeled-span blanking must use pre-marker sentence spans.
+```

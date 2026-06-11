@@ -1,0 +1,10 @@
+verdict: REQUEST_CHANGES
+novel_p0:
+  - "src/polaris_graph/roles/report_redactor.py:653: same-line multiple non-VERIFIED claims can still ship unlabeled. `_claim_fully_pinnable()` strips prior confidence markers and passes, but `_annotate_line()` then computes spans on the already-labeled `working` text. The first appended marker has no terminator, so it merges with the next same-line sentence; the later claim may miss `_sentence_matches_stem()` or be suppressed by `marker in sentence`, while lines 653-659 ignore `_hit` and still record the claim as annotated. Repro: two UNSUPPORTED same-line claims sorted `a`, `b` produced marker_count=1 with annotated ids `['a','b']`."
+continuing_p0: []
+p1: []
+p2:
+  - "Test evidence note: the two straddle regressions pass; all 9 annotator tests pass. The current checkout’s redactor-targeted files collected 36 tests, not 44, and all 36 passed."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Make the actual annotation pass use the same marker-stripped segmentation/pinnability notion as the pre-pass, or batch labels before mutating same-line text. Add a regression with two same-line non-VERIFIED claims where the second must receive its own marker or fail closed."

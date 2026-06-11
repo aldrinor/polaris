@@ -1,0 +1,2226 @@
+2026-06-11T01:41:32.713343Z ERROR codex_models_manager::manager: failed to refresh available models: timeout waiting for child process to exit
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb457-7bb8-70c3-a019-1cf41d9c6ee9
+--------
+user
+# Codex DIFF review — I-perm-005 (#1199) SLICE 2: annotate_report_against_verdicts (keep + label)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Reserve P0/P1 for real execution risks. If iter 5 REQUEST_CHANGES, force-APPROVE on remaining-non-P0/P1.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this slice does
+Adds `annotate_report_against_verdicts` to `report_redactor.py` — the always-release sibling of `reconcile_report_against_verdicts`: a non-VERIFIED claim is KEPT + LABELED (confidence marker appended) instead of DELETED. ADDITIVE: the existing redactor is byte-unchanged; nothing calls the annotator yet (the runner call-site flip is the next sub-step). Reuses the redactor's tiered LOCATE.
+
+## Safety properties to verify (P0 class)
+1. **VERIFIED untouched + never deletes.** `_annotate_line` byte-preserves every non-matching sentence + its [N] markers; for a matching (non-VERIFIED) sentence it appends ` {marker}` and KEEPS the prose (never `_GAP_REPLACEMENT`). Verify a VERIFIED claim's sentence + citation markers are byte-identical.
+2. **Never ships a non-VERIFIED claim UNLABELED.** A present-but-unpinnable claim RAISES (same fail-closed as the redactor); a missing `marker_by_claim[id]` falls back to `_DEFAULT_LOW_MARKER`; a genuinely-absent claim is recorded in `already_absent`. Verify there is no path where a non-VERIFIED claim's prose stays in the report with no marker.
+3. **A non-VERIFIED claim can never be labeled high.** The marker is the CALLER's (`claim_labeler.confidence_bucket` returns low/no-source-found for non-VERIFIED); this function only appends the string. Not a regression risk here, but confirm the function never invents a "high" marker.
+4. **Idempotent + redactor no-op.** `_prose_stem` now also strips `[confidence: ...]`. Since the redactor runs annotate XOR reconcile (per PG_ALWAYS_RELEASE) and never sees the marker, confirm this strip cannot change redaction behavior (the 44 redactor tests pass). And confirm re-running annotate does not double-append.
+
+If you find a path where a non-VERIFIED claim ships unlabeled, or a VERIFIED sentence/marker is altered, or the `_prose_stem` change alters redaction, that is a P0.
+
+## Claims ledger
+| # | Claim | Where | Status |
+|---|---|---|---|
+| C1 | VERIFIED byte-identical, never deletes | `_annotate_line` keeps prose, appends marker; non-match verbatim | claims-true |
+| C2 | non-VERIFIED never unlabeled | present-but-unpinnable raises; missing marker -> _DEFAULT_LOW_MARKER; absent recorded | claims-true |
+| C3 | marker is caller's (never high here) | function appends marker_by_claim[id] or low fallback | claims-true |
+| C4 | `_prose_stem` strip is redactor no-op | redactor never sees the marker (XOR); 44 redactor tests pass | claims-true |
+| C5 | idempotent | `_prose_stem` strips the marker so a re-run matches + does not double-append | claims-true |
+
+## Files (full diff: `.codex/I-perm-005/slice2_codex_diff.patch`)
+- `src/polaris_graph/roles/report_redactor.py` (+~110): AnnotationResult/AnnotatedClaim, `_annotate_line`, `annotate_report_against_verdicts`, `_CONFIDENCE_MARKER_RE` + `_prose_stem` strip.
+- `tests/roles/test_report_annotator_iperm005.py` (new, 7 tests).
+
+## Test evidence: 7 annotator + 44 redactor (no regression) green.
+
+Review the diff. Confirm C2 (never ships a non-VERIFIED claim unlabeled) + C4 (redactor no-op). Hunt any unlabeled-ship or VERIFIED-mutation path.
+
+codex
+I’ll inspect the patch and the current implementation paths that drive locate, annotation, and prose-stem behavior, then verify the claimed test coverage against the specific P0 risks.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "annotate_report_against_verdicts|_annotate_line|_prose_stem|_CONFIDENCE_MARKER_RE|reconcile_report_against_verdicts|_GAP_REPLACEMENT|marker_by_claim|confidence" src/polaris_graph/roles/report_redactor.py tests/roles/test_report_annotator_iperm005.py tests/roles' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-perm-005/slice2_codex_diff.patch' in C:\POLARIS
+ succeeded in 2931ms:
+src/polaris_graph/roles/report_redactor.py:85:_GAP_REPLACEMENT = (
+src/polaris_graph/roles/report_redactor.py:99:# I-perm-005 (#1199): the annotator's appended confidence label. Stripped in the stem so an
+src/polaris_graph/roles/report_redactor.py:103:_CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+src/polaris_graph/roles/report_redactor.py:153:def _prose_stem(text: str) -> str:
+src/polaris_graph/roles/report_redactor.py:154:    """Strip provenance tokens + numbered citation markers (+ the annotator's confidence label),
+src/polaris_graph/roles/report_redactor.py:158:    text = _CONFIDENCE_MARKER_RE.sub("", text)
+src/polaris_graph/roles/report_redactor.py:166:    text = _prose_stem(text)
+src/polaris_graph/roles/report_redactor.py:171:def reconcile_report_against_verdicts(
+src/polaris_graph/roles/report_redactor.py:234:        # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
+src/polaris_graph/roles/report_redactor.py:410:            out.append(_GAP_REPLACEMENT)
+src/polaris_graph/roles/report_redactor.py:479:            new_line = line[:start] + _GAP_REPLACEMENT + line[end:]
+src/polaris_graph/roles/report_redactor.py:496:                lines[first] = _GAP_REPLACEMENT
+src/polaris_graph/roles/report_redactor.py:525:    """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
+src/polaris_graph/roles/report_redactor.py:546:def _annotate_line(line: str, stem_norm: str, marker: str) -> tuple[str, bool]:
+src/polaris_graph/roles/report_redactor.py:570:def annotate_report_against_verdicts(
+src/polaris_graph/roles/report_redactor.py:574:    marker_by_claim: dict[str, str],
+src/polaris_graph/roles/report_redactor.py:576:    """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
+src/polaris_graph/roles/report_redactor.py:578:    The always-release (I-perm-001) counterpart of ``reconcile_report_against_verdicts``: under the
+src/polaris_graph/roles/report_redactor.py:580:    independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
+src/polaris_graph/roles/report_redactor.py:617:        marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+src/polaris_graph/roles/report_redactor.py:622:                new_line, hit = _annotate_line(line, stem_norm, marker)
+src/polaris_graph/roles/report_redactor.py:644:# A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
+src/polaris_graph/roles/report_redactor.py:646:_DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+tests/roles/test_report_annotator_iperm005.py:1:"""I-perm-005 (#1199) slice 2 — annotate_report_against_verdicts (keep + label).
+tests/roles/test_report_annotator_iperm005.py:4:confidence marker (user judges), never DELETED. VERIFIED claims and their citation markers are
+tests/roles/test_report_annotator_iperm005.py:15:    annotate_report_against_verdicts,
+tests/roles/test_report_annotator_iperm005.py:26:_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+tests/roles/test_report_annotator_iperm005.py:31:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles/test_report_annotator_iperm005.py:45:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles/test_report_annotator_iperm005.py:54:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})  # no marker supplied
+tests/roles/test_report_annotator_iperm005.py:56:    assert "[confidence: low" in res.report_text  # generic low fallback, never silently unlabeled
+tests/roles/test_report_annotator_iperm005.py:62:    res = annotate_report_against_verdicts(_REPORT, verdicts, audit, {})
+tests/roles/test_report_annotator_iperm005.py:69:        annotate_report_against_verdicts(_REPORT, {"c_x": "UNSUPPORTED"}, {}, {})
+tests/roles/test_report_annotator_iperm005.py:73:    res = annotate_report_against_verdicts(_REPORT, {"c_ok": "VERIFIED"}, _AUDIT, {})
+tests/roles/test_report_annotator_iperm005.py:80:    once = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles/test_report_annotator_iperm005.py:81:    twice = annotate_report_against_verdicts(once.report_text, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles\test_four_role_budget_cap.py:206:    # Sentinel guard (false confidence — the exact trap the design §2.3 Test C warned about).
+tests/roles\test_report_annotator_iperm005.py:1:"""I-perm-005 (#1199) slice 2 — annotate_report_against_verdicts (keep + label).
+tests/roles\test_report_annotator_iperm005.py:4:confidence marker (user judges), never DELETED. VERIFIED claims and their citation markers are
+tests/roles\test_report_annotator_iperm005.py:15:    annotate_report_against_verdicts,
+tests/roles\test_report_annotator_iperm005.py:26:_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+tests/roles\test_report_annotator_iperm005.py:31:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles\test_report_annotator_iperm005.py:45:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles\test_report_annotator_iperm005.py:54:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})  # no marker supplied
+tests/roles\test_report_annotator_iperm005.py:56:    assert "[confidence: low" in res.report_text  # generic low fallback, never silently unlabeled
+tests/roles\test_report_annotator_iperm005.py:62:    res = annotate_report_against_verdicts(_REPORT, verdicts, audit, {})
+tests/roles\test_report_annotator_iperm005.py:69:        annotate_report_against_verdicts(_REPORT, {"c_x": "UNSUPPORTED"}, {}, {})
+tests/roles\test_report_annotator_iperm005.py:73:    res = annotate_report_against_verdicts(_REPORT, {"c_ok": "VERIFIED"}, _AUDIT, {})
+tests/roles\test_report_annotator_iperm005.py:80:    once = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles\test_report_annotator_iperm005.py:81:    twice = annotate_report_against_verdicts(once.report_text, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests/roles\test_report_redactor_redact001.py:11:"present but unpinnable", and ``reconcile_report_against_verdicts`` raised
+tests/roles\test_report_redactor_redact001.py:36:    reconcile_report_against_verdicts,
+tests/roles\test_report_redactor_redact001.py:76:    res = reconcile_report_against_verdicts(
+tests/roles\test_report_redactor_redact001.py:87:    assert _redactor._GAP_REPLACEMENT in res.report_text
+tests/roles\test_report_redactor_redact001.py:95:    res = reconcile_report_against_verdicts(
+tests/roles\test_report_redactor_redact001.py:116:        res = reconcile_report_against_verdicts(
+tests/roles\test_report_redactor_redact001.py:153:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:183:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:198:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:221:        reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:231:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:253:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:278:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:313:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:335:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_redact001.py:377:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_iready017.py:30:    reconcile_report_against_verdicts,
+tests/roles\test_report_redactor_iready017.py:88:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:103:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:113:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:128:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:144:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:156:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_iready017.py:166:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_iready017.py:188:        reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:197:        reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:204:    res = reconcile_report_against_verdicts(report, all_verified, audit)
+tests/roles\test_report_redactor_iready017.py:217:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:240:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests/roles\test_report_redactor_iready017.py:254:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests/roles\test_report_redactor_iready017.py:277:    res = reconcile_report_against_verdicts(report, fv, audit)
+
+ succeeded in 5292ms:
+ M .claude/hooks/ultimate_goal_stop_reminder.py
+ M .gitignore
+ M state/polaris_restart/iteration_trajectory.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-beatboth-429/verdict.stderr.txt
+?? .codex/I-beatboth-429/verdict_iter2.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-complete-002/
+?? .codex/I-complete-004/codex_diff.patch
+?? .codex/I-complete-004/codex_diff_audit.stderr.txt
+?? .codex/I-complete-004/codex_diff_audit.txt
+?? .codex/I-complete-004/commit_msg.txt
+?? .codex/I-complete-004/diff_gate_input.md
+?? .codex/I-faith-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-perm-005/slice2_codex_diff.patch
+?? .codex/I-perm-005/slice2_codex_diff_audit.stderr.txt
+?? .codex/I-perm-005/slice2_codex_diff_audit.txt
+?? .codex/I-perm-005/slice2_diff_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/_inspect_redact.py
+?? .codex/I-ready-017/_verify_fix.py
+?? .codex/I-ready-017/breadth_collapse_fix_design.md
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/faithfulness_diff_verdict.stderr.txt
+?? .codex/I-ready-017/faithfulness_gate_input.md
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_1171_faithfulness_landed.md
+?? .codex/I-ready-017/gh_1171_progress_comment.md
+?? .codex/I-ready-017/gh_entailment_inert_issue.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/preflight_audit_input.md
+?? .codex/I-ready-017/preflight_audit_verdict.stderr.txt
+?? .codex/I-ready-017/preflight_audit_verdict.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/I-transport-001/codex_diff_audit.stderr.txt
+?? .codex/I-transport-001/vm_p1.sh
+?? .codex/I-transport-001/vm_p2.sh
+?? .codex/I-transport-001/vm_p3.sh
+?? .codex/beatboth5/audit_72_input.md
+?? .codex/beatboth5/audit_75_input.md
+?? .codex/beatboth5/audit_75b_input.md
+?? .codex/beatboth5/audit_76_input.md
+?? .codex/beatboth5/audit_76b_input.md
+?? .codex/beatboth5/audit_78_input.md
+?? .codex/beatboth5/audit_78b_input.md
+?? .codex/beatboth5/audit_90b_input.md
+?? .codex/beatboth5/bug_forensic_input.md
+?? .codex/beatboth5/bug_forensic_verdict.stderr.txt
+?? .codex/beatboth5/bug_forensic_verdict.txt
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? .codex/forensic/
+?? .codex/nda-audit/
+?? .codex/retrieval-params/
+?? .codex/tool-verification/
+?? .codex/workflows/
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_numeric_review_tmp/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/beatboth5/
+?? outputs/audits/beatboth6/
+?? outputs/audits/beatboth7/I_complete_002_drop_decomposition.md
+?? outputs/audits/beatboth7/_competitors_clean/
+?? outputs/audits/beatboth7/completeness_gap_diagnosis.md
+?? outputs/audits/beatboth7/drb_72_ai_labor/
+?? outputs/audits/beatboth7/drb_75_metal_ions_cvd/
+?? outputs/audits/beatboth7/drb_76_gut_microbiota_crc/
+?? outputs/audits/beatboth7/drb_78_parkinsons_dbs/
+?? outputs/audits/beatboth7/drb_90_adas_liability/
+?? outputs/audits/beatboth8/FAILURE_AUDIT.md
+?? outputs/audits/beatboth8/I-perm-002_corpus_satisfaction_design.md
+?? outputs/audits/beatboth8/REMAINING_RISKS.md
+?? outputs/audits/beatboth8/drb_76/
+?? outputs/audits/beatboth8/manifests/
+?? outputs/audits/codex_audit_sitecustomize/
+?? outputs/audits/codex_pytest_temp_audit/
+?? outputs/audits/f02_bakeoff/
+?? outputs/audits/global_consistency_research.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? outputs/audits/retrieval_width_1000_math.md
+?? scope_verify_tmp_codex/
+?? scope_verify_tmp_codex_floor008/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? scripts/probe_discovery_and_residual.py
+?? scripts/probe_paid_credits.py
+?? scripts/probe_website_access_tools.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_audit_tmp/chmod_after_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/mode_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/tmpbm_z34u3/': Permission denied
+warning: could not open directory 'codex_audit_tmp/tmp6mj6akgl/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4pldgytu/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4ub_c1tz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_b225i01s/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_bnezcyw_/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_f3_ntj9m/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_gbznmdhq/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_k8cuhaqf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ku5c2fnz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ll7c4m6w/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_lqomtwho/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_q7irc_xy/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_r9l_fwzf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_vnbmb3pa/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_xr_17rct/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_y372lrb2/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/probe_63cxyz6o/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/tmptcv_wpgb/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/polaris_scope_ed94b46c36074f439046d1e25553efb6/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-7lnb1r6l/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-fvafx2nw/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/audits/codex_pytest_temp_scope_one/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+ succeeded in 7348ms:
+commit c1e3714c34d27fd0804f6348e8632ce66257a44e
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 18:41:02 2026 -0700
+
+    I-perm-005 (#1199) slice 2: annotate_report_against_verdicts — keep + label (the always-release verb)
+    
+    Additive — INERT until the call-site flip (the existing redactor `reconcile_report_against_verdicts`
+    is byte-unchanged; the 44 redactor tests pass). Under the always-release reframe a non-VERIFIED claim
+    is KEPT and LABELED (user judges) instead of DELETED.
+    
+    `annotate_report_against_verdicts(report_text, final_verdicts, audit_map, marker_by_claim)`:
+    - for each non-VERIFIED claim, KEEPS its rendered sentence + APPENDS the confidence marker (computed
+      by the caller from `claim_labeler`; a non-VERIFIED claim is always low / no-source-found, never
+      high). Reuses the redactor's tiered LOCATE (`_sentence_spans` + `_sentence_matches_stem`) — the new
+      `_annotate_line` is the keep-and-label mirror of `_redact_line`, byte-preserving every VERIFIED
+      neighbor sentence + its [N] citation markers.
+    - SAME fail-closed contract as the redactor: a present-but-unpinnable non-VERIFIED claim raises
+      (never ship a non-VERIFIED claim as bare UNLABELED prose); a missing marker falls back to a generic
+      low marker (never silently unlabeled); a genuinely-absent claim is recorded in `already_absent`.
+    - IDEMPOTENT: `_prose_stem` now also strips the `[confidence: ...]` marker so an already-annotated
+      sentence still matches its stem at the coverage floor (re-running appends no second marker). The
+      redactor never sees the marker (annotate XOR reconcile per PG_ALWAYS_RELEASE), so the strip is a
+      no-op on the redaction path.
+    
+    Best practice: SAFE/LongFact (deleting a checkable claim tanks recall — the completeness lever);
+    "Cited but Not Verified" (KEEP the claim, LABEL its support honestly).
+    
+    Tests (7): keeps VERIFIED byte-identical + labels UNSUPPORTED; marker appended AFTER the sentence;
+    missing-marker low fallback; absent claim recorded not raised; no-audit-row fails closed;
+    verified-only no-op; idempotent (no double marker). 44 existing redactor tests green (no regression).
+    
+    Next sub-step: flip the runner call site (annotate under PG_ALWAYS_RELEASE, reconcile when off) +
+    emit claim_confidence.json + the report render; then the UI confidence chip.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/polaris_graph/roles/report_redactor.py b/src/polaris_graph/roles/report_redactor.py
+index a27f9c12..380f9979 100644
+--- a/src/polaris_graph/roles/report_redactor.py
++++ b/src/polaris_graph/roles/report_redactor.py
+@@ -96,6 +96,11 @@ _PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+ # Rendered numbered citation marker: [1], [12]. The final report converts each provenance
+ # token into one of these, so the stem matcher must ignore them on BOTH sides.
+ _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
++# I-perm-005 (#1199): the annotator's appended confidence label. Stripped in the stem so an
++# already-annotated sentence still matches its claim stem at the coverage floor (annotate is
++# idempotent). The redactor never sees this marker (annotate XOR reconcile per PG_ALWAYS_RELEASE),
++# so stripping it is a no-op on the redaction path.
++_CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+ _WHITESPACE_RE = re.compile(r"\s+")
+ 
+ 
+@@ -146,9 +151,11 @@ class RedactionResult:
+ 
+ 
+ def _prose_stem(text: str) -> str:
+-    """Strip provenance tokens + numbered citation markers, leaving the bare claim prose."""
++    """Strip provenance tokens + numbered citation markers (+ the annotator's confidence label),
++    leaving the bare claim prose."""
+     text = _PROVENANCE_TOKEN_RE.sub("", text)
+     text = _NUMBERED_MARKER_RE.sub("", text)
++    text = _CONFIDENCE_MARKER_RE.sub("", text)
+     return text
+ 
+ 
+@@ -508,3 +515,132 @@ def _minimal_consecutive_span_set(
+             if stem_norm in _normalize(seg):
+                 return (lo, hi)
+     return None
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# I-perm-005 (#1199) — ANNOTATE (keep + label), the always-release sibling of REDACT
++# ─────────────────────────────────────────────────────────────────────────────
++@dataclass
++class AnnotatedClaim:
++    """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
++
++    claim_id: str
++    severity: str
++    verdict: str
++    marker: str
++
++
++@dataclass
++class AnnotationResult:
++    """Outcome of annotating report.md against the 4-role verdicts (keep + label)."""
++
++    report_text: str
++    annotated: list["AnnotatedClaim"] = field(default_factory=list)
++    already_absent: list[str] = field(default_factory=list)
++
++    @property
++    def annotated_count(self) -> int:
++        return len(self.annotated)
++
++
++def _annotate_line(line: str, stem_norm: str, marker: str) -> tuple[str, bool]:
++    """Append ``marker`` after every rendered sentence in ``line`` that IS the claim — KEEPING the
++    sentence + its citation markers byte-for-byte, and byte-preserving every non-matching sentence
++    and all inter-sentence whitespace. The §-1.1-keep-and-label counterpart of ``_redact_line``."""
++    if stem_norm not in _normalize(line):
++        return line, False
++    out: list[str] = []
++    cursor = 0
++    hit = False
++    for (start, end) in _sentence_spans(line):
++        out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
++        sentence = line[start:end]
++        if _sentence_matches_stem(sentence, stem_norm):
++            # LOCATED — count it as a hit either way so a re-run is idempotent (and a present
++            # claim is never mis-read as unlocatable). Append the marker only if not already there.
++            hit = True
++            out.append(sentence if marker in sentence else f"{sentence} {marker}")
++        else:
++            out.append(sentence)  # byte-identical — markers intact
++        cursor = end
++    out.append(line[cursor:])
++    return "".join(out), hit
++
++
++def annotate_report_against_verdicts(
++    report_text: str,
++    final_verdicts: dict[str, str],
++    audit_map: dict[str, dict],
++    marker_by_claim: dict[str, str],
++) -> AnnotationResult:
++    """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
++
++    The always-release (I-perm-001) counterpart of ``reconcile_report_against_verdicts``: under the
++    reframe a non-VERIFIED claim is shown LABELED (user judges) instead of DELETED. Severity-
++    independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
++    computed from ``claim_labeler`` (a non-VERIFIED claim is always low / no-source-found — never
++    high). A non-VERIFIED claim with no marker falls back to a generic low marker (never silently
++    unlabeled).
++
++    Single-pass per claim (appending a marker does not remove the stem, so there is no
++    multi-occurrence loop): every matching sentence span across the body is labeled exactly once.
++
++    Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
++    PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
++    never ship a non-VERIFIED claim as bare unlabeled prose.
++    """
++    working = report_text
++    annotated: list[AnnotatedClaim] = []
++    already_absent: list[str] = []
++
++    for claim_id, verdict in sorted(final_verdicts.items()):
++        if verdict == _VERDICT_VERIFIED:
++            continue
++        meta = audit_map.get(claim_id)
++        if meta is None:
++            raise ReportRedactionError(
++                f"claim {claim_id} has verdict {verdict} but no audit_map row; "
++                "cannot locate its sentence to annotate (fail-closed)."
++            )
++        severity = str(meta.get("severity", ""))
++        sentence = str(meta.get("sentence", ""))
++        stem_norm = _normalize(sentence)
++        if not stem_norm:
++            raise ReportRedactionError(
++                f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
++                "cannot annotate (fail-closed)."
++            )
++        if not _prose_present(working, stem_norm):
++            already_absent.append(claim_id)  # downstream dedup removed it; nothing to label
++            continue
++
++        marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
++        labeled_any = False
++        new_lines: list[str] = []
++        for line in working.split("\n"):
++            if _is_redactable_body_line(line):
++                new_line, hit = _annotate_line(line, stem_norm, marker)
++                labeled_any = labeled_any or hit
++                new_lines.append(new_line)
++            else:
++                new_lines.append(line)
++        working = "\n".join(new_lines)
++
++        if not labeled_any:
++            # Present in the line-join projection but not pinnable to a discrete redactable
++            # sentence (boundary under-split / spans a no-touch line). Same fail-closed contract as
++            # the redactor — never ship a non-VERIFIED claim unlabeled.
++            raise ReportRedactionError(
++                f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md but could "
++                "not be pinned to a discrete sentence to annotate (fail-closed)."
++            )
++        annotated.append(
++            AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
++        )
++
++    return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
++
++
++# A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
++# (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
++_DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+diff --git a/tests/roles/test_report_annotator_iperm005.py b/tests/roles/test_report_annotator_iperm005.py
+new file mode 100644
+index 00000000..2b3da94c
+--- /dev/null
++++ b/tests/roles/test_report_annotator_iperm005.py
+@@ -0,0 +1,83 @@
++"""I-perm-005 (#1199) slice 2 — annotate_report_against_verdicts (keep + label).
++
++The always-release sibling of the redactor: a non-VERIFIED claim is KEPT and LABELED with its
++confidence marker (user judges), never DELETED. VERIFIED claims and their citation markers are
++byte-identical; a genuinely-absent claim is recorded; a present-but-unlocatable claim fails closed
++(never ships a non-VERIFIED claim as bare unlabeled prose).
++"""
++
++from __future__ import annotations
++
++import pytest
++
++from src.polaris_graph.roles.report_redactor import (
++    ReportRedactionError,
++    annotate_report_against_verdicts,
++)
++
++_VERIFIED_SENT = "Metformin lowered HbA1c by 0.8 percent over 24 weeks [1]."
++_UNSUP_SENT = "The drug eliminated all cardiovascular events in every patient [2]."
++_REPORT = f"## Findings\n\n{_VERIFIED_SENT} {_UNSUP_SENT}\n"
++
++_AUDIT = {
++    "c_ok": {"sentence": _VERIFIED_SENT, "severity": "S1"},
++    "c_bad": {"sentence": _UNSUP_SENT, "severity": "S1"},
++}
++_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
++
++
++def test_keeps_verified_and_labels_unsupported():
++    verdicts = {"c_ok": "VERIFIED", "c_bad": "UNSUPPORTED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
++    # The unsupported sentence is KEPT (not deleted) and carries the marker.
++    assert _UNSUP_SENT in res.report_text
++    assert _MARKER in res.report_text
++    assert res.annotated_count == 1 and res.annotated[0].claim_id == "c_bad"
++    # The verified sentence + its [1] marker are byte-identical (untouched).
++    assert _VERIFIED_SENT in res.report_text
++    assert "[1]" in res.report_text
++    # No gap/redaction language was inserted.
++    assert "did not survive verification" not in res.report_text
++
++
++def test_marker_appended_after_the_sentence_not_replacing():
++    verdicts = {"c_bad": "UNSUPPORTED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
++    # The sentence prose precedes the marker (label sits AFTER the claim).
++    idx_sent = res.report_text.index("eliminated all cardiovascular events")
++    idx_marker = res.report_text.index(_MARKER)
++    assert idx_sent < idx_marker
++
++
++def test_missing_marker_falls_back_to_low_never_unlabeled():
++    verdicts = {"c_bad": "UNSUPPORTED"}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})  # no marker supplied
++    assert res.annotated_count == 1
++    assert "[confidence: low" in res.report_text  # generic low fallback, never silently unlabeled
++
++
++def test_absent_claim_recorded_not_raised():
++    verdicts = {"c_gone": "UNSUPPORTED"}
++    audit = {"c_gone": {"sentence": "A claim that is not present anywhere in the body [9].", "severity": "S2"}}
++    res = annotate_report_against_verdicts(_REPORT, verdicts, audit, {})
++    assert res.annotated_count == 0
++    assert "c_gone" in res.already_absent
++
++
++def test_no_audit_row_for_non_verified_fails_closed():
++    with pytest.raises(ReportRedactionError):
++        annotate_report_against_verdicts(_REPORT, {"c_x": "UNSUPPORTED"}, {}, {})
++
++
++def test_verified_only_is_noop():
++    res = annotate_report_against_verdicts(_REPORT, {"c_ok": "VERIFIED"}, _AUDIT, {})
++    assert res.report_text == _REPORT
++    assert res.annotated_count == 0
++
++
++def test_idempotent_no_double_marker():
++    verdicts = {"c_bad": "UNSUPPORTED"}
++    once = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
++    twice = annotate_report_against_verdicts(once.report_text, verdicts, _AUDIT, {"c_bad": _MARKER})
++    # The marker is not appended a second time (the sentence already carries it).
++    assert twice.report_text.count(_MARKER) == 1
+
+
+codex
+I have the slice patch and symbol map. Next I’m reading the surrounding redactor code, because C4 depends on how `_prose_stem`, `_prose_present`, sentence matching, and body-line filtering interact outside the new annotator tests.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/roles/report_redactor.py | ForEach-Object { if ($i -ge 525 -and $i -le 660) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/roles/report_redactor.py | ForEach-Object { if ($i -ge 260 -and $i -le 525) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/roles/report_redactor.py | ForEach-Object { if ($i -ge 1 -and $i -le 260) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/roles/test_report_annotator_iperm005.py | ForEach-Object { '"'{0,4}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+ succeeded in 2805ms:
+ 525:     """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
+ 526: 
+ 527:     claim_id: str
+ 528:     severity: str
+ 529:     verdict: str
+ 530:     marker: str
+ 531: 
+ 532: 
+ 533: @dataclass
+ 534: class AnnotationResult:
+ 535:     """Outcome of annotating report.md against the 4-role verdicts (keep + label)."""
+ 536: 
+ 537:     report_text: str
+ 538:     annotated: list["AnnotatedClaim"] = field(default_factory=list)
+ 539:     already_absent: list[str] = field(default_factory=list)
+ 540: 
+ 541:     @property
+ 542:     def annotated_count(self) -> int:
+ 543:         return len(self.annotated)
+ 544: 
+ 545: 
+ 546: def _annotate_line(line: str, stem_norm: str, marker: str) -> tuple[str, bool]:
+ 547:     """Append ``marker`` after every rendered sentence in ``line`` that IS the claim — KEEPING the
+ 548:     sentence + its citation markers byte-for-byte, and byte-preserving every non-matching sentence
+ 549:     and all inter-sentence whitespace. The §-1.1-keep-and-label counterpart of ``_redact_line``."""
+ 550:     if stem_norm not in _normalize(line):
+ 551:         return line, False
+ 552:     out: list[str] = []
+ 553:     cursor = 0
+ 554:     hit = False
+ 555:     for (start, end) in _sentence_spans(line):
+ 556:         out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+ 557:         sentence = line[start:end]
+ 558:         if _sentence_matches_stem(sentence, stem_norm):
+ 559:             # LOCATED — count it as a hit either way so a re-run is idempotent (and a present
+ 560:             # claim is never mis-read as unlocatable). Append the marker only if not already there.
+ 561:             hit = True
+ 562:             out.append(sentence if marker in sentence else f"{sentence} {marker}")
+ 563:         else:
+ 564:             out.append(sentence)  # byte-identical — markers intact
+ 565:         cursor = end
+ 566:     out.append(line[cursor:])
+ 567:     return "".join(out), hit
+ 568: 
+ 569: 
+ 570: def annotate_report_against_verdicts(
+ 571:     report_text: str,
+ 572:     final_verdicts: dict[str, str],
+ 573:     audit_map: dict[str, dict],
+ 574:     marker_by_claim: dict[str, str],
+ 575: ) -> AnnotationResult:
+ 576:     """KEEP every non-VERIFIED claim's sentence in ``report_text`` and APPEND its confidence marker.
+ 577: 
+ 578:     The always-release (I-perm-001) counterpart of ``reconcile_report_against_verdicts``: under the
+ 579:     reframe a non-VERIFIED claim is shown LABELED (user judges) instead of DELETED. Severity-
+ 580:     independent, like the redactor. ``marker_by_claim[claim_id]`` is the inline marker the caller
+ 581:     computed from ``claim_labeler`` (a non-VERIFIED claim is always low / no-source-found — never
+ 582:     high). A non-VERIFIED claim with no marker falls back to a generic low marker (never silently
+ 583:     unlabeled).
+ 584: 
+ 585:     Single-pass per claim (appending a marker does not remove the stem, so there is no
+ 586:     multi-occurrence loop): every matching sentence span across the body is labeled exactly once.
+ 587: 
+ 588:     Fail-closed (same safety contract as the redactor): a material non-VERIFIED claim whose prose is
+ 589:     PRESENT but cannot be pinned to a discrete rendered sentence raises ``ReportRedactionError`` — we
+ 590:     never ship a non-VERIFIED claim as bare unlabeled prose.
+ 591:     """
+ 592:     working = report_text
+ 593:     annotated: list[AnnotatedClaim] = []
+ 594:     already_absent: list[str] = []
+ 595: 
+ 596:     for claim_id, verdict in sorted(final_verdicts.items()):
+ 597:         if verdict == _VERDICT_VERIFIED:
+ 598:             continue
+ 599:         meta = audit_map.get(claim_id)
+ 600:         if meta is None:
+ 601:             raise ReportRedactionError(
+ 602:                 f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+ 603:                 "cannot locate its sentence to annotate (fail-closed)."
+ 604:             )
+ 605:         severity = str(meta.get("severity", ""))
+ 606:         sentence = str(meta.get("sentence", ""))
+ 607:         stem_norm = _normalize(sentence)
+ 608:         if not stem_norm:
+ 609:             raise ReportRedactionError(
+ 610:                 f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+ 611:                 "cannot annotate (fail-closed)."
+ 612:             )
+ 613:         if not _prose_present(working, stem_norm):
+ 614:             already_absent.append(claim_id)  # downstream dedup removed it; nothing to label
+ 615:             continue
+ 616: 
+ 617:         marker = marker_by_claim.get(claim_id) or _DEFAULT_LOW_MARKER
+ 618:         labeled_any = False
+ 619:         new_lines: list[str] = []
+ 620:         for line in working.split("\n"):
+ 621:             if _is_redactable_body_line(line):
+ 622:                 new_line, hit = _annotate_line(line, stem_norm, marker)
+ 623:                 labeled_any = labeled_any or hit
+ 624:                 new_lines.append(new_line)
+ 625:             else:
+ 626:                 new_lines.append(line)
+ 627:         working = "\n".join(new_lines)
+ 628: 
+ 629:         if not labeled_any:
+ 630:             # Present in the line-join projection but not pinnable to a discrete redactable
+ 631:             # sentence (boundary under-split / spans a no-touch line). Same fail-closed contract as
+ 632:             # the redactor — never ship a non-VERIFIED claim unlabeled.
+ 633:             raise ReportRedactionError(
+ 634:                 f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md but could "
+ 635:                 "not be pinned to a discrete sentence to annotate (fail-closed)."
+ 636:             )
+ 637:         annotated.append(
+ 638:             AnnotatedClaim(claim_id=claim_id, severity=severity, verdict=verdict, marker=marker)
+ 639:         )
+ 640: 
+ 641:     return AnnotationResult(report_text=working, annotated=annotated, already_absent=already_absent)
+ 642: 
+ 643: 
+ 644: # A generic low-confidence marker for a non-VERIFIED claim whose caller-supplied marker is missing
+ 645: # (never leave an unverified claim unlabeled). Mirrors claim_labeler's low wording.
+ 646: _DEFAULT_LOW_MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+
+ succeeded in 5000ms:
+ 260:             # report (#1174). Raising here (not after the loop) means we never spin: no progress +
+ 261:             # still present == abort.
+ 262:             raise ReportRedactionError(
+ 263:                 f"claim {claim_id} ({verdict}/{severity}) prose is present in report.md "
+ 264:                 "but could not be bounded to any redactable unit (span set or body line); "
+ 265:                 "refusing to ship a partially-reconciled report (fail-closed). "
+ 266:                 f"prose_stem={stem_norm[:120]!r}"
+ 267:             )
+ 268: 
+ 269:         # Record the claim ONCE after the loop (Codex iter-1 P1-1: appending per removal would
+ 270:         # double-count a claim that occurred twice and inflate redacted_count). If the loop body
+ 271:         # never ran, the prose was genuinely ABSENT from the start — the SAFE state (TIER 3).
+ 272:         if redacted_any_for_claim:
+ 273:             result.redacted.append(
+ 274:                 RedactedClaim(
+ 275:                     claim_id=claim_id,
+ 276:                     severity=severity,
+ 277:                     verdict=verdict,
+ 278:                     claim_text=sentence,
+ 279:                 )
+ 280:             )
+ 281:         else:
+ 282:             result.already_absent.append(claim_id)  # TIER 3 — genuinely absent, ship nothing
+ 283: 
+ 284:     result.report_text = working
+ 285:     return result
+ 286: 
+ 287: 
+ 288: def _redact_sentence(report_text: str, stem_norm: str) -> tuple[bool, str]:
+ 289:     """Replace each rendered sentence whose normalized prose contains ``stem_norm`` with the
+ 290:     visible gap language. Returns (redacted_any, new_text).
+ 291: 
+ 292:     Matching is done at the rendered-sentence granularity: each body line is split into
+ 293:     sentence spans (each span KEEPS its own trailing citation markers), normalized (citation +
+ 294:     whitespace insensitive), and a span is redacted iff its normalized prose CONTAINS the claim
+ 295:     stem with sufficient coverage. Every NON-matching sentence — and its [N] markers — is
+ 296:     preserved byte-for-byte, so redacting one sentence never strips citations off its VERIFIED
+ 297:     neighbors (Codex iter-1 P1). Robust to the provenance-token -> [N] render shift; never
+ 298:     matches across unrelated sentences.
+ 299:     """
+ 300:     redacted_any = False
+ 301:     out_lines: list[str] = []
+ 302:     for line in report_text.split("\n"):
+ 303:         # Never touch headings, bibliography rows, or already-gap lines.
+ 304:         stripped = line.lstrip()
+ 305:         if stripped.startswith("#") or stripped.startswith("[") or not stripped:
+ 306:             out_lines.append(line)
+ 307:             continue
+ 308:         new_line, hit = _redact_line(line, stem_norm)
+ 309:         redacted_any = redacted_any or hit
+ 310:         out_lines.append(new_line)
+ 311:     return redacted_any, "\n".join(out_lines)
+ 312: 
+ 313: 
+ 314: # A rendered-sentence boundary: a terminator [.!?], then any run of the sentence's OWN
+ 315: # trailing citation markers ([N], optionally space-separated), then the inter-sentence
+ 316: # whitespace, then the start of the next sentence. The trailing markers stay attached to the
+ 317: # sentence they cite (the LEFT side) — they are NOT consumed as a separator.
+ 318: #
+ 319: # Codex iter-1 P1 fix: the prior `re.split(r"(?<=[.!?])(?:\[\d+\])?\s+...")` discarded the
+ 320: # boundary marker (it was part of the matched, dropped separator), so redacting one sentence
+ 321: # stripped the [8]/[4] citation markers off its VERIFIED neighbors on the same line and turned
+ 322: # cited claims into uncited prose. The real drb_90 case: the VERIFIED 05-000 sentence renders
+ 323: # "...crashes.[8]" immediately before the UNSUPPORTED 05-001 sentence — the [8] belongs to
+ 324: # 05-000 and must survive redaction of 05-001.
+ 325: #
+ 326: # I-redact-001 #1181 — three ALTERNATION ARMS so a real boundary is not under-split (the
+ 327: # under-split merged a non-VERIFIED sentence with a VERIFIED neighbor into one over-long span,
+ 328: # dropping coverage below the floor and forcing a whole-report abort). Each arm still demands
+ 329: # inter-sentence whitespace + a sentence-start, so decimals/abbreviations never become a split:
+ 330: #   ARM 1 (terminator, sentence-start char): "...crashes.[8] The..." — the original behavior.
+ 331: #   ARM 2 (terminator + >=1 marker, digit-start next): "...adherence.[16] 87.3% of..." — the
+ 332: #          next sentence begins with a digit (defeating ARM 1's [A-Z"'(#] lookahead). REQUIRES
+ 333: #          at least one [N] marker between the period and the digit, so a bare decimal
+ 334: #          "0.90 (0.83 to 0.97) was found." (period, space, digit, NO marker) never matches.
+ 335: #   ARM 3 (>=1 marker as terminator, NO preceding period): "...risk[1] Cereal...",
+ 336: #          "...recovery[17][22] Legal..." — the renderer emitted the citation marker(s) with no
+ 337: #          terminal period before them; the marker(s) ARE the boundary. The marker stays with
+ 338: #          the LEFT (cited) sentence (it is m.start()-anchored, then rstrip-included in the span),
+ 339: #          so a VERIFIED neighbor keeps its [N] byte-for-byte (the Codex iter-1 P1 invariant).
+ 340: #          Codex iter-1 P2: ARM 3 is WORD-ANCHORED — the marker run must immediately follow a
+ 341: #          word character ``(?<=\w)`` (NO whitespace between the sentence-final word and its
+ 342: #          marker), so it fires only on a plausible sentence end where the renderer dropped the
+ 343: #          terminal period ("risk[1]", "recovery[17][22]"). A MID-sentence inline citation —
+ 344: #          "...as shown [5] In vivo..." or "the [5] Group reported..." — has WHITESPACE before
+ 345: #          the bracket, so ``(?<=\w)`` rejects it and the inline-cited sentence stays intact (no
+ 346: #          false split -> no over-redaction of a VERIFIED sentence). This only ever causes an
+ 347: #          UNDER-split, which TIER 2 then bounds safely; it can never over-split a survivor.
+ 348: # A decimal like "0.457" or "No. 157" or "U.S." is never a boundary: ARM 1/2 require whitespace
+ 349: # before the next char and ARM 2 requires an intervening [N] marker; "U.S. products" splits only
+ 350: # if "products" were uppercase (it is not), and "No. 157" has no marker so ARM 2 cannot fire.
+ 351: _SENTENCE_BOUNDARY_RE = re.compile(
+ 352:     r"(?:"
+ 353:     r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z\"'(#])"   # ARM 1: terminator -> sentence-start char
+ 354:     r"|[.!?](?:\s*\[\d+\])+\s+(?=\d)"           # ARM 2: terminator + marker -> digit-start
+ 355:     r"|(?<=\w)(?:\[\d+\])+\s+(?=[A-Z\"'(#0-9])"  # ARM 3: WORD-ATTACHED marker-as-terminator, no period
+ 356:     r")"
+ 357: )
+ 358: 
+ 359: # The claim stem must cover at least this fraction of a rendered sentence to redact it. Guards
+ 360: # against a short non-VERIFIED claim whose normalized prose is a substring of a LONGER VERIFIED
+ 361: # sentence wrongly redacting that survivor (over-redaction). Internal matching-precision floor,
+ 362: # named per §9.4 (no magic numbers) — not an operator-tunable parameter.
+ 363: _MIN_REDACTION_COVERAGE = 0.6
+ 364: 
+ 365: 
+ 366: def _sentence_spans(line: str) -> list[tuple[int, int]]:
+ 367:     """(start, end) spans over ``line``, one per rendered sentence, each span INCLUDING the
+ 368:     sentence's trailing citation markers. The gaps between spans are pure inter-sentence
+ 369:     whitespace, which the caller preserves verbatim — so a redaction never disturbs a
+ 370:     neighbor's text or markers.
+ 371:     """
+ 372:     spans: list[tuple[int, int]] = []
+ 373:     start = 0
+ 374:     for m in _SENTENCE_BOUNDARY_RE.finditer(line):
+ 375:         # m.group() == terminator + markers + trailing whitespace; the sentence (with its
+ 376:         # markers) ends where that trailing whitespace begins.
+ 377:         sentence_end = m.start() + len(m.group().rstrip())
+ 378:         spans.append((start, sentence_end))
+ 379:         start = m.end()  # next sentence begins after the inter-sentence whitespace
+ 380:     spans.append((start, len(line)))
+ 381:     return spans
+ 382: 
+ 383: 
+ 384: def _sentence_matches_stem(sentence: str, stem_norm: str) -> bool:
+ 385:     """A rendered sentence IS the rejected claim iff its normalized prose contains the claim
+ 386:     stem AND the stem covers >= _MIN_REDACTION_COVERAGE of it (no short-substring false hit)."""
+ 387:     sent_norm = _normalize(sentence)
+ 388:     if not sent_norm or stem_norm not in sent_norm:
+ 389:         return False
+ 390:     return len(stem_norm) >= _MIN_REDACTION_COVERAGE * len(sent_norm)
+ 391: 
+ 392: 
+ 393: def _redact_line(line: str, stem_norm: str) -> tuple[str, bool]:
+ 394:     """Redact matching rendered sentences within a single body line, byte-preserving EVERY
+ 395:     non-matching sentence (its exact text + citation markers) and all inter-sentence
+ 396:     whitespace. Only the matching sentence span (including its own trailing markers) is
+ 397:     replaced with the gap language.
+ 398:     """
+ 399:     # Fast reject: if the normalized line does not contain the stem, nothing to do.
+ 400:     if stem_norm not in _normalize(line):
+ 401:         return line, False
+ 402: 
+ 403:     out: list[str] = []
+ 404:     cursor = 0
+ 405:     hit = False
+ 406:     for (start, end) in _sentence_spans(line):
+ 407:         out.append(line[cursor:start])  # inter-sentence whitespace, verbatim
+ 408:         sentence = line[start:end]
+ 409:         if _sentence_matches_stem(sentence, stem_norm):
+ 410:             out.append(_GAP_REPLACEMENT)
+ 411:             hit = True
+ 412:         else:
+ 413:             out.append(sentence)  # byte-identical — markers intact
+ 414:         cursor = end
+ 415:     out.append(line[cursor:])
+ 416:     return "".join(out), hit
+ 417: 
+ 418: 
+ 419: def _is_redactable_body_line(line: str) -> bool:
+ 420:     """A body line the redactor is allowed to rewrite: NOT a heading (#…), a bibliography /
+ 421:     already-gap row ([…), or blank. Mirrors the skip in ``_redact_sentence`` so TIER-2 honors
+ 422:     the exact same no-touch set (a claim that exists ONLY inside a heading stays a fail-closed
+ 423:     inconsistency, not a TIER-2 redaction — preserving the present-but-unlocatable contract).
+ 424:     """
+ 425:     stripped = line.lstrip()
+ 426:     return bool(stripped) and not stripped.startswith("#") and not stripped.startswith("[")
+ 427: 
+ 428: 
+ 429: def _prose_present(report_text: str, stem_norm: str) -> bool:
+ 430:     """High-RECALL presence detector over a LINE-JOIN-NORMALIZED projection of the whole body
+ 431:     (research practice: cross-line / table rendering is a blind spot — never silently treat a
+ 432:     line-straddling claim as already-absent). Returns True iff the claim stem is normalized-
+ 433:     present either within one body line OR across the join of consecutive redactable body lines.
+ 434: 
+ 435:     Recall here only guards against a FALSE ``already_absent`` (a leak); the high-PRECISION
+ 436:     decision of WHICH unit to remove stays in ``_redact_minimal_containing_unit`` (exact
+ 437:     normalized containment + the coverage floor), so this projection never itself redacts.
+ 438:     """
+ 439:     if stem_norm in _normalize(report_text):
+ 440:         return True
+ 441:     # Cross-line projection: join only the redactable body lines (skip headings / bib / blanks),
+ 442:     # normalized, and look for the stem straddling a soft line break.
+ 443:     body = " ".join(
+ 444:         line for line in report_text.split("\n") if _is_redactable_body_line(line)
+ 445:     )
+ 446:     return stem_norm in _normalize(body)
+ 447: 
+ 448: 
+ 449: def _redact_minimal_containing_unit(report_text: str, stem_norm: str) -> tuple[bool, str]:
+ 450:     """TIER-2 fallback (#1181): the stem is present but did NOT pin to one span at the coverage
+ 451:     floor. Remove the SMALLEST containing unit, over-redacting SAFELY rather than aborting:
+ 452: 
+ 453:       1. Within a single redactable body line, find the smallest set of CONSECUTIVE spans whose
+ 454:          concatenation (normalized) contains the stem, and replace exactly that span set with one
+ 455:          gap sentence — preserving every OTHER span (and its [N] markers) and all inter-span
+ 456:          whitespace byte-for-byte. This handles both the boundary-under-split residue and a TRUE
+ 457:          multi-span straddle (issue acceptance 1+2) with the same walk.
+ 458:       2. If no within-line consecutive-span set bounds the stem (it straddles a soft line break),
+ 459:          replace the smallest run of consecutive redactable body lines whose join contains the
+ 460:          stem with one gap line — the coarsest safe unit.
+ 461: 
+ 462:     Returns (redacted_any, new_text). Returns (False, unchanged) iff the stem cannot be bounded
+ 463:     by any redactable unit (the caller then fails closed). NEVER touches a heading/bib line.
+ 464:     """
+ 465:     lines = report_text.split("\n")
+ 466: 
+ 467:     # ---- 1) within-line minimal consecutive-span set -------------------------------------
+ 468:     for idx, line in enumerate(lines):
+ 469:         if not _is_redactable_body_line(line):
+ 470:             continue
+ 471:         if stem_norm not in _normalize(line):
+ 472:             continue
+ 473:         spans = _sentence_spans(line)
+ 474:         span_set = _minimal_consecutive_span_set(line, spans, stem_norm)
+ 475:         if span_set is not None:
+ 476:             lo, hi = span_set  # inclusive span indices
+ 477:             start = spans[lo][0]
+ 478:             end = spans[hi][1]
+ 479:             new_line = line[:start] + _GAP_REPLACEMENT + line[end:]
+ 480:             lines[idx] = new_line
+ 481:             return True, "\n".join(lines)
+ 482: 
+ 483:     # ---- 2) cross-line: smallest consecutive redactable-body-line run --------------------
+ 484:     redactable_idx = [i for i, ln in enumerate(lines) if _is_redactable_body_line(lines[i])]
+ 485:     for span_len in range(1, len(redactable_idx) + 1):
+ 486:         for offset in range(0, len(redactable_idx) - span_len + 1):
+ 487:             window = redactable_idx[offset : offset + span_len]
+ 488:             # The window must be CONTIGUOUS in the body-line sequence to be one rendered unit.
+ 489:             if window[-1] - window[0] != span_len - 1:
+ 490:                 continue
+ 491:             joined = " ".join(lines[i] for i in window)
+ 492:             if stem_norm in _normalize(joined):
+ 493:                 first = window[0]
+ 494:                 # Replace the first line of the run with the gap; blank the remaining lines so the
+ 495:                 # leak prose is fully removed while preserving the line count (no structural churn).
+ 496:                 lines[first] = _GAP_REPLACEMENT
+ 497:                 for i in window[1:]:
+ 498:                     lines[i] = ""
+ 499:                 return True, "\n".join(lines)
+ 500: 
+ 501:     return False, report_text
+ 502: 
+ 503: 
+ 504: def _minimal_consecutive_span_set(
+ 505:     line: str, spans: list[tuple[int, int]], stem_norm: str
+ 506: ) -> tuple[int, int] | None:
+ 507:     """Smallest (lo, hi) inclusive index window over ``spans`` whose concatenated source text is
+ 508:     normalized-containing ``stem_norm``. Grows the window by length so the FIRST hit is minimal;
+ 509:     prefers the smallest unit (precision: do not nuke a section when a span-pair suffices)."""
+ 510:     n = len(spans)
+ 511:     for window in range(1, n + 1):
+ 512:         for lo in range(0, n - window + 1):
+ 513:             hi = lo + window - 1
+ 514:             seg = line[spans[lo][0] : spans[hi][1]]
+ 515:             if stem_norm in _normalize(seg):
+ 516:                 return (lo, hi)
+ 517:     return None
+ 518: 
+ 519: 
+ 520: # ─────────────────────────────────────────────────────────────────────────────
+ 521: # I-perm-005 (#1199) — ANNOTATE (keep + label), the always-release sibling of REDACT
+ 522: # ─────────────────────────────────────────────────────────────────────────────
+ 523: @dataclass
+ 524: class AnnotatedClaim:
+ 525:     """One non-VERIFIED claim KEPT in report.md with an appended confidence marker."""
+
+ succeeded in 7111ms:
+   1: """Post-gate report.md reconciliation against the 4-role D8 verdicts (I-beatboth-fix-000 #1171).
+   2: 
+   3: THE FAITHFULNESS LEAK this module closes
+   4: ----------------------------------------
+   5: ``scripts/run_honest_sweep_r3.py`` assembles ``report.md`` from strict_verify-KEPT
+   6: sentences (L5780) BEFORE the authoritative 4-role D8 seam runs (L6407+). The seam
+   7: re-judges every kept sentence with the stronger Mirror/Sentinel/Judge stack and can
+   8: flip a strict_verify-kept sentence to a non-VERIFIED verdict
+   9: (UNSUPPORTED / FABRICATED / UNREACHABLE / PARTIAL at ANY severity). Today the runner
+  10: consumes that verdict ONLY as a manifest flag (``release_allowed=False`` +
+  11: ``needs_rewrite``); it NEVER reconciles the assembled ``report.md`` against the
+  12: verdicts. So a sentence the strongest verifier rejected still ships as asserted prose.
+  13: 
+  14: drb_90 proof: ``needs_rewrite`` carried 7 material UNSUPPORTED claim_ids and at least
+  15: six of those sentences (e.g. the "$27,874 per violation" penalty figure, the
+  16: "UN Regulation No. 157 — ALKS" instrument line) were physically present in the shipped
+  17: ``report.md`` body and carried-up Key Findings.
+  18: 
+  19: WHAT THIS HELPER DOES (fail-closed)
+  20: -----------------------------------
+  21: For every claim whose 4-role ``final_verdict`` is non-VERIFIED, it locates the
+  22: claim's verbatim sentence in the rendered ``report.md`` and REPLACES it with the
+  23: existing visible gap language ("did not survive verification; curator-actionable gap").
+  24: Redaction is SEVERITY-INDEPENDENT (I-faith-003 #1174): a claim is redacted iff its verdict
+  25: is non-VERIFIED, at ANY severity. S3 "observe-only" governs the release LATCH only
+  26: (release_policy.py) — it never exempts an unverified claim from redaction.
+  27: 
+  28: It is REFUSE-IN-PLACE, not a generative rewrite: no new spend, no new claims. The
+  29: redaction IS the "one rewrite/refuse-in-place attempt" the D8 policy docstring designs
+  30: but the runner never wired.
+  31: 
+  32: The mapping is NOT 1:1 with strict_verify-kept (run_honest_sweep_r3.py:5660-5669 in-tree
+  33: caveat: downstream dedup/repair passes mutate the body). THREE TIERS of locating the prose
+  34: (I-redact-001 #1181 — high-recall detection, high-precision action):
+  35:   * TIER 1 (precise, single span): the claim's prose IS one discrete rendered sentence
+  36:     span (coverage >= ``_MIN_REDACTION_COVERAGE``) -> redact exactly that span, leaving
+  37:     every VERIFIED neighbor sentence and its [N] markers byte-for-byte (the leak fix).
+  38:   * TIER 2 (minimal containing unit): the claim's normalized prose is unambiguously
+  39:     PRESENT but it does not cover one span at the coverage floor — because a boundary
+  40:     under-split merged it with a VERIFIED neighbor, OR it straddles >=2 rendered spans.
+  41:     Redact the SMALLEST set of consecutive spans (or, only if no span set bounds it, the
+  42:     body line) whose concatenation contains the stem — over-redact SAFELY rather than
+  43:     abort (issue acceptance 1+2). The cross-line projection makes table/line-join
+  44:     rendering visible so this is never a silent ``already_absent``.
+  45:   * TIER 3 (genuinely absent): the claim's prose is genuinely ABSENT from the rendered
+  46:     report (downstream dedup/repair removed it) -> already not shipped; record
+  47:     ``already_absent`` and ship nothing extra (the SAFE state).
+  48: FAIL-CLOSED contract (I-redact-001 #1181): the helper RAISES ``ReportRedactionError`` ONLY
+  49: when a material non-VERIFIED claim's normalized prose is genuinely ABSENT from the normalized
+  50: report yet a real inconsistency demands a fail-closed abort — i.e. neither TIER-1 nor TIER-2
+  51: can bound the prose AND the prose is not cleanly absent. A merely hard-to-pin-to-one-sentence
+  52: claim is redacted via TIER 2, NOT aborted. The boundary hardening (``_SENTENCE_BOUNDARY_RE``,
+  53: I-redact-001) splits ``...risk[1] Cereal...`` / ``...adherence.[16] 87.3%...`` so the common
+  54: case resolves at TIER 1; TIER 2 is the defense-in-depth for any future under-split shape.
+  55: 
+  56: MULTI-OCCURRENCE (I-redact-001 #1181, Codex iter-1 P1-1): the same non-VERIFIED stem can appear
+  57: more than once (e.g. once cleanly + once in an under-split merge). The tiered redaction LOOPS
+  58: per claim until the stem is absent from the line-join-normalized whole body (no occurrence left)
+  59: or no tier makes further progress (fail-closed) — so a second occurrence can never leak. The
+  60: claim is recorded in ``redacted`` exactly ONCE regardless of how many physical spans were removed.
+  61: 
+  62: Pure function (string ops only; no network, no I/O). The CALLER reads/writes report.md.
+  63: """
+  64: 
+  65: from __future__ import annotations
+  66: 
+  67: import re
+  68: from dataclasses import dataclass, field
+  69: 
+  70: # REDACTION IS SEVERITY-INDEPENDENT (I-faith-003 #1174). Any claim the 4-role seam did NOT
+  71: # mark VERIFIED — PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE — must not ship as asserted prose,
+  72: # regardless of severity. Severity ("S0".."S3") governs the RELEASE LATCH in release_policy.py
+  73: # (a non-required-entity S3 claim does not BLOCK release), NEVER this redaction path: previously
+  74: # the S3 "observe-only" scope guard wrongly let 26 UNSUPPORTED claims (incl. clinical-safety
+  75: # guidance) ship across the 5 beat-both questions (BB5-F01). VERIFIED survives; every other
+  76: # verdict is a leak if it ships as prose.
+  77: _NON_VERIFIED_VERDICTS = frozenset(
+  78:     {"UNSUPPORTED", "FABRICATED", "UNREACHABLE", "PARTIAL"}
+  79: )
+  80: _VERDICT_VERIFIED = "VERIFIED"
+  81: 
+  82: # The visible gap sentence a redacted claim is replaced with. Mirrors the existing gap
+  83: # language already used by contract_section_runner ("did not survive strict
+  84: # verification; curator-actionable gap.") so a redacted body reads consistently.
+  85: _GAP_REPLACEMENT = (
+  86:     "A claim previously stated here did not survive 4-role verification and was "
+  87:     "redacted; this is a curator-actionable gap."
+  88: )
+  89: 
+  90: # gaps.json kind for a post-gate redaction (mirrors release_policy._GAP_RESIDUAL_UNSUPPORTED
+  91: # vocabulary but is distinct so the audit trail shows the redaction happened in report.md).
+  92: GAP_KIND_REDACTED_UNSUPPORTED = "redacted_unsupported"
+  93: 
+  94: # POLARIS provenance token: [#ev:evidence_id:start-end].
+  95: _PROVENANCE_TOKEN_RE = re.compile(r"\[#ev:[^\]]+\]")
+  96: # Rendered numbered citation marker: [1], [12]. The final report converts each provenance
+  97: # token into one of these, so the stem matcher must ignore them on BOTH sides.
+  98: _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+  99: # I-perm-005 (#1199): the annotator's appended confidence label. Stripped in the stem so an
+ 100: # already-annotated sentence still matches its claim stem at the coverage floor (annotate is
+ 101: # idempotent). The redactor never sees this marker (annotate XOR reconcile per PG_ALWAYS_RELEASE),
+ 102: # so stripping it is a no-op on the redaction path.
+ 103: _CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+ 104: _WHITESPACE_RE = re.compile(r"\s+")
+ 105: 
+ 106: 
+ 107: class ReportRedactionError(RuntimeError):
+ 108:     """Raised when a material non-VERIFIED claim is present-but-unlocatable for a discrete
+ 109:     rendered-sentence replacement. The caller MUST fail closed (do NOT ship the report).
+ 110:     """
+ 111: 
+ 112: 
+ 113: @dataclass
+ 114: class RedactedClaim:
+ 115:     """One claim whose verbatim sentence was removed from report.md (-> gaps.json)."""
+ 116: 
+ 117:     claim_id: str
+ 118:     severity: str
+ 119:     verdict: str
+ 120:     claim_text: str  # the verbatim sentence (with its original provenance token)
+ 121: 
+ 122: 
+ 123: @dataclass
+ 124: class RedactionResult:
+ 125:     """Outcome of reconciling report.md against the 4-role verdicts."""
+ 126: 
+ 127:     report_text: str
+ 128:     redacted: list[RedactedClaim] = field(default_factory=list)
+ 129:     # Material non-VERIFIED claims whose prose was already absent from the rendered report
+ 130:     # (downstream dedup/repair had removed them) — recorded for the audit trail, not a leak.
+ 131:     already_absent: list[str] = field(default_factory=list)
+ 132: 
+ 133:     @property
+ 134:     def redacted_count(self) -> int:
+ 135:         return len(self.redacted)
+ 136: 
+ 137:     def gaps_json(self) -> list[dict]:
+ 138:         """Serialize the redactions as gaps.json entries (one per removed claim)."""
+ 139:         return [
+ 140:             {
+ 141:                 "ref": rc.claim_id,
+ 142:                 "kind": GAP_KIND_REDACTED_UNSUPPORTED,
+ 143:                 "severity": rc.severity,
+ 144:                 "note": (
+ 145:                     f"claim re-judged {rc.verdict} by the 4-role seam and removed from "
+ 146:                     "report.md (refuse-in-place); curator-actionable gap"
+ 147:                 ),
+ 148:             }
+ 149:             for rc in self.redacted
+ 150:         ]
+ 151: 
+ 152: 
+ 153: def _prose_stem(text: str) -> str:
+ 154:     """Strip provenance tokens + numbered citation markers (+ the annotator's confidence label),
+ 155:     leaving the bare claim prose."""
+ 156:     text = _PROVENANCE_TOKEN_RE.sub("", text)
+ 157:     text = _NUMBERED_MARKER_RE.sub("", text)
+ 158:     text = _CONFIDENCE_MARKER_RE.sub("", text)
+ 159:     return text
+ 160: 
+ 161: 
+ 162: def _normalize(text: str) -> str:
+ 163:     """Citation-insensitive, whitespace-insensitive prose for matching across the
+ 164:     provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
+ 165:     """
+ 166:     text = _prose_stem(text)
+ 167:     text = _WHITESPACE_RE.sub(" ", text)
+ 168:     return text.strip().rstrip(".").strip()
+ 169: 
+ 170: 
+ 171: def reconcile_report_against_verdicts(
+ 172:     report_text: str,
+ 173:     final_verdicts: dict[str, str],
+ 174:     audit_map: dict[str, dict],
+ 175: ) -> RedactionResult:
+ 176:     """Remove every non-VERIFIED claim's verbatim sentence from ``report_text``.
+ 177: 
+ 178:     Redaction is severity-independent (I-faith-003 #1174): a claim is redacted iff its
+ 179:     4-role verdict is not VERIFIED, at ANY severity (S0..S3). Severity governs the release
+ 180:     latch in release_policy.py, never this redaction path.
+ 181: 
+ 182:     Args:
+ 183:       report_text: the assembled report.md content.
+ 184:       final_verdicts: claim_id -> 4-role final verdict (UNSUPPORTED/VERIFIED/...).
+ 185:       audit_map: claim_id -> {"sentence": <verbatim>, "severity": <S0..S3>, ...}
+ 186:                  (the persisted four_role_claim_audit.json structure).
+ 187: 
+ 188:     Returns a RedactionResult with the redacted text + per-claim records.
+ 189: 
+ 190:     Raises:
+ 191:       ReportRedactionError — fail closed when a material non-VERIFIED claim's prose is
+ 192:       present in the report but cannot be pinned to a discrete sentence to replace.
+ 193:     """
+ 194:     result = RedactionResult(report_text=report_text)
+ 195:     working = report_text
+ 196: 
+ 197:     for claim_id, verdict in sorted(final_verdicts.items()):
+ 198:         meta = audit_map.get(claim_id)
+ 199:         if meta is None:
+ 200:             # A verdict with no audit row is itself a fail-closed condition: we cannot
+ 201:             # know the claim_text to redact, and a material non-VERIFIED claim might be
+ 202:             # shipping. Only raise for non-VERIFIED verdicts (VERIFIED never redacts).
+ 203:             if verdict != _VERDICT_VERIFIED:
+ 204:                 raise ReportRedactionError(
+ 205:                     f"claim {claim_id} has verdict {verdict} but no audit_map row; "
+ 206:                     "cannot locate its sentence to reconcile (fail-closed)."
+ 207:                 )
+ 208:             continue
+ 209: 
+ 210:         severity = str(meta.get("severity", ""))
+ 211:         if verdict == _VERDICT_VERIFIED:
+ 212:             # VERIFIED survives at ANY severity. Every non-VERIFIED verdict is redacted
+ 213:             # regardless of severity (I-faith-003 #1174): S3 "observe-only" governs the
+ 214:             # release LATCH (release_policy.py), never this redaction path.
+ 215:             continue
+ 216: 
+ 217:         sentence = str(meta.get("sentence", ""))
+ 218:         stem_norm = _normalize(sentence)
+ 219:         if not stem_norm:
+ 220:             # Defensive: an empty/whitespace-only claim sentence cannot be matched. A
+ 221:             # material non-VERIFIED claim with no usable text is a fail-closed condition.
+ 222:             raise ReportRedactionError(
+ 223:                 f"claim {claim_id} ({verdict}/{severity}) has empty claim_text; "
+ 224:                 "cannot reconcile (fail-closed)."
+ 225:             )
+ 226: 
+ 227:         # MULTI-OCCURRENCE LOOP (I-redact-001 #1181, Codex iter-1 P1-1): a non-VERIFIED stem can
+ 228:         # appear MORE THAN ONCE in the body — e.g. once cleanly (TIER 1 catches it) and once in a
+ 229:         # boundary-under-split span (only TIER 2 catches it). The prior single-pass logic marked
+ 230:         # the claim handled after the FIRST successful removal and `continue`d, leaving the second
+ 231:         # occurrence in result.report_text — a leak. We now loop the tiered redaction until the
+ 232:         # stem is ABSENT from the line-join-normalized whole-body projection (no occurrence left)
+ 233:         # OR no tier can make further progress (-> fail-closed). The loop terminates because each
+ 234:         # successful removal replaces the matched prose with ``_GAP_REPLACEMENT`` (which cannot
+ 235:         # re-match the stem), so occurrences are consumed monotonically.
+ 236:         redacted_any_for_claim = False
+ 237:         while _prose_present(working, stem_norm):
+ 238:             # TIER 1 — precise single-span redaction (coverage floor protects VERIFIED neighbors).
+ 239:             # One pass clears EVERY clean (pin-at-floor) occurrence across all lines at once.
+ 240:             removed, working = _redact_sentence(working, stem_norm)
+ 241:             if removed:
+ 242:                 redacted_any_for_claim = True
+ 243:                 continue
+ 244: 
+ 245:             # TIER 1 made no progress this pass, but the prose IS still present (line-join
+ 246:             # projection): it did not pin to one span at the coverage floor (a boundary
+ 247:             # under-split merged it with a VERIFIED neighbor, OR it straddles spans). TIER 2 —
+ 248:             # redact the minimal CONTAINING unit, over-redacting SAFELY rather than aborting a
+ 249:             # present-but-hard-to-pin claim (#1181). TIER 2 removes ONE under-split unit per pass;
+ 250:             # the loop re-checks presence and keeps going for any further occurrence.
+ 251:             removed, working = _redact_minimal_containing_unit(working, stem_norm)
+ 252:             if removed:
+ 253:                 redacted_any_for_claim = True
+ 254:                 continue
+ 255: 
+ 256:             # FAIL-CLOSED: the prose registers as present in the line-join projection (e.g. it
+ 257:             # spans a heading/bibliography line the redactor must not touch, or its alignment is
+ 258:             # unbounded across non-adjacent units) but NEITHER tier could bound it to a redactable
+ 259:             # unit without nuking a forbidden line. A real inconsistency — refuse to ship a partial
+ 260:             # report (#1174). Raising here (not after the loop) means we never spin: no progress +
+
+ succeeded in 9045ms:
+   1: """I-perm-005 (#1199) slice 2 — annotate_report_against_verdicts (keep + label).
+   2: 
+   3: The always-release sibling of the redactor: a non-VERIFIED claim is KEPT and LABELED with its
+   4: confidence marker (user judges), never DELETED. VERIFIED claims and their citation markers are
+   5: byte-identical; a genuinely-absent claim is recorded; a present-but-unlocatable claim fails closed
+   6: (never ships a non-VERIFIED claim as bare unlabeled prose).
+   7: """
+   8: 
+   9: from __future__ import annotations
+  10: 
+  11: import pytest
+  12: 
+  13: from src.polaris_graph.roles.report_redactor import (
+  14:     ReportRedactionError,
+  15:     annotate_report_against_verdicts,
+  16: )
+  17: 
+  18: _VERIFIED_SENT = "Metformin lowered HbA1c by 0.8 percent over 24 weeks [1]."
+  19: _UNSUP_SENT = "The drug eliminated all cardiovascular events in every patient [2]."
+  20: _REPORT = f"## Findings\n\n{_VERIFIED_SENT} {_UNSUP_SENT}\n"
+  21: 
+  22: _AUDIT = {
+  23:     "c_ok": {"sentence": _VERIFIED_SENT, "severity": "S1"},
+  24:     "c_bad": {"sentence": _UNSUP_SENT, "severity": "S1"},
+  25: }
+  26: _MARKER = "[confidence: low — NOT confirmed by the cited source; treat as unverified]"
+  27: 
+  28: 
+  29: def test_keeps_verified_and_labels_unsupported():
+  30:     verdicts = {"c_ok": "VERIFIED", "c_bad": "UNSUPPORTED"}
+  31:     res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+  32:     # The unsupported sentence is KEPT (not deleted) and carries the marker.
+  33:     assert _UNSUP_SENT in res.report_text
+  34:     assert _MARKER in res.report_text
+  35:     assert res.annotated_count == 1 and res.annotated[0].claim_id == "c_bad"
+  36:     # The verified sentence + its [1] marker are byte-identical (untouched).
+  37:     assert _VERIFIED_SENT in res.report_text
+  38:     assert "[1]" in res.report_text
+  39:     # No gap/redaction language was inserted.
+  40:     assert "did not survive verification" not in res.report_text
+  41: 
+  42: 
+  43: def test_marker_appended_after_the_sentence_not_replacing():
+  44:     verdicts = {"c_bad": "UNSUPPORTED"}
+  45:     res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+  46:     # The sentence prose precedes the marker (label sits AFTER the claim).
+  47:     idx_sent = res.report_text.index("eliminated all cardiovascular events")
+  48:     idx_marker = res.report_text.index(_MARKER)
+  49:     assert idx_sent < idx_marker
+  50: 
+  51: 
+  52: def test_missing_marker_falls_back_to_low_never_unlabeled():
+  53:     verdicts = {"c_bad": "UNSUPPORTED"}
+  54:     res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})  # no marker supplied
+  55:     assert res.annotated_count == 1
+  56:     assert "[confidence: low" in res.report_text  # generic low fallback, never silently unlabeled
+  57: 
+  58: 
+  59: def test_absent_claim_recorded_not_raised():
+  60:     verdicts = {"c_gone": "UNSUPPORTED"}
+  61:     audit = {"c_gone": {"sentence": "A claim that is not present anywhere in the body [9].", "severity": "S2"}}
+  62:     res = annotate_report_against_verdicts(_REPORT, verdicts, audit, {})
+  63:     assert res.annotated_count == 0
+  64:     assert "c_gone" in res.already_absent
+  65: 
+  66: 
+  67: def test_no_audit_row_for_non_verified_fails_closed():
+  68:     with pytest.raises(ReportRedactionError):
+  69:         annotate_report_against_verdicts(_REPORT, {"c_x": "UNSUPPORTED"}, {}, {})
+  70: 
+  71: 
+  72: def test_verified_only_is_noop():
+  73:     res = annotate_report_against_verdicts(_REPORT, {"c_ok": "VERIFIED"}, _AUDIT, {})
+  74:     assert res.report_text == _REPORT
+  75:     assert res.annotated_count == 0
+  76: 
+  77: 
+  78: def test_idempotent_no_double_marker():
+  79:     verdicts = {"c_bad": "UNSUPPORTED"}
+  80:     once = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+  81:     twice = annotate_report_against_verdicts(once.report_text, verdicts, _AUDIT, {"c_bad": _MARKER})
+  82:     # The marker is not appended a second time (the sentence already carries it).
+  83:     assert twice.report_text.count(_MARKER) == 1
+
+codex
+The main control-flow check for C2 is favorable so far: missing audit and empty stems raise, absent stems are recorded, and present stems that cannot pin to a sentence raise. I’m now probing edge cases around marker detection and the shared `_prose_stem` change, because that is where a redactor no-op claim can fail despite the new annotator tests passing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"reconcile_report_against_verdicts\\(|annotate_report_against_verdicts\\(|PG_ALWAYS_RELEASE|ALWAYS_RELEASE|report_redactor\" scripts src tests -g \"*.py\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts, annotate_report_against_verdicts
+
+marker = '[confidence: low -- test]'
+report = '## Findings\\n\\nThe model returned [confidence: high] for cohort A. The model returned [confidence: low] for cohort A.\\n'
+audit = {'bad': {'sentence': 'The model returned [confidence: low] for cohort A.', 'severity': 'S1'}}
+res = reconcile_report_against_verdicts(report, {'bad': 'UNSUPPORTED'}, audit)
+print(res.report_text)
+print('redacted_count', res.redacted_count)
+
+report2 = '## Findings\\n\\nClaim A [1]. Claim B [2].\\n'
+audit2 = {'a': {'sentence': 'Claim A [1].', 'severity': 'S1'}, 'b': {'sentence': 'Claim B [2].', 'severity': 'S1'}}
+res2 = annotate_report_against_verdicts(report2, {'a': 'VERIFIED', 'b': 'UNSUPPORTED'}, audit2, {'b': marker})
+print(res2.report_text)
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"\\[confidence:\" src scripts tests docs outputs -g \"*.py\" -g \"*.md\" -g \"*.json\"" in C:\POLARIS
+ succeeded in 2711ms:
+tests\polaris_v6\test_released_status_iperm001.py:2:serving path (Codex slice-2 P1-a). Without this, a PG_ALWAYS_RELEASE canary run would 500
+tests\roles\test_report_annotator_iperm005.py:13:from src.polaris_graph.roles.report_redactor import (
+tests\roles\test_report_annotator_iperm005.py:31:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests\roles\test_report_annotator_iperm005.py:45:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests\roles\test_report_annotator_iperm005.py:54:    res = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {})  # no marker supplied
+tests\roles\test_report_annotator_iperm005.py:62:    res = annotate_report_against_verdicts(_REPORT, verdicts, audit, {})
+tests\roles\test_report_annotator_iperm005.py:69:        annotate_report_against_verdicts(_REPORT, {"c_x": "UNSUPPORTED"}, {}, {})
+tests\roles\test_report_annotator_iperm005.py:73:    res = annotate_report_against_verdicts(_REPORT, {"c_ok": "VERIFIED"}, _AUDIT, {})
+tests\roles\test_report_annotator_iperm005.py:80:    once = annotate_report_against_verdicts(_REPORT, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests\roles\test_report_annotator_iperm005.py:81:    twice = annotate_report_against_verdicts(once.report_text, verdicts, _AUDIT, {"c_bad": _MARKER})
+tests\roles\test_pending_rewrite_iperm006.py:8:PG_ALWAYS_RELEASE is on; `needs_rewrite` stays a pure REPORTING channel. Flag OFF -> byte-identical.
+tests\roles\test_pending_rewrite_iperm006.py:25:        monkeypatch.setenv("PG_ALWAYS_RELEASE", "1")
+tests\roles\test_pending_rewrite_iperm006.py:27:        monkeypatch.delenv("PG_ALWAYS_RELEASE", raising=False)
+tests\roles\test_report_redactor_redact001.py:1:"""I-redact-001 (#1181) — report_redactor must REDACT a present-but-hard-to-pin
+tests\roles\test_report_redactor_redact001.py:34:from src.polaris_graph.roles.report_redactor import (
+tests\roles\test_report_redactor_redact001.py:38:from src.polaris_graph.roles import report_redactor as _redactor
+tests\roles\test_report_redactor_redact001.py:76:    res = reconcile_report_against_verdicts(
+tests\roles\test_report_redactor_redact001.py:95:    res = reconcile_report_against_verdicts(
+tests\roles\test_report_redactor_redact001.py:116:        res = reconcile_report_against_verdicts(
+tests\roles\test_report_redactor_redact001.py:153:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:183:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:198:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:221:        reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:231:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:253:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:278:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:313:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:335:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_redact001.py:377:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_iready017.py:28:from src.polaris_graph.roles.report_redactor import (
+tests\roles\test_report_redactor_iready017.py:88:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:103:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:113:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:128:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:144:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:156:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_iready017.py:166:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_iready017.py:188:        reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:197:        reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:204:    res = reconcile_report_against_verdicts(report, all_verified, audit)
+tests\roles\test_report_redactor_iready017.py:217:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:240:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\roles\test_report_redactor_iready017.py:254:    res = reconcile_report_against_verdicts(report, final_verdicts, audit)
+tests\roles\test_report_redactor_iready017.py:277:    res = reconcile_report_against_verdicts(report, fv, audit)
+tests\polaris_graph\replay\test_iperm001_release.py:33:    """PG_ALWAYS_RELEASE OFF reproduces the legacy withhold decision: drb_76 stays held."""
+tests\polaris_graph\replay\test_iperm001_release.py:42:    """PG_ALWAYS_RELEASE ON: drb_76 RELEASES (no longer a hard withhold). The only required S0
+tests\polaris_graph\generator\test_key_findings_iperm008.py:136:    from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts
+tests\polaris_graph\generator\test_key_findings_iperm008.py:164:    redaction = reconcile_report_against_verdicts(report, {"01-002": "UNSUPPORTED"}, audit_map)
+src\polaris_graph\roles\sweep_integration.py:670:    # reads PG_ALWAYS_RELEASE (default OFF -> released == decision.release_allowed, byte-identical).
+src\polaris_graph\roles\report_redactor.py:101:# idempotent). The redactor never sees this marker (annotate XOR reconcile per PG_ALWAYS_RELEASE),
+src\polaris_graph\roles\report_redactor.py:171:def reconcile_report_against_verdicts(
+src\polaris_graph\roles\report_redactor.py:570:def annotate_report_against_verdicts(
+src\polaris_graph\roles\release_policy.py:302:    # block is removed: when PG_ALWAYS_RELEASE is on, `needs_rewrite` stays a pure REPORTING channel
+src\polaris_graph\roles\release_policy.py:340:# DEFAULT OFF: PG_ALWAYS_RELEASE unset/0/false/no/off -> compute_release_outcome reproduces the
+src\polaris_graph\roles\release_policy.py:345:_ENV_ALWAYS_RELEASE = "PG_ALWAYS_RELEASE"
+src\polaris_graph\roles\release_policy.py:403:    """PG_ALWAYS_RELEASE (default OFF). ON only on explicit truthy ('1'/'true'/'yes'/'on')."""
+src\polaris_graph\roles\release_policy.py:406:    return os.environ.get(_ENV_ALWAYS_RELEASE, "").strip().lower() in _ON_VALUES
+scripts\dr_benchmark\run_gate_b.py:623:    #   PG_ALWAYS_RELEASE         (#1195 keystone) WITHHOLD->ALWAYS-RELEASE+LABEL: a held report ships
+scripts\dr_benchmark\run_gate_b.py:634:    "PG_ALWAYS_RELEASE": "1",
+scripts\dr_benchmark\run_gate_b.py:706:    "PG_ALWAYS_RELEASE",
+scripts\dr_benchmark\run_gate_b.py:763:    "PG_ALWAYS_RELEASE",
+src\polaris_graph\generator\claim_labeler.py:4:4-role redactor (`roles/report_redactor.reconcile_report_against_verdicts`) — it is KEPT and LABELED
+scripts\run_honest_sweep_r3.py:242:    # error_unexpected default and a clean PG_ALWAYS_RELEASE run is mis-classified (Codex slice-2
+scripts\run_honest_sweep_r3.py:7136:            # I-perm-001 (#1195) slice 2: under PG_ALWAYS_RELEASE the D8 BLOCK becomes a LABEL —
+scripts\run_honest_sweep_r3.py:7233:                from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+scripts\run_honest_sweep_r3.py:7279:                        _redaction = reconcile_report_against_verdicts(
+
+ succeeded in 5683ms:
+## Findings
+
+A claim previously stated here did not survive 4-role verification and was redacted; this is a curator-actionable gap. A claim previously stated here did not survive 4-role verification and was redacted; this is a curator-actionable gap.
+
+redacted_count 1
+## Findings
+
+Claim A [1]. Claim B [2]. [confidence: low -- test]
+
+
+2026-06-11T01:42:50.018715Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 7 seconds
+Output:
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+ exited 1 in 6957ms:
+rg: outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content scripts/run_honest_sweep_r3.py | ForEach-Object { if ($i -ge 7210 -and $i -le 7315) { '"'{0,5}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content src/polaris_graph/generator/claim_labeler.py | ForEach-Object { if ($i -le 260) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$i=1; Get-Content tests/roles/test_report_redactor_redact001.py | ForEach-Object { if ($i -ge 1 -and $i -le 120) { '"'{0,4}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+ succeeded in 2763ms:
+ 7210:                 f"coverage={four_role_result.coverage_fraction:.3f} "
+ 7211:                 f"held_reasons={four_role_result.held_reasons}"
+ 7212:             )
+ 7213: 
+ 7214:             # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+ 7215:             # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+ 7216:             # The seam can re-judge a kept sentence as material non-VERIFIED — and today the
+ 7217:             # runner consumes that ONLY as a manifest flag, never reconciling the SHIPPED
+ 7218:             # report.md. So a sentence the strongest verifier rejected still ships as asserted
+ 7219:             # prose (drb_90: 7 material UNSUPPORTED claim_ids in needs_rewrite, ≥6 physically in
+ 7220:             # report.md). Reconcile the on-disk report against the authoritative final_verdicts:
+ 7221:             # redact every material non-VERIFIED claim's verbatim sentence to the existing
+ 7222:             # visible gap language (refuse-in-place — NO generative rewrite, no new spend). This
+ 7223:             # IS the policy docstring's "one rewrite/refuse-in-place attempt" the runner never
+ 7224:             # wired. Runs on the HELD path too (the §-1.1 forensic audit reads report.md, not the
+ 7225:             # manifest) and BEFORE the V30 append below (so the disclosure reflects the redacted
+ 7226:             # body). FAIL-CLOSED: a material non-VERIFIED claim that IS present in the body but
+ 7227:             # cannot be pinned to a discrete sentence -> abort_report_redaction_failed (refuse to
+ 7228:             # ship a partially-reconciled report). Default-ON; PG_REDACT_HELD_UNSUPPORTED=0 is a
+ 7229:             # documented kill-switch for OFFLINE-test isolation only (production leaves it ON).
+ 7230:             if os.environ.get("PG_REDACT_HELD_UNSUPPORTED", "1").strip() not in (
+ 7231:                 "0", "false", "False",
+ 7232:             ):
+ 7233:                 from src.polaris_graph.roles.report_redactor import (  # noqa: PLC0415
+ 7234:                     ReportRedactionError,
+ 7235:                     reconcile_report_against_verdicts,
+ 7236:                 )
+ 7237:                 _redact_report_path = run_dir / "report.md"
+ 7238:                 _audit_map_path = run_dir / "four_role_claim_audit.json"
+ 7239:                 # Codex iter-1 P2-1: only RECONCILE when the seam actually produced a
+ 7240:                 # non-VERIFIED verdict. A run whose final_verdicts is empty or all VERIFIED
+ 7241:                 # (e.g. a static / seam-timeout Gate-B path) has nothing to redact — it must
+ 7242:                 # NOT be mislabeled abort_report_redaction_failed merely because the audit
+ 7243:                 # sidecar is absent. The audit_map is REQUIRED only to locate a non-VERIFIED
+ 7244:                 # claim's verbatim sentence.
+ 7245:                 _final_verdicts = four_role_result.final_verdicts or {}
+ 7246:                 _nonverified_verdicts = {
+ 7247:                     cid: v for cid, v in _final_verdicts.items() if v != "VERIFIED"
+ 7248:                 }
+ 7249:                 if not _nonverified_verdicts:
+ 7250:                     _log(
+ 7251:                         "[redact]      no material non-VERIFIED 4-role verdict; report.md "
+ 7252:                         "reconciliation skipped (no-op)"
+ 7253:                     )
+ 7254:                 elif not _redact_report_path.is_file():
+ 7255:                     _log(
+ 7256:                         "[redact]      report.md absent; nothing to reconcile (no shipped "
+ 7257:                         "artifact can leak)"
+ 7258:                     )
+ 7259:                 elif not _audit_map_path.is_file():
+ 7260:                     # Non-VERIFIED verdicts exist but the audit_map needed to locate/score them
+ 7261:                     # is missing -> fail closed rather than ship an unreconciled report.
+ 7262:                     summary_status = "report_redaction_failed"
+ 7263:                     unified_status = to_unified_status(summary_status)
+ 7264:                     manifest["status"] = unified_status
+ 7265:                     manifest["release_allowed"] = False
+ 7266:                     manifest["report_redaction_error"] = (
+ 7267:                         "four_role_claim_audit.json missing with non-VERIFIED verdicts present; "
+ 7268:                         "cannot reconcile report.md against the 4-role verdicts (fail-closed)"
+ 7269:                     )
+ 7270:                     _log(
+ 7271:                         "[redact]      FAIL-CLOSED: audit_map missing with non-VERIFIED "
+ 7272:                         "verdicts -> abort_report_redaction_failed"
+ 7273:                     )
+ 7274:                 else:
+ 7275:                     _audit_map = json.loads(
+ 7276:                         _audit_map_path.read_text(encoding="utf-8")
+ 7277:                     )
+ 7278:                     try:
+ 7279:                         _redaction = reconcile_report_against_verdicts(
+ 7280:                             _redact_report_path.read_text(encoding="utf-8"),
+ 7281:                             _final_verdicts,
+ 7282:                             _audit_map,
+ 7283:                         )
+ 7284:                     except ReportRedactionError as _redact_exc:
+ 7285:                         # Present-but-unlocatable material claim, or a non-VERIFIED verdict with
+ 7286:                         # no audit row. Do NOT ship the report; take a terminal abort. The
+ 7287:                         # unredacted report.md stays on disk for the curator to inspect.
+ 7288:                         summary_status = "report_redaction_failed"
+ 7289:                         unified_status = to_unified_status(summary_status)
+ 7290:                         manifest["status"] = unified_status
+ 7291:                         manifest["release_allowed"] = False
+ 7292:                         manifest["report_redaction_error"] = str(_redact_exc)
+ 7293:                         _log(
+ 7294:                             f"[redact]      FAIL-CLOSED: {_redact_exc} -> "
+ 7295:                             "abort_report_redaction_failed"
+ 7296:                         )
+ 7297:                     else:
+ 7298:                         # Write the reconciled body back BEFORE the V30 append so the disclosure
+ 7299:                         # reflects the redacted report. Emit one redacted_unsupported gap per
+ 7300:                         # removed claim into gaps.json (append; never overwrite curator gaps).
+ 7301:                         _reconciled_report = _redaction.report_text
+ 7302:                         if _redaction.redacted:
+ 7303:                             # I-perm-008 (#1202) R7: Key Findings is assembled PRE-four-role, so a
+ 7304:                             # lifted headline the four-role seam later marks non-VERIFIED was just
+ 7305:                             # redacted into a "- **Section.** <gap stub>" pseudo-finding. Drop those
+ 7306:                             # stub bullets from the KF block (no-op when no KF bullet was redacted).
+ 7307:                             from src.polaris_graph.generator.key_findings import (
+ 7308:                                 refilter_key_findings_block,
+ 7309:                             )
+ 7310:                             _reconciled_report = refilter_key_findings_block(
+ 7311:                                 _reconciled_report
+ 7312:                             )
+ 7313:                         _redact_report_path.write_text(
+ 7314:                             _reconciled_report, encoding="utf-8"
+ 7315:                         )
+
+ succeeded in 4761ms:
+   1: """I-perm-005 (#1199) — per-claim confidence LABELER (keep-and-label, never silently high).
+   2: 
+   3: Under the always-release reframe (I-perm-001), a non-VERIFIED claim is no longer DELETED by the
+   4: 4-role redactor (`roles/report_redactor.reconcile_report_against_verdicts`) — it is KEPT and LABELED
+   5: with an honest per-claim confidence so the user judges. This module is the PURE deterministic core:
+   6: the Decision-B confidence bucket + the inline marker text. No LLM, no I/O, no global state.
+   7: 
+   8: THE clinical-safety invariant (Decision B): a non-VERIFIED claim can NEVER render `high`. `high`
+   9: requires verdict==VERIFIED AND credibility>=high AND origins>=2. Unknown credibility -> `low` (never
+  10: inflates). Zero resolvable cited evidence -> `no-source-found`. The bucket is a pure function of the
+  11: already-computed disclosure fields — it never re-runs a verifier and never flips `is_verified`. The
+  12: high/moderate/low thresholds are REUSED verbatim from `synthesis.disclosure_population._certainty_label`
+  13: (one source of truth, no drift); this module only adds the 4th `no-source-found` bucket + the marker.
+  14: """
+  15: 
+  16: from __future__ import annotations
+  17: 
+  18: from typing import Optional
+  19: 
+  20: # The four rendered buckets (the discrete per-claim chip).
+  21: BUCKET_HIGH = "high"
+  22: BUCKET_MODERATE = "moderate"
+  23: BUCKET_LOW = "low"
+  24: BUCKET_NO_SOURCE = "no-source-found"
+  25: 
+  26: VALID_BUCKETS = (BUCKET_HIGH, BUCKET_MODERATE, BUCKET_LOW, BUCKET_NO_SOURCE)
+  27: 
+  28: 
+  29: def confidence_bucket(
+  30:     *,
+  31:     is_verified: bool,
+  32:     credibility: Optional[float],
+  33:     origin_count: int,
+  34:     has_cited_evidence: bool,
+  35: ) -> str:
+  36:     """Decision-B per-claim confidence bucket (pure, deterministic, no LLM).
+  37: 
+  38:     - ``no-source-found`` when the claim resolves NO cited evidence at all (a genuinely ungrounded
+  39:       statement) — this is a first-class DISPLAYED outcome, not a hidden drop.
+  40:     - otherwise the high/moderate/low bucket from the shared disclosure thresholds, which already
+  41:       enforce: not-verified -> low; verified + unknown credibility -> low; high iff
+  42:       origins>=PG_DISCLOSURE_HIGH_MIN_ORIGINS AND credibility>=PG_DISCLOSURE_HIGH_CRED.
+  43: 
+  44:     A non-VERIFIED claim therefore can never be ``high`` (the lethal over-confidence the reframe
+  45:     must not introduce): `_certainty_label` returns `low` for `is_verified=False`.
+  46:     """
+  47:     if not has_cited_evidence:
+  48:         return BUCKET_NO_SOURCE
+  49:     # Reuse the disclosure certainty thresholds verbatim (single source of truth, no drift).
+  50:     from src.polaris_graph.synthesis.disclosure_population import _certainty_label  # noqa: PLC0415
+  51: 
+  52:     bucket = _certainty_label(is_verified, origin_count, credibility)
+  53:     return bucket if bucket in VALID_BUCKETS else BUCKET_LOW
+  54: 
+  55: 
+  56: # Human-facing marker text per bucket. The wording is deliberately unmistakable: a `low` /
+  57: # `no-source-found` chip must read as NOT-asserted-as-fact (the §-1.1 invariant that a low chip is
+  58: # never mistaken for support). Kept short for the screen-reader / inline render.
+  59: _MARKER_TEXT = {
+  60:     BUCKET_HIGH: "high confidence — verified against multiple independent sources",
+  61:     BUCKET_MODERATE: "moderate confidence — verified against the cited source",
+  62:     BUCKET_LOW: "low confidence — NOT confirmed by the cited source; treat as unverified",
+  63:     BUCKET_NO_SOURCE: "no grounded source was found for this statement; shown unverified",
+  64: }
+  65: 
+  66: 
+  67: def render_confidence_marker(bucket: str) -> str:
+  68:     """The inline marker appended to a KEPT claim, e.g. ``[confidence: low — NOT confirmed ...]``.
+  69: 
+  70:     Deterministic; unknown bucket falls back to the low wording (fail-safe: never imply support)."""
+  71:     text = _MARKER_TEXT.get(bucket, _MARKER_TEXT[BUCKET_LOW])
+  72:     label = bucket if bucket in VALID_BUCKETS else BUCKET_LOW
+  73:     return f"[confidence: {label} — {text}]"
+  74: 
+  75: 
+  76: def is_asserted_as_fact(bucket: str) -> bool:
+  77:     """True only for buckets that may read as an asserted fact (high/moderate). low / no-source-found
+  78:     must always be visibly hedged. Helper for renderers/UI that style the chip."""
+  79:     return bucket in (BUCKET_HIGH, BUCKET_MODERATE)
+
+ succeeded in 6612ms:
+   1: """I-redact-001 (#1181) — report_redactor must REDACT a present-but-hard-to-pin
+   2: UNSUPPORTED claim, not abort the whole report.
+   3: 
+   4: Regression context
+   5: ------------------
+   6: F01 (#1174) made redaction severity-INDEPENDENT (every non-VERIFIED claim, incl. S3
+   7: observe-only, must be redacted). That exposed a pre-existing weakness: when the renderer
+   8: under-split two real sentences into one over-long span (no terminal period before a [N]
+   9: marker, or a next sentence beginning with a digit), the rejected claim's stem covered
+  10: < ``_MIN_REDACTION_COVERAGE`` of that merged span, so no single span matched, the stem was
+  11: "present but unpinnable", and ``reconcile_report_against_verdicts`` raised
+  12: ``ReportRedactionError`` -> ``abort_report_redaction_failed`` for the WHOLE run. All 5
+  13: beat-both questions aborted with zero reports shipped.
+  14: 
+  15: This module loads the 3 REAL failing cases (drb_76 / drb_78 / drb_90) from
+  16: ``outputs/audits/I-redact-001/redaction_fixture.json`` and asserts each now redacts +
+  17: SHIPS (no ``ReportRedactionError``) while the unsupported prose is gone and the VERIFIED
+  18: neighbor sentence keeps its [N] markers byte-for-byte. It then pins the issue acceptance
+  19: matrix with SYNTHETIC invariant tests:
+  20:   (a) sub-clause-in-longer-sentence redacts;
+  21:   (b) a claim spanning 2 rendered sentences redacts both;
+  22:   (c) a VERIFIED neighbor keeps its [N] citation byte-for-byte;
+  23:   (d) a genuinely-ABSENT claim STILL raises ``ReportRedactionError`` (the real-inconsistency
+  24:       fail-closed path is preserved).
+  25: """
+  26: 
+  27: from __future__ import annotations
+  28: 
+  29: import json
+  30: from pathlib import Path
+  31: 
+  32: import pytest
+  33: 
+  34: from src.polaris_graph.roles.report_redactor import (
+  35:     ReportRedactionError,
+  36:     reconcile_report_against_verdicts,
+  37: )
+  38: from src.polaris_graph.roles import report_redactor as _redactor
+  39: 
+  40: # The 3 REAL failing cases captured offline from the beat-both re-run @454b7652 on the VM.
+  41: # Codex iter-1 P1-2: the fixture lives under tests/fixtures/ (LAW VI: test fixtures live in
+  42: # tests/fixtures/) so a clean CI checkout always has it — the prior outputs/audits/ path is
+  43: # gitignored and untracked, so parametrize collection (which reads the fixture at COLLECT time)
+  44: # failed on CI and took down the whole module. parents[1] of tests/roles/<file> == tests/.
+  45: # A copy is retained under outputs/audits/I-redact-001/ for the audit trail; the TEST reads
+  46: # tests/fixtures/.
+  47: _FIXTURE = (
+  48:     Path(__file__).resolve().parents[1]
+  49:     / "fixtures"
+  50:     / "redaction_fixture_redact001.json"
+  51: )
+  52: 
+  53: 
+  54: def _load_cases() -> list[dict]:
+  55:     data = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+  56:     cases = data["cases"]
+  57:     assert len(cases) == 3, "fixture must carry exactly the 3 real failing cases"
+  58:     return cases
+  59: 
+  60: 
+  61: def _normalized(text: str) -> str:
+  62:     """Test-side normalize matching the module's matching projection (citation/whitespace-
+  63:     insensitive, trailing-period-stripped) so 'prose gone' is asserted in the same space the
+  64:     redactor matches in."""
+  65:     return _redactor._normalize(text)
+  66: 
+  67: 
+  68: # ─────────────────────────────────────────────────────────────────
+  69: # RED -> GREEN on the 3 REAL cases: each must now redact + ship (no abort).
+  70: # ─────────────────────────────────────────────────────────────────
+  71: 
+  72: @pytest.mark.parametrize("case", _load_cases(), ids=lambda c: c["case_id"])
+  73: def test_real_case_redacts_and_ships(case: dict):
+  74:     """The real failing claim is redacted, its prose is gone from the shipped report, and
+  75:     reconcile does NOT raise (status != abort_report_redaction_failed)."""
+  76:     res = reconcile_report_against_verdicts(
+  77:         case["report_text"], case["final_verdicts"], case["audit_map"]
+  78:     )
+  79:     target_id = case["target_claim_id"]
+  80:     redacted_ids = {rc.claim_id for rc in res.redacted}
+  81:     assert target_id in redacted_ids, f"{case['case_id']}: target {target_id} not redacted"
+  82:     # The rejected prose must be GONE from the shipped body (no leak).
+  83:     assert case["target_stem_normalized"] not in _normalized(res.report_text), (
+  84:         f"{case['case_id']}: UNSUPPORTED stem still present after redaction (leak)"
+  85:     )
+  86:     # The gap language was inserted (refuse-in-place, not a silent drop).
+  87:     assert _redactor._GAP_REPLACEMENT in res.report_text
+  88: 
+  89: 
+  90: @pytest.mark.parametrize("case", _load_cases(), ids=lambda c: c["case_id"])
+  91: def test_real_case_verified_neighbor_survives_byte_for_byte(case: dict):
+  92:     """The VERIFIED neighbor merged into the same under-split span keeps its rendered prose
+  93:     AND its [N] citation markers byte-for-byte (Codex iter-1 P1: never strip a survivor's
+  94:     citation). The neighbor lead text is asserted present unchanged."""
+  95:     res = reconcile_report_against_verdicts(
+  96:         case["report_text"], case["final_verdicts"], case["audit_map"]
+  97:     )
+  98:     # The neighbor's first words (a distinctive, citation-free lead) must survive verbatim.
+  99:     neighbor_lead = " ".join(case["neighbor_sentence"].split()[:8])
+ 100:     assert neighbor_lead in res.report_text, (
+ 101:         f"{case['case_id']}: VERIFIED neighbor lead {neighbor_lead!r} was over-redacted"
+ 102:     )
+ 103:     # The neighbor is still a VERIFIED verdict in the fixture (sanity on the fixture itself).
+ 104:     assert case["final_verdicts"][case["neighbor_claim_id"]] == "VERIFIED"
+ 105: 
+ 106: 
+ 107: def test_real_cases_preserve_neighbor_citation_markers():
+ 108:     """Per-case byte-for-byte [N] survival of the VERIFIED neighbor's own citation markers."""
+ 109:     # The neighbor's trailing rendered marker(s) per real case (the [N] that cite the survivor).
+ 110:     neighbor_markers = {
+ 111:         "drb_76": ["risk[1]"],            # 04-003 survivor ends "...risk[1]"
+ 112:         "drb_78": ["days.[10]"],          # 05-007 survivor ends "...4.3 days.[10]"
+ 113:         "drb_90": ["recovery[17][22]"],   # 07-001 survivor ends "...recovery[17][22]"
+ 114:     }
+ 115:     for case in _load_cases():
+ 116:         res = reconcile_report_against_verdicts(
+ 117:             case["report_text"], case["final_verdicts"], case["audit_map"]
+ 118:         )
+ 119:         for marker in neighbor_markers[case["case_id"]]:
+ 120:             assert marker in case["report_text"], (
+
+codex
+I found one concrete unlabeled-ship shape: the annotator only checks `labeled_any` per claim, not whether all present occurrences were labelable. If the same non-VERIFIED claim has one clean occurrence and one cross-line/unpinnable occurrence, the clean hit satisfies `labeled_any` and the unpinnable occurrence remains bare. I’m validating that against the actual function now.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.roles.report_redactor import annotate_report_against_verdicts
+
+claim = 'The drug eliminated all cardiovascular events in every patient.'
+marker = '[confidence: low -- test]'
+report = '## Findings\\n\\n' + claim + '\\n\\nThe drug eliminated all cardiovascular events in\\nevery patient.\\n'
+audit = {'c_bad': {'sentence': claim, 'severity': 'S1'}}
+res = annotate_report_against_verdicts(report, {'c_bad': 'UNSUPPORTED'}, audit, {'c_bad': marker})
+print(res.report_text)
+print('marker_count', res.report_text.count(marker))
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.roles.report_redactor import annotate_report_against_verdicts
+
+claim = 'The drug eliminated all cardiovascular events in every patient.'
+marker = '[confidence: low -- test]'
+# One clean occurrence, one present occurrence in a long under-split span below coverage floor.
+report = '## Findings\\n\\n' + claim + ' Additional context with many many many many many many many many many many words keeps this span too long for the coverage floor while still containing the rejected claim.\\n\\n' + claim + '\\n'
+audit = {'c_bad': {'sentence': claim, 'severity': 'S1'}}
+res = annotate_report_against_verdicts(report, {'c_bad': 'UNSUPPORTED'}, audit, {'c_bad': marker})
+print(res.report_text)
+print('marker_count', res.report_text.count(marker))
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.roles.report_redactor import reconcile_report_against_verdicts
+report = '## Findings\\n\\nThe model returned [confidence: high] for cohort A. The model returned [confidence: low] for cohort A.\\n'
+audit = {'bad': {'sentence': 'The model returned [confidence: low] for cohort A.', 'severity': 'S1'}}
+res = reconcile_report_against_verdicts(report, {'bad': 'UNSUPPORTED'}, audit)
+print(res.report_text)
+print('gap_count', res.report_text.count('A claim previously stated here'))
+'@ | python -" in C:\POLARIS
+ succeeded in 3628ms:
+## Findings
+
+The drug eliminated all cardiovascular events in every patient. [confidence: low -- test]
+
+The drug eliminated all cardiovascular events in
+every patient.
+
+marker_count 1
+
+ succeeded in 5771ms:
+## Findings
+
+The drug eliminated all cardiovascular events in every patient. [confidence: low -- test] Additional context with many many many many many many many many many many words keeps this span too long for the coverage floor while still containing the rejected claim.
+
+The drug eliminated all cardiovascular events in every patient. [confidence: low -- test]
+
+marker_count 2
+
+ succeeded in 7785ms:
+## Findings
+
+A claim previously stated here did not survive 4-role verification and was redacted; this is a curator-actionable gap. A claim previously stated here did not survive 4-role verification and was redacted; this is a curator-actionable gap.
+
+gap_count 2
+
+codex
+verdict: REQUEST_CHANGES
+novel_p0:
+  - "C2 false: `annotate_report_against_verdicts` only checks `labeled_any` per claim at `src/polaris_graph/roles/report_redactor.py:618-629`. If one occurrence pins cleanly and another occurrence is present-but-unpinnable, for example straddling two body lines, the clean hit sets `labeled_any=True` and the split occurrence ships bare with no confidence marker and no raise."
+  - "C4 false: `_CONFIDENCE_MARKER_RE` is now part of shared `_prose_stem` at `src/polaris_graph/roles/report_redactor.py:153-158`, so `reconcile_report_against_verdicts` behavior changes for any report/audit text containing literal `[confidence: ...]`. A non-VERIFIED `[confidence: low]` claim can now match and redact a distinct VERIFIED `[confidence: high]` sentence because both normalize to the same stem."
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Fix annotator occurrence accounting so any present-but-unpinnable occurrence raises even when another occurrence was labeled."
+  - "Keep confidence-label stripping out of the redactor path, or make it narrowly scoped so it cannot alter legacy redaction normalization."
+tokens used
+70,661

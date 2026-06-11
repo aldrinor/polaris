@@ -1,0 +1,17 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - >-
+    Idempotence is still broken for the two-same-line-claims shape after it has already been annotated.
+    Fresh input labels both claims, but a second call over that output raises ReportRedactionError:
+    `_sentence_spans(line)` runs on marker-bearing text at src/polaris_graph/roles/report_redactor.py:634,
+    the first `[confidence: ...]` marker is not a sentence boundary, the two sentences collapse into one span,
+    and the post-pass check raises at src/polaris_graph/roles/report_redactor.py:657. This violates the stated
+    idempotence contract and can fail closed on reruns.
+p2: []
+convergence_call: continue
+remaining_blockers_for_execution:
+  - >-
+    Make confidence markers boundary-transparent for span computation on already annotated input, then add
+    a regression that calls `annotate_report_against_verdicts` twice on the two-same-line non-VERIFIED case.
