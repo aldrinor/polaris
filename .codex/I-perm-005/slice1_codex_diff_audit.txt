@@ -1,0 +1,9 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - file: tests/polaris_graph/generator/test_claim_labeler_iperm005.py:17
+    issue: "The autouse fixture deletes PG_DISCLOSURE_* with os.environ.pop and never restores them. Use monkeypatch.delenv(..., raising=False) to avoid leaking env mutation into later tests."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
