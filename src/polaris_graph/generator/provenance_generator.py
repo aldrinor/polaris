@@ -1584,6 +1584,15 @@ def verify_sentence_provenance(
     # defined at the return.
     judge_error_flag = False
 
+    # I-perm-004 (#1198) slice 3: when the gap-#18 local-window rescue ACCEPTS a sentence whose
+    # narrow bound span did not directly entail, the [#ev] token is RE-POINTED to the rescue window
+    # (the genuinely-entailing span) instead of shipping the original mis-pointed span. Captured here
+    # at function scope as (evidence_id, start, end); applied at the return. None => no re-point.
+    # Gated by PG_SPAN_RESOLVER (default OFF -> byte-identical) and SINGLE-token scope only (the
+    # which-token-to-move combinatorics for multi-token sentences are out of scope, matching
+    # _try_reanchor v1).
+    reanchor_local_to: Optional[tuple[str, int, int]] = None
+
     # I-gen-005 Step 3b commit 1: verifier_text strips ALL citation
     # artifacts (provenance tokens + atom_NNN + bare [ev_XXX]) for ALL
     # internal verifier checks. The original sentence is preserved
@@ -1908,6 +1917,11 @@ def verify_sentence_provenance(
 
                     local_window_text: Optional[str] = None
                     local_ev_id: Optional[str] = None
+                    # I-perm-004 (#1198) slice 3: keep the rescue window's OFFSETS (not just its
+                    # text) so the [#ev] token can be RE-POINTED to the genuinely-entailing span on
+                    # accept, instead of shipping the claim bound to its original mis-pointed span
+                    # (the idx-9 "shipped on a badge span" bug).
+                    local_win: Optional[tuple[int, int]] = None
                     for tok in tokens:
                         ev = evidence_pool.get(tok.evidence_id)
                         if ev is None:
@@ -1945,6 +1959,7 @@ def verify_sentence_provenance(
                                     if _vmode_n == "enforce":
                                         local_window_text = direct_quote[cwin[0]:cwin[1]]
                                         local_ev_id = tok.evidence_id
+                                        local_win = (cwin[0], cwin[1])
                                         break
                                     logger.warning(
                                         "[provenance] SHADOW "
@@ -1962,6 +1977,7 @@ def verify_sentence_provenance(
                         if win:
                             local_window_text = direct_quote[win[0]:win[1]]
                             local_ev_id = tok.evidence_id
+                            local_win = (win[0], win[1])
                             break
 
                     if local_window_text:
@@ -1988,6 +2004,20 @@ def verify_sentence_provenance(
                                 "but locally grounded; passing",
                                 local_ev_id, verdict, verdict2,
                             )
+                            # I-perm-004 (#1198) slice 3: RE-POINT the token to the rescue window
+                            # (which the judge just graded ENTAILED) rather than ship the original
+                            # mis-pointed span. SINGLE-token only; flag-gated. The accept SEMANTICS
+                            # are unchanged (the sentence was already passing) — only WHICH span the
+                            # token cites changes, to the genuinely-entailing one.
+                            if (
+                                _span_resolver_enabled()
+                                and local_win is not None
+                                and local_ev_id is not None
+                                and len(tokens) == 1
+                            ):
+                                reanchor_local_to = (
+                                    local_ev_id, local_win[0], local_win[1],
+                                )
                     else:
                         # No local window available; fail closed on the
                         # original narrow-span verdict (do NOT re-judge
@@ -2031,9 +2061,25 @@ def verify_sentence_provenance(
             )
 
     is_verified = len(failures) == 0
+
+    # I-perm-004 (#1198) slice 3: apply the gap-#18 RE-POINT. Only when the sentence is actually
+    # KEPT (is_verified) and SINGLE-token — rewrite the token to the rescue window so the report
+    # cites the span that genuinely entails (not the original mis-pointed narrow span). The window
+    # was numeric/content-matched AND judged ENTAILED, so the re-pointed token is faithful; the
+    # accept verdict is unchanged (relabel only, never a new pass). Flag-gated at capture time.
+    final_sentence = sentence
+    final_tokens = tokens
+    if reanchor_local_to is not None and is_verified and len(tokens) == 1:
+        _rev_id, _rev_start, _rev_end = reanchor_local_to
+        final_sentence = _rebind_single_token(sentence, _rev_id, _rev_start, _rev_end)
+        final_tokens = parse_provenance_tokens(final_sentence)
+        soft_warnings = list(soft_warnings) + [
+            f"reanchored_local_window:{_rev_id}:{_rev_start}-{_rev_end}",
+        ]
+
     return SentenceVerification(
-        sentence=sentence,
-        tokens=tokens,
+        sentence=final_sentence,
+        tokens=final_tokens,
         is_verified=is_verified,
         failure_reasons=failures,
         soft_warnings=soft_warnings,
