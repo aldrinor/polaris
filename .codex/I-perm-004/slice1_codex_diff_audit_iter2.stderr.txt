@@ -1,0 +1,1192 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb402-6041-7941-aa3a-64ad935b5d95
+--------
+user
+# Codex DIFF review — I-perm-004 (#1198) SLICE 1 span_resolver — ITER 2 (confirm P2 fix)
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 2 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (required)
+
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## You APPROVED iter-1 (zero P0/P1). This iter folds in your two classifier P2s. Confirm + hunt fresh.
+
+### P2-1/P2-2 (RESOLVED): nav/link-bar chrome mis-read as prose@conf-1.0
+Your evidence: `home | articles | current issue | archives | about the journal | submit manuscript.` and `www.example.com current issue archive author guidelines submit manuscript editorial board contact us.` classified as `prose`.
+
+**Fix (`span_resolver.py`):** `_NAV_RE` gained journal-chrome keywords (submit manuscript / author guidelines / editorial board / current issue / about the journal / contact us); added `_NAV_SEPARATOR_RE` so a span with >=2 pipe/bullet separators (`| • · ▪ »`) is `nav_link`. `classify_span` now returns `nav_link` on keyword OR >=2 separators. Strictly additive: it can only move a span prose->nav_link (LOWER confidence) — it can never create an over-credit. New regression params in `test_classify_boilerplate_buckets` cover both your strings.
+
+### P2-3 (acknowledged, not changed): `_QUALITY_PENALTY` is a module-level dict
+Module constant, never mutated. Left as a conventional module constant (not frozen) — flag again only if you consider it a real risk.
+
+## Unchanged safety invariant to re-confirm
+`resolve_best_entailing_span` can ONLY return a span the injected `judge_fn` accepted (`if not judge_fn(...): continue`). The classifier change does not touch that gate.
+
+## Files (full diff: `.codex/I-perm-004/slice1_codex_diff.patch`)
+- `src/polaris_graph/generator/span_resolver.py` (pure).
+- `tests/polaris_graph/generator/test_span_resolver_iperm004.py` (9 tests, +2 nav regressions).
+
+## Test evidence: 9 passed (incl. the two nav-chrome regressions).
+
+Confirm the P2 fix; hunt any NEW classify_span over-confidence (a clearly-boilerplate span returning `prose`) or any way the argmax returns a non-judge-accepted span.
+
+codex
+I’ll review the provided patch as a diff review, focusing on the two stated invariants: classifier over-credit paths and the judge-accepted gate in `resolve_best_entailing_span`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content src/polaris_graph/generator/span_resolver.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content tests/polaris_graph/generator/test_span_resolver_iperm004.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content .codex/I-perm-004/slice1_codex_diff.patch' in C:\POLARIS
+ succeeded in 4293ms:
+"""I-perm-004 (#1198) span resolver — keystone unit tests (pure, stub judge).
+
+Covers the deterministic boilerplate classifier and the entailing-span ARGMAX. The §-1.1-lethal
+risk is MANUFACTURING support, so the binding assertions are: the resolver returns ONLY a span the
+injected judge accepted; a boilerplate-only support yields a LABELED low-confidence result (never a
+silent high); and the argmax prefers real prose over a co-entailing title (the drb_76 "re-anchored
+to the TITLE" bug).
+"""
+
+from __future__ import annotations
+
+from src.polaris_graph.generator import span_resolver as sr
+
+
+# --- classify_span -------------------------------------------------------------------------
+
+
+def test_classify_prose():
+    assert (
+        sr.classify_span(
+            "Probiotic use was strongly associated with Saccharomyces fungemia in immunocompromised "
+            "patients across five hospitals."
+        )
+        == sr.QUALITY_PROSE
+    )
+
+
+def test_classify_boilerplate_buckets():
+    assert sr.classify_span("https://doi.org/10.3201/eid2708.210018 full text") == sr.QUALITY_URL
+    assert sr.classify_span("Altmetric: tweeted by 42, 18 Mendeley readers") == sr.QUALITY_ALTMETRIC
+    assert sr.classify_span("[12] Smith J, et al. (2021) doi:10.1056/x pp. 22-30") == sr.QUALITY_REFERENCE_LIST
+    assert sr.classify_span("Department of Microbiology, University of Helsinki") == sr.QUALITY_AFFILIATION
+    assert sr.classify_span("Skip to main content") == sr.QUALITY_NAV_LINK
+    # Codex slice-1 P2: pipe-separated link bar + keyword chrome must be nav (not prose@conf-1.0).
+    assert (
+        sr.classify_span("home | articles | current issue | archives | about the journal | submit manuscript.")
+        == sr.QUALITY_NAV_LINK
+    )
+    assert (
+        sr.classify_span(
+            "www.example.com current issue archive author guidelines submit manuscript editorial board contact us."
+        )
+        == sr.QUALITY_NAV_LINK
+    )
+    # short, terminator-free, title-case -> title; trailing-colon / very short -> header
+    assert sr.classify_span("Saccharomyces boulardii Fungemia and Probiotic Safety") == sr.QUALITY_TITLE
+    assert sr.classify_span("Methods:") == sr.QUALITY_HEADER
+    assert sr.is_boilerplate_quality(sr.QUALITY_TITLE)
+    assert not sr.is_boilerplate_quality(sr.QUALITY_PROSE)
+
+
+# --- resolve_best_entailing_span -----------------------------------------------------------
+
+# A row whose TITLE (chars 0..52) lexically resembles the claim but a later PROSE span (chars ~120+)
+# actually entails it — the drb_76 "re-anchored to the title" shape.
+_TITLE = "Saccharomyces boulardii Fungemia: A Probiotic Safety Concern. "
+_PROSE = (
+    "The registry study found that boulardii probiotic use was strongly associated with fungemia "
+    "in immunocompromised patients compared with controls. "
+)
+_BADGE = "Altmetric badge: tweeted by 31 accounts; 12 Mendeley readers."
+_ROW = _TITLE + _PROSE + _BADGE
+_CLAIM = "Boulardii probiotic use was strongly associated with fungemia in immunocompromised patients."
+
+_TITLE_SPAN = (0, len(_TITLE))
+_PROSE_SPAN = (len(_TITLE), len(_TITLE) + len(_PROSE))
+_BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
+
+
+def _judge_only(*entailing_texts):
+    """A stub judge that entails iff the span text is one of the given (stripped) texts."""
+    targets = {t.strip() for t in entailing_texts}
+    calls = {"n": 0}
+
+    def judge(sentence: str, span_text: str) -> bool:
+        calls["n"] += 1
+        return span_text.strip() in targets
+
+    judge.calls = calls  # type: ignore[attr-defined]
+    return judge
+
+
+def test_picks_entailing_prose_over_lexical_title():
+    # Judge entails ONLY the prose span (the title does not actually support the claim).
+    judge = _judge_only(_PROSE)
+    res = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+    )
+    assert res is not None
+    assert res.best_span == _PROSE_SPAN
+    assert res.provenance_quality == sr.QUALITY_PROSE
+    assert res.confidence >= 0.7  # prose-entailed -> moderate/high
+
+
+def test_argmax_prefers_prose_when_both_entail():
+    # Even if BOTH title and prose entail, the argmax must pick prose (higher quality).
+    judge = _judge_only(_TITLE, _PROSE)
+    res = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+    )
+    assert res is not None
+    assert res.provenance_quality == sr.QUALITY_PROSE
+    assert res.best_span == _PROSE_SPAN
+
+
+def test_title_only_support_is_labeled_low_not_silent_high():
+    # When ONLY the title entails, the claim is recovered but LABELED low-confidence boilerplate.
+    judge = _judge_only(_TITLE)
+    res = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+    )
+    assert res is not None
+    assert res.provenance_quality == sr.QUALITY_TITLE
+    assert sr.is_boilerplate_quality(res.provenance_quality)
+    assert res.confidence < 0.6  # never reads as high
+
+
+def test_returns_none_when_nothing_entails():
+    judge = _judge_only()  # entails nothing
+    res = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+    )
+    assert res is None
+
+
+def test_only_returns_a_judge_accepted_span():
+    # The badge span lexically shares "probiotic"/"fungemia"-ish tokens but the judge rejects it;
+    # it must NEVER be returned (no manufactured support).
+    judge = _judge_only(_BADGE)  # pretend only the badge "entails"
+    res = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+    )
+    assert res is not None and res.best_span == _BADGE_SPAN  # judge is the gate; resolver obeys it
+    # ...and conversely, with the badge rejected it is never chosen:
+    judge2 = _judge_only(_PROSE)
+    res2 = sr.resolve_best_entailing_span(
+        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge2
+    )
+    assert res2 is not None and res2.best_span != _BADGE_SPAN
+
+
+def test_judge_calls_bounded_by_top_k():
+    judge = _judge_only(_PROSE)
+    many_spans = [(i, i + 30) for i in range(0, len(_ROW) - 30, 5)]
+    sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
+    assert judge.calls["n"] <= 4  # type: ignore[attr-defined]
+
+
+def test_numeric_mismatch_lowers_confidence():
+    claim = "The risk rose by 58 percent in immunocompromised patients."
+    span_match = "the risk rose by 58 percent in immunocompromised patients in the cohort study analysis"
+    span_nomatch = "the risk rose substantially in immunocompromised patients in the cohort study analysis"
+    row = span_match + " || " + span_nomatch
+    s1 = (0, len(span_match))
+    s2 = (len(span_match) + 4, len(row))
+
+    def numeric_match(sentence: str, span_text: str) -> bool:
+        return "58" in span_text
+
+    judge = _judge_only(span_nomatch)  # only the no-number span entails
+    res = sr.resolve_best_entailing_span(
+        row, claim, [s1, s2], judge_fn=judge, numeric_match_fn=numeric_match
+    )
+    assert res is not None
+    # numeric mismatch penalised -> below the no-penalty prose baseline.
+    assert res.confidence < 1.0
+
+ succeeded in 7456ms:
+"""I-perm-004 (#1198) span resolver — re-anchor a claim to the best ENTAILING span.
+
+The verifier drops a large share of real claims because the [#ev] token points at a span that
+does not entail the sentence even though a genuinely-entailing span sits ELSEWHERE in the SAME row
+(drb_76: 40 verified / 41 dropped of 81, 29 of them `entailment_failed` with in-row support). The
+existing recovery (`provenance_generator._try_reanchor`, #1189) accepts the FIRST passing candidate
+with no boilerplate filter and no best-span ranking — so drb_76 re-anchored to the row TITLE
+(`reanchored:...0-76`). This module replaces first-passing with a BOILERPLATE-AWARE ARGMAX over the
+candidate spans, choosing the best genuinely-entailing prose span (RARR re-point; ALCE precision;
+MiniCheck max-over-evidence).
+
+SAFETY — the §-1.1-lethal failure here is MANUFACTURING support (re-pointing to a span that does not
+actually entail the sentence). Three structural guards make that impossible:
+  1. The resolver NEVER decides entailment itself — the injected ``judge_fn`` (the SAME binding
+     entailment gate the pipeline uses, run with ``allow_local_window_fallback=False``) does. The
+     resolver only CHOOSES among candidates the judge already accepted; a non-entailing span can
+     never be returned.
+  2. Boilerplate (title / header / affiliation / nav-link / url / altmetric / reference-list) is a
+     DEPRIORITIZATION + confidence PENALTY, never a fabrication path: a claim supported only by a
+     title span is returned LABELED low-confidence with ``provenance_quality="title"`` so the caller
+     ships it caveated, never silently VERIFIED.
+  3. Confidence is dominated by entailment + numeric-verbatim agreement, NOT lexical similarity, so a
+     lexically-similar-but-boilerplate span cannot inflate a claim.
+
+PURE: no network, no LLM, no global state. The judge and (optional) numeric-match predicates are
+INJECTED, so this module is deterministic and unit-testable with a stub judge. Default behaviour is
+opt-in at the call site (the wiring slice gates it behind ``PG_PROVENANCE_REANCHOR``); this module
+itself only computes.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+# --- provenance_quality vocabulary (Decision B schema) -------------------------------------
+QUALITY_PROSE = "prose"
+QUALITY_TITLE = "title"
+QUALITY_HEADER = "header"
+QUALITY_AFFILIATION = "affiliation"
+QUALITY_NAV_LINK = "nav_link"
+QUALITY_URL = "url"
+QUALITY_ALTMETRIC = "altmetric"
+QUALITY_REFERENCE_LIST = "reference_list"
+
+# Boilerplate qualities — supported-only-here => LABELED low confidence, never silently verified.
+_BOILERPLATE_QUALITIES = frozenset(
+    {
+        QUALITY_TITLE,
+        QUALITY_HEADER,
+        QUALITY_AFFILIATION,
+        QUALITY_NAV_LINK,
+        QUALITY_URL,
+        QUALITY_ALTMETRIC,
+        QUALITY_REFERENCE_LIST,
+    }
+)
+
+# Per-quality confidence penalty (subtracted from the entailment-dominated base). Prose = no penalty;
+# the further a span is from real prose, the larger the penalty so a boilerplate-supported claim can
+# never read as high-confidence. Ranking prefers the SMALLEST penalty (best quality) among entailing
+# candidates.
+_QUALITY_PENALTY = {
+    QUALITY_PROSE: 0.0,
+    QUALITY_AFFILIATION: 0.35,
+    QUALITY_TITLE: 0.45,
+    QUALITY_HEADER: 0.50,
+    QUALITY_REFERENCE_LIST: 0.55,
+    QUALITY_NAV_LINK: 0.60,
+    QUALITY_ALTMETRIC: 0.60,
+    QUALITY_URL: 0.65,
+}
+
+# --- deterministic boilerplate detection patterns -----------------------------------------
+_URL_RE = re.compile(r"https?://|www\.\w|\bdoi\.org/|\b10\.\d{4,9}/", re.IGNORECASE)
+_ALTMETRIC_RE = re.compile(
+    r"\baltmetric\b|\bmendeley\b|\btweeted\b|\bdimensions\b|\bcited by\b|"
+    r"\breaders on\b|\bsocial media\b|\bbadge\b",
+    re.IGNORECASE,
+)
+# A reference-list line: leading numbered/bracketed ref marker, or a dense author-year + doi/pp block.
+_REFERENCE_RE = re.compile(
+    r"^\s*(?:\[\d+\]|\d+\.)\s+\w|(?:\bet al\.).{0,80}?(?:\(\d{4}\)|doi:|pp?\.\s?\d)",
+    re.IGNORECASE,
+)
+_AFFILIATION_RE = re.compile(
+    r"\bdepartment of\b|\buniversity of\b|\bfaculty of\b|\binstitute of\b|"
+    r"\bcorrespondence\b|\bcorresponding author\b|\borcid\b|\b[\w.]+@[\w.]+\b|"
+    r"\bhospital\b.{0,40}\b(?:road|street|ave|avenue)\b",
+    re.IGNORECASE,
+)
+# Nav chrome KEYWORDS: "skip to", "menu", cookie banners, journal-site link labels.
+_NAV_RE = re.compile(
+    r"\bskip to (?:main )?content\b|\bcookie\b.{0,30}\b(?:consent|policy|accept)\b|"
+    r"\bsign in\b|\bmain menu\b|\btable of contents\b|\bback to top\b|\bsubmit manuscript\b|"
+    r"\bauthor guidelines\b|\bfor authors\b|\beditorial board\b|\bcurrent issue\b|"
+    r"\bcontact us\b|\babout the journal\b",
+    re.IGNORECASE,
+)
+# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about").
+# Two or more separators is a link bar, not prose (Codex slice-1 P2 — the keyword set alone missed
+# the structural pipe-list form, which would otherwise classify as prose at confidence 1.0).
+_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
+_SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
+# A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
+# no terminal punctuation. These thresholds only steer the prose/title/header split — boilerplate
+# patterns above take precedence.
+_TITLE_MAX_CHARS = 140
+_PROSE_MIN_WORDS = 8
+
+
+def classify_span(text: str) -> str:
+    """Deterministically classify a candidate span's TEXT into a ``provenance_quality`` bucket.
+
+    Boilerplate patterns (url / altmetric / reference-list / affiliation / nav) take precedence;
+    otherwise a short, terminator-free fragment is a title/header and a longer sentence-shaped
+    fragment is prose. Never raises; empty/whitespace -> ``header`` (uninformative boilerplate).
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return QUALITY_HEADER
+    # Specific boilerplate patterns first (a reference line / affiliation may itself embed a DOI/URL,
+    # so the URL bucket is checked LAST among boilerplate).
+    if _ALTMETRIC_RE.search(stripped):
+        return QUALITY_ALTMETRIC
+    if _NAV_RE.search(stripped) or len(_NAV_SEPARATOR_RE.findall(stripped)) >= 2:
+        return QUALITY_NAV_LINK
+    if _REFERENCE_RE.search(stripped):
+        return QUALITY_REFERENCE_LIST
+    if _AFFILIATION_RE.search(stripped):
+        return QUALITY_AFFILIATION
+    words = _WORD_RE.findall(stripped)
+    if _URL_RE.search(stripped):
+        # A prose sentence that merely contains a trailing citation URL is still prose; a span whose
+        # bulk IS the URL is url-boilerplate. Heuristic: URL match AND few sentence words / mostly
+        # non-letters.
+        letters = sum(c.isalpha() for c in stripped)
+        if len(words) < _PROSE_MIN_WORDS or letters < len(stripped) * 0.55:
+            return QUALITY_URL
+    has_terminator = bool(_SENTENCE_TERMINATOR_RE.search(stripped))
+    # Title-case ratio: titles/headers are Title Case (most content words capitalized); prose is
+    # sentence case (only the first word + proper nouns). This is the primary prose/title signal —
+    # it separates an 8-word TITLE ("Saccharomyces boulardii Fungemia: A Safety Concern.") from an
+    # 8-word prose sentence even when both carry punctuation.
+    alpha = [w for w in words if len(w) > 2]
+    cap_ratio = (sum(1 for w in alpha if w[0].isupper()) / len(alpha)) if alpha else 0.0
+    is_title_case = cap_ratio >= 0.45
+    if is_title_case and len(stripped) <= _TITLE_MAX_CHARS:
+        return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
+    if len(words) >= _PROSE_MIN_WORDS and (has_terminator or len(stripped) > _TITLE_MAX_CHARS):
+        return QUALITY_PROSE
+    # Short, terminator-free fragment: a heading if it has a colon / is very short, else a title.
+    if len(stripped) <= _TITLE_MAX_CHARS and not has_terminator:
+        return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
+    return QUALITY_PROSE
+
+
+def _content_words(text: str) -> set[str]:
+    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) > 2}
+
+
+def _lexical_overlap(sentence: str, span_text: str) -> float:
+    """Cheap content-word Jaccard for PRE-ranking only (never the binding signal)."""
+    a, b = _content_words(sentence), _content_words(span_text)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+@dataclass(frozen=True)
+class SpanResolution:
+    """The argmax entailing span for one claim (or ``None`` when nothing in-row entails)."""
+
+    best_span: tuple[int, int]
+    span_text: str
+    provenance_quality: str
+    confidence: float
+    entailed: bool
+
+
+# Entailment-dominated confidence base, then subtract the boilerplate penalty and (optionally) a
+# numeric-mismatch penalty, then add a small lexical-overlap nudge that can never by itself promote
+# a span. Clamped to [0, 1]. Tuned so prose-entailed >= ~0.7 (moderate/high) and boilerplate-entailed
+# <= ~0.55 (low), keeping the §-1.1 invariant that a title-only-supported claim is never high.
+_ENTAILED_BASE = 1.0
+_NUMERIC_MISMATCH_PENALTY = 0.25
+_LEXICAL_NUDGE = 0.05
+
+
+def _span_confidence(
+    quality: str,
+    lexical: float,
+    *,
+    numeric_ok: bool,
+) -> float:
+    confidence = _ENTAILED_BASE - _QUALITY_PENALTY.get(quality, 0.6)
+    if not numeric_ok:
+        confidence -= _NUMERIC_MISMATCH_PENALTY
+    confidence += _LEXICAL_NUDGE * max(0.0, min(1.0, lexical))
+    return max(0.0, min(1.0, confidence))
+
+
+def resolve_best_entailing_span(
+    direct_quote: str,
+    sentence: str,
+    candidate_spans: list[tuple[int, int]],
+    *,
+    judge_fn: Callable[[str, str], bool],
+    numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
+    top_k: int = 4,
+) -> Optional[SpanResolution]:
+    """Choose the best genuinely-ENTAILING span for ``sentence`` within ``direct_quote``.
+
+    ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
+    via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
+    (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
+    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
+    returns ONLY a span the judge accepted, so a non-entailing span can never be manufactured into
+    support. Among entailing candidates the ARGMAX prefers higher provenance quality (prose over
+    boilerplate) then higher confidence. Returns ``None`` when no candidate entails (caller keeps the
+    drop / labels "no grounded source").
+
+    ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
+    sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
+    promotes). When omitted, numeric agreement is treated as satisfied (no adjustment).
+    """
+    n = len(direct_quote or "")
+    # Each entry: (prerank_key, (start, end), span_text, quality, lexical).
+    scored: list[tuple[tuple[float, float], tuple[int, int], str, str, float]] = []
+    for start, end in candidate_spans:
+        if not (0 <= start < end <= n):
+            continue
+        span_text = direct_quote[start:end]
+        if not span_text.strip():
+            continue
+        quality = classify_span(span_text)
+        lexical = _lexical_overlap(sentence, span_text)
+        # PRE-rank key: prose first (smallest penalty), then lexical overlap. This only orders which
+        # top_k reach the judge; it never decides entailment.
+        prerank = (-_QUALITY_PENALTY.get(quality, 0.6), lexical)
+        scored.append((prerank, (start, end), span_text, quality, lexical))
+
+    # Pre-rank descending and judge ONLY the top_k (bounded judge calls).
+    scored.sort(key=lambda r: r[0], reverse=True)
+    best: Optional[SpanResolution] = None
+    best_key: tuple[float, float] = (-1.0, -1.0)
+    for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
+        if not judge_fn(sentence, span_text):
+            continue
+        numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
+        confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)
+        # ARGMAX: prefer best quality (smallest penalty), then highest confidence.
+        key = (-_QUALITY_PENALTY.get(quality, 0.6), confidence)
+        if key > best_key:
+            best_key = key
+            best = SpanResolution(
+                best_span=span,
+                span_text=span_text,
+                provenance_quality=quality,
+                confidence=confidence,
+                entailed=True,
+            )
+    return best
+
+
+def is_boilerplate_quality(quality: str) -> bool:
+    """True if ``quality`` is a boilerplate bucket (supported-only-here => label low, never verify)."""
+    return quality in _BOILERPLATE_QUALITIES
+
+ succeeded in 10369ms:
+commit fb53fe80c1e1715eac3df5e90b7d0e7b9821272f
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 17:03:35 2026 -0700
+
+    I-perm-004 (#1198) slice 1: span_resolver keystone — boilerplate classifier + entailing-span argmax
+    
+    PURE, INERT (not yet wired -> zero production behavior change). The verifier drops a large share of
+    real claims because the [#ev] token points at a non-entailing span even though a genuinely-entailing
+    span sits ELSEWHERE in the same row (drb_76 verification_details, confirmed on saved data: 40
+    verified / 41 dropped of 81; 29 `entailment_failed` with in-row support). The existing recovery
+    (`_try_reanchor`, #1189) accepts the FIRST passing candidate with no boilerplate filter and no
+    best-span ranking -> drb_76 re-anchored to the row TITLE. This keystone replaces first-passing with
+    a BOILERPLATE-AWARE ARGMAX (RARR re-point; ALCE precision; MiniCheck max-over-evidence).
+    
+    `span_resolver.py` (pure, no network/LLM):
+    - `classify_span(text) -> {prose|title|header|affiliation|nav_link|url|altmetric|reference_list}`:
+      deterministic boilerplate classifier (specific patterns first; title-case ratio separates an
+      8-word title from an 8-word prose sentence; nav detected by keyword OR pipe/bullet link-bar).
+    - `resolve_best_entailing_span(direct_quote, sentence, candidate_spans, *, judge_fn, numeric_match_fn,
+      top_k)`: cheap lexical PRE-rank (prose-first) -> judge ONLY top_k -> ARGMAX over entailing
+      candidates, preferring prose over boilerplate then confidence. Returns the Decision-B per-claim
+      fields (best_span, provenance_quality, confidence, entailed) or None when nothing in-row entails.
+    
+    SAFETY (the §-1.1-lethal risk is MANUFACTURING support): the resolver NEVER decides entailment — the
+    INJECTED `judge_fn` (the binding gate, run allow_local_window_fallback=False at the wiring site) does;
+    the resolver only CHOOSES among candidates the judge accepted. Boilerplate is a deprioritization +
+    confidence PENALTY, never a fabrication path (a title-only-supported claim is returned LABELED
+    low-confidence, never silently verified). Confidence is entailment-dominated, not lexical.
+    
+    Codex slice-1 diff gate: APPROVE iter1 (zero P0/P1); the two classifier P2s (pipe-separated nav
+    link-bar + journal-chrome keyword list mis-reading as prose@conf-1.0) are fixed here — strictly
+    additive boilerplate detection (prose->nav_link only lowers confidence, never an over-credit).
+    
+    Tests (9 green): classifier buckets incl. nav link-bar/chrome; argmax picks entailing prose over a
+    lexically-similar title; title-only support is labeled low (never silent high); None when nothing
+    entails; only a judge-accepted span is ever returned; judge calls bounded by top_k; numeric mismatch
+    lowers confidence.
+    
+    Next slices: wire into provenance_generator (replace gap-#18 accept block to RE-POINT + replace
+    _try_reanchor first-passing with this argmax) and strict_verify; #1180 widening prompt + labeled bakeoff.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/polaris_graph/generator/span_resolver.py b/src/polaris_graph/generator/span_resolver.py
+new file mode 100644
+index 00000000..d62ae645
+--- /dev/null
++++ b/src/polaris_graph/generator/span_resolver.py
+@@ -0,0 +1,270 @@
++"""I-perm-004 (#1198) span resolver — re-anchor a claim to the best ENTAILING span.
++
++The verifier drops a large share of real claims because the [#ev] token points at a span that
++does not entail the sentence even though a genuinely-entailing span sits ELSEWHERE in the SAME row
++(drb_76: 40 verified / 41 dropped of 81, 29 of them `entailment_failed` with in-row support). The
++existing recovery (`provenance_generator._try_reanchor`, #1189) accepts the FIRST passing candidate
++with no boilerplate filter and no best-span ranking — so drb_76 re-anchored to the row TITLE
++(`reanchored:...0-76`). This module replaces first-passing with a BOILERPLATE-AWARE ARGMAX over the
++candidate spans, choosing the best genuinely-entailing prose span (RARR re-point; ALCE precision;
++MiniCheck max-over-evidence).
++
++SAFETY — the §-1.1-lethal failure here is MANUFACTURING support (re-pointing to a span that does not
++actually entail the sentence). Three structural guards make that impossible:
++  1. The resolver NEVER decides entailment itself — the injected ``judge_fn`` (the SAME binding
++     entailment gate the pipeline uses, run with ``allow_local_window_fallback=False``) does. The
++     resolver only CHOOSES among candidates the judge already accepted; a non-entailing span can
++     never be returned.
++  2. Boilerplate (title / header / affiliation / nav-link / url / altmetric / reference-list) is a
++     DEPRIORITIZATION + confidence PENALTY, never a fabrication path: a claim supported only by a
++     title span is returned LABELED low-confidence with ``provenance_quality="title"`` so the caller
++     ships it caveated, never silently VERIFIED.
++  3. Confidence is dominated by entailment + numeric-verbatim agreement, NOT lexical similarity, so a
++     lexically-similar-but-boilerplate span cannot inflate a claim.
++
++PURE: no network, no LLM, no global state. The judge and (optional) numeric-match predicates are
++INJECTED, so this module is deterministic and unit-testable with a stub judge. Default behaviour is
++opt-in at the call site (the wiring slice gates it behind ``PG_PROVENANCE_REANCHOR``); this module
++itself only computes.
++"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass
++from typing import Callable, Optional
++
++# --- provenance_quality vocabulary (Decision B schema) -------------------------------------
++QUALITY_PROSE = "prose"
++QUALITY_TITLE = "title"
++QUALITY_HEADER = "header"
++QUALITY_AFFILIATION = "affiliation"
++QUALITY_NAV_LINK = "nav_link"
++QUALITY_URL = "url"
++QUALITY_ALTMETRIC = "altmetric"
++QUALITY_REFERENCE_LIST = "reference_list"
++
++# Boilerplate qualities — supported-only-here => LABELED low confidence, never silently verified.
++_BOILERPLATE_QUALITIES = frozenset(
++    {
++        QUALITY_TITLE,
++        QUALITY_HEADER,
++        QUALITY_AFFILIATION,
++        QUALITY_NAV_LINK,
++        QUALITY_URL,
++        QUALITY_ALTMETRIC,
++        QUALITY_REFERENCE_LIST,
++    }
++)
++
++# Per-quality confidence penalty (subtracted from the entailment-dominated base). Prose = no penalty;
++# the further a span is from real prose, the larger the penalty so a boilerplate-supported claim can
++# never read as high-confidence. Ranking prefers the SMALLEST penalty (best quality) among entailing
++# candidates.
++_QUALITY_PENALTY = {
++    QUALITY_PROSE: 0.0,
++    QUALITY_AFFILIATION: 0.35,
++    QUALITY_TITLE: 0.45,
++    QUALITY_HEADER: 0.50,
++    QUALITY_REFERENCE_LIST: 0.55,
++    QUALITY_NAV_LINK: 0.60,
++    QUALITY_ALTMETRIC: 0.60,
++    QUALITY_URL: 0.65,
++}
++
++# --- deterministic boilerplate detection patterns -----------------------------------------
++_URL_RE = re.compile(r"https?://|www\.\w|\bdoi\.org/|\b10\.\d{4,9}/", re.IGNORECASE)
++_ALTMETRIC_RE = re.compile(
++    r"\baltmetric\b|\bmendeley\b|\btweeted\b|\bdimensions\b|\bcited by\b|"
++    r"\breaders on\b|\bsocial media\b|\bbadge\b",
++    re.IGNORECASE,
++)
++# A reference-list line: leading numbered/bracketed ref marker, or a dense author-year + doi/pp block.
++_REFERENCE_RE = re.compile(
++    r"^\s*(?:\[\d+\]|\d+\.)\s+\w|(?:\bet al\.).{0,80}?(?:\(\d{4}\)|doi:|pp?\.\s?\d)",
++    re.IGNORECASE,
++)
++_AFFILIATION_RE = re.compile(
++    r"\bdepartment of\b|\buniversity of\b|\bfaculty of\b|\binstitute of\b|"
++    r"\bcorrespondence\b|\bcorresponding author\b|\borcid\b|\b[\w.]+@[\w.]+\b|"
++    r"\bhospital\b.{0,40}\b(?:road|street|ave|avenue)\b",
++    re.IGNORECASE,
++)
++# Nav chrome KEYWORDS: "skip to", "menu", cookie banners, journal-site link labels.
++_NAV_RE = re.compile(
++    r"\bskip to (?:main )?content\b|\bcookie\b.{0,30}\b(?:consent|policy|accept)\b|"
++    r"\bsign in\b|\bmain menu\b|\btable of contents\b|\bback to top\b|\bsubmit manuscript\b|"
++    r"\bauthor guidelines\b|\bfor authors\b|\beditorial board\b|\bcurrent issue\b|"
++    r"\bcontact us\b|\babout the journal\b",
++    re.IGNORECASE,
++)
++# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about").
++# Two or more separators is a link bar, not prose (Codex slice-1 P2 — the keyword set alone missed
++# the structural pipe-list form, which would otherwise classify as prose at confidence 1.0).
++_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
++_SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
++_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
++# A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
++# no terminal punctuation. These thresholds only steer the prose/title/header split — boilerplate
++# patterns above take precedence.
++_TITLE_MAX_CHARS = 140
++_PROSE_MIN_WORDS = 8
++
++
++def classify_span(text: str) -> str:
++    """Deterministically classify a candidate span's TEXT into a ``provenance_quality`` bucket.
++
++    Boilerplate patterns (url / altmetric / reference-list / affiliation / nav) take precedence;
++    otherwise a short, terminator-free fragment is a title/header and a longer sentence-shaped
++    fragment is prose. Never raises; empty/whitespace -> ``header`` (uninformative boilerplate).
++    """
++    stripped = (text or "").strip()
++    if not stripped:
++        return QUALITY_HEADER
++    # Specific boilerplate patterns first (a reference line / affiliation may itself embed a DOI/URL,
++    # so the URL bucket is checked LAST among boilerplate).
++    if _ALTMETRIC_RE.search(stripped):
++        return QUALITY_ALTMETRIC
++    if _NAV_RE.search(stripped) or len(_NAV_SEPARATOR_RE.findall(stripped)) >= 2:
++        return QUALITY_NAV_LINK
++    if _REFERENCE_RE.search(stripped):
++        return QUALITY_REFERENCE_LIST
++    if _AFFILIATION_RE.search(stripped):
++        return QUALITY_AFFILIATION
++    words = _WORD_RE.findall(stripped)
++    if _URL_RE.search(stripped):
++        # A prose sentence that merely contains a trailing citation URL is still prose; a span whose
++        # bulk IS the URL is url-boilerplate. Heuristic: URL match AND few sentence words / mostly
++        # non-letters.
++        letters = sum(c.isalpha() for c in stripped)
++        if len(words) < _PROSE_MIN_WORDS or letters < len(stripped) * 0.55:
++            return QUALITY_URL
++    has_terminator = bool(_SENTENCE_TERMINATOR_RE.search(stripped))
++    # Title-case ratio: titles/headers are Title Case (most content words capitalized); prose is
++    # sentence case (only the first word + proper nouns). This is the primary prose/title signal —
++    # it separates an 8-word TITLE ("Saccharomyces boulardii Fungemia: A Safety Concern.") from an
++    # 8-word prose sentence even when both carry punctuation.
++    alpha = [w for w in words if len(w) > 2]
++    cap_ratio = (sum(1 for w in alpha if w[0].isupper()) / len(alpha)) if alpha else 0.0
++    is_title_case = cap_ratio >= 0.45
++    if is_title_case and len(stripped) <= _TITLE_MAX_CHARS:
++        return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
++    if len(words) >= _PROSE_MIN_WORDS and (has_terminator or len(stripped) > _TITLE_MAX_CHARS):
++        return QUALITY_PROSE
++    # Short, terminator-free fragment: a heading if it has a colon / is very short, else a title.
++    if len(stripped) <= _TITLE_MAX_CHARS and not has_terminator:
++        return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
++    return QUALITY_PROSE
++
++
++def _content_words(text: str) -> set[str]:
++    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) > 2}
++
++
++def _lexical_overlap(sentence: str, span_text: str) -> float:
++    """Cheap content-word Jaccard for PRE-ranking only (never the binding signal)."""
++    a, b = _content_words(sentence), _content_words(span_text)
++    if not a or not b:
++        return 0.0
++    return len(a & b) / len(a | b)
++
++
++@dataclass(frozen=True)
++class SpanResolution:
++    """The argmax entailing span for one claim (or ``None`` when nothing in-row entails)."""
++
++    best_span: tuple[int, int]
++    span_text: str
++    provenance_quality: str
++    confidence: float
++    entailed: bool
++
++
++# Entailment-dominated confidence base, then subtract the boilerplate penalty and (optionally) a
++# numeric-mismatch penalty, then add a small lexical-overlap nudge that can never by itself promote
++# a span. Clamped to [0, 1]. Tuned so prose-entailed >= ~0.7 (moderate/high) and boilerplate-entailed
++# <= ~0.55 (low), keeping the §-1.1 invariant that a title-only-supported claim is never high.
++_ENTAILED_BASE = 1.0
++_NUMERIC_MISMATCH_PENALTY = 0.25
++_LEXICAL_NUDGE = 0.05
++
++
++def _span_confidence(
++    quality: str,
++    lexical: float,
++    *,
++    numeric_ok: bool,
++) -> float:
++    confidence = _ENTAILED_BASE - _QUALITY_PENALTY.get(quality, 0.6)
++    if not numeric_ok:
++        confidence -= _NUMERIC_MISMATCH_PENALTY
++    confidence += _LEXICAL_NUDGE * max(0.0, min(1.0, lexical))
++    return max(0.0, min(1.0, confidence))
++
++
++def resolve_best_entailing_span(
++    direct_quote: str,
++    sentence: str,
++    candidate_spans: list[tuple[int, int]],
++    *,
++    judge_fn: Callable[[str, str], bool],
++    numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
++    top_k: int = 4,
++) -> Optional[SpanResolution]:
++    """Choose the best genuinely-ENTAILING span for ``sentence`` within ``direct_quote``.
++
++    ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
++    via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
++    (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
++    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
++    returns ONLY a span the judge accepted, so a non-entailing span can never be manufactured into
++    support. Among entailing candidates the ARGMAX prefers higher provenance quality (prose over
++    boilerplate) then higher confidence. Returns ``None`` when no candidate entails (caller keeps the
++    drop / labels "no grounded source").
++
++    ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
++    sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
++    promotes). When omitted, numeric agreement is treated as satisfied (no adjustment).
++    """
++    n = len(direct_quote or "")
++    # Each entry: (prerank_key, (start, end), span_text, quality, lexical).
++    scored: list[tuple[tuple[float, float], tuple[int, int], str, str, float]] = []
++    for start, end in candidate_spans:
++        if not (0 <= start < end <= n):
++            continue
++        span_text = direct_quote[start:end]
++        if not span_text.strip():
++            continue
++        quality = classify_span(span_text)
++        lexical = _lexical_overlap(sentence, span_text)
++        # PRE-rank key: prose first (smallest penalty), then lexical overlap. This only orders which
++        # top_k reach the judge; it never decides entailment.
++        prerank = (-_QUALITY_PENALTY.get(quality, 0.6), lexical)
++        scored.append((prerank, (start, end), span_text, quality, lexical))
++
++    # Pre-rank descending and judge ONLY the top_k (bounded judge calls).
++    scored.sort(key=lambda r: r[0], reverse=True)
++    best: Optional[SpanResolution] = None
++    best_key: tuple[float, float] = (-1.0, -1.0)
++    for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
++        if not judge_fn(sentence, span_text):
++            continue
++        numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
++        confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)
++        # ARGMAX: prefer best quality (smallest penalty), then highest confidence.
++        key = (-_QUALITY_PENALTY.get(quality, 0.6), confidence)
++        if key > best_key:
++            best_key = key
++            best = SpanResolution(
++                best_span=span,
++                span_text=span_text,
++                provenance_quality=quality,
++                confidence=confidence,
++                entailed=True,
++            )
++    return best
++
++
++def is_boilerplate_quality(quality: str) -> bool:
++    """True if ``quality`` is a boilerplate bucket (supported-only-here => label low, never verify)."""
++    return quality in _BOILERPLATE_QUALITIES
+diff --git a/tests/polaris_graph/generator/test_span_resolver_iperm004.py b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+new file mode 100644
+index 00000000..f9d85f6f
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+@@ -0,0 +1,166 @@
++"""I-perm-004 (#1198) span resolver — keystone unit tests (pure, stub judge).
++
++Covers the deterministic boilerplate classifier and the entailing-span ARGMAX. The §-1.1-lethal
++risk is MANUFACTURING support, so the binding assertions are: the resolver returns ONLY a span the
++injected judge accepted; a boilerplate-only support yields a LABELED low-confidence result (never a
++silent high); and the argmax prefers real prose over a co-entailing title (the drb_76 "re-anchored
++to the TITLE" bug).
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.generator import span_resolver as sr
++
++
++# --- classify_span -------------------------------------------------------------------------
++
++
++def test_classify_prose():
++    assert (
++        sr.classify_span(
++            "Probiotic use was strongly associated with Saccharomyces fungemia in immunocompromised "
++            "patients across five hospitals."
++        )
++        == sr.QUALITY_PROSE
++    )
++
++
++def test_classify_boilerplate_buckets():
++    assert sr.classify_span("https://doi.org/10.3201/eid2708.210018 full text") == sr.QUALITY_URL
++    assert sr.classify_span("Altmetric: tweeted by 42, 18 Mendeley readers") == sr.QUALITY_ALTMETRIC
++    assert sr.classify_span("[12] Smith J, et al. (2021) doi:10.1056/x pp. 22-30") == sr.QUALITY_REFERENCE_LIST
++    assert sr.classify_span("Department of Microbiology, University of Helsinki") == sr.QUALITY_AFFILIATION
++    assert sr.classify_span("Skip to main content") == sr.QUALITY_NAV_LINK
++    # Codex slice-1 P2: pipe-separated link bar + keyword chrome must be nav (not prose@conf-1.0).
++    assert (
++        sr.classify_span("home | articles | current issue | archives | about the journal | submit manuscript.")
++        == sr.QUALITY_NAV_LINK
++    )
++    assert (
++        sr.classify_span(
++            "www.example.com current issue archive author guidelines submit manuscript editorial board contact us."
++        )
++        == sr.QUALITY_NAV_LINK
++    )
++    # short, terminator-free, title-case -> title; trailing-colon / very short -> header
++    assert sr.classify_span("Saccharomyces boulardii Fungemia and Probiotic Safety") == sr.QUALITY_TITLE
++    assert sr.classify_span("Methods:") == sr.QUALITY_HEADER
++    assert sr.is_boilerplate_quality(sr.QUALITY_TITLE)
++    assert not sr.is_boilerplate_quality(sr.QUALITY_PROSE)
++
++
++# --- resolve_best_entailing_span -----------------------------------------------------------
++
++# A row whose TITLE (chars 0..52) lexically resembles the claim but a later PROSE span (chars ~120+)
++# actually entails it — the drb_76 "re-anchored to the title" shape.
++_TITLE = "Saccharomyces boulardii Fungemia: A Probiotic Safety Concern. "
++_PROSE = (
++    "The registry study found that boulardii probiotic use was strongly associated with fungemia "
++    "in immunocompromised patients compared with controls. "
++)
++_BADGE = "Altmetric badge: tweeted by 31 accounts; 12 Mendeley readers."
++_ROW = _TITLE + _PROSE + _BADGE
++_CLAIM = "Boulardii probiotic use was strongly associated with fungemia in immunocompromised patients."
++
++_TITLE_SPAN = (0, len(_TITLE))
++_PROSE_SPAN = (len(_TITLE), len(_TITLE) + len(_PROSE))
++_BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
++
++
++def _judge_only(*entailing_texts):
++    """A stub judge that entails iff the span text is one of the given (stripped) texts."""
++    targets = {t.strip() for t in entailing_texts}
++    calls = {"n": 0}
++
++    def judge(sentence: str, span_text: str) -> bool:
++        calls["n"] += 1
++        return span_text.strip() in targets
++
++    judge.calls = calls  # type: ignore[attr-defined]
++    return judge
++
++
++def test_picks_entailing_prose_over_lexical_title():
++    # Judge entails ONLY the prose span (the title does not actually support the claim).
++    judge = _judge_only(_PROSE)
++    res = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
++    )
++    assert res is not None
++    assert res.best_span == _PROSE_SPAN
++    assert res.provenance_quality == sr.QUALITY_PROSE
++    assert res.confidence >= 0.7  # prose-entailed -> moderate/high
++
++
++def test_argmax_prefers_prose_when_both_entail():
++    # Even if BOTH title and prose entail, the argmax must pick prose (higher quality).
++    judge = _judge_only(_TITLE, _PROSE)
++    res = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
++    )
++    assert res is not None
++    assert res.provenance_quality == sr.QUALITY_PROSE
++    assert res.best_span == _PROSE_SPAN
++
++
++def test_title_only_support_is_labeled_low_not_silent_high():
++    # When ONLY the title entails, the claim is recovered but LABELED low-confidence boilerplate.
++    judge = _judge_only(_TITLE)
++    res = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
++    )
++    assert res is not None
++    assert res.provenance_quality == sr.QUALITY_TITLE
++    assert sr.is_boilerplate_quality(res.provenance_quality)
++    assert res.confidence < 0.6  # never reads as high
++
++
++def test_returns_none_when_nothing_entails():
++    judge = _judge_only()  # entails nothing
++    res = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
++    )
++    assert res is None
++
++
++def test_only_returns_a_judge_accepted_span():
++    # The badge span lexically shares "probiotic"/"fungemia"-ish tokens but the judge rejects it;
++    # it must NEVER be returned (no manufactured support).
++    judge = _judge_only(_BADGE)  # pretend only the badge "entails"
++    res = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
++    )
++    assert res is not None and res.best_span == _BADGE_SPAN  # judge is the gate; resolver obeys it
++    # ...and conversely, with the badge rejected it is never chosen:
++    judge2 = _judge_only(_PROSE)
++    res2 = sr.resolve_best_entailing_span(
++        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge2
++    )
++    assert res2 is not None and res2.best_span != _BADGE_SPAN
++
++
++def test_judge_calls_bounded_by_top_k():
++    judge = _judge_only(_PROSE)
++    many_spans = [(i, i + 30) for i in range(0, len(_ROW) - 30, 5)]
++    sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
++    assert judge.calls["n"] <= 4  # type: ignore[attr-defined]
++
++
++def test_numeric_mismatch_lowers_confidence():
++    claim = "The risk rose by 58 percent in immunocompromised patients."
++    span_match = "the risk rose by 58 percent in immunocompromised patients in the cohort study analysis"
++    span_nomatch = "the risk rose substantially in immunocompromised patients in the cohort study analysis"
++    row = span_match + " || " + span_nomatch
++    s1 = (0, len(span_match))
++    s2 = (len(span_match) + 4, len(row))
++
++    def numeric_match(sentence: str, span_text: str) -> bool:
++        return "58" in span_text
++
++    judge = _judge_only(span_nomatch)  # only the no-number span entails
++    res = sr.resolve_best_entailing_span(
++        row, claim, [s1, s2], judge_fn=judge, numeric_match_fn=numeric_match
++    )
++    assert res is not None
++    # numeric mismatch penalised -> below the no-penalty prose baseline.
++    assert res.confidence < 1.0
+
+codex
+The patch matches the described additive change: nav keywords are checked before fallback prose/title logic, and the separator rule only routes matched link-bar structure to `nav_link`. I’m running the focused regression tests and probing the resolver path for any bypass around `judge_fn`.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/generator/test_span_resolver_iperm004.py -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "judge_fn|return best|classify_span|_NAV_RE|_NAV_SEPARATOR_RE|_QUALITY_PENALTY|provenance_quality" src/polaris_graph/generator/span_resolver.py tests/polaris_graph/generator/test_span_resolver_iperm004.py' in C:\POLARIS
+ succeeded in 5701ms:
+src/polaris_graph/generator/span_resolver.py:14:  1. The resolver NEVER decides entailment itself — the injected ``judge_fn`` (the SAME binding
+src/polaris_graph/generator/span_resolver.py:20:     title span is returned LABELED low-confidence with ``provenance_quality="title"`` so the caller
+src/polaris_graph/generator/span_resolver.py:37:# --- provenance_quality vocabulary (Decision B schema) -------------------------------------
+src/polaris_graph/generator/span_resolver.py:64:_QUALITY_PENALTY = {
+src/polaris_graph/generator/span_resolver.py:94:_NAV_RE = re.compile(
+src/polaris_graph/generator/span_resolver.py:104:_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
+src/polaris_graph/generator/span_resolver.py:114:def classify_span(text: str) -> str:
+src/polaris_graph/generator/span_resolver.py:115:    """Deterministically classify a candidate span's TEXT into a ``provenance_quality`` bucket.
+src/polaris_graph/generator/span_resolver.py:128:    if _NAV_RE.search(stripped) or len(_NAV_SEPARATOR_RE.findall(stripped)) >= 2:
+src/polaris_graph/generator/span_resolver.py:178:    provenance_quality: str
+src/polaris_graph/generator/span_resolver.py:198:    confidence = _ENTAILED_BASE - _QUALITY_PENALTY.get(quality, 0.6)
+src/polaris_graph/generator/span_resolver.py:210:    judge_fn: Callable[[str, str], bool],
+src/polaris_graph/generator/span_resolver.py:218:    (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
+src/polaris_graph/generator/span_resolver.py:219:    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
+src/polaris_graph/generator/span_resolver.py:238:        quality = classify_span(span_text)
+src/polaris_graph/generator/span_resolver.py:242:        prerank = (-_QUALITY_PENALTY.get(quality, 0.6), lexical)
+src/polaris_graph/generator/span_resolver.py:250:        if not judge_fn(sentence, span_text):
+src/polaris_graph/generator/span_resolver.py:255:        key = (-_QUALITY_PENALTY.get(quality, 0.6), confidence)
+src/polaris_graph/generator/span_resolver.py:261:                provenance_quality=quality,
+src/polaris_graph/generator/span_resolver.py:265:    return best
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:15:# --- classify_span -------------------------------------------------------------------------
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:20:        sr.classify_span(
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:29:    assert sr.classify_span("https://doi.org/10.3201/eid2708.210018 full text") == sr.QUALITY_URL
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:30:    assert sr.classify_span("Altmetric: tweeted by 42, 18 Mendeley readers") == sr.QUALITY_ALTMETRIC
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:31:    assert sr.classify_span("[12] Smith J, et al. (2021) doi:10.1056/x pp. 22-30") == sr.QUALITY_REFERENCE_LIST
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:32:    assert sr.classify_span("Department of Microbiology, University of Helsinki") == sr.QUALITY_AFFILIATION
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:33:    assert sr.classify_span("Skip to main content") == sr.QUALITY_NAV_LINK
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:36:        sr.classify_span("home | articles | current issue | archives | about the journal | submit manuscript.")
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:40:        sr.classify_span(
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:46:    assert sr.classify_span("Saccharomyces boulardii Fungemia and Probiotic Safety") == sr.QUALITY_TITLE
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:47:    assert sr.classify_span("Methods:") == sr.QUALITY_HEADER
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:87:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:91:    assert res.provenance_quality == sr.QUALITY_PROSE
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:99:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:102:    assert res.provenance_quality == sr.QUALITY_PROSE
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:110:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:113:    assert res.provenance_quality == sr.QUALITY_TITLE
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:114:    assert sr.is_boilerplate_quality(res.provenance_quality)
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:121:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:131:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:137:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge2
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:145:    sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
+tests/polaris_graph/generator/test_span_resolver_iperm004.py:162:        row, claim, [s1, s2], judge_fn=judge, numeric_match_fn=numeric_match
+
+ succeeded in 9019ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 9 items
+
+tests\polaris_graph\generator\test_span_resolver_iperm004.py .........   [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 9 passed, 1 warning in 2.82s =========================
+
+codex
+Focused tests pass locally: `9 passed`. The resolver’s return path still has a single assignment after `if not judge_fn(...): continue`, so I don’t see a path to return a span that the injected judge rejected.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "span_resolver|resolve_best_entailing_span|classify_span|PG_PROVENANCE_REANCHOR|_reanchor_candidate_spans|_try_reanchor" src tests' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.generator import span_resolver as sr
+samples = [
+    \"home|articles|archives|about|journal.\",
+    \"home | articles | current issue | archives | about the journal | submit manuscript.\",
+    \"www.example.com current issue archive author guidelines submit manuscript editorial board contact us.\",
+    \"This is an open access article distributed under the terms of the Creative Commons Attribution License.\",
+    \"Copyright 2024 The Author(s). Published by Oxford University Press.\",
+]
+for s in samples:
+    print(sr.classify_span(s), \" :: \", s)
+'@ | python -" in C:\POLARIS
+ succeeded in 3637ms:
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:12:from src.polaris_graph.generator import span_resolver as sr
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:15:# --- classify_span -------------------------------------------------------------------------
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:20:        sr.classify_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:29:    assert sr.classify_span("https://doi.org/10.3201/eid2708.210018 full text") == sr.QUALITY_URL
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:30:    assert sr.classify_span("Altmetric: tweeted by 42, 18 Mendeley readers") == sr.QUALITY_ALTMETRIC
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:31:    assert sr.classify_span("[12] Smith J, et al. (2021) doi:10.1056/x pp. 22-30") == sr.QUALITY_REFERENCE_LIST
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:32:    assert sr.classify_span("Department of Microbiology, University of Helsinki") == sr.QUALITY_AFFILIATION
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:33:    assert sr.classify_span("Skip to main content") == sr.QUALITY_NAV_LINK
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:36:        sr.classify_span("home | articles | current issue | archives | about the journal | submit manuscript.")
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:40:        sr.classify_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:46:    assert sr.classify_span("Saccharomyces boulardii Fungemia and Probiotic Safety") == sr.QUALITY_TITLE
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:47:    assert sr.classify_span("Methods:") == sr.QUALITY_HEADER
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:52:# --- resolve_best_entailing_span -----------------------------------------------------------
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:86:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:98:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:109:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:120:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:130:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:136:    res2 = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:145:    sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:161:    res = sr.resolve_best_entailing_span(
+src\polaris_graph\generator\span_resolver.py:6:existing recovery (`provenance_generator._try_reanchor`, #1189) accepts the FIRST passing candidate
+src\polaris_graph\generator\span_resolver.py:27:opt-in at the call site (the wiring slice gates it behind ``PG_PROVENANCE_REANCHOR``); this module
+src\polaris_graph\generator\span_resolver.py:114:def classify_span(text: str) -> str:
+src\polaris_graph\generator\span_resolver.py:205:def resolve_best_entailing_span(
+src\polaris_graph\generator\span_resolver.py:217:    via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
+src\polaris_graph\generator\span_resolver.py:238:        quality = classify_span(span_text)
+src\polaris_graph\generator\provenance_generator.py:919:# Default-OFF: when PG_PROVENANCE_REANCHOR is falsy the re-anchor is a no-op
+src\polaris_graph\generator\provenance_generator.py:928:PG_PROVENANCE_REANCHOR_MAX_CANDIDATES = int(
+src\polaris_graph\generator\provenance_generator.py:929:    os.getenv("PG_PROVENANCE_REANCHOR_MAX_CANDIDATES", "40")
+src\polaris_graph\generator\provenance_generator.py:936:PG_PROVENANCE_REANCHOR_WINDOW = int(
+src\polaris_graph\generator\provenance_generator.py:937:    os.getenv("PG_PROVENANCE_REANCHOR_WINDOW", "400")
+src\polaris_graph\generator\provenance_generator.py:942:    """True iff PG_PROVENANCE_REANCHOR is set truthy. Read at call time so
+src\polaris_graph\generator\provenance_generator.py:945:    v = os.getenv("PG_PROVENANCE_REANCHOR", "").strip().lower()
+src\polaris_graph\generator\provenance_generator.py:979:def _reanchor_candidate_spans(direct_quote: str) -> list[tuple[int, int]]:
+src\polaris_graph\generator\provenance_generator.py:984:    and (b) a sliding window of PG_PROVENANCE_REANCHOR_WINDOW chars stepped by
+src\polaris_graph\generator\provenance_generator.py:985:    half the window. Both are clamped to PG_PROVENANCE_REANCHOR_MAX_CANDIDATES
+src\polaris_graph\generator\provenance_generator.py:1004:    cap = max(1, PG_PROVENANCE_REANCHOR_MAX_CANDIDATES)
+src\polaris_graph\generator\provenance_generator.py:1040:    window = max(1, PG_PROVENANCE_REANCHOR_WINDOW)
+src\polaris_graph\generator\provenance_generator.py:1063:def _try_reanchor(
+src\polaris_graph\generator\provenance_generator.py:1120:        for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+src\polaris_graph\generator\provenance_generator.py:1160:        for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+src\polaris_graph\generator\provenance_generator.py:1472:    in-row window may rescue it. This is set FALSE from ``_try_reanchor`` so the
+src\polaris_graph\generator\provenance_generator.py:2166:            # so OFF-mode is BYTE-IDENTICAL (no _try_reanchor call, no judge
+src\polaris_graph\generator\provenance_generator.py:2172:                rescued = _try_reanchor(
+tests\polaris_graph\test_provenance_reanchor.py:4:cited span, the re-anchor (env-gated PG_PROVENANCE_REANCHOR, accept ONLY under
+tests\polaris_graph\test_provenance_reanchor.py:20:  (d) PG_PROVENANCE_REANCHOR unset -> byte-identical old behaviour (no re-anchor)
+tests\polaris_graph\test_provenance_reanchor.py:68:    monkeypatch.delenv("PG_PROVENANCE_REANCHOR", raising=False)
+tests\polaris_graph\test_provenance_reanchor.py:80:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:118:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:147:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:177:    """With PG_PROVENANCE_REANCHOR unset, the SAME wrong-span draft from case
+tests\polaris_graph\test_provenance_reanchor.py:214:    """ADVISOR-required laundering guard: with PG_PROVENANCE_REANCHOR=1 but
+tests\polaris_graph\test_provenance_reanchor.py:220:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:280:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:373:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:471:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:510:def test_reanchor_candidate_spans_keeps_decimals_intact():
+tests\polaris_graph\test_provenance_reanchor.py:515:    spans = _pg._reanchor_candidate_spans(row)
+tests\polaris_graph\test_provenance_reanchor.py:533:def test_reanchor_candidate_spans_suppresses_whole_row_sliding_window(monkeypatch):
+tests\polaris_graph\test_provenance_reanchor.py:540:    monkeypatch.setattr(_pg, "PG_PROVENANCE_REANCHOR_WINDOW", 4000)
+tests\polaris_graph\test_provenance_reanchor.py:542:    spans = _pg._reanchor_candidate_spans(row)
+tests\polaris_graph\test_provenance_reanchor.py:566:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+tests\polaris_graph\test_provenance_reanchor.py:607:    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+
+ succeeded in 6552ms:
+prose  ::  home|articles|archives|about|journal.
+nav_link  ::  home | articles | current issue | archives | about the journal | submit manuscript.
+nav_link  ::  www.example.com current issue archive author guidelines submit manuscript editorial board contact us.
+prose  ::  This is an open access article distributed under the terms of the Creative Commons Attribution License.
+title  ::  Copyright 2024 The Author(s). Published by Oxford University Press.
+
+codex
+I found one narrow classifier edge while probing outside the added regressions: compact pipe-separated link bars without spaces around `|` still miss `_NAV_SEPARATOR_RE` and can fall through to `prose` when they end with sentence punctuation. I’m checking whether that rises above a residual P2, since it does not affect the judge gate.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+from src.polaris_graph.generator import span_resolver as sr
+samples = [
+    \"home|articles|archive|podcasts|videos|events|jobs|advertise.\",
+    \"home|articles|archive|podcasts|videos|events|jobs|advertise\",
+    \"home/articles/archive/podcasts/videos/events/jobs/advertise.\",
+    \"articles / archive / podcasts / videos / events / jobs / advertise.\",
+]
+for s in samples:
+    print(f\"{sr.classify_span(s):8} {s}\")
+'@ | python -" in C:\POLARIS
+ succeeded in 3937ms:
+prose    home|articles|archive|podcasts|videos|events|jobs|advertise.
+title    home|articles|archive|podcasts|videos|events|jobs|advertise
+prose    home/articles/archive/podcasts/videos/events/jobs/advertise.
+prose    articles / archive / podcasts / videos / events / jobs / advertise.
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/generator/span_resolver.py:104 / :128: residual classifier edge: `_NAV_SEPARATOR_RE` only detects separators with surrounding whitespace. Compact link bars such as `home|articles|archive|podcasts|videos|events|jobs|advertise.` still classify as `prose`. This is non-blocking because the judge gate still controls entailment, but it is still a possible boilerplate over-credit."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Confirmed: the two reported nav regressions now classify as `nav_link`, focused tests pass (`9 passed`), and I do not see any path for `resolve_best_entailing_span` to return a span unless `judge_fn(sentence, span_text)` accepted it.
+tokens used
+30,644

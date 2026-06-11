@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "src/polaris_graph/generator/span_resolver.py:104 / :128: residual classifier edge: `_NAV_SEPARATOR_RE` only detects separators with surrounding whitespace. Compact link bars such as `home|articles|archive|podcasts|videos|events|jobs|advertise.` still classify as `prose`. This is non-blocking because the judge gate still controls entailment, but it is still a possible boilerplate over-credit."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+Confirmed: the two reported nav regressions now classify as `nav_link`, focused tests pass (`9 passed`), and I do not see any path for `resolve_best_entailing_span` to return a span unless `judge_fn(sentence, span_text)` accepted it.
