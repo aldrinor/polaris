@@ -138,6 +138,8 @@ datasets==4.8.5
     # via ragas
 dateparser==1.4.0
     # via htmldate
+ddgs==9.14.4
+    # via -r req-stripped.txt
 defusedxml==0.7.1
     # via youtube-transcript-api
 deprecated==1.3.1
@@ -617,6 +619,8 @@ pluggy==1.6.0
     # via pytest
 posthog==5.4.0
     # via chromadb
+primp==1.3.1
+    # via ddgs
 propcache==0.5.2
     # via
     #   aiohttp
@@ -871,6 +875,8 @@ sniffio==1.3.1
     #   openai
 snowballstemmer==2.2.0
     # via crawl4ai
+socksio==1.0.0
+    # via ddgs
 sortedcontainers==2.4.0
     # via fakeredis
 soupsieve==2.8.3

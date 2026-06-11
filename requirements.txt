@@ -10,7 +10,8 @@
 #   some were used by now-archived code.
 #
 #   Known gaps (packages imported but NOT listed here):
-#     - duckduckgo_search  (retrieval fallback)
+#     - duckduckgo_search  (retrieval fallback) -> NOW PINNED below as `ddgs`
+#       (the 2025 rename); see I-perm-012 (#1206).
 #     - langchain_fireworks (historical generator)
 #     - openpyxl, pptx, pdfminer, pdfplumber, fpdf  (document ingestion)
 #     - sqlite_vec  (vector storage)
@@ -37,6 +38,11 @@ langchain-openai==0.2.14
 langchain-google-genai==2.1.12  # Gemini integration
 langchain-community==0.3.31
 langchain-core==0.3.86
+
+# Web-search discovery fallback (I-perm-012 #1206): the 2025 rename of
+# duckduckgo_search. Was previously only a commented "known gap" above and
+# therefore absent on the VM venv, so the DDG backend was dead. Pin it.
+ddgs>=9.0,<10
 
 # Graph Database (Knowledge Graph)
 neo4j==6.2.0

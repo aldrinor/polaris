@@ -1039,6 +1039,14 @@ def _optimize_ddg_query(query: str) -> str:
     return optimized
 
 
+# I-perm-012 (#1206): warn ONCE per process when no DuckDuckGo package is
+# installed, instead of one ERROR line per search attempt (the dozens-of-
+# identical-ERROR-lines-per-run noise observed on the VM that obscured real
+# monitoring signals). DuckDuckGo renamed the package duckduckgo_search -> ddgs
+# in 2025; we accept either.
+_DDG_IMPORT_WARNED = False
+
+
 def _duckduckgo_search(query: str, max_results: int = 10, region: str = "us-en") -> List[dict]:
     """
     FIX-125: Enhanced fallback search using DuckDuckGo with optimization.
@@ -1048,6 +1056,12 @@ def _duckduckgo_search(query: str, max_results: int = 10, region: str = "us-en")
     - Region parameter for geographic targeting
     - Safe search disabled for research mode
 
+    I-perm-012 (#1206): import the new ``ddgs`` package (the 2025 rename of
+    ``duckduckgo_search``) with a fallback to the legacy name. If NEITHER is
+    installed, log once per process and fail soft (Serper / OpenAlex / Semantic
+    Scholar remain active) — the prior code logged the ImportError on EVERY
+    attempt, flooding the VM logs.
+
     Args:
         query: Search query
         max_results: Maximum results to return
@@ -1056,30 +1070,49 @@ def _duckduckgo_search(query: str, max_results: int = 10, region: str = "us-en")
     Returns:
         List of search results
     """
+    global _DDG_IMPORT_WARNED
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS  # new package name (2025 rename)
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS  # legacy package name
+        except ImportError:
+            if not _DDG_IMPORT_WARNED:
+                logger.warning(
+                    "DuckDuckGo backend unavailable: neither 'ddgs' nor "
+                    "'duckduckgo_search' is installed. Skipping DDG for this "
+                    "process (Serper / OpenAlex / Semantic Scholar still "
+                    "active). Install 'ddgs' to re-enable this discovery backend."
+                )
+                _DDG_IMPORT_WARNED = True
+            return []
 
+    try:
         # FIX-125: Optimize query for DDG
         optimized_query = _optimize_ddg_query(query)
 
-        with DDGS() as ddgs:
-            results = []
-            for r in ddgs.text(
-                optimized_query,
-                max_results=max_results,
-                region=region,
-                safesearch="off",  # Research mode - no filtering
-            ):
-                results.append({
-                    "url": r.get("href", ""),
-                    "title": r.get("title", ""),
-                    "snippet": r.get("body", ""),
-                    "score": 0.5,  # DuckDuckGo doesn't provide scores
-                    "source_type": "web",
-                })
+        # Both ``ddgs`` and the legacy ``duckduckgo_search`` expose
+        # ``DDGS().text(...)`` returning an iterable of {title, href, body}.
+        # Instantiate directly (the new ddgs DDGS is not guaranteed to be a
+        # context manager). The positional query + keyword max_results/region/
+        # safesearch are accepted by both signatures.
+        results = []
+        for r in DDGS().text(
+            optimized_query,
+            max_results=max_results,
+            region=region,
+            safesearch="off",  # Research mode - no filtering
+        ):
+            results.append({
+                "url": r.get("href", ""),
+                "title": r.get("title", ""),
+                "snippet": r.get("body", ""),
+                "score": 0.5,  # DuckDuckGo doesn't provide scores
+                "source_type": "web",
+            })
 
-            logger.info(f"[FIX-125] DuckDuckGo search: '{optimized_query[:50]}' -> {len(results)} results")
-            return results
+        logger.info(f"[FIX-125] DuckDuckGo search: '{optimized_query[:50]}' -> {len(results)} results")
+        return results
 
     except Exception as e:
         logger.error(f"DuckDuckGo search failed: {e}")
