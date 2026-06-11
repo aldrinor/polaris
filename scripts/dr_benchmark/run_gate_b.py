@@ -634,6 +634,11 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_ALWAYS_RELEASE": "1",
     "PG_SWEEP_NUMERIC_SANITIZER": "1",
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION": "1",
+    # I-perm-004 (#1198) cited-recovery: re-anchor a wrongly-cited claim to the best ENTAILING span
+    # (argmax) + re-point on the gap-#18 local-window rescue, instead of dropping / shipping a
+    # mis-pointed citation. Slices 1-3 Codex-APPROVE'd. (The #1180 widening prompt variant is NOT
+    # activated here — its empirical winner is picked in the operator-authorized run.)
+    "PG_SPAN_RESOLVER": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -706,6 +711,7 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
     "PG_ALWAYS_RELEASE",
     "PG_SWEEP_NUMERIC_SANITIZER",
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+    "PG_SPAN_RESOLVER",
 )
 
 # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
@@ -763,6 +769,7 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     "PG_ALWAYS_RELEASE",
     "PG_SWEEP_NUMERIC_SANITIZER",
     "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+    "PG_SPAN_RESOLVER",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is
