@@ -1,0 +1,97 @@
+{
+  "name": "FORENSIC 5Q failure audit -> consolidated issues -> frontier-researched fixes -> Codex-verified by smoke evidence -> re-run 5 parallel to BEAT-BOTH all 5",
+  "umbrella": "(operator-directed 2026-06-08)",
+  "status": "permanent_fix_9_issues_workflow_driven",
+  "current_phase": "operator-directed 2026-06-08: (1) wire redesign into live path, (2) P9 verifier (sign-off GIVEN), (3) super-heavy BEHAVIORAL preflight + kill 5 false alarms, before the paid beat-both run",
+  "done": [
+    "BREADTH cluster committed+pushed (5c557548) Codex-APPROVE",
+    "CLINICAL-SCOPE cluster committed+pushed (fa72c398) Codex-APPROVE \u2014 3 clinical Qs now scope=proceed",
+    "faithfulness build deployed (wu6yf443v) \u2014 leak + 6 NLI-failures + D8 ruling"
+  ],
+  "remaining": [
+    "faithfulness -> Codex APPROVE -> commit",
+    "push all -> VM pull -> ONE live drb_72 verify (breadth recovers + releases = evidence)",
+    "re-run 5 parallel -> beat-both all 5",
+    "NOTE: 6 pre-existing NLI/entailment test failures on branch \u2014 faithfulness cluster investigating"
+  ],
+  "engine": "Claude Codex Workflow (Workflow function); Codex only gate; SMOKE results = diff-gate evidence; monitor every 10 min reading every line.",
+  "operator_answers_2026_06_08": {
+    "1_weighting": "NO fixed domain rubrics \u2014 LLM credibility skill/guardrail weights sources ADAPTIVELY per-question (10000+ fields). RESEARCH frontier best practice FIRST, then adopt.",
+    "2_both_sides": "Show multiple sides as legitimate world views (NOT 'warning'/'fringe' = bias); show evidence weight behind each; friendly UI artifact; let USER judge. vaccine/UFO/politics/AI-jobs.",
+    "3_start": "Jump straight to the meat; multiple agents in PARALLEL, high quality, save time.",
+    "4_journal_audit": "Journal-only was NEVER a requirement \u2014 just remove the count-floor; no audit.",
+    "5_spend": "Build + smoke + Codex-approve EVERYTHING offline first; operator approves budget only after Codex approves."
+  },
+  "phase_progress": {
+    "ALL_PURE_MODULES_DONE": "P1 schema, P2 credibility-skill, P3 supersession, P4 independence (#1161 spec), P5 claim-graph, P6 weight-mass, P7 both-sides, P8 disclosure-population, P10 dissent-recall \u2014 committed+Codex-APPROVED. P11 calibration-metrics dual-gating.",
+    "committed": [
+      "#1149 P1",
+      "#1152 P3",
+      "#1153 P4 (force-approve cap)",
+      "#1154 P5",
+      "#1161 P4-spec",
+      "#1151 P2",
+      "#1155 P6",
+      "#1156 P7",
+      "#1157 P8",
+      "#1159 P10"
+    ],
+    "in_flight": "NONE \u2014 P11 (#1160) committed. ALL 11 pure modules done (P1-P8, #1161, P10, P11).",
+    "remaining_OPERATOR_GATED": [
+      "P9 verifier strengthening (#1158) \u2014 needs OPERATOR SIGN-OFF (only phase touching the verifier)",
+      "paid beat-both RUN + competitor harness (I-cred-011b) \u2014 needs OPERATOR BUDGET"
+    ],
+    "remaining_AUTONOMOUS_wiring": [
+      "I-cred-006b weight-mass -> corpus_adequacy wiring + journal-floor removal",
+      "I-cred-007b both-sides -> report assembler render",
+      "I-cred-008b disclosure -> provenance render (SUPPORTS not EXISTS)",
+      "I-cred-010b dissent-recall -> saturation loop",
+      "these are gate-adjacent (edit render/saturation/adequacy paths), flag-gated additive"
+    ],
+    "dual_gate_bugs_caught": "4 real faithfulness bugs the single-pass would have shipped: credibility-multiplier inflation (P6), copy-as-canonical fail-soft (P6), both-sides-no-statement (P7), dissent-not-targeting-minority (P10)"
+  },
+  "completion": {
+    "scope": "credibility-weighted sourcing redesign \u2014 OFFLINE PURE-MODULE BUILD",
+    "done": "All 11 pure modules Codex brief+diff APPROVE + committed: P1 #1149, P2 #1151, P3 #1152, P4 #1153, #1161 P4-spec, P5 #1154, P6 #1155, P7 #1156, P8 #1157, P10 #1159, P11 #1160. Research + plan \u00a79 revision committed. 4 real faithfulness bugs caught+fixed by the dual-gate.",
+    "remaining_OPERATOR_GATED": {
+      "journal_floor_removal_006b": "the journal count-floor (assess_journal_only_adequacy, DEFAULT_MIN_DISTINCT_JOURNALS=12) lives in scripts/dr_benchmark/run_gate_b.py \u2014 the SPEND-BEARING Gate-B run harness, gated by journal_only_active(protocol). Removing it is part of preparing the operator-budget-gated beat-both run.",
+      "render_wiring_007b_008b": "both-sides + disclosure render into generator (multi_section/provenance) \u2014 flag-gated additive, gate-adjacent.",
+      "P9_verifier_1158": "verifier strengthening \u2014 needs OPERATOR SIGN-OFF (only phase touching the verifier).",
+      "paid_run_011b": "adversarial vax benchmark + \u00a76b competitor head-to-head + beat-both RUN \u2014 needs OPERATOR BUDGET, only after all offline approved (which it now is)."
+    },
+    "next_operator_decision": "activation strategy for the flag-gated wiring + P9 sign-off + paid-run budget"
+  },
+  "false_alarms_to_kill": [
+    "CRLF-breaks-signed-fixtures + 'needs operator GPG key' (.gitattributes -text; key 6336C4448C1901CC local)",
+    "reflexive 'never-run-X' (competitor outputs in outputs/dr_benchmark/external_outputs/)",
+    "silent-downgrade dead-route -> false green (fail-loud + behavioral canary)",
+    "mirror-blank = provider failure not model",
+    "corpus_approval_denied != auto-authorize/fix-classifier"
+  ],
+  "activation_wiring": {
+    "architecture": "I-cred-012 #1162 LOCKED (5-round Codex force-approve iter-5 \u00a78.3.1)",
+    "orchestrator": "credibility_pass.py committed, 12 tests green (full chain + fail-loud incl. judge-absent)",
+    "next_sub_issues": [
+      "008b P8 disclosure render at 4 resolve sites + alias",
+      "007b both-sides appendix D8-excluded",
+      "010b append-only dissent + plan_sufficiency re-cert",
+      "006b weight-mass adequacy"
+    ],
+    "then": "P9 verifier (operator sign-off given) -> heavy behavioral preflight -> paid run"
+  },
+  "activation_progress_2026_06_08": {
+    "committed": "012b production judge (#1165) + 012a FULL activation path (#1164, runner->generator->judge, control-surfaced caller, budget-propagate) \u2014 Codex APPROVE, on bot/I-ready-017-faithfulness",
+    "in_flight_agents": {
+      "008b_disclosure_render": "agent building populate+surface at the 4 resolve sites + claim_disclosure.json + certainty carrier + coverage assertion (generator files)",
+      "1163_preflight_fix": "agent fixing the verifier-probe to PRODUCTION call shape (self_host /v1/chat/completions + keyless auth; openrouter role-transport body) \u2014 Codex caught a real false-fail bug"
+    },
+    "queued_after_agents": [
+      "007b both-sides appendix (D8-excluded)",
+      "010b append-only dissent + plan_sufficiency re-cert",
+      "006b weight-mass adequacy (#1146 journal-only over-restriction) \u2014 complex timing"
+    ],
+    "review_discipline": "operator: read every line + monitor ~10min; each agent diff reviewed line-by-line + Codex-gated; Codex gate caught the unobserved-LLM-call, masked-budget, and preflight self-host bugs"
+  },
+  "resumed_2026_06_10_funnel_first": "OPERATOR RE-DIRECTED execution: source-funnel-first plan #1204. The 9-issue release LOGIC is done+Codex-approved, but the source-QUANTITY layer was unmeasured (cap 20->150->now 1500; per-section 40 = stale OpenRouter guard; dominant ~90% loss is UPSTREAM at extraction not the cap \u2014 drb_76 manifest: ~500 fetched -> 46 evidence rows, cap never engaged). 3 tasks via Claude Codex Workflow, VM, real-time monitored: (1) funnel trace offline, (2) fix dominant stage + bake-off the guessed caps, (3) paid VM run + \u00a7-1.1 audit. Spend boundary: operator sets PG_AUTHORIZED_SWEEP_APPROVAL; Claude does NOT. DONE: PG_LIVE_MAX_EV_TO_GEN 150->1500 + preflight floor 1500 + 3 test fixtures (run_gate_b.py, committed). LESSON: briefs asserted quantities never measured; Codex verifies diff-vs-brief, cannot catch a wrong-number/wrong-stage brief \u2014 measure funnel FIRST then brief.",
+  "program": "I-perm-000 #1194: 9 issues #1195-1203; reframe withhold->always-release+label; research->line-by-line->migrate->stress-smoke->Codex; then preflight; then operator go for full run"
+}

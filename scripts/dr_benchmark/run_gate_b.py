@@ -468,14 +468,25 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
     "PG_DEEPENER_EVIDENCE_CAP": "500",
     "PG_MOST_MAX_EVIDENCE": "800",
-    # I-ready-001 (#1070) P0: the GENERATOR-FACING cap. The I-cap-005 slate raised RETRIEVAL breadth to
-    # ~1000 URLs but left PG_LIVE_MAX_EV_TO_GEN at its code default 20 (run_honest_sweep_r3.py:2880) —
+    # I-ready-001 (#1070) P0: the GENERATOR-FACING pool cap. The I-cap-005 slate raised RETRIEVAL breadth
+    # to ~1000 URLs but left PG_LIVE_MAX_EV_TO_GEN at its code default 20 (run_honest_sweep_r3.py:4524) —
     # so generation saw 20 of 1000+ rows (98% silently dropped), the same silent-throttle class as
-    # I-cap-005 one stage downstream. Raise to a researched default (finding range 120-200; 150 is
-    # coherent with the 5-section x 30/section ceiling). The OPTIMAL value (fixed-count vs relevance-floor
-    # no-cap, lost-in-the-middle aware) is the operator-approved bake-off in I-ready-001b. FLOOR semantics
-    # (max(existing, 150)) so a higher operator value is kept. Per-section ceiling raised in lockstep.
-    "PG_LIVE_MAX_EV_TO_GEN": "150",
+    # I-cap-005 one stage downstream. The interim raise to 150 still dropped ~90% of a 1500-row pool.
+    # OPERATOR DECISION 2026-06-10: this is the GLOBAL POOL the sections draw from, NOT a per-prompt size
+    # — each section independently selects its own relevant rows (capped by PG_MAX_EV_PER_SECTION below),
+    # so a global pool cap only STARVES niche sections of evidence ranked below the cut. There is no
+    # provider/transport reason for it: the generator (deepseek-v4-pro) is a 1M-context model and a single
+    # section prompt carries only PG_MAX_EV_PER_SECTION rows. So the pool cap is set to the FULL extracted
+    # set (= PG_MAX_EVIDENCE_TO_EXTRACT) — no pre-section throttle; nothing is dropped before the sections
+    # pick. This does NOT enlarge any single LLM prompt (no lost-in-the-middle risk); it only lets each
+    # section choose its best rows from the full universe. FLOOR semantics (max(existing, 1500)).
+    #
+    # PG_MAX_EV_PER_SECTION stays 40 (the per-prompt knob). Raising IT is the one with a real lost-in-the-
+    # middle risk (all those rows land in ONE prompt the generator reasons over at once), so its OPTIMAL
+    # value is left to the empirical bake-off (I-ready-001b) rather than a guess — 40 is the conservative
+    # hold, not a proven optimum. Historical origin: the M-24 OpenRouter >100K-token-body 400 guard
+    # (multi_section_generator.py), which is STALE for the 200K-1M-context current stack.
+    "PG_LIVE_MAX_EV_TO_GEN": "1500",
     "PG_MAX_EV_PER_SECTION": "40",
     # R-6 completeness-expansion breadth (the secondary throttle that was hardcoded 5/5/15/cap-4).
     "PG_R6_EXPAND_QUERY_CAP": "12",
@@ -848,9 +859,11 @@ _BENCHMARK_IMPORT_TIME_CONSTANT_FLOORS = (
 # Codex diff-gate iter-2 P1-1: additional CALL-TIME env floors that .env was silently winning over.
 _BENCHMARK_EXTRA_ENV_FLOORS = {
     "PG_MOST_MAX_EVIDENCE": 800,
-    # I-ready-001 (#1070) P0: fail closed if the generator-facing cap is below the full-capability floor
-    # — catches a regression that would re-introduce the 98%-evidence-drop silent throttle.
-    "PG_LIVE_MAX_EV_TO_GEN": 100,
+    # I-ready-001 (#1070) P0 + operator decision 2026-06-10: fail closed if the generator-facing pool cap
+    # is below the FULL extracted set — catches any regression that re-introduces a pool throttle (the
+    # original 98%-drop at 20, or the interim ~90%-drop at 150). The pool must equal the extracted corpus
+    # so no source is dropped before per-section selection.
+    "PG_LIVE_MAX_EV_TO_GEN": 1500,
 }
 
 

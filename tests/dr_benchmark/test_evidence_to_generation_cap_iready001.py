@@ -32,17 +32,18 @@ def test_default_generation_cap_is_the_20_throttle():
 
 
 def test_slate_raises_generation_cap_with_floor_semantics(monkeypatch):
-    # The slate raises PG_LIVE_MAX_EV_TO_GEN to a full-capability value (>=100 floor); FLOOR semantics
-    # keep a HIGHER operator value but raise a lower/absent default.
+    # The slate raises PG_LIVE_MAX_EV_TO_GEN to the FULL extracted set (operator decision 2026-06-10:
+    # 1500 = no pre-section pool throttle); FLOOR semantics keep a HIGHER operator value but raise a
+    # lower/absent default.
     _clear()
     g.apply_full_capability_benchmark_slate()
-    assert int(os.getenv("PG_LIVE_MAX_EV_TO_GEN")) >= 100        # raised from the 20 default
-    assert int(os.getenv("PG_MAX_EV_PER_SECTION")) >= 30          # per-section raised in lockstep
+    assert int(os.getenv("PG_LIVE_MAX_EV_TO_GEN")) >= 1500       # full extracted set, no pool throttle
+    assert int(os.getenv("PG_MAX_EV_PER_SECTION")) >= 30          # per-section per-prompt knob (bake-off sets optimum)
     _clear()
     # operator override HIGHER than the slate is kept (no downgrade)
-    monkeypatch.setenv("PG_LIVE_MAX_EV_TO_GEN", "400")
+    monkeypatch.setenv("PG_LIVE_MAX_EV_TO_GEN", "2000")
     g.apply_full_capability_benchmark_slate()
-    assert int(os.getenv("PG_LIVE_MAX_EV_TO_GEN")) == 400
+    assert int(os.getenv("PG_LIVE_MAX_EV_TO_GEN")) == 2000
     _clear()
 
 

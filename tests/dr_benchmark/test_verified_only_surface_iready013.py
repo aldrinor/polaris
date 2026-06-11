@@ -35,7 +35,7 @@ def _set_min_passing_gate_b_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PG_CAPPED_FINDING_DEDUP": "1",
         "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
         "PG_MOST_MAX_EVIDENCE": "800",
-        "PG_LIVE_MAX_EV_TO_GEN": "150",
+        "PG_LIVE_MAX_EV_TO_GEN": "1500",
         "PG_RELEVANCE_FLOOR": "0.30",
         "PG_SWEEP_ANALYST_SYNTHESIS": "0",
     }.items():
