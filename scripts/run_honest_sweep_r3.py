@@ -6090,11 +6090,27 @@ async def run_one_query(
                     _client = OpenRouterClient(model=PG_GENERATOR_MODEL)
                     try:
                         _resp = await _client.generate(
-                            _prompt, max_tokens=1500, temperature=0.0,
+                            # I-perm-017 (#1208 Bug-3): request JSON mode so the model
+                            # emits the ModelSpec into `content`, and raise max_tokens
+                            # off the starvation floor.
+                            _prompt, max_tokens=4000, temperature=0.0,
+                            response_format={"type": "json_object"},
                         )
                     finally:
                         await _client.close()
                     _txt = getattr(_resp, "content", "") or ""
+                    # I-perm-017 (#1208 Bug-3): the generator (deepseek-v4-pro) is
+                    # reasoning-first; with a small content budget it routes the JSON
+                    # ModelSpec into the REASONING stream and returns empty content, so
+                    # the old `content`-only read found no JSON -> no_spec_returned NO-OP
+                    # despite N sourced numbers (drb_76 iter-2: 3639 numbers, 0 rendered).
+                    # Recover the JSON from the reasoning stream when content is empty. A
+                    # ModelSpec is structured DATA validated downstream by
+                    # build_quantified_spec (every sourced input must carry an exact
+                    # datapoint_ref; formulas are pure arithmetic) — NOT verified prose —
+                    # so reasoning-as-JSON is safe here and adds no faithfulness risk.
+                    if not _txt.strip():
+                        _txt = getattr(_resp, "reasoning", "") or ""
                     _m = _q_re.search(r"\{.*\}", _txt, _q_re.DOTALL)
                     if not _m:
                         return None

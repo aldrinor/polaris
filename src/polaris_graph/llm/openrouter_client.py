@@ -2661,6 +2661,7 @@ class OpenRouterClient:
         timeout: Optional[float] = None,
         reasoning_max_tokens: Optional[int] = None,
         reasoning_exclude: Optional[bool] = None,
+        response_format: Optional[dict] = None,
     ) -> LLMResponse:
         """Prose/output call — see :meth:`_generate_impl` for the full body.
 
@@ -2680,6 +2681,7 @@ class OpenRouterClient:
                 timeout=timeout,
                 reasoning_max_tokens=reasoning_max_tokens,
                 reasoning_exclude=reasoning_exclude,
+                response_format=response_format,
             )
         finally:
             # Clear the per-call generator context (no kwargs -> None). The
@@ -2696,6 +2698,7 @@ class OpenRouterClient:
         timeout: Optional[float] = None,
         reasoning_max_tokens: Optional[int] = None,
         reasoning_exclude: Optional[bool] = None,
+        response_format: Optional[dict] = None,
     ) -> LLMResponse:
         """
         Prose/output call — reasoning OFF, clean output only.
@@ -2719,6 +2722,7 @@ class OpenRouterClient:
             reasoning_enabled=False,
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format=response_format,
             # I-meta-008 FULL-POWER: pass the caller's timeout through UNCHANGED
             # (None stays None) so _call_impl resolves GENERATOR_TIMEOUT_SECONDS
             # for reasoning-first writers (DeepSeek V4 Pro). Substituting
@@ -2920,6 +2924,7 @@ class OpenRouterClient:
                     reasoning_enabled=False,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    response_format=response_format,
                     # I-meta-008 FULL-POWER: pass-through (see generate() above) so the
                     # retry leg of a reasoning-first writer also gets the generous
                     # GENERATOR_TIMEOUT_SECONDS instead of being capped at 90s/600s.
