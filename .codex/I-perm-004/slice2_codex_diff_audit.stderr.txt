@@ -1,0 +1,2600 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb40d-b9d3-7b62-b5f5-e99350b2396e
+--------
+user
+# Codex DIFF review — I-perm-004 (#1198) SLICE 2: wire span_resolver argmax into the cited re-anchor
+
+```
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — if a finding isn't a real solid blocker, classify it as P3/P2/cosmetic; reserve P0/P1 for real execution risks.
+- If iter 5 returns REQUEST_CHANGES, the document is force-APPROVE'd by Claude on remaining-non-P0/P1 findings.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+```
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## What this slice does
+Wires the slice-1 (already APPROVE'd) `span_resolver` argmax into `provenance_generator._try_reanchor` Path 1 (CITED sentences), behind a NEW flag `PG_SPAN_RESOLVER` (default OFF -> byte-identical first-passing loop). When ON, the re-anchor chooses the BEST entailing prose span instead of the FIRST passing candidate (the drb_76 "rebound to the TITLE" bug). Also refines the resolver `judge_fn` signature to `(sentence, span, span_text)` and folds the slice-1 residual P2 (compact pipe link-bars -> nav_link).
+
+## THE safety property (only real P0 class here): the bar is NEVER lowered
+The §-1.1-lethal failure is laundering a drop into a pass. Verify against the code:
+- The resolver's `judge_fn` is the closure `_candidate_passes(_sentence, span, _span_text)` which RE-BINDS the token to `span` and runs `verify_sentence_provenance(..., allow_local_window_fallback=False).is_verified` — the SAME full gate the first-passing loop uses. So an accepted span ALWAYS passes the exact content+numeric+entailment bar.
+- After argmax picks `best`, the code re-binds to `best.best_span` and verifies ONCE MORE; `if not v.is_verified: return None` (defensive — never launder).
+- The argmax can only CHOOSE among judge-accepted candidates; it changes WHICH supporting span is bound, never WHETHER an unsupported claim passes.
+- OFF (`PG_SPAN_RESOLVER` unset) -> the new branch is skipped entirely; the first-passing loop is byte-identical (the existing 13 reanchor tests + the telemetry-contract test pass with the new counter=0).
+
+If you can show a path where flag-ON accepts a sentence that flag-OFF would have DROPPED (i.e. the argmax recovers something first-passing would not, AND that something is not genuinely gate-passing), that is a P0. Note: argmax judging only `top_k` candidates means it could recover FEWER than the exhaustive first-passing loop (a SAFE reduction), or a DIFFERENT (better-quality) span among passers — but never a span the gate rejects.
+
+## Claims ledger — verify each
+| # | Claim | Where | Status |
+|---|---|---|---|
+| C1 | Accepted span always passes the full gate (no laundering) | `_candidate_passes` closure = verify_sentence_provenance(allow_local_window_fallback=False); post-argmax re-verify + `if not v.is_verified: return None` | claims-true |
+| C2 | OFF byte-identical | `if _span_resolver_enabled():` guards the whole new branch; first-passing loop unchanged below it | claims-true |
+| C3 | top_k bounds judge calls | resolver judges `scored[:top_k]`; `_span_resolve_topk()` default 4 | claims-true |
+| C4 | argmax can only reduce or improve, never lower the bar | same gate as judge; argmax over passers | claims-true |
+| C5 | enforce-only laundering guard preserved | `_try_reanchor` still returns None early unless entailment==enforce (line ~1091, unchanged) | claims-true |
+| C6 | telemetry contract extended (reanchor_argmax_recovered) not breaking | counter added; OFF leaves it 0; contract test updated | claims-true |
+
+## Behavioral proof (offline, fake judge) — `test_argmax_prefers_prose_span_over_earlier_title`
+A row where the supporting clause appears in BOTH a Title-Case segment (enumerated first) AND a later prose segment. Flag OFF binds the TITLE (`reanchored:`, span text contains "Trial Result"); flag ON binds the PROSE (`reanchored_argmax:...:q=prose`, span text contains "the treatment produced"); the two spans DIFFER; `reanchor_argmax_recovered==1`.
+
+## Honest scope note
+This slice wires ONLY Path 1 (cited). Path 2 (uncited verbatim-lift) + the gap-#18 ACCEPT path (re-point the token on a local-window rescue instead of passing on the original mis-pointed span) are the NEXT slice — out of scope here.
+
+## Files (full diff: `.codex/I-perm-004/slice2_codex_diff.patch`)
+- `src/polaris_graph/generator/provenance_generator.py` (+73): flags `_span_resolver_enabled`/`_span_resolve_topk`, telemetry key, Path-1 argmax branch + lazy import.
+- `src/polaris_graph/generator/span_resolver.py` (judge_fn 3-arg signature + compact-pipe nav).
+- `tests/polaris_graph/test_provenance_reanchor.py` (+62): telemetry key + argmax behavioral test.
+- `tests/polaris_graph/generator/test_span_resolver_iperm004.py` (stub-judge 3-arg).
+
+## Test evidence: 14 reanchor (incl. argmax behavioral + OFF byte-identity) + 9 span_resolver = 23 passed.
+
+Review `.codex/I-perm-004/slice2_codex_diff.patch`. Confirm C1 (no laundering) + C2 (OFF byte-identical) structurally. Hunt any path where flag-ON passes a claim flag-OFF would drop on a gate the full bar rejects.
+
+codex
+I’ll inspect the patch against the current implementation, focusing first on the two structural claims that determine execution risk: the resolver’s gate and the OFF path. Then I’ll check the tests and any edge paths around candidate enumeration and telemetry.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-perm-004/slice2_codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "span_resolver|_try_reanchor|PG_SPAN_RESOLVER|reanchor_argmax_recovered|verify_sentence_provenance|allow_local_window_fallback" src tests' in C:\POLARIS
+ succeeded in 3031ms:
+commit 2ea4fc11e15817825fad32d6f19f12f94d90f839
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 17:20:22 2026 -0700
+
+    I-perm-004 (#1198) slice 2: wire span_resolver argmax into the cited re-anchor path (PG_SPAN_RESOLVER)
+    
+    Default OFF -> byte-identical (first-passing loop unchanged). When PG_SPAN_RESOLVER is truthy, the
+    cited re-anchor (Path 1 of `_try_reanchor`) chooses the BEST entailing prose span via the
+    boilerplate-aware argmax instead of the FIRST passing candidate in enumeration order — the drb_76
+    "re-anchored to the row TITLE" bug.
+    
+    Safety: the resolver's judge IS the existing full gate — a closure that re-binds the [#ev] token to
+    the candidate span and runs `verify_sentence_provenance(allow_local_window_fallback=False)`. So the
+    argmax can only ever choose among spans that ALREADY pass the exact same content+numeric+entailment
+    bar; it never lowers the bar. A title-only-supported claim is still recovered but the soft-warning
+    carries `q=<provenance_quality>:c=<confidence>` so the report ships it caveated, never silently high.
+    Judge calls bounded by PG_SPAN_RESOLVE_TOPK (default 4). New telemetry `reanchor_argmax_recovered`.
+    
+    Also folds the slice-1 iter-2 residual P2 (compact `home|articles|archive` link bars without spaces
+    around pipes now classify as nav_link) and refines the resolver `judge_fn` signature to
+    `(sentence, span, span_text)` so the wiring closure can re-bind by offsets.
+    
+    Behavioral proof (offline, fake judge): a row where the supporting clause appears in BOTH a
+    Title-Case segment (enumerated first) and a later prose segment — flag OFF binds the title
+    (`reanchored:`), flag ON binds the prose span (`reanchored_argmax:...:q=prose`) and they are
+    DIFFERENT spans. OFF byte-identity preserved (the 13 existing reanchor tests + the telemetry-contract
+    test pass with the new key=0 in OFF mode).
+    
+    Tests: 14 reanchor (incl. the argmax behavioral + OFF byte-identity) + 9 span_resolver = 23 green.
+    
+    Next slice: wire the resolver into the gap-#18 ACCEPT path (re-point the token on a local-window
+    rescue instead of passing on the original mis-pointed span) + the uncited Path 2; then #1180 widening.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 5f0a33d2..24489169 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -946,6 +946,27 @@ def _provenance_reanchor_enabled() -> bool:
+     return v in ("1", "true", "yes", "on", "enabled")
+ 
+ 
++# I-perm-004 (#1198) slice 2 — when PG_SPAN_RESOLVER is truthy, the re-anchor recovery uses the
++# span_resolver BOILERPLATE-AWARE ARGMAX (best entailing prose span) instead of accepting the FIRST
++# passing candidate in enumeration order (which let drb_76 rebind to the row TITLE). Default OFF =>
++# the existing first-passing loop is byte-identical. The argmax still accepts ONLY a candidate that
++# passes the SAME full gate (verify_sentence_provenance, allow_local_window_fallback=False) — the
++# resolver's judge IS that gate — so no new fabrication path; it only CHOOSES a better span among
++# the ones that already pass.
++def _span_resolver_enabled() -> bool:
++    """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
++    v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def _span_resolve_topk() -> int:
++    """Bound on judge calls per row in the argmax recovery (PG_SPAN_RESOLVE_TOPK, default 4)."""
++    try:
++        return max(1, int(os.getenv("PG_SPAN_RESOLVE_TOPK", "4")))
++    except ValueError:
++        return 4
++
++
+ # I-complete-003 (#1189) — re-anchor telemetry. Module-level counters, read +
+ # reset by the sweep. ONLY mutated inside the flag-on path, so OFF-mode never
+ # touches them (byte-identity).
+@@ -953,6 +974,8 @@ _REANCHOR_TELEMETRY: dict[str, int] = {
+     "reanchor_attempts": 0,
+     "reanchor_recovered": 0,
+     "reanchor_uncited_bound": 0,
++    # I-perm-004 (#1198) slice 2: recoveries via the boilerplate-aware argmax (subset of recovered).
++    "reanchor_argmax_recovered": 0,
+ }
+ 
+ 
+@@ -1117,6 +1140,56 @@ def _try_reanchor(
+         if not direct_quote:
+             return None
+         _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
++
++        # I-perm-004 (#1198) slice 2: a candidate "passes" iff re-binding the token to its span and
++        # running the SAME full gate (content + numeric + entailment, allow_local_window_fallback=
++        # False) verifies. This closure is the binding judge handed to the resolver — so the resolver
++        # can only ever choose among spans that already pass this exact gate.
++        def _candidate_passes(_sentence: str, span: tuple[int, int], _span_text: str) -> bool:
++            cand = _rebind_single_token(sentence, evidence_id, span[0], span[1])
++            return verify_sentence_provenance(
++                cand, evidence_pool,
++                require_number_match=require_number_match,
++                quantified_models=quantified_models,
++                allow_local_window_fallback=False,
++            ).is_verified
++
++        if _span_resolver_enabled():
++            # BOILERPLATE-AWARE ARGMAX: choose the best ENTAILING prose span instead of the first
++            # passing candidate in enumeration order (drb_76 rebound to the TITLE). Bounded judge
++            # calls (top_k). A title-only-supported claim is still recovered but LABELED with its
++            # provenance_quality so the report ships it caveated, never silently high-confidence.
++            from src.polaris_graph.generator.span_resolver import (  # noqa: PLC0415
++                resolve_best_entailing_span,
++            )
++            best = resolve_best_entailing_span(
++                direct_quote,
++                sentence,
++                _reanchor_candidate_spans(direct_quote),
++                judge_fn=_candidate_passes,
++                top_k=_span_resolve_topk(),
++            )
++            if best is None:
++                return None
++            rebound = _rebind_single_token(
++                sentence, evidence_id, best.best_span[0], best.best_span[1],
++            )
++            v = verify_sentence_provenance(
++                rebound, evidence_pool,
++                require_number_match=require_number_match,
++                quantified_models=quantified_models,
++                allow_local_window_fallback=False,
++            )
++            if not v.is_verified:  # defensive: the judge already passed this span; never launder.
++                return None
++            _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
++            _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
++            v.soft_warnings = list(v.soft_warnings) + [
++                f"reanchored_argmax:{evidence_id}:{best.best_span[0]}-{best.best_span[1]}:"
++                f"q={best.provenance_quality}:c={best.confidence:.2f}",
++            ]
++            return v
++
+         for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+             rebound = _rebind_single_token(
+                 sentence, evidence_id, cand_start, cand_end,
+diff --git a/src/polaris_graph/generator/span_resolver.py b/src/polaris_graph/generator/span_resolver.py
+index d62ae645..dda69613 100644
+--- a/src/polaris_graph/generator/span_resolver.py
++++ b/src/polaris_graph/generator/span_resolver.py
+@@ -98,10 +98,12 @@ _NAV_RE = re.compile(
+     r"\bcontact us\b|\babout the journal\b",
+     re.IGNORECASE,
+ )
+-# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about").
+-# Two or more separators is a link bar, not prose (Codex slice-1 P2 — the keyword set alone missed
+-# the structural pipe-list form, which would otherwise classify as prose at confidence 1.0).
+-_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
++# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about" OR
++# the compact "home|articles|archive|podcasts"). Two or more separators is a link bar, not prose
++# (Codex slice-1 P2 — the keyword set alone missed the pipe-list form, and the whitespace-required
++# form missed the compact bar; both would classify as prose@conf-1.0). Whitespace around the
++# separator is optional.
++_NAV_SEPARATOR_RE = re.compile(r"\s*[|•·▪»]\s*")
+ _SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
+ _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
+ # A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
+@@ -207,7 +209,7 @@ def resolve_best_entailing_span(
+     sentence: str,
+     candidate_spans: list[tuple[int, int]],
+     *,
+-    judge_fn: Callable[[str, str], bool],
++    judge_fn: Callable[[str, tuple[int, int], str], bool],
+     numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
+     top_k: int = 4,
+ ) -> Optional[SpanResolution]:
+@@ -216,11 +218,14 @@ def resolve_best_entailing_span(
+     ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
+     via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
+     (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
+-    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
+-    returns ONLY a span the judge accepted, so a non-entailing span can never be manufactured into
+-    support. Among entailing candidates the ARGMAX prefers higher provenance quality (prose over
+-    boilerplate) then higher confidence. Returns ``None`` when no candidate entails (caller keeps the
+-    drop / labels "no grounded source").
++    calls). ``judge_fn(sentence, span, span_text) -> bool`` is the BINDING gate — the wiring passes a
++    closure that RE-BINDS the [#ev] token to ``span`` and runs the SAME full faithfulness gate
++    (content + numeric + entailment, ``allow_local_window_fallback=False``), so the resolver returns
++    ONLY a span the gate accepted and a non-entailing span can never be manufactured into support.
++    The span OFFSETS are passed (not just the text) precisely so the judge can re-bind. Among
++    accepted candidates the ARGMAX prefers higher provenance quality (prose over boilerplate) then
++    higher confidence. Returns ``None`` when no candidate is accepted (caller keeps the drop /
++    labels "no grounded source").
+ 
+     ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
+     sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
+@@ -247,7 +252,7 @@ def resolve_best_entailing_span(
+     best: Optional[SpanResolution] = None
+     best_key: tuple[float, float] = (-1.0, -1.0)
+     for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
+-        if not judge_fn(sentence, span_text):
++        if not judge_fn(sentence, span, span_text):
+             continue
+         numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
+         confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)
+diff --git a/tests/polaris_graph/generator/test_span_resolver_iperm004.py b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+index f9d85f6f..dfe97714 100644
+--- a/tests/polaris_graph/generator/test_span_resolver_iperm004.py
++++ b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+@@ -68,11 +68,15 @@ _BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
+ 
+ 
+ def _judge_only(*entailing_texts):
+-    """A stub judge that entails iff the span text is one of the given (stripped) texts."""
++    """A stub judge that entails iff the span text is one of the given (stripped) texts.
++
++    Signature mirrors production: ``judge(sentence, span, span_text)`` — the wiring closure re-binds
++    the token to ``span`` and runs the full gate; the stub only needs the text.
++    """
+     targets = {t.strip() for t in entailing_texts}
+     calls = {"n": 0}
+ 
+-    def judge(sentence: str, span_text: str) -> bool:
++    def judge(sentence: str, span: tuple[int, int], span_text: str) -> bool:
+         calls["n"] += 1
+         return span_text.strip() in targets
+ 
+diff --git a/tests/polaris_graph/test_provenance_reanchor.py b/tests/polaris_graph/test_provenance_reanchor.py
+index 1feb2e7c..4a127b1c 100644
+--- a/tests/polaris_graph/test_provenance_reanchor.py
++++ b/tests/polaris_graph/test_provenance_reanchor.py
+@@ -202,6 +202,8 @@ def test_reanchor_disabled_is_byte_identical(monkeypatch):
+         "reanchor_attempts": 0,
+         "reanchor_recovered": 0,
+         "reanchor_uncited_bound": 0,
++        # I-perm-004 (#1198) slice 2: argmax-recovery counter, untouched in OFF mode.
++        "reanchor_argmax_recovered": 0,
+     }
+     # Helper must agree it is disabled.
+     assert _pg._provenance_reanchor_enabled() is False
+@@ -645,3 +647,63 @@ def test_reanchor_straddling_support_no_single_span_entails_drops(monkeypatch):
+         "FAIL CLOSED, not bridge two segments via a whole-row window"
+     )
+     assert report.total_dropped == 1
++
++
++# ---------------------------------------------------------------------------
++# (k) I-perm-004 (#1198) slice 2 — boilerplate-aware ARGMAX picks the entailing
++#     PROSE span where first-passing bound the earlier Title-cased span.
++# ---------------------------------------------------------------------------
++def _argmax_offsets(soft_warnings):
++    """Pull (start, end) from a `reanchored*:ev:S-E[:...]` soft-warning."""
++    for w in soft_warnings:
++        if w.startswith("reanchored"):
++            span = w.split(":")[2]  # ev id is field 1, S-E is field 2
++            s, e = span.split("-")
++            return int(s), int(e)
++    return None
++
++
++def test_argmax_prefers_prose_span_over_earlier_title(monkeypatch):
++    """The supporting clause appears in BOTH a Title-Case segment (enumerated
++    first) and a later prose segment. First-passing binds the title; the
++    PG_SPAN_RESOLVER argmax binds the prose span and labels it q=prose."""
++    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_judge(monkeypatch, _FakeJudge("hba1c reduction of 1.5 percent"))
++
++    admin = "Adults were enrolled at five sites."
++    title = " HbA1c Reduction Of 1.5 Percent In Adults: Trial Result."
++    prose = " The treatment produced an hba1c reduction of 1.5 percent in enrolled adults overall."
++    direct_quote = admin + title + prose
++    pool = {"ev_k": {"direct_quote": direct_quote}}
++    wrong_end = len(admin)  # cite the admin clause (no support there) -> recovery fires
++    draft = (
++        f"Treatment produced an HbA1c reduction of 1.5 percent in adults "
++        f"[#ev:ev_k:0-{wrong_end}]."
++    )
++
++    title_start = len(admin)
++    prose_start = len(admin) + len(title)
++
++    # --- flag OFF (first-passing): binds the earlier TITLE segment ---
++    monkeypatch.delenv("PG_SPAN_RESOLVER", raising=False)
++    reset_reanchor_telemetry()
++    rep_off = strict_verify(draft, pool)
++    assert rep_off.total_kept == 1
++    off_warn = rep_off.kept_sentences[0].soft_warnings
++    assert any(w.startswith("reanchored:ev_k:") for w in off_warn)
++    off_s, off_e = _argmax_offsets(off_warn)
++    assert "Trial Result" in direct_quote[off_s:off_e], "first-passing should bind the title segment"
++    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
++
++    # --- flag ON (argmax): binds the PROSE segment, labeled q=prose ---
++    monkeypatch.setenv("PG_SPAN_RESOLVER", "1")
++    reset_reanchor_telemetry()
++    rep_on = strict_verify(draft, pool)
++    assert rep_on.total_kept == 1
++    on_warn = rep_on.kept_sentences[0].soft_warnings
++    assert any(w.startswith("reanchored_argmax:ev_k:") and ":q=prose:" in w for w in on_warn), on_warn
++    on_s, on_e = _argmax_offsets(on_warn)
++    assert "the treatment produced" in direct_quote[on_s:on_e].lower(), "argmax should bind the prose span"
++    assert on_s != off_s, "argmax must pick a DIFFERENT (better) span than first-passing"
++    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1
+
+ succeeded in 5315ms:
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:12:    verify_sentence_provenance, the verifier scripts/run_honest_sweep_r3.py actually uses) with a
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:21:    NOT a strict_verify change. strict_verify / verify_sentence_provenance are UNTOUCHED in this
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:48:    verify_sentence_provenance,
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:72:    verify_sentence_provenance (which lazy-imports _get_judge from there) picks up the fake."""
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:130:    result = verify_sentence_provenance(_widened_sentence(), pool)
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:156:    result = verify_sentence_provenance(faithful, pool)
+tests\dr_benchmark\test_lane_b_gen_faithfulness_completeness_beatboth5.py:170:    result = verify_sentence_provenance(_widened_sentence(), pool)
+tests\polaris_graph\test_faith_rescue_guard.py:15:  Fix D — ``provenance_generator.verify_sentence_provenance`` integer check is
+tests\polaris_graph\test_faith_rescue_guard.py:27:          sentence that fails ``verify_sentence_provenance`` is never
+tests\polaris_graph\test_faith_rescue_guard.py:34:    production verifier ``verify_sentence_provenance`` so the
+tests\polaris_graph\test_faith_rescue_guard.py:68:    verify_sentence_provenance,
+tests\polaris_graph\test_faith_rescue_guard.py:118:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_faith_rescue_guard.py:155:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_faith_rescue_guard.py:187:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_faith_rescue_guard.py:218:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_faith_rescue_guard.py:282:    sv = verify_sentence_provenance(
+tests\polaris_graph\test_faith_rescue_guard.py:401:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:8:direct_quote, so verify_sentence_provenance returned VERIFIED. FIX-A3 removes that
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:14:  * Drives the REAL production verifier verify_sentence_provenance.
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:35:    verify_sentence_provenance,
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:75:    sv = verify_sentence_provenance(_CLAIM_03_004, pool)
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:95:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:117:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\generator\test_a3_span_provenance_iready018.py:138:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:10:    verify_sentence_provenance,
+tests\polaris_graph\test_b1_semantic_grounding.py:42:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:57:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:76:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:92:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:130:        v = mod.verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_b1_semantic_grounding.py:168:    res = mod.verify_sentence_provenance(
+tests\polaris_graph\test_b1_semantic_grounding.py:187:    res = mod.verify_sentence_provenance(
+tests\polaris_graph\test_b1_semantic_grounding.py:204:    res = mod.verify_sentence_provenance(
+tests\polaris_graph\test_credibility_disclosure_schema_icred001.py:12:    verify_sentence_provenance,
+tests\polaris_graph\test_credibility_disclosure_schema_icred001.py:57:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_credibility_disclosure_schema_icred001.py:71:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_credibility_disclosure_schema_icred001.py:88:    sv = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:5:``src.polaris_graph.generator.provenance_generator.verify_sentence_provenance``:
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:138:    res = pg.verify_sentence_provenance(s, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:160:    res = pg.verify_sentence_provenance(s, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:173:    res = pg.verify_sentence_provenance(s, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:188:    res = pg.verify_sentence_provenance(s, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:198:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:229:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:246:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:268:        res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:291:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:311:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:330:    res = pg.verify_sentence_provenance(_S0B2_SENTENCE, _S0B2_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:367:    res = pg.verify_sentence_provenance(_S0B3_SENTENCE, _S0B3_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:416:    res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:434:        res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:447:    res = pg.verify_sentence_provenance(_S0B4_SENTENCE, _S0B4_POOL)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:473:    res = pg.verify_sentence_provenance(s, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:548:    res_off = pg.verify_sentence_provenance(grounded, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:553:    res_on = pg.verify_sentence_provenance(grounded, pool)
+tests\polaris_graph\generator\test_verification_mode_phase0b.py:562:    res_unsupported = pg.verify_sentence_provenance(unsupported, pool)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:12:from src.polaris_graph.generator import span_resolver as sr
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:31:from src.polaris_graph.generator.provenance_generator import verify_sentence_provenance
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:100:    result = verify_sentence_provenance(
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:112:    result = verify_sentence_provenance(
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:124:    result = verify_sentence_provenance(
+tests\polaris_graph\test_hedging_gap2.py:8:    verify_sentence_provenance,
+tests\polaris_graph\test_hedging_gap2.py:76:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_hedging_gap2.py:90:    v = verify_sentence_provenance(sentence, ev_pool)
+tests\polaris_graph\test_m25_trial_name_match.py:25:    verify_sentence_provenance,
+tests\polaris_graph\test_m25_trial_name_match.py:105:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:132:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:150:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:176:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:212:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:240:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:277:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:307:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+tests\polaris_graph\test_m25_trial_name_match.py:333:        result = verify_sentence_provenance(sentence, pool, require_number_match=True)
+src\polaris_graph\clinical_generator\strict_verify.py:122:# (in this module) and `provenance_generator.verify_sentence_provenance`
+tests\polaris_graph\test_provenance_generator.py:14:    verify_sentence_provenance,
+tests\polaris_graph\test_provenance_generator.py:93:    v = verify_sentence_provenance(sentence, evidence_pool)
+tests\polaris_graph\test_provenance_generator.py:118:    v = verify_sentence_provenance(sentence, evidence_pool)
+tests\polaris_graph\test_provenance_generator.py:140:    v = verify_sentence_provenance(sentence, evidence_pool)
+tests\polaris_graph\test_provenance_generator.py:151:    v = verify_sentence_provenance(sentence, evidence_pool)
+tests\polaris_graph\test_provenance_generator.py:158:    v = verify_sentence_provenance("A statement with no citation.", evidence_pool)
+tests\polaris_graph\test_provenance_generator.py:214:        verify_sentence_provenance(
+tests\polaris_graph\test_provenance_generator.py:218:        verify_sentence_provenance(
+tests\polaris_graph\test_provenance_generator_entailment.py:5:provenance_generator.py:verify_sentence_provenance) directly. This is
+tests\polaris_graph\test_provenance_generator_entailment.py:21:    verify_sentence_provenance,
+tests\polaris_graph\test_provenance_generator_entailment.py:40:    verify_sentence_provenance picks up our fake.
+tests\polaris_graph\test_provenance_generator_entailment.py:85:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:100:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:122:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:141:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:158:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:179:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:194:    result = verify_sentence_provenance("Sentence with no token.", pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:223:    verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:248:    verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_generator_entailment.py:270:    result = verify_sentence_provenance(sentence, pool)
+tests\polaris_graph\test_provenance_reanchor.py:3:When a findings sentence FAILS `verify_sentence_provenance` on its currently-
+tests\polaris_graph\test_provenance_reanchor.py:13:No relaxation of any verify check — the re-anchor reuses verify_sentence_provenance
+tests\polaris_graph\test_provenance_reanchor.py:206:        "reanchor_argmax_recovered": 0,
+tests\polaris_graph\test_provenance_reanchor.py:323:    v_correct = _pg.verify_sentence_provenance(
+tests\polaris_graph\test_provenance_reanchor.py:367:    gate passes allow_local_window_fallback=False, so the candidate passes ONLY
+tests\polaris_graph\test_provenance_reanchor.py:411:        v_standalone = _pg.verify_sentence_provenance(
+tests\polaris_graph\test_provenance_reanchor.py:414:            allow_local_window_fallback=False,
+tests\polaris_graph\test_provenance_reanchor.py:427:    span out is allow_local_window_fallback=False, not some incidental floor."""
+tests\polaris_graph\test_provenance_reanchor.py:445:    v_leak = _pg.verify_sentence_provenance(
+tests\polaris_graph\test_provenance_reanchor.py:448:        allow_local_window_fallback=True,
+tests\polaris_graph\test_provenance_reanchor.py:457:    v_fixed = _pg.verify_sentence_provenance(
+tests\polaris_graph\test_provenance_reanchor.py:460:        allow_local_window_fallback=False,
+tests\polaris_graph\test_provenance_reanchor.py:669:    PG_SPAN_RESOLVER argmax binds the prose span and labels it q=prose."""
+tests\polaris_graph\test_provenance_reanchor.py:689:    monkeypatch.delenv("PG_SPAN_RESOLVER", raising=False)
+tests\polaris_graph\test_provenance_reanchor.py:697:    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
+tests\polaris_graph\test_provenance_reanchor.py:700:    monkeypatch.setenv("PG_SPAN_RESOLVER", "1")
+tests\polaris_graph\test_provenance_reanchor.py:709:    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1
+src\polaris_graph\generator\span_resolver.py:6:existing recovery (`provenance_generator._try_reanchor`, #1189) accepts the FIRST passing candidate
+src\polaris_graph\generator\span_resolver.py:15:     entailment gate the pipeline uses, run with ``allow_local_window_fallback=False``) does. The
+src\polaris_graph\generator\span_resolver.py:223:    (content + numeric + entailment, ``allow_local_window_fallback=False``), so the resolver returns
+src\polaris_graph\generator\slot_fill.py:614:    narrative sentence is re-verified by `verify_sentence_provenance`
+src\polaris_graph\generator\slot_fill.py:663:VERBATIM CONSTRAINT (CRITICAL — every sentence is independently re-verified by verify_sentence_provenance against the cited spans AFTER you write it, and any sentence that is not entailed by the cited span is DROPPED from the report and CANNOT be rescued):
+tests\polaris_graph\test_sentence_repair.py:129:    re-run via the patched verify_sentence_provenance.
+tests\polaris_graph\test_sentence_repair.py:192:    # Use real verify_sentence_provenance (the repaired text should
+src\polaris_graph\generator\sentence_repair.py:49:    verify_sentence_provenance,
+src\polaris_graph\generator\sentence_repair.py:360:        re_verify = verify_sentence_provenance(
+tests\polaris_graph\test_strict_verify_cleaned_text_integration.py:8:Asserts that when verify_sentence_provenance is called with an atom_NNN-
+tests\polaris_graph\test_strict_verify_cleaned_text_integration.py:31:    verify_sentence_provenance,
+tests\polaris_graph\test_strict_verify_cleaned_text_integration.py:108:        verify_sentence_provenance(sentence, _FIXTURE_EVIDENCE)
+src\polaris_graph\generator\provenance_generator.py:369:# inside verify_sentence_provenance — numeric extraction, content-
+src\polaris_graph\generator\provenance_generator.py:910:# re-runs the EXACT same `verify_sentence_provenance` acceptance gate against
+src\polaris_graph\generator\provenance_generator.py:949:# I-perm-004 (#1198) slice 2 — when PG_SPAN_RESOLVER is truthy, the re-anchor recovery uses the
+src\polaris_graph\generator\provenance_generator.py:950:# span_resolver BOILERPLATE-AWARE ARGMAX (best entailing prose span) instead of accepting the FIRST
+src\polaris_graph\generator\provenance_generator.py:953:# passes the SAME full gate (verify_sentence_provenance, allow_local_window_fallback=False) — the
+src\polaris_graph\generator\provenance_generator.py:956:def _span_resolver_enabled() -> bool:
+src\polaris_graph\generator\provenance_generator.py:957:    """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
+src\polaris_graph\generator\provenance_generator.py:958:    v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
+src\polaris_graph\generator\provenance_generator.py:978:    "reanchor_argmax_recovered": 0,
+src\polaris_graph\generator\provenance_generator.py:1086:def _try_reanchor(
+src\polaris_graph\generator\provenance_generator.py:1094:    FAILED ``verify_sentence_provenance`` on its currently-cited span.
+src\polaris_graph\generator\provenance_generator.py:1100:    ``verify_sentence_provenance`` is the SAME single acceptance entry point —
+src\polaris_graph\generator\provenance_generator.py:1145:        # running the SAME full gate (content + numeric + entailment, allow_local_window_fallback=
+src\polaris_graph\generator\provenance_generator.py:1150:            return verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:1154:                allow_local_window_fallback=False,
+src\polaris_graph\generator\provenance_generator.py:1157:        if _span_resolver_enabled():
+src\polaris_graph\generator\provenance_generator.py:1162:            from src.polaris_graph.generator.span_resolver import (  # noqa: PLC0415
+src\polaris_graph\generator\provenance_generator.py:1177:            v = verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:1181:                allow_local_window_fallback=False,
+src\polaris_graph\generator\provenance_generator.py:1186:            _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
+src\polaris_graph\generator\provenance_generator.py:1198:            # directly support — allow_local_window_fallback=False forbids a
+src\polaris_graph\generator\provenance_generator.py:1202:            v = verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:1206:                allow_local_window_fallback=False,
+src\polaris_graph\generator\provenance_generator.py:1240:            v = verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:1244:                allow_local_window_fallback=False,
+src\polaris_graph\generator\provenance_generator.py:1518:def verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:1524:    allow_local_window_fallback: bool = True,
+src\polaris_graph\generator\provenance_generator.py:1541:    I-complete-003 iter-2 (#1189) — ``allow_local_window_fallback`` (default
+src\polaris_graph\generator\provenance_generator.py:1545:    in-row window may rescue it. This is set FALSE from ``_try_reanchor`` so the
+src\polaris_graph\generator\provenance_generator.py:1769:                # I-complete-003 iter-2 (#1189) P1: when allow_local_window_fallback
+src\polaris_graph\generator\provenance_generator.py:1775:                if allow_local_window_fallback and _vmode_c in ("shadow", "enforce"):
+src\polaris_graph\generator\provenance_generator.py:1870:                if verdict in ("NEUTRAL", "CONTRADICTED") and not allow_local_window_fallback:
+src\polaris_graph\generator\provenance_generator.py:1872:                    # passes allow_local_window_fallback=False so the BOUND SPAN
+src\polaris_graph\generator\provenance_generator.py:2228:        v = verify_sentence_provenance(
+src\polaris_graph\generator\provenance_generator.py:2239:            # so OFF-mode is BYTE-IDENTICAL (no _try_reanchor call, no judge
+src\polaris_graph\generator\provenance_generator.py:2245:                rescued = _try_reanchor(
+src\polaris_graph\generator\contract_section_runner.py:154:    `verify_sentence_provenance` is never restored. This is the structural
+src\polaris_graph\generator\contract_section_runner.py:554:    # regulatory and narrative sentences must pass `verify_sentence_provenance`
+src\polaris_graph\generator\contract_section_runner.py:638:            # `verify_sentence_provenance` is never laundered back into `kept`.
+src\polaris_graph\generator\contract_section_runner.py:670:            # narrative sentence that fails `verify_sentence_provenance` drops
+src\polaris_graph\generator\contract_section_runner.py:766:    # pass `verify_sentence_provenance` on its own with NO rescue.
+src\polaris_graph\generator\contract_section_runner.py:785:    # narrative sentence must pass `verify_sentence_provenance` on its own;
+
+ succeeded in 7456ms:
+ M .claude/hooks/ultimate_goal_stop_reminder.py
+ M .gitignore
+ M state/polaris_restart/iteration_trajectory.md
+?? .claude/hooks/__pycache__/
+?? .codex/I-beatboth-429/verdict.stderr.txt
+?? .codex/I-beatboth-429/verdict_iter2.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-complete-002/
+?? .codex/I-complete-004/codex_diff.patch
+?? .codex/I-complete-004/codex_diff_audit.stderr.txt
+?? .codex/I-complete-004/codex_diff_audit.txt
+?? .codex/I-complete-004/commit_msg.txt
+?? .codex/I-complete-004/diff_gate_input.md
+?? .codex/I-faith-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-perm-004/slice2_codex_diff.patch
+?? .codex/I-perm-004/slice2_codex_diff_audit.stderr.txt
+?? .codex/I-perm-004/slice2_codex_diff_audit.txt
+?? .codex/I-perm-004/slice2_diff_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/_inspect_redact.py
+?? .codex/I-ready-017/_verify_fix.py
+?? .codex/I-ready-017/breadth_collapse_fix_design.md
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/faithfulness_diff_verdict.stderr.txt
+?? .codex/I-ready-017/faithfulness_gate_input.md
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_1171_faithfulness_landed.md
+?? .codex/I-ready-017/gh_1171_progress_comment.md
+?? .codex/I-ready-017/gh_entailment_inert_issue.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/preflight_audit_input.md
+?? .codex/I-ready-017/preflight_audit_verdict.stderr.txt
+?? .codex/I-ready-017/preflight_audit_verdict.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/I-transport-001/codex_diff_audit.stderr.txt
+?? .codex/I-transport-001/vm_p1.sh
+?? .codex/I-transport-001/vm_p2.sh
+?? .codex/I-transport-001/vm_p3.sh
+?? .codex/beatboth5/audit_72_input.md
+?? .codex/beatboth5/audit_75_input.md
+?? .codex/beatboth5/audit_75b_input.md
+?? .codex/beatboth5/audit_76_input.md
+?? .codex/beatboth5/audit_76b_input.md
+?? .codex/beatboth5/audit_78_input.md
+?? .codex/beatboth5/audit_78b_input.md
+?? .codex/beatboth5/audit_90b_input.md
+?? .codex/beatboth5/bug_forensic_input.md
+?? .codex/beatboth5/bug_forensic_verdict.stderr.txt
+?? .codex/beatboth5/bug_forensic_verdict.txt
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? .codex/forensic/
+?? .codex/nda-audit/
+?? .codex/retrieval-params/
+?? .codex/tool-verification/
+?? .codex/workflows/
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_numeric_review_tmp/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/beatboth5/
+?? outputs/audits/beatboth6/
+?? outputs/audits/beatboth7/I_complete_002_drop_decomposition.md
+?? outputs/audits/beatboth7/_competitors_clean/
+?? outputs/audits/beatboth7/completeness_gap_diagnosis.md
+?? outputs/audits/beatboth7/drb_72_ai_labor/
+?? outputs/audits/beatboth7/drb_75_metal_ions_cvd/
+?? outputs/audits/beatboth7/drb_76_gut_microbiota_crc/
+?? outputs/audits/beatboth7/drb_78_parkinsons_dbs/
+?? outputs/audits/beatboth7/drb_90_adas_liability/
+?? outputs/audits/beatboth8/FAILURE_AUDIT.md
+?? outputs/audits/beatboth8/I-perm-002_corpus_satisfaction_design.md
+?? outputs/audits/beatboth8/REMAINING_RISKS.md
+?? outputs/audits/beatboth8/drb_76/
+?? outputs/audits/beatboth8/manifests/
+?? outputs/audits/codex_audit_sitecustomize/
+?? outputs/audits/codex_pytest_temp_audit/
+?? outputs/audits/f02_bakeoff/
+?? outputs/audits/global_consistency_research.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? outputs/audits/retrieval_width_1000_math.md
+?? scope_verify_tmp_codex/
+?? scope_verify_tmp_codex_floor008/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? scripts/probe_discovery_and_residual.py
+?? scripts/probe_paid_credits.py
+?? scripts/probe_website_access_tools.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_audit_tmp/chmod_after_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/mode_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/tmpbm_z34u3/': Permission denied
+warning: could not open directory 'codex_audit_tmp/tmp6mj6akgl/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4pldgytu/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4ub_c1tz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_b225i01s/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_bnezcyw_/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_f3_ntj9m/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_gbznmdhq/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_k8cuhaqf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ku5c2fnz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ll7c4m6w/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_lqomtwho/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_q7irc_xy/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_r9l_fwzf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_vnbmb3pa/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_xr_17rct/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_y372lrb2/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/probe_63cxyz6o/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/tmptcv_wpgb/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/polaris_scope_ed94b46c36074f439046d1e25553efb6/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-7lnb1r6l/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-fvafx2nw/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/audits/codex_pytest_temp_scope_one/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+codex
+The patch is applied in the working tree, so I’m checking the live code as well as the patch. The key path does put the resolver behind `PG_SPAN_RESOLVER`; now I’m reading the surrounding `_try_reanchor` logic to confirm there isn’t another recovery branch or telemetry side effect changing OFF behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/provenance_generator.py'; "'$lines=Get-Content -Path $p; for($i=1060;$i -le 1265;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/span_resolver.py'; "'$lines=Get-Content -Path $p; for($i=1;$i -le 290;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/provenance_generator.py'; "'$lines=Get-Content -Path $p; for($i=2185;$i -le 2265;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests/polaris_graph/test_provenance_reanchor.py'; "'$lines=Get-Content -Path $p; for($i=180;$i -le 215;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }; for($i=647;$i -le 712;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+ succeeded in 3361ms:
+ 1060:     # the sliding loop would add is (0, n), a whole-row rebind that weakens
+ 1061:     # citation precision. Branch (a) already supplies any legitimate full-row
+ 1062:     # SENTENCE segment, so genuine recovery is unaffected.
+ 1063:     window = max(1, PG_PROVENANCE_REANCHOR_WINDOW)
+ 1064:     if window < n:
+ 1065:         step = max(1, window // 2)
+ 1066:         pos = 0
+ 1067:         while pos < n and len(candidates) < cap:
+ 1068:             _add(pos, pos + window)
+ 1069:             pos += step
+ 1070: 
+ 1071:     return candidates[:cap]
+ 1072: 
+ 1073: 
+ 1074: def _rebind_single_token(sentence: str, evidence_id: str, start: int, end: int) -> str:
+ 1075:     """Rewrite the sentence's [#ev:...] provenance token(s) to a new
+ 1076:     (evidence_id, start, end) span. SCOPE (v1, per ledger): single-token
+ 1077:     re-anchor — every [#ev:...] occurrence is rewritten to the same rescued
+ 1078:     span. Multi-token sentences with a UNION numeric failure
+ 1079:     (which-token-to-move combinatorics) are explicitly OUT-OF-SCOPE for v1 and
+ 1080:     are filtered out by the caller before this is reached."""
+ 1081:     return _PROVENANCE_TOKEN_RE.sub(
+ 1082:         f"[#ev:{evidence_id}:{start}-{end}]", sentence,
+ 1083:     )
+ 1084: 
+ 1085: 
+ 1086: def _try_reanchor(
+ 1087:     sentence: str,
+ 1088:     evidence_pool: dict[str, dict[str, Any]],
+ 1089:     *,
+ 1090:     require_number_match: bool,
+ 1091:     quantified_models: dict[tuple[str, str], Any] | None,
+ 1092: ) -> Optional[SentenceVerification]:
+ 1093:     """I-complete-003 (#1189) — attempt to RE-ANCHOR a sentence that just
+ 1094:     FAILED ``verify_sentence_provenance`` on its currently-cited span.
+ 1095: 
+ 1096:     Returns a RECOVERED ``SentenceVerification`` (token re-bound, is_verified=
+ 1097:     True) when a candidate span in the relevant row passes the FULL reused
+ 1098:     gate, else ``None`` (caller keeps the existing drop). NO recursion: this
+ 1099:     is invoked from the ``strict_verify`` caller loop, and the reused
+ 1100:     ``verify_sentence_provenance`` is the SAME single acceptance entry point —
+ 1101:     not re-implemented and not called from inside itself.
+ 1102: 
+ 1103:     HARD CONSTRAINTS:
+ 1104:       * accept ONLY under entailment ``enforce`` (the search-for-a-match shape
+ 1105:         would otherwise launder a drop into a pass under off/warn);
+ 1106:       * candidates are bounded (<= MAX_CANDIDATES) per row;
+ 1107:       * v1 scope = single-token (cited) OR uncited verbatim-lift; multi-token
+ 1108:         union-numeric is out-of-scope (returns None).
+ 1109:     """
+ 1110:     # Enforce-only accept gate (faithfulness-critical, mirrors gap-#18 L1407).
+ 1111:     from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+ 1112:         _entailment_mode as _emode_reanchor,
+ 1113:     )
+ 1114:     if _emode_reanchor() != "enforce":
+ 1115:         return None
+ 1116: 
+ 1117:     tokens = parse_provenance_tokens(sentence)
+ 1118: 
+ 1119:     # ---- Path 1: CITED sentence — re-anchor within its cited row(s) ----
+ 1120:     if tokens:
+ 1121:         # v1 scope: a SINGLE [#ev] token. I-complete-003 iter-2 (#1189) P2-2:
+ 1122:         # the prior `len(distinct_ids) != 1` filter only caught MULTI-ID
+ 1123:         # sentences, but `_rebind_single_token` rewrites EVERY [#ev] occurrence
+ 1124:         # to one span — so a sentence with TWO same-id tokens citing DIFFERENT
+ 1125:         # spans (e.g. [#ev:a:0-10] ... [#ev:a:50-60]) would have BOTH collapsed
+ 1126:         # onto a single rescued span, silently discarding the second citation.
+ 1127:         # An explicit single-token guard keeps the v1 scope honest: multi-token
+ 1128:         # sentences (same-id or multi-id) carry the which-token-to-move union
+ 1129:         # combinatorics that v1 does NOT handle — leave the existing drop.
+ 1130:         if len(tokens) != 1:
+ 1131:             return None
+ 1132:         distinct_ids = {t.evidence_id for t in tokens}
+ 1133:         if len(distinct_ids) != 1:
+ 1134:             return None
+ 1135:         evidence_id = next(iter(distinct_ids))
+ 1136:         ev = evidence_pool.get(evidence_id)
+ 1137:         if ev is None:
+ 1138:             return None
+ 1139:         direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+ 1140:         if not direct_quote:
+ 1141:             return None
+ 1142:         _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+ 1143: 
+ 1144:         # I-perm-004 (#1198) slice 2: a candidate "passes" iff re-binding the token to its span and
+ 1145:         # running the SAME full gate (content + numeric + entailment, allow_local_window_fallback=
+ 1146:         # False) verifies. This closure is the binding judge handed to the resolver — so the resolver
+ 1147:         # can only ever choose among spans that already pass this exact gate.
+ 1148:         def _candidate_passes(_sentence: str, span: tuple[int, int], _span_text: str) -> bool:
+ 1149:             cand = _rebind_single_token(sentence, evidence_id, span[0], span[1])
+ 1150:             return verify_sentence_provenance(
+ 1151:                 cand, evidence_pool,
+ 1152:                 require_number_match=require_number_match,
+ 1153:                 quantified_models=quantified_models,
+ 1154:                 allow_local_window_fallback=False,
+ 1155:             ).is_verified
+ 1156: 
+ 1157:         if _span_resolver_enabled():
+ 1158:             # BOILERPLATE-AWARE ARGMAX: choose the best ENTAILING prose span instead of the first
+ 1159:             # passing candidate in enumeration order (drb_76 rebound to the TITLE). Bounded judge
+ 1160:             # calls (top_k). A title-only-supported claim is still recovered but LABELED with its
+ 1161:             # provenance_quality so the report ships it caveated, never silently high-confidence.
+ 1162:             from src.polaris_graph.generator.span_resolver import (  # noqa: PLC0415
+ 1163:                 resolve_best_entailing_span,
+ 1164:             )
+ 1165:             best = resolve_best_entailing_span(
+ 1166:                 direct_quote,
+ 1167:                 sentence,
+ 1168:                 _reanchor_candidate_spans(direct_quote),
+ 1169:                 judge_fn=_candidate_passes,
+ 1170:                 top_k=_span_resolve_topk(),
+ 1171:             )
+ 1172:             if best is None:
+ 1173:                 return None
+ 1174:             rebound = _rebind_single_token(
+ 1175:                 sentence, evidence_id, best.best_span[0], best.best_span[1],
+ 1176:             )
+ 1177:             v = verify_sentence_provenance(
+ 1178:                 rebound, evidence_pool,
+ 1179:                 require_number_match=require_number_match,
+ 1180:                 quantified_models=quantified_models,
+ 1181:                 allow_local_window_fallback=False,
+ 1182:             )
+ 1183:             if not v.is_verified:  # defensive: the judge already passed this span; never launder.
+ 1184:                 return None
+ 1185:             _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+ 1186:             _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
+ 1187:             v.soft_warnings = list(v.soft_warnings) + [
+ 1188:                 f"reanchored_argmax:{evidence_id}:{best.best_span[0]}-{best.best_span[1]}:"
+ 1189:                 f"q={best.provenance_quality}:c={best.confidence:.2f}",
+ 1190:             ]
+ 1191:             return v
+ 1192: 
+ 1193:         for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+ 1194:             rebound = _rebind_single_token(
+ 1195:                 sentence, evidence_id, cand_start, cand_end,
+ 1196:             )
+ 1197:             # I-complete-003 iter-2 (#1189) P1: the FINAL BOUND SPAN ITSELF must
+ 1198:             # directly support — allow_local_window_fallback=False forbids a
+ 1199:             # different in-row window from rescuing this candidate. So a candidate
+ 1200:             # passes ONLY if its OWN span clears content+numeric AND directly
+ 1201:             # entails, closing the Codex iter-1 leak.
+ 1202:             v = verify_sentence_provenance(
+ 1203:                 rebound, evidence_pool,
+ 1204:                 require_number_match=require_number_match,
+ 1205:                 quantified_models=quantified_models,
+ 1206:                 allow_local_window_fallback=False,
+ 1207:             )
+ 1208:             if v.is_verified:
+ 1209:                 _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+ 1210:                 v.soft_warnings = list(v.soft_warnings) + [
+ 1211:                     f"reanchored:{evidence_id}:{cand_start}-{cand_end}",
+ 1212:                 ]
+ 1213:                 return v
+ 1214:         return None
+ 1215: 
+ 1216:     # ---- Path 2: UNCITED sentence — find the pool row that verbatim-grounds it ----
+ 1217:     # No [#ev] token: search the pool for the row whose direct_quote/text
+ 1218:     # contains the verbatim (case-insensitive) sentence prose, then re-anchor
+ 1219:     # within that row. Same full-gate bar applies.
+ 1220:     bare = _verifier_cleaned_text(sentence).strip()
+ 1221:     if not bare:
+ 1222:         return None
+ 1223:     bare_lower = bare.lower()
+ 1224:     for evidence_id, ev in evidence_pool.items():
+ 1225:         if not isinstance(ev, dict):
+ 1226:             continue
+ 1227:         direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+ 1228:         if not direct_quote:
+ 1229:             continue
+ 1230:         if bare_lower not in direct_quote.lower():
+ 1231:             continue
+ 1232:         _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+ 1233:         for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+ 1234:             # Append a fresh token (the sentence had none) and verify.
+ 1235:             candidate_sentence = (
+ 1236:                 f"{sentence.rstrip()} [#ev:{evidence_id}:{cand_start}-{cand_end}]"
+ 1237:             )
+ 1238:             # I-complete-003 iter-2 (#1189) P1: same bound-span-itself-supports
+ 1239:             # invariant on the uncited path — no in-row window rescue.
+ 1240:             v = verify_sentence_provenance(
+ 1241:                 candidate_sentence, evidence_pool,
+ 1242:                 require_number_match=require_number_match,
+ 1243:                 quantified_models=quantified_models,
+ 1244:                 allow_local_window_fallback=False,
+ 1245:             )
+ 1246:             if v.is_verified:
+ 1247:                 _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+ 1248:                 _REANCHOR_TELEMETRY["reanchor_uncited_bound"] += 1
+ 1249:                 v.soft_warnings = list(v.soft_warnings) + [
+ 1250:                     f"reanchored_uncited:{evidence_id}:{cand_start}-{cand_end}",
+ 1251:                 ]
+ 1252:                 return v
+ 1253:         # Only the first verbatim-containing row is attempted (bounded).
+ 1254:         return None
+ 1255: 
+ 1256:     return None
+ 1257: 
+ 1258: 
+ 1259: def _verification_mode() -> str:
+ 1260:     """Phase 0b (I-meta-005, gap-#18): verification-mode router for the three
+ 1261:     grounded-prose deltas. Read at call time so tests can override.
+ 1262: 
+ 1263:       off (default) — byte-identical to pre-0b behavior; no delta fires.
+ 1264:       shadow        — deltas DETECT + log telemetry but do NOT change
+ 1265:                       is_verified, and make NO extra judge calls (spend-
+
+ succeeded in 5747ms:
+    1: """I-perm-004 (#1198) span resolver — re-anchor a claim to the best ENTAILING span.
+    2: 
+    3: The verifier drops a large share of real claims because the [#ev] token points at a span that
+    4: does not entail the sentence even though a genuinely-entailing span sits ELSEWHERE in the SAME row
+    5: (drb_76: 40 verified / 41 dropped of 81, 29 of them `entailment_failed` with in-row support). The
+    6: existing recovery (`provenance_generator._try_reanchor`, #1189) accepts the FIRST passing candidate
+    7: with no boilerplate filter and no best-span ranking — so drb_76 re-anchored to the row TITLE
+    8: (`reanchored:...0-76`). This module replaces first-passing with a BOILERPLATE-AWARE ARGMAX over the
+    9: candidate spans, choosing the best genuinely-entailing prose span (RARR re-point; ALCE precision;
+   10: MiniCheck max-over-evidence).
+   11: 
+   12: SAFETY — the §-1.1-lethal failure here is MANUFACTURING support (re-pointing to a span that does not
+   13: actually entail the sentence). Three structural guards make that impossible:
+   14:   1. The resolver NEVER decides entailment itself — the injected ``judge_fn`` (the SAME binding
+   15:      entailment gate the pipeline uses, run with ``allow_local_window_fallback=False``) does. The
+   16:      resolver only CHOOSES among candidates the judge already accepted; a non-entailing span can
+   17:      never be returned.
+   18:   2. Boilerplate (title / header / affiliation / nav-link / url / altmetric / reference-list) is a
+   19:      DEPRIORITIZATION + confidence PENALTY, never a fabrication path: a claim supported only by a
+   20:      title span is returned LABELED low-confidence with ``provenance_quality="title"`` so the caller
+   21:      ships it caveated, never silently VERIFIED.
+   22:   3. Confidence is dominated by entailment + numeric-verbatim agreement, NOT lexical similarity, so a
+   23:      lexically-similar-but-boilerplate span cannot inflate a claim.
+   24: 
+   25: PURE: no network, no LLM, no global state. The judge and (optional) numeric-match predicates are
+   26: INJECTED, so this module is deterministic and unit-testable with a stub judge. Default behaviour is
+   27: opt-in at the call site (the wiring slice gates it behind ``PG_PROVENANCE_REANCHOR``); this module
+   28: itself only computes.
+   29: """
+   30: 
+   31: from __future__ import annotations
+   32: 
+   33: import re
+   34: from dataclasses import dataclass
+   35: from typing import Callable, Optional
+   36: 
+   37: # --- provenance_quality vocabulary (Decision B schema) -------------------------------------
+   38: QUALITY_PROSE = "prose"
+   39: QUALITY_TITLE = "title"
+   40: QUALITY_HEADER = "header"
+   41: QUALITY_AFFILIATION = "affiliation"
+   42: QUALITY_NAV_LINK = "nav_link"
+   43: QUALITY_URL = "url"
+   44: QUALITY_ALTMETRIC = "altmetric"
+   45: QUALITY_REFERENCE_LIST = "reference_list"
+   46: 
+   47: # Boilerplate qualities — supported-only-here => LABELED low confidence, never silently verified.
+   48: _BOILERPLATE_QUALITIES = frozenset(
+   49:     {
+   50:         QUALITY_TITLE,
+   51:         QUALITY_HEADER,
+   52:         QUALITY_AFFILIATION,
+   53:         QUALITY_NAV_LINK,
+   54:         QUALITY_URL,
+   55:         QUALITY_ALTMETRIC,
+   56:         QUALITY_REFERENCE_LIST,
+   57:     }
+   58: )
+   59: 
+   60: # Per-quality confidence penalty (subtracted from the entailment-dominated base). Prose = no penalty;
+   61: # the further a span is from real prose, the larger the penalty so a boilerplate-supported claim can
+   62: # never read as high-confidence. Ranking prefers the SMALLEST penalty (best quality) among entailing
+   63: # candidates.
+   64: _QUALITY_PENALTY = {
+   65:     QUALITY_PROSE: 0.0,
+   66:     QUALITY_AFFILIATION: 0.35,
+   67:     QUALITY_TITLE: 0.45,
+   68:     QUALITY_HEADER: 0.50,
+   69:     QUALITY_REFERENCE_LIST: 0.55,
+   70:     QUALITY_NAV_LINK: 0.60,
+   71:     QUALITY_ALTMETRIC: 0.60,
+   72:     QUALITY_URL: 0.65,
+   73: }
+   74: 
+   75: # --- deterministic boilerplate detection patterns -----------------------------------------
+   76: _URL_RE = re.compile(r"https?://|www\.\w|\bdoi\.org/|\b10\.\d{4,9}/", re.IGNORECASE)
+   77: _ALTMETRIC_RE = re.compile(
+   78:     r"\baltmetric\b|\bmendeley\b|\btweeted\b|\bdimensions\b|\bcited by\b|"
+   79:     r"\breaders on\b|\bsocial media\b|\bbadge\b",
+   80:     re.IGNORECASE,
+   81: )
+   82: # A reference-list line: leading numbered/bracketed ref marker, or a dense author-year + doi/pp block.
+   83: _REFERENCE_RE = re.compile(
+   84:     r"^\s*(?:\[\d+\]|\d+\.)\s+\w|(?:\bet al\.).{0,80}?(?:\(\d{4}\)|doi:|pp?\.\s?\d)",
+   85:     re.IGNORECASE,
+   86: )
+   87: _AFFILIATION_RE = re.compile(
+   88:     r"\bdepartment of\b|\buniversity of\b|\bfaculty of\b|\binstitute of\b|"
+   89:     r"\bcorrespondence\b|\bcorresponding author\b|\borcid\b|\b[\w.]+@[\w.]+\b|"
+   90:     r"\bhospital\b.{0,40}\b(?:road|street|ave|avenue)\b",
+   91:     re.IGNORECASE,
+   92: )
+   93: # Nav chrome KEYWORDS: "skip to", "menu", cookie banners, journal-site link labels.
+   94: _NAV_RE = re.compile(
+   95:     r"\bskip to (?:main )?content\b|\bcookie\b.{0,30}\b(?:consent|policy|accept)\b|"
+   96:     r"\bsign in\b|\bmain menu\b|\btable of contents\b|\bback to top\b|\bsubmit manuscript\b|"
+   97:     r"\bauthor guidelines\b|\bfor authors\b|\beditorial board\b|\bcurrent issue\b|"
+   98:     r"\bcontact us\b|\babout the journal\b",
+   99:     re.IGNORECASE,
+  100: )
+  101: # Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about" OR
+  102: # the compact "home|articles|archive|podcasts"). Two or more separators is a link bar, not prose
+  103: # (Codex slice-1 P2 — the keyword set alone missed the pipe-list form, and the whitespace-required
+  104: # form missed the compact bar; both would classify as prose@conf-1.0). Whitespace around the
+  105: # separator is optional.
+  106: _NAV_SEPARATOR_RE = re.compile(r"\s*[|•·▪»]\s*")
+  107: _SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
+  108: _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
+  109: # A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
+  110: # no terminal punctuation. These thresholds only steer the prose/title/header split — boilerplate
+  111: # patterns above take precedence.
+  112: _TITLE_MAX_CHARS = 140
+  113: _PROSE_MIN_WORDS = 8
+  114: 
+  115: 
+  116: def classify_span(text: str) -> str:
+  117:     """Deterministically classify a candidate span's TEXT into a ``provenance_quality`` bucket.
+  118: 
+  119:     Boilerplate patterns (url / altmetric / reference-list / affiliation / nav) take precedence;
+  120:     otherwise a short, terminator-free fragment is a title/header and a longer sentence-shaped
+  121:     fragment is prose. Never raises; empty/whitespace -> ``header`` (uninformative boilerplate).
+  122:     """
+  123:     stripped = (text or "").strip()
+  124:     if not stripped:
+  125:         return QUALITY_HEADER
+  126:     # Specific boilerplate patterns first (a reference line / affiliation may itself embed a DOI/URL,
+  127:     # so the URL bucket is checked LAST among boilerplate).
+  128:     if _ALTMETRIC_RE.search(stripped):
+  129:         return QUALITY_ALTMETRIC
+  130:     if _NAV_RE.search(stripped) or len(_NAV_SEPARATOR_RE.findall(stripped)) >= 2:
+  131:         return QUALITY_NAV_LINK
+  132:     if _REFERENCE_RE.search(stripped):
+  133:         return QUALITY_REFERENCE_LIST
+  134:     if _AFFILIATION_RE.search(stripped):
+  135:         return QUALITY_AFFILIATION
+  136:     words = _WORD_RE.findall(stripped)
+  137:     if _URL_RE.search(stripped):
+  138:         # A prose sentence that merely contains a trailing citation URL is still prose; a span whose
+  139:         # bulk IS the URL is url-boilerplate. Heuristic: URL match AND few sentence words / mostly
+  140:         # non-letters.
+  141:         letters = sum(c.isalpha() for c in stripped)
+  142:         if len(words) < _PROSE_MIN_WORDS or letters < len(stripped) * 0.55:
+  143:             return QUALITY_URL
+  144:     has_terminator = bool(_SENTENCE_TERMINATOR_RE.search(stripped))
+  145:     # Title-case ratio: titles/headers are Title Case (most content words capitalized); prose is
+  146:     # sentence case (only the first word + proper nouns). This is the primary prose/title signal —
+  147:     # it separates an 8-word TITLE ("Saccharomyces boulardii Fungemia: A Safety Concern.") from an
+  148:     # 8-word prose sentence even when both carry punctuation.
+  149:     alpha = [w for w in words if len(w) > 2]
+  150:     cap_ratio = (sum(1 for w in alpha if w[0].isupper()) / len(alpha)) if alpha else 0.0
+  151:     is_title_case = cap_ratio >= 0.45
+  152:     if is_title_case and len(stripped) <= _TITLE_MAX_CHARS:
+  153:         return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
+  154:     if len(words) >= _PROSE_MIN_WORDS and (has_terminator or len(stripped) > _TITLE_MAX_CHARS):
+  155:         return QUALITY_PROSE
+  156:     # Short, terminator-free fragment: a heading if it has a colon / is very short, else a title.
+  157:     if len(stripped) <= _TITLE_MAX_CHARS and not has_terminator:
+  158:         return QUALITY_HEADER if stripped.endswith(":") or len(words) <= 3 else QUALITY_TITLE
+  159:     return QUALITY_PROSE
+  160: 
+  161: 
+  162: def _content_words(text: str) -> set[str]:
+  163:     return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) > 2}
+  164: 
+  165: 
+  166: def _lexical_overlap(sentence: str, span_text: str) -> float:
+  167:     """Cheap content-word Jaccard for PRE-ranking only (never the binding signal)."""
+  168:     a, b = _content_words(sentence), _content_words(span_text)
+  169:     if not a or not b:
+  170:         return 0.0
+  171:     return len(a & b) / len(a | b)
+  172: 
+  173: 
+  174: @dataclass(frozen=True)
+  175: class SpanResolution:
+  176:     """The argmax entailing span for one claim (or ``None`` when nothing in-row entails)."""
+  177: 
+  178:     best_span: tuple[int, int]
+  179:     span_text: str
+  180:     provenance_quality: str
+  181:     confidence: float
+  182:     entailed: bool
+  183: 
+  184: 
+  185: # Entailment-dominated confidence base, then subtract the boilerplate penalty and (optionally) a
+  186: # numeric-mismatch penalty, then add a small lexical-overlap nudge that can never by itself promote
+  187: # a span. Clamped to [0, 1]. Tuned so prose-entailed >= ~0.7 (moderate/high) and boilerplate-entailed
+  188: # <= ~0.55 (low), keeping the §-1.1 invariant that a title-only-supported claim is never high.
+  189: _ENTAILED_BASE = 1.0
+  190: _NUMERIC_MISMATCH_PENALTY = 0.25
+  191: _LEXICAL_NUDGE = 0.05
+  192: 
+  193: 
+  194: def _span_confidence(
+  195:     quality: str,
+  196:     lexical: float,
+  197:     *,
+  198:     numeric_ok: bool,
+  199: ) -> float:
+  200:     confidence = _ENTAILED_BASE - _QUALITY_PENALTY.get(quality, 0.6)
+  201:     if not numeric_ok:
+  202:         confidence -= _NUMERIC_MISMATCH_PENALTY
+  203:     confidence += _LEXICAL_NUDGE * max(0.0, min(1.0, lexical))
+  204:     return max(0.0, min(1.0, confidence))
+  205: 
+  206: 
+  207: def resolve_best_entailing_span(
+  208:     direct_quote: str,
+  209:     sentence: str,
+  210:     candidate_spans: list[tuple[int, int]],
+  211:     *,
+  212:     judge_fn: Callable[[str, tuple[int, int], str], bool],
+  213:     numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
+  214:     top_k: int = 4,
+  215: ) -> Optional[SpanResolution]:
+  216:     """Choose the best genuinely-ENTAILING span for ``sentence`` within ``direct_quote``.
+  217: 
+  218:     ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
+  219:     via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
+  220:     (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
+  221:     calls). ``judge_fn(sentence, span, span_text) -> bool`` is the BINDING gate — the wiring passes a
+  222:     closure that RE-BINDS the [#ev] token to ``span`` and runs the SAME full faithfulness gate
+  223:     (content + numeric + entailment, ``allow_local_window_fallback=False``), so the resolver returns
+  224:     ONLY a span the gate accepted and a non-entailing span can never be manufactured into support.
+  225:     The span OFFSETS are passed (not just the text) precisely so the judge can re-bind. Among
+  226:     accepted candidates the ARGMAX prefers higher provenance quality (prose over boilerplate) then
+  227:     higher confidence. Returns ``None`` when no candidate is accepted (caller keeps the drop /
+  228:     labels "no grounded source").
+  229: 
+  230:     ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
+  231:     sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
+  232:     promotes). When omitted, numeric agreement is treated as satisfied (no adjustment).
+  233:     """
+  234:     n = len(direct_quote or "")
+  235:     # Each entry: (prerank_key, (start, end), span_text, quality, lexical).
+  236:     scored: list[tuple[tuple[float, float], tuple[int, int], str, str, float]] = []
+  237:     for start, end in candidate_spans:
+  238:         if not (0 <= start < end <= n):
+  239:             continue
+  240:         span_text = direct_quote[start:end]
+  241:         if not span_text.strip():
+  242:             continue
+  243:         quality = classify_span(span_text)
+  244:         lexical = _lexical_overlap(sentence, span_text)
+  245:         # PRE-rank key: prose first (smallest penalty), then lexical overlap. This only orders which
+  246:         # top_k reach the judge; it never decides entailment.
+  247:         prerank = (-_QUALITY_PENALTY.get(quality, 0.6), lexical)
+  248:         scored.append((prerank, (start, end), span_text, quality, lexical))
+  249: 
+  250:     # Pre-rank descending and judge ONLY the top_k (bounded judge calls).
+  251:     scored.sort(key=lambda r: r[0], reverse=True)
+  252:     best: Optional[SpanResolution] = None
+  253:     best_key: tuple[float, float] = (-1.0, -1.0)
+  254:     for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
+  255:         if not judge_fn(sentence, span, span_text):
+  256:             continue
+  257:         numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
+  258:         confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)
+  259:         # ARGMAX: prefer best quality (smallest penalty), then highest confidence.
+  260:         key = (-_QUALITY_PENALTY.get(quality, 0.6), confidence)
+  261:         if key > best_key:
+  262:             best_key = key
+  263:             best = SpanResolution(
+  264:                 best_span=span,
+  265:                 span_text=span_text,
+  266:                 provenance_quality=quality,
+  267:                 confidence=confidence,
+  268:                 entailed=True,
+  269:             )
+  270:     return best
+  271: 
+  272: 
+  273: def is_boilerplate_quality(quality: str) -> bool:
+  274:     """True if ``quality`` is a boilerplate bucket (supported-only-here => label low, never verify)."""
+  275:     return quality in _BOILERPLATE_QUALITIES
+  276: 
+  277: 
+  278: 
+  279: 
+  280: 
+  281: 
+  282: 
+  283: 
+  284: 
+  285: 
+  286: 
+  287: 
+  288: 
+  289: 
+  290: 
+
+ succeeded in 7921ms:
+ 2185:             failures.append(f"limitations_number_not_in_telemetry:{num}")
+ 2186: 
+ 2187:     if failures:
+ 2188:         return SentenceVerification(
+ 2189:             sentence=sentence, tokens=tokens,
+ 2190:             is_verified=False, failure_reasons=failures,
+ 2191:             soft_warnings=["limitations_paragraph"],
+ 2192:         )
+ 2193:     return SentenceVerification(
+ 2194:         sentence=sentence, tokens=tokens,
+ 2195:         is_verified=True, failure_reasons=[],
+ 2196:         soft_warnings=["limitations_paragraph_verified"],
+ 2197:     )
+ 2198: 
+ 2199: 
+ 2200: def strict_verify(
+ 2201:     draft_text: str,
+ 2202:     evidence_pool: dict[str, dict[str, Any]],
+ 2203:     *,
+ 2204:     require_number_match: bool = True,
+ 2205:     telemetry_block: str | None = None,
+ 2206:     quantified_models: dict[tuple[str, str], Any] | None = None,
+ 2207: ) -> StrictVerificationReport:
+ 2208:     """Run strict verification on a draft. Drops failing sentences.
+ 2209: 
+ 2210:     Gap-3 (original): the Limitations paragraph was pass-through because
+ 2211:     it discusses pipeline telemetry, not evidence.
+ 2212: 
+ 2213:     BUG-M-204 fix (deep-dive R10): when `telemetry_block` is supplied,
+ 2214:     Limitations sentences ARE verified against it — every numeric
+ 2215:     claim in the sentence must appear verbatim in the telemetry block.
+ 2216:     This catches a fabricated "only 3% of sources are T1" claim when
+ 2217:     the telemetry actually says "T1: 9%". Backward-compatible: if
+ 2218:     telemetry_block is None (default), falls back to pass-through.
+ 2219:     """
+ 2220:     findings_text, limitations_text = split_findings_and_limitations(draft_text)
+ 2221: 
+ 2222:     kept: list[SentenceVerification] = []
+ 2223:     dropped: list[SentenceVerification] = []
+ 2224: 
+ 2225:     # Findings: strict provenance verification
+ 2226:     findings_sentences = split_into_sentences(findings_text)
+ 2227:     for s in findings_sentences:
+ 2228:         v = verify_sentence_provenance(
+ 2229:             s, evidence_pool,
+ 2230:             require_number_match=require_number_match,
+ 2231:             quantified_models=quantified_models,
+ 2232:         )
+ 2233:         if v.is_verified:
+ 2234:             kept.append(v)
+ 2235:         else:
+ 2236:             # I-complete-003 (#1189): before dropping, try to RE-ANCHOR the
+ 2237:             # sentence to a different span in its cited row (or, if uncited
+ 2238:             # but verbatim-grounded, to a pool row). The env gate early-outs
+ 2239:             # so OFF-mode is BYTE-IDENTICAL (no _try_reanchor call, no judge
+ 2240:             # call, no counter mutation). A rescued result has already passed
+ 2241:             # the SAME full gate, so no fabrication path is introduced; it
+ 2242:             # flows through the SAME downstream (kept[]) as a normally-verified
+ 2243:             # sentence.
+ 2244:             if _provenance_reanchor_enabled():
+ 2245:                 rescued = _try_reanchor(
+ 2246:                     s, evidence_pool,
+ 2247:                     require_number_match=require_number_match,
+ 2248:                     quantified_models=quantified_models,
+ 2249:                 )
+ 2250:                 if rescued is not None:
+ 2251:                     kept.append(rescued)
+ 2252:                     continue
+ 2253:             dropped.append(v)
+ 2254: 
+ 2255:     # Limitations: telemetry-grounded verification if block supplied,
+ 2256:     # else pass-through (M-204 backward-compat).
+ 2257:     limitations_sentences = split_into_sentences(limitations_text)
+ 2258:     for s in limitations_sentences:
+ 2259:         if telemetry_block is not None:
+ 2260:             v = verify_limitations_sentence_against_telemetry(
+ 2261:                 s, telemetry_block,
+ 2262:             )
+ 2263:             if v.is_verified:
+ 2264:                 kept.append(v)
+ 2265:             else:
+
+ succeeded in 10832ms:
+  180:     # Flag intentionally NOT set (fixture deleted it). Entailment off so no
+  181:     # judge fires either — proves the early-out happens before any new logic.
+  182:     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "off")
+  183:     fake = _FakeJudge("anything")
+  184:     _install_judge(monkeypatch, fake)
+  185: 
+  186:     leading = "The trial enrolled adults at sites."
+  187:     support = " Treatment produced an HbA1c reduction of 1.5 percent in adults."
+  188:     direct_quote = leading + support
+  189:     pool = {"ev_d": {"direct_quote": direct_quote}}
+  190:     wrong_end = len(leading)
+  191:     draft = (
+  192:         f"Treatment produced an HbA1c reduction of 1.5 percent in adults "
+  193:         f"[#ev:ev_d:0-{wrong_end}]."
+  194:     )
+  195: 
+  196:     report = strict_verify(draft, pool)
+  197:     assert report.total_kept == 0, "flag-off must NOT recover the sentence"
+  198:     assert report.total_dropped == 1
+  199:     # No re-anchor counters touched.
+  200:     tel = get_reanchor_telemetry()
+  201:     assert tel == {
+  202:         "reanchor_attempts": 0,
+  203:         "reanchor_recovered": 0,
+  204:         "reanchor_uncited_bound": 0,
+  205:         # I-perm-004 (#1198) slice 2: argmax-recovery counter, untouched in OFF mode.
+  206:         "reanchor_argmax_recovered": 0,
+  207:     }
+  208:     # Helper must agree it is disabled.
+  209:     assert _pg._provenance_reanchor_enabled() is False
+  210: 
+  211: 
+  212: # ---------------------------------------------------------------------------
+  213: # (e) laundering guard — flag ON, entailment OFF, coincidental mechanical match
+  214: # ---------------------------------------------------------------------------
+  215: def test_reanchor_off_entailment_does_not_launder(monkeypatch):
+  647:         "FAIL CLOSED, not bridge two segments via a whole-row window"
+  648:     )
+  649:     assert report.total_dropped == 1
+  650: 
+  651: 
+  652: # ---------------------------------------------------------------------------
+  653: # (k) I-perm-004 (#1198) slice 2 — boilerplate-aware ARGMAX picks the entailing
+  654: #     PROSE span where first-passing bound the earlier Title-cased span.
+  655: # ---------------------------------------------------------------------------
+  656: def _argmax_offsets(soft_warnings):
+  657:     """Pull (start, end) from a `reanchored*:ev:S-E[:...]` soft-warning."""
+  658:     for w in soft_warnings:
+  659:         if w.startswith("reanchored"):
+  660:             span = w.split(":")[2]  # ev id is field 1, S-E is field 2
+  661:             s, e = span.split("-")
+  662:             return int(s), int(e)
+  663:     return None
+  664: 
+  665: 
+  666: def test_argmax_prefers_prose_span_over_earlier_title(monkeypatch):
+  667:     """The supporting clause appears in BOTH a Title-Case segment (enumerated
+  668:     first) and a later prose segment. First-passing binds the title; the
+  669:     PG_SPAN_RESOLVER argmax binds the prose span and labels it q=prose."""
+  670:     monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
+  671:     monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
+  672:     _install_judge(monkeypatch, _FakeJudge("hba1c reduction of 1.5 percent"))
+  673: 
+  674:     admin = "Adults were enrolled at five sites."
+  675:     title = " HbA1c Reduction Of 1.5 Percent In Adults: Trial Result."
+  676:     prose = " The treatment produced an hba1c reduction of 1.5 percent in enrolled adults overall."
+  677:     direct_quote = admin + title + prose
+  678:     pool = {"ev_k": {"direct_quote": direct_quote}}
+  679:     wrong_end = len(admin)  # cite the admin clause (no support there) -> recovery fires
+  680:     draft = (
+  681:         f"Treatment produced an HbA1c reduction of 1.5 percent in adults "
+  682:         f"[#ev:ev_k:0-{wrong_end}]."
+  683:     )
+  684: 
+  685:     title_start = len(admin)
+  686:     prose_start = len(admin) + len(title)
+  687: 
+  688:     # --- flag OFF (first-passing): binds the earlier TITLE segment ---
+  689:     monkeypatch.delenv("PG_SPAN_RESOLVER", raising=False)
+  690:     reset_reanchor_telemetry()
+  691:     rep_off = strict_verify(draft, pool)
+  692:     assert rep_off.total_kept == 1
+  693:     off_warn = rep_off.kept_sentences[0].soft_warnings
+  694:     assert any(w.startswith("reanchored:ev_k:") for w in off_warn)
+  695:     off_s, off_e = _argmax_offsets(off_warn)
+  696:     assert "Trial Result" in direct_quote[off_s:off_e], "first-passing should bind the title segment"
+  697:     assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
+  698: 
+  699:     # --- flag ON (argmax): binds the PROSE segment, labeled q=prose ---
+  700:     monkeypatch.setenv("PG_SPAN_RESOLVER", "1")
+  701:     reset_reanchor_telemetry()
+  702:     rep_on = strict_verify(draft, pool)
+  703:     assert rep_on.total_kept == 1
+  704:     on_warn = rep_on.kept_sentences[0].soft_warnings
+  705:     assert any(w.startswith("reanchored_argmax:ev_k:") and ":q=prose:" in w for w in on_warn), on_warn
+  706:     on_s, on_e = _argmax_offsets(on_warn)
+  707:     assert "the treatment produced" in direct_quote[on_s:on_e].lower(), "argmax should bind the prose span"
+  708:     assert on_s != off_s, "argmax must pick a DIFFERENT (better) span than first-passing"
+  709:     assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1
+  710: 
+  711: 
+  712: 
+
+codex
+The cited Path 1 branch is structurally fail-closed: the resolver only sees candidates through `_candidate_passes`, and `_try_reanchor` verifies the selected rebound sentence again before returning it. I’m going one layer down into candidate generation and the verifier call shape now, because that’s where an accidental wider window or mismatched evidence binding would show up.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/generator/provenance_generator.py'; "'$lines=Get-Content -Path $p; for($i=900;$i -le 1075;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }; for($i=1510;$i -le 1895;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests/polaris_graph/generator/test_span_resolver_iperm004.py'; "'$lines=Get-Content -Path $p; for($i=1;$i -le 180;$i++){ '"'{0,5}: {1}' -f "'$i,$lines[$i-1] }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"resolve_best_entailing_span\\(|judge_fn=|_judge_only\\(\" src tests -g \"*.py\"" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "_REANCHOR_TELEMETRY|reset_reanchor_telemetry|get_reanchor_telemetry" src tests -g "*.py"' in C:\POLARIS
+ succeeded in 3114ms:
+  900: MIN_CONTENT_WORD_OVERLAP = int(
+  901:     os.getenv("PG_PROVENANCE_MIN_CONTENT_OVERLAP", "2")
+  902: )
+  903: 
+  904: # I-complete-003 (#1189) — PROVENANCE RE-ANCHOR.
+  905: #
+  906: # When a findings sentence FAILS verification on its CURRENTLY-cited span,
+  907: # before the sentence is dropped the re-anchor enumerates a BOUNDED set of
+  908: # candidate spans WITHIN the SAME cited evidence row (or, for an UNCITED but
+  909: # verbatim-grounded sentence, the pool row that verbatim-contains it) and
+  910: # re-runs the EXACT same `verify_sentence_provenance` acceptance gate against
+  911: # each candidate. The FIRST candidate that passes the FULL gate (numeric +
+  912: # >=MIN_CONTENT_WORD_OVERLAP content overlap + trial-name + NLI entailment)
+  913: # re-binds the sentence's [#ev:...] token to that span and the sentence is
+  914: # kept as RECOVERED. If NO candidate passes, the original drop stands — there
+  915: # is NO new acceptance path, so the re-anchor can ONLY ever bind to a span
+  916: # that already passes the full bar and therefore CANNOT introduce an
+  917: # unsupported / fabricated claim.
+  918: #
+  919: # Default-OFF: when PG_PROVENANCE_REANCHOR is falsy the re-anchor is a no-op
+  920: # and behaviour is BYTE-IDENTICAL to before (matches the gap-#18 /
+  921: # PG_VERIFICATION_MODE precedent). It is ALSO gated on entailment ==
+  922: # "enforce": under off/warn the reused verifier accepts on numeric +
+  923: # content-overlap ALONE with NO enforced entailment bind, and because the
+  924: # re-anchor ACTIVELY SEARCHES up to MAX_CANDIDATES windows for a coincidental
+  925: # mechanical match, accepting under off/warn would launder a drop into a pass
+  926: # (the §-1.1 lethal failure mode). So accept is permitted ONLY under enforce.
+  927: 
+  928: PG_PROVENANCE_REANCHOR_MAX_CANDIDATES = int(
+  929:     os.getenv("PG_PROVENANCE_REANCHOR_MAX_CANDIDATES", "40")
+  930: )
+  931: 
+  932: # Sliding-window size (chars) for enumerating candidate spans inside a row's
+  933: # direct_quote. Mirrors the _find_local_support_window / _find_local_content_window
+  934: # discipline (window=400) so a candidate is a bounded local slice, never the
+  935: # whole row.
+  936: PG_PROVENANCE_REANCHOR_WINDOW = int(
+  937:     os.getenv("PG_PROVENANCE_REANCHOR_WINDOW", "400")
+  938: )
+  939: 
+  940: 
+  941: def _provenance_reanchor_enabled() -> bool:
+  942:     """True iff PG_PROVENANCE_REANCHOR is set truthy. Read at call time so
+  943:     tests can toggle without re-import. Falsy (unset/0/false/no/off) => the
+  944:     re-anchor is a no-op and strict_verify is byte-identical to pre-#1189."""
+  945:     v = os.getenv("PG_PROVENANCE_REANCHOR", "").strip().lower()
+  946:     return v in ("1", "true", "yes", "on", "enabled")
+  947: 
+  948: 
+  949: # I-perm-004 (#1198) slice 2 — when PG_SPAN_RESOLVER is truthy, the re-anchor recovery uses the
+  950: # span_resolver BOILERPLATE-AWARE ARGMAX (best entailing prose span) instead of accepting the FIRST
+  951: # passing candidate in enumeration order (which let drb_76 rebind to the row TITLE). Default OFF =>
+  952: # the existing first-passing loop is byte-identical. The argmax still accepts ONLY a candidate that
+  953: # passes the SAME full gate (verify_sentence_provenance, allow_local_window_fallback=False) — the
+  954: # resolver's judge IS that gate — so no new fabrication path; it only CHOOSES a better span among
+  955: # the ones that already pass.
+  956: def _span_resolver_enabled() -> bool:
+  957:     """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
+  958:     v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
+  959:     return v in ("1", "true", "yes", "on", "enabled")
+  960: 
+  961: 
+  962: def _span_resolve_topk() -> int:
+  963:     """Bound on judge calls per row in the argmax recovery (PG_SPAN_RESOLVE_TOPK, default 4)."""
+  964:     try:
+  965:         return max(1, int(os.getenv("PG_SPAN_RESOLVE_TOPK", "4")))
+  966:     except ValueError:
+  967:         return 4
+  968: 
+  969: 
+  970: # I-complete-003 (#1189) — re-anchor telemetry. Module-level counters, read +
+  971: # reset by the sweep. ONLY mutated inside the flag-on path, so OFF-mode never
+  972: # touches them (byte-identity).
+  973: _REANCHOR_TELEMETRY: dict[str, int] = {
+  974:     "reanchor_attempts": 0,
+  975:     "reanchor_recovered": 0,
+  976:     "reanchor_uncited_bound": 0,
+  977:     # I-perm-004 (#1198) slice 2: recoveries via the boilerplate-aware argmax (subset of recovered).
+  978:     "reanchor_argmax_recovered": 0,
+  979: }
+  980: 
+  981: 
+  982: def get_reanchor_telemetry() -> dict[str, int]:
+  983:     """Snapshot of the re-anchor counters (attempts / recovered / uncited-bound)."""
+  984:     return dict(_REANCHOR_TELEMETRY)
+  985: 
+  986: 
+  987: def reset_reanchor_telemetry() -> None:
+  988:     """Zero the re-anchor counters (call between runs / tests)."""
+  989:     for k in _REANCHOR_TELEMETRY:
+  990:         _REANCHOR_TELEMETRY[k] = 0
+  991: 
+  992: 
+  993: # I-complete-003 iter-2 (#1189) P2-1: DECIMAL-AWARE sentence terminator. A period
+  994: # (``.``) that sits BETWEEN two digits (``1.5``, ``23.5``) is a decimal point, NOT
+  995: # a sentence boundary — segmenting on it would split a decimal number across two
+  996: # candidate spans, so the decimal-bearing support falls through to the sliding
+  997: # window (and, for short rows, to a whole-row rebind that weakens citation
+  998: # precision). ``!``/``?`` and a period NOT flanked by digits remain terminators.
+  999: _REANCHOR_SENTENCE_TERMINATOR_RE = re.compile(r"(?<!\d)[.](?!\d)|[!?]")
+ 1000: 
+ 1001: 
+ 1002: def _reanchor_candidate_spans(direct_quote: str) -> list[tuple[int, int]]:
+ 1003:     """Enumerate a BOUNDED set of candidate (start, end) spans inside a row's
+ 1004:     ``direct_quote``.
+ 1005: 
+ 1006:     Candidates are produced by (a) DECIMAL-AWARE sentence-segmenting the row text
+ 1007:     and (b) a sliding window of PG_PROVENANCE_REANCHOR_WINDOW chars stepped by
+ 1008:     half the window. Both are clamped to PG_PROVENANCE_REANCHOR_MAX_CANDIDATES
+ 1009:     total so there is NO compute blow-up on a large row. Each span is a valid
+ 1010:     ``0 <= start < end <= len(direct_quote)`` slice, so the reused verifier's
+ 1011:     span-bounds checks pass naturally.
+ 1012: 
+ 1013:     I-complete-003 iter-2 (#1189) P2-1:
+ 1014:       * segmentation does NOT split a decimal number at its period (a period
+ 1015:         between two digits is a decimal point, not a terminator), so a sentence
+ 1016:         like ``...reduction of 1.5 percent.`` stays in ONE candidate segment;
+ 1017:       * the DEGENERATE whole-row sliding-window candidate is SUPPRESSED for rows
+ 1018:         shorter than the window — re-binding the token to the WHOLE row weakens
+ 1019:         the claimed citation precision (it is not a tight supporting span). A
+ 1020:         sentence SEGMENT that legitimately spans the entire row (a single-sentence
+ 1021:         verbatim lift) is still emitted by branch (a), so genuine recovery on a
+ 1022:         one-sentence row is preserved.
+ 1023:     """
+ 1024:     if not direct_quote:
+ 1025:         return []
+ 1026:     n = len(direct_quote)
+ 1027:     cap = max(1, PG_PROVENANCE_REANCHOR_MAX_CANDIDATES)
+ 1028:     seen: set[tuple[int, int]] = set()
+ 1029:     candidates: list[tuple[int, int]] = []
+ 1030: 
+ 1031:     def _add(start: int, end: int) -> None:
+ 1032:         start = max(0, start)
+ 1033:         end = min(n, end)
+ 1034:         if start >= end:
+ 1035:             return
+ 1036:         key = (start, end)
+ 1037:         if key in seen:
+ 1038:             return
+ 1039:         seen.add(key)
+ 1040:         candidates.append(key)
+ 1041: 
+ 1042:     # (a) DECIMAL-AWARE sentence-segment candidates: split on sentence
+ 1043:     # terminators that are NOT decimal points, keeping the trailing terminator
+ 1044:     # with its segment. Each non-blank segment becomes a candidate span.
+ 1045:     seg_start = 0
+ 1046:     for m in _REANCHOR_SENTENCE_TERMINATOR_RE.finditer(direct_quote):
+ 1047:         if len(candidates) >= cap:
+ 1048:             return candidates[:cap]
+ 1049:         seg_end = m.end()  # include the terminator char in the segment
+ 1050:         if direct_quote[seg_start:seg_end].strip():
+ 1051:             _add(seg_start, seg_end)
+ 1052:         seg_start = seg_end
+ 1053:     # Trailing segment (no terminating punctuation at end of row).
+ 1054:     if seg_start < n and direct_quote[seg_start:n].strip() and len(candidates) < cap:
+ 1055:         _add(seg_start, n)
+ 1056: 
+ 1057:     # (b) Sliding-window candidates (half-window step) over the full row, to
+ 1058:     # catch support that straddles sentence boundaries. P2-1: SKIP the degenerate
+ 1059:     # whole-row window — when the window is >= the row length the only candidate
+ 1060:     # the sliding loop would add is (0, n), a whole-row rebind that weakens
+ 1061:     # citation precision. Branch (a) already supplies any legitimate full-row
+ 1062:     # SENTENCE segment, so genuine recovery is unaffected.
+ 1063:     window = max(1, PG_PROVENANCE_REANCHOR_WINDOW)
+ 1064:     if window < n:
+ 1065:         step = max(1, window // 2)
+ 1066:         pos = 0
+ 1067:         while pos < n and len(candidates) < cap:
+ 1068:             _add(pos, pos + window)
+ 1069:             pos += step
+ 1070: 
+ 1071:     return candidates[:cap]
+ 1072: 
+ 1073: 
+ 1074: def _rebind_single_token(sentence: str, evidence_id: str, start: int, end: int) -> str:
+ 1075:     """Rewrite the sentence's [#ev:...] provenance token(s) to a new
+ 1510:             failure_reasons=failures,
+ 1511:         )
+ 1512:     return SentenceVerification(
+ 1513:         sentence=sentence, tokens=src_tokens, is_verified=True,
+ 1514:         failure_reasons=[], soft_warnings=["regime_c_modeled_verified"],
+ 1515:     )
+ 1516: 
+ 1517: 
+ 1518: def verify_sentence_provenance(
+ 1519:     sentence: str,
+ 1520:     evidence_pool: dict[str, dict[str, Any]],
+ 1521:     *,
+ 1522:     require_number_match: bool = True,
+ 1523:     quantified_models: dict[tuple[str, str], Any] | None = None,
+ 1524:     allow_local_window_fallback: bool = True,
+ 1525: ) -> SentenceVerification:
+ 1526:     """Verify every provenance token in a sentence.
+ 1527: 
+ 1528:     Checks:
+ 1529:       1. Evidence ID exists in pool.
+ 1530:       2. Span bounds are within evidence direct_quote length.
+ 1531:       3. If require_number_match AND the sentence contains numbers,
+ 1532:          each number must appear in the claimed span text.
+ 1533: 
+ 1534:     Phase 7 (#991) — Regime C router: when ``quantified_models`` is supplied
+ 1535:     (run-scoped registry keyed by (model_id, spec_hash)) AND the sentence carries
+ 1536:     a ``[#calc:...]`` token, the sentence is FORCE-ROUTED to
+ 1537:     ``verify_modeled_atom`` BEFORE the Regime-A machinery below and that result is
+ 1538:     returned. ``quantified_models=None`` (default) skips the router entirely →
+ 1539:     Regime A is byte-identical.
+ 1540: 
+ 1541:     I-complete-003 iter-2 (#1189) — ``allow_local_window_fallback`` (default
+ 1542:     True, byte-identical to pre-iter-2). When FALSE, the two gap-#18 LOCAL-WINDOW
+ 1543:     rescue sites are DISABLED so the sentence passes ONLY if its OWN bound span
+ 1544:     directly clears the content/numeric floor AND directly entails — no different
+ 1545:     in-row window may rescue it. This is set FALSE from ``_try_reanchor`` so the
+ 1546:     re-anchored token's FINAL BOUND SPAN ITSELF DIRECTLY SUPPORTS the claim; the
+ 1547:     Codex iter-1 P1 leak (a candidate span kept on the back of a DIFFERENT
+ 1548:     entailing window while the token stays bound to the non-entailing span) is
+ 1549:     structurally closed. Production strict_verify keeps the default True, so the
+ 1550:     Phase 0b grounded-prose rescue is unchanged outside the re-anchor accept gate.
+ 1551:     """
+ 1552:     if quantified_models is not None:
+ 1553:         _calc_matches = list(_CALC_TOKEN_RE.finditer(sentence))
+ 1554:         if _calc_matches:
+ 1555:             # Fail-closed sentence-shape rules (brief §1.5: AT MOST one calc number
+ 1556:             # per sentence). >1 calc token would leave the 2nd..Nth number
+ 1557:             # unverified after the 1st is checked; a MIXED [#calc:]+[#ev:] sentence
+ 1558:             # would launder an unverified Regime-A numeric claim through the calc
+ 1559:             # path. Both drop the whole sentence.
+ 1560:             if len(_calc_matches) > 1:
+ 1561:                 return SentenceVerification(
+ 1562:                     sentence=sentence, tokens=[], is_verified=False,
+ 1563:                     failure_reasons=["calc_multiple_tokens_in_sentence"],
+ 1564:                 )
+ 1565:             if _PROVENANCE_TOKEN_RE.search(sentence):
+ 1566:                 return SentenceVerification(
+ 1567:                     sentence=sentence, tokens=[], is_verified=False,
+ 1568:                     failure_reasons=["calc_mixed_with_ev_token"],
+ 1569:                 )
+ 1570:             return verify_modeled_atom(
+ 1571:                 sentence, _calc_matches[0], quantified_models, evidence_pool,
+ 1572:             )
+ 1573: 
+ 1574:     tokens = parse_provenance_tokens(sentence)
+ 1575:     failures: list[str] = []
+ 1576:     # Phase 0b Delta 3 (I-meta-005, gap-#18): tracks whether the entailment
+ 1577:     # judge failed OPEN ((ENTAILED,"judge_error: ...")). Set in either judge
+ 1578:     # call below; consumed by the ON-mode fail-closed gate near the return.
+ 1579:     # HOISTED to function-body top (build agent EDIT-8 scope check): the
+ 1580:     # entailment block is nested inside `if require_number_match and
+ 1581:     # valid_token_found:`, so an init at the `if not failures:` site would NOT
+ 1582:     # be in scope at the return when valid_token_found is False (e.g. all
+ 1583:     # tokens fail evidence_not_in_pool) -> NameError. Init here so it is always
+ 1584:     # defined at the return.
+ 1585:     judge_error_flag = False
+ 1586: 
+ 1587:     # I-gen-005 Step 3b commit 1: verifier_text strips ALL citation
+ 1588:     # artifacts (provenance tokens + atom_NNN + bare [ev_XXX]) for ALL
+ 1589:     # internal verifier checks. The original sentence is preserved
+ 1590:     # on the returned SentenceVerification.sentence so downstream
+ 1591:     # (atom_refusal_validator, citation resolver) see atom_NNN tokens.
+ 1592:     # Per Codex Step 3b iter-2 P1: leaving atom_NNN in numeric or
+ 1593:     # content-overlap or entailment inputs would falsely drop valid
+ 1594:     # atom-cited sentences.
+ 1595:     sentence_for_numbers = _verifier_cleaned_text(sentence)
+ 1596: 
+ 1597:     if not tokens:
+ 1598:         # Sentences without provenance are rejected outright.
+ 1599:         return SentenceVerification(
+ 1600:             sentence=sentence,
+ 1601:             tokens=[],
+ 1602:             is_verified=False,
+ 1603:             failure_reasons=["no_provenance_token"],
+ 1604:         )
+ 1605: 
+ 1606:     # Fix-3b: When a sentence has multiple citations (e.g.,
+ 1607:     # [#ev:a][#ev:b][#ev:c]), the decimals in the sentence may come
+ 1608:     # from DIFFERENT cited spans — the ICER trial's 86.6% treatment
+ 1609:     # arm AND the placebo-comparator 47.6% from a different span. The
+ 1610:     # verifier should require that each decimal in the sentence is
+ 1611:     # found in SOME cited span (union), not in every span.
+ 1612:     #
+ 1613:     # Also: placebo-arm numbers (e.g., "vs 2.4% with placebo") and
+ 1614:     # achievement thresholds ("≥5%") are filtered from the set of
+ 1615:     # decimals we require to verify — they're comparator/structural,
+ 1616:     # not the claim itself.
+ 1617:     aggregated_span_decimals: set[str] = set()
+ 1618:     aggregated_span_text: list[str] = []
+ 1619:     valid_token_found = False
+ 1620:     for tok in tokens:
+ 1621:         ev = evidence_pool.get(tok.evidence_id)
+ 1622:         if ev is None:
+ 1623:             failures.append(f"evidence_not_in_pool:{tok.evidence_id}")
+ 1624:             continue
+ 1625:         direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+ 1626:         if tok.end > len(direct_quote):
+ 1627:             failures.append(
+ 1628:                 f"span_out_of_bounds:{tok.evidence_id}:{tok.end}>{len(direct_quote)}"
+ 1629:             )
+ 1630:             continue
+ 1631:         if tok.start < 0 or tok.start >= tok.end:
+ 1632:             failures.append(
+ 1633:                 f"span_invalid:{tok.evidence_id}:{tok.start}-{tok.end}"
+ 1634:             )
+ 1635:             continue
+ 1636:         valid_token_found = True
+ 1637:         span_text = direct_quote[tok.start:tok.end]
+ 1638:         span_stripped = _strip_dose_patterns(span_text)
+ 1639:         aggregated_span_decimals |= _decimals_in(span_stripped)
+ 1640:         aggregated_span_text.append(span_text)
+ 1641: 
+ 1642:     # BUG-03 (FX-02, #1106): the empty/contentless floor runs UNCONDITIONALLY whenever a valid
+ 1643:     # token exists — NOT nested inside `if require_number_match and valid_token_found:` (Codex
+ 1644:     # iter-1 P2: nesting it left a token-only sentence verifiable when a caller passes
+ 1645:     # require_number_match=False). A sentence with NO content words AND no decimals AND no integers
+ 1646:     # (residue reduces to ".") is a token-only / punctuation-only / all-stopword "sentence" and is
+ 1647:     # never a valid clinical claim, regardless of number-matching. Computed on the same
+ 1648:     # dose/placebo/threshold-stripped text the numeric floor uses. Strictly faithfulness-TIGHTENING:
+ 1649:     # any content word OR number routes to the existing overlap/numeric floors (no false-drop).
+ 1650:     if valid_token_found:
+ 1651:         _bug03_stripped = _strip_dose_patterns(sentence_for_numbers)
+ 1652:         _bug03_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", _bug03_stripped)
+ 1653:         _bug03_stripped = _THRESHOLD_RE.sub(" ", _bug03_stripped)
+ 1654:         _bug03_no_content = not _content_words(_bug03_stripped)
+ 1655:         _bug03_no_numbers = (
+ 1656:             not _decimals_in(_bug03_stripped) and not _numbers_in(_bug03_stripped)
+ 1657:         )
+ 1658:         # Drop a content-word-LESS sentence when EITHER it is fully empty (no numbers either —
+ 1659:         # token-only/punctuation residue) OR number-matching is disabled. Codex iter-2 P2: under
+ 1660:         # require_number_match=False the numeric/content/entailment block is SKIPPED, so a
+ 1661:         # numeric-only fragment like "23.5 [#ev:...]" is never validated against the span — a bare
+ 1662:         # number with no content words is unverifiable and is not a prose claim, so fail closed.
+ 1663:         if _bug03_no_content and (_bug03_no_numbers or not require_number_match):
+ 1664:             failures.append("empty_or_contentless_sentence")
+ 1665: 
+ 1666:     if require_number_match and valid_token_found:
+ 1667:         sentence_stripped = _strip_dose_patterns(sentence_for_numbers)
+ 1668:         # Strip placebo-comparator phrases (treat their numbers as
+ 1669:         # structural, not claim). Examples: "vs 2.4% with placebo",
+ 1670:         # "versus 47.6% placebo", "compared to 5% placebo".
+ 1671:         sentence_stripped = _PLACEBO_COMPARATOR_RE.sub(" ", sentence_stripped)
+ 1672:         # Strip achievement-threshold patterns.
+ 1673:         sentence_stripped = _THRESHOLD_RE.sub(" ", sentence_stripped)
+ 1674: 
+ 1675:         sentence_decimals = _decimals_in(sentence_stripped)
+ 1676:         # I-ready-018 FIX-A3 (#1143): build the span INTEGER aggregate from the CITED span text only
+ 1677:         # (aggregated_span_decimals was already built from direct_quote[tok.start:tok.end] above).
+ 1678:         aggregated_span_numbers: set[str] = set()
+ 1679:         for tok in tokens:
+ 1680:             ev = evidence_pool.get(tok.evidence_id)
+ 1681:             if ev is None:
+ 1682:                 continue
+ 1683:             direct_quote = ev.get("direct_quote") or ev.get("statement") or ""
+ 1684:             span_text = direct_quote[tok.start:tok.end]
+ 1685:             aggregated_span_numbers |= _numbers_in(_strip_dose_patterns(span_text))
+ 1686:         ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+ 1687:         # FIX-A3 ROOT CAUSE: `_numbers_in` (-?\d+(?:\.\d+)?) is a SUPERSET of `_decimals_in`
+ 1688:         # (-?\d+\.\d+). The prior gate checked decimals OR integers (`if sentence_decimals: ...
+ 1689:         # else: ...`), so a sentence with an IN-span decimal AND an OUT-of-span standalone integer
+ 1690:         # (drb_72 03-004: in-span "5.4"/"3.7" + out-of-span "50"/"19" at index 8421) took the decimal
+ 1691:         # branch and its integers were NEVER checked → it passed VERIFIED. Now BOTH are checked, each
+ 1692:         # SPAN-SCOPED: every sentence decimal AND every standalone integer must appear in a cited span.
+ 1693:         # The prior I-gen-005 local-window fallback (which rescued a number found ANYWHERE in the whole
+ 1694:         # direct_quote, even outside the cited span) is removed: a number genuinely inside a cited span
+ 1695:         # is already in the span aggregate and so never reaches the missing-set, so the rescue could
+ 1696:         # only ever pass an out-of-span number — the §-1.1 "number not in the cited span" leak.
+ 1697:         if sentence_decimals:
+ 1698:             missing_in_span = sentence_decimals - aggregated_span_decimals
+ 1699:             if missing_in_span:
+ 1700:                 failures.append(
+ 1701:                     f"number_not_in_any_cited_span:{ev_ids}:"
+ 1702:                     f"missing={sorted(missing_in_span)}"
+ 1703:                 )
+ 1704:             # FIX-A3 iter-2 (Codex P1): the decimal is the claim, but a PERCENT-expressed standalone
+ 1705:             # integer beside it is ALSO a claim (drb_72 03-004 "50% versus 19%"). Check ONLY
+ 1706:             # %-expressed integers here — NOT every integer — so structural/admin integers (week 68,
+ 1707:             # STEP 1, 104 weeks, phase 3) are NOT required in the span and a decimal claim sitting
+ 1708:             # beside a trial/week label is not false-dropped (per the _DECIMAL_NUMBER_RE exemption).
+ 1709:             claimed_pct_ints = {
+ 1710:                 m.group(1) for m in _INTEGER_PERCENT_RE.finditer(sentence_stripped)
+ 1711:             } - sentence_decimals
+ 1712:             if claimed_pct_ints:
+ 1713:                 aggregated_span_int_only = aggregated_span_numbers - aggregated_span_decimals
+ 1714:                 missing_pct_int = claimed_pct_ints - aggregated_span_int_only
+ 1715:                 if missing_pct_int:
+ 1716:                     failures.append(
+ 1717:                         f"no_integer_overlap_any_cited_span:{ev_ids}:"
+ 1718:                         f"missing={sorted(missing_pct_int)}"
+ 1719:                     )
+ 1720:         else:
+ 1721:             # No decimals: the integers ARE the claim — EVERY standalone integer must appear in a
+ 1722:             # cited span (I-faith-001 Fix D, unchanged in scope). FIX-A3 only removed the prior
+ 1723:             # local-window out-of-span rescue (a number in no cited span now fails directly).
+ 1724:             sentence_numbers = _numbers_in(sentence_stripped)
+ 1725:             missing_int_in_span = sentence_numbers - aggregated_span_numbers
+ 1726:             if sentence_numbers and missing_int_in_span:
+ 1727:                 failures.append(
+ 1728:                     f"no_integer_overlap_any_cited_span:{ev_ids}:"
+ 1729:                     f"missing={sorted(missing_int_in_span)}"
+ 1730:                 )
+ 1731: 
+ 1732:         # Codex round 1 B-1: semantic grounding for non-numeric claims.
+ 1733:         # A sentence like "Semaglutide improved sleep quality [#ev:ev1:0-20]"
+ 1734:         # used to pass verification because it had no numbers — only the
+ 1735:         # numeric-mismatch branches ran. Now we ALSO require at least
+ 1736:         # MIN_CONTENT_WORD_OVERLAP content words (non-stopword, >=3 chars)
+ 1737:         # to appear in the aggregated cited-span text. Zero overlap =
+ 1738:         # unsupported claim, sentence dropped.
+ 1739:         sentence_content = _content_words(sentence_stripped)
+ 1740:         span_content = _content_words(" ".join(aggregated_span_text))
+ 1741:         if sentence_content:
+ 1742:             overlap = sentence_content & span_content
+ 1743:             if len(overlap) < MIN_CONTENT_WORD_OVERLAP:
+ 1744:                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+ 1745:                 # Phase 0b Delta 1 (I-meta-005, gap-#18): the narrow cited
+ 1746:                 # byte-range may miss content words the FULL cited row supports
+ 1747:                 # (the gap-#18 grounded-prose drop). Per brief §3.3 + R1: the
+ 1748:                 # floor-clear only PROPOSES a candidate (a bounded <=400-char
+ 1749:                 # window in a cited row holding >=MIN content words); the
+ 1750:                 # entailment BIND happens DOWNSTREAM — the entailment block
+ 1751:                 # below judges the narrow span, and on NEUTRAL the Delta-2
+ 1752:                 # bounded-window re-judge accepts iff ENTAILED (else fail-closed).
+ 1753:                 #
+ 1754:                 # HARD GATE (Codex diff-gate P1 + architect P1, brief HARD
+ 1755:                 # CONSTRAINT #5): the floor-clear is gated on the entailment
+ 1756:                 # judge being in ENFORCE mode — the ONLY mode where the
+ 1757:                 # downstream NEUTRAL/CONTRADICTED bind actually DROPS. Under
+ 1758:                 # PG_STRICT_VERIFY_ENTAILMENT=off the judge never runs, and under
+ 1759:                 # =warn the judge runs but NEVER drops (log-only). In both, a
+ 1760:                 # content-words-only floor-clear would be the SOLE gate —
+ 1761:                 # laundering a drop into a pass with no enforced bind. So Delta 1
+ 1762:                 # proposes ONLY when entailment is enforce; otherwise the pre-0b
+ 1763:                 # content-floor drop stays (fail-closed). off = no rescue
+ 1764:                 # (byte-identical). shadow = log would-propose, still fail
+ 1765:                 # (output + spend neutral, NO judge call). enforce-verification +
+ 1766:                 # enforce-entailment + window = clear, deferring to the bind.
+ 1767:                 _vmode_c = _verification_mode()
+ 1768:                 _rescued_c = False
+ 1769:                 # I-complete-003 iter-2 (#1189) P1: when allow_local_window_fallback
+ 1770:                 # is False (the re-anchor accept gate), this full-row content-floor
+ 1771:                 # rescue is DISABLED — the bound span's OWN narrow content overlap
+ 1772:                 # must clear the floor, so a different in-row window can never
+ 1773:                 # rescue a non-supporting candidate span. Default True preserves
+ 1774:                 # the Phase 0b grounded-prose rescue byte-for-byte.
+ 1775:                 if allow_local_window_fallback and _vmode_c in ("shadow", "enforce"):
+ 1776:                     from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+ 1777:                         _entailment_mode as _emode_c,
+ 1778:                     )
+ 1779:                     if _emode_c() == "enforce":
+ 1780:                         for tok in tokens:
+ 1781:                             ev = evidence_pool.get(tok.evidence_id)
+ 1782:                             if ev is None:
+ 1783:                                 continue
+ 1784:                             dq_c = ev.get("direct_quote") or ev.get("statement") or ""
+ 1785:                             if _find_local_content_window(
+ 1786:                                 sentence_content, dq_c, window=400,
+ 1787:                                 min_content_overlap=MIN_CONTENT_WORD_OVERLAP,
+ 1788:                             ):
+ 1789:                                 _rescued_c = True
+ 1790:                                 logger.warning(
+ 1791:                                     "[provenance] %s content_floor_full_row "
+ 1792:                                     "ev=%s — narrow span missed content words; "
+ 1793:                                     "bounded full-row window exists, deferring "
+ 1794:                                     "to the downstream entailment bind",
+ 1795:                                     "ENFORCE_propose" if _vmode_c == "enforce"
+ 1796:                                     else "SHADOW_would_propose",
+ 1797:                                     tok.evidence_id,
+ 1798:                                 )
+ 1799:                                 break
+ 1800:                 if not (_vmode_c == "enforce" and _rescued_c):
+ 1801:                     failures.append(
+ 1802:                         f"no_content_word_overlap_any_cited_span:{ev_ids}:"
+ 1803:                         f"sentence_words={sorted(sentence_content)[:5]}"
+ 1804:                     )
+ 1805: 
+ 1806:         # M-25a: trial-name match. If the sentence names a specific
+ 1807:         # trial (SURPASS-N, SURMOUNT-N, SELECT, LEADER, etc.), at least
+ 1808:         # one cited evidence row must mention that trial. Prevents the
+ 1809:         # DR pass-4 FABRICATED-#20 defect (SURMOUNT-1 claim bound to
+ 1810:         # SURMOUNT-3 paper).
+ 1811:         sentence_trials = extract_trial_names(sentence_for_numbers)
+ 1812:         if sentence_trials:
+ 1813:             # I-meta-002-q1d (#949): resolve each cited row ROW-LOCALLY — title/statement authority, else
+ 1814:             # the CITED SPANS for THAT row only (never whole direct_quote, never cross-row spans).
+ 1815:             spans_by_ev: dict[str, list[tuple[int, int]]] = {}
+ 1816:             for tok in tokens:
+ 1817:                 spans_by_ev.setdefault(tok.evidence_id, []).append((tok.start, tok.end))
+ 1818:             evidence_trials: set[str] = set()
+ 1819:             for ev_id, cited_spans in spans_by_ev.items():
+ 1820:                 ev = evidence_pool.get(ev_id)
+ 1821:                 evidence_trials |= _trial_names_for_cited_row(ev or {}, cited_spans)
+ 1822:             matched = sentence_trials & evidence_trials
+ 1823:             if not matched:
+ 1824:                 ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+ 1825:                 failures.append(
+ 1826:                     f"trial_name_mismatch:{ev_ids}:"
+ 1827:                     f"sentence_trials={sorted(sentence_trials)}:"
+ 1828:                     f"evidence_trials={sorted(evidence_trials)}"
+ 1829:                 )
+ 1830: 
+ 1831:         # I-bug-098: entailment judge as the 6th check, runs LAST after
+ 1832:         # all mechanical checks pass. Closes the production audit gap
+ 1833:         # the I-bug-092..097 clinical_generator/ wiring did NOT close (the
+ 1834:         # production sweep at scripts/run_honest_sweep_r3.py uses THIS
+ 1835:         # verifier, not clinical_generator/strict_verify). Same env gate
+ 1836:         # PG_STRICT_VERIFY_ENTAILMENT={off,warn,enforce} (default
+ 1837:         # enforce per I-bug-095). Reuses the judge + telemetry from
+ 1838:         # clinical_generator.strict_verify so a single counter snapshot covers
+ 1839:         # both code paths. Lazy import keeps this module's cold-import
+ 1840:         # cost zero in off-mode and avoids circular import (the
+ 1841:         # clinical_generator.strict_verify module does NOT import from
+ 1842:         # polaris_graph.generator).
+ 1843:         if not failures:
+ 1844:             from src.polaris_graph.clinical_generator.strict_verify import (  # noqa: PLC0415
+ 1845:                 _entailment_mode,
+ 1846:                 _get_judge,
+ 1847:                 _record_judge_outcome,
+ 1848:             )
+ 1849: 
+ 1850:             mode = _entailment_mode()
+ 1851:             if mode in ("warn", "enforce"):
+ 1852:                 # Step 3b commit 1 fix (Codex PR #906 iter-1 P1): use
+ 1853:                 # _verifier_cleaned_text so atom_NNN (Step 3a additive
+ 1854:                 # contract) is invisible to the entailment judge. Prior
+ 1855:                 # bare _PROVENANCE_TOKEN_RE.sub left atom_NNN tokens in
+ 1856:                 # the judged sentence text — judge sees noise + may
+ 1857:                 # false-NEUTRAL/CONTRADICTED valid atom-cited claims.
+ 1858:                 sentence_clean = _verifier_cleaned_text(sentence)
+ 1859:                 combined_span = " ".join(aggregated_span_text)
+ 1860:                 verdict, reason = _get_judge().judge(
+ 1861:                     sentence_clean, combined_span,
+ 1862:                 )
+ 1863:                 _record_judge_outcome(verdict, reason)
+ 1864:                 # Phase 0b Delta 3: the judge fails OPEN (entailment_judge.py:147)
+ 1865:                 # returning ("ENTAILED","judge_error: ..."). Flag it; ON mode
+ 1866:                 # fails-closed near the return. OFF leaves is_verified unchanged
+ 1867:                 # (pre-0b fail-open preserved — filed as a separate gated issue).
+ 1868:                 if verdict == "ENTAILED" and reason.startswith("judge_error:"):
+ 1869:                     judge_error_flag = True
+ 1870:                 if verdict in ("NEUTRAL", "CONTRADICTED") and not allow_local_window_fallback:
+ 1871:                     # I-complete-003 iter-2 (#1189) P1: the re-anchor accept gate
+ 1872:                     # passes allow_local_window_fallback=False so the BOUND SPAN
+ 1873:                     # ITSELF must directly entail. A NEUTRAL/CONTRADICTED on the
+ 1874:                     # narrow bound span fails closed HERE (under enforce) — no
+ 1875:                     # different in-row window may rescue a non-supporting candidate
+ 1876:                     # span. Mirrors the existing no-window branch (warn = log-only,
+ 1877:                     # off = unchanged); the rescue search below is skipped entirely.
+ 1878:                     if mode == "enforce":
+ 1879:                         ev_ids = ",".join(sorted({t.evidence_id for t in tokens}))
+ 1880:                         failures.append(
+ 1881:                             f"entailment_failed:{ev_ids}:"
+ 1882:                             f"verdict={verdict}:reason={reason[:80]}"
+ 1883:                         )
+ 1884:                 elif verdict in ("NEUTRAL", "CONTRADICTED"):
+ 1885:                     # I-gen-005 Step 1 (Codex iter 1 P1 #3): localize
+ 1886:                     # entailment fallback. Codex iter 1 caught that
+ 1887:                     # passing whole `direct_quote` to the judge is the
+ 1888:                     # same architectural shape as the rejected
+ 1889:                     # whole-document numeric fallback — a 25k-char
+ 1890:                     # review can entail a claim from an unrelated
+ 1891:                     # paragraph. Fix: recover a BOUNDED local support
+ 1892:                     # window (same helper that catches numeric drops)
+ 1893:                     # then judge ONLY against that window.
+ 1894:                     #
+ 1895:                     # The local window is built from the sentence's
+
+ succeeded in 5245ms:
+    1: """I-perm-004 (#1198) span resolver — keystone unit tests (pure, stub judge).
+    2: 
+    3: Covers the deterministic boilerplate classifier and the entailing-span ARGMAX. The §-1.1-lethal
+    4: risk is MANUFACTURING support, so the binding assertions are: the resolver returns ONLY a span the
+    5: injected judge accepted; a boilerplate-only support yields a LABELED low-confidence result (never a
+    6: silent high); and the argmax prefers real prose over a co-entailing title (the drb_76 "re-anchored
+    7: to the TITLE" bug).
+    8: """
+    9: 
+   10: from __future__ import annotations
+   11: 
+   12: from src.polaris_graph.generator import span_resolver as sr
+   13: 
+   14: 
+   15: # --- classify_span -------------------------------------------------------------------------
+   16: 
+   17: 
+   18: def test_classify_prose():
+   19:     assert (
+   20:         sr.classify_span(
+   21:             "Probiotic use was strongly associated with Saccharomyces fungemia in immunocompromised "
+   22:             "patients across five hospitals."
+   23:         )
+   24:         == sr.QUALITY_PROSE
+   25:     )
+   26: 
+   27: 
+   28: def test_classify_boilerplate_buckets():
+   29:     assert sr.classify_span("https://doi.org/10.3201/eid2708.210018 full text") == sr.QUALITY_URL
+   30:     assert sr.classify_span("Altmetric: tweeted by 42, 18 Mendeley readers") == sr.QUALITY_ALTMETRIC
+   31:     assert sr.classify_span("[12] Smith J, et al. (2021) doi:10.1056/x pp. 22-30") == sr.QUALITY_REFERENCE_LIST
+   32:     assert sr.classify_span("Department of Microbiology, University of Helsinki") == sr.QUALITY_AFFILIATION
+   33:     assert sr.classify_span("Skip to main content") == sr.QUALITY_NAV_LINK
+   34:     # Codex slice-1 P2: pipe-separated link bar + keyword chrome must be nav (not prose@conf-1.0).
+   35:     assert (
+   36:         sr.classify_span("home | articles | current issue | archives | about the journal | submit manuscript.")
+   37:         == sr.QUALITY_NAV_LINK
+   38:     )
+   39:     assert (
+   40:         sr.classify_span(
+   41:             "www.example.com current issue archive author guidelines submit manuscript editorial board contact us."
+   42:         )
+   43:         == sr.QUALITY_NAV_LINK
+   44:     )
+   45:     # short, terminator-free, title-case -> title; trailing-colon / very short -> header
+   46:     assert sr.classify_span("Saccharomyces boulardii Fungemia and Probiotic Safety") == sr.QUALITY_TITLE
+   47:     assert sr.classify_span("Methods:") == sr.QUALITY_HEADER
+   48:     assert sr.is_boilerplate_quality(sr.QUALITY_TITLE)
+   49:     assert not sr.is_boilerplate_quality(sr.QUALITY_PROSE)
+   50: 
+   51: 
+   52: # --- resolve_best_entailing_span -----------------------------------------------------------
+   53: 
+   54: # A row whose TITLE (chars 0..52) lexically resembles the claim but a later PROSE span (chars ~120+)
+   55: # actually entails it — the drb_76 "re-anchored to the title" shape.
+   56: _TITLE = "Saccharomyces boulardii Fungemia: A Probiotic Safety Concern. "
+   57: _PROSE = (
+   58:     "The registry study found that boulardii probiotic use was strongly associated with fungemia "
+   59:     "in immunocompromised patients compared with controls. "
+   60: )
+   61: _BADGE = "Altmetric badge: tweeted by 31 accounts; 12 Mendeley readers."
+   62: _ROW = _TITLE + _PROSE + _BADGE
+   63: _CLAIM = "Boulardii probiotic use was strongly associated with fungemia in immunocompromised patients."
+   64: 
+   65: _TITLE_SPAN = (0, len(_TITLE))
+   66: _PROSE_SPAN = (len(_TITLE), len(_TITLE) + len(_PROSE))
+   67: _BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
+   68: 
+   69: 
+   70: def _judge_only(*entailing_texts):
+   71:     """A stub judge that entails iff the span text is one of the given (stripped) texts.
+   72: 
+   73:     Signature mirrors production: ``judge(sentence, span, span_text)`` — the wiring closure re-binds
+   74:     the token to ``span`` and runs the full gate; the stub only needs the text.
+   75:     """
+   76:     targets = {t.strip() for t in entailing_texts}
+   77:     calls = {"n": 0}
+   78: 
+   79:     def judge(sentence: str, span: tuple[int, int], span_text: str) -> bool:
+   80:         calls["n"] += 1
+   81:         return span_text.strip() in targets
+   82: 
+   83:     judge.calls = calls  # type: ignore[attr-defined]
+   84:     return judge
+   85: 
+   86: 
+   87: def test_picks_entailing_prose_over_lexical_title():
+   88:     # Judge entails ONLY the prose span (the title does not actually support the claim).
+   89:     judge = _judge_only(_PROSE)
+   90:     res = sr.resolve_best_entailing_span(
+   91:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+   92:     )
+   93:     assert res is not None
+   94:     assert res.best_span == _PROSE_SPAN
+   95:     assert res.provenance_quality == sr.QUALITY_PROSE
+   96:     assert res.confidence >= 0.7  # prose-entailed -> moderate/high
+   97: 
+   98: 
+   99: def test_argmax_prefers_prose_when_both_entail():
+  100:     # Even if BOTH title and prose entail, the argmax must pick prose (higher quality).
+  101:     judge = _judge_only(_TITLE, _PROSE)
+  102:     res = sr.resolve_best_entailing_span(
+  103:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+  104:     )
+  105:     assert res is not None
+  106:     assert res.provenance_quality == sr.QUALITY_PROSE
+  107:     assert res.best_span == _PROSE_SPAN
+  108: 
+  109: 
+  110: def test_title_only_support_is_labeled_low_not_silent_high():
+  111:     # When ONLY the title entails, the claim is recovered but LABELED low-confidence boilerplate.
+  112:     judge = _judge_only(_TITLE)
+  113:     res = sr.resolve_best_entailing_span(
+  114:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+  115:     )
+  116:     assert res is not None
+  117:     assert res.provenance_quality == sr.QUALITY_TITLE
+  118:     assert sr.is_boilerplate_quality(res.provenance_quality)
+  119:     assert res.confidence < 0.6  # never reads as high
+  120: 
+  121: 
+  122: def test_returns_none_when_nothing_entails():
+  123:     judge = _judge_only()  # entails nothing
+  124:     res = sr.resolve_best_entailing_span(
+  125:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+  126:     )
+  127:     assert res is None
+  128: 
+  129: 
+  130: def test_only_returns_a_judge_accepted_span():
+  131:     # The badge span lexically shares "probiotic"/"fungemia"-ish tokens but the judge rejects it;
+  132:     # it must NEVER be returned (no manufactured support).
+  133:     judge = _judge_only(_BADGE)  # pretend only the badge "entails"
+  134:     res = sr.resolve_best_entailing_span(
+  135:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+  136:     )
+  137:     assert res is not None and res.best_span == _BADGE_SPAN  # judge is the gate; resolver obeys it
+  138:     # ...and conversely, with the badge rejected it is never chosen:
+  139:     judge2 = _judge_only(_PROSE)
+  140:     res2 = sr.resolve_best_entailing_span(
+  141:         _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge2
+  142:     )
+  143:     assert res2 is not None and res2.best_span != _BADGE_SPAN
+  144: 
+  145: 
+  146: def test_judge_calls_bounded_by_top_k():
+  147:     judge = _judge_only(_PROSE)
+  148:     many_spans = [(i, i + 30) for i in range(0, len(_ROW) - 30, 5)]
+  149:     sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
+  150:     assert judge.calls["n"] <= 4  # type: ignore[attr-defined]
+  151: 
+  152: 
+  153: def test_numeric_mismatch_lowers_confidence():
+  154:     claim = "The risk rose by 58 percent in immunocompromised patients."
+  155:     span_match = "the risk rose by 58 percent in immunocompromised patients in the cohort study analysis"
+  156:     span_nomatch = "the risk rose substantially in immunocompromised patients in the cohort study analysis"
+  157:     row = span_match + " || " + span_nomatch
+  158:     s1 = (0, len(span_match))
+  159:     s2 = (len(span_match) + 4, len(row))
+  160: 
+  161:     def numeric_match(sentence: str, span_text: str) -> bool:
+  162:         return "58" in span_text
+  163: 
+  164:     judge = _judge_only(span_nomatch)  # only the no-number span entails
+  165:     res = sr.resolve_best_entailing_span(
+  166:         row, claim, [s1, s2], judge_fn=judge, numeric_match_fn=numeric_match
+  167:     )
+  168:     assert res is not None
+  169:     # numeric mismatch penalised -> below the no-penalty prose baseline.
+  170:     assert res.confidence < 1.0
+  171: 
+  172: 
+  173: 
+  174: 
+  175: 
+  176: 
+  177: 
+  178: 
+  179: 
+  180: 
+
+ succeeded in 7491ms:
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:70:def _judge_only(*entailing_texts):
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:89:    judge = _judge_only(_PROSE)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:90:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:91:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:101:    judge = _judge_only(_TITLE, _PROSE)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:102:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:103:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:112:    judge = _judge_only(_TITLE)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:113:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:114:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:123:    judge = _judge_only()  # entails nothing
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:124:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:125:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:133:    judge = _judge_only(_BADGE)  # pretend only the badge "entails"
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:134:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:135:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:139:    judge2 = _judge_only(_PROSE)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:140:    res2 = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:141:        _ROW, _CLAIM, [_TITLE_SPAN, _PROSE_SPAN, _BADGE_SPAN], judge_fn=judge2
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:147:    judge = _judge_only(_PROSE)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:149:    sr.resolve_best_entailing_span(_ROW, _CLAIM, many_spans, judge_fn=judge, top_k=4)
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:164:    judge = _judge_only(span_nomatch)  # only the no-number span entails
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:165:    res = sr.resolve_best_entailing_span(
+tests\polaris_graph\generator\test_span_resolver_iperm004.py:166:        row, claim, [s1, s2], judge_fn=judge, numeric_match_fn=numeric_match
+src\polaris_graph\generator\span_resolver.py:207:def resolve_best_entailing_span(
+src\polaris_graph\generator\provenance_generator.py:1165:            best = resolve_best_entailing_span(
+src\polaris_graph\generator\provenance_generator.py:1169:                judge_fn=_candidate_passes,
+
+ succeeded in 9840ms:
+src\polaris_graph\generator\provenance_generator.py:973:_REANCHOR_TELEMETRY: dict[str, int] = {
+src\polaris_graph\generator\provenance_generator.py:982:def get_reanchor_telemetry() -> dict[str, int]:
+src\polaris_graph\generator\provenance_generator.py:984:    return dict(_REANCHOR_TELEMETRY)
+src\polaris_graph\generator\provenance_generator.py:987:def reset_reanchor_telemetry() -> None:
+src\polaris_graph\generator\provenance_generator.py:989:    for k in _REANCHOR_TELEMETRY:
+src\polaris_graph\generator\provenance_generator.py:990:        _REANCHOR_TELEMETRY[k] = 0
+src\polaris_graph\generator\provenance_generator.py:1142:        _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+src\polaris_graph\generator\provenance_generator.py:1185:            _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+src\polaris_graph\generator\provenance_generator.py:1186:            _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
+src\polaris_graph\generator\provenance_generator.py:1209:                _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+src\polaris_graph\generator\provenance_generator.py:1232:        _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
+src\polaris_graph\generator\provenance_generator.py:1247:                _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
+src\polaris_graph\generator\provenance_generator.py:1248:                _REANCHOR_TELEMETRY["reanchor_uncited_bound"] += 1
+tests\polaris_graph\test_provenance_reanchor.py:31:    get_reanchor_telemetry,
+tests\polaris_graph\test_provenance_reanchor.py:32:    reset_reanchor_telemetry,
+tests\polaris_graph\test_provenance_reanchor.py:66:    reset_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:106:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:136:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:168:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:200:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:248:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:310:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:591:    tel = get_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:690:    reset_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:697:    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
+tests\polaris_graph\test_provenance_reanchor.py:701:    reset_reanchor_telemetry()
+tests\polaris_graph\test_provenance_reanchor.py:709:    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1
+
+codex
+Candidate enumeration is the same source for both branches, and every candidate emitted there is already a valid non-empty byte range. Given that, any flag-ON accepted span is a member of the OFF loop’s candidate list and has passed the same verifier call shape, so I’m not seeing a structural “ON keeps what OFF would drop” path.
+codex
+I’m going to run the targeted re-anchor and span-resolver tests cited by the slice. That won’t prove the whole system, but it will verify the behavioral example and the changed signature against the live tree.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_provenance_reanchor.py tests/polaris_graph/generator/test_span_resolver_iperm004.py -q' in C:\POLARIS
+ succeeded in 8194ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 23 items
+
+tests\polaris_graph\test_provenance_reanchor.py ..............           [ 60%]
+tests\polaris_graph\generator\test_span_resolver_iperm004.py .........   [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 23 passed, 1 warning in 2.59s ========================
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+C1 and C2 hold structurally. With `PG_SPAN_RESOLVER` ON, the resolver’s judge rebinds to the candidate span and calls `verify_sentence_provenance(..., allow_local_window_fallback=False)`, then `_try_reanchor` re-verifies the selected span before returning. With `PG_SPAN_RESOLVER` OFF, the existing first-passing loop remains the active branch.
+
+I did not find a path where flag-ON accepts a claim that flag-OFF would have dropped on a span rejected by the full gate. Targeted tests passed: `23 passed`.
+tokens used
+58,727

@@ -1,0 +1,291 @@
+commit 2ea4fc11e15817825fad32d6f19f12f94d90f839
+Author: msn <msn@polaris.dev>
+Date:   Wed Jun 10 17:20:22 2026 -0700
+
+    I-perm-004 (#1198) slice 2: wire span_resolver argmax into the cited re-anchor path (PG_SPAN_RESOLVER)
+    
+    Default OFF -> byte-identical (first-passing loop unchanged). When PG_SPAN_RESOLVER is truthy, the
+    cited re-anchor (Path 1 of `_try_reanchor`) chooses the BEST entailing prose span via the
+    boilerplate-aware argmax instead of the FIRST passing candidate in enumeration order — the drb_76
+    "re-anchored to the row TITLE" bug.
+    
+    Safety: the resolver's judge IS the existing full gate — a closure that re-binds the [#ev] token to
+    the candidate span and runs `verify_sentence_provenance(allow_local_window_fallback=False)`. So the
+    argmax can only ever choose among spans that ALREADY pass the exact same content+numeric+entailment
+    bar; it never lowers the bar. A title-only-supported claim is still recovered but the soft-warning
+    carries `q=<provenance_quality>:c=<confidence>` so the report ships it caveated, never silently high.
+    Judge calls bounded by PG_SPAN_RESOLVE_TOPK (default 4). New telemetry `reanchor_argmax_recovered`.
+    
+    Also folds the slice-1 iter-2 residual P2 (compact `home|articles|archive` link bars without spaces
+    around pipes now classify as nav_link) and refines the resolver `judge_fn` signature to
+    `(sentence, span, span_text)` so the wiring closure can re-bind by offsets.
+    
+    Behavioral proof (offline, fake judge): a row where the supporting clause appears in BOTH a
+    Title-Case segment (enumerated first) and a later prose segment — flag OFF binds the title
+    (`reanchored:`), flag ON binds the prose span (`reanchored_argmax:...:q=prose`) and they are
+    DIFFERENT spans. OFF byte-identity preserved (the 13 existing reanchor tests + the telemetry-contract
+    test pass with the new key=0 in OFF mode).
+    
+    Tests: 14 reanchor (incl. the argmax behavioral + OFF byte-identity) + 9 span_resolver = 23 green.
+    
+    Next slice: wire the resolver into the gap-#18 ACCEPT path (re-point the token on a local-window
+    rescue instead of passing on the original mis-pointed span) + the uncited Path 2; then #1180 widening.
+    
+    Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 5f0a33d2..24489169 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -946,6 +946,27 @@ def _provenance_reanchor_enabled() -> bool:
+     return v in ("1", "true", "yes", "on", "enabled")
+ 
+ 
++# I-perm-004 (#1198) slice 2 — when PG_SPAN_RESOLVER is truthy, the re-anchor recovery uses the
++# span_resolver BOILERPLATE-AWARE ARGMAX (best entailing prose span) instead of accepting the FIRST
++# passing candidate in enumeration order (which let drb_76 rebind to the row TITLE). Default OFF =>
++# the existing first-passing loop is byte-identical. The argmax still accepts ONLY a candidate that
++# passes the SAME full gate (verify_sentence_provenance, allow_local_window_fallback=False) — the
++# resolver's judge IS that gate — so no new fabrication path; it only CHOOSES a better span among
++# the ones that already pass.
++def _span_resolver_enabled() -> bool:
++    """True iff PG_SPAN_RESOLVER is set truthy (default OFF -> first-passing loop, byte-identical)."""
++    v = os.getenv("PG_SPAN_RESOLVER", "").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def _span_resolve_topk() -> int:
++    """Bound on judge calls per row in the argmax recovery (PG_SPAN_RESOLVE_TOPK, default 4)."""
++    try:
++        return max(1, int(os.getenv("PG_SPAN_RESOLVE_TOPK", "4")))
++    except ValueError:
++        return 4
++
++
+ # I-complete-003 (#1189) — re-anchor telemetry. Module-level counters, read +
+ # reset by the sweep. ONLY mutated inside the flag-on path, so OFF-mode never
+ # touches them (byte-identity).
+@@ -953,6 +974,8 @@ _REANCHOR_TELEMETRY: dict[str, int] = {
+     "reanchor_attempts": 0,
+     "reanchor_recovered": 0,
+     "reanchor_uncited_bound": 0,
++    # I-perm-004 (#1198) slice 2: recoveries via the boilerplate-aware argmax (subset of recovered).
++    "reanchor_argmax_recovered": 0,
+ }
+ 
+ 
+@@ -1117,6 +1140,56 @@ def _try_reanchor(
+         if not direct_quote:
+             return None
+         _REANCHOR_TELEMETRY["reanchor_attempts"] += 1
++
++        # I-perm-004 (#1198) slice 2: a candidate "passes" iff re-binding the token to its span and
++        # running the SAME full gate (content + numeric + entailment, allow_local_window_fallback=
++        # False) verifies. This closure is the binding judge handed to the resolver — so the resolver
++        # can only ever choose among spans that already pass this exact gate.
++        def _candidate_passes(_sentence: str, span: tuple[int, int], _span_text: str) -> bool:
++            cand = _rebind_single_token(sentence, evidence_id, span[0], span[1])
++            return verify_sentence_provenance(
++                cand, evidence_pool,
++                require_number_match=require_number_match,
++                quantified_models=quantified_models,
++                allow_local_window_fallback=False,
++            ).is_verified
++
++        if _span_resolver_enabled():
++            # BOILERPLATE-AWARE ARGMAX: choose the best ENTAILING prose span instead of the first
++            # passing candidate in enumeration order (drb_76 rebound to the TITLE). Bounded judge
++            # calls (top_k). A title-only-supported claim is still recovered but LABELED with its
++            # provenance_quality so the report ships it caveated, never silently high-confidence.
++            from src.polaris_graph.generator.span_resolver import (  # noqa: PLC0415
++                resolve_best_entailing_span,
++            )
++            best = resolve_best_entailing_span(
++                direct_quote,
++                sentence,
++                _reanchor_candidate_spans(direct_quote),
++                judge_fn=_candidate_passes,
++                top_k=_span_resolve_topk(),
++            )
++            if best is None:
++                return None
++            rebound = _rebind_single_token(
++                sentence, evidence_id, best.best_span[0], best.best_span[1],
++            )
++            v = verify_sentence_provenance(
++                rebound, evidence_pool,
++                require_number_match=require_number_match,
++                quantified_models=quantified_models,
++                allow_local_window_fallback=False,
++            )
++            if not v.is_verified:  # defensive: the judge already passed this span; never launder.
++                return None
++            _REANCHOR_TELEMETRY["reanchor_recovered"] += 1
++            _REANCHOR_TELEMETRY["reanchor_argmax_recovered"] += 1
++            v.soft_warnings = list(v.soft_warnings) + [
++                f"reanchored_argmax:{evidence_id}:{best.best_span[0]}-{best.best_span[1]}:"
++                f"q={best.provenance_quality}:c={best.confidence:.2f}",
++            ]
++            return v
++
+         for (cand_start, cand_end) in _reanchor_candidate_spans(direct_quote):
+             rebound = _rebind_single_token(
+                 sentence, evidence_id, cand_start, cand_end,
+diff --git a/src/polaris_graph/generator/span_resolver.py b/src/polaris_graph/generator/span_resolver.py
+index d62ae645..dda69613 100644
+--- a/src/polaris_graph/generator/span_resolver.py
++++ b/src/polaris_graph/generator/span_resolver.py
+@@ -98,10 +98,12 @@ _NAV_RE = re.compile(
+     r"\bcontact us\b|\babout the journal\b",
+     re.IGNORECASE,
+ )
+-# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about").
+-# Two or more separators is a link bar, not prose (Codex slice-1 P2 — the keyword set alone missed
+-# the structural pipe-list form, which would otherwise classify as prose at confidence 1.0).
+-_NAV_SEPARATOR_RE = re.compile(r"\s[|•·▪»]\s")
++# Nav chrome STRUCTURE: a pipe/bullet-separated link list ("home | articles | archives | about" OR
++# the compact "home|articles|archive|podcasts"). Two or more separators is a link bar, not prose
++# (Codex slice-1 P2 — the keyword set alone missed the pipe-list form, and the whitespace-required
++# form missed the compact bar; both would classify as prose@conf-1.0). Whitespace around the
++# separator is optional.
++_NAV_SEPARATOR_RE = re.compile(r"\s*[|•·▪»]\s*")
+ _SENTENCE_TERMINATOR_RE = re.compile(r"[.!?](?:\s|$)|[:;]\s")
+ _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]+")
+ # A real prose sentence is reasonably long AND ends like a sentence; a title/header is short and has
+@@ -207,7 +209,7 @@ def resolve_best_entailing_span(
+     sentence: str,
+     candidate_spans: list[tuple[int, int]],
+     *,
+-    judge_fn: Callable[[str, str], bool],
++    judge_fn: Callable[[str, tuple[int, int], str], bool],
+     numeric_match_fn: Optional[Callable[[str, str], bool]] = None,
+     top_k: int = 4,
+ ) -> Optional[SpanResolution]:
+@@ -216,11 +218,14 @@ def resolve_best_entailing_span(
+     ``candidate_spans`` are ``(start, end)`` slices of ``direct_quote`` (caller supplies them, e.g.
+     via ``provenance_generator._reanchor_candidate_spans``). The candidates are PRE-ranked cheaply by
+     (prose-first, lexical overlap); only the top ``top_k`` are handed to ``judge_fn`` (bounded judge
+-    calls). ``judge_fn(sentence, span_text) -> bool`` is the BINDING entailment gate — the resolver
+-    returns ONLY a span the judge accepted, so a non-entailing span can never be manufactured into
+-    support. Among entailing candidates the ARGMAX prefers higher provenance quality (prose over
+-    boilerplate) then higher confidence. Returns ``None`` when no candidate entails (caller keeps the
+-    drop / labels "no grounded source").
++    calls). ``judge_fn(sentence, span, span_text) -> bool`` is the BINDING gate — the wiring passes a
++    closure that RE-BINDS the [#ev] token to ``span`` and runs the SAME full faithfulness gate
++    (content + numeric + entailment, ``allow_local_window_fallback=False``), so the resolver returns
++    ONLY a span the gate accepted and a non-entailing span can never be manufactured into support.
++    The span OFFSETS are passed (not just the text) precisely so the judge can re-bind. Among
++    accepted candidates the ARGMAX prefers higher provenance quality (prose over boilerplate) then
++    higher confidence. Returns ``None`` when no candidate is accepted (caller keeps the drop /
++    labels "no grounded source").
+ 
+     ``numeric_match_fn(sentence, span_text) -> bool`` (optional) lets the caller require the
+     sentence's numbers to appear verbatim in the chosen span; a mismatch lowers confidence (never
+@@ -247,7 +252,7 @@ def resolve_best_entailing_span(
+     best: Optional[SpanResolution] = None
+     best_key: tuple[float, float] = (-1.0, -1.0)
+     for _prerank, span, span_text, quality, lexical in scored[: max(1, top_k)]:
+-        if not judge_fn(sentence, span_text):
++        if not judge_fn(sentence, span, span_text):
+             continue
+         numeric_ok = True if numeric_match_fn is None else numeric_match_fn(sentence, span_text)
+         confidence = _span_confidence(quality, lexical, numeric_ok=numeric_ok)
+diff --git a/tests/polaris_graph/generator/test_span_resolver_iperm004.py b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+index f9d85f6f..dfe97714 100644
+--- a/tests/polaris_graph/generator/test_span_resolver_iperm004.py
++++ b/tests/polaris_graph/generator/test_span_resolver_iperm004.py
+@@ -68,11 +68,15 @@ _BADGE_SPAN = (len(_TITLE) + len(_PROSE), len(_ROW))
+ 
+ 
+ def _judge_only(*entailing_texts):
+-    """A stub judge that entails iff the span text is one of the given (stripped) texts."""
++    """A stub judge that entails iff the span text is one of the given (stripped) texts.
++
++    Signature mirrors production: ``judge(sentence, span, span_text)`` — the wiring closure re-binds
++    the token to ``span`` and runs the full gate; the stub only needs the text.
++    """
+     targets = {t.strip() for t in entailing_texts}
+     calls = {"n": 0}
+ 
+-    def judge(sentence: str, span_text: str) -> bool:
++    def judge(sentence: str, span: tuple[int, int], span_text: str) -> bool:
+         calls["n"] += 1
+         return span_text.strip() in targets
+ 
+diff --git a/tests/polaris_graph/test_provenance_reanchor.py b/tests/polaris_graph/test_provenance_reanchor.py
+index 1feb2e7c..4a127b1c 100644
+--- a/tests/polaris_graph/test_provenance_reanchor.py
++++ b/tests/polaris_graph/test_provenance_reanchor.py
+@@ -202,6 +202,8 @@ def test_reanchor_disabled_is_byte_identical(monkeypatch):
+         "reanchor_attempts": 0,
+         "reanchor_recovered": 0,
+         "reanchor_uncited_bound": 0,
++        # I-perm-004 (#1198) slice 2: argmax-recovery counter, untouched in OFF mode.
++        "reanchor_argmax_recovered": 0,
+     }
+     # Helper must agree it is disabled.
+     assert _pg._provenance_reanchor_enabled() is False
+@@ -645,3 +647,63 @@ def test_reanchor_straddling_support_no_single_span_entails_drops(monkeypatch):
+         "FAIL CLOSED, not bridge two segments via a whole-row window"
+     )
+     assert report.total_dropped == 1
++
++
++# ---------------------------------------------------------------------------
++# (k) I-perm-004 (#1198) slice 2 — boilerplate-aware ARGMAX picks the entailing
++#     PROSE span where first-passing bound the earlier Title-cased span.
++# ---------------------------------------------------------------------------
++def _argmax_offsets(soft_warnings):
++    """Pull (start, end) from a `reanchored*:ev:S-E[:...]` soft-warning."""
++    for w in soft_warnings:
++        if w.startswith("reanchored"):
++            span = w.split(":")[2]  # ev id is field 1, S-E is field 2
++            s, e = span.split("-")
++            return int(s), int(e)
++    return None
++
++
++def test_argmax_prefers_prose_span_over_earlier_title(monkeypatch):
++    """The supporting clause appears in BOTH a Title-Case segment (enumerated
++    first) and a later prose segment. First-passing binds the title; the
++    PG_SPAN_RESOLVER argmax binds the prose span and labels it q=prose."""
++    monkeypatch.setenv("PG_PROVENANCE_REANCHOR", "1")
++    monkeypatch.setenv("PG_STRICT_VERIFY_ENTAILMENT", "enforce")
++    _install_judge(monkeypatch, _FakeJudge("hba1c reduction of 1.5 percent"))
++
++    admin = "Adults were enrolled at five sites."
++    title = " HbA1c Reduction Of 1.5 Percent In Adults: Trial Result."
++    prose = " The treatment produced an hba1c reduction of 1.5 percent in enrolled adults overall."
++    direct_quote = admin + title + prose
++    pool = {"ev_k": {"direct_quote": direct_quote}}
++    wrong_end = len(admin)  # cite the admin clause (no support there) -> recovery fires
++    draft = (
++        f"Treatment produced an HbA1c reduction of 1.5 percent in adults "
++        f"[#ev:ev_k:0-{wrong_end}]."
++    )
++
++    title_start = len(admin)
++    prose_start = len(admin) + len(title)
++
++    # --- flag OFF (first-passing): binds the earlier TITLE segment ---
++    monkeypatch.delenv("PG_SPAN_RESOLVER", raising=False)
++    reset_reanchor_telemetry()
++    rep_off = strict_verify(draft, pool)
++    assert rep_off.total_kept == 1
++    off_warn = rep_off.kept_sentences[0].soft_warnings
++    assert any(w.startswith("reanchored:ev_k:") for w in off_warn)
++    off_s, off_e = _argmax_offsets(off_warn)
++    assert "Trial Result" in direct_quote[off_s:off_e], "first-passing should bind the title segment"
++    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 0
++
++    # --- flag ON (argmax): binds the PROSE segment, labeled q=prose ---
++    monkeypatch.setenv("PG_SPAN_RESOLVER", "1")
++    reset_reanchor_telemetry()
++    rep_on = strict_verify(draft, pool)
++    assert rep_on.total_kept == 1
++    on_warn = rep_on.kept_sentences[0].soft_warnings
++    assert any(w.startswith("reanchored_argmax:ev_k:") and ":q=prose:" in w for w in on_warn), on_warn
++    on_s, on_e = _argmax_offsets(on_warn)
++    assert "the treatment produced" in direct_quote[on_s:on_e].lower(), "argmax should bind the prose span"
++    assert on_s != off_s, "argmax must pick a DIFFERENT (better) span than first-passing"
++    assert get_reanchor_telemetry()["reanchor_argmax_recovered"] == 1

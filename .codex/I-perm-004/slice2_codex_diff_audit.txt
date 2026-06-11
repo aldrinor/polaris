@@ -1,0 +1,13 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+
+C1 and C2 hold structurally. With `PG_SPAN_RESOLVER` ON, the resolver’s judge rebinds to the candidate span and calls `verify_sentence_provenance(..., allow_local_window_fallback=False)`, then `_try_reanchor` re-verifies the selected span before returning. With `PG_SPAN_RESOLVER` OFF, the existing first-passing loop remains the active branch.
+
+I did not find a path where flag-ON accepts a claim that flag-OFF would have dropped on a span rejected by the full gate. Targeted tests passed: `23 passed`.
