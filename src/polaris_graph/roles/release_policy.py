@@ -293,7 +293,15 @@ def apply_d8_release_policy(
     # A pass with pending rewrites is NOT releasable — the required rewrite/refuse-in-place
     # attempt has not happened yet (Codex diff P1-a: release_allowed previously ignored
     # needs_rewrite, letting a first-pass run release before the attempt).
-    if needs_rewrite:
+    #
+    # I-perm-006 (#1200): `d8_pending_rewrite` is a PHANTOM block — `rewrite_already_attempted` is
+    # hardcoded False at every call site and NO outer loop ever re-runs the seam to set it True
+    # (grep: `rewrite_already_attempted=True` exists ONLY in tests/). So it blocks release for an
+    # attempt the architecture structurally never executes. Under the always-release reframe
+    # (I-perm-001) an UNSUPPORTED claim ships LABELED via the annotator, not blocked, so the phantom
+    # block is removed: when PG_ALWAYS_RELEASE is on, `needs_rewrite` stays a pure REPORTING channel
+    # and does NOT add a held_reason. Flag OFF -> byte-identical (the block still fires).
+    if needs_rewrite and not always_release_enabled():
         held_reasons.append(_REASON_PENDING_REWRITE)
 
     release_allowed = not held_reasons
