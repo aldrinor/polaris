@@ -50,3 +50,27 @@ After the short-marker fix removed the 100% collapse, the cheap 8-source VM smok
 **Rejected alternatives (both):** (a) wider MAP quote — prompt-brittle, makes step-1 locate HARDER; (c) fuzzy locate — larger new mechanism with its own false-accept surface, keep step 1 as the "real source slice exists" gate; (d) multiple findings/source — doesn't address rejection (all 8 MAP calls already produced findings; the loss is validation, not generation). **(b) is also diagnostic:** after it, step-1 locate is the only substantive rejector left; if recall still < legacy on re-prove, the residual is step-1 paraphrase and (c) is the surgical follow-up.
 
 **Applied:** `evidence_distiller.py:583-593` step-4 made non-blocking (+ debug log); `test_map_rejects_out_of_span_numbers` → `test_map_keeps_out_of_span_numbers_nonblocking_1217` (asserts KEPT at MAP, final strict_verify is the number authority). 17/17 distiller tests pass. Next: scp to VM, cheap re-prove MAXEV=8 `PG_DISTILL_DEBUG=1`, confirm distill verified ≥ legacy + §-1.1 on the output, THEN Codex DIFF-gate before commit.
+
+---
+
+## PART 3 — RESOLUTION (committed 8d74d1bb, Codex diff-gate iter2 APPROVE)
+
+The step-4-only fix from PART 2 was NOT sufficient — the live re-prove still collapsed (distill 0). The full root cause was **three stacked bugs**, all now fixed and committed. strict_verify / 4-role / D8 are byte-UNCHANGED.
+
+### Bug A — orphaned-citation collapse (deterministic, 100% drop)
+The REDUCE placed its `[[finding]]`/`[ev]` markers in a SEPARATE sentence after the claim's period (`split_into_sentences` → a marker-only fragment; the filter kept the fragment, dropped the claim prose → bare marker → strict_verify drops → placeholder). Reproduced offline on the exact VM string. **Fix:** `_is_marker_only_fragment` + a reattach pre-pass in `filter_and_strip_reduce_markers` (reattach an orphan to the preceding sentence; drop a leading orphan); tightened `_REDUCE_SYSTEM` / `render_reduce_user` to require markers inside the sentence before the terminal period (inline example).
+
+### Bug B — paraphrased support_quote rejected at locate (the real recall collapse)
+The single-source MAP **probe** on the CDC safety source [4] (`scripts/dr_benchmark/probe_source_map.py`) showed **"3 proposed, 0 validated"** — all 3 contraindications rejected at `step1_locate` because the MAP paraphrases (drops markdown italics `_S. cerevisiae_`, atomizes one source sentence) so the quote is not a verbatim/whitespace substring. These were the exact claims legacy verified. **Fix:** `_fuzzy_locate_span` (+ `_locate_span_with_method`) recovers the REAL source window by content-word overlap (threshold `PG_DISTILL_FUZZY_MIN_OVERLAP`, default 0.6), **EXPANDED to the enclosing sentence/clause** so a leading negation ("not recommended") is never dropped before the entailment check (Codex diff-gate P2, clinical). A FUZZY recovery must additionally **ENTAIL** the claim (blocking entailment for fuzzy ONLY — content-overlap is blind to "all"→"some"/negation flips); exact/whitespace stay non-blocking and **SKIP** the slow verifier call (Codex P2 perf — was per-finding, prohibitive at MAXEV=40).
+
+### Bug C — stale cache masked the fix
+`_cache_key` includes `DISTILLER_VERSION` but the validation logic changed without a bump, so a stale `section_distiller_v2` cache served pre-fix results (ledger=1, zero KEPT/REJECT traces) and the fuzzy-locate never ran on the 8-source A/B. The single-source probe worked only because it used a fresh temp cache. **Fix:** `DISTILLER_VERSION` v2→v4 + `_cache_key` now also includes `PG_DISTILL_FUZZY_MIN_OVERLAP` (threshold retuning must miss the cache). Diagnosed via the new `PG_DISTILL_DEBUG` per-rejection trace (`raw_index`/`step`/`reason`) + KEPT method trace.
+
+### Live proof (clean fresh-cache MAXEV=8 A/B, deepseek-v4-pro, OVH VM)
+distill no longer collapses: drop_rate 1.00 → 0.33, produces faithful verified contraindication prose; ledger findings fuzzy-recovered + entailed. **§-1.1 on the distill output = zero fabrication** — the one strict_verify-dropped numeric sentence cited a REAL source odds ratio ("OR 10, 95% CI 3–32"; both it and legacy's "OR 14, 95% CI 4–44" are in the source), dropped only on number-span binding.
+
+### Codex diff-gate
+iter1 APPROVE (mergeable_now, density not a blocker) + iter2 APPROVE (`faithfulness_fuzzy_gate_sound=true`, zero P0/P1/P2). 21/21 distiller + 100/100 generator tests; negation regression added.
+
+### Remaining (filed as #1218 / I-perm-026 — NOT a faithfulness defect)
+distill 2 < legacy 6: the MAP under-extracts on-topic safety numerics, and the REDUCE synthesizes numeric sentences whose numbers don't all bind to one span (→ strict_verify drops them, related to I-gen-005). The fix is a denser MAP prompt + one-number-per-sentence REDUCE. #1217 stays OPEN until #1218 closes the richness gap (distill ≥ legacy on the Safety section).
