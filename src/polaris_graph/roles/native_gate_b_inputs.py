@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -543,6 +544,46 @@ _GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
 _GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
 _GATE_B_SPAN_WINDOW_DEFAULT = 400
 
+# I-perm-022 (#1214): normalize the cited SPAN text BEFORE the four-role second evaluators
+# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+# genuinely-supported atom to "unsupported" (a false negative surfaced as [confidence:low]).
+#
+# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+# SINGLE codepoint that decomposes to a FIXED letter sequence with NO word-boundary change, so
+# it can neither join nor split words and therefore cannot fabricate support on a genuine
+# negative — it only renders the codepoint as the letters an LLM evaluator should have read.
+# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
+# brief-gate iter-2 P1): any JOIN ("re-\nsigned" -> "resigned"; "not<ZWSP>able" -> "notable")
+# or SPLIT ("in<ZWSP>effective" -> "in effective") changes meaning and can make an unsupported
+# claim appear present. ZERO digit modification (ligature codepoints carry no digits).
+_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+# DERIVE the ligature->letters map from Unicode NFKD (the authoritative compatibility
+# decomposition), NOT a hand-typed table — a hand value can be wrong (e.g. U+FB05 LONG-S-T
+# decomposes to "st", not "ft"; mis-typing it would fabricate "loft" from "lost", Codex
+# brief-gate iter-3 P1). Only codepoints whose NFKD is pure ASCII letters are kept, so a
+# ligature is ALWAYS replaced by its exact letters with NO word-boundary change.
+_LIGATURE_MAP = {
+    chr(cp): unicodedata.normalize("NFKD", chr(cp))
+    for cp in range(0xFB00, 0xFB07)  # FB00..FB06: ff fi fl ffi ffl st st
+    if unicodedata.normalize("NFKD", chr(cp)).isascii()
+    and unicodedata.normalize("NFKD", chr(cp)).isalpha()
+}
+_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+
+
+def _span_normalize_enabled() -> bool:
+    return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
+
+
+def _normalize_span_text(text: str) -> str:
+    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
+    each is a single codepoint -> its canonical letters, with NO word-boundary change and
+    ZERO digit modification. Flag OFF (default) -> input returned unchanged (byte-identical).
+    I-perm-022 (#1214)."""
+    if not _span_normalize_enabled() or not text:
+        return text
+    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+
 
 def _cited_window_text(full_text: str, token: Any) -> str:
     """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
@@ -605,7 +646,10 @@ def _resolve_evidence(
                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
             )
         documents.append(
-            EvidenceDocument(doc_id=evidence_id, text=_cited_window_text(text, token))
+            EvidenceDocument(
+                doc_id=evidence_id,
+                text=_normalize_span_text(_cited_window_text(text, token)),
+            )
         )
         records.append(record)
     return documents, records

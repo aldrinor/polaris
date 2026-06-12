@@ -1,0 +1,2212 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb9e6-990e-7030-a652-1e2a499fd912
+--------
+user
+# Codex BRIEF gate — I-perm-022 (#1214): verifier cited-span normalization
+
+HARD ITERATION CAP: 5 per document. This is iter 3 of 5.
+
+## ITER-3 CHANGE — narrowed to LIGATURE-ONLY (your iter-2 P1 accepted in full)
+You showed the JOIN rules are not TP-only: de-hyphenation "re-\nsigned" -> "resigned"
+(opposite meaning) and zero-width delete "not<ZWSP>able" -> "notable" / "in<ZWSP>active" ->
+"inactive" can make an UNSUPPORTED claim appear present — a support-fabrication path. You are
+right: ANY operation that joins or splits WORDS is §-1.1-unsafe for a verifier.
+
+So `_normalize_span_text` is now LIGATURE-ONLY:
+- It decomposes ONLY Latin presentation-form ligatures U+FB00..U+FB06 (ﬀﬁﬂﬃﬄﬅﬆ) to their
+  fixed letters. A ligature is a SINGLE codepoint -> a fixed letter sequence with NO
+  word-boundary change, so it can neither join nor split words and cannot fabricate support;
+  it only renders the codepoint as the letters the LLM evaluator should have read. ZERO digit
+  modification (ligature codepoints carry no digits).
+- De-hyphenation AND all zero-width / NBSP handling are DROPPED. Zero-width / hyphen / NBSP
+  chars are now left UNTOUCHED (the LLM renders zero-width as nothing anyway; leaving them
+  avoids both the split and the wrong-join hazards).
+Adversarial tests prove the unsafe transforms do NOT happen: `test_line_break_hyphen_is_NOT_joined`
+("re-\nsigned" stays, no "resigned"), `test_zero_width_is_NOT_joined_negation_safe`
+("not<ZWSP>able" unchanged, no "notable"; "in<ZWJ>effective" not split to "in effective").
+`test_digits_and_nbsp_untouched` proves digits/ranges/negatives/NBSP byte-preserved.
+7 span tests + 8 existing FX-03 cited-span tests pass.
+
+Honest scope shrink: this delivers ONLY the genuine clean win the forensic identified
+(ligature mis-reads); de-hyphenation/zero-width "recovery" was never §-1.1-safe and is
+correctly out of scope (a verifier must never join/split words). Flag wiring (slate +
+force-on + fail-closed preflight) is unchanged from iter-2.
+
+Verdict request: APPROVE the narrowed, §-1.1-safe ligature-only design.
+
+---
+
+(iter-2 section below — the zero-width-delete approach it describes is SUPERSEDED by the
+ligature-only narrowing above)
+
+HARD ITERATION CAP (iter-2 header, superseded above): 5 per document. This is iter 2 of 5.
+
+## ITER-2 CHANGES (addressing your iter-1 P1s + P2)
+
+- **iter-1 P1 (zero-width → space could ADD support, §-1.1 LETHAL) — FIXED.** Zero-width
+  FORMAT controls (ZWSP U+200B, ZWNJ U+200C, ZWJ U+200D, BOM/ZWNBSP U+FEFF) are now
+  DELETED (joined), NEVER spaced. Spacing could split a negation ("in<ZWJ>effective" ->
+  "in effective", "un<ZWSP>safe" -> "un safe") and fabricate apparent support; deleting can
+  only make a span LESS matchable (a missed recovery), never ADD support. Only TRUE
+  no-break spaces (NBSP U+00A0, figure space U+2007, narrow NBSP U+202F) become a space.
+  New adversarial test `test_zero_width_is_DELETED_not_spaced_negation_safe` proves
+  "in<ZWJ>effective" -> "ineffective" and "the drug was in<ZWSP>effective" yields
+  "ineffective" (NOT "in effective"). Behavioral run confirms all 10 cases incl.
+  negation-safety + zero-digit invariants.
+- **iter-1 P1 (flag inert on the paid path) — FIXED.** `PG_GATE_B_SPAN_NORMALIZE` is now in
+  `_FULL_CAPABILITY_BENCHMARK_SLATE` (="1"), `_BENCHMARK_FORCE_ON_FLAGS` (force-set, no
+  setdefault drift), AND `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS` (fail-closed if not active on
+  a paid run) — same triple as the FX-03 cited-span precedent.
+- **iter-1 P2 (literal invisible chars in the regex vs \u escapes) — disclosed.** The
+  `_LIGATURE_MAP` / `_ZERO_WIDTH_RE` / `_NBSP_SPACE_RE` character classes currently hold the
+  literal codepoints (behaviorally verified correct by the test suite + an ascii-safe
+  codepoint probe). Editor tooling kept mangling typed `\u` escapes; the classes are
+  correct and tested. Flag if you want this blocked on a \u-escape rewrite (cosmetic
+  maintainability, not behavior).
+- **Build:** 8 span-normalize tests + 8 existing FX-03 cited-span tests pass (flag-off
+  byte-identical integration confirmed).
+
+---
+
+(original iter-1 brief follows)
+
+HARD ITERATION CAP (iter-1 header, superseded above): 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- Reserve P0/P1 for real execution risks; cosmetic = P3/P2.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Issue (#1214, I-perm-022)
+Un-normalized PDF-extraction artifacts (ligatures, line-break hyphenation, NBSP/zero-width)
+in the cited SPAN reach the four-role second evaluators (Sentinel decomposition + Judge)
+verbatim and can flip a genuinely-supported atom to "unsupported" → surfaced as
+[confidence:low]. Normalize the cited span BEFORE the 2nd evaluator; recover TRUE positives
+only; gate NEVER loosened. DoD: default-OFF flag, byte-identical when off; faithfulness gates
+NEVER relaxed; unit tests; Codex diff-gate APPROVE; paid §-1.1 smoke; wired into Gate-B slate.
+
+The full grounded forensic is at `.codex/I-perm-022/forensic.md` (read it).
+
+## Design (as built)
+NORMALIZE THE SPAN ONLY (artifacts are source-side); grade the CLAIM as-authored.
+- `_normalize_span_text(text)` in `src/polaris_graph/roles/native_gate_b_inputs.py`, gated by
+  default-OFF `PG_GATE_B_SPAN_NORMALIZE` (OFF → returns input unchanged → byte-identical):
+  1. Ligatures U+FB00..U+FB06 → ASCII (the unambiguous, high-value repair).
+  2. Line-break (soft) hyphenation, ALPHABETIC neighbours ONLY: `([A-Za-z])-[ \t]*\n[ \t]*([A-Za-z])`.
+  3. Invisible/zero-width/NBSP → space; collapse space/tab runs.
+  - ZERO digit modification — every rule matches ALPHABETIC context only, so numbers, ranges
+    ("20-\n30"), and negatives ("-1.07") are byte-preserved (the I-gen-005 lesson).
+- Wired at `_resolve_evidence` (the EvidenceDocument the evaluator reads):
+  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL un-normalized
+  text. Slate force-on `PG_GATE_B_SPAN_NORMALIZE=1`.
+
+## Faithfulness analysis (the crux you must verify)
+1. **Repair, not rewrite — recovers TPs only.** The normalizer maps a garbled token to its
+   true form and ADDS NO content. If the span genuinely does not state a claim's atom, the
+   repaired span STILL does not → the atom stays unsupported → the claim stays non-VERIFIED. A
+   genuine negative cannot flip, because no new support is introduced.
+2. **Zero digit modification (testable invariant).** Every regex matches alphabetic context
+   only; ligature codepoints carry no digits; de-hyphenation is `[A-Za-z]-...-[A-Za-z]`.
+   `test_numeric_difference_does_NOT_collapse` proves `2%`/`20%` stay distinct and a digit
+   line-break hyphen is preserved.
+3. **Gate untouched.** strict_verify, D8, `_compose_final_verdict` fail-closed, Mirror doc_id
+   binding, Sentinel UNGROUNDED override, the VERIFIED coverage credit are all unchanged. The
+   only change is the TEXT the evaluator reads, made faithfully comparable to its own source.
+4. **No recovery target.** The fix accepts whatever recovers (possibly far fewer than the
+   drb_76 "12"); it is NOT tuned to a count (that would force-pass genuine negatives).
+
+## Honesty caveats (from the forensic — weigh these)
+- The drb_76 "12 false negatives" is NOT confirmed artifact-driven: in the captured run the one
+  artifact-bearing row (ev_206) feeds no Sentinel-unsupported claim, and MOST of the 8 are
+  GENUINE semantic negatives that MUST stay negative. The fix is defensible prophylaxis + one
+  demonstrated truncation case (05-007 "natural kill[er] cell"), proven per-claim only by the
+  paid §-1.1 smoke.
+- De-hyphenation is irreducibly imperfect at the seam ("oxaliplatin-\ninduced" residual);
+  ligatures are the clean win, hyphenation is best-effort/alphabetic-only/documented. A wrong
+  join only FAILS to match (a missed recovery), never ADDS support.
+- Truncation artifacts ("natural kill" vs "killer") are NOT fixed here (need fuzzy/edit-distance
+  = different + riskier; out of scope). Persistent cross-run verdict cache deferred (the in-run
+  `_dedup_key` already inherits the normalized identity for free since we normalize upstream).
+
+## Tests (`tests/polaris_graph/test_span_normalize_iperm022.py`, 7) + FX-03 regression
+flag-off byte-identical; ligatures repaired; alphabetic hyphen joined (+ documented residual);
+**numeric difference does NOT collapse**; NBSP/ZWSP/BOM → space + run collapse; genuine negative
+gains no content; empty-safe. 7 new pass; 8 existing FX-03 cited-span tests pass (flag-off
+integration → byte-identical EvidenceDocument.text).
+
+## Questions
+1. Is "normalize span / grade claim as-authored, recovers-TP-only, zero-digit-mod" sufficient to
+   keep this faithfulness-NEUTRAL? Any path where a repaired span ADDS support to a genuine
+   negative?
+2. Is deferring the persistent cross-run verdict cache (keeping only the free in-run dedup
+   identity) acceptable to stay under the 200-LOC cap?
+3. Is folding the per-claim causal proof into the paid §-1.1 smoke (vs claiming it offline)
+   the honest call, given the "12 FN" is not artifact-confirmed?
+
+codex
+I’ll review this as a gate decision, using the current workspace rather than the brief alone. I’m going to inspect the implementation, tests, flag wiring, and the cited forensic before returning the required YAML.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-perm-022/forensic.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_GATE_B_SPAN_NORMALIZE|_normalize_span_text|LIGATURE|ZERO_WIDTH|NBSP|cited_window|_FULL_CAPABILITY_BENCHMARK_SLATE|_BENCHMARK_FORCE_ON_FLAGS|_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS" -S .' in C:\POLARIS
+ succeeded in 4455ms:
+ M .claude/hooks/ultimate_goal_stop_reminder.py
+ M .gitignore
+ M logs/session_log.md
+M  scripts/dr_benchmark/run_gate_b.py
+M  src/polaris_graph/roles/native_gate_b_inputs.py
+ M state/active_fix_campaign.json
+ M state/polaris_restart/iteration_trajectory.md
+ M state/restart_instructions.md
+A  tests/polaris_graph/test_span_normalize_iperm022.py
+?? .claude/hooks/__pycache__/
+?? .codex/I-beatboth-429/verdict.stderr.txt
+?? .codex/I-beatboth-429/verdict_iter2.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-complete-002/
+?? .codex/I-complete-004/codex_diff.patch
+?? .codex/I-complete-004/codex_diff_audit.stderr.txt
+?? .codex/I-complete-004/codex_diff_audit.txt
+?? .codex/I-complete-004/commit_msg.txt
+?? .codex/I-complete-004/diff_gate_input.md
+?? .codex/I-faith-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-perm-010/comment_2a_done.md
+?? .codex/I-perm-010/comment_2b_finding.md
+?? .codex/I-perm-010/comment_run_result.md
+?? .codex/I-perm-010/s11_audit_input.md
+?? .codex/I-perm-010/s11_audit_stderr.txt
+?? .codex/I-perm-010/s11_audit_verdict.txt
+?? .codex/I-perm-011/comment_iter2_committed.md
+?? .codex/I-perm-012/
+?? .codex/I-perm-013/
+?? .codex/I-perm-014/
+?? .codex/I-perm-015/
+?? .codex/I-perm-016/
+?? .codex/I-perm-017/
+?? .codex/I-perm-017b_keystone_fix/
+?? .codex/I-perm-019/
+?? .codex/I-perm-020/
+?? .codex/I-perm-022/
+?? .codex/I-perm-023/
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/_inspect_redact.py
+?? .codex/I-ready-017/_verify_fix.py
+?? .codex/I-ready-017/breadth_collapse_fix_design.md
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/faithfulness_diff_verdict.stderr.txt
+?? .codex/I-ready-017/faithfulness_gate_input.md
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_1171_faithfulness_landed.md
+?? .codex/I-ready-017/gh_1171_progress_comment.md
+?? .codex/I-ready-017/gh_entailment_inert_issue.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/preflight_audit_input.md
+?? .codex/I-ready-017/preflight_audit_verdict.stderr.txt
+?? .codex/I-ready-017/preflight_audit_verdict.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/I-transport-001/codex_diff_audit.stderr.txt
+?? .codex/I-transport-001/vm_p1.sh
+?? .codex/I-transport-001/vm_p2.sh
+?? .codex/I-transport-001/vm_p3.sh
+?? .codex/beatboth5/audit_72_input.md
+?? .codex/beatboth5/audit_75_input.md
+?? .codex/beatboth5/audit_75b_input.md
+?? .codex/beatboth5/audit_76_input.md
+?? .codex/beatboth5/audit_76b_input.md
+?? .codex/beatboth5/audit_78_input.md
+?? .codex/beatboth5/audit_78b_input.md
+?? .codex/beatboth5/audit_90b_input.md
+?? .codex/beatboth5/bug_forensic_input.md
+?? .codex/beatboth5/bug_forensic_verdict.stderr.txt
+?? .codex/beatboth5/bug_forensic_verdict.txt
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? .codex/forensic/
+?? .codex/nda-audit/
+?? .codex/retrieval-params/
+?? .codex/tool-verification/
+?? .codex/workflows/
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_numeric_review_tmp/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/drb76_downstream_forecast.md
+?? docs/drb76_downstream_solutions.md
+?? docs/drb76_fix_execution_and_smoke_plan.md
+?? docs/drb76_thinness_consolidated_fix_plan.md
+?? docs/frontier_multisource_synthesis_findings.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-perm-010/
+?? outputs/audits/I-perm-011/
+?? outputs/audits/I-perm-022/
+?? outputs/audits/I-perm-024/
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/consolidated_fix_plan_2026_06_11.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/beatboth5/
+?? outputs/audits/beatboth6/
+?? outputs/audits/beatboth7/I_complete_002_drop_decomposition.md
+?? outputs/audits/beatboth7/_competitors_clean/
+?? outputs/audits/beatboth7/completeness_gap_diagnosis.md
+?? outputs/audits/beatboth7/drb_72_ai_labor/
+?? outputs/audits/beatboth7/drb_75_metal_ions_cvd/
+?? outputs/audits/beatboth7/drb_76_gut_microbiota_crc/
+?? outputs/audits/beatboth7/drb_78_parkinsons_dbs/
+?? outputs/audits/beatboth7/drb_90_adas_liability/
+?? outputs/audits/beatboth8/FAILURE_AUDIT.md
+?? outputs/audits/beatboth8/I-perm-002_corpus_satisfaction_design.md
+?? outputs/audits/beatboth8/REMAINING_RISKS.md
+?? outputs/audits/beatboth8/drb_76/
+?? outputs/audits/beatboth8/manifests/
+?? outputs/audits/codex_audit_sitecustomize/
+?? outputs/audits/codex_pytest_temp_audit/
+?? outputs/audits/f02_bakeoff/
+?? outputs/audits/global_consistency_research.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? outputs/audits/retrieval_width_1000_math.md
+?? scope_verify_tmp_codex/
+?? scope_verify_tmp_codex_floor008/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? scripts/probe_discovery_and_residual.py
+?? scripts/probe_paid_credits.py
+?? scripts/probe_website_access_tools.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_audit_tmp/chmod_after_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/mode_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/tmpbm_z34u3/': Permission denied
+warning: could not open directory 'codex_audit_tmp/tmp6mj6akgl/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4pldgytu/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4ub_c1tz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_b225i01s/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_bnezcyw_/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_f3_ntj9m/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_gbznmdhq/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_k8cuhaqf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ku5c2fnz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ll7c4m6w/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_lqomtwho/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_q7irc_xy/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_r9l_fwzf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_vnbmb3pa/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_xr_17rct/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_y372lrb2/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/probe_63cxyz6o/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/tmptcv_wpgb/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/polaris_scope_ed94b46c36074f439046d1e25553efb6/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-7lnb1r6l/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-fvafx2nw/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp2/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/mode_700/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/audits/codex_pytest_temp_scope_one/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+ succeeded in 7835ms:
+# I-perm-022 (#1214) — verifier span normalization: forensic plan (durable record)
+
+Forensic by the parallel Claude agent (2026-06-11), persisted here so it is not lost.
+
+## 1. Root cause (grounded in code + the real drb_76 run)
+
+**The seam:** the cited span enters the four-role second evaluator via
+`EvidenceDocument.text`, built in `src/polaris_graph/roles/native_gate_b_inputs.py`:
+- `_resolve_evidence` (582-611) builds one `EvidenceDocument(doc_id=evidence_id,
+  text=_cited_window_text(text, token))` per token (607-609).
+- `_cited_window_text` (547-579) slices a bounded window but applies NO de-hyphenation /
+  ligature / NFKD normalization — only `.strip()`.
+- That `doc.text` is inlined verbatim as `{span}` into the Sentinel decomposition prompt
+  (`sentinel_adapter.py:280-281`) and joined into the Judge `evidence_text`
+  (`role_pipeline.py:333`). Both are LLM evaluators that read span TEXT.
+
+A non-VERIFIED four-role verdict → `[confidence:low]` via `confidence_bucket`
+(`generator/claim_labeler.py:29-53`), keyed on `is_verified` (four-role `final_verdict ==
+"VERIFIED"`). This is the four-role seam, NOT a strict_verify Gemma drop.
+
+**Mirror is NOT the target** — `mirror_adapter.py` binds on `doc_id`
+(`_validate_citation_binding` 107-130), never on span text. Only the Sentinel
+atom-by-atom span-coverage matcher and the Judge are artifact-sensitive.
+
+## 2. HONEST empirical finding (the load-bearing correction)
+From the real run `outputs/audits/I-perm-010/run_drb76_jun11/...`:
+- The 58-row evidence pool DOES carry the artifacts: 12 ligature codepoints (U+FB01 `ﬁ`,
+  U+FB02 `ﬂ`) + 5 line-break hyphens — ALL concentrated in ONE row `ev_206` (`bioﬁlms`,
+  `inﬂammatory`, `dehy-\ndrogenase`, `pro-\nteins`, `oxaliplatin-\ninduced`).
+- BUT `ev_206` is cited by exactly ONE claim (`04-000`), whose Sentinel verdict was
+  SUPPORTED → ZERO of the 8 Sentinel-unsupported claims were ligature/hyphen-driven in this
+  captured run.
+- Most of the 8 Sentinel-unsupported claims are GENUINE semantic negatives ("span doesn't
+  label the organism a pathogen"; "registry" vs "retrospective records"; "central-line" vs
+  "indwelling catheters"). These MUST stay negative.
+- ONE IS a real extraction-artifact surface mismatch: claim `05-007` — span "natural kill
+  cell activity" vs claim "natural killer cell activity" (dropped "er" from PDF extraction).
+
+**Honest root_cause:** un-normalized PDF-extraction artifacts (ligatures, line-break
+hyphenation, truncation/whitespace) in the cited span reach the LLM evaluators verbatim and
+can flip a genuinely-supported atom to "unsupported." Real, demonstrated CLASS of FN, but
+"drb_76 = 12 FN" is NOT proven artifact-driven. **The fix must recover only true positives
+the artifacts hid; it must NOT be tuned to "recover 12" (that would force-pass genuine
+negatives).** Per-claim causal proof is the DoD paid §-1.1 smoke.
+
+## 3. Design — normalize the SPAN only, grade the CLAIM as-authored
+Artifacts are source-side. The generator's claim prose is clean; normalizing it would grade
+a rewritten claim. So:
+- SPAN: apply new `_normalize_span_text()` right before `EvidenceDocument(...)` (607-609).
+- CLAIM: unchanged into the evaluator.
+- Cache key only: normalize both for key identity (does not change what is evaluated).
+
+`_normalize_span_text` — strictly meaning-preserving, ZERO digit modification:
+1. Ligatures (the clean win): explicit map `ﬁ→fi ﬂ→fl ﬀ→ff ﬃ→ffi ﬄ→ffl ﬅ→ft ﬆ→st` OR NFKD
+   restricted to the ligature range. Reuse `provenance_generator.py:195-238`
+   (`_build_normalized_view` already does NFKD + ligature decomposition).
+2. Line-break de-hyphenation, ALPHABETIC-ONLY: join `[a-z]-\n[a-z]`. Document the residual
+   ambiguity (`oxaliplatin-\ninduced`→`oxaliplatininduced` cosmetically wrong;
+   `dehy-\ndrogenase`→`dehydrogenase` right) — `TEXT_DEHYPHENATE` is a PyMuPDF
+   extraction-time flag, unavailable at the seam. Restrict to alphabetic so digits untouched.
+3. Whitespace: collapse runs, NBSP/zero-width → space.
+4. NEVER touch digits or dashes between digits (I-gen-005 range/negative corruption lesson):
+   every regex matches alphabetic context only.
+
+Verdict cache (scope-limited under the 200-LOC cap): the in-run dedup at
+`sweep_integration.py:283 _dedup_key` already keys on `(claim_text, sorted((doc_id, d.text)),
+severity, s0_categories)`. Because we normalize UPSTREAM of `EvidenceDocument`, `d.text` is
+already normalized → the existing dedup inherits the normalized `(claim, evidence_id, span)`
+identity for free, no new cache code. A PERSISTENT cross-run verdict store is a larger build →
+SPLIT to a follow-up issue.
+
+## 4. Faithfulness (the critical argument)
+Repair, not rewrite: maps a garbled token to its true form, adds NO content. If the span
+genuinely doesn't state the atom (the 8 genuine negatives), the repaired span STILL doesn't
+→ stays unsupported. Zero digit modification (testable invariant): `"reduced 2%"` and
+`"reduced 20%"` can never collapse. Gate untouched (D8, `_compose_final_verdict` fail-closed,
+Mirror doc_id binding, Sentinel UNGROUNDED override, VERIFIED coverage credit all unchanged).
+No recovery target — accepts whatever recovers (possibly ≪12).
+
+## 5. Edits (default-OFF flag `PG_GATE_B_SPAN_NORMALIZE`, default "0" → byte-identical)
+- `src/polaris_graph/roles/native_gate_b_inputs.py`: add `_GATE_B_SPAN_NORMALIZE_ENV` +
+  ligature map; add `_normalize_span_text(text)` (OFF-guarded → returns input unchanged);
+  wrap the windowed text at `_resolve_evidence` (607-609):
+  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL
+  un-normalized text (entity coverage matching unaffected — matches DOI/PMID/URL).
+- Wire `PG_GATE_B_SPAN_NORMALIZE=1` into the Gate-B slate.
+
+## 6. Tests (`tests/polaris_graph/test_span_normalize_iperm022.py`, mirror test_fx03)
+- flag-off byte-identical; ligature repaired when on (real `ev_206` strings); line-break
+  hyphen joined (alphabetic) + document `oxaliplatin-` residual; recovers a TP the artifact
+  hid; **numeric difference does NOT collapse (adversarial: 2% vs 20% keys differ)**; genuine
+  negative stays negative (repair adds no content).
+
+## 6b. Honesty caveats
+- "12 FN" NOT artifact-confirmed in the captured run; ligatures are the clean win, hyphenation
+  best-effort/alphabetic-only/documented; truncation ("natural kill[er]") is NOT fixed by
+  ligature/hyphen (needs fuzzy/edit-distance = different, riskier; out of scope). Persistent
+  cross-run cache deferred. Paid §-1.1 smoke = the causal per-claim proof.
+
+Key files: `native_gate_b_inputs.py` (547-611), `sentinel_adapter.py:280-281`,
+`role_pipeline.py:333`, `mirror_adapter.py` (ruled out), `claim_labeler.py:29-53`,
+`sweep_integration.py:283`, `provenance_generator.py:195-238`. Test pattern:
+`tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py`.
+
+
+2026-06-12T03:36:21.796460Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 11.8 seconds
+Output:
+.\outputs\codex_findings\m58_code_audit\pass6_findings.md:21:- Minor wording nuance only: the prompt says both are "copied verbatim"; parser actually allows `value` to differ in whitespace form (`tab/newline/NBSP` vs plain space). That is not an exploit, just a slightly stricter prompt than parser.
+.\outputs\codex_findings\m58_code_audit\pass6_findings.md:26:- NBSP vs space: `value='5 mg'`, `source_span='5\u00a0mg'` -> accept via whitespace collapse.
+.\docs\md9_phase2_threat_model.md:165:  - `"⁠\xa0"` (word joiner + NBSP) → missing
+.\outputs\audits\retrieval_width_1000_math.md:3:Computed from the real code (run_gate_b.py `_FULL_CAPABILITY_BENCHMARK_SLATE` ~L426;
+.\outputs\audits\I-perm-022\claude_audit.md:12:- `_normalize_span_text` adds NO content. Ligature decomposition (`fi`→`fi`), alphabetic
+.\outputs\audits\I-perm-022\claude_audit.md:13:  line-break de-hyphenation (`dehy-\ndrogenase`→`dehydrogenase`), and invisible/NBSP→space are
+.\outputs\audits\I-perm-022\claude_audit.md:24:  only true no-break spaces (NBSP/figure/narrow) become a space. Deleting can only make a span
+.\outputs\audits\I-perm-022\claude_audit.md:57:`PG_GATE_B_SPAN_NORMALIZE` default "0" → `_normalize_span_text` returns its input unchanged →
+.\outputs\audits\I-perm-011\claude_audit.md:30:- PG_SELECT_SUBQUERY_FLOOR is force-on in the slate but deliberately NOT added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate) — matching the I-perm-003 selection-scale stance for a newly introduced, not-yet-live-validated selection fix. A future hardening Issue can promote it to required once the paid run confirms the on-topic-T1-drop count falls toward 0.
+.\outputs\audits\I-ready-016b\claude_audit.md:12:- `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS`: the same three added, so `preflight_full_capability()` raises (RuntimeError, zero spend) if any is off at preflight — the fail-closed no-silent-downgrade guard. VERIFIED.
+.\outputs\audits\I-ready-017\fl05b_s11_audit.md:56:  key in `_BENCHMARK_FORCE_ON_FLAGS`; `PG_RUN_HEALTH_GATE` is in both. Preflight (`694-699`) requires every
+.\outputs\audits\I-ready-017\fl05b_s11_audit.md:57:  flag in `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS` (now incl. `PG_RUN_HEALTH_GATE`) to be truthy, else `RuntimeError`.
+.\state\polaris_restart\iteration_trajectory.md:936:        - horizontal whitespace: \t, space, NBSP, OGHAM, U+2000..U+200A,
+.\state\polaris_restart\iteration_trajectory.md:945:     NBSP IS bridged as range separator)
+.\outputs\audits\I-ready-017\fx17_s11_audit.md:49:- `_FULL_CAPABILITY_BENCHMARK_SLATE` now sets `PG_SERPER_TOTAL_PER_QUERY=60` + `PG_SERPER_MAX_PAGES=3`
+.\src\polaris_graph\generator\provenance_generator.py:590:    # Horizontal whitespace (tab, space, NBSP, OGHAM SPACE, U+2000..U+200A
+.\scripts\diagnostics\mirror_premerge_gate.py:37:# typographic -> ASCII (en/em dash, curly quotes, NBSP); then NFKD to fold residual compatibility chars.
+.\src\polaris_graph\roles\native_gate_b_inputs.py:547:# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:550:# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:558:_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+.\src\polaris_graph\roles\native_gate_b_inputs.py:559:_LIGATURE_MAP = {
+.\src\polaris_graph\roles\native_gate_b_inputs.py:562:_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+.\src\polaris_graph\roles\native_gate_b_inputs.py:569:def _normalize_span_text(text: str) -> str:
+.\src\polaris_graph\roles\native_gate_b_inputs.py:576:    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+.\src\polaris_graph\roles\native_gate_b_inputs.py:579:def _cited_window_text(full_text: str, token: Any) -> str:
+.\src\polaris_graph\roles\native_gate_b_inputs.py:620:    ``_cited_window_text``) instead of the whole record text, so Sentinel/Judge see the SPAN the
+.\src\polaris_graph\roles\native_gate_b_inputs.py:642:                text=_normalize_span_text(_cited_window_text(text, token)),
+.\scripts\dr_benchmark\run_gate_b.py:426:_FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+.\scripts\dr_benchmark\run_gate_b.py:567:    # de-hyphenation + NBSP/zero-width) BEFORE the four-role evaluators read it, so
+.\scripts\dr_benchmark\run_gate_b.py:571:    "PG_GATE_B_SPAN_NORMALIZE": "1",
+.\scripts\dr_benchmark\run_gate_b.py:724:_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+.\scripts\dr_benchmark\run_gate_b.py:747:    "PG_GATE_B_SPAN_NORMALIZE",
+.\scripts\dr_benchmark\run_gate_b.py:792:_BENCHMARK_FORCE_ON_FLAGS = frozenset({
+.\scripts\dr_benchmark\run_gate_b.py:805:    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+.\scripts\dr_benchmark\run_gate_b.py:815:    "PG_GATE_B_SPAN_NORMALIZE",
+.\scripts\dr_benchmark\run_gate_b.py:856:    # added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate): a newly
+.\scripts\dr_benchmark\run_gate_b.py:868:# not "on". Kept separate from _BENCHMARK_FORCE_ON_FLAGS so tests and comments
+.\scripts\dr_benchmark\run_gate_b.py:874:    # 999999 survives the slate, the PG_GATE_B_CITED_SPAN preflight still passes, and _cited_window_text
+.\scripts\dr_benchmark\run_gate_b.py:956:    ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+.\scripts\dr_benchmark\run_gate_b.py:965:    for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+.\scripts\dr_benchmark\run_gate_b.py:966:        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+.\scripts\dr_benchmark\run_gate_b.py:996:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\scripts\dr_benchmark\run_gate_b.py:1003:    # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+.\scripts\dr_benchmark\run_gate_b.py:1157:    NOT added to the always-on global ``_FULL_CAPABILITY_BENCHMARK_SLATE`` (which would blanket-
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:22:    _cited_window_text,
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:32:# _cited_window_text — the windowing primitive
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:37:    assert _cited_window_text(full, _tok("ev1", 50, 75)) == full
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:49:    win = _cited_window_text(full, _tok("ev1", start, end))
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:67:    win = _cited_window_text(stripped, _tok("ev1", start, end))
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:74:    assert _cited_window_text(full, _tok("ev1", 10, 10)) == full  # end<=start -> fail-safe
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:75:    assert _cited_window_text(full, _tok("ev1", 5, 3)) == full
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:84:    assert _cited_window_text(full, _tok("ev1", 2, 6)) == full
+.\scripts\test_i_gen_005_iter2_adversarial.py:309:# NBSP (U+00A0) IS inline → must bridge as range separator
+.\scripts\test_i_gen_005_iter2_adversarial.py:313:    "ITER 4 — NBSP (U+00A0) is inline → range separator wins",
+.\scripts\test_i_gen_005_iter2_adversarial.py:508:    "ITER 5 (a) week 12 + NBSP + dash: preserves negative",
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:377:    assert gb._FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_SWEEP_WEIGHTED_CORPUS_GATE") == "1"
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:378:    assert "PG_SWEEP_WEIGHTED_CORPUS_GATE" in gb._BENCHMARK_FORCE_ON_FLAGS
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:379:    assert "PG_SWEEP_WEIGHTED_CORPUS_GATE" in gb._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\polaris_graph\test_md9_phase2_beat_both.py:836:            # Word joiner + non-breaking space — strip catches NBSP
+.\tests\polaris_graph\test_post_fetch_loop_budget_iready003.py:55:    from scripts.dr_benchmark.run_gate_b import _FULL_CAPABILITY_BENCHMARK_SLATE as S
+.\tests\polaris_graph\test_span_normalize_iperm022.py:1:"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+.\tests\polaris_graph\test_span_normalize_iperm022.py:17:from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+.\tests\polaris_graph\test_span_normalize_iperm022.py:24:NBSP = chr(0x00A0)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:29:    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:30:    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:35:            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:37:            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+.\tests\polaris_graph\test_span_normalize_iperm022.py:41:    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:43:    assert _normalize_span_text(raw) == raw
+.\tests\polaris_graph\test_span_normalize_iperm022.py:47:    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:48:    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:49:    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:56:    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:57:    assert "resigned" not in _normalize_span_text("re-\nsigned")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:58:    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:63:    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:64:    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:66:    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:71:    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:72:    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:73:    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:74:    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:79:    out = _normalize_span_text(span)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:85:    assert _normalize_span_text("") == ""
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:16:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:17:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:18:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:25:    s = _FULL_CAPABILITY_BENCHMARK_SLATE
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:30:    assert "PG_USE_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:31:    assert "PG_CAPPED_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:33:    assert "PG_RELEVANCE_FLOOR" in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:25:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:26:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:27:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:162:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:163:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:164:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:175:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:29:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:31:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:32:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:57:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:58:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:59:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:95:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:173:    vals = {k: int(_FULL_CAPABILITY_BENCHMARK_SLATE[k]) for k in _LANE_KNOBS}
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:190:        assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(knob) == expected
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:220:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "12"
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:241:        storm_min_effective_queries=int(_FULL_CAPABILITY_BENCHMARK_SLATE[_STORM_MIN_FLAG]),
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:23:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:24:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:26:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:50:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:51:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:52:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:83:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:96:    400-byte policy by the slate — otherwise _cited_window_text expands to the whole record (BUG-02)."""
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:107:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_readiness_flags_iready016b.py:27:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_readiness_flags_iready016b.py:100:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:371:        _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:372:        _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:373:        _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:377:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(flag) == "1"
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:378:    assert flag in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:379:    assert flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:392:        _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:398:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_verified_only_surface_iready013.py:60:        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
+rg: .\codex_008budget_final: Access is denied. (os error 5)
+rg: .\codex_008budget_final2: Access is denied. (os error 5)
+rg: .\codex_008budget_tax: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: .\codex_fullpower_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: .\codex_iready005_pytest: Access is denied. (os error 5)
+rg: .\codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: .\codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: .\codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: .\codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: .\codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4pldgytu: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4ub_c1tz: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_b225i01s: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_bnezcyw_: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp2: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_f3_ntj9m: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\mode_700: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_gbznmdhq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_k8cuhaqf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ku5c2fnz: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ll7c4m6w: Access is denied. (os error 5)
+rg: .\POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_lqomtwho: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_q7irc_xy: Access is denied. (os error 5)
+rg: .\POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_r9l_fwzf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_vnbmb3pa: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_xr_17rct: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_y372lrb2: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\probe_63cxyz6o: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\tmptcv_wpgb: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: .\pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+
+ exited 1 in 11814ms:
+.\outputs\codex_findings\m58_code_audit\pass6_findings.md:21:- Minor wording nuance only: the prompt says both are "copied verbatim"; parser actually allows `value` to differ in whitespace form (`tab/newline/NBSP` vs plain space). That is not an exploit, just a slightly stricter prompt than parser.
+.\outputs\codex_findings\m58_code_audit\pass6_findings.md:26:- NBSP vs space: `value='5 mg'`, `source_span='5\u00a0mg'` -> accept via whitespace collapse.
+.\docs\md9_phase2_threat_model.md:165:  - `"⁠\xa0"` (word joiner + NBSP) → missing
+.\outputs\audits\retrieval_width_1000_math.md:3:Computed from the real code (run_gate_b.py `_FULL_CAPABILITY_BENCHMARK_SLATE` ~L426;
+.\outputs\audits\I-perm-022\claude_audit.md:12:- `_normalize_span_text` adds NO content. Ligature decomposition (`fi`→`fi`), alphabetic
+.\outputs\audits\I-perm-022\claude_audit.md:13:  line-break de-hyphenation (`dehy-\ndrogenase`→`dehydrogenase`), and invisible/NBSP→space are
+.\outputs\audits\I-perm-022\claude_audit.md:24:  only true no-break spaces (NBSP/figure/narrow) become a space. Deleting can only make a span
+.\outputs\audits\I-perm-022\claude_audit.md:57:`PG_GATE_B_SPAN_NORMALIZE` default "0" → `_normalize_span_text` returns its input unchanged →
+.\outputs\audits\I-perm-011\claude_audit.md:30:- PG_SELECT_SUBQUERY_FLOOR is force-on in the slate but deliberately NOT added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate) — matching the I-perm-003 selection-scale stance for a newly introduced, not-yet-live-validated selection fix. A future hardening Issue can promote it to required once the paid run confirms the on-topic-T1-drop count falls toward 0.
+.\outputs\audits\I-ready-016b\claude_audit.md:12:- `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS`: the same three added, so `preflight_full_capability()` raises (RuntimeError, zero spend) if any is off at preflight — the fail-closed no-silent-downgrade guard. VERIFIED.
+.\outputs\audits\I-ready-017\fl05b_s11_audit.md:56:  key in `_BENCHMARK_FORCE_ON_FLAGS`; `PG_RUN_HEALTH_GATE` is in both. Preflight (`694-699`) requires every
+.\outputs\audits\I-ready-017\fl05b_s11_audit.md:57:  flag in `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS` (now incl. `PG_RUN_HEALTH_GATE`) to be truthy, else `RuntimeError`.
+.\state\polaris_restart\iteration_trajectory.md:936:        - horizontal whitespace: \t, space, NBSP, OGHAM, U+2000..U+200A,
+.\state\polaris_restart\iteration_trajectory.md:945:     NBSP IS bridged as range separator)
+.\outputs\audits\I-ready-017\fx17_s11_audit.md:49:- `_FULL_CAPABILITY_BENCHMARK_SLATE` now sets `PG_SERPER_TOTAL_PER_QUERY=60` + `PG_SERPER_MAX_PAGES=3`
+.\src\polaris_graph\generator\provenance_generator.py:590:    # Horizontal whitespace (tab, space, NBSP, OGHAM SPACE, U+2000..U+200A
+.\scripts\diagnostics\mirror_premerge_gate.py:37:# typographic -> ASCII (en/em dash, curly quotes, NBSP); then NFKD to fold residual compatibility chars.
+.\src\polaris_graph\roles\native_gate_b_inputs.py:547:# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:550:# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+.\src\polaris_graph\roles\native_gate_b_inputs.py:558:_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+.\src\polaris_graph\roles\native_gate_b_inputs.py:559:_LIGATURE_MAP = {
+.\src\polaris_graph\roles\native_gate_b_inputs.py:562:_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+.\src\polaris_graph\roles\native_gate_b_inputs.py:569:def _normalize_span_text(text: str) -> str:
+.\src\polaris_graph\roles\native_gate_b_inputs.py:576:    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+.\src\polaris_graph\roles\native_gate_b_inputs.py:579:def _cited_window_text(full_text: str, token: Any) -> str:
+.\src\polaris_graph\roles\native_gate_b_inputs.py:620:    ``_cited_window_text``) instead of the whole record text, so Sentinel/Judge see the SPAN the
+.\src\polaris_graph\roles\native_gate_b_inputs.py:642:                text=_normalize_span_text(_cited_window_text(text, token)),
+.\scripts\dr_benchmark\run_gate_b.py:426:_FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+.\scripts\dr_benchmark\run_gate_b.py:567:    # de-hyphenation + NBSP/zero-width) BEFORE the four-role evaluators read it, so
+.\scripts\dr_benchmark\run_gate_b.py:571:    "PG_GATE_B_SPAN_NORMALIZE": "1",
+.\scripts\dr_benchmark\run_gate_b.py:724:_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+.\scripts\dr_benchmark\run_gate_b.py:747:    "PG_GATE_B_SPAN_NORMALIZE",
+.\scripts\dr_benchmark\run_gate_b.py:792:_BENCHMARK_FORCE_ON_FLAGS = frozenset({
+.\scripts\dr_benchmark\run_gate_b.py:805:    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+.\scripts\dr_benchmark\run_gate_b.py:815:    "PG_GATE_B_SPAN_NORMALIZE",
+.\scripts\dr_benchmark\run_gate_b.py:856:    # added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate): a newly
+.\scripts\dr_benchmark\run_gate_b.py:868:# not "on". Kept separate from _BENCHMARK_FORCE_ON_FLAGS so tests and comments
+.\scripts\dr_benchmark\run_gate_b.py:874:    # 999999 survives the slate, the PG_GATE_B_CITED_SPAN preflight still passes, and _cited_window_text
+.\scripts\dr_benchmark\run_gate_b.py:956:    ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+.\scripts\dr_benchmark\run_gate_b.py:965:    for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+.\scripts\dr_benchmark\run_gate_b.py:966:        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+.\scripts\dr_benchmark\run_gate_b.py:996:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\scripts\dr_benchmark\run_gate_b.py:1003:    # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+.\scripts\dr_benchmark\run_gate_b.py:1157:    NOT added to the always-on global ``_FULL_CAPABILITY_BENCHMARK_SLATE`` (which would blanket-
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:22:    _cited_window_text,
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:32:# _cited_window_text — the windowing primitive
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:37:    assert _cited_window_text(full, _tok("ev1", 50, 75)) == full
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:49:    win = _cited_window_text(full, _tok("ev1", start, end))
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:67:    win = _cited_window_text(stripped, _tok("ev1", start, end))
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:74:    assert _cited_window_text(full, _tok("ev1", 10, 10)) == full  # end<=start -> fail-safe
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:75:    assert _cited_window_text(full, _tok("ev1", 5, 3)) == full
+.\tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py:84:    assert _cited_window_text(full, _tok("ev1", 2, 6)) == full
+.\scripts\test_i_gen_005_iter2_adversarial.py:309:# NBSP (U+00A0) IS inline → must bridge as range separator
+.\scripts\test_i_gen_005_iter2_adversarial.py:313:    "ITER 4 — NBSP (U+00A0) is inline → range separator wins",
+.\scripts\test_i_gen_005_iter2_adversarial.py:508:    "ITER 5 (a) week 12 + NBSP + dash: preserves negative",
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:377:    assert gb._FULL_CAPABILITY_BENCHMARK_SLATE.get("PG_SWEEP_WEIGHTED_CORPUS_GATE") == "1"
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:378:    assert "PG_SWEEP_WEIGHTED_CORPUS_GATE" in gb._BENCHMARK_FORCE_ON_FLAGS
+.\tests\polaris_graph\test_weighted_corpus_gate_icred006b.py:379:    assert "PG_SWEEP_WEIGHTED_CORPUS_GATE" in gb._BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\polaris_graph\test_md9_phase2_beat_both.py:836:            # Word joiner + non-breaking space — strip catches NBSP
+.\tests\polaris_graph\test_post_fetch_loop_budget_iready003.py:55:    from scripts.dr_benchmark.run_gate_b import _FULL_CAPABILITY_BENCHMARK_SLATE as S
+.\tests\polaris_graph\test_span_normalize_iperm022.py:1:"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+.\tests\polaris_graph\test_span_normalize_iperm022.py:17:from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+.\tests\polaris_graph\test_span_normalize_iperm022.py:24:NBSP = chr(0x00A0)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:29:    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:30:    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:35:            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:37:            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+.\tests\polaris_graph\test_span_normalize_iperm022.py:41:    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:43:    assert _normalize_span_text(raw) == raw
+.\tests\polaris_graph\test_span_normalize_iperm022.py:47:    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:48:    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:49:    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:56:    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:57:    assert "resigned" not in _normalize_span_text("re-\nsigned")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:58:    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:63:    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:64:    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:66:    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+.\tests\polaris_graph\test_span_normalize_iperm022.py:71:    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:72:    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:73:    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:74:    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+.\tests\polaris_graph\test_span_normalize_iperm022.py:79:    out = _normalize_span_text(span)
+.\tests\polaris_graph\test_span_normalize_iperm022.py:85:    assert _normalize_span_text("") == ""
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:16:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:17:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:18:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:25:    s = _FULL_CAPABILITY_BENCHMARK_SLATE
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:30:    assert "PG_USE_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:31:    assert "PG_CAPPED_FINDING_DEDUP" in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_capped_finding_dedup_iready004.py:33:    assert "PG_RELEVANCE_FLOOR" in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:25:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:26:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:27:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:162:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:163:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:164:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_behavioral_canary_canary01_iready017.py:175:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:29:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:31:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:32:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:57:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:58:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:59:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:95:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:173:    vals = {k: int(_FULL_CAPABILITY_BENCHMARK_SLATE[k]) for k in _LANE_KNOBS}
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:190:        assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(knob) == expected
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:220:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_STORM_MIN_FLAG) == "12"
+.\tests\dr_benchmark\test_slate_run_health_gate_fl05b_iready017.py:241:        storm_min_effective_queries=int(_FULL_CAPABILITY_BENCHMARK_SLATE[_STORM_MIN_FLAG]),
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:23:    _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:24:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:26:    _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:50:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(_FLAG) == "1"
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:51:    assert _FLAG in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:52:    assert _FLAG in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:83:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:96:    400-byte policy by the slate — otherwise _cited_window_text expands to the whole record (BUG-02)."""
+.\tests\dr_benchmark\test_slate_cited_span_fx03_iready017.py:107:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_slate_readiness_flags_iready016b.py:27:    _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_slate_readiness_flags_iready016b.py:100:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:371:        _BENCHMARK_FORCE_ON_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:372:        _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:373:        _FULL_CAPABILITY_BENCHMARK_SLATE,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:377:    assert _FULL_CAPABILITY_BENCHMARK_SLATE.get(flag) == "1"
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:378:    assert flag in _BENCHMARK_FORCE_ON_FLAGS
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:379:    assert flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:392:        _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS,
+.\tests\dr_benchmark\test_super_heavy_preflight_icred013.py:398:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+.\tests\dr_benchmark\test_verified_only_surface_iready013.py:60:        assert gate_b._FULL_CAPABILITY_BENCHMARK_SLATE["PG_SWEEP_ANALYST_SYNTHESIS"] == "0"
+rg: .\codex_008budget_final: Access is denied. (os error 5)
+rg: .\codex_008budget_final2: Access is denied. (os error 5)
+rg: .\codex_008budget_tax: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_drb: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_mc: Access is denied. (os error 5)
+rg: .\codex_008budget_tmp_pg4: Access is denied. (os error 5)
+rg: .\codex_api_bundle_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe2: Access is denied. (os error 5)
+rg: .\codex_fixrender_pytest_base_23184: Access is denied. (os error 5)
+rg: .\codex_fullpower_tmp: Access is denied. (os error 5)
+rg: .\codex_atom_pytest_tmp_probe\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\chmod_after_700: Access is denied. (os error 5)
+rg: .\codex_iready005_pytest: Access is denied. (os error 5)
+rg: .\codex_iready018_n1139b_pytest_base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\mode_700: Access is denied. (os error 5)
+rg: .\codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5: Access is denied. (os error 5)
+rg: .\codex_iready018_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\tmp6mj6akgl: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_base2: Access is denied. (os error 5)
+rg: .\codex_pr5_pytest: Access is denied. (os error 5)
+rg: .\codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e: Access is denied. (os error 5)
+rg: .\codex_fx07b_tmp_run2\pytest-base: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_3: Access is denied. (os error 5)
+rg: .\codex_iter3_pytest_base\authority_base: Access is denied. (os error 5)
+rg: .\codex_iobs001_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-7ahl3gbv: Access is denied. (os error 5)
+rg: .\codex_audit_tmp\pytest-tmp\tmpbm_z34u3: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\codex_pytest_tmp_plain: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-je1tk7zx: Access is denied. (os error 5)
+rg: .\codex_pr10_pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-0mc8n_ea: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-jv5q3d0j: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest-cache-files-p7o9a1r6: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4pldgytu: Access is denied. (os error 5)
+rg: .\codex_review_tmp_pathb: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-q25zkijt: Access is denied. (os error 5)
+rg: .\codex_fx08b_pytest_tmp\pytest-cache-files-y189ub5f: Access is denied. (os error 5)
+rg: .\codex_pr909_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_tmp_runtime: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_4ub_c1tz: Access is denied. (os error 5)
+rg: .\codex_review_tmp\basetemp: Access is denied. (os error 5)
+rg: .\codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f\pytest-cache-files-qn2w_00a: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_b225i01s: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_bnezcyw_: Access is denied. (os error 5)
+rg: .\codex_step3j_iter5_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\authority_pytest_tmp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest680-1779339720748: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\basetemp2: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_f3_ntj9m: Access is denied. (os error 5)
+rg: .\codex_review_tmp_source_funnel\mode_700: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_gbznmdhq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-authority-phase0a: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-klbvq3eb: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_tmp\pytest-of-msn: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_k8cuhaqf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-cache-files-xzjrn7w3: Access is denied. (os error 5)
+rg: .\codex_review_tmp_step3j\base: Access is denied. (os error 5)
+rg: .\codex_review_tmp\pytest_i_cd_680_review\basetemp: Access is denied. (os error 5)
+rg: .\m3b_review_tmp_codex: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest-tool-tracker-meta007: Access is denied. (os error 5)
+rg: .\mode700_probe: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ku5c2fnz: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_base: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_ll7c4m6w: Access is denied. (os error 5)
+rg: .\POLARIScodex_fx07b_tmp_runpytest-base: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_lqomtwho: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\pytest_openrouter_meta007\base_c6259b75d4484b53a03587eb87f6cdca: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_q7irc_xy: Access is denied. (os error 5)
+rg: .\POLARIScodex_review_tmp_localoffline_e2ebasetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-f0d_cibj: Access is denied. (os error 5)
+rg: .\probe-mfxdkp1r: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_r9l_fwzf: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\basetemp: Access is denied. (os error 5)
+rg: .\codex_review_tmp\i_cd_705_pytest\pytest-cache-files-s_s5xq67: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_vnbmb3pa: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-2k9byn5k: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_xr_17rct: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\offline_e2e2\pytest-cache-files-ncgynb9x: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\polaris_exec_y372lrb2: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\polaris_scope_ed94b46c36074f439046d1e25553efb6: Access is denied. (os error 5)
+rg: .\codex_review_tmp\gpg_script_check\polaris-ci-gpgv-juas0xsq: Access is denied. (os error 5)
+rg: .\codex_review_tmp_local\manual_tmp\pytest_authority: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-7lnb1r6l: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\probe_63cxyz6o: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-cache-files-fvafx2nw: Access is denied. (os error 5)
+rg: .\codex_numeric_review_tmp\tmptcv_wpgb: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\pytest-iready016-feature: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmp5o1a0_hn: Access is denied. (os error 5)
+rg: .\zz_codex_pr8_tmp\pytest_base: Access is denied. (os error 5)
+rg: .\codex_review_probe_tmp\tmpg3lji3ub: Access is denied. (os error 5)
+rg: .\pr11_pytest_tmp_probe\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m16_v2_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m15a_review\pytest_tmp\base: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m28_code_audit_pass3\pytest_basetemp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m1_v3_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-eegx2llb: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-cache-files-uie6gyp7: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\md10_phase1_v3_review\pytest-temp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_scope_one\base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_mode700: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\manual_os_mode700: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-6s8zkd9a: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\pytest-base: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpdgjcnoq8: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest-cache-files-m5wc20tm: Access is denied. (os error 5)
+rg: .\outputs\codex_findings\m8_review\pytest_tmp: Access is denied. (os error 5)
+rg: .\outputs\audits\codex_pytest_temp_audit\tmpl_t_8nzj: Access is denied. (os error 5)
+rg: .\m3b_pytest_tmp\base: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\heartbeat: Access is denied. (os error 5)
+rg: .\live\pytest-ac1\seam-dedup: Access is denied. (os error 5)
+
+codex
+The initial search shows the implementation is now ligature-only in `native_gate_b_inputs.py`, while one benchmark comment still describes the older broader normalizer. I’m checking whether that is just stale documentation or a behavior/flagging problem.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_graph/roles/native_gate_b_inputs.py scripts/dr_benchmark/run_gate_b.py tests/polaris_graph/test_span_normalize_iperm022.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'src/polaris_graph/roles/native_gate_b_inputs.py'; "'$i=1; Get-Content $p | ForEach-Object { if($i -ge 530 -and $i -le 655){ '"'{0,5}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/roles/native_gate_b_inputs.py scripts/dr_benchmark/run_gate_b.py tests/polaris_graph/test_span_normalize_iperm022.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'tests/polaris_graph/test_span_normalize_iperm022.py'; "'$i=1; Get-Content $p | ForEach-Object { '"'{0,5}: {1}' -f "'$i, $_; $i++ }' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$p='"'scripts/dr_benchmark/run_gate_b.py'; "'$i=1; Get-Content $p | ForEach-Object { if(($i -ge 420 -and $i -le 585) -or ($i -ge 720 -and $i -le 825) -or ($i -ge 940 -and $i -le 1010)){ '"'{0,5}: {1}' -f "'$i, $_ }; $i++ }' in C:\POLARIS
+ succeeded in 4645ms:
+ succeeded in 8254ms:
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 0bad602a..fa5eafbc 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -563,6 +563,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # strict_verify's 400-byte local-window tolerance (ONE shared policy).
+     "PG_GATE_B_CITED_SPAN": "1",
+     "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
++    # I-perm-022 (#1214): normalize the cited SPAN (ligatures + alphabetic line-break
++    # de-hyphenation + NBSP/zero-width) BEFORE the four-role evaluators read it, so
++    # PDF-extraction artifacts do not produce false-negative [confidence:low] on
++    # genuinely-supported atoms. RECOVERS true positives only — ZERO digit modification,
++    # gate byte-untouched; flag-OFF the span is byte-identical.
++    "PG_GATE_B_SPAN_NORMALIZE": "1",
+     # I-ready-017 CANARY-01 (#1107/#1108): the BEHAVIORAL pre-spend canary MUST run on the real
+     # Gate-B run — real call shapes (searcher/generator structured-output + 1-query live search) must
+     # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
+@@ -735,6 +741,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
+     # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
+     "PG_GATE_B_CITED_SPAN",
++    # I-perm-022 (#1214): cited-span normalization on the same 4-role seam — OFF leaves PDF-extraction
++    # artifacts to produce false-negative [confidence:low] on genuinely-supported atoms. Fail closed
++    # if it is not active for a paid run (recovers TPs only; ZERO digit modification; gate untouched).
++    "PG_GATE_B_SPAN_NORMALIZE",
+     # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
+     # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
+     "PG_BEHAVIORAL_CANARY",
+@@ -799,6 +809,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+     "PG_GATE_B_CITED_SPAN",
++    # I-perm-022 (#1214): force-on the cited-span normalization so an operator =0 cannot survive the
++    # slate and silently leave PDF-extraction artifacts (ligatures/hyphen/zero-width) to produce
++    # false-negative [confidence:low]. Recovers TPs only; ZERO digit modification; gate untouched.
++    "PG_GATE_B_SPAN_NORMALIZE",
+     # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+     # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+     # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+diff --git a/src/polaris_graph/roles/native_gate_b_inputs.py b/src/polaris_graph/roles/native_gate_b_inputs.py
+index 6d92d072..8f0b74f3 100644
+--- a/src/polaris_graph/roles/native_gate_b_inputs.py
++++ b/src/polaris_graph/roles/native_gate_b_inputs.py
+@@ -543,6 +543,38 @@ _GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
+ _GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
+ _GATE_B_SPAN_WINDOW_DEFAULT = 400
+ 
++# I-perm-022 (#1214): normalize the cited SPAN text BEFORE the four-role second evaluators
++# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
++# genuinely-supported atom to "unsupported" (a false negative surfaced as [confidence:low]).
++#
++# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
++# SINGLE codepoint that decomposes to a FIXED letter sequence with NO word-boundary change, so
++# it can neither join nor split words and therefore cannot fabricate support on a genuine
++# negative — it only renders the codepoint as the letters an LLM evaluator should have read.
++# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
++# brief-gate iter-2 P1): any JOIN ("re-\nsigned" -> "resigned"; "not<ZWSP>able" -> "notable")
++# or SPLIT ("in<ZWSP>effective" -> "in effective") changes meaning and can make an unsupported
++# claim appear present. ZERO digit modification (ligature codepoints carry no digits).
++_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
++_LIGATURE_MAP = {
++    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "ft", "ﬆ": "st",
++}
++_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
++
++
++def _span_normalize_enabled() -> bool:
++    return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
++
++
++def _normalize_span_text(text: str) -> str:
++    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
++    each is a single codepoint -> its canonical letters, with NO word-boundary change and
++    ZERO digit modification. Flag OFF (default) -> input returned unchanged (byte-identical).
++    I-perm-022 (#1214)."""
++    if not _span_normalize_enabled() or not text:
++        return text
++    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
++
+ 
+ def _cited_window_text(full_text: str, token: Any) -> str:
+     """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
+@@ -605,7 +637,10 @@ def _resolve_evidence(
+                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
+             )
+         documents.append(
+-            EvidenceDocument(doc_id=evidence_id, text=_cited_window_text(text, token))
++            EvidenceDocument(
++                doc_id=evidence_id,
++                text=_normalize_span_text(_cited_window_text(text, token)),
++            )
+         )
+         records.append(record)
+     return documents, records
+diff --git a/tests/polaris_graph/test_span_normalize_iperm022.py b/tests/polaris_graph/test_span_normalize_iperm022.py
+new file mode 100644
+index 00000000..11143194
+--- /dev/null
++++ b/tests/polaris_graph/test_span_normalize_iperm022.py
+@@ -0,0 +1,85 @@
++"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
++
++Ligature decomposition is the ONLY §-1.1-safe span repair: a single presentation-form
++codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
++handling were dropped as §-1.1-unsafe (any join/split can fabricate support — Codex
++brief-gate iter-2 P1). These tests prove the safe behavior AND that the unsafe joins/splits
++do NOT happen.
++
++All non-ASCII chars are built with chr() so the test source stays pure ASCII.
++"""
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
++
++FI = chr(0xFB01)   # fi ligature
++FL = chr(0xFB02)   # fl ligature
++FFI = chr(0xFB03)  # ffi ligature
++ZWSP = chr(0x200B)
++ZWJ = chr(0x200D)
++NBSP = chr(0x00A0)
++
++
++@pytest.fixture
++def _norm_on():
++    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
++    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
++    try:
++        yield
++    finally:
++        if prev is None:
++            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
++        else:
++            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
++
++
++def test_flag_off_byte_identical():
++    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
++    raw = "bio" + FI + "lms re-\nsigned not" + ZWSP + "able 20-\n30"
++    assert _normalize_span_text(raw) == raw
++
++
++def test_ligatures_repaired_when_on(_norm_on):
++    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
++    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
++    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
++
++
++# ── adversarial: the §-1.1-unsafe JOINS/SPLITS must NOT happen ─────────────
++
++def test_line_break_hyphen_is_NOT_joined(_norm_on):
++    # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
++    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
++    assert "resigned" not in _normalize_span_text("re-\nsigned")
++    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
++
++
++def test_zero_width_is_NOT_joined_negation_safe(_norm_on):
++    # "not<ZWSP>able" must NOT become "notable"; the negation/space stays intact (untouched).
++    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
++    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
++    # "in<ZWJ>effective" must NOT be split into "in effective" (the original-bug direction).
++    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
++
++
++def test_digits_and_nbsp_untouched(_norm_on):
++    # ZERO digit modification; non-ligature content is byte-preserved (ligature-only scope).
++    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
++    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
++    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
++    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
++
++
++def test_genuine_negative_span_gains_no_content(_norm_on):
++    span = "the registry recorded outcomes in adults"
++    out = _normalize_span_text(span)
++    assert out == span                  # no ligature present -> unchanged; nothing invented
++    assert "killer" not in out
++
++
++def test_empty_safe(_norm_on):
++    assert _normalize_span_text("") == ""
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 11724ms:
+    1: """I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+    2: 
+    3: Ligature decomposition is the ONLY §-1.1-safe span repair: a single presentation-form
+    4: codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
+    5: handling were dropped as §-1.1-unsafe (any join/split can fabricate support — Codex
+    6: brief-gate iter-2 P1). These tests prove the safe behavior AND that the unsafe joins/splits
+    7: do NOT happen.
+    8: 
+    9: All non-ASCII chars are built with chr() so the test source stays pure ASCII.
+   10: """
+   11: from __future__ import annotations
+   12: 
+   13: import os
+   14: 
+   15: import pytest
+   16: 
+   17: from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+   18: 
+   19: FI = chr(0xFB01)   # fi ligature
+   20: FL = chr(0xFB02)   # fl ligature
+   21: FFI = chr(0xFB03)  # ffi ligature
+   22: ZWSP = chr(0x200B)
+   23: ZWJ = chr(0x200D)
+   24: NBSP = chr(0x00A0)
+   25: 
+   26: 
+   27: @pytest.fixture
+   28: def _norm_on():
+   29:     prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+   30:     os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+   31:     try:
+   32:         yield
+   33:     finally:
+   34:         if prev is None:
+   35:             os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+   36:         else:
+   37:             os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+   38: 
+   39: 
+   40: def test_flag_off_byte_identical():
+   41:     os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+   42:     raw = "bio" + FI + "lms re-\nsigned not" + ZWSP + "able 20-\n30"
+   43:     assert _normalize_span_text(raw) == raw
+   44: 
+   45: 
+   46: def test_ligatures_repaired_when_on(_norm_on):
+   47:     assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+   48:     assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+   49:     assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+   50: 
+   51: 
+   52: # ── adversarial: the §-1.1-unsafe JOINS/SPLITS must NOT happen ─────────────
+   53: 
+   54: def test_line_break_hyphen_is_NOT_joined(_norm_on):
+   55:     # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
+   56:     assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+   57:     assert "resigned" not in _normalize_span_text("re-\nsigned")
+   58:     assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+   59: 
+   60: 
+   61: def test_zero_width_is_NOT_joined_negation_safe(_norm_on):
+   62:     # "not<ZWSP>able" must NOT become "notable"; the negation/space stays intact (untouched).
+   63:     assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+   64:     assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+   65:     # "in<ZWJ>effective" must NOT be split into "in effective" (the original-bug direction).
+   66:     assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+   67: 
+   68: 
+   69: def test_digits_and_nbsp_untouched(_norm_on):
+   70:     # ZERO digit modification; non-ligature content is byte-preserved (ligature-only scope).
+   71:     assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+   72:     assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+   73:     assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+   74:     assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+   75: 
+   76: 
+   77: def test_genuine_negative_span_gains_no_content(_norm_on):
+   78:     span = "the registry recorded outcomes in adults"
+   79:     out = _normalize_span_text(span)
+   80:     assert out == span                  # no ligature present -> unchanged; nothing invented
+   81:     assert "killer" not in out
+   82: 
+   83: 
+   84: def test_empty_safe(_norm_on):
+   85:     assert _normalize_span_text("") == ""
+
+ succeeded in 15237ms:
+  420: 
+  421: # I-cap-005 (#1068): the FULL-CAPABILITY benchmark env slate, applied by Gate-B itself so a run is at
+  422: # full depth REGARDLESS of the operator's shell env (the prior throttle was caused by setting the DEAD
+  423: # `PG_LIVE_*` names instead of the real `PG_SWEEP_*` knobs, + STORM/tracker never enabled). Every value
+  424: # is `setdefault` so an explicit operator override still wins (LAW VI). The slate is applied BEFORE the
+  425: # sweep is imported so import-time module constants (caps/timeouts) also see the full values.
+  426: _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+  427:     # I-fetch-002 (#1168): the WHOLE run fetches ~1000 sites TOTAL per question, NOT 1000 + additive
+  428:     # lanes. The operator's ~1000 budget is SPLIT across the four real fetch lanes so they SUM to ~1000
+  429:     # (the prior 1000 here was the MAIN lane alone, on top of which agentic/deepener/R-6 each added more
+  430:     # — silently overshooting the budget). The four lanes, FLOOR-applied below (max(existing, slate)):
+  431:     #   PG_SWEEP_FETCH_CAP            740  main Serper/S2/OpenAlex lane (total URLs after dedup, /query)
+  432:     #   PG_AGENTIC_BENCHMARK_URL_CAP  100  agentic-discovery harvest (run_honest_sweep_r3.py:3162)
+  433:     #   PG_SWEEP_DEEPENER_URL_CAP      60  citation-snowball deepener (run_honest_sweep_r3.py:3038)
+  434:     #   PG_R6_EXPAND_FETCH_CAP         40  R-6 completeness re-expansion (run_honest_sweep_r3.py:2961)
+  435:     #   PG_STORM_URL_FETCH_CAP         60  STORM web-results seed lane (I-beatboth-fix-000 BB-006)
+  436:     #   --------------------------------------------------------------------------------------------
+  437:     #   SUM                          1000  ≈ the ~1000-site/question budget (operator no-overshoot).
+  438:     #   I-beatboth-fix-000 (Codex P1): main lane trimmed 800->740 to ABSORB the new STORM seed lane so
+  439:     #   the total fetch stays at the hard 1000 envelope (no ~1060 overshoot).
+  440:     # NOTE: PG_STORM_MAX_BENCHMARK_QUERIES (30) and PG_MAX_SUBQUERIES (15) below are QUERY-BREADTH
+  441:     # counts (how many search queries are issued), NOT URLs — they are deliberately NOT part of the
+  442:     # ~1000-URL sum. .env has no override for any of these (checked I-fetch-002), so the floor lands.
+  443:     # Retrieval breadth — the REAL run_one_query knobs (PG_SWEEP_*, default 12/12/40). NOT PG_LIVE_*.
+  444:     "PG_SWEEP_FETCH_CAP": "740",   # MAIN lane: total URLs/query (lane 1/4); 800->740 to absorb STORM seed lane (1000 total)
+  445:     "PG_SWEEP_MAX_SERPER": "100",
+  446:     "PG_SWEEP_MAX_S2": "100",
+  447:     # FX-17 (#1126): Serper `num` is a PAGE size (max ~20); breadth needs the new PAGINATION budget.
+  448:     # Without these the benchmark stays single-page (~20/query) despite MAX_SERPER=100. 60 over <=3
+  449:     # pages = up to 3 Serper pages/query.
+  450:     "PG_SERPER_TOTAL_PER_QUERY": "60",
+  451:     "PG_SERPER_MAX_PAGES": "3",
+  452:     # Feature activation that Gate-B previously MISSED (STORM was dead-by-config; deepener off).
+  453:     "PG_STORM_ENABLED_IN_BENCHMARK": "1",
+  454:     "PG_SWEEP_EVIDENCE_DEEPENER": "1",
+  455:     # Observability — MUST be on so each feature's firing is provable in manifest['tool_utilization'].
+  456:     "PG_ENABLE_TOOL_TRACKER": "1",
+  457:     # Import-time caps/timeouts (read at module load — applied before the sweep import below).
+  458:     "PG_LIVE_CONTENT_MAX": "50000",
+  459:     "PG_LIVE_HTTP_TIMEOUT": "30",
+  460:     "PG_LIVE_RETRIEVER_MAX_WORKERS": "16",
+  461:     # I-ready-003 (#1074) P1: scale the post-fetch loop budget to the ~1000-URL cap. The live_retriever
+  462:     # now takes max(this, fetch_cap * PG_POST_FETCH_PER_URL_BUDGET) so the loop never silently truncates
+  463:     # the corpus mid-classification. 1000 URLs * 4s = 4000s.
+  464:     "PG_POST_FETCH_LOOP_BUDGET": "4000",
+  465:     "PG_POST_FETCH_PER_URL_BUDGET": "4",
+  466:     "PG_LLM_TIMEOUT_SECONDS": "180",
+  467:     # Evidence-extraction depth.
+  468:     "PG_MAX_EVIDENCE_TO_EXTRACT": "1500",
+  469:     "PG_DEEPENER_EVIDENCE_CAP": "500",
+  470:     "PG_MOST_MAX_EVIDENCE": "800",
+  471:     # I-ready-001 (#1070) P0: the GENERATOR-FACING pool cap. The I-cap-005 slate raised RETRIEVAL breadth
+  472:     # to ~1000 URLs but left PG_LIVE_MAX_EV_TO_GEN at its code default 20 (run_honest_sweep_r3.py:4524) —
+  473:     # so generation saw 20 of 1000+ rows (98% silently dropped), the same silent-throttle class as
+  474:     # I-cap-005 one stage downstream. The interim raise to 150 still dropped ~90% of a 1500-row pool.
+  475:     # OPERATOR DECISION 2026-06-10: this is the GLOBAL POOL the sections draw from, NOT a per-prompt size
+  476:     # — each section independently selects its own relevant rows (capped by PG_MAX_EV_PER_SECTION below),
+  477:     # so a global pool cap only STARVES niche sections of evidence ranked below the cut. There is no
+  478:     # provider/transport reason for it: the generator (deepseek-v4-pro) is a 1M-context model and a single
+  479:     # section prompt carries only PG_MAX_EV_PER_SECTION rows. So the pool cap is set to the FULL extracted
+  480:     # set (= PG_MAX_EVIDENCE_TO_EXTRACT) — no pre-section throttle; nothing is dropped before the sections
+  481:     # pick. This does NOT enlarge any single LLM prompt (no lost-in-the-middle risk); it only lets each
+  482:     # section choose its best rows from the full universe. FLOOR semantics (max(existing, 1500)).
+  483:     #
+  484:     # PG_MAX_EV_PER_SECTION stays 40 (the per-prompt knob). Raising IT is the one with a real lost-in-the-
+  485:     # middle risk (all those rows land in ONE prompt the generator reasons over at once), so its OPTIMAL
+  486:     # value is left to the empirical bake-off (I-ready-001b) rather than a guess — 40 is the conservative
+  487:     # hold, not a proven optimum. Historical origin: the M-24 OpenRouter >100K-token-body 400 guard
+  488:     # (multi_section_generator.py), which is STALE for the 200K-1M-context current stack.
+  489:     "PG_LIVE_MAX_EV_TO_GEN": "1500",
+  490:     "PG_MAX_EV_PER_SECTION": "40",
+  491:     # R-6 completeness-expansion breadth (the secondary throttle that was hardcoded 5/5/15/cap-4).
+  492:     "PG_R6_EXPAND_QUERY_CAP": "12",
+  493:     "PG_R6_EXPAND_MAX_SERPER": "20",
+  494:     "PG_R6_EXPAND_MAX_S2": "20",
+  495:     # I-fetch-002 (#1168): budget lane 4/4 — R-6 completeness re-expansion fetch cap. Lowered 60->40 so
+  496:     # the four fetch lanes SUM to ~1000 (read at run_honest_sweep_r3.py:2961, code default 15).
+  497:     "PG_R6_EXPAND_FETCH_CAP": "40",
+  498:     # I-fetch-002 (#1168): budget lane 2/4 — agentic-discovery URL harvest cap (read at
+  499:     # run_honest_sweep_r3.py:3162, code default 100). Explicit in the slate so it cannot silently drift.
+  500:     "PG_AGENTIC_BENCHMARK_URL_CAP": "100",
+  501:     # I-fetch-002 (#1168): budget lane 3/4 — citation-snowball deepener URL cap. Previously an UNGUARDED
+  502:     # default of 20 (run_honest_sweep_r3.py:3038); pin it to 60 so the lane is part of the ~1000 budget
+  503:     # and cannot silently drift below it.
+  504:     "PG_SWEEP_DEEPENER_URL_CAP": "60",
+  505:     # I-fetch-002 (#1168): two un-guarded QUERY-BREADTH knobs, pinned explicitly so they cannot silently
+  506:     # drift (NOT part of the ~1000-URL sum — these count search queries, not URLs). STORM benchmark-query
+  507:     # cap (read at run_honest_sweep_r3.py:2626) + sub-query decomposition cap (query_decomposer.py:39).
+  508:     # Both floor-guarded in _BENCHMARK_PREFLIGHT_FLOORS below.
+  509:     "PG_STORM_MAX_BENCHMARK_QUERIES": "30",
+  510:     "PG_MAX_SUBQUERIES": "15",
+  511:     # Agentic per-round web breadth (was stuck at 6 via the PG_WEB_PER_ROUND typo).
+  512:     "PG_AGENTIC_WEB_PER_ROUND": "10",
+  513:     # Budget cap (spend ceiling enforced per run).
+  514:     "PG_MAX_COST_PER_RUN": "25",
+  515:     # I-ready-002 (#1071) P0: BINDING faithfulness verifier. The entailment judge runs as a binding DROP
+  516:     # gate AND (Codex iter-1 fix) fails closed on a judge_error (the judge's fail-open "ENTAILED",
+  517:     # "judge_error:..." sentinel) when PG_STRICT_VERIFY_ENTAILMENT=enforce. Force it on so the benchmark's
+  518:     # binding gate enforces entailment + fails closed on error (STRENGTHENS faithfulness, never weakens).
+  519:     # NOTE (Codex iter-1 P1): we deliberately do NOT force PG_VERIFICATION_MODE=enforce — that ALSO enables
+  520:     # the Phase 0b RESCUE deltas (a separate faithfulness-WIDENING feature that passes some previously-
+  521:     # dropped claims), which is not in this benchmark's scope. judge_error fail-closed is now keyed on the
+  522:     # entailment mode (provenance_generator.py), independent of the rescue switch.
+  523:     "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+  524:     # Run-level guard: abort if the judge_error RATE across delivered sentences exceeds this (the verifier
+  525:     # was so degraded the run is not trustworthy). 0.10 = 10%. Surfaced to the manifest either way.
+  526:     "PG_MAX_JUDGE_ERROR_RATE": "0.10",
+  527:     # I-ready-013 (#1080): benchmark report.md must be a verified-only surface.
+  528:     # The legacy Analyst Synthesis layer is interpretive and not span-verified /
+  529:     # 4-role gated, so Gate-B force-disables it instead of turning on the planner
+  530:     # or changing the verifier machinery.
+  531:     "PG_SWEEP_ANALYST_SYNTHESIS": "0",
+  532:     # I-ready-004 (#1078): CAPPED finding-dedup. Collapse near-duplicate findings to one
+  533:     # corroboration-counted representative + apply a relevance floor, but CAPPED — the deduped base is
+  534:     # then truncated to PG_LIVE_MAX_EV_TO_GEN so #1070's cap holds (Codex brief P1-1; the legacy
+  535:     # PG_USE_FINDING_DEDUP mode alone is NO-CAP and would re-flood the generator). PG_RELEVANCE_FLOOR is
+  536:     # a FLOAT in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces
+  537:     # 0.30 -> 0; Codex P1-2). 0.30 = the researched default (I-meta-005 Phase 5 #989).
+  538:     "PG_USE_FINDING_DEDUP": "1",
+  539:     "PG_CAPPED_FINDING_DEDUP": "1",
+  540:     "PG_RELEVANCE_FLOOR": "0.30",
+  541:     # I-perm-011 (#1205): max-over-subqueries relevance floor. `_row_relevance`
+  542:     # normalizes overlap by the WHOLE multi-part question token set, so a ~73-token
+  543:     # research question makes the 0.30 floor demand >=22 exact-word matches — which
+  544:     # over-drops on-topic top-tier papers whose domain vocabulary doesn't lexically
+  545:     # match the question's exact words (drb_76: 597->53 pre-select; 74 on-topic T1
+  546:     # shed). ON => each row is scored against the BEST-MATCHING decomposed sub-query
+  547:     # (q1d + planner facets, small per-facet denominators) and the floor uses
+  548:     # max(whole-question, best-facet) — MONOTONIC-UP, so it can only OPEN the
+  549:     # throttle (keeps a SUPERSET), never tighten it. PG_LIVE_MAX_EV_TO_GEN stays
+  550:     # 1500 (DELIBERATELY UNCHANGED): the post-fix surviving pool is <= the
+  551:     # pre-select total (597 for drb_76) which is < 1500, so the global pool cap is
+  552:     # non-binding by construction; the BINDING per-prompt guard is
+  553:     # PG_MAX_EV_PER_SECTION=40 (line 490). Lowering the pool cap would re-impose the
+  554:     # niche-section starvation the 2026-06-10 operator decision (lines 475-482)
+  555:     # explicitly removed — so the diagnosis's secondary "lower to 200" is NOT
+  556:     # applied here. Default OFF in code => slate-absent runs are byte-identical.
+  557:     "PG_SELECT_SUBQUERY_FLOOR": "1",
+  558:     # I-ready-017 FX-03 (#1107): the 4-role seam MUST judge each claim against the cited [start:end]
+  559:     # BOUNDED window, not the whole source doc (BUG-02 confirmed out-of-span false-accept, claim
+  560:     # 06-004). OFF feeds whole-record evidence to Sentinel/Judge so a claim can be VERIFIED on support
+  561:     # living ANYWHERE in the doc — a silent faithfulness downgrade on the AUTHORITATIVE release gate.
+  562:     # Force-on + required below so the paid run cannot fall back to whole-doc. Window matches
+  563:     # strict_verify's 400-byte local-window tolerance (ONE shared policy).
+  564:     "PG_GATE_B_CITED_SPAN": "1",
+  565:     "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
+  566:     # I-perm-022 (#1214): normalize the cited SPAN (ligatures + alphabetic line-break
+  567:     # de-hyphenation + NBSP/zero-width) BEFORE the four-role evaluators read it, so
+  568:     # PDF-extraction artifacts do not produce false-negative [confidence:low] on
+  569:     # genuinely-supported atoms. RECOVERS true positives only — ZERO digit modification,
+  570:     # gate byte-untouched; flag-OFF the span is byte-identical.
+  571:     "PG_GATE_B_SPAN_NORMALIZE": "1",
+  572:     # I-ready-017 CANARY-01 (#1107/#1108): the BEHAVIORAL pre-spend canary MUST run on the real
+  573:     # Gate-B run — real call shapes (searcher/generator structured-output + 1-query live search) must
+  574:     # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
+  575:     # drb_72 failure). Force-on + required below; the canary itself runs only on the live path.
+  576:     "PG_BEHAVIORAL_CANARY": "1",
+  577:     # I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight MUST run on the real beat-both
+  578:     # Gate-B run — it COMPOSES CANARY-01 with: EVERY model slug (generator + 3 verifiers + the
+  579:     # credibility judge when active) ALIVE in its production call shape, STORM/discovery non-empty,
+  580:     # host-local chromium present, and a RUNTIME re-assertion of the 5 recurring false-alarm regression
+  581:     # locks. OFF would drop back to the lighter canary alone and let a dead verifier/STORM/browser tier
+  582:     # ship a false-green paid run. Force-on + required below; the preflight runs only on the live path.
+  583:     "PG_SUPER_HEAVY_PREFLIGHT": "1",
+  584:     # I-ready-017 FX-14 (#1129): force the custody-lane honesty marker ON so the paid run emits
+  585:     # custody_lane_status.json (not_applicable_planner_lane) instead of a silently-empty
+  720: # Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
+  721: # Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
+  722: # explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
+  723: # preflight still passes, letting the paid run go with the evidence deepener silently off.
+  724: _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+  725:     "PG_STORM_ENABLED_IN_BENCHMARK",
+  726:     "PG_SWEEP_EVIDENCE_DEEPENER",
+  727:     "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
+  728:     "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+  729:     "PG_NLI_IN_BENCHMARK",
+  730:     "PG_ENABLE_TOOL_TRACKER",
+  731:     # I-ready-004 (#1078): both must be ON for Gate-B — finding-dedup OFF wastes the cap on near-dups;
+  732:     # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
+  733:     "PG_USE_FINDING_DEDUP",
+  734:     "PG_CAPPED_FINDING_DEDUP",
+  735:     # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
+  736:     # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
+  737:     # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
+  738:     "PG_USE_SAFETY_REFUSAL",
+  739:     "PG_SWEEP_NLI_CONFLICT",
+  740:     "PG_SWEEP_TABLE_CELL_VERIFY",
+  741:     # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
+  742:     # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
+  743:     "PG_GATE_B_CITED_SPAN",
+  744:     # I-perm-022 (#1214): cited-span normalization on the same 4-role seam — OFF leaves PDF-extraction
+  745:     # artifacts to produce false-negative [confidence:low] on genuinely-supported atoms. Fail closed
+  746:     # if it is not active for a paid run (recovers TPs only; ZERO digit modification; gate untouched).
+  747:     "PG_GATE_B_SPAN_NORMALIZE",
+  748:     # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
+  749:     # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
+  750:     "PG_BEHAVIORAL_CANARY",
+  751:     # I-cred-013 (#1163): the super-heavy behavioral preflight must be ON for a paid beat-both run — OFF
+  752:     # drops to the lighter canary alone and lets a dead verifier/STORM/credibility/browser tier or a
+  753:     # resurfaced false alarm ship a false-green paid run. Fail closed if it is not active.
+  754:     "PG_SUPER_HEAVY_PREFLIGHT",
+  755:     # I-ready-017 FX-14 (#1129): custody-lane honesty marker required — otherwise an explicit
+  756:     # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
+  757:     # run silently writes empty v29/m44 custody telemetry with no not_applicable disambiguation.
+  758:     "PG_CUSTODY_LANE_MARKER",
+  759:     # I-ready-017 FL-05b (#1137): the run-health backstop must be ON for a paid run — OFF lets a
+  760:     # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
+  761:     # on the VM — the 2026-06-05 drb_72 smoke) ship as success. Fail closed if it is not active.
+  762:     "PG_RUN_HEALTH_GATE",
+  763:     # I-cred-006b (#1170): the weighted-corpus gate must be ON for the beat-both run — OFF restores the
+  764:     # §-1.1-banned tier-count / material-deviation corpus REFUSAL that aborted the drb_72 dry-run
+  765:     # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
+  766:     # is not active so a tier-mix refusal can never silently reach the paid run.
+  767:     "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+  768:     # I-perm-000 permanent-fix (#1194): the keystone always-release + the numeric sanitizer + the
+  769:     # are DEFAULT OFF; required here so the preflight FAILS CLOSED if either is off, i.e. the paid
+  770:     # run can NEVER silently revert to the pre-fix withhold / DOI-cruft / literal-token behaviour.
+  771:     # (Selection-scale #1197 is deliberately NOT required — it stays flag-OFF until I-perm-007 grows
+  772:     # a real pool.)
+  773:     "PG_ALWAYS_RELEASE",
+  774:     "PG_SWEEP_NUMERIC_SANITIZER",
+  775:     "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+  776:     "PG_SPAN_RESOLVER",
+  777:     # I-perm-016 (#1209): the map-reduce evidence distiller must be ON for the
+  778:     # paid beat-both run — OFF silently restores the single-pass raw-quote
+  779:     # generation path the distiller was built to replace. Fail closed if it is
+  780:     # not active so a stray operator =0 can never reach the paid run.
+  781:     "PG_SECTION_DISTILL",
+  782: )
+  783: 
+  784: # Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+  785: # import-time constant in openrouter_client (cached at $10 default before Gate-B's slate runs), so the
+  786: # slate ALSO programmatically syncs it via set_max_cost_per_run(); the preflight then validates the live
+  787: # value via get_max_cost_per_run() so a stale-$10 cap cannot silently abort a full-depth paid run.
+  788: _BENCHMARK_MIN_COST_CAP_USD = 20.0
+  789: 
+  790: # Codex diff-gate iter-2: feature flags FORCED ON by the slate (a benchmark feature silently off via a
+  791: # conservative .env value is a capability downgrade). Everything else in the slate is a numeric FLOOR.
+  792: _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+  793:     "PG_STORM_ENABLED_IN_BENCHMARK",
+  794:     "PG_SWEEP_EVIDENCE_DEEPENER",
+  795:     "PG_ENABLE_TOOL_TRACKER",
+  796:     # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly
+  797:     # (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark from running
+  798:     # with the binding faithfulness verifier degraded. PG_VERIFICATION_MODE is intentionally NOT here
+  799:     # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
+  800:     "PG_STRICT_VERIFY_ENTAILMENT",
+  801:     "PG_MAX_JUDGE_ERROR_RATE",
+  802:     # I-ready-004 (#1078): finding-dedup flags + the FLOAT relevance floor. Force-SET directly (string)
+  803:     # — the numeric FLOOR path int()-coerces, which would turn PG_RELEVANCE_FLOOR=0.30 into 0 and then
+  804:     # fail parse_relevance_floor (Codex brief P1-2). PG_RELEVANCE_FLOOR is validated as a float in (0,1]
+  805:     # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+  806:     "PG_USE_FINDING_DEDUP",
+  807:     "PG_CAPPED_FINDING_DEDUP",
+  808:     "PG_RELEVANCE_FLOOR",
+  809:     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+  810:     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+  811:     "PG_GATE_B_CITED_SPAN",
+  812:     # I-perm-022 (#1214): force-on the cited-span normalization so an operator =0 cannot survive the
+  813:     # slate and silently leave PDF-extraction artifacts (ligatures/hyphen/zero-width) to produce
+  814:     # false-negative [confidence:low]. Recovers TPs only; ZERO digit modification; gate untouched.
+  815:     "PG_GATE_B_SPAN_NORMALIZE",
+  816:     # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+  817:     # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+  818:     # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+  819:     "PG_BENCH_EXTENDED_METRICS",
+  820:     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+  821:     # survive the slate and let a dead-discovery run go green.
+  822:     "PG_BEHAVIORAL_CANARY",
+  823:     # I-cred-013 (#1163): force-on the super-heavy behavioral preflight so an operator =0 cannot survive
+  824:     # the slate and silently drop the paid run back to the lighter canary alone.
+  825:     "PG_SUPER_HEAVY_PREFLIGHT",
+  940:     # original 98%-drop at 20, or the interim ~90%-drop at 150). The pool must equal the extracted corpus
+  941:     # so no source is dropped before per-section selection.
+  942:     "PG_LIVE_MAX_EV_TO_GEN": 1500,
+  943: }
+  944: 
+  945: 
+  946: def apply_full_capability_benchmark_slate() -> None:
+  947:     """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
+  948: 
+  949:     Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
+  950:     puts .env values into ``os.environ`` BEFORE this slate runs, so a conservative .env default
+  951:     (e.g. ``PG_MOST_MAX_EVIDENCE=300``, ``PG_AGENTIC_WEB_PER_ROUND=6``) SURVIVED the setdefault and
+  952:     silently throttled the benchmark below the slate. Fix: every numeric key is a **FLOOR** —
+  953:     ``max(existing, slate)`` — so a HIGHER operator/.env value (more capability, e.g.
+  954:     ``PG_LLM_TIMEOUT_SECONDS=600`` in .env) is KEPT, but a LOWER default is RAISED to full capability.
+  955:     No silent downgrade in either direction (operator no-downgrade directive). Feature flags in
+  956:     ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+  957:     Exact-value flags in ``_BENCHMARK_FORCE_EXACT_FLAGS`` are forced to their slate value.
+  958: 
+  959:     Codex diff-gate iter-2 P1-2: MUST run BEFORE the sweep / live_retriever / state imports, which cache
+  960:     ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` as import-time module
+  961:     constants. ``main()`` applies it before ``load_locked_questions()``; ``run_gate_b_query`` applies it
+  962:     before the sweep import. ``preflight_full_capability`` then validates the LIVE module constants so a
+  963:     too-late application is caught fail-closed.
+  964:     """
+  965:     for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+  966:         if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+  967:             os.environ[name] = value                       # force exact value — no silent benchmark drift
+  968:             continue
+  969:         try:
+  970:             current = float(os.environ.get(name, value))
+  971:         except (TypeError, ValueError):
+  972:             current = float(value)
+  973:         os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+  974:     # PG_MAX_COST_PER_RUN is an import-time constant in openrouter_client (cached before this slate via
+  975:     # the role import chain), so the floor above only fixes the env; sync the live module global too so
+  976:     # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
+  977:     from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
+  978:     set_max_cost_per_run(float(os.environ["PG_MAX_COST_PER_RUN"]))
+  979: 
+  980: 
+  981: def preflight_full_capability() -> None:
+  982:     """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
+  983:     silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+  984:     for name, floor in _BENCHMARK_PREFLIGHT_FLOORS.items():
+  985:         # mirror run_one_query's read of the real PG_SWEEP_* knob (defaults 12/12/40 if absent).
+  986:         _defaults = {"PG_SWEEP_FETCH_CAP": "40", "PG_SWEEP_MAX_SERPER": "12", "PG_SWEEP_MAX_S2": "12"}
+  987:         try:
+  988:             eff = int(os.getenv(name, _defaults.get(name, "0")))
+  989:         except ValueError:
+  990:             raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not an int")
+  991:         if eff < floor:
+  992:             raise RuntimeError(
+  993:                 f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — the run "
+  994:                 f"would be SILENTLY THROTTLED (the ~40-URL bug). Set {name}>={floor} or fix the slate."
+  995:             )
+  996:     for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+  997:         if os.getenv(flag, "0").strip() not in ("1", "true", "True"):
+  998:             raise RuntimeError(
+  999:                 f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
+ 1000:                 f"or its firing is unobservable (tracker off). Enable it before the run."
+ 1001:             )
+ 1002:     # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span window must stay BOUNDED. An oversized
+ 1003:     # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+ 1004:     # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;
+ 1005:     # this fails closed if it is ever outside (0, ceiling] (force-exact removed / slate value changed).
+ 1006:     if os.getenv("PG_GATE_B_CITED_SPAN", "0").strip() in ("1", "true", "True"):
+ 1007:         try:
+ 1008:             _win = int(os.getenv("PG_GATE_B_SPAN_WINDOW_BYTES", "400"))
+ 1009:         except ValueError:
+ 1010:             raise RuntimeError(
+
+ succeeded in 18791ms:
+  530:     """
+  531:     if not any(_entity_canonical_match(entity, rec) for rec in claim_evidence_records):
+  532:         return False
+  533:     if is_s0 and not _content_requirements_satisfied(claim_text, entity):
+  534:         return False
+  535:     return True
+  536: 
+  537: 
+  538: # FX-03 / I-ready-017 (#1107): the 4-role seam (Sentinel decomposition + Judge) joins each
+  539: # EvidenceDocument.text as the SPAN the claim is checked against. Pre-FX-03 the WHOLE record text
+  540: # was passed, so a claim could be graded VERIFIED on support living ANYWHERE in the document, not
+  541: # in the cited [start:end] window (BUG-02: confirmed out-of-span false-accept, claim 06-004).
+  542: _GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
+  543: _GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
+  544: _GATE_B_SPAN_WINDOW_DEFAULT = 400
+  545: 
+  546: # I-perm-022 (#1214): normalize the cited SPAN text BEFORE the four-role second evaluators
+  547: # (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+  548: # genuinely-supported atom to "unsupported" (a false negative surfaced as [confidence:low]).
+  549: #
+  550: # LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+  551: # SINGLE codepoint that decomposes to a FIXED letter sequence with NO word-boundary change, so
+  552: # it can neither join nor split words and therefore cannot fabricate support on a genuine
+  553: # negative — it only renders the codepoint as the letters an LLM evaluator should have read.
+  554: # De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
+  555: # brief-gate iter-2 P1): any JOIN ("re-\nsigned" -> "resigned"; "not<ZWSP>able" -> "notable")
+  556: # or SPLIT ("in<ZWSP>effective" -> "in effective") changes meaning and can make an unsupported
+  557: # claim appear present. ZERO digit modification (ligature codepoints carry no digits).
+  558: _GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+  559: _LIGATURE_MAP = {
+  560:     "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "ft", "ﬆ": "st",
+  561: }
+  562: _LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+  563: 
+  564: 
+  565: def _span_normalize_enabled() -> bool:
+  566:     return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
+  567: 
+  568: 
+  569: def _normalize_span_text(text: str) -> str:
+  570:     """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
+  571:     each is a single codepoint -> its canonical letters, with NO word-boundary change and
+  572:     ZERO digit modification. Flag OFF (default) -> input returned unchanged (byte-identical).
+  573:     I-perm-022 (#1214)."""
+  574:     if not _span_normalize_enabled() or not text:
+  575:         return text
+  576:     return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+  577: 
+  578: 
+  579: def _cited_window_text(full_text: str, token: Any) -> str:
+  580:     """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
+  581: 
+  582:     When ``PG_GATE_B_CITED_SPAN=1`` the evidence text handed to Sentinel/Judge is sliced to a
+  583:     bounded window around the cited ``[start:end]`` range (±``PG_GATE_B_SPAN_WINDOW_BYTES``, default
+  584:     400) — the SAME tolerance strict_verify's local-window rescue uses, so the two faithfulness
+  585:     layers share ONE windowing policy. BOUNDED (not exact-slice) is deliberate and three-fold safer:
+  586:     (1) it tolerates the 06-004-shape imprecise-but-real citation that strict_verify also tolerates;
+  587:     (2) ``token.start/end`` index the RAW ``direct_quote`` while the record text here was
+  588:     ``_row_text``-STRIPPED, so an exact slice would be offset-shifted by any leading whitespace —
+  589:     a bounded window absorbs that small shift; (3) fail-SAFE — a degenerate/empty window falls back
+  590:     to the whole text so the judge is never handed a blank span. Flag off (default) returns the whole
+  591:     text unchanged (byte-identical), so production is opt-in per the no-silent-downgrade rule; the
+  592:     re-run slate activates it.
+  593:     """
+  594:     if os.getenv(_GATE_B_CITED_SPAN_ENV, "0").strip() != "1":
+  595:         return full_text
+  596:     try:
+  597:         start = int(getattr(token, "start"))
+  598:         end = int(getattr(token, "end"))
+  599:     except (TypeError, ValueError, AttributeError):
+  600:         return full_text
+  601:     if end <= start:
+  602:         return full_text
+  603:     try:
+  604:         window = int(os.getenv(_GATE_B_SPAN_WINDOW_ENV, str(_GATE_B_SPAN_WINDOW_DEFAULT)))
+  605:     except ValueError:
+  606:         window = _GATE_B_SPAN_WINDOW_DEFAULT
+  607:     window = max(0, window)
+  608:     lo = max(0, start - window)
+  609:     hi = min(len(full_text), end + window)
+  610:     sliced = full_text[lo:hi].strip()
+  611:     return sliced or full_text
+  612: 
+  613: 
+  614: def _resolve_evidence(
+  615:     tokens: list[Any], evidence_lookup: Mapping[str, Mapping[str, Any]]
+  616: ) -> tuple[list[EvidenceDocument], list[Mapping[str, Any]]]:
+  617:     """Resolve each cited token -> (EvidenceDocument sliced to its cited window, source record).
+  618: 
+  619:     FX-03 (#1107): one EvidenceDocument per TOKEN, carrying the bounded cited-window slice (see
+  620:     ``_cited_window_text``) instead of the whole record text, so Sentinel/Judge see the SPAN the
+  621:     decomposition prompt promises. Fail closed on an unknown id or empty record text.
+  622:     """
+  623:     documents: list[EvidenceDocument] = []
+  624:     records: list[Mapping[str, Any]] = []
+  625:     for token in tokens:
+  626:         evidence_id = token.evidence_id
+  627:         record = evidence_lookup.get(evidence_id)
+  628:         if record is None:
+  629:             raise ValueError(
+  630:                 f"build_native_gate_b_inputs: unknown evidence_id {evidence_id!r}; every "
+  631:                 f"cited token must resolve to an evidence record (fail-closed)."
+  632:             )
+  633:         text = str(record.get(_RECORD_TEXT_KEY) or "").strip()
+  634:         if not text:
+  635:             raise ValueError(
+  636:                 f"build_native_gate_b_inputs: evidence_id {evidence_id!r} has empty "
+  637:                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
+  638:             )
+  639:         documents.append(
+  640:             EvidenceDocument(
+  641:                 doc_id=evidence_id,
+  642:                 text=_normalize_span_text(_cited_window_text(text, token)),
+  643:             )
+  644:         )
+  645:         records.append(record)
+  646:     return documents, records
+  647: 
+  648: 
+  649: def build_native_gate_b_inputs(
+  650:     *,
+  651:     multi: Any,
+  652:     template: dict,
+  653:     slug: str,
+  654:     domain: str,
+  655:     evidence_lookup: Mapping[str, Mapping[str, Any]],
+
+codex
+The core path is small: the normalizer is called after cited-window slicing and before `EvidenceDocument` construction, and the slate forces the flag on with preflight required. One detail I’m verifying now is the exact Unicode compatibility decomposition for every U+FB00..U+FB06 entry, because a wrong fixed mapping would matter for this narrowed scope.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import unicodedata as u
+for cp in range(0xFB00, 0xFB07):
+    ch=chr(cp)
+    print(hex(cp), u.name(ch), u.decomposition(ch), u.normalize('NFKD', ch).encode('unicode_escape').decode())
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "ﬅ|FB05|LATIN SMALL LIGATURE LONG S T|PG_GATE_B_SPAN_NORMALIZE|_normalize_span_text" src tests scripts -S' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/test_span_normalize_iperm022.py tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py -q' in C:\POLARIS
+ succeeded in 5564ms:
+0xfb00 LATIN SMALL LIGATURE FF <compat> 0066 0066 ff
+0xfb01 LATIN SMALL LIGATURE FI <compat> 0066 0069 fi
+0xfb02 LATIN SMALL LIGATURE FL <compat> 0066 006C fl
+0xfb03 LATIN SMALL LIGATURE FFI <compat> 0066 0066 0069 ffi
+0xfb04 LATIN SMALL LIGATURE FFL <compat> 0066 0066 006C ffl
+0xfb05 LATIN SMALL LIGATURE LONG S T <compat> 017F 0074 st
+0xfb06 LATIN SMALL LIGATURE ST <compat> 0073 0074 st
+
+2026-06-12T03:37:19.608551Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 8.3 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_span_normalize_iperm022.py tests/pola …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 8309ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/test_span_normalize_iperm022.py tests/pola …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ succeeded in 11919ms:
+scripts\dr_benchmark\run_gate_b.py:571:    "PG_GATE_B_SPAN_NORMALIZE": "1",
+scripts\dr_benchmark\run_gate_b.py:747:    "PG_GATE_B_SPAN_NORMALIZE",
+scripts\dr_benchmark\run_gate_b.py:815:    "PG_GATE_B_SPAN_NORMALIZE",
+tests\polaris_graph\test_span_normalize_iperm022.py:17:from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+tests\polaris_graph\test_span_normalize_iperm022.py:29:    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+tests\polaris_graph\test_span_normalize_iperm022.py:30:    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+tests\polaris_graph\test_span_normalize_iperm022.py:35:            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:37:            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+tests\polaris_graph\test_span_normalize_iperm022.py:41:    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:43:    assert _normalize_span_text(raw) == raw
+tests\polaris_graph\test_span_normalize_iperm022.py:47:    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+tests\polaris_graph\test_span_normalize_iperm022.py:48:    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+tests\polaris_graph\test_span_normalize_iperm022.py:49:    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+tests\polaris_graph\test_span_normalize_iperm022.py:56:    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+tests\polaris_graph\test_span_normalize_iperm022.py:57:    assert "resigned" not in _normalize_span_text("re-\nsigned")
+tests\polaris_graph\test_span_normalize_iperm022.py:58:    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+tests\polaris_graph\test_span_normalize_iperm022.py:63:    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+tests\polaris_graph\test_span_normalize_iperm022.py:64:    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+tests\polaris_graph\test_span_normalize_iperm022.py:66:    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+tests\polaris_graph\test_span_normalize_iperm022.py:71:    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+tests\polaris_graph\test_span_normalize_iperm022.py:72:    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+tests\polaris_graph\test_span_normalize_iperm022.py:73:    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+tests\polaris_graph\test_span_normalize_iperm022.py:74:    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+tests\polaris_graph\test_span_normalize_iperm022.py:79:    out = _normalize_span_text(span)
+tests\polaris_graph\test_span_normalize_iperm022.py:85:    assert _normalize_span_text("") == ""
+src\polaris_graph\roles\native_gate_b_inputs.py:558:_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+src\polaris_graph\roles\native_gate_b_inputs.py:560:    "ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "ft", "ﬆ": "st",
+src\polaris_graph\roles\native_gate_b_inputs.py:569:def _normalize_span_text(text: str) -> str:
+src\polaris_graph\roles\native_gate_b_inputs.py:642:                text=_normalize_span_text(_cited_window_text(text, token)),
+
+codex
+There is a real issue in the ligature table: U+FB05 is `LATIN SMALL LIGATURE LONG S T` and its compatibility decomposition is `st`, but the implementation maps it to `ft`. I’m running the targeted tests through `python -m pytest` as well, since bare `pytest` is not on PATH here.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import os
+os.environ['PG_GATE_B_SPAN_NORMALIZE']='1'
+from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+for cp in range(0xFB00, 0xFB07):
+    ch=chr(cp)
+    print(hex(cp), _normalize_span_text(ch).encode('unicode_escape').decode())
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_span_normalize_iperm022.py tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py -q' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import os, unicodedata as u
+os.environ['PG_GATE_B_SPAN_NORMALIZE']='1'
+from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+for word in ['lo'+chr(0xFB05), 'a'+chr(0xFB05)+'er']:
+    print(word.encode('unicode_escape').decode(), 'expected_nfkd=', u.normalize('NFKD', word).encode('unicode_escape').decode(), 'actual=', _normalize_span_text(word).encode('unicode_escape').decode())
+'@ | python -" in C:\POLARIS
+ succeeded in 6725ms:
+0xfb00 ff
+0xfb01 fi
+0xfb02 fl
+0xfb03 ffi
+0xfb04 ffl
+0xfb05 ft
+0xfb06 st
+
+ succeeded in 15631ms:
+lo\ufb05 expected_nfkd= lost actual= loft
+a\ufb05er expected_nfkd= aster actual= after
+
+ succeeded in 16683ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 15 items
+
+tests\polaris_graph\test_span_normalize_iperm022.py .......              [ 46%]
+tests\polaris_graph\test_fx03_gate_b_cited_span_iready017.py ........    [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 15 passed, 1 warning in 3.11s ========================
+
+codex
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "src/polaris_graph/roles/native_gate_b_inputs.py:560 maps U+FB05 LATIN SMALL LIGATURE LONG S T to 'ft', but Unicode compatibility decomposition is 'st'. This breaks the ligature-only safety argument and can fabricate support, e.g. 'loﬅ' normalizes to 'loft' instead of 'lost'. Fix U+FB05 to 'st' and add coverage for all U+FB00..U+FB06."
+p2:
+  - "scripts/dr_benchmark/run_gate_b.py:566 and :812 still describe normalization as including de-hyphenation and NBSP/zero-width handling. Behavior is ligature-only, so these comments should be updated to avoid reintroducing the rejected unsafe scope."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Correct the U+FB05 mapping and test the complete ligature table."
+```
+tokens used
+67,722

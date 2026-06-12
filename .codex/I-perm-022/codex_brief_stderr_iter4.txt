@@ -1,0 +1,2571 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb9ec-16d6-7bc1-aa17-1a41f8e021f7
+--------
+user
+# Codex BRIEF gate — I-perm-022 (#1214): verifier cited-span normalization
+
+HARD ITERATION CAP: 5 per document. This is iter 4 of 5.
+
+## ITER-4 CHANGES (your iter-3 P1 + P2)
+- **iter-3 P1 (U+FB05 mis-mapped to "ft", should be "st" — "loﬅ"->"loft" not "lost") — FIXED at
+  the ROOT.** The ligature map is no longer hand-typed; it is DERIVED from Unicode NFKD:
+  `{chr(cp): unicodedata.normalize("NFKD", chr(cp)) for cp in range(0xFB00,0xFB07) if NFKD is
+  ascii+alpha}`. This is authoritative (U+FB05 LONG-S-T -> "st") and removes the entire
+  hand-typo class. New test `test_full_ligature_table_matches_unicode_nfkd` asserts the map ==
+  NFKD for all 7 codepoints AND "lo<FB05>" -> "lost" (not "loft"), "be<FB06>" -> "best". A
+  Python probe confirms map values = {ff, fi, fl, ffi, ffl, st}.
+- **iter-3 P2 (run_gate_b.py comments still mention de-hyphen/NBSP/zero-width) — FIXED.** The
+  slate (:566), force-on (:813), and preflight-required (:745) comments now all say
+  LIGATURE-ONLY (no word-boundary change), matching the behavior.
+- **Build:** 8 span tests + 8 existing FX-03 tests pass.
+
+---
+
+(iter-3 section below)
+
+HARD ITERATION CAP (iter-3 header, superseded above): 5 per document. This is iter 3 of 5.
+
+## ITER-3 CHANGE — narrowed to LIGATURE-ONLY (your iter-2 P1 accepted in full)
+You showed the JOIN rules are not TP-only: de-hyphenation "re-\nsigned" -> "resigned"
+(opposite meaning) and zero-width delete "not<ZWSP>able" -> "notable" / "in<ZWSP>active" ->
+"inactive" can make an UNSUPPORTED claim appear present — a support-fabrication path. You are
+right: ANY operation that joins or splits WORDS is §-1.1-unsafe for a verifier.
+
+So `_normalize_span_text` is now LIGATURE-ONLY:
+- It decomposes ONLY Latin presentation-form ligatures U+FB00..U+FB06 (ﬀﬁﬂﬃﬄﬅﬆ) to their
+  fixed letters. A ligature is a SINGLE codepoint -> a fixed letter sequence with NO
+  word-boundary change, so it can neither join nor split words and cannot fabricate support;
+  it only renders the codepoint as the letters the LLM evaluator should have read. ZERO digit
+  modification (ligature codepoints carry no digits).
+- De-hyphenation AND all zero-width / NBSP handling are DROPPED. Zero-width / hyphen / NBSP
+  chars are now left UNTOUCHED (the LLM renders zero-width as nothing anyway; leaving them
+  avoids both the split and the wrong-join hazards).
+Adversarial tests prove the unsafe transforms do NOT happen: `test_line_break_hyphen_is_NOT_joined`
+("re-\nsigned" stays, no "resigned"), `test_zero_width_is_NOT_joined_negation_safe`
+("not<ZWSP>able" unchanged, no "notable"; "in<ZWJ>effective" not split to "in effective").
+`test_digits_and_nbsp_untouched` proves digits/ranges/negatives/NBSP byte-preserved.
+7 span tests + 8 existing FX-03 cited-span tests pass.
+
+Honest scope shrink: this delivers ONLY the genuine clean win the forensic identified
+(ligature mis-reads); de-hyphenation/zero-width "recovery" was never §-1.1-safe and is
+correctly out of scope (a verifier must never join/split words). Flag wiring (slate +
+force-on + fail-closed preflight) is unchanged from iter-2.
+
+Verdict request: APPROVE the narrowed, §-1.1-safe ligature-only design.
+
+---
+
+(iter-2 section below — the zero-width-delete approach it describes is SUPERSEDED by the
+ligature-only narrowing above)
+
+HARD ITERATION CAP (iter-2 header, superseded above): 5 per document. This is iter 2 of 5.
+
+## ITER-2 CHANGES (addressing your iter-1 P1s + P2)
+
+- **iter-1 P1 (zero-width → space could ADD support, §-1.1 LETHAL) — FIXED.** Zero-width
+  FORMAT controls (ZWSP U+200B, ZWNJ U+200C, ZWJ U+200D, BOM/ZWNBSP U+FEFF) are now
+  DELETED (joined), NEVER spaced. Spacing could split a negation ("in<ZWJ>effective" ->
+  "in effective", "un<ZWSP>safe" -> "un safe") and fabricate apparent support; deleting can
+  only make a span LESS matchable (a missed recovery), never ADD support. Only TRUE
+  no-break spaces (NBSP U+00A0, figure space U+2007, narrow NBSP U+202F) become a space.
+  New adversarial test `test_zero_width_is_DELETED_not_spaced_negation_safe` proves
+  "in<ZWJ>effective" -> "ineffective" and "the drug was in<ZWSP>effective" yields
+  "ineffective" (NOT "in effective"). Behavioral run confirms all 10 cases incl.
+  negation-safety + zero-digit invariants.
+- **iter-1 P1 (flag inert on the paid path) — FIXED.** `PG_GATE_B_SPAN_NORMALIZE` is now in
+  `_FULL_CAPABILITY_BENCHMARK_SLATE` (="1"), `_BENCHMARK_FORCE_ON_FLAGS` (force-set, no
+  setdefault drift), AND `_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS` (fail-closed if not active on
+  a paid run) — same triple as the FX-03 cited-span precedent.
+- **iter-1 P2 (literal invisible chars in the regex vs \u escapes) — disclosed.** The
+  `_LIGATURE_MAP` / `_ZERO_WIDTH_RE` / `_NBSP_SPACE_RE` character classes currently hold the
+  literal codepoints (behaviorally verified correct by the test suite + an ascii-safe
+  codepoint probe). Editor tooling kept mangling typed `\u` escapes; the classes are
+  correct and tested. Flag if you want this blocked on a \u-escape rewrite (cosmetic
+  maintainability, not behavior).
+- **Build:** 8 span-normalize tests + 8 existing FX-03 cited-span tests pass (flag-off
+  byte-identical integration confirmed).
+
+---
+
+(original iter-1 brief follows)
+
+HARD ITERATION CAP (iter-1 header, superseded above): 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- Reserve P0/P1 for real execution risks; cosmetic = P3/P2.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## Issue (#1214, I-perm-022)
+Un-normalized PDF-extraction artifacts (ligatures, line-break hyphenation, NBSP/zero-width)
+in the cited SPAN reach the four-role second evaluators (Sentinel decomposition + Judge)
+verbatim and can flip a genuinely-supported atom to "unsupported" → surfaced as
+[confidence:low]. Normalize the cited span BEFORE the 2nd evaluator; recover TRUE positives
+only; gate NEVER loosened. DoD: default-OFF flag, byte-identical when off; faithfulness gates
+NEVER relaxed; unit tests; Codex diff-gate APPROVE; paid §-1.1 smoke; wired into Gate-B slate.
+
+The full grounded forensic is at `.codex/I-perm-022/forensic.md` (read it).
+
+## Design (as built)
+NORMALIZE THE SPAN ONLY (artifacts are source-side); grade the CLAIM as-authored.
+- `_normalize_span_text(text)` in `src/polaris_graph/roles/native_gate_b_inputs.py`, gated by
+  default-OFF `PG_GATE_B_SPAN_NORMALIZE` (OFF → returns input unchanged → byte-identical):
+  1. Ligatures U+FB00..U+FB06 → ASCII (the unambiguous, high-value repair).
+  2. Line-break (soft) hyphenation, ALPHABETIC neighbours ONLY: `([A-Za-z])-[ \t]*\n[ \t]*([A-Za-z])`.
+  3. Invisible/zero-width/NBSP → space; collapse space/tab runs.
+  - ZERO digit modification — every rule matches ALPHABETIC context only, so numbers, ranges
+    ("20-\n30"), and negatives ("-1.07") are byte-preserved (the I-gen-005 lesson).
+- Wired at `_resolve_evidence` (the EvidenceDocument the evaluator reads):
+  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL un-normalized
+  text. Slate force-on `PG_GATE_B_SPAN_NORMALIZE=1`.
+
+## Faithfulness analysis (the crux you must verify)
+1. **Repair, not rewrite — recovers TPs only.** The normalizer maps a garbled token to its
+   true form and ADDS NO content. If the span genuinely does not state a claim's atom, the
+   repaired span STILL does not → the atom stays unsupported → the claim stays non-VERIFIED. A
+   genuine negative cannot flip, because no new support is introduced.
+2. **Zero digit modification (testable invariant).** Every regex matches alphabetic context
+   only; ligature codepoints carry no digits; de-hyphenation is `[A-Za-z]-...-[A-Za-z]`.
+   `test_numeric_difference_does_NOT_collapse` proves `2%`/`20%` stay distinct and a digit
+   line-break hyphen is preserved.
+3. **Gate untouched.** strict_verify, D8, `_compose_final_verdict` fail-closed, Mirror doc_id
+   binding, Sentinel UNGROUNDED override, the VERIFIED coverage credit are all unchanged. The
+   only change is the TEXT the evaluator reads, made faithfully comparable to its own source.
+4. **No recovery target.** The fix accepts whatever recovers (possibly far fewer than the
+   drb_76 "12"); it is NOT tuned to a count (that would force-pass genuine negatives).
+
+## Honesty caveats (from the forensic — weigh these)
+- The drb_76 "12 false negatives" is NOT confirmed artifact-driven: in the captured run the one
+  artifact-bearing row (ev_206) feeds no Sentinel-unsupported claim, and MOST of the 8 are
+  GENUINE semantic negatives that MUST stay negative. The fix is defensible prophylaxis + one
+  demonstrated truncation case (05-007 "natural kill[er] cell"), proven per-claim only by the
+  paid §-1.1 smoke.
+- De-hyphenation is irreducibly imperfect at the seam ("oxaliplatin-\ninduced" residual);
+  ligatures are the clean win, hyphenation is best-effort/alphabetic-only/documented. A wrong
+  join only FAILS to match (a missed recovery), never ADDS support.
+- Truncation artifacts ("natural kill" vs "killer") are NOT fixed here (need fuzzy/edit-distance
+  = different + riskier; out of scope). Persistent cross-run verdict cache deferred (the in-run
+  `_dedup_key` already inherits the normalized identity for free since we normalize upstream).
+
+## Tests (`tests/polaris_graph/test_span_normalize_iperm022.py`, 7) + FX-03 regression
+flag-off byte-identical; ligatures repaired; alphabetic hyphen joined (+ documented residual);
+**numeric difference does NOT collapse**; NBSP/ZWSP/BOM → space + run collapse; genuine negative
+gains no content; empty-safe. 7 new pass; 8 existing FX-03 cited-span tests pass (flag-off
+integration → byte-identical EvidenceDocument.text).
+
+## Questions
+1. Is "normalize span / grade claim as-authored, recovers-TP-only, zero-digit-mod" sufficient to
+   keep this faithfulness-NEUTRAL? Any path where a repaired span ADDS support to a genuine
+   negative?
+2. Is deferring the persistent cross-run verdict cache (keeping only the free in-run dedup
+   identity) acceptable to stay under the 200-LOC cap?
+3. Is folding the per-claim causal proof into the paid §-1.1 smoke (vs claiming it offline)
+   the honest call, given the "12 FN" is not artifact-confirmed?
+
+codex
+I’ll verify this against the actual diff and the forensic, then check the span normalizer behavior and flag wiring before giving the gate verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_GATE_B_SPAN_NORMALIZE|_normalize_span_text|LIGATURE|NBSP|zero-width|de-hyphen|hyphen|FB05|FB06" src run_gate_b.py tests .codex/I-perm-022/forensic.md' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git status --short' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff -- src/polaris_graph/roles/native_gate_b_inputs.py run_gate_b.py tests/polaris_graph/test_span_normalize_iperm022.py tests/polaris_graph/test_native_gate_b_fx03_cited_span.py' in C:\POLARIS
+2026-06-12T03:42:18.545140Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 5.3 seconds
+Output:
+.codex/I-perm-022/forensic.md:11:- `_cited_window_text` (547-579) slices a bounded window but applies NO de-hyphenation /
+.codex/I-perm-022/forensic.md:28:  U+FB02 `ﬂ`) + 5 line-break hyphens — ALL concentrated in ONE row `ev_206` (`bioﬁlms`,
+.codex/I-perm-022/forensic.md:31:  SUPPORTED → ZERO of the 8 Sentinel-unsupported claims were ligature/hyphen-driven in this
+.codex/I-perm-022/forensic.md:40:hyphenation, truncation/whitespace) in the cited span reach the LLM evaluators verbatim and
+.codex/I-perm-022/forensic.md:49:- SPAN: apply new `_normalize_span_text()` right before `EvidenceDocument(...)` (607-609).
+.codex/I-perm-022/forensic.md:53:`_normalize_span_text` — strictly meaning-preserving, ZERO digit modification:
+.codex/I-perm-022/forensic.md:57:2. Line-break de-hyphenation, ALPHABETIC-ONLY: join `[a-z]-\n[a-z]`. Document the residual
+.codex/I-perm-022/forensic.md:61:3. Whitespace: collapse runs, NBSP/zero-width → space.
+.codex/I-perm-022/forensic.md:80:## 5. Edits (default-OFF flag `PG_GATE_B_SPAN_NORMALIZE`, default "0" → byte-identical)
+.codex/I-perm-022/forensic.md:82:  ligature map; add `_normalize_span_text(text)` (OFF-guarded → returns input unchanged);
+.codex/I-perm-022/forensic.md:84:  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL
+.codex/I-perm-022/forensic.md:86:- Wire `PG_GATE_B_SPAN_NORMALIZE=1` into the Gate-B slate.
+.codex/I-perm-022/forensic.md:90:  hyphen joined (alphabetic) + document `oxaliplatin-` residual; recovers a TP the artifact
+.codex/I-perm-022/forensic.md:95:- "12 FN" NOT artifact-confirmed in the captured run; ligatures are the clean win, hyphenation
+.codex/I-perm-022/forensic.md:97:  ligature/hyphen (needs fuzzy/edit-distance = different, riskier; out of scope). Persistent
+tests\architecture\test_runtime_lock.py:158:    """The lock judge model_slug is the corrected (single-hyphen) slug."""
+src\polaris_graph\tools\react_agent.py:142:# when they appear as the first component of a hyphenated compound
+src\polaris_graph\tools\react_agent.py:2917:        hyphenated compounds (Cross-linked, Non-woven).
+src\polaris_graph\tools\react_agent.py:2921:        hyphen_candidates = re.findall(
+src\polaris_graph\tools\react_agent.py:2924:        for cand in hyphen_candidates:
+src\polaris_graph\tools\numeric_sanitizer.py:35:# "PMC123") OR TWO-OR-MORE internal hyphens (e.g. "978-3-16-148410-0"). A numeric RANGE or CI bound
+src\polaris_graph\tools\numeric_sanitizer.py:36:# ("0.4-6.7", "0.47-0.89", "10-100") has NO letter and a SINGLE hyphen between numbers, so it is
+src\agents\auditor_agent.py:932:        # FIX 14: Split on sentence-ending punctuation OR newlines with bullets/hyphens
+src\polaris_graph\generator\provenance_generator.py:90:# merge tokens if the adversary embeds a zero-width INSIDE the word
+src\polaris_graph\generator\provenance_generator.py:114:# U+115F/U+1160 (Hangul Jungseong filler — zero-width),
+src\polaris_graph\generator\provenance_generator.py:115:# U+3164/U+FFA0 (Hangul filler — zero-width). Any char in Unicode
+src\polaris_graph\generator\provenance_generator.py:121:    "\u200b-\u200f"     # zero-width space, ZWNJ, ZWJ, LRM, RLM
+src\polaris_graph\generator\provenance_generator.py:126:    "\u115f\u1160"      # Hangul Jungseong filler (zero-width)
+src\polaris_graph\generator\provenance_generator.py:574:# Also include zero-width separators (U+200B etc.) that PDF/browser
+src\polaris_graph\generator\provenance_generator.py:590:    # Horizontal whitespace (tab, space, NBSP, OGHAM SPACE, U+2000..U+200A
+src\polaris_graph\generator\provenance_generator.py:593:    # Soft hyphen + Arabic letter mark (PDF extraction hyphenation):
+src\polaris_graph\generator\provenance_generator.py:1310:    with hyphen) found in the text. Used by the M-25a trial-name gate.
+src\polaris_graph\generator\multi_section_generator.py:2115:# any ALL-CAPS token followed by a hyphen-digit suffix counts, plus a
+src\polaris_graph\generator\multi_section_generator.py:2120:# hyphen-digit pattern (ISO-9001, IEC-62109, DIN-17100, ASTM-D412,
+src\polaris_graph\generator\multi_section_generator.py:2218:    pattern-match the hyphen-digit shape but are not named trials.
+src\polaris_graph\generator\multi_section_generator.py:2223:        # Split off prefix before the hyphen, if any. All-letter
+src\polaris_graph\generator\multi_section_generator.py:2224:        # famous names (SELECT, LEADER, etc.) have no hyphen and are
+src\polaris_graph\generator\claim_atom_extractor.py:654:# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+tests\dr_benchmark\test_extended_metrics_iperm024.py:185:def test_dedup_blocks_hyphenated_and_short_entity_swaps():
+tests\dr_benchmark\test_extended_metrics_iperm024.py:186:    # Codex diff-gate iter-3 P1: hyphenated cytokines (IL-6/TNF, IL-6/IL-10) and
+src\polaris_graph\benchmark\claim_dedup.py:62:# every other character (sign +/-, slash, Greek α/β, %, internal hyphen, digits) is kept
+src\polaris_graph\benchmark\claim_dedup.py:72:    vs `pks-`), Greek variants (`IL-1α` vs `IL-1β`), hyphens (`IL-6` vs `IL-10`),
+src\polaris_graph\synthesis\citation_mapper.py:802:            # Convert hyphens/underscores to spaces, title-case
+src\polaris_graph\auto_induction\llm_inductor.py:35:operator load by handling the paraphrase / morphology / hyphen
+src\polaris_graph\auto_induction\keyword_inductor.py:178:            "insulin-pump",  # Codex round-4: hyphenated variant
+src\polaris_graph\roles\native_gate_b_inputs.py:548:# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+src\polaris_graph\roles\native_gate_b_inputs.py:551:# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+src\polaris_graph\roles\native_gate_b_inputs.py:555:# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
+src\polaris_graph\roles\native_gate_b_inputs.py:559:_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+src\polaris_graph\roles\native_gate_b_inputs.py:561:# decomposition), NOT a hand-typed table — a hand value can be wrong (e.g. U+FB05 LONG-S-T
+src\polaris_graph\roles\native_gate_b_inputs.py:565:_LIGATURE_MAP = {
+src\polaris_graph\roles\native_gate_b_inputs.py:567:    for cp in range(0xFB00, 0xFB07)  # FB00..FB06: ff fi fl ffi ffl st st
+src\polaris_graph\roles\native_gate_b_inputs.py:571:_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+src\polaris_graph\roles\native_gate_b_inputs.py:578:def _normalize_span_text(text: str) -> str:
+src\polaris_graph\roles\native_gate_b_inputs.py:579:    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
+src\polaris_graph\roles\native_gate_b_inputs.py:585:    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+src\polaris_graph\roles\native_gate_b_inputs.py:651:                text=_normalize_span_text(_cited_window_text(text, token)),
+tests\v3\test_react_agent.py:3614:def test_p4_hyphenated_compound_extraction():
+tests\v3\test_react_agent.py:3623:def test_p4_non_prefix_hyphenated_not_matched():
+tests\v3\test_react_agent.py:3624:    """P4: Non-prefix hyphenated words use standard extraction."""
+tests\v3\test_react_agent.py:3633:def test_p4_multi_prefix_hyphenated():
+src\polaris_graph\retrieval\tier_classifier.py:860:        # digits, optionally with hyphen. Must be at title start.
+tests\polaris_graph\test_contract_draft_store.py:1077:# input (zero-width spaces, Cf chars), not just whitespace.
+tests\polaris_graph\test_contract_draft_store.py:1086:    "​" (zero-width space) was content-empty but passed
+tests\polaris_graph\test_contract_draft_store.py:1104:            rationale="​",  # zero-width space — content-empty
+tests\polaris_graph\test_contract_draft_store.py:1146:            rationale=" ​ \t\n",  # whitespace + zero-width space
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:90:    # provenance token regex requires [A-Za-z0-9_]+ for the evidence id (no hyphens).
+tests\polaris_graph\test_m41_v24_regression_fixes.py:264:        (ISO-9001, IEC-62109, ASTM-D412, IEEE-754) match the hyphen-
+tests\polaris_graph\test_m35_primary_trial_expander.py:99:        but trial names are conventionally hyphenated tokens. A
+tests\polaris_graph\test_b5_delimiter_breakout.py:124:    """Adversary embeds U+200B zero-width space inside the delimiter to
+tests\polaris_graph\test_b5_delimiter_breakout.py:133:    """U+200C zero-width non-joiner variant."""
+tests\polaris_graph\test_b5_delimiter_breakout.py:321:    explicit list are also elided. Verify with U+00AD soft hyphen (Cf)."""
+src\polaris_graph\audit_ir\workspace_memory.py:141:# hyphen normalization, Roman numeral collapse, compact drug-class
+src\polaris_graph\audit_ir\workspace_memory.py:154:    M-10 functions handle Unicode hyphen normalization, Roman
+src\polaris_graph\audit_ir\template_classifier.py:156:# Codex M-10 v6 review fix: tokenizer now splits on hyphens.
+src\polaris_graph\audit_ir\template_classifier.py:157:# Previously the regex preserved hyphens within tokens so "glp-1"
+src\polaris_graph\audit_ir\template_classifier.py:164:# Splitting on hyphens changes "glp-1" → ["glp", "1"] which is
+src\polaris_graph\audit_ir\template_classifier.py:168:# hyphen translate above still runs first so all hyphen variants
+src\polaris_graph\audit_ir\template_classifier.py:172:# Codex M-10 review fix: normalize Unicode hyphens (non-breaking
+src\polaris_graph\audit_ir\template_classifier.py:173:# hyphen U+2011, en-dash U+2013, em-dash U+2014, minus sign U+2212,
+src\polaris_graph\audit_ir\template_classifier.py:230:# Codex M-10 v7 review fix: hyphen-less drug-class abbreviations
+src\polaris_graph\audit_ir\template_classifier.py:232:# their hyphenated form (GLP-1 → [glp, 1] after the v6 hyphen
+src\polaris_graph\audit_ir\template_classifier.py:244:    """Lowercased, hyphen-split, Roman/compact-normalized word/digit
+src\polaris_graph\audit_ir\template_classifier.py:248:      1. Unicode hyphen variants → ASCII hyphen.
+src\polaris_graph\audit_ir\template_classifier.py:250:      3. Regex `[a-z0-9]+` extracts alphanumeric tokens (hyphens
+src\polaris_graph\audit_ir\template_classifier.py:254:         hyphen-split equivalents (Codex M-10 v7 fix).
+tests\polaris_graph\test_m16_full_scale_pass1_fixes.py:44:def test_thu_hyphen_id_detects() -> None:
+tests\polaris_graph\test_m16_full_scale_pass1_fixes.py:58:def test_or_number_hyphen_number_detects() -> None:
+src\polaris_graph\audit_ir\template_catalog.py:124:        # specific enough to audit). The canonical hyphenated form
+src\polaris_graph\audit_ir\template_catalog.py:125:        # is used; the v7 tokenizer normalizes hyphen-less query
+tests\polaris_graph\test_atom_refusal_validator.py:443:def test_step3j_diff_iter1_n_week_hyphen_form_refused():
+tests\polaris_graph\test_atom_refusal_validator.py:444:    """Codex diff iter-1 P1 #3: '40-week' hyphenated form."""
+tests\polaris_graph\test_atom_refusal_validator.py:1145:            value="-2.30",  # stored with ASCII hyphen-minus
+src\polaris_graph\audit_ir\scope_classifier_llm.py:369:        # `"​​"` (zero-width spaces) — those reached
+src\polaris_graph\audit_ir\scope_classifier.py:129:      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, word joiner)
+src\polaris_graph\audit_ir\scope_classifier.py:336:    # of `str.strip()`. `strip()` doesn't remove Cf (zero-width space,
+src\polaris_graph\audit_ir\scope_classifier.py:338:    # like `"​​"` (3× zero-width space) was reaching the
+src\polaris_graph\audit_ir\review_store.py:401:        # zero-width spaces (​) and control characters
+src\polaris_graph\audit_ir\review_store.py:406:        # None, the caller submitted zero-width/control-only content
+src\polaris_graph\audit_ir\review_store.py:419:                f"character (zero-width spaces and control chars "
+src\polaris_graph\audit_ir\review_store.py:592:    zero-width spaces before evaluating emptiness.
+src\polaris_graph\audit_ir\review_store.py:598:    via `\"\\u200b\"` (zero-width space) or `\"\\u0000\"` (null).
+src\polaris_graph\audit_ir\review_store.py:601:    and `Cf` (format/zero-width) AND ASCII whitespace. The remainder
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:173:    visually-empty questions (zero-width spaces, combining
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:192:        "​​",        # zero-width spaces (Cf)
+tests\polaris_graph\test_md2_keyword_inductor.py:231:def test_round4_insulin_pump_hyphenated_disqualifies() -> None:
+tests\polaris_graph\test_md2_keyword_inductor.py:233:    'insulin-pump' (hyphen). Both forms disqualify now."""
+tests\polaris_graph\test_md2_keyword_inductor.py:240:    # Plural-hyphenated:
+tests\polaris_graph\test_md9_phase2_beat_both.py:822:    (zero-width space U+200B, BOM U+FEFF, ZWNJ U+200C, ZWJ U+200D).
+tests\polaris_graph\test_md9_phase2_beat_both.py:836:            # Word joiner + non-breaking space — strip catches NBSP
+tests\polaris_graph\test_md5_scope_classifier.py:452:    NOT remove zero-width space (U+200B), ZWNJ (U+200C), ZWJ
+tests\polaris_graph\test_md5_scope_classifier.py:467:        "​​​",          # zero-width space
+tests\polaris_graph\test_md5_scope_classifier.py:468:        "‌",                       # zero-width non-joiner
+tests\polaris_graph\test_md5_scope_classifier.py:469:        "‍",                       # zero-width joiner
+tests\polaris_graph\test_review_store.py:617:    """Codex M-23 v1: zero-width-only or control-char-only notes
+tests\polaris_graph\test_span_normalize_iperm022.py:1:"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+tests\polaris_graph\test_span_normalize_iperm022.py:4:codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
+tests\polaris_graph\test_span_normalize_iperm022.py:17:from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+tests\polaris_graph\test_span_normalize_iperm022.py:24:NBSP = chr(0x00A0)
+tests\polaris_graph\test_span_normalize_iperm022.py:29:    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+tests\polaris_graph\test_span_normalize_iperm022.py:30:    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+tests\polaris_graph\test_span_normalize_iperm022.py:35:            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:37:            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+tests\polaris_graph\test_span_normalize_iperm022.py:41:    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:43:    assert _normalize_span_text(raw) == raw
+tests\polaris_graph\test_span_normalize_iperm022.py:47:    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+tests\polaris_graph\test_span_normalize_iperm022.py:48:    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+tests\polaris_graph\test_span_normalize_iperm022.py:49:    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+tests\polaris_graph\test_span_normalize_iperm022.py:53:    # Codex brief-gate iter-3 P1: the map is NFKD-derived, so U+FB05 (LONG S T) -> "st"
+tests\polaris_graph\test_span_normalize_iperm022.py:54:    # (NOT "ft"). "lo<FB05>" must read as "lost", never "loft".
+tests\polaris_graph\test_span_normalize_iperm022.py:56:    from src.polaris_graph.roles.native_gate_b_inputs import _LIGATURE_MAP
+tests\polaris_graph\test_span_normalize_iperm022.py:59:        assert _LIGATURE_MAP[ch] == unicodedata.normalize("NFKD", ch)
+tests\polaris_graph\test_span_normalize_iperm022.py:60:    assert _normalize_span_text("lo" + chr(0xFB05)) == "lost"
+tests\polaris_graph\test_span_normalize_iperm022.py:61:    assert "loft" not in _normalize_span_text("lo" + chr(0xFB05))
+tests\polaris_graph\test_span_normalize_iperm022.py:62:    assert _normalize_span_text("be" + chr(0xFB06)) == "best"  # FB06 ST
+tests\polaris_graph\test_span_normalize_iperm022.py:67:def test_line_break_hyphen_is_NOT_joined(_norm_on):
+tests\polaris_graph\test_span_normalize_iperm022.py:68:    # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
+tests\polaris_graph\test_span_normalize_iperm022.py:69:    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+tests\polaris_graph\test_span_normalize_iperm022.py:70:    assert "resigned" not in _normalize_span_text("re-\nsigned")
+tests\polaris_graph\test_span_normalize_iperm022.py:71:    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+tests\polaris_graph\test_span_normalize_iperm022.py:76:    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+tests\polaris_graph\test_span_normalize_iperm022.py:77:    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+tests\polaris_graph\test_span_normalize_iperm022.py:79:    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+tests\polaris_graph\test_span_normalize_iperm022.py:84:    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+tests\polaris_graph\test_span_normalize_iperm022.py:85:    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+tests\polaris_graph\test_span_normalize_iperm022.py:86:    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+tests\polaris_graph\test_span_normalize_iperm022.py:87:    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+tests\polaris_graph\test_span_normalize_iperm022.py:92:    out = _normalize_span_text(span)
+tests\polaris_graph\test_span_normalize_iperm022.py:98:    assert _normalize_span_text("") == ""
+src\polaris_graph\audit_ir\auth_store.py:109:# Org slug: lowercase letters, digits, hyphen. 2-64 chars (must
+src\polaris_graph\audit_ir\auth_store.py:110:# start AND end with alphanumeric, hyphens only in the middle).
+src\polaris_graph\audit_ir\corpus_retriever.py:30:(hyphen split, Unicode hyphen normalize, stopword filter, Roman
+src\polaris_graph\audit_ir\contract_draft_store.py:67:      content-empty rationales like "​" (zero-width space)
+src\polaris_graph\audit_ir\contract_draft_store.py:1214:            so zero-width-space-only rationales are caught)
+src\polaris_graph\audit_ir\contract_draft_store.py:1237:        # "​" (zero-width space) was content-empty but passed
+src\polaris_graph\audit_ir\beat_both_scoring.py:200:    whitespace controls but NOT Cf (zero-width space U+200B,
+src\polaris_graph\audit_ir\beat_both_scoring.py:227:      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, ...)
+tests\polaris_graph\test_template_classifier.py:356:def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
+tests\polaris_graph\test_template_classifier.py:358:    non-breaking hyphen) must match the same as 'GLP-1' (ASCII).
+tests\polaris_graph\test_template_classifier.py:374:        # Codex M-10 v6 review regression: hyphen-joined compound
+tests\polaris_graph\test_template_classifier.py:381:        # Drug class with optional hyphen (already worked via single
+tests\polaris_graph\test_template_classifier.py:393:def test_hyphen_compound_orthography_routes(query: str) -> None:
+tests\polaris_graph\test_template_classifier.py:394:    """Codex M-10 v6 fix: hyphen-joined compound forms ('phase-3',
+tests\polaris_graph\test_template_classifier.py:396:    tokenizer's hyphen split."""
+tests\polaris_graph\test_template_classifier.py:399:        f"hyphen-compound query {query!r} did not route "
+tests\polaris_graph\tools\test_numeric_sanitizer_iperm007.py:61:        ("isbn 978-3-16-148410-0 ref", "978-3-16-148410-0", True),  # multi-hyphen id
+tests\integration\test_pipeline_crud.py:504:    stage_with_hyphen = PipelineStage(stage_id="also-valid", stage_type=StageType.PLAN)
+tests\integration\test_pipeline_crud.py:505:    assert stage_with_hyphen.stage_id == "also-valid"
+rg: run_gate_b.py: The system cannot find the file specified. (os error 2)
+
+ exited 1 in 5324ms:
+.codex/I-perm-022/forensic.md:11:- `_cited_window_text` (547-579) slices a bounded window but applies NO de-hyphenation /
+.codex/I-perm-022/forensic.md:28:  U+FB02 `ﬂ`) + 5 line-break hyphens — ALL concentrated in ONE row `ev_206` (`bioﬁlms`,
+.codex/I-perm-022/forensic.md:31:  SUPPORTED → ZERO of the 8 Sentinel-unsupported claims were ligature/hyphen-driven in this
+.codex/I-perm-022/forensic.md:40:hyphenation, truncation/whitespace) in the cited span reach the LLM evaluators verbatim and
+.codex/I-perm-022/forensic.md:49:- SPAN: apply new `_normalize_span_text()` right before `EvidenceDocument(...)` (607-609).
+.codex/I-perm-022/forensic.md:53:`_normalize_span_text` — strictly meaning-preserving, ZERO digit modification:
+.codex/I-perm-022/forensic.md:57:2. Line-break de-hyphenation, ALPHABETIC-ONLY: join `[a-z]-\n[a-z]`. Document the residual
+.codex/I-perm-022/forensic.md:61:3. Whitespace: collapse runs, NBSP/zero-width → space.
+.codex/I-perm-022/forensic.md:80:## 5. Edits (default-OFF flag `PG_GATE_B_SPAN_NORMALIZE`, default "0" → byte-identical)
+.codex/I-perm-022/forensic.md:82:  ligature map; add `_normalize_span_text(text)` (OFF-guarded → returns input unchanged);
+.codex/I-perm-022/forensic.md:84:  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL
+.codex/I-perm-022/forensic.md:86:- Wire `PG_GATE_B_SPAN_NORMALIZE=1` into the Gate-B slate.
+.codex/I-perm-022/forensic.md:90:  hyphen joined (alphabetic) + document `oxaliplatin-` residual; recovers a TP the artifact
+.codex/I-perm-022/forensic.md:95:- "12 FN" NOT artifact-confirmed in the captured run; ligatures are the clean win, hyphenation
+.codex/I-perm-022/forensic.md:97:  ligature/hyphen (needs fuzzy/edit-distance = different, riskier; out of scope). Persistent
+tests\architecture\test_runtime_lock.py:158:    """The lock judge model_slug is the corrected (single-hyphen) slug."""
+src\polaris_graph\tools\react_agent.py:142:# when they appear as the first component of a hyphenated compound
+src\polaris_graph\tools\react_agent.py:2917:        hyphenated compounds (Cross-linked, Non-woven).
+src\polaris_graph\tools\react_agent.py:2921:        hyphen_candidates = re.findall(
+src\polaris_graph\tools\react_agent.py:2924:        for cand in hyphen_candidates:
+src\polaris_graph\tools\numeric_sanitizer.py:35:# "PMC123") OR TWO-OR-MORE internal hyphens (e.g. "978-3-16-148410-0"). A numeric RANGE or CI bound
+src\polaris_graph\tools\numeric_sanitizer.py:36:# ("0.4-6.7", "0.47-0.89", "10-100") has NO letter and a SINGLE hyphen between numbers, so it is
+src\agents\auditor_agent.py:932:        # FIX 14: Split on sentence-ending punctuation OR newlines with bullets/hyphens
+src\polaris_graph\generator\provenance_generator.py:90:# merge tokens if the adversary embeds a zero-width INSIDE the word
+src\polaris_graph\generator\provenance_generator.py:114:# U+115F/U+1160 (Hangul Jungseong filler — zero-width),
+src\polaris_graph\generator\provenance_generator.py:115:# U+3164/U+FFA0 (Hangul filler — zero-width). Any char in Unicode
+src\polaris_graph\generator\provenance_generator.py:121:    "\u200b-\u200f"     # zero-width space, ZWNJ, ZWJ, LRM, RLM
+src\polaris_graph\generator\provenance_generator.py:126:    "\u115f\u1160"      # Hangul Jungseong filler (zero-width)
+src\polaris_graph\generator\provenance_generator.py:574:# Also include zero-width separators (U+200B etc.) that PDF/browser
+src\polaris_graph\generator\provenance_generator.py:590:    # Horizontal whitespace (tab, space, NBSP, OGHAM SPACE, U+2000..U+200A
+src\polaris_graph\generator\provenance_generator.py:593:    # Soft hyphen + Arabic letter mark (PDF extraction hyphenation):
+src\polaris_graph\generator\provenance_generator.py:1310:    with hyphen) found in the text. Used by the M-25a trial-name gate.
+src\polaris_graph\generator\multi_section_generator.py:2115:# any ALL-CAPS token followed by a hyphen-digit suffix counts, plus a
+src\polaris_graph\generator\multi_section_generator.py:2120:# hyphen-digit pattern (ISO-9001, IEC-62109, DIN-17100, ASTM-D412,
+src\polaris_graph\generator\multi_section_generator.py:2218:    pattern-match the hyphen-digit shape but are not named trials.
+src\polaris_graph\generator\multi_section_generator.py:2223:        # Split off prefix before the hyphen, if any. All-letter
+src\polaris_graph\generator\multi_section_generator.py:2224:        # famous names (SELECT, LEADER, etc.) have no hyphen and are
+src\polaris_graph\generator\claim_atom_extractor.py:654:# Word units (kg, mg, ...) require leading whitespace or hyphen so we
+tests\dr_benchmark\test_extended_metrics_iperm024.py:185:def test_dedup_blocks_hyphenated_and_short_entity_swaps():
+tests\dr_benchmark\test_extended_metrics_iperm024.py:186:    # Codex diff-gate iter-3 P1: hyphenated cytokines (IL-6/TNF, IL-6/IL-10) and
+src\polaris_graph\benchmark\claim_dedup.py:62:# every other character (sign +/-, slash, Greek α/β, %, internal hyphen, digits) is kept
+src\polaris_graph\benchmark\claim_dedup.py:72:    vs `pks-`), Greek variants (`IL-1α` vs `IL-1β`), hyphens (`IL-6` vs `IL-10`),
+src\polaris_graph\synthesis\citation_mapper.py:802:            # Convert hyphens/underscores to spaces, title-case
+src\polaris_graph\auto_induction\llm_inductor.py:35:operator load by handling the paraphrase / morphology / hyphen
+src\polaris_graph\auto_induction\keyword_inductor.py:178:            "insulin-pump",  # Codex round-4: hyphenated variant
+src\polaris_graph\roles\native_gate_b_inputs.py:548:# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+src\polaris_graph\roles\native_gate_b_inputs.py:551:# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+src\polaris_graph\roles\native_gate_b_inputs.py:555:# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
+src\polaris_graph\roles\native_gate_b_inputs.py:559:_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+src\polaris_graph\roles\native_gate_b_inputs.py:561:# decomposition), NOT a hand-typed table — a hand value can be wrong (e.g. U+FB05 LONG-S-T
+src\polaris_graph\roles\native_gate_b_inputs.py:565:_LIGATURE_MAP = {
+src\polaris_graph\roles\native_gate_b_inputs.py:567:    for cp in range(0xFB00, 0xFB07)  # FB00..FB06: ff fi fl ffi ffl st st
+src\polaris_graph\roles\native_gate_b_inputs.py:571:_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+src\polaris_graph\roles\native_gate_b_inputs.py:578:def _normalize_span_text(text: str) -> str:
+src\polaris_graph\roles\native_gate_b_inputs.py:579:    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
+src\polaris_graph\roles\native_gate_b_inputs.py:585:    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+src\polaris_graph\roles\native_gate_b_inputs.py:651:                text=_normalize_span_text(_cited_window_text(text, token)),
+tests\v3\test_react_agent.py:3614:def test_p4_hyphenated_compound_extraction():
+tests\v3\test_react_agent.py:3623:def test_p4_non_prefix_hyphenated_not_matched():
+tests\v3\test_react_agent.py:3624:    """P4: Non-prefix hyphenated words use standard extraction."""
+tests\v3\test_react_agent.py:3633:def test_p4_multi_prefix_hyphenated():
+src\polaris_graph\retrieval\tier_classifier.py:860:        # digits, optionally with hyphen. Must be at title start.
+tests\polaris_graph\test_contract_draft_store.py:1077:# input (zero-width spaces, Cf chars), not just whitespace.
+tests\polaris_graph\test_contract_draft_store.py:1086:    "​" (zero-width space) was content-empty but passed
+tests\polaris_graph\test_contract_draft_store.py:1104:            rationale="​",  # zero-width space — content-empty
+tests\polaris_graph\test_contract_draft_store.py:1146:            rationale=" ​ \t\n",  # whitespace + zero-width space
+tests\polaris_graph\test_fx02_strict_verify_floors_iready017.py:90:    # provenance token regex requires [A-Za-z0-9_]+ for the evidence id (no hyphens).
+tests\polaris_graph\test_m41_v24_regression_fixes.py:264:        (ISO-9001, IEC-62109, ASTM-D412, IEEE-754) match the hyphen-
+tests\polaris_graph\test_m35_primary_trial_expander.py:99:        but trial names are conventionally hyphenated tokens. A
+tests\polaris_graph\test_b5_delimiter_breakout.py:124:    """Adversary embeds U+200B zero-width space inside the delimiter to
+tests\polaris_graph\test_b5_delimiter_breakout.py:133:    """U+200C zero-width non-joiner variant."""
+tests\polaris_graph\test_b5_delimiter_breakout.py:321:    explicit list are also elided. Verify with U+00AD soft hyphen (Cf)."""
+src\polaris_graph\audit_ir\workspace_memory.py:141:# hyphen normalization, Roman numeral collapse, compact drug-class
+src\polaris_graph\audit_ir\workspace_memory.py:154:    M-10 functions handle Unicode hyphen normalization, Roman
+src\polaris_graph\audit_ir\template_classifier.py:156:# Codex M-10 v6 review fix: tokenizer now splits on hyphens.
+src\polaris_graph\audit_ir\template_classifier.py:157:# Previously the regex preserved hyphens within tokens so "glp-1"
+src\polaris_graph\audit_ir\template_classifier.py:164:# Splitting on hyphens changes "glp-1" → ["glp", "1"] which is
+src\polaris_graph\audit_ir\template_classifier.py:168:# hyphen translate above still runs first so all hyphen variants
+src\polaris_graph\audit_ir\template_classifier.py:172:# Codex M-10 review fix: normalize Unicode hyphens (non-breaking
+src\polaris_graph\audit_ir\template_classifier.py:173:# hyphen U+2011, en-dash U+2013, em-dash U+2014, minus sign U+2212,
+src\polaris_graph\audit_ir\template_classifier.py:230:# Codex M-10 v7 review fix: hyphen-less drug-class abbreviations
+src\polaris_graph\audit_ir\template_classifier.py:232:# their hyphenated form (GLP-1 → [glp, 1] after the v6 hyphen
+src\polaris_graph\audit_ir\template_classifier.py:244:    """Lowercased, hyphen-split, Roman/compact-normalized word/digit
+src\polaris_graph\audit_ir\template_classifier.py:248:      1. Unicode hyphen variants → ASCII hyphen.
+src\polaris_graph\audit_ir\template_classifier.py:250:      3. Regex `[a-z0-9]+` extracts alphanumeric tokens (hyphens
+src\polaris_graph\audit_ir\template_classifier.py:254:         hyphen-split equivalents (Codex M-10 v7 fix).
+tests\polaris_graph\test_m16_full_scale_pass1_fixes.py:44:def test_thu_hyphen_id_detects() -> None:
+tests\polaris_graph\test_m16_full_scale_pass1_fixes.py:58:def test_or_number_hyphen_number_detects() -> None:
+src\polaris_graph\audit_ir\template_catalog.py:124:        # specific enough to audit). The canonical hyphenated form
+src\polaris_graph\audit_ir\template_catalog.py:125:        # is used; the v7 tokenizer normalizes hyphen-less query
+tests\polaris_graph\test_atom_refusal_validator.py:443:def test_step3j_diff_iter1_n_week_hyphen_form_refused():
+tests\polaris_graph\test_atom_refusal_validator.py:444:    """Codex diff iter-1 P1 #3: '40-week' hyphenated form."""
+tests\polaris_graph\test_atom_refusal_validator.py:1145:            value="-2.30",  # stored with ASCII hyphen-minus
+src\polaris_graph\audit_ir\scope_classifier_llm.py:369:        # `"​​"` (zero-width spaces) — those reached
+src\polaris_graph\audit_ir\scope_classifier.py:129:      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, word joiner)
+src\polaris_graph\audit_ir\scope_classifier.py:336:    # of `str.strip()`. `strip()` doesn't remove Cf (zero-width space,
+src\polaris_graph\audit_ir\scope_classifier.py:338:    # like `"​​"` (3× zero-width space) was reaching the
+src\polaris_graph\audit_ir\review_store.py:401:        # zero-width spaces (​) and control characters
+src\polaris_graph\audit_ir\review_store.py:406:        # None, the caller submitted zero-width/control-only content
+src\polaris_graph\audit_ir\review_store.py:419:                f"character (zero-width spaces and control chars "
+src\polaris_graph\audit_ir\review_store.py:592:    zero-width spaces before evaluating emptiness.
+src\polaris_graph\audit_ir\review_store.py:598:    via `\"\\u200b\"` (zero-width space) or `\"\\u0000\"` (null).
+src\polaris_graph\audit_ir\review_store.py:601:    and `Cf` (format/zero-width) AND ASCII whitespace. The remainder
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:173:    visually-empty questions (zero-width spaces, combining
+tests\polaris_graph\test_md5_phase2_llm_classifier.py:192:        "​​",        # zero-width spaces (Cf)
+tests\polaris_graph\test_md2_keyword_inductor.py:231:def test_round4_insulin_pump_hyphenated_disqualifies() -> None:
+tests\polaris_graph\test_md2_keyword_inductor.py:233:    'insulin-pump' (hyphen). Both forms disqualify now."""
+tests\polaris_graph\test_md2_keyword_inductor.py:240:    # Plural-hyphenated:
+tests\polaris_graph\test_md9_phase2_beat_both.py:822:    (zero-width space U+200B, BOM U+FEFF, ZWNJ U+200C, ZWJ U+200D).
+tests\polaris_graph\test_md9_phase2_beat_both.py:836:            # Word joiner + non-breaking space — strip catches NBSP
+tests\polaris_graph\test_md5_scope_classifier.py:452:    NOT remove zero-width space (U+200B), ZWNJ (U+200C), ZWJ
+tests\polaris_graph\test_md5_scope_classifier.py:467:        "​​​",          # zero-width space
+tests\polaris_graph\test_md5_scope_classifier.py:468:        "‌",                       # zero-width non-joiner
+tests\polaris_graph\test_md5_scope_classifier.py:469:        "‍",                       # zero-width joiner
+tests\polaris_graph\test_review_store.py:617:    """Codex M-23 v1: zero-width-only or control-char-only notes
+tests\polaris_graph\test_span_normalize_iperm022.py:1:"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+tests\polaris_graph\test_span_normalize_iperm022.py:4:codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
+tests\polaris_graph\test_span_normalize_iperm022.py:17:from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+tests\polaris_graph\test_span_normalize_iperm022.py:24:NBSP = chr(0x00A0)
+tests\polaris_graph\test_span_normalize_iperm022.py:29:    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+tests\polaris_graph\test_span_normalize_iperm022.py:30:    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+tests\polaris_graph\test_span_normalize_iperm022.py:35:            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:37:            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+tests\polaris_graph\test_span_normalize_iperm022.py:41:    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+tests\polaris_graph\test_span_normalize_iperm022.py:43:    assert _normalize_span_text(raw) == raw
+tests\polaris_graph\test_span_normalize_iperm022.py:47:    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+tests\polaris_graph\test_span_normalize_iperm022.py:48:    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+tests\polaris_graph\test_span_normalize_iperm022.py:49:    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+tests\polaris_graph\test_span_normalize_iperm022.py:53:    # Codex brief-gate iter-3 P1: the map is NFKD-derived, so U+FB05 (LONG S T) -> "st"
+tests\polaris_graph\test_span_normalize_iperm022.py:54:    # (NOT "ft"). "lo<FB05>" must read as "lost", never "loft".
+tests\polaris_graph\test_span_normalize_iperm022.py:56:    from src.polaris_graph.roles.native_gate_b_inputs import _LIGATURE_MAP
+tests\polaris_graph\test_span_normalize_iperm022.py:59:        assert _LIGATURE_MAP[ch] == unicodedata.normalize("NFKD", ch)
+tests\polaris_graph\test_span_normalize_iperm022.py:60:    assert _normalize_span_text("lo" + chr(0xFB05)) == "lost"
+tests\polaris_graph\test_span_normalize_iperm022.py:61:    assert "loft" not in _normalize_span_text("lo" + chr(0xFB05))
+tests\polaris_graph\test_span_normalize_iperm022.py:62:    assert _normalize_span_text("be" + chr(0xFB06)) == "best"  # FB06 ST
+tests\polaris_graph\test_span_normalize_iperm022.py:67:def test_line_break_hyphen_is_NOT_joined(_norm_on):
+tests\polaris_graph\test_span_normalize_iperm022.py:68:    # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
+tests\polaris_graph\test_span_normalize_iperm022.py:69:    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+tests\polaris_graph\test_span_normalize_iperm022.py:70:    assert "resigned" not in _normalize_span_text("re-\nsigned")
+tests\polaris_graph\test_span_normalize_iperm022.py:71:    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+tests\polaris_graph\test_span_normalize_iperm022.py:76:    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+tests\polaris_graph\test_span_normalize_iperm022.py:77:    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+tests\polaris_graph\test_span_normalize_iperm022.py:79:    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+tests\polaris_graph\test_span_normalize_iperm022.py:84:    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+tests\polaris_graph\test_span_normalize_iperm022.py:85:    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+tests\polaris_graph\test_span_normalize_iperm022.py:86:    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+tests\polaris_graph\test_span_normalize_iperm022.py:87:    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+tests\polaris_graph\test_span_normalize_iperm022.py:92:    out = _normalize_span_text(span)
+tests\polaris_graph\test_span_normalize_iperm022.py:98:    assert _normalize_span_text("") == ""
+src\polaris_graph\audit_ir\auth_store.py:109:# Org slug: lowercase letters, digits, hyphen. 2-64 chars (must
+src\polaris_graph\audit_ir\auth_store.py:110:# start AND end with alphanumeric, hyphens only in the middle).
+src\polaris_graph\audit_ir\corpus_retriever.py:30:(hyphen split, Unicode hyphen normalize, stopword filter, Roman
+src\polaris_graph\audit_ir\contract_draft_store.py:67:      content-empty rationales like "​" (zero-width space)
+src\polaris_graph\audit_ir\contract_draft_store.py:1214:            so zero-width-space-only rationales are caught)
+src\polaris_graph\audit_ir\contract_draft_store.py:1237:        # "​" (zero-width space) was content-empty but passed
+src\polaris_graph\audit_ir\beat_both_scoring.py:200:    whitespace controls but NOT Cf (zero-width space U+200B,
+src\polaris_graph\audit_ir\beat_both_scoring.py:227:      - Cf=Format (zero-width space, BOM, ZWNJ, ZWJ, ...)
+tests\polaris_graph\test_template_classifier.py:356:def test_unicode_hyphen_normalized_in_drug_class_match() -> None:
+tests\polaris_graph\test_template_classifier.py:358:    non-breaking hyphen) must match the same as 'GLP-1' (ASCII).
+tests\polaris_graph\test_template_classifier.py:374:        # Codex M-10 v6 review regression: hyphen-joined compound
+tests\polaris_graph\test_template_classifier.py:381:        # Drug class with optional hyphen (already worked via single
+tests\polaris_graph\test_template_classifier.py:393:def test_hyphen_compound_orthography_routes(query: str) -> None:
+tests\polaris_graph\test_template_classifier.py:394:    """Codex M-10 v6 fix: hyphen-joined compound forms ('phase-3',
+tests\polaris_graph\test_template_classifier.py:396:    tokenizer's hyphen split."""
+tests\polaris_graph\test_template_classifier.py:399:        f"hyphen-compound query {query!r} did not route "
+tests\polaris_graph\tools\test_numeric_sanitizer_iperm007.py:61:        ("isbn 978-3-16-148410-0 ref", "978-3-16-148410-0", True),  # multi-hyphen id
+tests\integration\test_pipeline_crud.py:504:    stage_with_hyphen = PipelineStage(stage_id="also-valid", stage_type=StageType.PLAN)
+tests\integration\test_pipeline_crud.py:505:    assert stage_with_hyphen.stage_id == "also-valid"
+rg: run_gate_b.py: The system cannot find the file specified. (os error 2)
+
+ succeeded in 9268ms:
+ M .claude/hooks/ultimate_goal_stop_reminder.py
+ M .gitignore
+ M logs/session_log.md
+M  scripts/dr_benchmark/run_gate_b.py
+M  src/polaris_graph/roles/native_gate_b_inputs.py
+ M state/active_fix_campaign.json
+ M state/polaris_restart/iteration_trajectory.md
+ M state/restart_instructions.md
+A  tests/polaris_graph/test_span_normalize_iperm022.py
+?? .claude/hooks/__pycache__/
+?? .codex/I-beatboth-429/verdict.stderr.txt
+?? .codex/I-beatboth-429/verdict_iter2.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff.patch
+?? .codex/I-cap-002-storm/codex_diff_audit.stderr.txt
+?? .codex/I-cap-002-storm/codex_diff_audit.txt
+?? .codex/I-cap-002-storm/diff_gate_input.md
+?? .codex/I-cap-005/codex_audit.txt
+?? .codex/I-cap-005/codex_audit_stderr.txt
+?? .codex/I-cap-005/codex_diff.patch
+?? .codex/I-cap-005/codex_diff_audit.txt
+?? .codex/I-cap-005/codex_diff_cumulative.patch
+?? .codex/I-cap-005/codex_diff_gate_input.md
+?? .codex/I-cap-005/codex_diff_gate_input_iter2.md
+?? .codex/I-cap-005/codex_diff_iter2.patch
+?? .codex/I-complete-002/
+?? .codex/I-complete-004/codex_diff.patch
+?? .codex/I-complete-004/codex_diff_audit.stderr.txt
+?? .codex/I-complete-004/codex_diff_audit.txt
+?? .codex/I-complete-004/commit_msg.txt
+?? .codex/I-complete-004/diff_gate_input.md
+?? .codex/I-faith-006/
+?? .codex/I-meta-002-q1d-truncation/glm_empty_content_research_findings.md
+?? .codex/I-obs-001/
+?? .codex/I-perm-010/comment_2a_done.md
+?? .codex/I-perm-010/comment_2b_finding.md
+?? .codex/I-perm-010/comment_run_result.md
+?? .codex/I-perm-010/s11_audit_input.md
+?? .codex/I-perm-010/s11_audit_stderr.txt
+?? .codex/I-perm-010/s11_audit_verdict.txt
+?? .codex/I-perm-011/comment_iter2_committed.md
+?? .codex/I-perm-012/
+?? .codex/I-perm-013/
+?? .codex/I-perm-014/
+?? .codex/I-perm-015/
+?? .codex/I-perm-016/
+?? .codex/I-perm-017/
+?? .codex/I-perm-017b_keystone_fix/
+?? .codex/I-perm-019/
+?? .codex/I-perm-020/
+?? .codex/I-perm-022/
+?? .codex/I-perm-023/
+?? .codex/I-ready-000/codex_plan_gate_input.md
+?? .codex/I-ready-000/codex_plan_gate_input_iter2.md
+?? .codex/I-ready-000/codex_plan_verdict.txt
+?? .codex/I-ready-000/codex_plan_verdict_iter2.txt
+?? .codex/I-ready-001/
+?? .codex/I-ready-002/
+?? .codex/I-ready-003/
+?? .codex/I-ready-005/codex_diff_gate_input.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter2.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter3.md
+?? .codex/I-ready-005/codex_diff_gate_input_iter4.md
+?? .codex/I-ready-006/codex_diff.patch
+?? .codex/I-ready-008/
+?? .codex/I-ready-010/codex_brief_verdict.stderr.txt
+?? .codex/I-ready-010/codex_diff_audit.stderr.txt
+?? .codex/I-ready-014/
+?? .codex/I-ready-017/_inspect_redact.py
+?? .codex/I-ready-017/_verify_fix.py
+?? .codex/I-ready-017/breadth_collapse_fix_design.md
+?? .codex/I-ready-017/brief.md
+?? .codex/I-ready-017/canary01_codex_diff.patch
+?? .codex/I-ready-017/canary01_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/canary01_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/canary01_diff_brief_iter1.md
+?? .codex/I-ready-017/canary01_diff_brief_iter2.md
+?? .codex/I-ready-017/cls1133_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_brief_stderr.txt
+?? .codex/I-ready-017/codex_brief_verdict.txt
+?? .codex/I-ready-017/codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/codex_diff_fx01.patch
+?? .codex/I-ready-017/codex_fx01_audit.txt
+?? .codex/I-ready-017/codex_fx01_stderr.txt
+?? .codex/I-ready-017/faithfulness_diff_verdict.stderr.txt
+?? .codex/I-ready-017/faithfulness_gate_input.md
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fl05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx01_brief.md
+?? .codex/I-ready-017/fx01_live_microrun.py
+?? .codex/I-ready-017/fx02_codex_diff.patch
+?? .codex/I-ready-017/fx02_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.stderr.txt
+?? .codex/I-ready-017/fx02_codex_diff_audit_iter4.txt
+?? .codex/I-ready-017/fx02_diff_brief_iter1.md
+?? .codex/I-ready-017/fx02_diff_brief_iter2.md
+?? .codex/I-ready-017/fx02_diff_brief_iter3.md
+?? .codex/I-ready-017/fx02_diff_brief_iter4.md
+?? .codex/I-ready-017/fx03_codex_diff.patch
+?? .codex/I-ready-017/fx03_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter2.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.stderr.txt
+?? .codex/I-ready-017/fx03_codex_diff_audit_iter3.txt
+?? .codex/I-ready-017/fx03_diff_brief_iter1.md
+?? .codex/I-ready-017/fx03_diff_brief_iter2.md
+?? .codex/I-ready-017/fx03_diff_brief_iter3.md
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx05_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx06_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx06b_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter2.txt
+?? .codex/I-ready-017/fx07b_leg2_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_brief.md
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_diff_verdict.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_design_verdict.stderr.txt
+?? .codex/I-ready-017/fx07b_leg2_rootcause_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx08_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx08b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx09_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx10_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx11_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx11b_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx11c_diff_verdict.stderr.txt
+?? .codex/I-ready-017/fx12_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx13_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx14_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15a_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx15b_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx16_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx16_diff_brief_iter1.md
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter1.txt
+?? .codex/I-ready-017/fx17_codex_diff_audit_iter2.stderr.txt
+?? .codex/I-ready-017/fx18_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff.patch
+?? .codex/I-ready-017/fx18b_codex_diff_audit.stderr.txt
+?? .codex/I-ready-017/fx18b_codex_diff_audit.txt
+?? .codex/I-ready-017/fx18b_diff_brief.md
+?? .codex/I-ready-017/fx19_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/fx20_codex_diff_audit_iter1.stderr.txt
+?? .codex/I-ready-017/gh_1132_direction_comment.md
+?? .codex/I-ready-017/gh_1171_faithfulness_landed.md
+?? .codex/I-ready-017/gh_1171_progress_comment.md
+?? .codex/I-ready-017/gh_entailment_inert_issue.md
+?? .codex/I-ready-017/gh_journal_only_issue.md
+?? .codex/I-ready-017/journal_only_codex_diff.patch
+?? .codex/I-ready-017/journal_only_design_brief.md
+?? .codex/I-ready-017/journal_only_design_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_design_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_brief.md
+?? .codex/I-ready-017/journal_only_diff_verdict.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter2.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter3.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter4.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.stderr.txt
+?? .codex/I-ready-017/journal_only_diff_verdict_iter5.txt
+?? .codex/I-ready-017/missed_bugs_verify_brief.md
+?? .codex/I-ready-017/missed_bugs_verify_stderr.txt
+?? .codex/I-ready-017/missed_bugs_verify_verdict.txt
+?? .codex/I-ready-017/plan_gate_brief.md
+?? .codex/I-ready-017/plan_gate_brief_iter2.md
+?? .codex/I-ready-017/plan_gate_stderr.txt
+?? .codex/I-ready-017/plan_gate_stderr_iter2.txt
+?? .codex/I-ready-017/plan_gate_verdict.txt
+?? .codex/I-ready-017/plan_gate_verdict_iter1.txt
+?? .codex/I-ready-017/preflight_audit_input.md
+?? .codex/I-ready-017/preflight_audit_verdict.stderr.txt
+?? .codex/I-ready-017/preflight_audit_verdict.txt
+?? .codex/I-ready-017/provider_health.py
+?? .codex/I-ready-017/rerun_corpus_composition_direction_brief.md
+?? .codex/I-ready-017/rerun_direction_consult_corrected_brief.md
+?? .codex/I-ready-017/rerun_direction_verdict.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.stderr.txt
+?? .codex/I-ready-017/rerun_direction_verdict_corrected.txt
+?? .codex/I-ready-018-fix/FIX-JO.patch
+?? .codex/I-ready-018-fix/FIX-JO.unescaped.patch
+?? .codex/I-ready-018-fix/fixa3_gate_input.md
+?? .codex/I-ready-018-fix/fixa3_gate_input_iter2.md
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018-fix/fixa3_gate_verdict_iter2.txt
+?? .codex/I-ready-018-fix/fixglm_gate_input.md
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixglm_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixjo_gate_input.md
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixjo_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixrender_gate_input.md
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixrender_gate_verdict.txt
+?? .codex/I-ready-018-fix/fixslot_gate_input.md
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/fixslot_gate_verdict.txt
+?? .codex/I-ready-018-fix/implement_fixes_wf.js
+?? .codex/I-ready-018-fix/plan_gate_input.md
+?? .codex/I-ready-018-fix/plan_gate_input_iter2.md
+?? .codex/I-ready-018-fix/plan_gate_verdict.stderr.txt
+?? .codex/I-ready-018-fix/plan_gate_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict.stderr.txt
+?? .codex/I-ready-018/c3_diff_verdict_iter2.stderr.txt
+?? .codex/I-ready-018/clusterA_design_verdict.stderr.txt
+?? .codex/I-ready-018/codex_diff_stderr.txt
+?? .codex/I-ready-018/n1139_diff.patch
+?? .codex/I-ready-018/n1139_diff_brief.md
+?? .codex/I-ready-018/n1139_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139_diff_verdict.txt
+?? .codex/I-ready-018/n1139b_diff.patch
+?? .codex/I-ready-018/n1139b_diff_brief.md
+?? .codex/I-ready-018/n1139b_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1139b_diff_verdict.txt
+?? .codex/I-ready-018/n1140_diff.patch
+?? .codex/I-ready-018/n1140_diff_brief.md
+?? .codex/I-ready-018/n1140_diff_verdict.stderr.txt
+?? .codex/I-ready-018/n1140_diff_verdict.txt
+?? .codex/I-ready-019/brief_gate_verdict.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.stderr.txt
+?? .codex/I-ready-019/codex_diff_audit.txt
+?? .codex/I-ready-019/codex_diff_fl.patch
+?? .codex/I-ready-019/codex_diff_fl03.patch
+?? .codex/I-ready-019/codex_diff_fl04.patch
+?? .codex/I-ready-019/codex_diff_fl04_iter2.patch
+?? .codex/I-ready-019/codex_diff_stderr.txt
+?? .codex/I-ready-019/codex_diff_stderr_iter2.txt
+?? .codex/I-ready-019/codex_fl03_audit.txt
+?? .codex/I-ready-019/codex_fl03_stderr.txt
+?? .codex/I-ready-019/codex_fl04_audit.txt
+?? .codex/I-ready-019/codex_fl04_audit_iter1.txt
+?? .codex/I-ready-019/codex_fl04_stderr.txt
+?? .codex/I-ready-019/codex_fl04_stderr_iter2.txt
+?? .codex/I-ready-019/diff_gate_input.md
+?? .codex/I-ready-019/diff_review_brief.md
+?? .codex/I-ready-019/diff_review_brief_iter2.md
+?? .codex/I-ready-019/fl03_brief.md
+?? .codex/I-ready-019/fl04_brief.md
+?? .codex/I-ready-019/fl04_brief_iter2.md
+?? .codex/I-run11-004/codex_brief_verdict.txt
+?? .codex/I-run11-005/
+?? .codex/I-run11-008/codex_diff.patch
+?? .codex/I-run11-008/codex_diff_audit.stderr.txt
+?? .codex/I-run11-008/codex_diff_audit.txt
+?? .codex/I-run11-008/codex_diff_audit.txt.bak
+?? .codex/I-run11-008/diff_gate_brief.md
+?? .codex/I-run11-009/
+?? .codex/I-run11-010/
+?? .codex/I-transport-001/codex_diff_audit.stderr.txt
+?? .codex/I-transport-001/vm_p1.sh
+?? .codex/I-transport-001/vm_p2.sh
+?? .codex/I-transport-001/vm_p3.sh
+?? .codex/beatboth5/audit_72_input.md
+?? .codex/beatboth5/audit_75_input.md
+?? .codex/beatboth5/audit_75b_input.md
+?? .codex/beatboth5/audit_76_input.md
+?? .codex/beatboth5/audit_76b_input.md
+?? .codex/beatboth5/audit_78_input.md
+?? .codex/beatboth5/audit_78b_input.md
+?? .codex/beatboth5/audit_90b_input.md
+?? .codex/beatboth5/bug_forensic_input.md
+?? .codex/beatboth5/bug_forensic_verdict.stderr.txt
+?? .codex/beatboth5/bug_forensic_verdict.txt
+?? .codex/credibility-redesign/build_diff_gate_header.md
+?? .codex/credibility-redesign/p1_diff_gate_input.md
+?? .codex/credibility-redesign/p1_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p1_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p1_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p3_diff_gate_input.md
+?? .codex/credibility-redesign/p3_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p3_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_input.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter3.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter4.md
+?? .codex/credibility-redesign/p4_diff_gate_input_iter5.md
+?? .codex/credibility-redesign/p4_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter3.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter4.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/p4_diff_gate_verdict_iter5.txt
+?? .codex/credibility-redesign/p4_diff_iter5_force_approve.txt
+?? .codex/credibility-redesign/p5_diff_gate_input.md
+?? .codex/credibility-redesign/p5_diff_gate_input_iter2.md
+?? .codex/credibility-redesign/p5_diff_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/p5_diff_gate_verdict_iter2.txt
+?? .codex/credibility-redesign/plan_gate_header.md
+?? .codex/credibility-redesign/plan_gate_input.md
+?? .codex/credibility-redesign/plan_gate_input_iter2.md
+?? .codex/credibility-redesign/plan_gate_input_iter3.md
+?? .codex/credibility-redesign/plan_gate_input_iter4.md
+?? .codex/credibility-redesign/plan_gate_input_iter5.md
+?? .codex/credibility-redesign/plan_gate_verdict.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter2.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter3.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter4.stderr.txt
+?? .codex/credibility-redesign/plan_gate_verdict_iter5.stderr.txt
+?? .codex/credibility-redesign/research_gate_input.md
+?? .codex/credibility-redesign/research_gate_verdict.stderr.txt
+?? .codex/forensic/
+?? .codex/nda-audit/
+?? .codex/retrieval-params/
+?? .codex/tool-verification/
+?? .codex/workflows/
+?? codex_fx07b_tmp_run/
+?? codex_fx07b_tmp_run2/
+?? codex_ifaith_base_zip_cb372602fd8a4bc99ae37cf8a3ad084f/
+?? codex_numeric_review_tmp/
+?? codex_review_probe_tmp/
+?? docs/beat_both_system_loop.md
+?? docs/credibility_redesign_architecture_diagram.md
+?? docs/drb76_downstream_forecast.md
+?? docs/drb76_downstream_solutions.md
+?? docs/drb76_fix_execution_and_smoke_plan.md
+?? docs/drb76_thinness_consolidated_fix_plan.md
+?? docs/frontier_multisource_synthesis_findings.md
+?? docs/polaris_executive_brief.md
+?? live/
+?? outputs/audits/I-perm-010/
+?? outputs/audits/I-perm-011/
+?? outputs/audits/I-perm-022/
+?? outputs/audits/I-perm-024/
+?? outputs/audits/I-ready-017/codex_bug_verification_result.md
+?? outputs/audits/I-ready-017/consolidated_fix_plan_2026_06_11.md
+?? outputs/audits/I-ready-017/fix_campaign_plan.md
+?? outputs/audits/I-ready-017/forensic_root_cause.md
+?? outputs/audits/I-ready-017/missed_bugs_audit.md
+?? outputs/audits/I-ready-017/preflight_gap_findings_draft.md
+?? outputs/audits/I-ready-017/query_breadth_generators_findings.md
+?? outputs/audits/I-ready-017/run_artifacts/
+?? outputs/audits/I-ready-018/c3_cascade_verify.txt
+?? outputs/audits/I-ready-018/test_sweep_HEAD_authoritative.txt
+?? outputs/audits/I-ready-018/test_sweep_c3.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_final.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_iter2.txt
+?? outputs/audits/I-ready-018/test_sweep_c3_scoped_final.txt
+?? outputs/audits/I-ready-018/test_sweep_full.txt
+?? outputs/audits/I-ready-018/test_sweep_pythonpath_src.txt
+?? outputs/audits/I-run11-004/m25_bakeoff/
+?? outputs/audits/I-run11-004/sentinel_bakeoff.md
+?? outputs/audits/I-run11-004/sentinel_bakeoff_result.json
+?? outputs/audits/I-run11-005/
+?? outputs/audits/beatboth5/
+?? outputs/audits/beatboth6/
+?? outputs/audits/beatboth7/I_complete_002_drop_decomposition.md
+?? outputs/audits/beatboth7/_competitors_clean/
+?? outputs/audits/beatboth7/completeness_gap_diagnosis.md
+?? outputs/audits/beatboth7/drb_72_ai_labor/
+?? outputs/audits/beatboth7/drb_75_metal_ions_cvd/
+?? outputs/audits/beatboth7/drb_76_gut_microbiota_crc/
+?? outputs/audits/beatboth7/drb_78_parkinsons_dbs/
+?? outputs/audits/beatboth7/drb_90_adas_liability/
+?? outputs/audits/beatboth8/FAILURE_AUDIT.md
+?? outputs/audits/beatboth8/I-perm-002_corpus_satisfaction_design.md
+?? outputs/audits/beatboth8/REMAINING_RISKS.md
+?? outputs/audits/beatboth8/drb_76/
+?? outputs/audits/beatboth8/manifests/
+?? outputs/audits/codex_audit_sitecustomize/
+?? outputs/audits/codex_pytest_temp_audit/
+?? outputs/audits/f02_bakeoff/
+?? outputs/audits/global_consistency_research.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_REAUDIT.md
+?? outputs/audits/q1_drb72_2026_06_07_section_1_1_audit.md
+?? outputs/audits/q1_rerun_20260607T230807Z.log
+?? outputs/audits/q1_run_20260607T160806Z.log
+?? outputs/audits/retrieval_width_1000_math.md
+?? scope_verify_tmp_codex/
+?? scope_verify_tmp_codex_floor008/
+?? scripts/diagnostics/build_mirror_labeled_set.py
+?? scripts/diagnostics/mirror_endash_raw_capture.py
+?? scripts/diagnostics/mirror_premerge_gate.py
+?? scripts/diagnostics/mirror_production_flow_test.py
+?? scripts/diagnostics/mirror_reliability_spotcheck.py
+?? scripts/diagnostics/mirror_seam_bakeoff.py
+?? scripts/diagnostics/provider_routing_live_smoke.py
+?? scripts/diagnostics/sentinel_bakeoff.py
+?? scripts/probe_discovery_and_residual.py
+?? scripts/probe_paid_credits.py
+?? scripts/probe_website_access_tools.py
+?? tool_summary.json
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+warning: could not open directory '.codex-pr5-pytest/': Permission denied
+warning: could not open directory '.codex-pr5-smoke/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-atom-review/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-u_4zu2ul/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-cache-files-_r0_ogks/': Permission denied
+warning: could not open directory '.codex-tmp/pytest-of-msn/': Permission denied
+warning: could not open directory '.codex_pytest_tmp/': Permission denied
+warning: could not open directory '.codex_scope_probe/tmp_33urrtn/': Permission denied
+warning: could not open directory 'codex_008budget_final/': Permission denied
+warning: could not open directory 'codex_008budget_final2/': Permission denied
+warning: could not open directory 'codex_008budget_tax/': Permission denied
+warning: could not open directory 'codex_008budget_tmp/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_drb/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_mc/': Permission denied
+warning: could not open directory 'codex_008budget_tmp_pg4/': Permission denied
+warning: could not open directory 'codex_api_bundle_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_atom_pytest_tmp_probe2/': Permission denied
+warning: could not open directory 'codex_audit_tmp/chmod_after_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/mode_700/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_audit_tmp/pytest-tmp/tmpbm_z34u3/': Permission denied
+warning: could not open directory 'codex_audit_tmp/tmp6mj6akgl/': Permission denied
+warning: could not open directory 'codex_fixrender_pytest_base_23184/': Permission denied
+warning: could not open directory 'codex_fullpower_tmp/': Permission denied
+warning: could not open directory 'codex_fx07b_tmp_run2/pytest-base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-jv5q3d0j/': Permission denied
+warning: could not open directory 'codex_fx08b_pytest_tmp/pytest-cache-files-y189ub5f/': Permission denied
+warning: could not open directory 'codex_iobs001_pytest_tmp/base/': Permission denied
+warning: could not open directory 'codex_iready005_pytest/': Permission denied
+warning: could not open directory 'codex_iready018_n1139b_pytest_base/': Permission denied
+warning: could not open directory 'codex_iready018_n1140_pytest_738e1e2b5c5b45188a88aaa9c9bd0bf5/': Permission denied
+warning: could not open directory 'codex_iready018_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_iter3_pytest_base/authority_base/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4pldgytu/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_4ub_c1tz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_b225i01s/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_bnezcyw_/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_f3_ntj9m/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_gbznmdhq/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_k8cuhaqf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ku5c2fnz/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_ll7c4m6w/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_lqomtwho/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_q7irc_xy/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_r9l_fwzf/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_vnbmb3pa/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_xr_17rct/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/polaris_exec_y372lrb2/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/probe_63cxyz6o/': Permission denied
+warning: could not open directory 'codex_numeric_review_tmp/tmptcv_wpgb/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_base2/': Permission denied
+warning: could not open directory 'codex_pr10_pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_pr5_pytest/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-0mc8n_ea/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest-cache-files-p7o9a1r6/': Permission denied
+warning: could not open directory 'codex_pr909_tmp/pytest_base/': Permission denied
+warning: could not open directory 'codex_pytest_fx01_4d925a3eb2e24e768820e07176f5b88e/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_3/': Permission denied
+warning: could not open directory 'codex_pytest_tmp_plain/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/polaris_scope_ed94b46c36074f439046d1e25553efb6/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-7lnb1r6l/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-cache-files-fvafx2nw/': Permission denied
+warning: could not open directory 'codex_review_probe_tmp/pytest-iready016-feature/': Permission denied
+warning: could not open directory 'codex_review_tmp/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/gpg_script_check/polaris-ci-gpgv-juas0xsq/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-f0d_cibj/': Permission denied
+warning: could not open directory 'codex_review_tmp/i_cd_705_pytest/pytest-cache-files-s_s5xq67/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest680-1779339720748/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_i_cd_680_review/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp/pytest_tmp/pytest-of-msn/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/authority_pytest_tmp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/manual_tmp/pytest_authority/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-2k9byn5k/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/offline_e2e2/pytest-cache-files-ncgynb9x/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-authority-phase0a/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-klbvq3eb/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-cache-files-xzjrn7w3/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest-tool-tracker-meta007/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_base/': Permission denied
+warning: could not open directory 'codex_review_tmp_local/pytest_openrouter_meta007/base_c6259b75d4484b53a03587eb87f6cdca/': Permission denied
+warning: could not open directory 'codex_review_tmp_pathb/': Permission denied
+warning: could not open directory 'codex_review_tmp_runtime/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/basetemp2/': Permission denied
+warning: could not open directory 'codex_review_tmp_source_funnel/mode_700/': Permission denied
+warning: could not open directory 'codex_review_tmp_step3j/base/': Permission denied
+warning: could not open directory 'codex_step3j_iter5_tmp/': Permission denied
+warning: could not open directory 'm3b_pytest_tmp/base/': Permission denied
+warning: could not open directory 'm3b_review_tmp_codex/': Permission denied
+warning: could not open directory 'mode700_probe/': Permission denied
+warning: could not open directory 'outputs/audits/codex_pytest_temp_scope_one/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m15a_review/pytest_tmp/base/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m16_v2_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m1_v3_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m28_code_audit_pass3/pytest_basetemp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-6s8zkd9a/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest-cache-files-m5wc20tm/': Permission denied
+warning: could not open directory 'outputs/codex_findings/m8_review/pytest_tmp/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-eegx2llb/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-cache-files-uie6gyp7/': Permission denied
+warning: could not open directory 'outputs/codex_findings/md10_phase1_v3_review/pytest-temp/': Permission denied
+warning: could not open directory 'POLARIScodex_fx07b_tmp_runpytest-base/': Permission denied
+warning: could not open directory 'POLARIScodex_review_tmp_localoffline_e2ebasetemp/': Permission denied
+warning: could not open directory 'pr11_pytest_tmp_probe/base/': Permission denied
+warning: could not open directory 'probe-mfxdkp1r/': Permission denied
+warning: could not open directory 'zz_codex_pr8_tmp/pytest_base/': Permission denied
+
+ succeeded in 14518ms:
+codex
+The relevant files are staged changes, so I’m switching to the cached diff and reading the touched code directly. The current implementation grep already shows the span normalizer has been narrowed to the cited-span ligature path.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path src/polaris_graph/roles/native_gate_b_inputs.py | Select-Object -Skip 520 -First 160' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'git diff --cached -- src/polaris_graph/roles/native_gate_b_inputs.py scripts/dr_benchmark/run_gate_b.py tests/polaris_graph/test_span_normalize_iperm022.py tests/polaris_graph/test_native_gate_b_fx03_cited_span.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/dr_benchmark/run_gate_b.py | Select-Object -Skip 540 -First 300' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path .codex/I-perm-022/forensic.md | Select-Object -First 140' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_span_normalize_iperm022.py' in C:\POLARIS
+ succeeded in 10852ms:
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 0bad602a..3b177ac8 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -563,6 +563,13 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # strict_verify's 400-byte local-window tolerance (ONE shared policy).
+     "PG_GATE_B_CITED_SPAN": "1",
+     "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
++    # I-perm-022 (#1214): LIGATURE-ONLY normalization of the cited SPAN (decompose the
++    # presentation-form ligatures U+FB00..U+FB06 to their letters) BEFORE the four-role
++    # evaluators read it, so a PDF-extraction ligature does not produce a false-negative
++    # [confidence:low] on a genuinely-supported atom. RECOVERS true positives only — no
++    # word-boundary change, ZERO digit modification, gate byte-untouched; flag-OFF
++    # byte-identical. (De-hyphenation / zero-width were dropped as §-1.1-unsafe.)
++    "PG_GATE_B_SPAN_NORMALIZE": "1",
+     # I-ready-017 CANARY-01 (#1107/#1108): the BEHAVIORAL pre-spend canary MUST run on the real
+     # Gate-B run — real call shapes (searcher/generator structured-output + 1-query live search) must
+     # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
+@@ -735,6 +742,10 @@ _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+     # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
+     # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
+     "PG_GATE_B_CITED_SPAN",
++    # I-perm-022 (#1214): LIGATURE-ONLY cited-span normalization on the same 4-role seam — OFF leaves a
++    # PDF-extraction ligature to produce false-negative [confidence:low] on a genuinely-supported atom.
++    # Fail closed if not active for a paid run (recovers TPs only; no word-boundary change; gate untouched).
++    "PG_GATE_B_SPAN_NORMALIZE",
+     # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
+     # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
+     "PG_BEHAVIORAL_CANARY",
+@@ -799,6 +810,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+     "PG_GATE_B_CITED_SPAN",
++    # I-perm-022 (#1214): force-on the LIGATURE-ONLY cited-span normalization so an operator =0 cannot
++    # survive the slate and silently leave a PDF-extraction ligature to produce false-negative
++    # [confidence:low]. Recovers TPs only; no word-boundary change; ZERO digit modification; gate untouched.
++    "PG_GATE_B_SPAN_NORMALIZE",
+     # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+     # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+     # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+diff --git a/src/polaris_graph/roles/native_gate_b_inputs.py b/src/polaris_graph/roles/native_gate_b_inputs.py
+index 6d92d072..b2ee0faa 100644
+--- a/src/polaris_graph/roles/native_gate_b_inputs.py
++++ b/src/polaris_graph/roles/native_gate_b_inputs.py
+@@ -33,6 +33,7 @@ from __future__ import annotations
+ import hashlib
+ import os
+ import re
++import unicodedata
+ from dataclasses import dataclass
+ from typing import Any, Mapping
+ 
+@@ -543,6 +544,46 @@ _GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
+ _GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
+ _GATE_B_SPAN_WINDOW_DEFAULT = 400
+ 
++# I-perm-022 (#1214): normalize the cited SPAN text BEFORE the four-role second evaluators
++# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
++# genuinely-supported atom to "unsupported" (a false negative surfaced as [confidence:low]).
++#
++# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
++# SINGLE codepoint that decomposes to a FIXED letter sequence with NO word-boundary change, so
++# it can neither join nor split words and therefore cannot fabricate support on a genuine
++# negative — it only renders the codepoint as the letters an LLM evaluator should have read.
++# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
++# brief-gate iter-2 P1): any JOIN ("re-\nsigned" -> "resigned"; "not<ZWSP>able" -> "notable")
++# or SPLIT ("in<ZWSP>effective" -> "in effective") changes meaning and can make an unsupported
++# claim appear present. ZERO digit modification (ligature codepoints carry no digits).
++_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
++# DERIVE the ligature->letters map from Unicode NFKD (the authoritative compatibility
++# decomposition), NOT a hand-typed table — a hand value can be wrong (e.g. U+FB05 LONG-S-T
++# decomposes to "st", not "ft"; mis-typing it would fabricate "loft" from "lost", Codex
++# brief-gate iter-3 P1). Only codepoints whose NFKD is pure ASCII letters are kept, so a
++# ligature is ALWAYS replaced by its exact letters with NO word-boundary change.
++_LIGATURE_MAP = {
++    chr(cp): unicodedata.normalize("NFKD", chr(cp))
++    for cp in range(0xFB00, 0xFB07)  # FB00..FB06: ff fi fl ffi ffl st st
++    if unicodedata.normalize("NFKD", chr(cp)).isascii()
++    and unicodedata.normalize("NFKD", chr(cp)).isalpha()
++}
++_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
++
++
++def _span_normalize_enabled() -> bool:
++    return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
++
++
++def _normalize_span_text(text: str) -> str:
++    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
++    each is a single codepoint -> its canonical letters, with NO word-boundary change and
++    ZERO digit modification. Flag OFF (default) -> input returned unchanged (byte-identical).
++    I-perm-022 (#1214)."""
++    if not _span_normalize_enabled() or not text:
++        return text
++    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
++
+ 
+ def _cited_window_text(full_text: str, token: Any) -> str:
+     """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
+@@ -605,7 +646,10 @@ def _resolve_evidence(
+                 f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
+             )
+         documents.append(
+-            EvidenceDocument(doc_id=evidence_id, text=_cited_window_text(text, token))
++            EvidenceDocument(
++                doc_id=evidence_id,
++                text=_normalize_span_text(_cited_window_text(text, token)),
++            )
+         )
+         records.append(record)
+     return documents, records
+diff --git a/tests/polaris_graph/test_span_normalize_iperm022.py b/tests/polaris_graph/test_span_normalize_iperm022.py
+new file mode 100644
+index 00000000..e59c0cfd
+--- /dev/null
++++ b/tests/polaris_graph/test_span_normalize_iperm022.py
+@@ -0,0 +1,98 @@
++"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
++
++Ligature decomposition is the ONLY §-1.1-safe span repair: a single presentation-form
++codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
++handling were dropped as §-1.1-unsafe (any join/split can fabricate support — Codex
++brief-gate iter-2 P1). These tests prove the safe behavior AND that the unsafe joins/splits
++do NOT happen.
++
++All non-ASCII chars are built with chr() so the test source stays pure ASCII.
++"""
++from __future__ import annotations
++
++import os
++
++import pytest
++
++from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
++
++FI = chr(0xFB01)   # fi ligature
++FL = chr(0xFB02)   # fl ligature
++FFI = chr(0xFB03)  # ffi ligature
++ZWSP = chr(0x200B)
++ZWJ = chr(0x200D)
++NBSP = chr(0x00A0)
++
++
++@pytest.fixture
++def _norm_on():
++    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
++    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
++    try:
++        yield
++    finally:
++        if prev is None:
++            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
++        else:
++            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
++
++
++def test_flag_off_byte_identical():
++    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
++    raw = "bio" + FI + "lms re-\nsigned not" + ZWSP + "able 20-\n30"
++    assert _normalize_span_text(raw) == raw
++
++
++def test_ligatures_repaired_when_on(_norm_on):
++    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
++    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
++    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
++
++
++def test_full_ligature_table_matches_unicode_nfkd(_norm_on):
++    # Codex brief-gate iter-3 P1: the map is NFKD-derived, so U+FB05 (LONG S T) -> "st"
++    # (NOT "ft"). "lo<FB05>" must read as "lost", never "loft".
++    import unicodedata
++    from src.polaris_graph.roles.native_gate_b_inputs import _LIGATURE_MAP
++    for cp in range(0xFB00, 0xFB07):
++        ch = chr(cp)
++        assert _LIGATURE_MAP[ch] == unicodedata.normalize("NFKD", ch)
++    assert _normalize_span_text("lo" + chr(0xFB05)) == "lost"
++    assert "loft" not in _normalize_span_text("lo" + chr(0xFB05))
++    assert _normalize_span_text("be" + chr(0xFB06)) == "best"  # FB06 ST
++
++
++# ── adversarial: the §-1.1-unsafe JOINS/SPLITS must NOT happen ─────────────
++
++def test_line_break_hyphen_is_NOT_joined(_norm_on):
++    # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
++    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
++    assert "resigned" not in _normalize_span_text("re-\nsigned")
++    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
++
++
++def test_zero_width_is_NOT_joined_negation_safe(_norm_on):
++    # "not<ZWSP>able" must NOT become "notable"; the negation/space stays intact (untouched).
++    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
++    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
++    # "in<ZWJ>effective" must NOT be split into "in effective" (the original-bug direction).
++    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
++
++
++def test_digits_and_nbsp_untouched(_norm_on):
++    # ZERO digit modification; non-ligature content is byte-preserved (ligature-only scope).
++    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
++    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
++    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
++    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
++
++
++def test_genuine_negative_span_gains_no_content(_norm_on):
++    span = "the registry recorded outcomes in adults"
++    out = _normalize_span_text(span)
++    assert out == span                  # no ligature present -> unchanged; nothing invented
++    assert "killer" not in out
++
++
++def test_empty_safe(_norm_on):
++    assert _normalize_span_text("") == ""
+warning: unable to access 'C:\Users\msn/.config/git/ignore': Permission denied
+
+ succeeded in 20638ms:
+) -> bool:
+    """Coverage test (§7.D, Codex-tightened + P2 #4).
+
+    ENTITY coverage: True iff the claim cites evidence whose CANONICAL identifier EXACTLY
+    matches the entity's. anchor-string-in-sentence alone does NOT grant coverage.
+
+    S0 SAFETY-CATEGORY coverage (stricter): an S0 entity is covered ONLY when BOTH (a) the
+    canonical evidence match holds AND (b) the claim text deterministically satisfies the
+    entity's `coverage_content_requirements`. A broad source citation without the content
+    match does NOT satisfy an S0 safety category.
+    """
+    if not any(_entity_canonical_match(entity, rec) for rec in claim_evidence_records):
+        return False
+    if is_s0 and not _content_requirements_satisfied(claim_text, entity):
+        return False
+    return True
+
+
+# FX-03 / I-ready-017 (#1107): the 4-role seam (Sentinel decomposition + Judge) joins each
+# EvidenceDocument.text as the SPAN the claim is checked against. Pre-FX-03 the WHOLE record text
+# was passed, so a claim could be graded VERIFIED on support living ANYWHERE in the document, not
+# in the cited [start:end] window (BUG-02: confirmed out-of-span false-accept, claim 06-004).
+_GATE_B_CITED_SPAN_ENV = "PG_GATE_B_CITED_SPAN"
+_GATE_B_SPAN_WINDOW_ENV = "PG_GATE_B_SPAN_WINDOW_BYTES"
+_GATE_B_SPAN_WINDOW_DEFAULT = 400
+
+# I-perm-022 (#1214): normalize the cited SPAN text BEFORE the four-role second evaluators
+# (Sentinel decomposition + Judge) read it, so a PDF-extraction LIGATURE does not flip a
+# genuinely-supported atom to "unsupported" (a false negative surfaced as [confidence:low]).
+#
+# LIGATURE-ONLY is the ONLY §-1.1-safe span repair. A Latin presentation-form ligature is a
+# SINGLE codepoint that decomposes to a FIXED letter sequence with NO word-boundary change, so
+# it can neither join nor split words and therefore cannot fabricate support on a genuine
+# negative — it only renders the codepoint as the letters an LLM evaluator should have read.
+# De-hyphenation and zero-width handling were DELIBERATELY DROPPED as §-1.1-UNSAFE (Codex
+# brief-gate iter-2 P1): any JOIN ("re-\nsigned" -> "resigned"; "not<ZWSP>able" -> "notable")
+# or SPLIT ("in<ZWSP>effective" -> "in effective") changes meaning and can make an unsupported
+# claim appear present. ZERO digit modification (ligature codepoints carry no digits).
+_GATE_B_SPAN_NORMALIZE_ENV = "PG_GATE_B_SPAN_NORMALIZE"
+# DERIVE the ligature->letters map from Unicode NFKD (the authoritative compatibility
+# decomposition), NOT a hand-typed table — a hand value can be wrong (e.g. U+FB05 LONG-S-T
+# decomposes to "st", not "ft"; mis-typing it would fabricate "loft" from "lost", Codex
+# brief-gate iter-3 P1). Only codepoints whose NFKD is pure ASCII letters are kept, so a
+# ligature is ALWAYS replaced by its exact letters with NO word-boundary change.
+_LIGATURE_MAP = {
+    chr(cp): unicodedata.normalize("NFKD", chr(cp))
+    for cp in range(0xFB00, 0xFB07)  # FB00..FB06: ff fi fl ffi ffl st st
+    if unicodedata.normalize("NFKD", chr(cp)).isascii()
+    and unicodedata.normalize("NFKD", chr(cp)).isalpha()
+}
+_LIGATURE_RE = re.compile("[" + "".join(_LIGATURE_MAP) + "]")
+
+
+def _span_normalize_enabled() -> bool:
+    return os.getenv(_GATE_B_SPAN_NORMALIZE_ENV, "0").strip() == "1"
+
+
+def _normalize_span_text(text: str) -> str:
+    """Repair ONLY Latin presentation-form ligatures (U+FB00..U+FB06) in a cited span:
+    each is a single codepoint -> its canonical letters, with NO word-boundary change and
+    ZERO digit modification. Flag OFF (default) -> input returned unchanged (byte-identical).
+    I-perm-022 (#1214)."""
+    if not _span_normalize_enabled() or not text:
+        return text
+    return _LIGATURE_RE.sub(lambda m: _LIGATURE_MAP[m.group(0)], text)
+
+
+def _cited_window_text(full_text: str, token: Any) -> str:
+    """Return the cited BOUNDED-WINDOW slice of ``full_text`` for one provenance token.
+
+    When ``PG_GATE_B_CITED_SPAN=1`` the evidence text handed to Sentinel/Judge is sliced to a
+    bounded window around the cited ``[start:end]`` range (±``PG_GATE_B_SPAN_WINDOW_BYTES``, default
+    400) — the SAME tolerance strict_verify's local-window rescue uses, so the two faithfulness
+    layers share ONE windowing policy. BOUNDED (not exact-slice) is deliberate and three-fold safer:
+    (1) it tolerates the 06-004-shape imprecise-but-real citation that strict_verify also tolerates;
+    (2) ``token.start/end`` index the RAW ``direct_quote`` while the record text here was
+    ``_row_text``-STRIPPED, so an exact slice would be offset-shifted by any leading whitespace —
+    a bounded window absorbs that small shift; (3) fail-SAFE — a degenerate/empty window falls back
+    to the whole text so the judge is never handed a blank span. Flag off (default) returns the whole
+    text unchanged (byte-identical), so production is opt-in per the no-silent-downgrade rule; the
+    re-run slate activates it.
+    """
+    if os.getenv(_GATE_B_CITED_SPAN_ENV, "0").strip() != "1":
+        return full_text
+    try:
+        start = int(getattr(token, "start"))
+        end = int(getattr(token, "end"))
+    except (TypeError, ValueError, AttributeError):
+        return full_text
+    if end <= start:
+        return full_text
+    try:
+        window = int(os.getenv(_GATE_B_SPAN_WINDOW_ENV, str(_GATE_B_SPAN_WINDOW_DEFAULT)))
+    except ValueError:
+        window = _GATE_B_SPAN_WINDOW_DEFAULT
+    window = max(0, window)
+    lo = max(0, start - window)
+    hi = min(len(full_text), end + window)
+    sliced = full_text[lo:hi].strip()
+    return sliced or full_text
+
+
+def _resolve_evidence(
+    tokens: list[Any], evidence_lookup: Mapping[str, Mapping[str, Any]]
+) -> tuple[list[EvidenceDocument], list[Mapping[str, Any]]]:
+    """Resolve each cited token -> (EvidenceDocument sliced to its cited window, source record).
+
+    FX-03 (#1107): one EvidenceDocument per TOKEN, carrying the bounded cited-window slice (see
+    ``_cited_window_text``) instead of the whole record text, so Sentinel/Judge see the SPAN the
+    decomposition prompt promises. Fail closed on an unknown id or empty record text.
+    """
+    documents: list[EvidenceDocument] = []
+    records: list[Mapping[str, Any]] = []
+    for token in tokens:
+        evidence_id = token.evidence_id
+        record = evidence_lookup.get(evidence_id)
+        if record is None:
+            raise ValueError(
+                f"build_native_gate_b_inputs: unknown evidence_id {evidence_id!r}; every "
+                f"cited token must resolve to an evidence record (fail-closed)."
+            )
+        text = str(record.get(_RECORD_TEXT_KEY) or "").strip()
+        if not text:
+            raise ValueError(
+                f"build_native_gate_b_inputs: evidence_id {evidence_id!r} has empty "
+                f"evidence text; cannot evaluate a claim against empty evidence (fail-closed)."
+            )
+        documents.append(
+            EvidenceDocument(
+                doc_id=evidence_id,
+                text=_normalize_span_text(_cited_window_text(text, token)),
+            )
+        )
+        records.append(record)
+    return documents, records
+
+
+def build_native_gate_b_inputs(
+    *,
+    multi: Any,
+    template: dict,
+    slug: str,
+    domain: str,
+    evidence_lookup: Mapping[str, Mapping[str, Any]],
+    model_slugs: dict[str, str],
+    d8_config: D8PolicyConfig,
+) -> NativeGateBBundle:
+    """Build NATIVE 4-role Gate-B inputs from a finished report + native scope contract.
+
+    Pure function (no I/O, no network). Returns a `NativeGateBBundle` (inputs + audit_map);
+    M3b persists the audit map. NEVER reads `outputs/dr_benchmark/`. `domain` is carried for
+    the audit trail / caller symmetry; the denominator comes from `template[slug]`.
+    """
+    entities = load_required_entities(template, slug)
+    required_element_ids = [entity[_KEY_ENTITY_ID] for entity in entities]
+
+    # Validate every entity up front (fail-closed); cache (severity, s0_category) per entity.
+    validated: list[tuple[dict, str, str | None]] = []
+    required_s0_categories_set: set[str] = set()
+    for entity in entities:
+
+ succeeded in 25489ms:
+"""I-perm-022 (#1214) — LIGATURE-ONLY cited-span normalization for the four-role seam.
+
+Ligature decomposition is the ONLY §-1.1-safe span repair: a single presentation-form
+codepoint -> its fixed letters, with NO word-boundary change. De-hyphenation and zero-width
+handling were dropped as §-1.1-unsafe (any join/split can fabricate support — Codex
+brief-gate iter-2 P1). These tests prove the safe behavior AND that the unsafe joins/splits
+do NOT happen.
+
+All non-ASCII chars are built with chr() so the test source stays pure ASCII.
+"""
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from src.polaris_graph.roles.native_gate_b_inputs import _normalize_span_text
+
+FI = chr(0xFB01)   # fi ligature
+FL = chr(0xFB02)   # fl ligature
+FFI = chr(0xFB03)  # ffi ligature
+ZWSP = chr(0x200B)
+ZWJ = chr(0x200D)
+NBSP = chr(0x00A0)
+
+
+@pytest.fixture
+def _norm_on():
+    prev = os.environ.get("PG_GATE_B_SPAN_NORMALIZE")
+    os.environ["PG_GATE_B_SPAN_NORMALIZE"] = "1"
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+        else:
+            os.environ["PG_GATE_B_SPAN_NORMALIZE"] = prev
+
+
+def test_flag_off_byte_identical():
+    os.environ.pop("PG_GATE_B_SPAN_NORMALIZE", None)
+    raw = "bio" + FI + "lms re-\nsigned not" + ZWSP + "able 20-\n30"
+    assert _normalize_span_text(raw) == raw
+
+
+def test_ligatures_repaired_when_on(_norm_on):
+    assert _normalize_span_text("bio" + FI + "lms") == "biofilms"
+    assert _normalize_span_text("in" + FL + "ammatory") == "inflammatory"
+    assert _normalize_span_text("e" + FFI + "cacy") == "efficacy"
+
+
+def test_full_ligature_table_matches_unicode_nfkd(_norm_on):
+    # Codex brief-gate iter-3 P1: the map is NFKD-derived, so U+FB05 (LONG S T) -> "st"
+    # (NOT "ft"). "lo<FB05>" must read as "lost", never "loft".
+    import unicodedata
+    from src.polaris_graph.roles.native_gate_b_inputs import _LIGATURE_MAP
+    for cp in range(0xFB00, 0xFB07):
+        ch = chr(cp)
+        assert _LIGATURE_MAP[ch] == unicodedata.normalize("NFKD", ch)
+    assert _normalize_span_text("lo" + chr(0xFB05)) == "lost"
+    assert "loft" not in _normalize_span_text("lo" + chr(0xFB05))
+    assert _normalize_span_text("be" + chr(0xFB06)) == "best"  # FB06 ST
+
+
+# ── adversarial: the §-1.1-unsafe JOINS/SPLITS must NOT happen ─────────────
+
+def test_line_break_hyphen_is_NOT_joined(_norm_on):
+    # "re-signed" (signed again) must NOT become "resigned" (quit) — a hard hyphen is kept.
+    assert _normalize_span_text("re-\nsigned") == "re-\nsigned"
+    assert "resigned" not in _normalize_span_text("re-\nsigned")
+    assert _normalize_span_text("well-\nknown drug") == "well-\nknown drug"
+
+
+def test_zero_width_is_NOT_joined_negation_safe(_norm_on):
+    # "not<ZWSP>able" must NOT become "notable"; the negation/space stays intact (untouched).
+    assert _normalize_span_text("not" + ZWSP + "able") == "not" + ZWSP + "able"
+    assert "notable" not in _normalize_span_text("not" + ZWSP + "able")
+    # "in<ZWJ>effective" must NOT be split into "in effective" (the original-bug direction).
+    assert "in effective" not in _normalize_span_text("in" + ZWJ + "effective")
+
+
+def test_digits_and_nbsp_untouched(_norm_on):
+    # ZERO digit modification; non-ligature content is byte-preserved (ligature-only scope).
+    assert _normalize_span_text("range 20-\n30") == "range 20-\n30"
+    assert _normalize_span_text("reduced by 2 percent") == "reduced by 2 percent"
+    assert _normalize_span_text("HR " + chr(0x2212) + "1.07") == "HR " + chr(0x2212) + "1.07"
+    assert _normalize_span_text("natural" + NBSP + "killer") == "natural" + NBSP + "killer"
+
+
+def test_genuine_negative_span_gains_no_content(_norm_on):
+    span = "the registry recorded outcomes in adults"
+    out = _normalize_span_text(span)
+    assert out == span                  # no ligature present -> unchanged; nothing invented
+    assert "killer" not in out
+
+
+def test_empty_safe(_norm_on):
+    assert _normalize_span_text("") == ""
+
+ succeeded in 30191ms:
+    # I-perm-011 (#1205): max-over-subqueries relevance floor. `_row_relevance`
+    # normalizes overlap by the WHOLE multi-part question token set, so a ~73-token
+    # research question makes the 0.30 floor demand >=22 exact-word matches — which
+    # over-drops on-topic top-tier papers whose domain vocabulary doesn't lexically
+    # match the question's exact words (drb_76: 597->53 pre-select; 74 on-topic T1
+    # shed). ON => each row is scored against the BEST-MATCHING decomposed sub-query
+    # (q1d + planner facets, small per-facet denominators) and the floor uses
+    # max(whole-question, best-facet) — MONOTONIC-UP, so it can only OPEN the
+    # throttle (keeps a SUPERSET), never tighten it. PG_LIVE_MAX_EV_TO_GEN stays
+    # 1500 (DELIBERATELY UNCHANGED): the post-fix surviving pool is <= the
+    # pre-select total (597 for drb_76) which is < 1500, so the global pool cap is
+    # non-binding by construction; the BINDING per-prompt guard is
+    # PG_MAX_EV_PER_SECTION=40 (line 490). Lowering the pool cap would re-impose the
+    # niche-section starvation the 2026-06-10 operator decision (lines 475-482)
+    # explicitly removed — so the diagnosis's secondary "lower to 200" is NOT
+    # applied here. Default OFF in code => slate-absent runs are byte-identical.
+    "PG_SELECT_SUBQUERY_FLOOR": "1",
+    # I-ready-017 FX-03 (#1107): the 4-role seam MUST judge each claim against the cited [start:end]
+    # BOUNDED window, not the whole source doc (BUG-02 confirmed out-of-span false-accept, claim
+    # 06-004). OFF feeds whole-record evidence to Sentinel/Judge so a claim can be VERIFIED on support
+    # living ANYWHERE in the doc — a silent faithfulness downgrade on the AUTHORITATIVE release gate.
+    # Force-on + required below so the paid run cannot fall back to whole-doc. Window matches
+    # strict_verify's 400-byte local-window tolerance (ONE shared policy).
+    "PG_GATE_B_CITED_SPAN": "1",
+    "PG_GATE_B_SPAN_WINDOW_BYTES": "400",
+    # I-perm-022 (#1214): LIGATURE-ONLY normalization of the cited SPAN (decompose the
+    # presentation-form ligatures U+FB00..U+FB06 to their letters) BEFORE the four-role
+    # evaluators read it, so a PDF-extraction ligature does not produce a false-negative
+    # [confidence:low] on a genuinely-supported atom. RECOVERS true positives only — no
+    # word-boundary change, ZERO digit modification, gate byte-untouched; flag-OFF
+    # byte-identical. (De-hyphenation / zero-width were dropped as §-1.1-unsafe.)
+    "PG_GATE_B_SPAN_NORMALIZE": "1",
+    # I-ready-017 CANARY-01 (#1107/#1108): the BEHAVIORAL pre-spend canary MUST run on the real
+    # Gate-B run — real call shapes (searcher/generator structured-output + 1-query live search) must
+    # be ALIVE or the run fails closed before spend. OFF would let a dead-discovery run go green (the
+    # drb_72 failure). Force-on + required below; the canary itself runs only on the live path.
+    "PG_BEHAVIORAL_CANARY": "1",
+    # I-cred-013 (#1163): the SUPER-HEAVY behavioral pre-spend preflight MUST run on the real beat-both
+    # Gate-B run — it COMPOSES CANARY-01 with: EVERY model slug (generator + 3 verifiers + the
+    # credibility judge when active) ALIVE in its production call shape, STORM/discovery non-empty,
+    # host-local chromium present, and a RUNTIME re-assertion of the 5 recurring false-alarm regression
+    # locks. OFF would drop back to the lighter canary alone and let a dead verifier/STORM/browser tier
+    # ship a false-green paid run. Force-on + required below; the preflight runs only on the live path.
+    "PG_SUPER_HEAVY_PREFLIGHT": "1",
+    # I-ready-017 FX-14 (#1129): force the custody-lane honesty marker ON so the paid run emits
+    # custody_lane_status.json (not_applicable_planner_lane) instead of a silently-empty
+    # v29_primary_custody.json / m44_primary_citation_telemetry.json when primary-trial seeds reach
+    # generation but the M-44/V29 custody block does not run in the planner lane. Telemetry-only.
+    "PG_CUSTODY_LANE_MARKER": "1",
+    # I-ready-017 FL-05b (#1137): activate the FL-05 (#1124) run-health backstop. FL-05's
+    # compute_run_health_gate aborts a would-be-SUCCESS run to abort_discovery_degraded (+
+    # release_allowed=False) when a FORCE-ENABLED discovery feature (STORM / agentic) was on but did NOT
+    # fire (firing_status attempted_empty/error) — i.e. the run silently fell back to the Serper/S2
+    # baseline. The gate is flag-gated PG_RUN_HEALTH_GATE (default OFF in run_honest_sweep_r3.py: status,
+    # control-flow and the release decision are unchanged when off — only two additive observability
+    # fields are written). The benchmark MUST run with it ON so a silently-degraded discovery cannot
+    # ship green. Force-on + required below (an explicit operator =0 must not survive the slate). Pairs
+    # with CANARY-01 (pre-spend); FL-05 is the mid/post-run regression backstop.
+    "PG_RUN_HEALTH_GATE": "1",
+    # I-fetch-002 (#1168): STORM UNDER-fire floor. FL-05 (#1124) aborts only when a force-enabled
+    # discovery feature TOTALLY no-fires (firing_status attempted_empty/error). This floor extends the
+    # SAME gate to the UNDER-fire case: STORM force-on FIRED but produced FEWER than this many effective
+    # (post-validator) queries — a thin-corpus collapse that would otherwise ship green. Discovery-health
+    # only (faithfulness-neutral). Read at the run_honest_sweep_r3.py compute_run_health_gate call site.
+    "PG_STORM_MIN_EFFECTIVE_QUERIES": "12",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-beatboth-fix-000 (#1171) RETRIEVAL-BREADTH cluster — widen DISCOVERY (candidates), and keep total
+    # FETCH at the hard 1000 envelope by ABSORBING the new STORM seed lane into the budget: the FETCH
+    # lanes are main 740 + agentic 100 + deepener 60 + R6 40 + STORM 60 = 1000 (main trimmed 800->740 per
+    # Codex P1, no overshoot). All seven fixes are faithfulness-NEUTRAL (no strict_verify / NLI /
+    # 4-role / provenance path touched). Several keys are STRING- or sub-1-FLOAT-valued and MUST ride
+    # the force-exact path (the numeric FLOOR path would int()-truncate 0.08 -> 0, disabling the gate,
+    # or crash on float("containment")) — they are listed in _BENCHMARK_FORCE_EXACT_FLAGS below.
+    #
+    # BB-001: the scope-validator floor + similarity measure. Symmetric Jaccard punishes short on-topic
+    # queries against a 28-40-token anchor (the #1 chokepoint: 40->5 kept). containment (|q∩a|/min) +
+    # a researched 0.08 floor keep short on-topic queries while still failing genuine drift (gate KEPT).
+    "PG_AMPLIFIER_SCOPE_FLOOR": "0.08",
+    "PG_SCOPE_SIM_MEASURE": "containment",
+    # BB-002: Serper keeps offset-paging past a sub-per_page page (the unreliable end-of-results signal)
+    # until budget / 0-new / PG_SERPER_MAX_PAGES. Discovery only — main-lane FETCH stays capped at 800.
+    "PG_SERPER_STOP_ON_ZERO_NEW": "1",
+    # BB-003: OpenAlex /works search at per_page=200 (API max) + cursor paging to cover PG_SWEEP_MAX_S2.
+    # MAX_S2=100 fits in ONE 200-page, but allow 2 cursor pages as headroom (still discovery, not fetch).
+    "PG_OPENALEX_PER_PAGE": "200",
+    "PG_OPENALEX_MAX_PAGES": "2",
+    # BB-005: harvest MORE of the ~1933 agentic-discovered URLs for DISCOVERY TELEMETRY
+    # (urls_discovered_total) WITHOUT raising the agentic FETCH lane — the fetched subset stays
+    # truncated to PG_AGENTIC_BENCHMARK_URL_CAP=100 (budget lane 2/4). Telemetry-only widening.
+    "PG_AGENTIC_HARVEST_CAP": "800",
+    # BB-006: ingest the STORM interview-search-result URLs (478/540 real web URLs previously discarded)
+    # as URL-ONLY seed candidates (the synthesized STORM answer/key_findings text is NEVER ingested).
+    # PG_STORM_URL_CAP bounds the harvest; PG_STORM_URL_FETCH_CAP (60) bounds the SEPARATE ADDITIVE
+    # STORM fetch lane — disclosed for the operator's ~1000-fetch accounting (this is the one fix that
+    # adds fetch beyond the four lanes; bounded small and surfaced, not silently overshooting).
+    "PG_STORM_INGEST_WEB_RESULTS": "1",
+    "PG_STORM_URL_CAP": "200",
+    "PG_STORM_URL_FETCH_CAP": "60",
+    # BB-007: a REAL Unpaywall contact email so the (default-ON) OA resolver actually fires — the
+    # placeholder polaris@example.org is treated as resolver-UNAVAILABLE (fail-loud) by the resolver,
+    # a hidden cause of the 67-72% fetch-fail rate. Real DOI-keyed OA full-text upgrades no_content stubs.
+    "PG_UNPAYWALL_EMAIL": "research@polaris-dr.org",
+    # ─────────────────────────────────────────────────────────────────────────────────────────────
+    # I-cred-006b (#1170): REPLACE the corpus-level tier-COUNT / material-deviation REFUSAL with PROCEED
+    # + a credibility-weighted disclosure (operator directive 2026-06-08: "we shall NOT have gate here,
+    # we shall WEIGHT the source"). The drb_72 dry-run aborted abort_corpus_approval_denied because 50%
+    # of 151 sources were T4 on an ECONOMICS question where NBER/Acemoglu working papers are legitimate
+    # primary sources — a §-1.1-banned domain-blind tier-count refusal. ON: the corpus is accepted +
+    # credibility-disclosed (weighted, domain-aware); the per-claim faithfulness floor (strict_verify +
+    # 4-role D8) is UNCHANGED; the corpus-ZERO floor still aborts. Force-on + required below so a stray
+    # operator =0 cannot survive the setdefault slate and silently restore the tier-count refusal on the
+    # paid beat-both run (the I-cap-005 P1-1 force-on pattern).
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE": "1",
+    # I-perm-000 permanent-fix activation (#1194). Each fix is DEFAULT OFF (byte-identical) and is
+    # INERT in production unless the slate turns it on — the exact "fix built but not live" trap.
+    # Force-on + required below so a stray operator =0 cannot survive the setdefault slate and
+    # silently restore the pre-fix behaviour on the paid beat-both run.
+    #   PG_ALWAYS_RELEASE         (#1195 keystone) WITHHOLD->ALWAYS-RELEASE+LABEL: a held report ships
+    #                             with disclosed gaps instead of aborting (the drb_76 false hold).
+    #   PG_SWEEP_NUMERIC_SANITIZER(#1201) drop DOI/URL/accession cruft parsed as clinical data.
+    #   PG_SWEEP_SEMANTIC_CONTRAINDICATION (#1196) credit a faithful contraindication WARNING
+    #                             ("not recommended"/"should be avoided") whose source never uses the
+    #                             literal "contraindicated" — negation-guarded so an inverted claim
+    #                             never over-credits; drb_76 then ships caveated-normal instead of
+    #                             released_insufficient_safety_evidence.
+    # NOT activated here: PG_SWEEP_SELECTION_SCALE (#1197) — the blueprint keeps it flag-OFF until
+    # I-perm-007 grows a real large pool (it is preventative; on the current corpus it would scale
+    # the budget ABOVE the #1070/#1078 evidence-to-generation cap and re-flood the generator).
+    "PG_ALWAYS_RELEASE": "1",
+    "PG_SWEEP_NUMERIC_SANITIZER": "1",
+    "PG_SWEEP_SEMANTIC_CONTRAINDICATION": "1",
+    # I-perm-004 (#1198) cited-recovery: re-anchor a wrongly-cited claim to the best ENTAILING span
+    # (argmax) + re-point on the gap-#18 local-window rescue, instead of dropping / shipping a
+    # mis-pointed citation. Slices 1-3 Codex-APPROVE'd.
+    "PG_SPAN_RESOLVER": "1",
+    # I-perm-004 #1180 widening: the EMPIRICALLY-PICKED widening-aware entailment prompt. The bake-off
+    # (`scripts/dr_benchmark/widening_prompt_bakeoff.py --run` over `tests/fixtures/widening_labeled_set.json`)
+    # scored widen_a/b/c at widening_neutral_recall=1.0 + entailed_precision=1.0 + zero
+    # contradiction-acceptance (baseline missed the F02 strain->class widening); widen_c (the explicit
+    # scope-then-support checklist) won. Force-exact so a stray .env cannot revert to baseline.
+    "PG_ENTAILMENT_PROMPT_VARIANT": "widen_c",
+    # I-perm-016 (#1209) KEYSTONE: the map-reduce evidence distiller. DEFAULT OFF
+    # (byte-identical legacy) and INERT in production unless the slate turns it on
+    # — the exact "fix built but not live" trap. Force-on + required below so a
+    # stray operator =0 cannot survive the setdefault slate and silently restore
+    # the single-pass raw-quote generation path on the paid beat-both run (the
+    # I-cap-005 P1-1 force-on pattern). The distiller only TIGHTENS faithfulness
+    # (every finding pre-validated by the SAME production verifier; the unchanged
+    # strict_verify re-checks the REDUCE output) so forcing it on can never weaken
+    # a gate.
+    "PG_SECTION_DISTILL": "1",
+    # I-perm-024 (#1216): force the beat-both scorer's extended claim-by-claim
+    # metrics (faithfulness_precision / required_entity_recall / safety_floor_recall
+    # / citation_support_rate / diversity_score + Claimify dedup) ON for the broad
+    # run, so the archived scorecard carries the extended block (Codex brief-gate
+    # iter-1 P2). MEASUREMENT-ONLY — it runs AFTER the report exists and touches no
+    # generator / strict_verify / 4-role / D8 path; flag-OFF the scorecard is
+    # byte-identical. Every metric is derived from the §-1.1 audit ledger + the
+    # frozen rubric, never from raw report text.
+    "PG_BENCH_EXTENDED_METRICS": "1",
+}
+
+# Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+# a silent throttle). Keyed by the env the run actually reads; floors are "full-capability" thresholds.
+_BENCHMARK_PREFLIGHT_FLOORS: dict[str, int] = {
+    "PG_SWEEP_FETCH_CAP": 500,
+    "PG_SWEEP_MAX_SERPER": 50,
+    "PG_SWEEP_MAX_S2": 50,
+    # FX-17 (#1126): fail closed if the Serper pagination budget is below the floor — otherwise an
+    # explicit operator override (or absence) leaves the run single-page (~20/query) and the
+    # pagination fix is silently inert on the paid benchmark. TOTAL>=40 guarantees >1 page;
+    # MAX_PAGES>=2 lets the budget be reached.
+    "PG_SERPER_TOTAL_PER_QUERY": 40,
+    "PG_SERPER_MAX_PAGES": 2,
+    # I-fetch-002 (#1168): floor-guard the two un-guarded QUERY-BREADTH knobs so a conservative .env/
+    # operator value cannot silently shrink the search-query fan-out below full capability. These are
+    # query counts, NOT part of the ~1000-URL fetch sum. Floors == the slate values (30/15).
+    "PG_STORM_MAX_BENCHMARK_QUERIES": 30,
+    "PG_MAX_SUBQUERIES": 15,
+}
+# Flags that MUST be truthy for a full benchmark run (feature dead / unobservable otherwise).
+# Codex diff-gate I-cap-005 P1-1: PG_SWEEP_EVIDENCE_DEEPENER MUST be required too — otherwise an
+# explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
+# preflight still passes, letting the paid run go with the evidence deepener silently off.
+_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+    "PG_STORM_ENABLED_IN_BENCHMARK",
+    "PG_SWEEP_EVIDENCE_DEEPENER",
+    "PG_DEPTH_ANNOTATION_IN_BENCHMARK",
+    "PG_AGENTIC_SEARCH_IN_BENCHMARK",
+    "PG_NLI_IN_BENCHMARK",
+    "PG_ENABLE_TOOL_TRACKER",
+    # I-ready-004 (#1078): both must be ON for Gate-B — finding-dedup OFF wastes the cap on near-dups;
+    # capped-dedup OFF would let the no-cap relevance-floor pool re-flood the generator (regress #1070).
+    "PG_USE_FINDING_DEDUP",
+    "PG_CAPPED_FINDING_DEDUP",
+    # I-ready-016b (#1097): the 3 readiness faithfulness layers MUST be on for Gate-B — each only ADDS a
+    # check (safety-refusal classifier / NLI semantic-conflict detection / table-cell numeric verify), so
+    # OFF is a silent faithfulness downgrade. Force-on in run_gate_b_query; fail closed here if any is off.
+    "PG_USE_SAFETY_REFUSAL",
+    "PG_SWEEP_NLI_CONFLICT",
+    "PG_SWEEP_TABLE_CELL_VERIFY",
+    # I-ready-017 FX-03 (#1107): cited-span windowing on the authoritative 4-role seam — OFF is the
+    # BUG-02 whole-doc out-of-span false-accept. Fail closed if it is not active for a paid run.
+    "PG_GATE_B_CITED_SPAN",
+    # I-perm-022 (#1214): LIGATURE-ONLY cited-span normalization on the same 4-role seam — OFF leaves a
+    # PDF-extraction ligature to produce false-negative [confidence:low] on a genuinely-supported atom.
+    # Fail closed if not active for a paid run (recovers TPs only; no word-boundary change; gate untouched).
+    "PG_GATE_B_SPAN_NORMALIZE",
+    # I-ready-017 CANARY-01 (#1108): the behavioral pre-spend canary must be ON for a paid run — OFF
+    # would let a dead-discovery / structured-output-404 run go green (the drb_72 failure).
+    "PG_BEHAVIORAL_CANARY",
+    # I-cred-013 (#1163): the super-heavy behavioral preflight must be ON for a paid beat-both run — OFF
+    # drops to the lighter canary alone and lets a dead verifier/STORM/credibility/browser tier or a
+    # resurfaced false alarm ship a false-green paid run. Fail closed if it is not active.
+    "PG_SUPER_HEAVY_PREFLIGHT",
+    # I-ready-017 FX-14 (#1129): custody-lane honesty marker required — otherwise an explicit
+    # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
+    # run silently writes empty v29/m44 custody telemetry with no not_applicable disambiguation.
+    "PG_CUSTODY_LANE_MARKER",
+    # I-ready-017 FL-05b (#1137): the run-health backstop must be ON for a paid run — OFF lets a
+    # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
+    # on the VM — the 2026-06-05 drb_72 smoke) ship as success. Fail closed if it is not active.
+    "PG_RUN_HEALTH_GATE",
+    # I-cred-006b (#1170): the weighted-corpus gate must be ON for the beat-both run — OFF restores the
+    # §-1.1-banned tier-count / material-deviation corpus REFUSAL that aborted the drb_72 dry-run
+    # (abort_corpus_approval_denied) on a tier-skewed-but-legitimate ECONOMICS corpus. Fail closed if it
+    # is not active so a tier-mix refusal can never silently reach the paid run.
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    # I-perm-000 permanent-fix (#1194): the keystone always-release + the numeric sanitizer + the
+    # are DEFAULT OFF; required here so the preflight FAILS CLOSED if either is off, i.e. the paid
+    # run can NEVER silently revert to the pre-fix withhold / DOI-cruft / literal-token behaviour.
+    # (Selection-scale #1197 is deliberately NOT required — it stays flag-OFF until I-perm-007 grows
+    # a real pool.)
+    "PG_ALWAYS_RELEASE",
+    "PG_SWEEP_NUMERIC_SANITIZER",
+    "PG_SWEEP_SEMANTIC_CONTRAINDICATION",
+    "PG_SPAN_RESOLVER",
+    # I-perm-016 (#1209): the map-reduce evidence distiller must be ON for the
+    # paid beat-both run — OFF silently restores the single-pass raw-quote
+    # generation path the distiller was built to replace. Fail closed if it is
+    # not active so a stray operator =0 can never reach the paid run.
+    "PG_SECTION_DISTILL",
+)
+
+# Codex diff-gate I-cap-005 P1-2: the minimum EFFECTIVE per-run budget cap. PG_MAX_COST_PER_RUN is an
+# import-time constant in openrouter_client (cached at $10 default before Gate-B's slate runs), so the
+# slate ALSO programmatically syncs it via set_max_cost_per_run(); the preflight then validates the live
+# value via get_max_cost_per_run() so a stale-$10 cap cannot silently abort a full-depth paid run.
+_BENCHMARK_MIN_COST_CAP_USD = 20.0
+
+# Codex diff-gate iter-2: feature flags FORCED ON by the slate (a benchmark feature silently off via a
+# conservative .env value is a capability downgrade). Everything else in the slate is a numeric FLOOR.
+_BENCHMARK_FORCE_ON_FLAGS = frozenset({
+    "PG_STORM_ENABLED_IN_BENCHMARK",
+    "PG_SWEEP_EVIDENCE_DEEPENER",
+    "PG_ENABLE_TOOL_TRACKER",
+    # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly
+    # (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark from running
+    # with the binding faithfulness verifier degraded. PG_VERIFICATION_MODE is intentionally NOT here
+    # (Codex iter-1 P1: it enables Phase 0b rescue widening, out of scope).
+    "PG_STRICT_VERIFY_ENTAILMENT",
+    "PG_MAX_JUDGE_ERROR_RATE",
+    # I-ready-004 (#1078): finding-dedup flags + the FLOAT relevance floor. Force-SET directly (string)
+    # — the numeric FLOOR path int()-coerces, which would turn PG_RELEVANCE_FLOOR=0.30 into 0 and then
+    # fail parse_relevance_floor (Codex brief P1-2). PG_RELEVANCE_FLOOR is validated as a float in (0,1]
+    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+    "PG_USE_FINDING_DEDUP",
+    "PG_CAPPED_FINDING_DEDUP",
+    "PG_RELEVANCE_FLOOR",
+    # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+    # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+    "PG_GATE_B_CITED_SPAN",
+    # I-perm-022 (#1214): force-on the LIGATURE-ONLY cited-span normalization so an operator =0 cannot
+    # survive the slate and silently leave a PDF-extraction ligature to produce false-negative
+    # [confidence:low]. Recovers TPs only; no word-boundary change; ZERO digit modification; gate untouched.
+    "PG_GATE_B_SPAN_NORMALIZE",
+    # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+    # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+    # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+    "PG_BENCH_EXTENDED_METRICS",
+    # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+    # survive the slate and let a dead-discovery run go green.
+    "PG_BEHAVIORAL_CANARY",
+    # I-cred-013 (#1163): force-on the super-heavy behavioral preflight so an operator =0 cannot survive
+    # the slate and silently drop the paid run back to the lighter canary alone.
+    "PG_SUPER_HEAVY_PREFLIGHT",
+    # I-ready-017 FL-05b (#1137): force-on the run-health backstop so an explicit operator
+    # PG_RUN_HEALTH_GATE=0 cannot survive the setdefault slate and silently restore the
+    # ship-green-on-degraded-discovery behavior (the I-cap-005 P1-1 force-on pattern).
+    "PG_RUN_HEALTH_GATE",
+    # I-cred-006b (#1170): force-on the weighted-corpus gate so an explicit operator
+    # PG_SWEEP_WEIGHTED_CORPUS_GATE=0 cannot survive the setdefault slate and silently restore the
+    # §-1.1-banned tier-count corpus REFUSAL on the paid beat-both run (the I-cap-005 P1-1 pattern).
+    "PG_SWEEP_WEIGHTED_CORPUS_GATE",
+    # I-beatboth-fix-000 (#1171): force-on the two breadth feature flags so an explicit operator =0
+    # cannot survive the setdefault slate and silently restore the breadth-collapse behaviour.
+    # BB-002: keep Serper offset-paging past short pages (else the de-facto 10/query ceiling returns).
+    "PG_SERPER_STOP_ON_ZERO_NEW",
+    # BB-006: ingest the STORM interview-search-result URLs as URL-only seed candidates.
+    "PG_STORM_INGEST_WEB_RESULTS",
+
+ succeeded in 34925ms:
+# I-perm-022 (#1214) — verifier span normalization: forensic plan (durable record)
+
+Forensic by the parallel Claude agent (2026-06-11), persisted here so it is not lost.
+
+## 1. Root cause (grounded in code + the real drb_76 run)
+
+**The seam:** the cited span enters the four-role second evaluator via
+`EvidenceDocument.text`, built in `src/polaris_graph/roles/native_gate_b_inputs.py`:
+- `_resolve_evidence` (582-611) builds one `EvidenceDocument(doc_id=evidence_id,
+  text=_cited_window_text(text, token))` per token (607-609).
+- `_cited_window_text` (547-579) slices a bounded window but applies NO de-hyphenation /
+  ligature / NFKD normalization — only `.strip()`.
+- That `doc.text` is inlined verbatim as `{span}` into the Sentinel decomposition prompt
+  (`sentinel_adapter.py:280-281`) and joined into the Judge `evidence_text`
+  (`role_pipeline.py:333`). Both are LLM evaluators that read span TEXT.
+
+A non-VERIFIED four-role verdict → `[confidence:low]` via `confidence_bucket`
+(`generator/claim_labeler.py:29-53`), keyed on `is_verified` (four-role `final_verdict ==
+"VERIFIED"`). This is the four-role seam, NOT a strict_verify Gemma drop.
+
+**Mirror is NOT the target** — `mirror_adapter.py` binds on `doc_id`
+(`_validate_citation_binding` 107-130), never on span text. Only the Sentinel
+atom-by-atom span-coverage matcher and the Judge are artifact-sensitive.
+
+## 2. HONEST empirical finding (the load-bearing correction)
+From the real run `outputs/audits/I-perm-010/run_drb76_jun11/...`:
+- The 58-row evidence pool DOES carry the artifacts: 12 ligature codepoints (U+FB01 `ﬁ`,
+  U+FB02 `ﬂ`) + 5 line-break hyphens — ALL concentrated in ONE row `ev_206` (`bioﬁlms`,
+  `inﬂammatory`, `dehy-\ndrogenase`, `pro-\nteins`, `oxaliplatin-\ninduced`).
+- BUT `ev_206` is cited by exactly ONE claim (`04-000`), whose Sentinel verdict was
+  SUPPORTED → ZERO of the 8 Sentinel-unsupported claims were ligature/hyphen-driven in this
+  captured run.
+- Most of the 8 Sentinel-unsupported claims are GENUINE semantic negatives ("span doesn't
+  label the organism a pathogen"; "registry" vs "retrospective records"; "central-line" vs
+  "indwelling catheters"). These MUST stay negative.
+- ONE IS a real extraction-artifact surface mismatch: claim `05-007` — span "natural kill
+  cell activity" vs claim "natural killer cell activity" (dropped "er" from PDF extraction).
+
+**Honest root_cause:** un-normalized PDF-extraction artifacts (ligatures, line-break
+hyphenation, truncation/whitespace) in the cited span reach the LLM evaluators verbatim and
+can flip a genuinely-supported atom to "unsupported." Real, demonstrated CLASS of FN, but
+"drb_76 = 12 FN" is NOT proven artifact-driven. **The fix must recover only true positives
+the artifacts hid; it must NOT be tuned to "recover 12" (that would force-pass genuine
+negatives).** Per-claim causal proof is the DoD paid §-1.1 smoke.
+
+## 3. Design — normalize the SPAN only, grade the CLAIM as-authored
+Artifacts are source-side. The generator's claim prose is clean; normalizing it would grade
+a rewritten claim. So:
+- SPAN: apply new `_normalize_span_text()` right before `EvidenceDocument(...)` (607-609).
+- CLAIM: unchanged into the evaluator.
+- Cache key only: normalize both for key identity (does not change what is evaluated).
+
+`_normalize_span_text` — strictly meaning-preserving, ZERO digit modification:
+1. Ligatures (the clean win): explicit map `ﬁ→fi ﬂ→fl ﬀ→ff ﬃ→ffi ﬄ→ffl ﬅ→ft ﬆ→st` OR NFKD
+   restricted to the ligature range. Reuse `provenance_generator.py:195-238`
+   (`_build_normalized_view` already does NFKD + ligature decomposition).
+2. Line-break de-hyphenation, ALPHABETIC-ONLY: join `[a-z]-\n[a-z]`. Document the residual
+   ambiguity (`oxaliplatin-\ninduced`→`oxaliplatininduced` cosmetically wrong;
+   `dehy-\ndrogenase`→`dehydrogenase` right) — `TEXT_DEHYPHENATE` is a PyMuPDF
+   extraction-time flag, unavailable at the seam. Restrict to alphabetic so digits untouched.
+3. Whitespace: collapse runs, NBSP/zero-width → space.
+4. NEVER touch digits or dashes between digits (I-gen-005 range/negative corruption lesson):
+   every regex matches alphabetic context only.
+
+Verdict cache (scope-limited under the 200-LOC cap): the in-run dedup at
+`sweep_integration.py:283 _dedup_key` already keys on `(claim_text, sorted((doc_id, d.text)),
+severity, s0_categories)`. Because we normalize UPSTREAM of `EvidenceDocument`, `d.text` is
+already normalized → the existing dedup inherits the normalized `(claim, evidence_id, span)`
+identity for free, no new cache code. A PERSISTENT cross-run verdict store is a larger build →
+SPLIT to a follow-up issue.
+
+## 4. Faithfulness (the critical argument)
+Repair, not rewrite: maps a garbled token to its true form, adds NO content. If the span
+genuinely doesn't state the atom (the 8 genuine negatives), the repaired span STILL doesn't
+→ stays unsupported. Zero digit modification (testable invariant): `"reduced 2%"` and
+`"reduced 20%"` can never collapse. Gate untouched (D8, `_compose_final_verdict` fail-closed,
+Mirror doc_id binding, Sentinel UNGROUNDED override, VERIFIED coverage credit all unchanged).
+No recovery target — accepts whatever recovers (possibly ≪12).
+
+## 5. Edits (default-OFF flag `PG_GATE_B_SPAN_NORMALIZE`, default "0" → byte-identical)
+- `src/polaris_graph/roles/native_gate_b_inputs.py`: add `_GATE_B_SPAN_NORMALIZE_ENV` +
+  ligature map; add `_normalize_span_text(text)` (OFF-guarded → returns input unchanged);
+  wrap the windowed text at `_resolve_evidence` (607-609):
+  `text=_normalize_span_text(_cited_window_text(text, token))`. Records keep FULL
+  un-normalized text (entity coverage matching unaffected — matches DOI/PMID/URL).
+- Wire `PG_GATE_B_SPAN_NORMALIZE=1` into the Gate-B slate.
+
+## 6. Tests (`tests/polaris_graph/test_span_normalize_iperm022.py`, mirror test_fx03)
+- flag-off byte-identical; ligature repaired when on (real `ev_206` strings); line-break
+  hyphen joined (alphabetic) + document `oxaliplatin-` residual; recovers a TP the artifact
+  hid; **numeric difference does NOT collapse (adversarial: 2% vs 20% keys differ)**; genuine
+  negative stays negative (repair adds no content).
+
+## 6b. Honesty caveats
+- "12 FN" NOT artifact-confirmed in the captured run; ligatures are the clean win, hyphenation
+  best-effort/alphabetic-only/documented; truncation ("natural kill[er]") is NOT fixed by
+  ligature/hyphen (needs fuzzy/edit-distance = different, riskier; out of scope). Persistent
+  cross-run cache deferred. Paid §-1.1 smoke = the causal per-claim proof.
+
+Key files: `native_gate_b_inputs.py` (547-611), `sentinel_adapter.py:280-281`,
+`role_pipeline.py:333`, `mirror_adapter.py` (ruled out), `claim_labeler.py:29-53`,
+`sweep_integration.py:283`, `provenance_generator.py:195-238`. Test pattern:
+`tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py`.
+
+codex
+The staged diff matches the iter-4 description at the high level: normalization is applied only after cited-window slicing, the map is derived from NFKD, and the benchmark slate/force/preflight comments now describe the ligature-only scope. I’m going to run the focused tests and a small probe for the exact Unicode table.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/test_span_normalize_iperm022.py tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import unicodedata
+from src.polaris_graph.roles.native_gate_b_inputs import _LIGATURE_MAP
+print({hex(ord(k)): v for k, v in _LIGATURE_MAP.items()})
+print([(hex(cp), unicodedata.normalize('NFKD', chr(cp))) for cp in range(0xFB00, 0xFB07)])
+'@ | python -" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "PG_GATE_B_SPAN_NORMALIZE|_BENCHMARK_FORCE_ON_FLAGS|_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS|_FULL_CAPABILITY_BENCHMARK_SLATE|setdefault|force" scripts/dr_benchmark/run_gate_b.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n \"_dedup_key|EvidenceDocument|doc\\.text|documents\" src/polaris_graph -g \"*.py\"" in C:\POLARIS
+ succeeded in 13943ms:
+{'0xfb00': 'ff', '0xfb01': 'fi', '0xfb02': 'fl', '0xfb03': 'ffi', '0xfb04': 'ffl', '0xfb05': 'st', '0xfb06': 'st'}
+[('0xfb00', 'ff'), ('0xfb01', 'fi'), ('0xfb02', 'fl'), ('0xfb03', 'ffi'), ('0xfb04', 'ffl'), ('0xfb05', 'st'), ('0xfb06', 'st')]
+
+ succeeded in 14212ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0 -- C:\Python313\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 16 items
+
+tests/polaris_graph/test_span_normalize_iperm022.py::test_flag_off_byte_identical PASSED [  6%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_ligatures_repaired_when_on PASSED [ 12%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_full_ligature_table_matches_unicode_nfkd PASSED [ 18%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_line_break_hyphen_is_NOT_joined PASSED [ 25%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_zero_width_is_NOT_joined_negation_safe PASSED [ 31%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_digits_and_nbsp_untouched PASSED [ 37%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_genuine_negative_span_gains_no_content PASSED [ 43%]
+tests/polaris_graph/test_span_normalize_iperm022.py::test_empty_safe PASSED [ 50%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_flag_off_returns_whole_text_byte_unchanged PASSED [ 56%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_flag_on_window_excludes_far_away_content PASSED [ 62%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_flag_on_robust_to_leading_whitespace_strip PASSED [ 68%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_flag_on_degenerate_range_falls_back_to_full PASSED [ 75%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_flag_on_window_never_blank PASSED [ 81%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_resolve_evidence_windows_per_token_when_on PASSED [ 87%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_resolve_evidence_whole_doc_when_off PASSED [ 93%]
+tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py::test_resolve_evidence_unknown_id_fails_closed PASSED [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 16 passed, 1 warning in 3.46s ========================
+
+ succeeded in 18077ms:
+314:    # `supported_parameters` list. `setdefault` so the first occurrence of an alias wins (a later
+327:                slug_params.setdefault(value, params)
+424:# is `setdefault` so an explicit operator override still wins (LAW VI). The slate is applied BEFORE the
+426:_FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+513:    # Budget cap (spend ceiling enforced per run).
+517:    # "judge_error:..." sentinel) when PG_STRICT_VERIFY_ENTAILMENT=enforce. Force it on so the benchmark's
+518:    # binding gate enforces entailment + fails closed on error (STRENGTHENS faithfulness, never weakens).
+519:    # NOTE (Codex iter-1 P1): we deliberately do NOT force PG_VERIFICATION_MODE=enforce — that ALSO enables
+523:    "PG_STRICT_VERIFY_ENTAILMENT": "enforce",
+529:    # 4-role gated, so Gate-B force-disables it instead of turning on the planner
+536:    # a FLOAT in (0,1] — force-set as a string below (it must NOT ride the int FLOOR path, which coerces
+572:    "PG_GATE_B_SPAN_NORMALIZE": "1",
+585:    # I-ready-017 FX-14 (#1129): force the custody-lane honesty marker ON so the paid run emits
+600:    # I-fetch-002 (#1168): STORM UNDER-fire floor. FL-05 (#1124) aborts only when a force-enabled
+602:    # SAME gate to the UNDER-fire case: STORM force-on FIRED but produced FEWER than this many effective
+612:    # the force-exact path (the numeric FLOOR path would int()-truncate 0.08 -> 0, disabling the gate,
+651:    # operator =0 cannot survive the setdefault slate and silently restore the tier-count refusal on the
+652:    # paid beat-both run (the I-cap-005 P1-1 force-on pattern).
+656:    # Force-on + required below so a stray operator =0 cannot survive the setdefault slate and
+685:    # stray operator =0 cannot survive the setdefault slate and silently restore
+687:    # I-cap-005 P1-1 force-on pattern). The distiller only TIGHTENS faithfulness
+692:    # I-perm-024 (#1216): force the beat-both scorer's extended claim-by-claim
+723:# explicit PG_SWEEP_EVIDENCE_DEEPENER=0 in the operator env survives the setdefault slate and the
+725:_BENCHMARK_PREFLIGHT_REQUIRED_FLAGS = (
+748:    "PG_GATE_B_SPAN_NORMALIZE",
+757:    # PG_CUSTODY_LANE_MARKER=0 survives the slate setdefault (the I-cap-005 P1-1 pattern) and the paid
+761:    # silently-degraded discovery (force-enabled STORM/agentic that did not fire, e.g. chromium missing
+793:_BENCHMARK_FORCE_ON_FLAGS = frozenset({
+797:    # I-ready-002 (#1071) P0: binding verifier mode is non-numeric ("enforce") — force-set it directly
+798:    # (the numeric-floor path would crash on float("enforce")). FORCE-ON keeps a benchmark from running
+806:    # in preflight_full_capability; the two flags are required in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS.
+810:    # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+811:    # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+813:    # I-perm-022 (#1214): force-on the LIGATURE-ONLY cited-span normalization so an operator =0 cannot
+816:    "PG_GATE_B_SPAN_NORMALIZE",
+817:    # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+818:    # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+821:    # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+824:    # I-cred-013 (#1163): force-on the super-heavy behavioral preflight so an operator =0 cannot survive
+827:    # I-ready-017 FL-05b (#1137): force-on the run-health backstop so an explicit operator
+828:    # PG_RUN_HEALTH_GATE=0 cannot survive the setdefault slate and silently restore the
+829:    # ship-green-on-degraded-discovery behavior (the I-cap-005 P1-1 force-on pattern).
+831:    # I-cred-006b (#1170): force-on the weighted-corpus gate so an explicit operator
+832:    # PG_SWEEP_WEIGHTED_CORPUS_GATE=0 cannot survive the setdefault slate and silently restore the
+835:    # I-beatboth-fix-000 (#1171): force-on the two breadth feature flags so an explicit operator =0
+836:    # cannot survive the setdefault slate and silently restore the breadth-collapse behaviour.
+841:    # I-perm-000 (#1194): force-on the ready permanent-fix flags so an explicit operator =0 cannot
+842:    # survive the setdefault slate and silently revert to the pre-fix withhold / DOI-cruft /
+849:    # I-perm-011 (#1205): force-on the max-over-subqueries relevance floor (exact
+857:    # added to _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS (no fail-closed gate): a newly
+861:    # I-perm-016 (#1209): force-on the map-reduce evidence distiller so an
+862:    # explicit operator PG_SECTION_DISTILL=0 cannot survive the setdefault slate
+864:    # beat-both run (the I-cap-005 P1-1 force-on pattern).
+868:# Flags/modes that the benchmark slate force-sets to a specific value that is
+869:# not "on". Kept separate from _BENCHMARK_FORCE_ON_FLAGS so tests and comments
+874:    # 400-byte policy, not a setdefault floor. Otherwise an operator/.env PG_GATE_B_SPAN_WINDOW_BYTES=
+878:    # I-beatboth-fix-000 (#1171): these three are STRING- or sub-1-FLOAT-valued and MUST be force-EXACT
+893:# top of the force-exact above). The preflight fails closed if the EFFECTIVE window exceeds this, so a
+901:# I-ready-002 (#1071) P0: env modes the preflight MUST see at "enforce" — the binding faithfulness gate
+950:    Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
+952:    (e.g. ``PG_MOST_MAX_EVIDENCE=300``, ``PG_AGENTIC_WEB_PER_ROUND=6``) SURVIVED the setdefault and
+957:    ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+958:    Exact-value flags in ``_BENCHMARK_FORCE_EXACT_FLAGS`` are forced to their slate value.
+966:    for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+967:        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+968:            os.environ[name] = value                       # force exact value — no silent benchmark drift
+977:    # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
+997:    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+1005:    # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;
+1006:    # this fails closed if it is ever outside (0, ceiling] (force-exact removed / slate value changed).
+1027:    # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
+1031:        if os.getenv(mode_env, "off").strip().lower() != "enforce":
+1033:                f"benchmark preflight FAILED: {mode_env}={os.getenv(mode_env)!r} != 'enforce' — the "
+1035:                f"OPEN). Set {mode_env}=enforce before the run."
+1038:    # module global the guard actually enforces (synced by the slate via set_max_cost_per_run), NOT just
+1046:            f"stale default. The slate must call set_max_cost_per_run() before the guard enforces it."
+1049:    # slate (e.g. PG_MOST_MAX_EVIDENCE=300 in .env survived the old setdefault). The floor-slate raised
+1078:    # (or a stray operator override that the force-exact ever stops covering) fails CLOSED rather than
+1136:# faithfulness is enforced by the verify gates (strict_verify / 4-role D8 / provenance / two-family),
+1139:# §-1.1-banned metadata-as-quality proxy) starved it and forced abort_corpus_inadequate.
+1158:    NOT added to the always-on global ``_FULL_CAPABILITY_BENCHMARK_SLATE`` (which would blanket-
+1159:    activate journal_only for every workforce query and kill the generic T3 path). The downstream
+1216:    # fires, so run 5 (a) missed every canonical journal the workforce.yaml contract
+1226:    # span-verifiable abstract yield. `setdefault` so an explicit operator override still wins (LAW VI).
+1227:    os.environ.setdefault("PG_UNPAYWALL_ENABLED", "1")
+1228:    os.environ.setdefault("PG_TRAFILATURA_ENABLED", "1")
+1232:    # are abstract-level claims. Prefer it over the scrape; setdefault keeps the operator override.
+1233:    os.environ.setdefault("PG_FRAME_PREFER_ABSTRACT", "1")
+1241:    # setdefault keeps an explicit operator override (LAW VI).
+1242:    os.environ.setdefault("PG_FRAME_FULLTEXT_ENTITY_TYPES", _BENCHMARK_FULLTEXT_ENTITY_TYPES)
+1243:    os.environ.setdefault("PG_OPENALEX_FRAME_FALLBACK", "1")
+1247:    # The annotation is non-gating + fail-open, so it can NEVER withhold release. setdefault keeps
+1249:    os.environ["PG_DEPTH_ANNOTATION_IN_BENCHMARK"] = "1"   # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1253:    # (content reading forced off + conservative envelope) and fail-open. setdefault keeps the operator
+1255:    os.environ["PG_AGENTIC_SEARCH_IN_BENCHMARK"] = "1"     # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1262:    # satisfies it. setdefault keeps the operator override (LAW VI).
+1263:    os.environ["PG_NLI_IN_BENCHMARK"] = "1"                # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1268:    os.environ["PG_USE_SAFETY_REFUSAL"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1269:    os.environ["PG_SWEEP_NLI_CONFLICT"] = "1"              # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1270:    os.environ["PG_SWEEP_TABLE_CELL_VERIFY"] = "1"         # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1277:    os.environ["PG_SECTION_DISTILL"] = "1"                 # force-on (Codex iter-2 P1-1: .env=0 must not win)
+1304:        # (slate force-on + required). When PG_SUPER_HEAVY_PREFLIGHT is off, fall back to the CANARY-01
+
+ succeeded in 21851ms:
+src/polaris_graph\audit_ir\corpus_brief.py:20:can rephrase the question or upload more documents.
+src/polaris_graph\audit_ir\corpus_brief.py:163:    "uploaded documents contained content relevant to the query. "
+src/polaris_graph\audit_ir\corpus_brief.py:164:    "Upload more documents or rephrase the question."
+src/polaris_graph\agents\analyzer.py:1283:    # G3: Inject uploaded documents as GOLD-tier evidence
+src/polaris_graph\agents\analyzer.py:1286:    uploaded_docs = state.get("uploaded_documents", [])
+src/polaris_graph\agents\analyzer.py:1324:                "[polaris graph] G3: Added %d GOLD evidence pieces from %d uploaded documents",
+src/polaris_graph\agents\planner.py:105:   - Government reports and regulatory documents
+src/polaris_graph\agents\planner.py:163:    # G3: Inject uploaded documents as GOLD sources for targeted queries
+src/polaris_graph\agents\planner.py:165:    uploaded_docs = state.get("uploaded_documents", [])
+src/polaris_graph\agents\planner.py:175:            + "\n\nInclude queries that specifically extract claims from these GOLD documents."
+src/polaris_graph\agents\planner.py:178:            "[polaris graph] G3: Injecting %d uploaded documents into planner",
+src/polaris_graph\document_ingester.py:21:  data/documents/{doc_id}/
+src/polaris_graph\document_ingester.py:51:DOCUMENT_STORAGE_DIR = Path(os.getenv("PG_DOCUMENT_STORAGE_DIR", "data/documents"))
+src/polaris_graph\document_ingester.py:237:        avoid timeouts on large documents.
+src/polaris_graph\document_ingester.py:1029:        """Store extracted artefacts to disk under data/documents/{doc_id}/."""
+src/polaris_graph\document_ingester.py:1059:    # Utility: list ingested documents
+src/polaris_graph\document_ingester.py:1062:    def list_documents(self) -> list[dict]:
+src/polaris_graph\document_ingester.py:1063:        """Return metadata for all previously ingested documents."""
+src/polaris_graph\audit_ir\freshness_monitor.py:5:or guidance documents superseded. Pairs with M-D7's
+src/polaris_graph\export\docx_exporter.py:108:    Generates professionally styled Microsoft Word documents from
+src/polaris_graph\graph_v2.py:336:    documents = CRAGRetriever.documents_from_search_results(
+src/polaris_graph\graph_v2.py:341:    result = await retriever.retrieve(state["query"], documents)
+src/polaris_graph\graph_v2.py:350:            documents_processed=len(documents),
+src/polaris_graph\honest_pipeline.py:311:        f"documents, human studies. Exclusion criteria: user-upload\n"
+src/polaris_graph\graph.py:1340:    # G3: Load uploaded documents into pipeline state as GOLD sources
+src/polaris_graph\graph.py:1384:                state["uploaded_documents"] = uploaded_docs
+src/polaris_graph\graph.py:1386:                    "[polaris graph] G3: %d documents loaded (%d total chunks) as GOLD sources",
+src/polaris_graph\graph.py:1392:                "[polaris graph] G3: Failed to load uploaded documents: %s — "
+src/polaris_graph\generator\multi_section_generator.py:546:- [T3] = government / regulatory agency primary documents (FDA label, EMA assessment). USE for regulatory status claims.
+src/polaris_graph\generator\multi_section_generator.py:575:- Aim for at least 5 unique PRIMARY sources (distinct studies/papers/datasets/official documents, not just distinct ev_ids) per section.
+src/polaris_graph\generator\multi_section_generator.py:583:- [T3] = government / regulatory / official primary documents. USE for official-status claims.
+src/polaris_graph\generator\multi_section_generator.py:1398:- [T3] regulatory agency documents anchor label/boxed-warning/contraindication claims.
+src/polaris_graph\memory\local_document_rag.py:2:Session-scoped RAG over locally uploaded documents using ChromaDB.
+src/polaris_graph\memory\local_document_rag.py:52:    """Session-scoped retrieval-augmented generation over uploaded documents.
+src/polaris_graph\memory\local_document_rag.py:179:        # Build ids, documents, metadatas for ChromaDB upsert
+src/polaris_graph\memory\local_document_rag.py:181:        documents: list[str] = []
+src/polaris_graph\memory\local_document_rag.py:200:            documents.append(chunk["text"])
+src/polaris_graph\memory\local_document_rag.py:209:                documents=documents[batch_start:batch_end],
+src/polaris_graph\memory\local_document_rag.py:290:        result_docs = results["documents"][0] if results.get("documents") else []
+src/polaris_graph\memory\verified_claim_graph.py:67:    `reason` documents WHY the pair was flagged (negation-polarity mismatch and/or divergent
+src/polaris_graph\memory\cross_vector.py:189:                documents=[statement],
+src/polaris_graph\memory\cross_vector.py:236:            include=["documents", "metadatas", "distances"],
+src/polaris_graph\memory\cross_vector.py:250:                results["documents"][0][i]
+src/polaris_graph\memory\cross_vector.py:251:                if results.get("documents") and results["documents"][0]
+src/polaris_graph\memory\cross_vector.py:390:            include=["documents", "metadatas"],
+src/polaris_graph\memory\cross_vector.py:397:                document = result["documents"][i] if result.get("documents") else ""
+src/polaris_graph\memory\cross_vector.py:514:            documents=[doc_text],
+src/polaris_graph\memory\cross_vector.py:564:            include=["documents", "metadatas", "distances"],
+src/polaris_graph\memory\cross_vector.py:579:                results["documents"][0][i]
+src/polaris_graph\memory\cross_vector.py:580:                if results.get("documents") and results["documents"][0]
+src/polaris_graph\pipeline_a_ui_adapter.py:44:def _load_uploaded_documents(
+src/polaris_graph\pipeline_a_ui_adapter.py:83:            f"_load_uploaded_documents: every requested document_id "
+src/polaris_graph\pipeline_a_ui_adapter.py:242:        q["uploaded_documents"] = _load_uploaded_documents(document_ids)
+src/polaris_graph\pipeline_wizard.py:111:    "sources": ["Web + Academic", "Academic only", "Web only", "Include my documents"],
+src/polaris_graph\pipeline_wizard.py:462:            tags.append("documents")
+src/polaris_graph\retrieval\crag_retriever.py:6:    1. Fetch raw documents (URLs from search node)
+src/polaris_graph\retrieval\crag_retriever.py:226:    def chunk_documents(self, docs: list[RawDocument]) -> list[EnrichedChunk]:
+src/polaris_graph\retrieval\crag_retriever.py:227:        """Chunk multiple documents."""
+src/polaris_graph\retrieval\crag_retriever.py:496:        documents -> chunk -> dedup -> embed -> score -> gate -> register
+src/polaris_graph\retrieval\crag_retriever.py:520:        documents: list[RawDocument],
+src/polaris_graph\retrieval\crag_retriever.py:532:            documents: Fetched documents from search node.
+src/polaris_graph\retrieval\crag_retriever.py:538:            "input_documents": len(documents),
+src/polaris_graph\retrieval\crag_retriever.py:541:        # 1. Chunk all documents (L6: context-enriched)
+src/polaris_graph\retrieval\crag_retriever.py:542:        # CPU-bound: regex + string ops on all documents
+src/polaris_graph\retrieval\crag_retriever.py:544:            self._chunker.chunk_documents, documents
+src/polaris_graph\retrieval\crag_retriever.py:547:        logger.info("CRAG: %d documents -> %d chunks", len(documents), len(chunks))
+src/polaris_graph\retrieval\crag_retriever.py:835:    def documents_from_search_results(
+src/polaris_graph\retrieval\crag_retriever.py:930:                "CRAG: stripped %d chars of Base64 image data across %d documents",
+src/polaris_graph\state.py:579:    uploaded_documents: list[dict]  # A7.2: [{doc_id, filename, content_preview, chunk_count}]
+src/polaris_graph\state.py:695:        uploaded_documents=[],
+src/polaris_graph\retrieval\domain_backends.py:19:                filings — primary documents of record for public
+src/polaris_graph\retrieval\domain_backends.py:552:                _dedup_key = oa_id or url
+src/polaris_graph\retrieval\domain_backends.py:553:                if _dedup_key in seen_ids:
+src/polaris_graph\retrieval\domain_backends.py:555:                seen_ids.add(_dedup_key)
+src/polaris_graph\retrieval\evidence_selector.py:124:    # documents host.
+src/polaris_graph\tools\openalex_client.py:81:        so regulatory documents (T3), industry marketing (T5), student
+src/polaris_graph\synthesis\report_assembler.py:585:def _dedup_key_statistics(
+src/polaris_graph\synthesis\report_assembler.py:1340:    report_sections = _dedup_key_statistics(report_sections)
+src/polaris_graph\synthesis\report_assembler.py:1406:    # remove_redundancy, _dedup_key_statistics, and _soften_uncited_numerics
+src/polaris_graph\roles\sweep_integration.py:68:    EvidenceDocument,
+src/polaris_graph\roles\sweep_integration.py:110:    evidence_documents: list[EvidenceDocument]
+src/polaris_graph\roles\sweep_integration.py:283:    def _dedup_key(c: FourRoleClaim) -> tuple:
+src/polaris_graph\roles\sweep_integration.py:287:                (d.doc_id, d.text) for d in (c.evidence_documents or [])
+src/polaris_graph\roles\sweep_integration.py:297:            k = _dedup_key(claim)
+src/polaris_graph\roles\sweep_integration.py:316:                rep_idx = rep_idx_by_key[_dedup_key(claim)]
+src/polaris_graph\roles\sweep_integration.py:343:                evidence_documents=claim.evidence_documents,
+src/polaris_graph\roles\sweep_integration.py:366:                evidence_documents=claim.evidence_documents,
+src/polaris_graph\roles\sweep_integration.py:388:    # wrapper documents (run_honest_sweep_r3.py ~L4587-4596: in-flight verifier cost on the
+src/polaris_graph\roles\sweep_integration.py:677:    _zero_usable_evidence = not any((c.evidence_documents or []) for c in claims)
+src/polaris_graph\retrieval\tier_classifier.py:14:    - Regulatory documents (CDA-AMC) tagged UNKNOWN when they should be GOLD
+src/polaris_graph\retrieval\tier_classifier.py:584:    "/scientific-documents/recom",  # ESC scientific-documents recommendations
+src/polaris_graph\retrieval\tier_classifier.py:596:#      clinical guidelines are year-dated society documents whose title reads
+src/polaris_graph\retrieval\tier_classifier.py:618:# guideline documents — never promoted (checked FIRST).
+src/polaris_graph\retrieval\tier_classifier.py:633:# documents START with a year or a society name (or "Clinical Practice
+src/polaris_graph\retrieval\tier_classifier.py:665:    # study verb; issued documents do not. Reject these before the document
+src/polaris_graph\audit_ir\template_catalog.py:52:        scope_summary: Longer scope description; documents IN-scope
+src/polaris_graph\roles\openai_compatible_transport.py:19:`/v1/chat/completions` model reads ONLY `messages`; a top-level `documents` / `pass2_input` /
+src/polaris_graph\roles\openai_compatible_transport.py:22:the evidence documents, the Mirror pass-2 binding (`pass2_input` = pass-1 answer +
+src/polaris_graph\roles\openai_compatible_transport.py:78:# reach the vLLM body). `documents` rides at top level for a managed server AND is rendered
+src/polaris_graph\roles\openai_compatible_transport.py:83:    "documents",
+src/polaris_graph\roles\openai_compatible_transport.py:88:_DOCUMENTS_KEY = "documents"
+src/polaris_graph\roles\openai_compatible_transport.py:177:def _render_documents_message(documents: list[dict]) -> dict | None:
+src/polaris_graph\roles\openai_compatible_transport.py:178:    """Render `params['documents']` as an explicit, model-visible evidence message.
+src/polaris_graph\roles\openai_compatible_transport.py:181:    the evidence (a top-level `documents` body key is not guaranteed model-visible). Returns
+src/polaris_graph\roles\openai_compatible_transport.py:182:    None when there are no documents (nothing to render).
+src/polaris_graph\roles\openai_compatible_transport.py:184:    if not documents:
+src/polaris_graph\roles\openai_compatible_transport.py:187:    for doc in documents:
+src/polaris_graph\roles\openai_compatible_transport.py:194:def _render_citation_instruction(documents: list[dict]) -> dict:
+src/polaris_graph\roles\openai_compatible_transport.py:203:    doc_ids = [doc.get("doc_id", "") for doc in documents]
+src/polaris_graph\roles\openai_compatible_transport.py:237:      - Evidence documents (`params['documents']`) are rendered FIRST as a leading evidence
+src/polaris_graph\roles\openai_compatible_transport.py:248:    documents = params.get(_DOCUMENTS_KEY) or []
+src/polaris_graph\roles\openai_compatible_transport.py:249:    evidence_message = _render_documents_message(documents)
+src/polaris_graph\roles\openai_compatible_transport.py:270:        messages.append(_render_citation_instruction(documents))
+src/polaris_graph\roles\sentinel_adapter.py:5:    `<guardian>` groundedness block + `documents`; the model emits `<score>yes|no</score>`
+src/polaris_graph\roles\sentinel_adapter.py:33:    EvidenceDocument,
+src/polaris_graph\roles\sentinel_adapter.py:174:# Documents are carried separately in params["documents"] (Granite's `documents` channel),
+src/polaris_graph\roles\sentinel_adapter.py:178:    "Assess whether the assistant's claim is grounded in the provided documents. "
+src/polaris_graph\roles\sentinel_adapter.py:194:    "directly stated in or directly entailed by the documents. If the claim adds any fact, number, "
+src/polaris_graph\roles\sentinel_adapter.py:195:    "or detail not present in the documents, it is UNGROUNDED.\n"
+src/polaris_graph\roles\sentinel_adapter.py:205:# SINGLE user message (NOT the guardian documents-channel layout) so the served call matches the
+src/polaris_graph\roles\sentinel_adapter.py:246:    evidence_documents: list[EvidenceDocument],
+src/polaris_graph\roles\sentinel_adapter.py:259:    the groundedness instruction; documents ride in `params["documents"]` (rendered model-visible by
+src/polaris_graph\roles\sentinel_adapter.py:264:    claim=claim)` (NOT the guardian documents-channel layout), with `response_format`
+src/polaris_graph\roles\sentinel_adapter.py:266:    non-JSON-mode output). Decomposition carries NO documents in params (the SPAN is inlined into the
+src/polaris_graph\roles\sentinel_adapter.py:273:    documents = [{"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents]
+src/polaris_graph\roles\sentinel_adapter.py:280:        span = "\n\n".join(doc.text for doc in evidence_documents)
+src/polaris_graph\roles\sentinel_adapter.py:283:        # NO documents in decomposition mode (Codex diff-gate iter-2 P1-2): the SPAN is already
+src/polaris_graph\roles\sentinel_adapter.py:284:        # inlined into `user_content`, exactly as the certification ran. If documents were carried
+src/polaris_graph\roles\sentinel_adapter.py:290:            "documents": [],
+src/polaris_graph\roles\sentinel_adapter.py:305:    params = {"documents": documents}
+src/polaris_graph\roles\sentinel_adapter.py:317:    evidence_documents: list[EvidenceDocument],
+src/polaris_graph\roles\sentinel_adapter.py:342:        claim, evidence_documents, model_slug=model_slug, mode=resolved_mode
+src/polaris_graph\roles\mirror_contract.py:3:Cohere `response_format` (JSON mode) is NOT supported together with `documents`/`tools`
+src/polaris_graph\roles\mirror_adapter.py:3:Cohere `response_format` (JSON mode) is incompatible with `documents`/`tools` (F2), so the
+src/polaris_graph\roles\mirror_adapter.py:5:  pass-1: RAG-with-documents (citations on, NO response_format) -> grounded answer + spans
+src/polaris_graph\roles\mirror_adapter.py:6:  pass-2: JSON classification (response_format ok, no documents), bound to pass-1 by hash
+src/polaris_graph\roles\mirror_adapter.py:13:supplied `evidence_documents`. A span with an empty doc_id, or citing a doc_id never
+src/polaris_graph\roles\mirror_adapter.py:38:    EvidenceDocument,
+src/polaris_graph\roles\mirror_adapter.py:123:        # EvidenceDocument with an empty/whitespace doc_id (Codex diff iter-1 P1: such a
+src/polaris_graph\roles\mirror_adapter.py:153:    evidence_documents: list[EvidenceDocument],
+src/polaris_graph\roles\mirror_adapter.py:157:    """Build the pass-1 RAG-with-documents request (citations on, NO response_format).
+src/polaris_graph\roles\mirror_adapter.py:159:    Documents ride in `params["documents"]`; `params["citations"] = True` turns on citation
+src/polaris_graph\roles\mirror_adapter.py:160:    emission. NO `response_format` — JSON mode is incompatible with documents (F2).
+src/polaris_graph\roles\mirror_adapter.py:163:        "documents": [
+src/polaris_graph\roles\mirror_adapter.py:164:            {"doc_id": doc.doc_id, "text": doc.text} for doc in evidence_documents
+src/polaris_graph\roles\mirror_adapter.py:181:    (no documents in this pass).
+src/polaris_graph\roles\mirror_adapter.py:344:    evidence_documents: list[EvidenceDocument],
+src/polaris_graph\roles\mirror_adapter.py:350:    Pass-1: RAG-with-documents; normalize + bind-validate citations (iter-4). If no grounded
+src/polaris_graph\roles\mirror_adapter.py:356:    # Build the citation-identity pool from supplied documents, EXCLUDING any empty/whitespace
+src/polaris_graph\roles\mirror_adapter.py:359:        doc.doc_id for doc in evidence_documents if doc.doc_id and doc.doc_id.strip()
+src/polaris_graph\roles\mirror_adapter.py:362:    # --- pass 1: RAG with documents + citations -------------------------------------
+src/polaris_graph\roles\mirror_adapter.py:364:        claim, evidence_documents, model_slug=model_slug
+src/polaris_graph\roles\mirror_adapter.py:373:            "Mirror pass-1 produced no citation grounded in the supplied evidence documents "
+src/polaris_graph\roles\native_gate_b_inputs.py:18:Canonical-identifier note (Codex P2 #4): the frozen `EvidenceDocument`
+src/polaris_graph\roles\native_gate_b_inputs.py:41:from src.polaris_graph.roles.role_transport import EvidenceDocument
+src/polaris_graph\roles\native_gate_b_inputs.py:540:# EvidenceDocument.text as the SPAN the claim is checked against. Pre-FX-03 the WHOLE record text
+src/polaris_graph\roles\native_gate_b_inputs.py:625:) -> tuple[list[EvidenceDocument], list[Mapping[str, Any]]]:
+src/polaris_graph\roles\native_gate_b_inputs.py:626:    """Resolve each cited token -> (EvidenceDocument sliced to its cited window, source record).
+src/polaris_graph\roles\native_gate_b_inputs.py:628:    FX-03 (#1107): one EvidenceDocument per TOKEN, carrying the bounded cited-window slice (see
+src/polaris_graph\roles\native_gate_b_inputs.py:632:    documents: list[EvidenceDocument] = []
+src/polaris_graph\roles\native_gate_b_inputs.py:648:        documents.append(
+src/polaris_graph\roles\native_gate_b_inputs.py:649:            EvidenceDocument(
+src/polaris_graph\roles\native_gate_b_inputs.py:655:    return documents, records
+src/polaris_graph\roles\native_gate_b_inputs.py:702:            # slices each EvidenceDocument.text to the cited bounded window so the seam judges the
+src/polaris_graph\roles\native_gate_b_inputs.py:705:            documents, records = _resolve_evidence(verification.tokens, evidence_lookup)
+src/polaris_graph\roles\native_gate_b_inputs.py:762:                    evidence_documents=documents,
+src/polaris_graph\roles\role_transport.py:25:class EvidenceDocument:
+src/polaris_graph\roles\role_transport.py:29:    citation span may only point at a `doc_id` that appears in the supplied documents, so
+src/polaris_graph\roles\role_transport.py:45:    (`structured_outputs`), the bounded `max_tokens`, and the `documents` payload (kept in
+src/polaris_graph\roles\role_transport.py:46:    `params["documents"]` so it is introspectable by the adequacy/identity checks and the
+src/polaris_graph\roles\openrouter_role_transport.py:52:message normalization (`_normalize_messages`: documents / Mirror pass-2 content_hash / pass-1
+src/polaris_graph\roles\openrouter_role_transport.py:63:top-level-`documents` drop (P1-4, see `_build_openrouter_body`).
+src/polaris_graph\roles\openrouter_role_transport.py:477:# OpenRouter only routes to a provider honoring ALL request params, so a top-level `documents`
+src/polaris_graph\roles\openrouter_role_transport.py:483:_OPENROUTER_UNSUPPORTED_TOP_LEVEL_KEYS = ("documents",)
+src/polaris_graph\roles\openrouter_role_transport.py:517:    transport builds, MINUS the top-level `documents` key (P1-4), PLUS the MAX-reasoning param.
+src/polaris_graph\roles\openrouter_role_transport.py:520:    (structured_outputs / response_format / documents / max_tokens — POLARIS-internal keys like
+src/polaris_graph\roles\openrouter_role_transport.py:522:    `documents` key, which OpenRouter's chat-completions schema does not define and which would
+src/polaris_graph\roles\openrouter_role_transport.py:536:    # P1-4: strip OpenRouter-unsupported top-level keys (currently `documents`). The evidence is
+src/polaris_graph\roles\openrouter_role_transport.py:721:    payload (reusing the self-host message-rendering, then dropping the top-level `documents` key
+src/polaris_graph\roles\role_pipeline.py:54:    EvidenceDocument,
+src/polaris_graph\roles\role_pipeline.py:282:    evidence_documents: list[EvidenceDocument],
+src/polaris_graph\roles\role_pipeline.py:322:            recording, claim, evidence_documents, model_slug=mirror_slug
+src/polaris_graph\roles\role_pipeline.py:331:            recording, claim, evidence_documents, model_slug=sentinel_slug
+src/polaris_graph\roles\role_pipeline.py:333:        evidence_text = "\n\n".join(doc.text for doc in evidence_documents)
+
+codex
+The focused tests passed: 16/16, covering the 8 new span-normalization cases plus the 8 existing cited-span FX-03 regressions. The Unicode probe also confirms both FB05 and FB06 decompose to `st`, so the previous `ft` hazard is gone.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path scripts/dr_benchmark/run_gate_b.py | Select-Object -Skip 940 -First 90' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Path tests/polaris_graph/test_fx03_gate_b_cited_span_iready017.py | Select-Object -First 220' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "@'
+import os
+from dataclasses import dataclass
+from src.polaris_graph.roles.native_gate_b_inputs import _resolve_evidence
+@dataclass
+class Token:
+    evidence_id: str
+    start: int
+    end: int
+text = 'before bio' + chr(0xFB01) + 'lms after not' + chr(0x200b) + 'able re-\\nsigned'
+tok = Token('ev1', 0, len(text))
+prev = {k: os.environ.get(k) for k in ('PG_GATE_B_CITED_SPAN','PG_GATE_B_SPAN_NORMALIZE')}
+os.environ['PG_GATE_B_CITED_SPAN'] = '1'
+os.environ['PG_GATE_B_SPAN_NORMALIZE'] = '1'
+docs, recs = _resolve_evidence([tok], {'ev1': {'text': text}})
+print(repr(docs[0].text))
+for k, v in prev.items():
+    if v is None:
+        os.environ.pop(k, None)
+    else:
+        os.environ[k] = v
+'@ | python -" in C:\POLARIS
+ succeeded in 5234ms:
+    # original 98%-drop at 20, or the interim ~90%-drop at 150). The pool must equal the extracted corpus
+    # so no source is dropped before per-section selection.
+    "PG_LIVE_MAX_EV_TO_GEN": 1500,
+}
+
+
+def apply_full_capability_benchmark_slate() -> None:
+    """Make the full-capability slate AUTHORITATIVE over .env / conservative defaults (FLOOR semantics).
+
+    Codex diff-gate iter-2 P1-1: ``setdefault`` was WRONG. ``load_dotenv`` (openrouter_client import)
+    puts .env values into ``os.environ`` BEFORE this slate runs, so a conservative .env default
+    (e.g. ``PG_MOST_MAX_EVIDENCE=300``, ``PG_AGENTIC_WEB_PER_ROUND=6``) SURVIVED the setdefault and
+    silently throttled the benchmark below the slate. Fix: every numeric key is a **FLOOR** —
+    ``max(existing, slate)`` — so a HIGHER operator/.env value (more capability, e.g.
+    ``PG_LLM_TIMEOUT_SECONDS=600`` in .env) is KEPT, but a LOWER default is RAISED to full capability.
+    No silent downgrade in either direction (operator no-downgrade directive). Feature flags in
+    ``_BENCHMARK_FORCE_ON_FLAGS`` are FORCED ON (a benchmark feature off is a capability downgrade).
+    Exact-value flags in ``_BENCHMARK_FORCE_EXACT_FLAGS`` are forced to their slate value.
+
+    Codex diff-gate iter-2 P1-2: MUST run BEFORE the sweep / live_retriever / state imports, which cache
+    ``PG_LIVE_CONTENT_MAX`` / ``PG_LIVE_HTTP_TIMEOUT`` / ``PG_AGENTIC_WEB_PER_ROUND`` as import-time module
+    constants. ``main()`` applies it before ``load_locked_questions()``; ``run_gate_b_query`` applies it
+    before the sweep import. ``preflight_full_capability`` then validates the LIVE module constants so a
+    too-late application is caught fail-closed.
+    """
+    for name, value in _FULL_CAPABILITY_BENCHMARK_SLATE.items():
+        if name in _BENCHMARK_FORCE_ON_FLAGS or name in _BENCHMARK_FORCE_EXACT_FLAGS:
+            os.environ[name] = value                       # force exact value — no silent benchmark drift
+            continue
+        try:
+            current = float(os.environ.get(name, value))
+        except (TypeError, ValueError):
+            current = float(value)
+        os.environ[name] = str(int(max(current, float(value))))   # FLOOR: raise-to-slate, keep-if-higher
+    # PG_MAX_COST_PER_RUN is an import-time constant in openrouter_client (cached before this slate via
+    # the role import chain), so the floor above only fixes the env; sync the live module global too so
+    # check_run_budget enforces the floored cap and run_one_query's manifest reads it (Codex iter-1 P1-2).
+    from src.polaris_graph.llm.openrouter_client import set_max_cost_per_run
+    set_max_cost_per_run(float(os.environ["PG_MAX_COST_PER_RUN"]))
+
+
+def preflight_full_capability() -> None:
+    """FAIL CLOSED if the effective benchmark config is below full capability or unobservable — so a
+    silent throttle (the ~40-URL bug) can NEVER reach a paid run undetected. Raises RuntimeError."""
+    for name, floor in _BENCHMARK_PREFLIGHT_FLOORS.items():
+        # mirror run_one_query's read of the real PG_SWEEP_* knob (defaults 12/12/40 if absent).
+        _defaults = {"PG_SWEEP_FETCH_CAP": "40", "PG_SWEEP_MAX_SERPER": "12", "PG_SWEEP_MAX_S2": "12"}
+        try:
+            eff = int(os.getenv(name, _defaults.get(name, "0")))
+        except ValueError:
+            raise RuntimeError(f"benchmark preflight: {name}={os.getenv(name)!r} is not an int")
+        if eff < floor:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {name}={eff} < full-capability floor {floor} — the run "
+                f"would be SILENTLY THROTTLED (the ~40-URL bug). Set {name}>={floor} or fix the slate."
+            )
+    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_FLAGS:
+        if os.getenv(flag, "0").strip() not in ("1", "true", "True"):
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {flag} is not enabled — the feature is dead-by-config "
+                f"or its firing is unobservable (tracker off). Enable it before the run."
+            )
+    # I-ready-017 FX-03 (#1107) Codex iter-2 P1: the cited-span window must stay BOUNDED. An oversized
+    # PG_GATE_B_SPAN_WINDOW_BYTES makes _cited_window_text expand to the whole direct_quote — BUG-02
+    # whole-doc evidence WITH the cited-span flag on. The slate force-exacts it to the 400-byte policy;
+    # this fails closed if it is ever outside (0, ceiling] (force-exact removed / slate value changed).
+    if os.getenv("PG_GATE_B_CITED_SPAN", "0").strip() in ("1", "true", "True"):
+        try:
+            _win = int(os.getenv("PG_GATE_B_SPAN_WINDOW_BYTES", "400"))
+        except ValueError:
+            raise RuntimeError(
+                "benchmark preflight FAILED: PG_GATE_B_SPAN_WINDOW_BYTES="
+                f"{os.getenv('PG_GATE_B_SPAN_WINDOW_BYTES')!r} is not an int."
+            )
+        if _win <= 0 or _win > _BENCHMARK_SPAN_WINDOW_MAX_BYTES:
+            raise RuntimeError(
+                f"benchmark preflight FAILED: PG_GATE_B_SPAN_WINDOW_BYTES={_win} is outside "
+                f"(0, {_BENCHMARK_SPAN_WINDOW_MAX_BYTES}] — an oversized cited-span window expands to the "
+                f"whole record (BUG-02 whole-doc evidence with the cited-span flag on)."
+            )
+    for flag in _BENCHMARK_PREFLIGHT_REQUIRED_OFF_FLAGS:
+        if os.getenv(flag, "1").strip() in ("1", "true", "True"):
+            raise RuntimeError(
+                f"benchmark preflight FAILED: {flag} is enabled — Gate-B report.md would include the "
+                f"un-span-verified Analyst Synthesis layer. Set {flag}=0 for the verified-only benchmark."
+            )
+    # I-ready-002 (#1071) P0: the binding faithfulness verifier MUST be at "enforce" — otherwise the
+    # entailment judge does not bind as a drop gate and/or a judge_error fails OPEN (unverified clinical
+    # claims ship as "verified"). Fail closed before any spend.
+    for mode_env in _BENCHMARK_PREFLIGHT_ENFORCE_MODES:
+
+ succeeded in 8846ms:
+"""I-ready-017 FX-03 (#1107) — the 4-role seam evaluates the cited [start:end] span, not the whole doc.
+
+BUG-02 (confirmed out-of-span false-accept, claim 06-004): the four-role verifier (Sentinel
+decomposition + Judge) joined each EvidenceDocument.text as the SPAN the claim is checked against,
+but `_resolve_evidence` handed it the WHOLE record text. A claim whose specifics live ANYWHERE in
+the document could be graded VERIFIED even when the cited [start:end] window does not support it.
+
+FX-03 slices each EvidenceDocument.text to a BOUNDED window around the cited [start:end] range
+(±PG_GATE_B_SPAN_WINDOW_BYTES, default 400) when PG_GATE_B_CITED_SPAN=1 — the same tolerance
+strict_verify's local-window rescue uses (ONE shared windowing policy). Bounded (not exact-slice) is
+deliberate: it tolerates the 06-004-shape imprecise-but-real citation AND is robust to the
+leading-whitespace strip in `_row_text` (token offsets index the raw direct_quote). Flag off
+(default) returns the whole text unchanged (byte-identical).
+"""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from src.polaris_graph.roles.native_gate_b_inputs import (
+    _cited_window_text,
+    _resolve_evidence,
+)
+
+
+def _tok(evidence_id: str, start: int, end: int) -> SimpleNamespace:
+    return SimpleNamespace(evidence_id=evidence_id, start=start, end=end)
+
+
+# ---------------------------------------------------------------------------
+# _cited_window_text — the windowing primitive
+# ---------------------------------------------------------------------------
+def test_flag_off_returns_whole_text_byte_unchanged(monkeypatch) -> None:
+    monkeypatch.delenv("PG_GATE_B_CITED_SPAN", raising=False)
+    full = "x" * 50 + "tirzepatide reduced HbA1c" + "y" * 6000 + "semaglutide raised weight"
+    assert _cited_window_text(full, _tok("ev1", 50, 75)) == full
+
+
+def test_flag_on_window_excludes_far_away_content(monkeypatch) -> None:
+    """The §-1.1 anti-false-accept assertion: with the flag on, content 6000 bytes away from the
+    cited window is NOT in the span the judge sees, so it cannot support the claim."""
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    monkeypatch.setenv("PG_GATE_B_SPAN_WINDOW_BYTES", "400")
+    cited = "tirzepatide reduced HbA1c by about 2 percent"
+    full = ("PAD " * 25) + cited + (" FILLER" * 1000) + " semaglutide raised weight elsewhere"
+    start = full.index(cited)
+    end = start + len(cited)
+    win = _cited_window_text(full, _tok("ev1", start, end))
+    assert "tirzepatide reduced HbA1c" in win, "cited content must be IN the window"
+    assert "semaglutide raised weight" not in win, "far-away content must be EXCLUDED (no false-accept)"
+    assert len(win) < len(full)
+
+
+def test_flag_on_robust_to_leading_whitespace_strip(monkeypatch) -> None:
+    """token.start/end index the RAW direct_quote; the record text was _row_text-STRIPPED. A bounded
+    window absorbs the leading-strip offset shift so the cited content is still in-window."""
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    monkeypatch.setenv("PG_GATE_B_SPAN_WINDOW_BYTES", "400")
+    lead = "   \n  \t  "  # leading whitespace that _row_text.strip() would remove
+    cited = "tirzepatide reduced HbA1c by about 2 percent"
+    raw = lead + ("PAD " * 30) + cited + (" TAIL" * 2000)
+    stripped = raw.strip()  # what record["text"] actually holds
+    # token offsets index the RAW text:
+    start = raw.index(cited)
+    end = start + len(cited)
+    win = _cited_window_text(stripped, _tok("ev1", start, end))
+    assert "tirzepatide reduced HbA1c" in win, "bounded window must still contain the cited content"
+
+
+def test_flag_on_degenerate_range_falls_back_to_full(monkeypatch) -> None:
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    full = "tirzepatide reduced HbA1c by about 2 percent in SURPASS-2."
+    assert _cited_window_text(full, _tok("ev1", 10, 10)) == full  # end<=start -> fail-safe
+    assert _cited_window_text(full, _tok("ev1", 5, 3)) == full
+
+
+def test_flag_on_window_never_blank(monkeypatch) -> None:
+    """A window that would strip to empty falls back to the whole text (never hand the judge blank)."""
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    monkeypatch.setenv("PG_GATE_B_SPAN_WINDOW_BYTES", "0")
+    full = "ab    cd"  # indices 2..6 are whitespace
+    # window [2:6] over whitespace with W=0 -> strip()='' -> fall back to full (never blank)
+    assert _cited_window_text(full, _tok("ev1", 2, 6)) == full
+
+
+# ---------------------------------------------------------------------------
+# _resolve_evidence — per-token windowed EvidenceDocument
+# ---------------------------------------------------------------------------
+def test_resolve_evidence_windows_per_token_when_on(monkeypatch) -> None:
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    monkeypatch.setenv("PG_GATE_B_SPAN_WINDOW_BYTES", "100")
+    cited = "tirzepatide reduced HbA1c"
+    full = ("PAD " * 50) + cited + (" FILLER" * 500) + " distant_unrelated_term"
+    start = full.index(cited)
+    end = start + len(cited)
+    lookup = {"ev1": {"text": full}}
+    docs, records = _resolve_evidence([_tok("ev1", start, end)], lookup)
+    assert len(docs) == 1
+    assert "tirzepatide reduced HbA1c" in docs[0].text
+    assert "distant_unrelated_term" not in docs[0].text
+    assert records[0]["text"] == full  # records keep the FULL record (for entity coverage)
+
+
+def test_resolve_evidence_whole_doc_when_off(monkeypatch) -> None:
+    monkeypatch.delenv("PG_GATE_B_CITED_SPAN", raising=False)
+    full = ("PAD " * 50) + "tirzepatide reduced HbA1c" + (" FILLER" * 500) + " distant_term"
+    lookup = {"ev1": {"text": full}}
+    docs, _ = _resolve_evidence([_tok("ev1", 200, 225)], lookup)
+    assert docs[0].text == full.strip() or docs[0].text == full  # off -> whole text (modulo caller strip)
+
+
+def test_resolve_evidence_unknown_id_fails_closed(monkeypatch) -> None:
+    monkeypatch.setenv("PG_GATE_B_CITED_SPAN", "1")
+    with pytest.raises(ValueError, match="unknown evidence_id"):
+        _resolve_evidence([_tok("missing", 0, 10)], {"ev1": {"text": "x" * 50}})
+
+ succeeded in 13778ms:
+'before biofilms after not\u200bable re-\nsigned'
+
+codex
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
+tokens used
+70,984
