@@ -119,5 +119,87 @@ def test_cap_does_not_strand_capacity_single_source():
     assert out[0] == "a1"  # primary first
 
 
+# ---------------------------------------------------------------------------
+# I-bench-veracity-003 (forensic 2026-06-12): LEGACY-PATH breadth augmentation
+# (the keystone fix — the planner-OFF shipping path the prior knobs never touched).
+# ---------------------------------------------------------------------------
+
+# Local
+from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+    SectionPlan,
+    _augment_legacy_section_breadth,
+    _breadth_content_tokens,
+)
+
+
+def _ev(eid, url, text, auth=0.95):
+    return {
+        "evidence_id": eid, "source_url": url, "text": text,
+        "authority_score": auth, "tier": "T1",
+    }
+
+
+_Q = "the restructuring impact of artificial intelligence on the labor market and employment"
+_EV = [
+    _ev("e1", "http://a.com", "artificial intelligence labor market employment restructuring effects"),
+    _ev("e2", "http://b.com", "artificial intelligence employment displacement labor productivity"),
+    _ev("e3", "http://c.com", "labor market automation artificial intelligence wages restructuring"),
+    _ev("e4", "http://d.com", "employment artificial intelligence productivity labor skills"),
+    _ev("e5", "http://e.com", "artificial intelligence jobs labor market employment skills"),
+    _ev("e6", "http://f.com", "artificial intelligence labor market restructuring employment policy"),
+]
+
+
+def test_breadth_content_tokens_drops_stopwords():
+    toks = _breadth_content_tokens("The impact of AI on the labor market")
+    assert "impact" in toks and "labor" in toks and "market" in toks
+    assert "the" not in toks and "of" not in toks and "on" not in toks
+
+
+def test_augment_widens_distinct_sources_up_to_target():
+    plans = [SectionPlan(title="Background", focus="ai labor employment", ev_ids=["e1"], archetype="")]
+    counts = _augment_legacy_section_breadth(plans, _EV, _Q, set(), target=4)
+    assert counts["Background"] >= 4                      # widened to >= target distinct sources
+    assert len({u for u in plans[0].ev_ids}) >= 4
+    assert "e1" in plans[0].ev_ids                        # original pick retained, never dropped
+
+
+def test_augment_target_already_met_is_noop():
+    plans = [SectionPlan(title="Background", focus="ai labor", ev_ids=["e1", "e2", "e3"], archetype="")]
+    before = list(plans[0].ev_ids)
+    _augment_legacy_section_breadth(plans, _EV, _Q, set(), target=3)
+    assert plans[0].ev_ids == before                     # already >= target -> untouched
+
+
+def test_augment_skips_contract_sections():
+    plans = [SectionPlan(title="Foundational_Theory", focus="x", ev_ids=["e1"], archetype="contract")]
+    _augment_legacy_section_breadth(plans, _EV, _Q, {"Foundational_Theory"}, target=5)
+    assert plans[0].ev_ids == ["e1"]                     # contract sections left untouched
+
+
+def test_augment_adds_only_distinct_sources_no_dupes():
+    # e1 and e1dup share the same source_url -> count as ONE source
+    ev = list(_EV) + [_ev("e1dup", "http://a.com", "artificial intelligence labor market employment")]
+    plans = [SectionPlan(title="Background", focus="ai labor", ev_ids=["e1"], archetype="")]
+    _augment_legacy_section_breadth(plans, ev, _Q, set(), target=4)
+    srcs = {u.split("//")[-1] for u in
+            ["http://a.com" if e in ("e1", "e1dup") else f"x{e}" for e in plans[0].ev_ids]}
+    # a.com appears at most once as a distinct source in the kept set
+    assert plans[0].ev_ids.count("e1dup") == 0 or "e1" not in plans[0].ev_ids
+
+
+def test_augment_spreads_fresh_sources_across_sections():
+    # two sections, each starting from e1; augmentation should give them DIFFERENT fresh sources
+    plans = [
+        SectionPlan(title="Background", focus="ai labor employment", ev_ids=["e1"], archetype=""),
+        SectionPlan(title="Implications", focus="ai labor policy", ev_ids=["e1"], archetype=""),
+    ]
+    _augment_legacy_section_breadth(plans, _EV, _Q, set(), target=3)
+    s0 = set(plans[0].ev_ids) - {"e1"}
+    s1 = set(plans[1].ev_ids) - {"e1"}
+    # the fresh additions should not be identical sets (cross-section spreading)
+    assert s0 != s1 or (len(s0) == 0 and len(s1) == 0)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

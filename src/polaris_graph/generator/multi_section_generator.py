@@ -941,6 +941,131 @@ def _spread_within_tier(
     return primary + overflow
 
 
+_BREADTH_STOPWORDS = frozenset((
+    "the a an of and or to in for on with by is are was were be been being this that these "
+    "those it its as at from into about over under more most than then so such can could may "
+    "might will would shall should has have had do does did not no nor but if while we our you "
+    "their they them his her she he which who whom whose what when where why how all any each "
+    "both few many much some other only own same too very out up down off above below between "
+    "through during before after again further here there also based using study paper report"
+).split())
+
+
+def _breadth_content_tokens(text: str) -> set[str]:
+    """Lowercased alpha content tokens (len>=3, stopwords removed) for the legacy
+    breadth-augmentation relevance check. Regex-free (no import dependency)."""
+    toks: set[str] = set()
+    for raw in (text or "").lower().replace("/", " ").replace("-", " ").split():
+        w = "".join(c for c in raw if c.isalpha())
+        if len(w) >= 3 and w not in _BREADTH_STOPWORDS:
+            toks.add(w)
+    return toks
+
+
+def _augment_legacy_section_breadth(
+    plans: list[Any],
+    evidence: list[dict[str, Any]],
+    research_question: str,
+    skip_titles: set[str],
+    *,
+    target: int,
+    authority_floor: float | None = None,
+) -> dict[str, int]:
+    """I-bench-veracity-003 (forensic 2026-06-12): LEGACY-PATH source-breadth fix.
+
+    ROOT CAUSE (forensic): with the research planner OFF (PG_USE_RESEARCH_PLANNER
+    default "0"), `_assign_evidence_to_planned_outline` and ALL its breadth knobs are
+    DEAD CODE; the legacy `_call_outline` path runs and the outline LLM under-selects
+    (~20 of ~360 distinct sources -> ~21 cited). This pass deterministically WIDENS
+    each non-contract section's `ev_ids` with above-floor, on-topic, DISTINCT-source
+    rows from the FULL evidence pool, ON TOP of the outline LLM's picks, until the
+    section reaches `target` distinct sources. Cross-section spreading prefers
+    globally-unused sources so total report breadth rises.
+
+    FAITHFULNESS-SAFE (selection-stage only): only ADDS rows that already passed
+    retrieval + the authority floor + a >=2 content-word question-relevance bar; it
+    never lowers a cap, never edits prose, never touches strict_verify / NLI-enforce /
+    4-role D8 — those re-verify every emitted sentence exactly as before. A widened
+    menu cannot make an unsupported sentence pass; it only lets the writer ground MORE
+    sentences in MORE distinct sources. Returns per-section distinct-source counts
+    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op)."""
+    from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+        _authority_floor_default,
+        _enrich_authority_if_missing,
+    )
+
+    floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in evidence:
+        eid = row.get("evidence_id", "")
+        if eid:
+            by_id[eid] = row
+
+    def _src_key(eid: str) -> str:
+        row = by_id.get(eid, {})
+        key = _normalize_source_key(row.get("source_url") or row.get("url"))
+        return key if key else f"__evid__:{eid}"
+
+    q_tokens = _breadth_content_tokens(research_question)
+    # globally-used source-keys (across ALL sections incl contract) so augmentation
+    # spreads FRESH distinct sources rather than re-adding ones already present.
+    global_used: set[str] = set()
+    for p in plans:
+        for eid in getattr(p, "ev_ids", []) or []:
+            global_used.add(_src_key(eid))
+
+    out_counts: dict[str, int] = {}
+    for p in plans:
+        title = getattr(p, "title", "") or ""
+        assigned = list(getattr(p, "ev_ids", []) or [])
+        have = {_src_key(e) for e in assigned}
+        if title in skip_titles:
+            out_counts[title] = len(have)
+            continue
+        if len(have) >= target:
+            out_counts[title] = len(have)
+            continue
+        assigned_set = set(assigned)
+        sec_tokens = _breadth_content_tokens(
+            title + " " + (getattr(p, "focus", "") or "")
+        )
+        cands: list[tuple[tuple[int, int, float, int], str, str]] = []
+        for row in evidence:
+            eid = row.get("evidence_id", "")
+            if not eid or eid in assigned_set:
+                continue
+            auth = _enrich_authority_if_missing(row)
+            if auth < floor:
+                continue
+            key = _src_key(eid)
+            if key in have:
+                continue
+            txt = (
+                row.get("direct_quote") or row.get("statement")
+                or row.get("text") or row.get("snippet") or ""
+            )
+            row_tokens = _breadth_content_tokens(txt)
+            q_overlap = len(q_tokens & row_tokens)
+            if q_overlap < 2:  # must share >=2 content words with the question
+                continue
+            sec_overlap = len(sec_tokens & row_tokens)
+            fresh = 0 if key in global_used else 1  # prefer globally-unused sources
+            cands.append(((fresh, sec_overlap, auth, q_overlap), eid, key))
+        cands.sort(key=lambda t: t[0], reverse=True)
+        for _score, eid, key in cands:
+            if len(have) >= target:
+                break
+            if key in have:
+                continue
+            assigned.append(eid)
+            have.add(key)
+            global_used.add(key)
+        # mutate ev_ids IN PLACE (preserves frozen-dataclass + downstream identity)
+        p.ev_ids[:] = assigned
+        out_counts[title] = len(have)
+    return out_counts
+
+
 def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
@@ -5094,6 +5219,32 @@ async def generate_multi_section_report(
     )
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
+
+    # I-bench-veracity-003 (forensic 2026-06-12): LEGACY-PATH source-breadth fix.
+    # FORENSIC ROOT CAUSE: with the research planner OFF (PG_USE_RESEARCH_PLANNER
+    # default "0" -> the shipping config), `_assign_evidence_to_planned_outline` and
+    # its breadth knobs are DEAD CODE; the legacy `_call_outline` path runs, and the
+    # outline LLM under-selects (built 9 sections around ~20 of ~360 distinct sources
+    # -> ~21 cited). Section writers can only cite what the outline LLM assigned
+    # (`_run_section` ev_subset = section.ev_ids). This pass WIDENS each non-contract
+    # section's ev_ids with above-floor, on-topic, DISTINCT-source rows from the FULL
+    # pool, ON TOP of the outline LLM's picks, up to PG_LEGACY_SECTION_BREADTH_TARGET
+    # distinct sources/section. Default 0 => no-op (byte-identical). SELECTION-STAGE
+    # ONLY: never lowers a cap, never edits prose; strict_verify + NLI-enforce + 4-role
+    # D8 re-verify every emitted sentence unchanged (the gates dropped 0 unique sources
+    # in the failing run, so they are NOT the limiter and are untouched here).
+    _legacy_breadth = int(os.getenv("PG_LEGACY_SECTION_BREADTH_TARGET", "0") or 0)
+    if _legacy_breadth > 0 and plans:
+        _contract_titles = {p.title for p in (v30_contract_plans or [])}
+        _aug_counts = _augment_legacy_section_breadth(
+            plans, evidence, research_question, _contract_titles,
+            target=_legacy_breadth,
+        )
+        logger.info(
+            "[multi_section] I-bench-veracity-003 legacy-breadth augmentation FIRED "
+            "(target=%d distinct/section); per-section distinct sources now: %s",
+            _legacy_breadth, _aug_counts,
+        )
 
     # M-44 (2026-04-22): detect M-42e primary-trial rows in the pool
     # and inject them into primary-eligible sections' ev_ids lists.
