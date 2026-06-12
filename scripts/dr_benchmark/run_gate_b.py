@@ -698,6 +698,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # byte-identical. Every metric is derived from the §-1.1 audit ledger + the
     # frozen rubric, never from raw report text.
     "PG_BENCH_EXTENDED_METRICS": "1",
+    # I-perm-021 (#1213): force-on the RequiredEntityLedger — report-level required-entity
+    # completeness accounting + honest "Coverage gaps" disclosure (inclusion + disclosure only;
+    # no re-generation). Reuses the 4-role seam's covered_element_ids + the native required
+    # entities; assigns NO new credit and touches NO gate; fail-soft. Surfacing honest coverage
+    # gaps is a POLARIS differentiator for the beat-both run. Flag-OFF byte-identical.
+    "PG_REQUIRED_ENTITY_LEDGER": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -818,6 +824,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
     # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
     "PG_BENCH_EXTENDED_METRICS",
+    # I-perm-021 (#1213): force-on the RequiredEntityLedger so an operator =0 cannot survive the
+    # slate and silently drop the honest "Coverage gaps" disclosure. Inclusion+disclosure only;
+    # fail-soft; touches no gate. (NOT preflight-required: a missing audit on a non-4-role path is
+    # a graceful no-op, never a fail-closed abort.)
+    "PG_REQUIRED_ENTITY_LEDGER",
     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
     # survive the slate and let a dead-discovery run go green.
     "PG_BEHAVIORAL_CANARY",

@@ -7604,6 +7604,62 @@ async def run_one_query(
                     f"{type(_v30_exc).__name__}: {_v30_exc}"
                 )
 
+        # I-perm-021 (#1213): RequiredEntityLedger — report-level required-entity completeness
+        # accounting + honest "Coverage gaps" disclosure (Codex design-gate APPROVE; narrow
+        # inclusion+disclosure scope, NO re-generation). DEFAULT OFF (PG_REQUIRED_ENTITY_LEDGER,
+        # read at call time) -> byte-identical when off. Reuses the EXACT verified-binding set the
+        # 4-role seam already computed (four_role_claim_audit.json covered_element_ids — the same
+        # _claim_covers_entity authority) + the native required_entities; assigns NO new coverage
+        # credit and touches NO gate (strict_verify / 4-role / D8 unchanged). A gap is disclosed as
+        # an honest "could not verify X" statement, NEVER filled with an unsupported claim. Appended
+        # AFTER the redaction + V30 disclosure so it reflects the final shipped body. Fail-soft.
+        if os.environ.get("PG_REQUIRED_ENTITY_LEDGER", "0").strip() in (
+            "1", "true", "True",
+        ):
+            try:
+                from src.polaris_graph.generator.required_entity_ledger import (  # noqa: PLC0415
+                    build_ledger as _build_req_ledger,
+                    render_coverage_gaps_section as _render_coverage_gaps,
+                    verified_covered_ids as _verified_covered_ids,
+                )
+                from src.polaris_graph.roles.native_gate_b_inputs import (  # noqa: PLC0415
+                    load_required_entities as _load_req_entities,
+                )
+                _re_audit_path = run_dir / "four_role_claim_audit.json"
+                if _re_audit_path.is_file():
+                    _re_audit = json.loads(_re_audit_path.read_text(encoding="utf-8"))
+                    # Codex diff-gate iter-1 P1 (§-1.1): credit coverage ONLY from claims whose
+                    # 4-role FINAL verdict is VERIFIED — the pre-D8 audit map's covered_element_ids
+                    # would otherwise mark an entity covered even when the seam DOWNGRADED its
+                    # covering claim, falsely SUPPRESSING a real Coverage-gaps disclosure.
+                    _re_final_verdicts = (
+                        (manifest.get("four_role_evaluation") or {}).get("final_verdicts") or {}
+                    )
+                    _re_covered = _verified_covered_ids(_re_audit, _re_final_verdicts)
+                    _re_entities = _load_req_entities(_template, q["slug"])
+                    _re_ledger = _build_req_ledger(_re_entities, _re_covered)
+                    manifest["required_entity_coverage"] = {
+                        "total_required": len(_re_ledger.slots),
+                        "verified": len(_re_ledger.verified_slots()),
+                        "coverage_fraction": round(_re_ledger.coverage_fraction(), 3),
+                        "evidence_gaps": _re_ledger.to_evidence_gaps(),
+                    }
+                    _re_gaps_md = _render_coverage_gaps(_re_ledger)
+                    _re_report_path = run_dir / "report.md"
+                    if _re_gaps_md and _re_report_path.is_file():
+                        _re_report_path.write_text(
+                            _re_report_path.read_text(encoding="utf-8").rstrip()
+                            + "\n\n" + _re_gaps_md,
+                            encoding="utf-8",
+                        )
+                        _log(
+                            f"[req_entity]  {len(_re_ledger.gap_slots())} required-entity "
+                            f"coverage gaps disclosed (verified "
+                            f"{len(_re_ledger.verified_slots())}/{len(_re_ledger.slots)})"
+                        )
+            except Exception as _re_exc:  # noqa: BLE001 — fail-soft: never abort the run
+                _log(f"[req_entity]  WARN required-entity ledger failed: {_re_exc}")
+
         # I-bug-111: surface synthesis [N] scrub alert in manifest.
         # `synthesis_n_scrub_alert: bool` is True iff any single
         # synthesis call in this run scrubbed more than

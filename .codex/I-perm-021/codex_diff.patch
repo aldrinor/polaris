@@ -1,0 +1,424 @@
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 3b177ac8..6eab5c29 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -698,6 +698,12 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # byte-identical. Every metric is derived from the §-1.1 audit ledger + the
+     # frozen rubric, never from raw report text.
+     "PG_BENCH_EXTENDED_METRICS": "1",
++    # I-perm-021 (#1213): force-on the RequiredEntityLedger — report-level required-entity
++    # completeness accounting + honest "Coverage gaps" disclosure (inclusion + disclosure only;
++    # no re-generation). Reuses the 4-role seam's covered_element_ids + the native required
++    # entities; assigns NO new credit and touches NO gate; fail-soft. Surfacing honest coverage
++    # gaps is a POLARIS differentiator for the beat-both run. Flag-OFF byte-identical.
++    "PG_REQUIRED_ENTITY_LEDGER": "1",
+ }
+ 
+ # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+@@ -818,6 +824,11 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+     # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+     "PG_BENCH_EXTENDED_METRICS",
++    # I-perm-021 (#1213): force-on the RequiredEntityLedger so an operator =0 cannot survive the
++    # slate and silently drop the honest "Coverage gaps" disclosure. Inclusion+disclosure only;
++    # fail-soft; touches no gate. (NOT preflight-required: a missing audit on a non-4-role path is
++    # a graceful no-op, never a fail-closed abort.)
++    "PG_REQUIRED_ENTITY_LEDGER",
+     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+     # survive the slate and let a dead-discovery run go green.
+     "PG_BEHAVIORAL_CANARY",
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index 0a829f0a..f66ca04d 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -7604,6 +7604,62 @@ async def run_one_query(
+                     f"{type(_v30_exc).__name__}: {_v30_exc}"
+                 )
+ 
++        # I-perm-021 (#1213): RequiredEntityLedger — report-level required-entity completeness
++        # accounting + honest "Coverage gaps" disclosure (Codex design-gate APPROVE; narrow
++        # inclusion+disclosure scope, NO re-generation). DEFAULT OFF (PG_REQUIRED_ENTITY_LEDGER,
++        # read at call time) -> byte-identical when off. Reuses the EXACT verified-binding set the
++        # 4-role seam already computed (four_role_claim_audit.json covered_element_ids — the same
++        # _claim_covers_entity authority) + the native required_entities; assigns NO new coverage
++        # credit and touches NO gate (strict_verify / 4-role / D8 unchanged). A gap is disclosed as
++        # an honest "could not verify X" statement, NEVER filled with an unsupported claim. Appended
++        # AFTER the redaction + V30 disclosure so it reflects the final shipped body. Fail-soft.
++        if os.environ.get("PG_REQUIRED_ENTITY_LEDGER", "0").strip() in (
++            "1", "true", "True",
++        ):
++            try:
++                from src.polaris_graph.generator.required_entity_ledger import (  # noqa: PLC0415
++                    build_ledger as _build_req_ledger,
++                    render_coverage_gaps_section as _render_coverage_gaps,
++                    verified_covered_ids as _verified_covered_ids,
++                )
++                from src.polaris_graph.roles.native_gate_b_inputs import (  # noqa: PLC0415
++                    load_required_entities as _load_req_entities,
++                )
++                _re_audit_path = run_dir / "four_role_claim_audit.json"
++                if _re_audit_path.is_file():
++                    _re_audit = json.loads(_re_audit_path.read_text(encoding="utf-8"))
++                    # Codex diff-gate iter-1 P1 (§-1.1): credit coverage ONLY from claims whose
++                    # 4-role FINAL verdict is VERIFIED — the pre-D8 audit map's covered_element_ids
++                    # would otherwise mark an entity covered even when the seam DOWNGRADED its
++                    # covering claim, falsely SUPPRESSING a real Coverage-gaps disclosure.
++                    _re_final_verdicts = (
++                        (manifest.get("four_role_evaluation") or {}).get("final_verdicts") or {}
++                    )
++                    _re_covered = _verified_covered_ids(_re_audit, _re_final_verdicts)
++                    _re_entities = _load_req_entities(_template, q["slug"])
++                    _re_ledger = _build_req_ledger(_re_entities, _re_covered)
++                    manifest["required_entity_coverage"] = {
++                        "total_required": len(_re_ledger.slots),
++                        "verified": len(_re_ledger.verified_slots()),
++                        "coverage_fraction": round(_re_ledger.coverage_fraction(), 3),
++                        "evidence_gaps": _re_ledger.to_evidence_gaps(),
++                    }
++                    _re_gaps_md = _render_coverage_gaps(_re_ledger)
++                    _re_report_path = run_dir / "report.md"
++                    if _re_gaps_md and _re_report_path.is_file():
++                        _re_report_path.write_text(
++                            _re_report_path.read_text(encoding="utf-8").rstrip()
++                            + "\n\n" + _re_gaps_md,
++                            encoding="utf-8",
++                        )
++                        _log(
++                            f"[req_entity]  {len(_re_ledger.gap_slots())} required-entity "
++                            f"coverage gaps disclosed (verified "
++                            f"{len(_re_ledger.verified_slots())}/{len(_re_ledger.slots)})"
++                        )
++            except Exception as _re_exc:  # noqa: BLE001 — fail-soft: never abort the run
++                _log(f"[req_entity]  WARN required-entity ledger failed: {_re_exc}")
++
+         # I-bug-111: surface synthesis [N] scrub alert in manifest.
+         # `synthesis_n_scrub_alert: bool` is True iff any single
+         # synthesis call in this run scrubbed more than
+diff --git a/src/polaris_graph/generator/required_entity_ledger.py b/src/polaris_graph/generator/required_entity_ledger.py
+new file mode 100644
+index 00000000..b53458b1
+--- /dev/null
++++ b/src/polaris_graph/generator/required_entity_ledger.py
+@@ -0,0 +1,192 @@
++"""I-perm-021 (#1213) — RequiredEntityLedger: report-level required-entity completeness
++accounting + honest gap disclosure (Codex design-gate APPROVE; narrow scope).
++
++The completeness gap is largely UPSTREAM (retrieval/extraction); a reduce-time/report-level
++ledger CANNOT manufacture coverage. Its job, per the Codex design ruling, is the NARROW
++"inclusion + disclosure" surface (NO second LLM generation / recovery round — that is a
++deferred follow-up):
++
++  - Phase B (THIS module, report-level, POST-strict_verify): given the pre-registered native
++    `required_entities` and the set of entity ids that earned a VERIFIED binding (the UNION of
++    every VERIFIED claim's ``covered_element_ids`` from
++    ``native_gate_b_inputs.build_native_gate_b_inputs`` — the EXACT same coverage computation,
++    reused, never re-implemented), mark each required slot VERIFIED or GAP_DISCLOSED and emit
++    an HONEST, DETERMINISTIC, TEMPLATED disclosure (no LLM, no fabricated citation).
++
++§-1.1 SAFETY: this module assigns NO verdicts and adds NO coverage CREDIT. VERIFIED is set
++ONLY from the caller's already-computed verified-binding set (which is itself gated by
++strict_verify + the 4-role ``verdict==VERIFIED`` rule). It never touches strict_verify / the
++4-role evaluator / D8 / the release decision. A gap disclosure is a templated "we could not
++verify X" statement — it NEVER fills the gap with an unsupported claim.
++
++Required entities come ONLY from the native scope template (the contamination lock — never
++``outputs/dr_benchmark/`` / the gold rubric). The caller reads ``PG_REQUIRED_ENTITY_LEDGER``
++at CALL TIME (default OFF, byte-identical when off); this pure module is simply not invoked
++when the flag is off.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++# ── slot state machine ────────────────────────────────────────────────────
++# (Phase A states RETRIEVED/MAPPED are produced by the pre-gen retrieval feed, a separate PR;
++#  this narrow disclosure module uses only the post-verify VERIFIED / GAP_DISCLOSED transition.)
++STATE_MISSING = "missing"
++STATE_RETRIEVED = "retrieved"
++STATE_MAPPED = "mapped"
++STATE_VERIFIED = "verified"
++STATE_INCLUDED = "included"
++STATE_GAP_DISCLOSED = "gap_disclosed"
++
++# native required-entity dict keys (mirrors native_gate_b_inputs; read-only here).
++_KEY_ID = "id"
++_KEY_SEVERITY = "severity"
++_KEY_ANCHOR = "anchor"
++_KEY_RENDERING_SLOT = "rendering_slot"
++_KEY_S0_CATEGORY = "s0_category"
++# canonical identifier keys, in disclosure-preference order.
++_CANONICAL_KEYS = ("doi", "pmid", "url_pattern")
++
++
++@dataclass
++class RequiredSlot:
++    """One required entity's completeness state + the metadata needed to disclose it."""
++    entity_id: str
++    severity: str
++    s0_category: str | None
++    anchor: str
++    rendering_slot: str
++    canonical_ids: dict           # {doi?, pmid?, url_pattern?} (only present keys)
++    state: str
++    note: str = ""                # disclosure qualifier (e.g. url_mismatch); never a claim
++
++    @property
++    def is_url_pattern_only(self) -> bool:
++        """True iff url_pattern is the ENTITY's only canonical id (no doi/pmid). Such an
++        entity is structurally un-flippable by alternate-URL retrieval — coverage requires the
++        VERIFIED claim to cite the exact canonical url_pattern (Codex design-gate q7)."""
++        return "url_pattern" in self.canonical_ids and not (
++            self.canonical_ids.get("doi") or self.canonical_ids.get("pmid")
++        )
++
++
++# Disclosure qualifier (Codex design-gate q7): public-facing, NOT raw internal artifact wording.
++_URL_MISMATCH_NOTE = (
++    "content for this topic may exist on an alternate source, but coverage remains unmet "
++    "unless a verified claim cites the canonical source for this required entity"
++)
++
++
++@dataclass
++class RequiredEntityLedger:
++    slots: list[RequiredSlot] = field(default_factory=list)
++
++    def verified_slots(self) -> list[RequiredSlot]:
++        return [s for s in self.slots if s.state in (STATE_VERIFIED, STATE_INCLUDED)]
++
++    def gap_slots(self) -> list[RequiredSlot]:
++        return [s for s in self.slots if s.state == STATE_GAP_DISCLOSED]
++
++    def coverage_fraction(self) -> float:
++        return (len(self.verified_slots()) / len(self.slots)) if self.slots else 0.0
++
++    def to_evidence_gaps(self) -> list[dict]:
++        """Structured gap records for the manifest (machine-readable, audit trail)."""
++        return [
++            {
++                "entity_id": s.entity_id,
++                "severity": s.severity,
++                "s0_category": s.s0_category,
++                "anchor": s.anchor,
++                "rendering_slot": s.rendering_slot,
++                "reason": "no_verified_citation",
++                "note": s.note,
++            }
++            for s in self.gap_slots()
++        ]
++
++
++def verified_covered_ids(
++    audit_map: dict, final_verdicts: dict[str, str] | None,
++) -> set[str]:
++    """The set of required-entity ids covered by a 4-role FINAL-VERIFIED claim.
++
++    Codex diff-gate iter-1 P1 (§-1.1): `four_role_claim_audit.json`'s per-claim
++    ``covered_element_ids`` is the PRE-D8 builder audit map — it records what a claim WOULD
++    cover if verified. But the 4-role seam can DOWNGRADE that claim (UNSUPPORTED / PARTIAL /
++    FABRICATED), and D8 only credits coverage for a claim whose final verdict is VERIFIED. So
++    the covered set MUST be filtered through ``final_verdicts[claim_id] == "VERIFIED"`` —
++    otherwise a downgraded claim would falsely mark its entity covered and SUPPRESS a real
++    Coverage-gaps disclosure (hiding a coverage gap = over-claiming completeness, the lethal
++    direction). When ``final_verdicts`` is empty/None (e.g. a seam-timeout path) NO claim is
++    treated as verified -> every required entity is disclosed as a gap (fail-safe over-disclose,
++    never under-disclose)."""
++    fv = final_verdicts or {}
++    covered: set[str] = set()
++    rows = audit_map.items() if isinstance(audit_map, dict) else []
++    for claim_id, row in rows:
++        if isinstance(row, dict) and fv.get(claim_id) == "VERIFIED":
++            covered.update(row.get("covered_element_ids", []) or [])
++    return covered
++
++
++def _canonical_ids(entity: dict) -> dict:
++    return {k: entity[k] for k in _CANONICAL_KEYS if entity.get(k) not in (None, "")}
++
++
++def build_ledger(
++    required_entities: list[dict],
++    covered_entity_ids: set[str] | frozenset[str] | list[str],
++) -> RequiredEntityLedger:
++    """Phase B: build the report-level ledger from the native required entities + the
++    VERIFIED-binding set (``⋃ verified_claim.covered_element_ids``, computed by
++    ``native_gate_b_inputs``). A required entity is VERIFIED iff its id is in
++    ``covered_entity_ids`` (the exact existing coverage authority), else GAP_DISCLOSED.
++    Assigns NO new credit; this is pure accounting + disclosure over an already-decided set."""
++    covered = set(covered_entity_ids)
++    slots: list[RequiredSlot] = []
++    for entity in required_entities:
++        entity_id = entity.get(_KEY_ID)
++        if entity_id in (None, ""):
++            # a config error elsewhere (validate_entity_severity is the fail-loud guard); skip
++            # defensively here so the ledger never crashes on a malformed slot.
++            continue
++        canonical_ids = _canonical_ids(entity)
++        verified = entity_id in covered
++        slot = RequiredSlot(
++            entity_id=str(entity_id),
++            severity=str(entity.get(_KEY_SEVERITY, "")),
++            s0_category=entity.get(_KEY_S0_CATEGORY),
++            anchor=str(entity.get(_KEY_ANCHOR, "")),
++            rendering_slot=str(entity.get(_KEY_RENDERING_SLOT, "")),
++            canonical_ids=canonical_ids,
++            state=STATE_VERIFIED if verified else STATE_GAP_DISCLOSED,
++        )
++        if not verified and slot.is_url_pattern_only:
++            slot.note = _URL_MISMATCH_NOTE
++        slots.append(slot)
++    return RequiredEntityLedger(slots=slots)
++
++
++def render_coverage_gaps_section(ledger: RequiredEntityLedger) -> str:
++    """Deterministic, public-facing 'Coverage gaps' report section (NO LLM, NO fabricated
++    citation, NO raw internal artifact wording — Codex design-gate q5 + P2). Returns "" when
++    there are no gaps so the section is omitted entirely (and the OFF path stays byte-identical)."""
++    gaps = ledger.gap_slots()
++    if not gaps:
++        return ""
++    lines = [
++        "## Coverage gaps",
++        "",
++        "The following pre-registered required topics could not be supported by a verified "
++        "citation in this report. They are disclosed here rather than asserted without "
++        "evidence:",
++        "",
++    ]
++    for s in gaps:
++        label = s.anchor or s.entity_id
++        sev = f" ({s.severity})" if s.severity else ""
++        note = f" — {s.note}" if s.note else ""
++        lines.append(f"- **{label}**{sev}: not verified in this run{note}.")
++    lines.append("")
++    return "\n".join(lines)
+diff --git a/tests/polaris_graph/generator/test_required_entity_ledger_iperm021.py b/tests/polaris_graph/generator/test_required_entity_ledger_iperm021.py
+new file mode 100644
+index 00000000..ecb434e3
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_required_entity_ledger_iperm021.py
+@@ -0,0 +1,124 @@
++"""I-perm-021 (#1213) — RequiredEntityLedger (narrow: inclusion + honest disclosure).
++
++Proves the ledger is pure accounting + honest disclosure over the ALREADY-computed
++verified-binding set: VERIFIED only when the entity id is in the covered set (no new credit),
++GAP_DISCLOSED otherwise; url_pattern-only missing entities get the canonical-mismatch note;
++the Coverage gaps section is deterministic public prose (no LLM, no fabricated citation) and
++EMPTY when there are no gaps (so the OFF path stays byte-identical).
++"""
++from __future__ import annotations
++
++from src.polaris_graph.generator.required_entity_ledger import (
++    STATE_GAP_DISCLOSED,
++    STATE_VERIFIED,
++    build_ledger,
++    render_coverage_gaps_section,
++    verified_covered_ids,
++)
++
++
++def _ent(eid, *, severity="S1", anchor="", rendering_slot="", **canon):
++    e = {"id": eid, "severity": severity, "anchor": anchor, "rendering_slot": rendering_slot}
++    e.update(canon)
++    return e
++
++
++def test_verified_and_gap_states():
++    entities = [
++        _ent("e1", doi="10.1/a", anchor="Trial A"),
++        _ent("e2", doi="10.1/b", anchor="Trial B"),
++        _ent("e3", pmid="123", anchor="Trial C"),
++    ]
++    led = build_ledger(entities, covered_entity_ids={"e1", "e3"})
++    by = {s.entity_id: s for s in led.slots}
++    assert by["e1"].state == STATE_VERIFIED
++    assert by["e3"].state == STATE_VERIFIED
++    assert by["e2"].state == STATE_GAP_DISCLOSED
++    assert {s.entity_id for s in led.verified_slots()} == {"e1", "e3"}
++    assert {s.entity_id for s in led.gap_slots()} == {"e2"}
++    assert round(led.coverage_fraction(), 4) == round(2 / 3, 4)
++
++
++def test_verified_covered_ids_excludes_downgraded_claims():
++    # Codex diff-gate iter-1 P1 (§-1.1): a claim whose pre-D8 audit row covers an entity but
++    # whose 4-role FINAL verdict is NOT VERIFIED must NOT credit coverage (else a real gap is
++    # falsely suppressed). The entity then remains GAP_DISCLOSED.
++    audit = {
++        "00-000-aa": {"covered_element_ids": ["e1"]},   # final VERIFIED -> credits e1
++        "00-001-bb": {"covered_element_ids": ["e2"]},   # final UNSUPPORTED -> must NOT credit e2
++        "00-002-cc": {"covered_element_ids": ["e3"]},   # final PARTIAL -> must NOT credit e3
++    }
++    final_verdicts = {
++        "00-000-aa": "VERIFIED",
++        "00-001-bb": "UNSUPPORTED",
++        "00-002-cc": "PARTIAL",
++    }
++    covered = verified_covered_ids(audit, final_verdicts)
++    assert covered == {"e1"}
++    # the downgraded entities are disclosed as gaps, NOT marked verified
++    led = build_ledger(
++        [_ent("e1"), _ent("e2"), _ent("e3")], covered_entity_ids=covered)
++    by = {s.entity_id: s for s in led.slots}
++    assert by["e1"].state == STATE_VERIFIED
++    assert by["e2"].state == STATE_GAP_DISCLOSED
++    assert by["e3"].state == STATE_GAP_DISCLOSED
++
++
++def test_verified_covered_ids_empty_verdicts_credits_nothing():
++    # fail-safe: no final_verdicts (seam-timeout path) -> NO claim verified -> all disclosed.
++    audit = {"00-000-aa": {"covered_element_ids": ["e1", "e2"]}}
++    assert verified_covered_ids(audit, {}) == set()
++    assert verified_covered_ids(audit, None) == set()
++
++
++def test_no_new_credit_a_missing_entity_stays_gap():
++    # §-1.1: the ledger never flips a slot to VERIFIED unless its id is in the covered set.
++    entities = [_ent("e1", doi="10.1/a")]
++    assert build_ledger(entities, covered_entity_ids=set()).slots[0].state == STATE_GAP_DISCLOSED
++    assert build_ledger(entities, covered_entity_ids={"e1"}).slots[0].state == STATE_VERIFIED
++
++
++def test_url_pattern_only_gap_gets_mismatch_note_but_doi_gap_does_not():
++    entities = [
++        _ent("u1", url_pattern="https://fda.gov/label/x", anchor="FDA label X"),
++        _ent("d1", doi="10.1/d", url_pattern="https://x", anchor="Trial D"),  # has doi too
++    ]
++    led = build_ledger(entities, covered_entity_ids=set())
++    by = {s.entity_id: s for s in led.slots}
++    assert by["u1"].note and "canonical source" in by["u1"].note   # url_pattern-only -> note
++    assert by["d1"].note == ""                                      # doi-bearing -> no note
++
++
++def test_evidence_gaps_records():
++    entities = [_ent("e2", severity="S0", s0_category="contraindications", anchor="X")]
++    led = build_ledger(entities, covered_entity_ids=set())
++    gaps = led.to_evidence_gaps()
++    assert len(gaps) == 1
++    g = gaps[0]
++    assert g["entity_id"] == "e2" and g["severity"] == "S0"
++    assert g["s0_category"] == "contraindications" and g["reason"] == "no_verified_citation"
++
++
++def test_coverage_gaps_section_empty_when_no_gaps():
++    entities = [_ent("e1", doi="10.1/a")]
++    led = build_ledger(entities, covered_entity_ids={"e1"})
++    assert render_coverage_gaps_section(led) == ""   # byte-identical OFF/no-gap path
++
++
++def test_coverage_gaps_section_is_public_prose_no_internal_wording():
++    entities = [
++        _ent("e2", anchor="Trial B", doi="10.1/b"),
++        _ent("u1", anchor="FDA label X", url_pattern="https://fda.gov/x"),
++    ]
++    led = build_ledger(entities, covered_entity_ids=set())
++    out = render_coverage_gaps_section(led)
++    assert out.startswith("## Coverage gaps")
++    assert "Trial B" in out and "FDA label X" in out
++    assert "not verified in this run" in out
++    assert "canonical source" in out                  # the url_pattern note surfaces
++    # no raw internal artifact-path wording (Codex design-gate P2)
++    for banned in ("FRAME_GAP", "compose_gap_payload", "_GAP_STUB", "kept_sentences",
++                   "strict_verify", "evidence_id"):
++        assert banned not in out
++    # NEVER fills a gap with a claim — it only discloses absence
++    assert "verified citation" in out

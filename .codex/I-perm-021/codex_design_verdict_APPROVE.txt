@@ -1,0 +1,17 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Budget rule: #1213 must use a named reserved fetch slice inside the #1168 no-overshoot envelope; additive reuse of #1190 caps is not approved."
+  - "Use V30 as the deterministic gap-disclosure precedent, but do not copy raw internal artifact-path wording into the new public body section."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+answers_to_design_questions:
+  q1: "Report-level. Hook after generate_multi_section_report and at/before build_native_gate_b_inputs / four_role_input_builder, not _run_section. _run_section misses V30 contract sections and is gated by PG_SECTION_DISTILL."
+  q2: "Confirm two-phase. Phase A is pre-gen corpus-presence/MAPPED for bounded retrieval. Phase B is post-strict_verify, report-level VERIFIED/INCLUDED/GAP_DISCLOSED using the same exact coverage logic."
+  q3: "Use a separate reserved budget under the #1168 1000-fetch envelope. Keep #1190 per-entity caps as local ceilings only; cap seed URLs before seed_only retrieval and deduct the reserved slice from the total budget when the ledger flag is on."
+  q4: "Ship #1213 as inclusion + disclosure only. No second LLM generation/recovery round in this issue. #1213 is still worth building now as a low-risk audit/completeness surface, but real coverage lift mostly comes from #1204 retrieval breadth; move there after the narrow ledger lands."
+  q5: "Explicit body Coverage gaps section plus manifest evidence_gaps. Manifest-only is not enough for a blind operator, and per-section-only would miss report-level required-entity accounting."
+  q6: "Confirmed: required entities come only from native scope templates, never outputs/dr_benchmark or gold rubrics. PG_REQUIRED_ENTITY_LEDGER must be read at call time and default OFF byte-identical."
+  q7: "Yes. url_pattern-only entities need a distinct gap note such as content_present_url_mismatch: content may be present on an alternate URL, but coverage remains missing unless the verified claim cites the exact canonical url_pattern."
