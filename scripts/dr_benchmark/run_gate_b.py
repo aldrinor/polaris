@@ -682,6 +682,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # strict_verify re-checks the REDUCE output) so forcing it on can never weaken
     # a gate.
     "PG_SECTION_DISTILL": "1",
+    # I-perm-024 (#1216): force the beat-both scorer's extended claim-by-claim
+    # metrics (faithfulness_precision / required_entity_recall / safety_floor_recall
+    # / citation_support_rate / diversity_score + Claimify dedup) ON for the broad
+    # run, so the archived scorecard carries the extended block (Codex brief-gate
+    # iter-1 P2). MEASUREMENT-ONLY — it runs AFTER the report exists and touches no
+    # generator / strict_verify / 4-role / D8 path; flag-OFF the scorecard is
+    # byte-identical. Every metric is derived from the §-1.1 audit ledger + the
+    # frozen rubric, never from raw report text.
+    "PG_BENCH_EXTENDED_METRICS": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -790,6 +799,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
     "PG_GATE_B_CITED_SPAN",
+    # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
+    # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
+    # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
+    "PG_BENCH_EXTENDED_METRICS",
     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
     # survive the slate and let a dead-discovery run go green.
     "PG_BEHAVIORAL_CANARY",

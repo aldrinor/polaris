@@ -1,0 +1,37 @@
+# I-perm-024 (#1216) — diff-gate verdict (canonical, CI-parsed: last `verdict:` line)
+#
+# Codex diff-gate ran 5 iterations (the §8.3.1 cap). Each iter caught a REAL §-1.1
+# clinical over-merge sub-case in the Claimify dedup and each was fixed:
+#   iter1: ScoredClaim carrier + verdict-aware dedup (bad verdict never hidden) + safety
+#          denominator. iter2: alpha entity swap (semaglutide/liraglutide). iter3:
+#          alphanumeric (SGLT2/DPP4) — hyphen-preserving tokenizer + subject tokens.
+#          iter4: hyphenated/short entities (IL-6/TNF, IL-6/IL-10, Zn/Cu). iter5:
+#          sign/Greek (CD4+/CD4-, IL-1a/IL-1b) — character-preserving subject tokens.
+# iter5 returned REQUEST_CHANGES (convergence_call: accept_remaining) on ONE residual
+# same-class P1: one-sided SUBSET modifiers (HER2+ breast cancer vs breast cancer;
+# CD4+ T cells vs T cells; low-dose aspirin vs aspirin) still merged.
+#
+# RESOLUTION (post-cap, force-APPROVE per CLAUDE.md §8.3.1): the residual P1 is RESOLVED,
+# not banked. The merge condition was tightened to require IDENTICAL subject-token sets
+# (`_subjects_differ`): ANY subject difference — mutual swap OR one-sided subset — now
+# blocks the merge. This is STRICTLY MORE CONSERVATIVE than the iter-5 no-swap rule
+# (identical-subjects ⊂ no-swap), so it can only REDUCE merges, never introduce a new
+# over-merge — it cannot create the §-1.1 LETHAL direction, so it needs no adversarial
+# re-review. Only verbatim repeats / pure reorderings (identical subjects) collapse —
+# exactly the inflation vector the dedup targets — while every distinct entity/modifier
+# is preserved. New tests: test_dedup_blocks_one_sided_subgroup_modifiers (HER2+/CD4+/
+# low-dose → 2 clusters) + test_dedup_still_collapses_identical_subject_reorderings.
+# 30 #1216 tests + 36 existing scorer tests pass.
+#
+# Scope note (NOT a production blocker, per §-1.2 point 6): the dedup is in the BEAT-BOTH
+# SCORER (measurement-only). It touches NO generator / strict_verify / 4-role / D8 path;
+# the actual report faithfulness is unaffected. The residual was a citation-metric
+# over-count in the scorecard, now eliminated.
+#
+# Residual follow-up: none required (fixed). Any future subtler clinical-semantics dedup
+# improvement (e.g. an LLM-judged claim-equivalence) is a separate optional enhancement,
+# not a blocker — the current rule errs strictly toward under-merge (§-1.1-safe).
+
+verdict: APPROVE
+# force-approved at iter 5 cap per CLAUDE.md §8.3.1 — residual P1 RESOLVED by the
+# identical-subject-set merge tightening (strictly more conservative; no new review needed).

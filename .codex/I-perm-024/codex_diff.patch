@@ -1,0 +1,1080 @@
+diff --git a/config/dr_benchmark/safety_floor_elements_v3.json b/config/dr_benchmark/safety_floor_elements_v3.json
+new file mode 100644
+index 00000000..0dd1aace
+--- /dev/null
++++ b/config/dr_benchmark/safety_floor_elements_v3.json
+@@ -0,0 +1,44 @@
++{
++  "registry_version": "safety_floor_v3",
++  "issue": "I-perm-024 (#1216)",
++  "rubric_source": "outputs/dr_benchmark/rubric_v3_frozen.json",
++  "rubric_sha256": "2a39d9ddd31386acf5c7c58f1f3e5befbfa5f5e4ed07baabef115d5d701ff140",
++  "methodology": "Transparent PRE-REGISTERED tagging of which frozen-rubric elements are patient-safety / harm / contraindication / honest-framing-floor. Each tagged element_id quotes the rubric's OWN requirement_text as justification. This is NOT a new invented entity list and adds NO claims. safety_floor_recall = (covered AND citation_supported tagged elements) / (total tagged elements), computed by extended_metrics from the SAME §-1.1 audit that scores every other claim. Non-clinical questions carry an empty set (honest: no patient-safety floor), reported as pending/N-A rather than a false 0.",
++  "questions": {
++    "Q75": {
++      "safety_floor_element_ids": ["Q75-E3", "Q75-E7"],
++      "justification": {
++        "Q75-E3": "harm/regulatory floor: 'FDA has NOT approved EDTA chelation for CHD; not guideline-recommended' (chelation carries real risk; overstating approval is a safety harm)",
++        "Q75-E7": "honest-framing floor: 'hard-outcome CVD efficacy largely UNPROVEN/contested; NO metal-ion modulation is guideline-recommended as CVD therapy' (penalize efficacy overstatement)"
++      }
++    },
++    "Q76": {
++      "safety_floor_element_ids": ["Q76-E6", "Q76-E7"],
++      "justification": {
++        "Q76-E6": "harm floor: 'colibactin (genotoxic, DNA double-strand breaks); BFT/fragilysin ... enterotoxigenic B. fragilis' (toxic metabolite + correct producing organism — a mis-pairing is a clinical harm)",
++        "Q76-E7": "honest-framing floor: 'probiotic CRC-prevention evidence is LARGELY PRECLINICAL / human clinical efficacy \"inadequate\" ... Penalize \"clinically proven\" overstatement'"
++      }
++    },
++    "Q78": {
++      "safety_floor_element_ids": ["Q78-E4", "Q78-E6", "Q78-E7", "Q78-E8"],
++      "justification": {
++        "Q78-E4": "patient-safety triggers: 'new falls, swallowing difficulty/choking, hallucinations/delusions, ... mood/suicidality, dopamine-agonist impulse-control disorders (\"may be concealed\")' (NICE NG71)",
++        "Q78-E6": "explicit patient-safety (rubric title flags El6 = patient-safety): 'diathermy + TMS CONTRAINDICATED ... MR Conditional UNDER LABELED CONDITIONS ONLY'",
++        "Q78-E7": "safety monitoring: 'monitor stimulation-induced effects incl. mood (\"contact your DBS provider immediately if you note any change in your mental health\")'",
++        "Q78-E8": "honest-framing floor: 'surgical risk incl. fatal ICH (SAEs 13% vs 4%); NOT a cure'"
++      }
++    },
++    "Q72": {
++      "safety_floor_element_ids": [],
++      "justification": {
++        "_note": "non-clinical (AI / Fourth Industrial Revolution labor economics); no patient-safety floor — safety_floor_recall reports pending/N-A, NOT a false 0"
++      }
++    },
++    "Q90": {
++      "safety_floor_element_ids": [],
++      "justification": {
++        "_note": "non-clinical (ADAS legal liability); no patient-safety floor — safety_floor_recall reports pending/N-A, NOT a false 0"
++      }
++    }
++  }
++}
+diff --git a/scripts/dr_benchmark/run_gate_b.py b/scripts/dr_benchmark/run_gate_b.py
+index 1c4dc01b..0bad602a 100644
+--- a/scripts/dr_benchmark/run_gate_b.py
++++ b/scripts/dr_benchmark/run_gate_b.py
+@@ -682,6 +682,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
+     # strict_verify re-checks the REDUCE output) so forcing it on can never weaken
+     # a gate.
+     "PG_SECTION_DISTILL": "1",
++    # I-perm-024 (#1216): force the beat-both scorer's extended claim-by-claim
++    # metrics (faithfulness_precision / required_entity_recall / safety_floor_recall
++    # / citation_support_rate / diversity_score + Claimify dedup) ON for the broad
++    # run, so the archived scorecard carries the extended block (Codex brief-gate
++    # iter-1 P2). MEASUREMENT-ONLY — it runs AFTER the report exists and touches no
++    # generator / strict_verify / 4-role / D8 path; flag-OFF the scorecard is
++    # byte-identical. Every metric is derived from the §-1.1 audit ledger + the
++    # frozen rubric, never from raw report text.
++    "PG_BENCH_EXTENDED_METRICS": "1",
+ }
+ 
+ # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
+@@ -790,6 +799,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
+     # I-ready-017 FX-03 (#1107): force-on the cited-span windowing so an explicit operator =0 cannot
+     # survive the setdefault slate and silently restore the whole-doc out-of-span false-accept.
+     "PG_GATE_B_CITED_SPAN",
++    # I-perm-024 (#1216): force-on the extended beat-both scorer metrics so a nonstandard operator
++    # value (e.g. "2") cannot survive the setdefault slate and leave the archived scorecard without
++    # the extended block (Codex diff-gate iter-4 P2). Measurement-only; no faithfulness path.
++    "PG_BENCH_EXTENDED_METRICS",
+     # I-ready-017 CANARY-01 (#1108): force-on the behavioral pre-spend canary so an operator =0 cannot
+     # survive the slate and let a dead-discovery run go green.
+     "PG_BEHAVIORAL_CANARY",
+diff --git a/scripts/dr_benchmark/run_scorecard.py b/scripts/dr_benchmark/run_scorecard.py
+index 51d02350..0abfa671 100644
+--- a/scripts/dr_benchmark/run_scorecard.py
++++ b/scripts/dr_benchmark/run_scorecard.py
+@@ -14,11 +14,31 @@ Inputs:
+ from __future__ import annotations
+ 
+ import json
++import os
+ import re
+ from pathlib import Path
+ from typing import Callable
+ 
+-from src.polaris_graph.benchmark.benchmark_scorecard import build_scorecard
++# I-perm-024 (#1216): default-OFF flag. Unset/0 → byte-identical pre-#1216 scorecard.
++# The Gate-B full-capability slate force-sets this to "1" so the broad operator-gated
++# run archives the extended metric block (Codex brief-gate iter-1 P2).
++_EXTENDED_METRICS_ENV = "PG_BENCH_EXTENDED_METRICS"
++
++
++def _extended_metrics_enabled_from_env() -> bool:
++    return os.environ.get(_EXTENDED_METRICS_ENV, "").strip().lower() in (
++        "1", "true", "yes", "on",
++    )
++
++from src.polaris_graph.benchmark.benchmark_scorecard import (
++    build_scorecard,
++    normalize_qid,
++)
++from src.polaris_graph.benchmark.extended_metrics import (
++    ScoredClaim,
++    compute_extended_metrics,
++    load_safety_floor_element_ids,
++)
+ from src.polaris_graph.benchmark.fact_scorer import Judge, SpanFetcher, score_atoms
+ from src.polaris_graph.benchmark.report_claim_extractor import extract_atoms
+ 
+@@ -163,12 +183,26 @@ def run_scorecard(
+     judge: Judge,
+     atomizer: Callable[[str], list[str]] | None = None,
+     rubrics=None,
++    extended: bool | None = None,
+ ) -> dict:
+     """Extract -> FACT-score -> scorecard across all systems for the 5 locked Qs.
+ 
+     Returns the scorecard dict (lane1 + lane2_pending). The injected ``span_fetcher``
+-    + ``judge`` are the only billed work."""
++    + ``judge`` are the only billed work.
++
++    ``extended`` (I-perm-024 #1216): None (DEFAULT) → read the
++    ``PG_BENCH_EXTENDED_METRICS`` env (unset → OFF → byte-identical pre-#1216
++    scorecard); True/False overrides it explicitly (tests pass a bool). When ON, an
++    additive ``extended`` block (the 5 claim-by-claim metrics + Claimify dedup) is
++    computed per (system, qid) and attached — derived ONLY from the already-audited
++    ClaimRows + the frozen rubric, never from raw report text."""
++    if extended is None:
++        extended = _extended_metrics_enabled_from_env()
+     rows_by_system_qid: dict[tuple[str, str], list] = {}
++    # (system, qid) -> list[ScoredClaim] (atom text paired with its ClaimRow), kept
++    # ONLY when extended is on (the dedup needs the claim text). score_atoms emits
++    # exactly one row per atom in order, so zip() pairs them faithfully.
++    scored_by_system_qid: dict[tuple[str, str], list[ScoredClaim]] = {}
+     # NON-SILENT reference stripping (Codex diff-gate audit trail): every block the
+     # heuristic removes is RECORDED here so the §-1.1 audit / operator can verify
+     # nothing material was dropped. A claim wrongly stripped is visible + catchable,
+@@ -191,6 +225,10 @@ def run_scorecard(
+                               atomizer=atomizer, question_id=qid)
+         rows = score_atoms(atoms, span_fetcher=span_fetcher, judge=judge)
+         rows_by_system_qid[(system, qid)] = rows
++        if extended:
++            scored_by_system_qid[(system, qid)] = [
++                ScoredClaim(text=a.text, row=r) for a, r in zip(atoms, rows)
++            ]
+ 
+     external_root = Path(external_root)
+     for system_dir, system in (("gpt_5_5_pro", "chatgpt"), ("gemini_3_1_pro", "gemini")):
+@@ -213,6 +251,22 @@ def run_scorecard(
+             qid = qid_m.group(1) if qid_m else "0"
+             _ingest("polaris", text, _polaris_references(run_dir), qid)
+ 
+-    card = build_scorecard(rows_by_system_qid, rubrics=rubrics)
++    extended_block: dict | None = None
++    if extended:
++        # Per-(system, qid) extended metrics from the audited ledger + frozen rubric.
++        # JSON-safe string keys (tuple keys are not serializable).
++        extended_block = {}
++        for (system, qid), scored in scored_by_system_qid.items():
++            nqid = normalize_qid(qid)
++            rubric_elems = (rubrics or {}).get((system, qid)) \
++                or (rubrics or {}).get((system, nqid))
++            safety_ids = load_safety_floor_element_ids(nqid)
++            extended_block[f"{system}:{nqid}"] = compute_extended_metrics(
++                scored, rubric=rubric_elems, safety_element_ids=safety_ids,
++            )
++
++    card = build_scorecard(
++        rows_by_system_qid, rubrics=rubrics, extended=extended_block,
++    )
+     card["reference_stripping"] = reference_stripping   # audit trail (non-silent)
+     return card
+diff --git a/src/polaris_graph/benchmark/benchmark_scorecard.py b/src/polaris_graph/benchmark/benchmark_scorecard.py
+index 6d0e1930..e38cd132 100644
+--- a/src/polaris_graph/benchmark/benchmark_scorecard.py
++++ b/src/polaris_graph/benchmark/benchmark_scorecard.py
+@@ -95,12 +95,15 @@ def build_scorecard(
+     rows_by_system_qid: dict[tuple[str, str], list[ClaimRow]],
+     *,
+     rubrics: dict[tuple[str, str], list[RubricElement]] | None = None,
++    extended: dict | None = None,
+ ) -> dict:
+     """Per-system scorecard with clinical-3 + overall-5 slices.
+ 
+     ``rows_by_system_qid`` maps (system, question_id) → ClaimRows. ``rubrics`` is
+     optional; when absent (the current state), lane2 is reported as pending and no
+-    PASS/"wins" claim is made.
++    PASS/"wins" claim is made. ``extended`` (I-perm-024 #1216) is an OPTIONAL
++    precomputed extended-metrics block; when None (the DEFAULT) the returned dict is
++    byte-identical to the pre-#1216 scorecard — the extended path is purely additive.
+     """
+     rubrics = rubrics or {}
+     lane2_pending = len(rubrics) == 0
+@@ -117,7 +120,7 @@ def build_scorecard(
+             "source_critical_2": _aggregate_subset(rows_by_qid, SOURCE_CRITICAL_QIDS),
+         }
+ 
+-    return {
++    card = {
+         "systems": systems,
+         "lane2_pending": lane2_pending,
+         "note": (
+@@ -128,3 +131,6 @@ def build_scorecard(
+             "lane1 FACT faithfulness + lane2 coverage; per-claim traceable."
+         ),
+     }
++    if extended is not None:
++        card["extended"] = extended
++    return card
+diff --git a/src/polaris_graph/benchmark/claim_dedup.py b/src/polaris_graph/benchmark/claim_dedup.py
+new file mode 100644
+index 00000000..3a48230b
+--- /dev/null
++++ b/src/polaris_graph/benchmark/claim_dedup.py
+@@ -0,0 +1,194 @@
++"""I-perm-024 (#1216) — Claimify-style claim-atom dedup for the beat-both scorer.
++
++Anti-inflation pass: BEFORE the extended metrics roll up over the per-claim audit
++ledger, collapse near-duplicate claim atoms so that N restatements of one obvious
++fact count ONCE. Without this, a verbose report could inflate
++``faithfulness_precision`` / ``citation_support_rate`` / ``diversity_score`` simply
++by repeating the same easy claim — a §-1.1-banned "more text = better" loophole.
++
++Pure text + deterministic. Operates on the claim TEXT only and returns index
++groups; the caller (``extended_metrics``) joins the kept indices back to its
++``ClaimRow``s. Applied IDENTICALLY to every system (no POLARIS bias).
++
++Merge rule (conservative — under-merge is safe, over-merge is the risk):
++  two claims merge iff
++    (a) their numeric signatures are COMPATIBLE (equal, or at least one empty, and
++        no populated-axis conflict — reuses the ``fact_dedup`` populated-axis lesson
++        so "3.7% in 2014" never merges with "3.7% in 2016"), AND
++    (b) their content-token Jaccard >= ``min_jaccard`` (default 0.80).
++The dedup is REPORTED (n_raw / n_kept / groups), never silent.
++
++SOTA framing: Claimify (arXiv 2407.03572) decomposes + deduplicates claims before
++scoring; here we only need the dedup half over already-extracted atoms.
++"""
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass, field
++
++from src.polaris_graph.generator.fact_dedup import (
++    FactSignature,
++    extract_signature,
++)
++
++# A frozen, env-overridable default. Higher = more conservative (fewer merges).
++_DEFAULT_MIN_JACCARD = 0.80
++
++# Content-token extraction: lowercase alphanumeric tokens of length >= 3, minus a
++# tiny closed-class stoplist. Numbers stay (they also feed the signature) so that
++# "20%" vs "37%" lowers Jaccard too — defense in depth with the signature check.
++# Hyphen/slash-preserving tokens (Codex diff-gate iter-3 P1): keep biomedical entity
++# tokens INTACT — "IL-6" / "IL-10" / "CD4/CD8" are ONE token each, not split into a
++# dropped "il" + a bare digit. Without this, "IL-6 ... 20%" tokenized to just {6} and
++# merged with "TNF ... 20%" / "IL-10 ... 20%".
++_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-/][a-z0-9]+)*")
++_STOPWORDS = frozenset(
++    "the a an and or of to in for with on at by from as is are was were be been "
++    "that this these those it its their his her our your they we he she than then "
++    "which who whom whose into over under between among within without".split()
++)
++
++
++def _content_tokens(text: str) -> frozenset[str]:
++    """Tokens for the Jaccard similarity (noise-reduced: length >= 3, non-stopword)."""
++    toks = {
++        t for t in _TOKEN_RE.findall(text.lower())
++        if len(t) >= 3 and t not in _STOPWORDS
++    }
++    return frozenset(toks)
++
++
++# Surrounding sentence/grouping punctuation stripped from a subject token's EDGES only;
++# every other character (sign +/-, slash, Greek α/β, %, internal hyphen, digits) is kept
++# VERBATIM so it can distinguish entities. (Codex diff-gate iter-4 P1.)
++_SUBJECT_EDGE_STRIP = ".,;:!?()[]{}\"'`…«»‹›—–"
++
++
++def _subject_tokens(text: str) -> frozenset[str]:
++    """Entity/subject tokens for the SWAP guard, extracted ROBUSTLY (Codex diff-gate
++    iter-2/3/4 P1 class). Split on whitespace, lowercase, strip ONLY surrounding
++    sentence/grouping punctuation, and keep the token BODY verbatim. This preserves
++    EVERY clinically-distinguishing character — sign suffixes (`CD4+` vs `CD4-`, `pks+`
++    vs `pks-`), Greek variants (`IL-1α` vs `IL-1β`), hyphens (`IL-6` vs `IL-10`),
++    alphanumerics (`SGLT2` vs `DPP4`), and short symbols (`Zn` vs `Cu`) — so any two
++    DISTINCT entities produce DIFFERENT subject tokens and trigger the mutual-swap
++    block. A token with NO letter (pure number/punctuation) is excluded (numeric
++    differences are the signature-conflict guard's job); stopwords are dropped. Being
++    maximally character-preserving here only makes the dedup MORE conservative
++    (under-merge = §-1.1-safe; over-merge is the lethal direction we forbid)."""
++    out: set[str] = set()
++    for raw in text.lower().split():
++        t = raw.strip(_SUBJECT_EDGE_STRIP)
++        if t and t not in _STOPWORDS and any(c.isalpha() for c in t):
++            out.add(t)
++    return frozenset(out)
++
++
++def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
++    if not a and not b:
++        return 1.0
++    if not a or not b:
++        return 0.0
++    inter = len(a & b)
++    union = len(a | b)
++    return inter / union if union else 0.0
++
++
++def _subjects_differ(a_subjects: frozenset[str], b_subjects: frozenset[str]) -> bool:
++    """True iff the two claims have ANY subject-token difference (in EITHER direction).
++
++    Codex diff-gate iter-1..5 found that a token heuristic cannot tell a non-distinguishing
++    elaboration ("fiber" vs "dietary fiber") from a clinically-distinct SUBGROUP narrowing
++    ("breast cancer" vs "HER2+ breast cancer", "T cells" vs "CD4+ T cells", "aspirin" vs
++    "low-dose aspirin") — both are one-sided subset modifiers. Since over-merging two
++    distinct clinical facts is the §-1.1 LETHAL direction and under-merging is safe, the
++    dedup requires IDENTICAL subject-token sets to merge: ANY subject difference (mutual
++    swap OR one-sided subset) blocks the merge. Only verbatim repeats / pure reorderings
++    (identical subjects) collapse — exactly the inflation vector the dedup must stop —
++    while every subject/modifier difference is preserved as a distinct claim."""
++    return a_subjects != b_subjects
++
++
++def _signatures_conflict(a: FactSignature, b: FactSignature) -> bool:
++    """True iff a populated context axis (percent-decimals OR years OR dollars) is
++    populated on BOTH sides AND has zero intersection — i.e. the two claims carry
++    DIFFERENT numbers and must NOT be merged. Mirrors
++    ``fact_dedup._signatures_conflict`` (the populated-axis lesson) but also guards
++    the decimal axis, since for claim atoms a different percentage IS a different
++    fact."""
++    if a.is_empty() or b.is_empty():
++        return False
++    decimals_conflict = (a.decimals and b.decimals) and not (a.decimals & b.decimals)
++    years_conflict = (a.years and b.years) and not (a.years & b.years)
++    dollars_conflict = (
++        (a.dollar_buckets and b.dollar_buckets)
++        and not (a.dollar_buckets & b.dollar_buckets)
++    )
++    return bool(decimals_conflict or years_conflict or dollars_conflict)
++
++
++@dataclass
++class DedupResult:
++    """Result of a dedup pass over a list of claim texts.
++
++    ``groups`` is a list of clusters, each a list of original indices with the
++    REPRESENTATIVE (lowest original index) first. ``representatives`` is the list
++    of representative indices (one per group), in ascending order — the caller
++    keeps exactly these.
++    """
++    groups: list[list[int]] = field(default_factory=list)
++
++    @property
++    def representatives(self) -> list[int]:
++        return sorted(g[0] for g in self.groups)
++
++    @property
++    def n_raw(self) -> int:
++        return sum(len(g) for g in self.groups)
++
++    @property
++    def n_kept(self) -> int:
++        return len(self.groups)
++
++    @property
++    def n_collapsed(self) -> int:
++        return self.n_raw - self.n_kept
++
++    def collapsed_groups(self) -> list[list[int]]:
++        """Only the groups that actually merged >1 claim (for the audit trail)."""
++        return [g for g in self.groups if len(g) > 1]
++
++
++def dedup_claims(
++    texts: list[str], *, min_jaccard: float = _DEFAULT_MIN_JACCARD,
++) -> DedupResult:
++    """Greedy deterministic claim dedup.
++
++    Each claim joins the FIRST existing cluster it is compatible with (compatible =
++    no numeric-signature conflict AND no mutual subject/entity SWAP against ANY member
++    AND Jaccard >= min_jaccard against the cluster representative); otherwise it starts
++    a new cluster. Deterministic: input order is preserved, representative = lowest
++    index, no RNG.
++    """
++    sigs = [extract_signature(t) for t in texts]
++    toks = [_content_tokens(t) for t in texts]   # for Jaccard
++    stoks = [_subject_tokens(t) for t in texts]  # for the entity-swap guard
++    clusters: list[list[int]] = []
++    cluster_rep_tokens: list[frozenset[str]] = []
++    for i in range(len(texts)):
++        placed = False
++        for ci, cluster in enumerate(clusters):
++            # no numeric conflict AND IDENTICAL subject-token sets (any subject
++            # difference — swap OR one-sided subset — blocks the merge; §-1.1-safe)
++            if any(_signatures_conflict(sigs[i], sigs[m]) for m in cluster):
++                continue
++            if any(_subjects_differ(stoks[i], stoks[m]) for m in cluster):
++                continue
++            if _jaccard(toks[i], cluster_rep_tokens[ci]) >= min_jaccard:
++                cluster.append(i)
++                placed = True
++                break
++        if not placed:
++            clusters.append([i])
++            cluster_rep_tokens.append(toks[i])
++    return DedupResult(groups=clusters)
+diff --git a/src/polaris_graph/benchmark/extended_metrics.py b/src/polaris_graph/benchmark/extended_metrics.py
+new file mode 100644
+index 00000000..ac7f8412
+--- /dev/null
++++ b/src/polaris_graph/benchmark/extended_metrics.py
+@@ -0,0 +1,255 @@
++"""I-perm-024 (#1216) — beat-both scorer metric extension (claim-by-claim only).
++
++Five extended metrics for the DR head-to-head, computed STRICTLY from the
++already-audited per-claim ledger (``ClaimRow``s — each a reconciled VERIFIED/
++PARTIAL/UNSUPPORTED/FABRICATED/UNREACHABLE verdict against the FETCHED cited span)
++and the FROZEN gold rubric (``RubricElement``s whose ``covered`` /
++``citation_supported`` flags were set by the SAME dual §-1.1 audit).
++
++§-1.1 STRUCTURAL GUARANTEE (the load-bearing safety property): every function here
++accepts ONLY ``ClaimRow`` / ``RubricElement`` typed inputs. None of them receives or
++opens raw report text. So they CANNOT do string-presence / pattern-presence matching
++("does the report mention 'tirzepatide'?") — that is structurally impossible, not a
++convention. Each metric is a roll-up over the per-claim audit LEDGER, never over raw
++text. This is what keeps ``required_entity_recall`` / ``diversity_score`` off the
++§-1.1 BANNED list (word/citation/source COUNTS as quality, pattern-presence,
++string-presence PASS/FAIL — "lethal in clinical").
++
++The metrics:
++  1. ``faithfulness_precision`` = VERIFIED / material(S0-S2).
++  2. ``citation_support_rate`` = VERIFIED-with-a-RESOLVED-citation / material.
++  3. ``required_entity_recall`` = covered+citation_supported frozen rubric elements
++     / total (the existing ``lane2_coverage`` semantics, surfaced as recall).
++  4. ``safety_floor_recall`` = #3 restricted to the PRE-REGISTERED safety element
++     subset (``safety_floor_elements_v3.json``, pinned to the rubric sha).
++  5. ``diversity_score`` = distinct resolved sources among VERIFIED claims / VERIFIED
++     count — DIAGNOSTIC ONLY (support-concentration), NOT a superiority signal.
++
++Claimify-style dedup (``claim_dedup``) collapses near-duplicate claim atoms BEFORE
++#1/#2/#5 so a verbose report cannot inflate by restating one easy fact. Applied
++identically to every system.
++"""
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass
++from pathlib import Path
++
++from src.polaris_graph.benchmark.claim_audit_scorer import ClaimRow, RubricElement
++from src.polaris_graph.benchmark.claim_dedup import dedup_claims
++
++_MATERIAL_SEVERITIES = ("S0", "S1", "S2")
++
++# Default location of the pre-registered safety-floor element registry. Lives under
++# tracked config/ (NOT runtime outputs/, which is gitignored) — it is hand-authored
++# pre-registration, committed, not a regenerated artifact.
++_SAFETY_FLOOR_REGISTRY = (
++    Path(__file__).resolve().parents[3]
++    / "config" / "dr_benchmark" / "safety_floor_elements_v3.json"
++)
++
++_DIVERSITY_NOTE = (
++    "diversity_score is a support-concentration DIAGNOSTIC (distinct sources among "
++    "VERIFIED claims / VERIFIED count), NOT a superiority signal; a higher value is "
++    "NOT a §-1.1 'win' (unique-source counts are banned as quality signals)."
++)
++
++
++@dataclass(frozen=True)
++class ScoredClaim:
++    """One audited claim paired with its prose text (text is used ONLY for dedup —
++    never for verdict assignment, which already happened upstream)."""
++    text: str
++    row: ClaimRow
++
++
++def _is_material(row: ClaimRow) -> bool:
++    return row.severity in _MATERIAL_SEVERITIES
++
++
++def _has_resolved_citation(row: ClaimRow) -> bool:
++    """A claim is citation-supported only if it carries a non-empty resolved
++    citation id (an unresolved / None citation does NOT count — traceability floor)."""
++    return bool(row.citation_id)
++
++
++def faithfulness_precision(rows: list[ClaimRow]) -> dict:
++    material = [r for r in rows if _is_material(r)]
++    denom = len(material)
++    verified = sum(1 for r in material if r.verdict == "VERIFIED")
++    return {
++        "material_atoms": denom,
++        "verified": verified,
++        "value": (verified / denom) if denom else None,
++    }
++
++
++def citation_support_rate(rows: list[ClaimRow]) -> dict:
++    material = [r for r in rows if _is_material(r)]
++    denom = len(material)
++    supported = sum(
++        1 for r in material if r.verdict == "VERIFIED" and _has_resolved_citation(r)
++    )
++    return {
++        "material_atoms": denom,
++        "verified_and_cited": supported,
++        "value": (supported / denom) if denom else None,
++    }
++
++
++def diversity_score(rows: list[ClaimRow]) -> dict:
++    verified = [r for r in rows if r.verdict == "VERIFIED"]
++    denom = len(verified)
++    distinct_sources = {r.citation_id for r in verified if r.citation_id}
++    return {
++        "verified_claims": denom,
++        "distinct_sources": len(distinct_sources),
++        "value": (len(distinct_sources) / denom) if denom else None,
++        "note": _DIVERSITY_NOTE,
++    }
++
++
++def required_entity_recall(rubric: list[RubricElement] | None) -> dict:
++    if not rubric:
++        return {"total_required": 0, "covered_supported": 0, "value": None,
++                "pending": True}
++    total = len(rubric)
++    covered_supported = sum(1 for e in rubric if e.covered and e.citation_supported)
++    return {
++        "total_required": total,
++        "covered_supported": covered_supported,
++        "value": (covered_supported / total) if total else None,
++        "missing": [e.element_id for e in rubric
++                    if not (e.covered and e.citation_supported)],
++        "pending": False,
++    }
++
++
++def safety_floor_recall(
++    rubric: list[RubricElement] | None, safety_element_ids: set[str] | None,
++) -> dict:
++    if not rubric or not safety_element_ids:
++        return {"total_safety_required": 0, "covered_supported": 0, "value": None,
++                "pending": True}
++    # Denominator = the PRE-REGISTERED tagged count, NOT the count present in the
++    # supplied rubric (Codex diff-gate iter-1 P2): a tagged id missing from the rubric
++    # must SURFACE + count AGAINST recall (fail-safe), never silently shrink the
++    # denominator into a falsely-high recall.
++    rubric_by_id = {e.element_id: e for e in rubric}
++    total = len(safety_element_ids)
++    covered_supported = 0
++    missing: list[str] = []
++    missing_from_rubric: list[str] = []
++    for eid in sorted(safety_element_ids):
++        e = rubric_by_id.get(eid)
++        if e is None:
++            missing_from_rubric.append(eid)
++            missing.append(eid)
++            continue
++        if e.covered and e.citation_supported:
++            covered_supported += 1
++        else:
++            missing.append(eid)
++    return {
++        "total_safety_required": total,
++        "covered_supported": covered_supported,
++        "value": (covered_supported / total) if total else None,
++        "missing": missing,
++        "missing_from_rubric": missing_from_rubric,
++        "pending": False,
++    }
++
++
++def load_safety_floor_element_ids(
++    question_id: str, *, registry_path: Path | None = None,
++) -> set[str]:
++    """Read the pre-registered safety-floor element ids for one question from
++    ``safety_floor_elements_v3.json`` (transparent tagging of the frozen rubric;
++    NOT invented claims). Missing file / question → empty set (safety_floor_recall
++    then reports pending, never a false 0)."""
++    path = registry_path or _SAFETY_FLOOR_REGISTRY
++    if not path.exists():
++        return set()
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError):
++        return set()
++    qmap = data.get("questions", {})
++    entry = qmap.get(str(question_id)) or qmap.get(f"Q{question_id}")
++    if not entry:
++        return set()
++    return {str(eid) for eid in entry.get("safety_floor_element_ids", [])}
++
++
++def _verdict_aware_keep(
++    scored_claims: list[ScoredClaim], groups: list[list[int]],
++) -> tuple[list[ClaimRow], int]:
++    """Collapse ONLY repeated VERIFIED claims; keep EVERY non-VERIFIED claim
++    (Codex brief-gate iter-1 P2: a dedup must never hide a bad verdict — if a
++    cluster mixes a VERIFIED restatement with an UNSUPPORTED/FABRICATED/PARTIAL/
++    UNREACHABLE near-duplicate, the bad verdict survives uncollapsed).
++
++    Within each text cluster: keep the FIRST VERIFIED row (collapsing the rest of
++    the VERIFIED restatements to one verified unit) PLUS every non-VERIFIED row
++    untouched. Returns (kept_rows, n_verified_collapsed)."""
++    kept: list[ClaimRow] = []
++    n_verified_collapsed = 0
++    for cluster in groups:
++        rows_in = [scored_claims[i].row for i in cluster]
++        verified = [r for r in rows_in if r.verdict == "VERIFIED"]
++        non_verified = [r for r in rows_in if r.verdict != "VERIFIED"]
++        if verified:
++            # Deterministic, disclosed representative choice (Codex brief-gate iter-2
++            # P2): when VERIFIED duplicates have mixed citation resolution, keep the
++            # FIRST one carrying a RESOLVED citation so citation_support_rate reflects
++            # the best-supported instance; else keep the first VERIFIED. Stable by
++            # original cluster order.
++            rep = next((r for r in verified if r.citation_id), verified[0])
++            kept.append(rep)
++            n_verified_collapsed += len(verified) - 1
++        kept.extend(non_verified)
++    return kept, n_verified_collapsed
++
++
++def compute_extended_metrics(
++    scored_claims: list[ScoredClaim],
++    *,
++    rubric: list[RubricElement] | None = None,
++    safety_element_ids: set[str] | None = None,
++    min_jaccard: float = 0.80,
++) -> dict:
++    """The 5 metrics for ONE (system × question). Dedups REPEATED VERIFIED claim
++    atoms first (anti-inflation, never hiding a bad verdict), then rolls up over the
++    kept ClaimRows + the audited frozen rubric. Pure aggregation — assigns no
++    verdicts, touches no gate.
++
++    ``scored_claims`` is a list of ``ScoredClaim(text, row)`` — a typed AUDITED
++    carrier (the claim's prose text paired with its already-reconciled ``ClaimRow``).
++    The text is used ONLY for the Claimify dedup; every metric value is derived from
++    the ``ClaimRow`` verdicts + the rubric, never from the text (the §-1.1 guard)."""
++    texts = [sc.text for sc in scored_claims]
++    dedup = dedup_claims(texts, min_jaccard=min_jaccard)
++    kept_rows, n_verified_collapsed = _verdict_aware_keep(scored_claims, dedup.groups)
++
++    return {
++        "n_raw_claims": len(scored_claims),
++        "n_kept_claims": len(kept_rows),
++        "dedup": {
++            "n_text_clusters_collapsed": dedup.n_collapsed,
++            "n_verified_collapsed": n_verified_collapsed,
++            "collapsed_groups": dedup.collapsed_groups(),
++            "min_jaccard": min_jaccard,
++            "policy": "collapse repeated VERIFIED only; every non-VERIFIED claim kept "
++                      "(a bad verdict is never hidden by a VERIFIED near-duplicate).",
++        },
++        "faithfulness_precision": faithfulness_precision(kept_rows),
++        "citation_support_rate": citation_support_rate(kept_rows),
++        "diversity_score": diversity_score(kept_rows),
++        "required_entity_recall": required_entity_recall(rubric),
++        "safety_floor_recall": safety_floor_recall(rubric, safety_element_ids),
++        "methodology_note": (
++            "all metrics derived from the per-claim audit ledger (VERIFIED verdicts "
++            "vs FETCHED cited spans) + the frozen gold rubric; NEVER from raw report "
++            "text; dedup applied identically to every system; NOT a superiority claim."
++        ),
++    }
+diff --git a/tests/dr_benchmark/test_extended_metrics_iperm024.py b/tests/dr_benchmark/test_extended_metrics_iperm024.py
+new file mode 100644
+index 00000000..3fa9d176
+--- /dev/null
++++ b/tests/dr_benchmark/test_extended_metrics_iperm024.py
+@@ -0,0 +1,395 @@
++"""I-perm-024 (#1216) — extended beat-both scorer metrics (claim-by-claim only).
++
++Proves: (1) every metric is derived from audited ClaimRows/RubricElements, never raw
++text (§-1.1 structural guard); (2) Claimify dedup collapses repeated VERIFIED claims
++WITHOUT hiding a bad verdict (Codex brief-gate iter-1 P2); (3) diversity_score is a
++diagnostic NO decision path consumes; (4) build_scorecard is byte-identical when the
++extended path is off.
++"""
++from __future__ import annotations
++
++import inspect
++from pathlib import Path
++
++from src.polaris_graph.benchmark import benchmark_scorecard, claim_audit_scorer
++from src.polaris_graph.benchmark.benchmark_scorecard import build_scorecard
++from src.polaris_graph.benchmark.claim_audit_scorer import ClaimRow, RubricElement
++from src.polaris_graph.benchmark.claim_dedup import dedup_claims
++from src.polaris_graph.benchmark.extended_metrics import (
++    ScoredClaim,
++    citation_support_rate,
++    compute_extended_metrics,
++    diversity_score,
++    faithfulness_precision,
++    load_safety_floor_element_ids,
++    required_entity_recall,
++    safety_floor_recall,
++)
++
++_CID = [0]
++
++
++def _verified(cid="src1", sev="S1"):
++    _CID[0] += 1
++    return ClaimRow(claim_id=f"v{_CID[0]}", severity=sev, verdict="VERIFIED",
++                    citation_id=cid, span_quote="supporting span")
++
++
++def _unsupported(cid=None, sev="S1"):
++    _CID[0] += 1
++    return ClaimRow(claim_id=f"u{_CID[0]}", severity=sev, verdict="UNSUPPORTED",
++                    citation_id=cid, span_quote=None,
++                    audit_note="no support" if cid else None)
++
++
++def _fabricated(cid="src9", sev="S1"):
++    _CID[0] += 1
++    return ClaimRow(claim_id=f"f{_CID[0]}", severity=sev, verdict="FABRICATED",
++                    citation_id=cid, span_quote="refuting span")
++
++
++# ── metric correctness ────────────────────────────────────────────────────
++
++def test_faithfulness_precision_exact():
++    rows = [_verified(), _verified(), _unsupported(), _fabricated()]
++    m = faithfulness_precision(rows)
++    assert m["material_atoms"] == 4
++    assert m["verified"] == 2
++    assert m["value"] == 0.5
++
++
++def test_citation_support_rate_excludes_verified_but_uncited():
++    rows = [_verified(cid="src1"), _verified(cid=None), _unsupported()]
++    m = citation_support_rate(rows)
++    assert m["material_atoms"] == 3
++    assert m["verified_and_cited"] == 1   # the cid=None VERIFIED does NOT count
++    assert round(m["value"], 4) == round(1 / 3, 4)
++
++
++def test_diversity_score_monoculture_low_vs_diverse_high():
++    mono = diversity_score([_verified("s1"), _verified("s1"), _verified("s1")])
++    assert mono["distinct_sources"] == 1 and round(mono["value"], 4) == round(1 / 3, 4)
++    div = diversity_score([_verified("s1"), _verified("s2"), _verified("s3")])
++    assert div["distinct_sources"] == 3 and div["value"] == 1.0
++    assert "NOT a superiority signal" in mono["note"]
++
++
++def test_required_entity_recall_on_rubric():
++    rubric = [
++        RubricElement("E1", covered=True, citation_supported=True),
++        RubricElement("E2", covered=True, citation_supported=False),
++        RubricElement("E3", covered=False, citation_supported=False),
++    ]
++    m = required_entity_recall(rubric)
++    assert m["total_required"] == 3 and m["covered_supported"] == 1
++    assert round(m["value"], 4) == round(1 / 3, 4)
++    assert set(m["missing"]) == {"E2", "E3"}
++
++
++def test_safety_floor_recall_restricted_to_tagged_subset():
++    rubric = [
++        RubricElement("Q76-E6", covered=True, citation_supported=True),
++        RubricElement("Q76-E7", covered=False, citation_supported=False),
++        RubricElement("Q76-E1", covered=True, citation_supported=True),  # not safety
++    ]
++    m = safety_floor_recall(rubric, {"Q76-E6", "Q76-E7"})
++    assert m["total_safety_required"] == 2     # E1 excluded
++    assert m["covered_supported"] == 1
++    assert m["value"] == 0.5
++
++
++def test_safety_floor_denominator_is_preregistered_count():
++    # Codex diff-gate iter-1 P2: a tagged id absent from the supplied rubric must
++    # SURFACE + count against recall, NOT shrink the denominator into a false-high.
++    rubric = [RubricElement("Q76-E6", covered=True, citation_supported=True)]
++    m = safety_floor_recall(rubric, {"Q76-E6", "Q76-E7"})  # E7 not in rubric
++    assert m["total_safety_required"] == 2          # pre-registered count, not 1
++    assert m["covered_supported"] == 1
++    assert m["value"] == 0.5                          # penalised, not 1.0
++    assert m["missing_from_rubric"] == ["Q76-E7"]
++    assert "Q76-E7" in m["missing"]
++
++
++def test_required_entity_recall_pending_when_no_rubric():
++    assert required_entity_recall(None)["pending"] is True
++    assert required_entity_recall(None)["value"] is None
++
++
++# ── pre-registered safety registry ────────────────────────────────────────
++
++def test_load_safety_floor_from_real_registry_q76():
++    ids = load_safety_floor_element_ids("76")
++    assert ids == {"Q76-E6", "Q76-E7"}
++
++
++def test_load_safety_floor_q72_is_empty_non_clinical():
++    assert load_safety_floor_element_ids("72") == set()
++
++
++# ── Claimify dedup ────────────────────────────────────────────────────────
++
++def test_dedup_collapses_restatements_of_one_numeric_fact():
++    # true restatements = same content tokens reordered (dedup is conservative: it
++    # does NOT stem, so "provides"/"providing" stay distinct — under-merge is the
++    # §-1.1-safe direction; this proves the collapse on genuine restatements).
++    texts = [
++        "butyrate provides 70 percent of colonocyte energy needs",
++        "colonocyte energy needs butyrate provides 70 percent",
++        "70 percent of colonocyte energy needs butyrate provides",
++    ]
++    res = dedup_claims(texts)
++    assert res.n_kept == 1            # all three collapse
++    assert res.representatives == [0]
++
++
++def test_dedup_is_conservative_on_verb_variation():
++    # a 1-token paraphrase difference below the 0.80 Jaccard bar is NOT merged —
++    # conservative under-merge (never hide a distinct claim) over aggressive merge.
++    texts = [
++        "butyrate is the primary colonocyte energy source providing 70 percent",
++        "butyrate provides 70 percent of colonocyte energy as primary source",
++    ]
++    res = dedup_claims(texts)
++    assert res.n_kept == 2
++
++
++def test_dedup_does_not_over_merge_conflicting_numbers():
++    texts = ["CRC risk reduced by 20 percent", "CRC risk reduced by 37 percent"]
++    res = dedup_claims(texts)
++    assert res.n_kept == 2            # different decimals → distinct facts
++
++
++def test_dedup_blocks_entity_swap_with_matching_numbers():
++    # Codex diff-gate iter-1 P1: distinct DRUGS, same 20% phrasing, Jaccard >= 0.80 —
++    # must NOT merge (a mutual semaglutide<->liraglutide swap = different facts).
++    texts = [
++        "semaglutide significantly reduced major adverse cardiovascular events by 20 percent",
++        "liraglutide significantly reduced major adverse cardiovascular events by 20 percent",
++    ]
++    res = dedup_claims(texts)
++    assert res.n_kept == 2
++
++
++def test_dedup_blocks_alphanumeric_entity_swap():
++    # Codex diff-gate iter-2 P1: alphanumeric drug-class tokens (SGLT2/DPP4, IL6/TNF,
++    # PCSK9/DPP4) are subjects too — isalpha() missed them. They must NOT merge.
++    for a_ent, b_ent in (("SGLT2", "DPP4"), ("IL6", "TNF"), ("PCSK9", "DPP4")):
++        texts = [
++            f"{a_ent} inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
++            f"{b_ent} inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
++        ]
++        res = dedup_claims(texts)
++        assert res.n_kept == 2, f"{a_ent} vs {b_ent} wrongly merged"
++
++
++def test_dedup_blocks_hyphenated_and_short_entity_swaps():
++    # Codex diff-gate iter-3 P1: hyphenated cytokines (IL-6/TNF, IL-6/IL-10) and
++    # short metal-ion symbols (Zn/Cu, Mg/Fe) are distinct entities — must NOT merge.
++    pairs = [
++        ("IL-6", "TNF"), ("IL-6", "IL-10"), ("Zn", "Cu"), ("Mg", "Fe"),
++        ("CD4", "CD8"),
++    ]
++    for a_ent, b_ent in pairs:
++        texts = [
++            f"{a_ent} signalling was associated with the outcome in adults by 20 percent",
++            f"{b_ent} signalling was associated with the outcome in adults by 20 percent",
++        ]
++        res = dedup_claims(texts)
++        assert res.n_kept == 2, f"{a_ent} vs {b_ent} wrongly merged"
++
++
++def test_dedup_blocks_sign_and_greek_entity_swaps():
++    # Codex diff-gate iter-4 P1: sign suffixes and Greek variants distinguish entities
++    # (CD4+/CD4-, pks+/pks-, IL-1alpha/IL-1beta) — must NOT merge.
++    alpha, beta = chr(0x3B1), chr(0x3B2)
++    pairs = [
++        ("CD4+", "CD4-"), ("pks+", "pks-"), (f"IL-1{alpha}", f"IL-1{beta}"),
++        ("HER2+", "HER2-"), ("ER+", "ER-"),
++    ]
++    for a_ent, b_ent in pairs:
++        texts = [
++            f"{a_ent} tumour cells increased the marker in adults by 20 percent",
++            f"{b_ent} tumour cells increased the marker in adults by 20 percent",
++        ]
++        res = dedup_claims(texts)
++        assert res.n_kept == 2, f"{a_ent} vs {b_ent} wrongly merged"
++
++
++def test_alphanumeric_entity_swap_does_not_inflate_citation_rate():
++    scored = [
++        ScoredClaim(
++            "SGLT2 inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
++            _verified(cid=None)),
++        ScoredClaim(
++            "DPP4 inhibitors significantly reduced major adverse cardiovascular events in adults by 20 percent",
++            _verified(cid="src6")),
++    ]
++    out = compute_extended_metrics(scored)
++    assert out["dedup"]["n_verified_collapsed"] == 0
++    csr = out["citation_support_rate"]
++    assert csr["material_atoms"] == 2 and csr["value"] == 0.5
++
++
++def test_entity_swap_does_not_inflate_citation_support_rate():
++    # the metric-level consequence Codex flagged: an uncited VERIFIED drug-A claim and
++    # a cited VERIFIED drug-B claim must BOTH survive → citation_support_rate = 1/2.
++    scored = [
++        ScoredClaim(
++            "semaglutide significantly reduced major adverse cardiovascular events by 20 percent",
++            _verified(cid=None)),
++        ScoredClaim(
++            "liraglutide significantly reduced major adverse cardiovascular events by 20 percent",
++            _verified(cid="src5")),
++    ]
++    out = compute_extended_metrics(scored)
++    assert out["dedup"]["n_verified_collapsed"] == 0   # no merge
++    csr = out["citation_support_rate"]
++    assert csr["material_atoms"] == 2 and csr["verified_and_cited"] == 1
++    assert csr["value"] == 0.5
++
++
++def test_dedup_blocks_one_sided_subgroup_modifiers():
++    # Codex diff-gate iter-5 P1: a clinically-distinct SUBGROUP narrowing is a one-sided
++    # subset modifier (HER2+ breast cancer vs breast cancer; CD4+ T cells vs T cells;
++    # low-dose aspirin vs aspirin) — these are DIFFERENT facts and must NOT merge.
++    pairs = [
++        ("HER2+ breast cancer patients had a 20 percent response rate to the drug",
++         "breast cancer patients had a 20 percent response rate to the drug"),
++        ("CD4+ T cells increased the marker in adults by 20 percent",
++         "T cells increased the marker in adults by 20 percent"),
++        ("low-dose aspirin reduced events in adults by 20 percent",
++         "aspirin reduced events in adults by 20 percent"),
++    ]
++    for a, b in pairs:
++        res = dedup_claims([a, b])
++        assert res.n_kept == 2, f"subset modifier wrongly merged:\n  {a}\n  {b}"
++
++
++def test_dedup_still_collapses_identical_subject_reorderings():
++    # the kept value: verbatim repeats + pure reorderings (IDENTICAL subjects) still merge.
++    texts = [
++        "butyrate provides 70 percent of colonocyte energy needs",
++        "colonocyte energy needs butyrate provides 70 percent",
++        "butyrate provides 70 percent of colonocyte energy needs",
++    ]
++    assert dedup_claims(texts).n_kept == 1
++
++
++def test_dedup_is_cross_system_identical():
++    texts = ["fiber raises SCFA 15%", "dietary fiber raises SCFA by 15%"]
++    a = dedup_claims(texts)
++    b = dedup_claims(list(texts))
++    assert a.groups == b.groups
++
++
++# ── verdict-aware keep (the P2 fix): a bad verdict is NEVER hidden ─────────
++
++def test_mixed_verdict_cluster_keeps_the_bad_verdict():
++    # same fact, one VERIFIED and one UNSUPPORTED → both must survive dedup.
++    same = "colibactin from pks+ E. coli causes DNA double-strand breaks"
++    scored = [
++        ScoredClaim(same, _verified("s1")),
++        ScoredClaim(same, _unsupported(cid="s1")),
++    ]
++    out = compute_extended_metrics(scored)
++    # one text cluster collapsed, but n_verified_collapsed counts only VERIFIED dups
++    assert out["dedup"]["n_verified_collapsed"] == 0
++    fp = out["faithfulness_precision"]
++    assert fp["material_atoms"] == 2 and fp["verified"] == 1   # UNSUPPORTED survived
++    assert fp["value"] == 0.5
++
++
++def test_collapsed_verified_prefers_cited_representative():
++    # a VERIFIED-uncited + VERIFIED-cited restatement of one fact collapses to the
++    # CITED rep (deterministic, disclosed) so citation_support_rate is not understated.
++    same = "fermented foods raise microbiome diversity in adults"
++    scored = [
++        ScoredClaim(same, _verified(cid=None)),   # uncited, appears first
++        ScoredClaim(same, _verified(cid="src7")),  # cited
++    ]
++    out = compute_extended_metrics(scored)
++    assert out["dedup"]["n_verified_collapsed"] == 1
++    csr = out["citation_support_rate"]
++    assert csr["material_atoms"] == 1 and csr["verified_and_cited"] == 1  # cited kept
++    assert csr["value"] == 1.0
++
++
++def test_repeated_verified_does_not_inflate_precision():
++    same = "fermented foods increase microbiome diversity"
++    scored = [ScoredClaim(same, _verified("s1")) for _ in range(10)]
++    scored += [ScoredClaim(f"hard distinct claim number {i}", _unsupported(cid=f"s{i}"))
++               for i in range(5)]
++    out = compute_extended_metrics(scored)
++    assert out["dedup"]["n_verified_collapsed"] == 9   # 10 VERIFIED → 1
++    fp = out["faithfulness_precision"]
++    assert fp["material_atoms"] == 6 and fp["verified"] == 1   # 1 verified + 5 unsupp
++    assert round(fp["value"], 4) == round(1 / 6, 4)
++
++
++# ── §-1.1 structural: metrics are verdict-derived, never text-derived ─────
++
++def test_metric_functions_take_only_audited_inputs_no_report_text():
++    for fn in (faithfulness_precision, citation_support_rate, diversity_score):
++        params = list(inspect.signature(fn).parameters)
++        assert params == ["rows"], f"{fn.__name__} must take only audited rows"
++    for fn in (required_entity_recall,):
++        assert list(inspect.signature(fn).parameters) == ["rubric"]
++    # no metric function accepts a report/body/text param anywhere
++    banned = {"report", "report_text", "body", "text", "raw"}
++    for fn in (faithfulness_precision, citation_support_rate, diversity_score,
++               required_entity_recall, safety_floor_recall):
++        assert not (set(inspect.signature(fn).parameters) & banned)
++
++
++def test_metrics_unchanged_when_claim_text_differs_but_rows_identical():
++    rows = [_verified("s1"), _unsupported(), _verified("s2")]
++    # identical rows, but completely different (all-distinct) texts → no dedup either way
++    a = compute_extended_metrics(
++        [ScoredClaim(f"alpha unique sentence {i}", r) for i, r in enumerate(rows)])
++    b = compute_extended_metrics(
++        [ScoredClaim(f"zzz totally other words {i}", r) for i, r in enumerate(rows)])
++    assert a["faithfulness_precision"] == b["faithfulness_precision"]
++    assert a["citation_support_rate"] == b["citation_support_rate"]
++    assert a["diversity_score"]["value"] == b["diversity_score"]["value"]
++
++
++# ── diversity is a diagnostic NO decision path consumes (Codex P2) ─────────
++
++def test_no_decision_path_consumes_diversity_score():
++    # the scorecard PASS/aggregate logic must never read diversity — structural guard
++    for mod in (benchmark_scorecard, claim_audit_scorer):
++        src = Path(mod.__file__).read_text(encoding="utf-8")
++        assert "diversity" not in src.lower(), (
++            f"{mod.__name__} must not reference diversity (it is a diagnostic only)")
++
++
++# ── byte-identical when the extended path is off ──────────────────────────
++
++def test_build_scorecard_byte_identical_when_extended_none():
++    rows = {("polaris", "76"): [_verified("s1"), _unsupported()]}
++    default = build_scorecard(rows)
++    explicit_off = build_scorecard(rows, extended=None)
++    assert default == explicit_off
++    assert "extended" not in default
++
++
++def test_build_scorecard_attaches_extended_when_provided():
++    rows = {("polaris", "76"): [_verified("s1")]}
++    card = build_scorecard(rows, extended={"polaris:76": {"ok": True}})
++    assert card["extended"] == {"polaris:76": {"ok": True}}
++
++
++# ── end-to-end shape ──────────────────────────────────────────────────────
++
++def test_compute_extended_metrics_full_shape():
++    scored = [ScoredClaim("a claim about butyrate", _verified("s1")),
++              ScoredClaim("a distinct claim about fiber", _unsupported())]
++    rubric = [RubricElement("Q76-E6", covered=True, citation_supported=True)]
++    out = compute_extended_metrics(
++        scored, rubric=rubric, safety_element_ids={"Q76-E6"})
++    for key in ("faithfulness_precision", "citation_support_rate", "diversity_score",
++                "required_entity_recall", "safety_floor_recall", "methodology_note",
++                "dedup", "n_raw_claims", "n_kept_claims"):
++        assert key in out
++    assert out["required_entity_recall"]["value"] == 1.0
++    assert out["safety_floor_recall"]["value"] == 1.0

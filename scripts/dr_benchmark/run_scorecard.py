@@ -14,11 +14,31 @@ Inputs:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Callable
 
-from src.polaris_graph.benchmark.benchmark_scorecard import build_scorecard
+# I-perm-024 (#1216): default-OFF flag. Unset/0 → byte-identical pre-#1216 scorecard.
+# The Gate-B full-capability slate force-sets this to "1" so the broad operator-gated
+# run archives the extended metric block (Codex brief-gate iter-1 P2).
+_EXTENDED_METRICS_ENV = "PG_BENCH_EXTENDED_METRICS"
+
+
+def _extended_metrics_enabled_from_env() -> bool:
+    return os.environ.get(_EXTENDED_METRICS_ENV, "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+from src.polaris_graph.benchmark.benchmark_scorecard import (
+    build_scorecard,
+    normalize_qid,
+)
+from src.polaris_graph.benchmark.extended_metrics import (
+    ScoredClaim,
+    compute_extended_metrics,
+    load_safety_floor_element_ids,
+)
 from src.polaris_graph.benchmark.fact_scorer import Judge, SpanFetcher, score_atoms
 from src.polaris_graph.benchmark.report_claim_extractor import extract_atoms
 
@@ -163,12 +183,26 @@ def run_scorecard(
     judge: Judge,
     atomizer: Callable[[str], list[str]] | None = None,
     rubrics=None,
+    extended: bool | None = None,
 ) -> dict:
     """Extract -> FACT-score -> scorecard across all systems for the 5 locked Qs.
 
     Returns the scorecard dict (lane1 + lane2_pending). The injected ``span_fetcher``
-    + ``judge`` are the only billed work."""
+    + ``judge`` are the only billed work.
+
+    ``extended`` (I-perm-024 #1216): None (DEFAULT) → read the
+    ``PG_BENCH_EXTENDED_METRICS`` env (unset → OFF → byte-identical pre-#1216
+    scorecard); True/False overrides it explicitly (tests pass a bool). When ON, an
+    additive ``extended`` block (the 5 claim-by-claim metrics + Claimify dedup) is
+    computed per (system, qid) and attached — derived ONLY from the already-audited
+    ClaimRows + the frozen rubric, never from raw report text."""
+    if extended is None:
+        extended = _extended_metrics_enabled_from_env()
     rows_by_system_qid: dict[tuple[str, str], list] = {}
+    # (system, qid) -> list[ScoredClaim] (atom text paired with its ClaimRow), kept
+    # ONLY when extended is on (the dedup needs the claim text). score_atoms emits
+    # exactly one row per atom in order, so zip() pairs them faithfully.
+    scored_by_system_qid: dict[tuple[str, str], list[ScoredClaim]] = {}
     # NON-SILENT reference stripping (Codex diff-gate audit trail): every block the
     # heuristic removes is RECORDED here so the §-1.1 audit / operator can verify
     # nothing material was dropped. A claim wrongly stripped is visible + catchable,
@@ -191,6 +225,10 @@ def run_scorecard(
                               atomizer=atomizer, question_id=qid)
         rows = score_atoms(atoms, span_fetcher=span_fetcher, judge=judge)
         rows_by_system_qid[(system, qid)] = rows
+        if extended:
+            scored_by_system_qid[(system, qid)] = [
+                ScoredClaim(text=a.text, row=r) for a, r in zip(atoms, rows)
+            ]
 
     external_root = Path(external_root)
     for system_dir, system in (("gpt_5_5_pro", "chatgpt"), ("gemini_3_1_pro", "gemini")):
@@ -213,6 +251,22 @@ def run_scorecard(
             qid = qid_m.group(1) if qid_m else "0"
             _ingest("polaris", text, _polaris_references(run_dir), qid)
 
-    card = build_scorecard(rows_by_system_qid, rubrics=rubrics)
+    extended_block: dict | None = None
+    if extended:
+        # Per-(system, qid) extended metrics from the audited ledger + frozen rubric.
+        # JSON-safe string keys (tuple keys are not serializable).
+        extended_block = {}
+        for (system, qid), scored in scored_by_system_qid.items():
+            nqid = normalize_qid(qid)
+            rubric_elems = (rubrics or {}).get((system, qid)) \
+                or (rubrics or {}).get((system, nqid))
+            safety_ids = load_safety_floor_element_ids(nqid)
+            extended_block[f"{system}:{nqid}"] = compute_extended_metrics(
+                scored, rubric=rubric_elems, safety_element_ids=safety_ids,
+            )
+
+    card = build_scorecard(
+        rows_by_system_qid, rubrics=rubrics, extended=extended_block,
+    )
     card["reference_stripping"] = reference_stripping   # audit trail (non-silent)
     return card

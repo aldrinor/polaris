@@ -95,12 +95,15 @@ def build_scorecard(
     rows_by_system_qid: dict[tuple[str, str], list[ClaimRow]],
     *,
     rubrics: dict[tuple[str, str], list[RubricElement]] | None = None,
+    extended: dict | None = None,
 ) -> dict:
     """Per-system scorecard with clinical-3 + overall-5 slices.
 
     ``rows_by_system_qid`` maps (system, question_id) → ClaimRows. ``rubrics`` is
     optional; when absent (the current state), lane2 is reported as pending and no
-    PASS/"wins" claim is made.
+    PASS/"wins" claim is made. ``extended`` (I-perm-024 #1216) is an OPTIONAL
+    precomputed extended-metrics block; when None (the DEFAULT) the returned dict is
+    byte-identical to the pre-#1216 scorecard — the extended path is purely additive.
     """
     rubrics = rubrics or {}
     lane2_pending = len(rubrics) == 0
@@ -117,7 +120,7 @@ def build_scorecard(
             "source_critical_2": _aggregate_subset(rows_by_qid, SOURCE_CRITICAL_QIDS),
         }
 
-    return {
+    card = {
         "systems": systems,
         "lane2_pending": lane2_pending,
         "note": (
@@ -128,3 +131,6 @@ def build_scorecard(
             "lane1 FACT faithfulness + lane2 coverage; per-claim traceable."
         ),
     }
+    if extended is not None:
+        card["extended"] = extended
+    return card

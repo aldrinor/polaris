@@ -1,0 +1,12 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Diff gate should verify the narrowed invariant precisely: `ScoredClaim.text` is used only for dedup grouping, never for metric numerator/denominator decisions."
+  - "Diff gate should verify no PASS/aggregate/win path consumes `extended` wholesale; `diversity_score` is acceptable only as diagnostic-only archived metadata."
+  - "Duplicate VERIFIED clusters with mixed citation resolution should have deterministic disclosed behavior for `citation_support_rate`; non-blocking for this brief gate."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```
