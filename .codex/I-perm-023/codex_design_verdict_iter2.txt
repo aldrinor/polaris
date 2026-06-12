@@ -1,0 +1,13 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Faithfulness wording needs one correction: strict_verify verifies against the effective generator evidence_pool, not strictly evidence_selection.selected_rows. In sweep this starts from selected_rows, but can include sanctioned prepends and M-52 live_corpus primary pulls. The safety claim still holds: selection cannot relax strict_verify or admit unsupported prose."
+  - "_apply_domain_cap currently returns only moved count. The new pass must also protect rows brought in by the domain pass, or it can undo the existing domain diversity pass."
+  - "Use a new call-time default-OFF flag parser for PG_SELECT_CONSTRAINED_GREEDY; do not reuse _env_flag_on because it defaults ON. OFF must preserve selected rows, notes, and to_dict byte-identically."
+  - "Make the eviction ordering explicit: evict highest redundancy and lowest relevance among non-protected same-tier slack rows, with a total deterministic tie-break."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

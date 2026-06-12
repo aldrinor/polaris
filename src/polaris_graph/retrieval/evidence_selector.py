@@ -821,6 +821,123 @@ def _reserve_subqueries(
     return swaps, brought_in
 
 
+# ── I-perm-023 (#1215): diversity-aware selection (constrained-greedy) ────────
+# A default-OFF forward guard that diversifies the SELECTED set on the coverage
+# axes the existing floor stack does NOT already cover. Entity custody is owned by
+# the M-42e/M-51 anchor-primary floors, mechanism by the M-42c floor, the 1-per
+# present-jurisdiction reservation by M-41d — so this pass adds SAFETY-CATEGORY +
+# EVIDENCE-CLASS coverage (plus jurisdiction diversity BEYOND the M-41d 1-per floor)
+# via the SAME post-floor same-tier swap mechanism as the #956 passes. It NEVER
+# touches a floor / quota / protected row, so floor parity is guaranteed BY
+# CONSTRUCTION. Swaps are COVERAGE-MONOTONE: a swap fires only when the incoming row
+# adds a NOVEL bucket AND the evicted row's every bucket stays covered by another
+# selected row, so distinct coverage can only INCREASE, never drop an axis.
+# Faithfulness (Codex design-gate iter-2): selection only changes the generator's
+# candidate menu; the effective generator evidence_pool starts from selected_rows
+# (and may add sanctioned prepends + M-52 live pulls), and strict_verify / the
+# 4-role evaluator / D8 re-check every sentence against the cited span unchanged —
+# so a swap can at worst trade one verifiable row for another, NEVER admit
+# unsupported prose. No-op at drb_76 scale (pool<=cap returns via the short-pool
+# branch before this region runs).
+
+# Safety-category taxonomy (FDA/DailyMed SPL labeling sections). Keyword -> category,
+# preference-only (a miss costs diversity, never faithfulness). Versioned constant.
+_GREEDY_SAFETY_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("boxed_warning", ("boxed warning", "black box warning", "black-box warning")),
+    ("contraindication", ("contraindication", "contraindicated")),
+    ("warning_precaution", ("warnings and precautions", "warning", "precaution")),
+    ("adverse_reaction", ("adverse reaction", "adverse event", "adverse effect",
+                          "side effect")),
+    ("drug_interaction", ("drug interaction", "drug-drug interaction")),
+    ("pregnancy_lactation", ("pregnancy", "lactation", "breastfeeding", "teratogen")),
+    ("hepatic_renal", ("hepatotoxicity", "hepatic impairment", "renal impairment",
+                       "nephrotox")),
+    ("hypoglycemia", ("hypoglycemia", "hypoglycaemia")),
+    ("overdose", ("overdose", "overdosage")),
+)
+
+# Evidence-class taxonomy. Keyword -> class, preference-only. Versioned constant.
+_GREEDY_EVIDENCE_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("meta_analysis", ("meta-analysis", "meta analysis", "systematic review",
+                       "cochrane")),
+    ("rct", ("randomized", "randomised", "double-blind", "placebo-controlled",
+             "phase 3 trial", "phase iii")),
+    ("guideline", ("guideline", "consensus statement", "recommendation",
+                   "position statement")),
+    ("real_world", ("real-world", "observational", "registry", "cohort study",
+                    "case-control", "post-marketing")),
+    ("regulatory", ("prescribing information", "package insert",
+                    "summary of product characteristics", "smpc")),
+)
+
+_GREEDY_MAX_SWAPS_DEFAULT = 24
+_GREEDY_AXES_DEFAULT = ("safety", "class", "jurisdiction")
+_GREEDY_VALID_AXES = frozenset(_GREEDY_AXES_DEFAULT)
+
+
+def _greedy_match_category(
+    row: dict[str, Any], taxonomy: tuple[tuple[str, tuple[str, ...]], ...],
+) -> str | None:
+    """First taxonomy category whose keyword appears in the row's title/statement/
+    quote (case-insensitive substring), in taxonomy order. None if no match."""
+    combined = " ".join((
+        _row_title_text(row),
+        str(row.get("statement") or ""),
+        str(row.get("direct_quote") or ""),
+    )).lower()
+    for category, tokens in taxonomy:
+        if any(tok in combined for tok in tokens):
+            return category
+    return None
+
+
+def _greedy_active_axes() -> tuple[str, ...]:
+    """Call-time active axis set (env override PG_GREEDY_AXES, default safety/class/
+    jurisdiction). Unknown axis names are ignored; empty/invalid -> the default."""
+    raw = os.environ.get("PG_GREEDY_AXES", "").strip()
+    if not raw:
+        return _GREEDY_AXES_DEFAULT
+    axes = tuple(a for a in (x.strip() for x in raw.split(",")) if a in _GREEDY_VALID_AXES)
+    return axes or _GREEDY_AXES_DEFAULT
+
+
+def _row_coverage_buckets(
+    row: dict[str, Any], axes: tuple[str, ...],
+) -> frozenset[tuple[str, str]]:
+    """The (axis, value) coverage buckets a row belongs to across the ACTIVE axes.
+    safety_category / evidence_class are keyword-derived; jurisdiction reuses the
+    existing M-41d host predicate. A row with no axis value contributes nothing."""
+    out: set[tuple[str, str]] = set()
+    if "safety" in axes:
+        s = _greedy_match_category(row, _GREEDY_SAFETY_CATEGORIES)
+        if s:
+            out.add(("safety", s))
+    if "class" in axes:
+        c = _greedy_match_category(row, _GREEDY_EVIDENCE_CLASSES)
+        if c:
+            out.add(("class", c))
+    if "jurisdiction" in axes:
+        j = _row_jurisdiction(row)
+        if j:
+            out.add(("jurisdiction", j))
+    return frozenset(out)
+
+
+def _constrained_greedy_config() -> tuple[bool, int]:
+    """Call-time config for the I-perm-023 diversity pass. DEFAULT OFF (NOT
+    `_env_flag_on`, which defaults ON — Codex design-gate iter-2 P2.3) -> when unset
+    the pass never runs and selected/notes/to_dict stay byte-identical. Returns
+    (enabled, max_swaps)."""
+    raw = os.environ.get("PG_SELECT_CONSTRAINED_GREEDY", "0").strip().lower()
+    enabled = raw in ("1", "true", "yes", "on")
+    raw_n = os.environ.get("PG_GREEDY_MAX_SWAPS", "").strip()
+    try:
+        n = int(raw_n) if raw_n else _GREEDY_MAX_SWAPS_DEFAULT
+    except (ValueError, TypeError):
+        n = _GREEDY_MAX_SWAPS_DEFAULT
+    return enabled, max(0, n)
+
+
 def _apply_domain_cap(
     selected: list[tuple[int, float, str, dict[str, Any]]],
     scored: list[tuple[int, float, str, dict[str, Any]]],
@@ -828,13 +945,16 @@ def _apply_domain_cap(
     cap: int,
     rec_enabled: bool,
     rec_eps: float,
-) -> int:
+) -> tuple[int, set[int]]:
     """Soft per-domain cap via same-tier swaps. An over-cap domain's NON-protected
     slack rows (worst-priority first) are replaced by the best same-tier pool row
     of an under-cap domain. YIELDS (stops) when no valid same-tier replacement
     exists — never leaves a slot empty, drops a tier below quota, or evicts a
-    protected/reserved row. Returns the number of rows moved."""
+    protected/reserved row. Returns (rows_moved, brought_in_ids) — the brought-in
+    ids let the caller protect them from a later pass (Codex design-gate iter-2
+    P2.2: the I-perm-023 greedy pass must not undo this domain-diversity pass)."""
     moved = 0
+    brought_in: set[int] = set()
     selected_ids = {id(it) for it in selected}
     domain_count = Counter(_row_domain(it[3]) for it in selected)
     over = [d for d, c in domain_count.items() if d and c > cap]
@@ -861,6 +981,7 @@ def _apply_domain_cap(
                 best = min(repls, key=lambda it: _priority_sort_key(it, rec_enabled, rec_eps))
                 old = selected[ei]
                 selected[ei] = best
+                brought_in.add(id(best))
                 selected_ids.discard(id(old))
                 selected_ids.add(id(best))
                 domain_count[dom] -= 1
@@ -870,7 +991,121 @@ def _apply_domain_cap(
                 break
             if not swapped:
                 break  # yield: no same-tier under-cap replacement available
-    return moved
+    return moved, brought_in
+
+
+def _apply_coverage_diversification(
+    selected: list[tuple[int, float, str, dict[str, Any]]],
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    protected_ids: set[int],
+    max_swaps: int,
+    axes: tuple[str, ...],
+    rec_enabled: bool,
+    rec_eps: float,
+    domain_cap: int | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """I-perm-023 (#1215) constrained-greedy diversity pass. COVERAGE-MONOTONE
+    same-tier swaps on post-floor slack: a swap fires only when a non-selected
+    same-tier candidate adds a NOVEL coverage bucket AND the evicted (non-protected)
+    selected row's every bucket remains covered by another selected row — so the
+    pass can only INCREASE distinct coverage, never drop an axis or touch a floor.
+    When ``domain_cap`` is set (the active #956 per-domain soft cap) a swap is ALSO
+    rejected if it would raise the candidate's source domain ABOVE that cap (Codex
+    diff-gate iter-1 P1: the greedy pass must not regress the domain-diversity pass
+    by pulling an at-cap domain back over the cap). Deterministic (total-ordered
+    tie-breaks); bounded by max_swaps. Returns (swaps, telemetry)."""
+    selected_ids = {id(it) for it in selected}
+    pool_by_tier: dict[str, list] = defaultdict(list)
+    for it in scored:
+        if id(it) not in selected_ids:
+            pool_by_tier[it[2]].append(it)
+    # live (axis, value) -> count of selected rows covering it
+    bucket_count: Counter = Counter()
+    for it in selected:
+        for b in _row_coverage_buckets(it[3], axes):
+            bucket_count[b] += 1
+    # live per-domain count (only consulted when domain_cap is enforced)
+    domain_count: Counter = Counter(_row_domain(it[3]) for it in selected)
+    brought_in: set[int] = set()
+    swaps = 0
+    while swaps < max_swaps:
+        best = None  # (sort_key, cand, evict_pos, tier, cand_buckets)
+        for tier, pool in pool_by_tier.items():
+            for cand in pool:
+                if id(cand) in brought_in:
+                    continue
+                cb = _row_coverage_buckets(cand[3], axes)
+                novel = sum(1 for b in cb if bucket_count.get(b, 0) == 0)
+                if novel == 0:
+                    continue
+                # same-tier, non-protected, not-brought-in, REDUNDANT evictable:
+                # every bucket it holds is covered by >=2 selected rows, so removing
+                # it keeps each of those buckets covered (>=1) -> coverage-monotone.
+                evictables = [
+                    i for i, it in enumerate(selected)
+                    if it[2] == tier
+                    and id(it) not in protected_ids
+                    and id(it) not in brought_in
+                    and all(bucket_count.get(b, 0) >= 2
+                            for b in _row_coverage_buckets(it[3], axes))
+                ]
+                # Codex diff-gate iter-1 P1: respect the #956 domain cap. Admitting
+                # `cand` raises its domain by 1 UNLESS the evicted row is the SAME
+                # domain (net-zero). If cand's domain is already at/over the cap, the
+                # ONLY domain-feasible swap evicts a same-domain row.
+                if domain_cap is not None:
+                    cand_dom = _row_domain(cand[3])
+                    if domain_count.get(cand_dom, 0) >= domain_cap:
+                        evictables = [
+                            i for i in evictables
+                            if _row_domain(selected[i][3]) == cand_dom
+                        ]
+                if not evictables:
+                    continue
+                # worst evictable (Codex design-gate iter-2 P2.4): highest
+                # redundancy, then lowest relevance, then highest original idx.
+                evict_pos = max(evictables, key=lambda i: (
+                    sum(bucket_count.get(b, 0) - 1
+                        for b in _row_coverage_buckets(selected[i][3], axes)),
+                    -selected[i][1],
+                    selected[i][0],
+                ))
+                # candidate preference: most novel buckets, then best priority,
+                # then original index (total order, deterministic).
+                key = (-novel, _priority_sort_key(cand, rec_enabled, rec_eps), cand[0])
+                if best is None or key < best[0]:
+                    best = (key, cand, evict_pos, tier, cb)
+        if best is None:
+            break
+        _, cand, evict_pos, tier, cb = best
+        old = selected[evict_pos]
+        for b in _row_coverage_buckets(old[3], axes):
+            bucket_count[b] -= 1
+        domain_count[_row_domain(old[3])] -= 1
+        selected[evict_pos] = cand
+        for b in cb:
+            bucket_count[b] += 1
+        domain_count[_row_domain(cand[3])] = domain_count.get(_row_domain(cand[3]), 0) + 1
+        selected_ids.discard(id(old))
+        selected_ids.add(id(cand))
+        brought_in.add(id(cand))
+        pool_by_tier[tier] = [p for p in pool_by_tier[tier] if id(p) != id(cand)]
+        swaps += 1
+    # telemetry — DIAGNOSTIC only (distinct-bucket counts are NOT a §-1.1 quality /
+    # superiority signal; unique-source counts are banned as quality).
+    per_axis: dict[str, int] = {}
+    for (axis, _val), c in bucket_count.items():
+        if c > 0:
+            per_axis[axis] = per_axis.get(axis, 0) + 1
+    distinct_buckets = sum(1 for c in bucket_count.values() if c > 0)
+    diversity_score = round(distinct_buckets / len(selected), 4) if selected else 0.0
+    return swaps, {
+        "swaps": swaps,
+        "distinct_buckets": distinct_buckets,
+        "per_axis_buckets": per_axis,
+        "diversity_score": diversity_score,
+        "axes": list(axes),
+    }
 
 
 def _m46_short_pool_ordered_selection(
@@ -1729,12 +1964,40 @@ def select_evidence_for_generation(
     _dom_enabled, _dom_frac = _domain_cap_config()
     if _dom_enabled:
         _dom_cap = max(1, math.ceil(_dom_frac * max_rows))
-        _dom_moved = _apply_domain_cap(
+        _dom_moved, _dom_brought = _apply_domain_cap(
             selected, scored, protected_ids, _dom_cap, _rec_enabled, _rec_eps,
         )
         if _dom_moved:
             _diversity_notes.append(
                 f"domain_soft_cap cap={_dom_cap} moved={_dom_moved}"
+            )
+        # Codex design-gate iter-2 P2.2: protect rows the domain pass brought in so
+        # the I-perm-023 greedy pass below cannot undo the domain-diversity pass.
+        protected_ids |= _dom_brought
+    # I-perm-023 (#1215): constrained-greedy coverage diversification. Runs LAST in
+    # the #956 region (after the floor stack + subquery + domain passes), on
+    # post-floor slack only, honoring every protected/floor/brought-in id. DEFAULT
+    # OFF (PG_SELECT_CONSTRAINED_GREEDY read at call time) -> byte-identical when
+    # unset; also a no-op when pool<=cap (the short-pool branch returned earlier).
+    _greedy_enabled, _greedy_max_swaps = _constrained_greedy_config()
+    if _greedy_enabled and _greedy_max_swaps > 0:
+        _greedy_axes = _greedy_active_axes()
+        # pass the ACTIVE #956 domain cap so the greedy pass cannot pull an at-cap
+        # domain back over it (Codex diff-gate iter-1 P1). None when the domain cap
+        # is disabled.
+        _greedy_dom_cap = (
+            max(1, math.ceil(_dom_frac * max_rows)) if _dom_enabled else None
+        )
+        _greedy_swaps, _greedy_telem = _apply_coverage_diversification(
+            selected, scored, protected_ids, _greedy_max_swaps, _greedy_axes,
+            _rec_enabled, _rec_eps, domain_cap=_greedy_dom_cap,
+        )
+        if _greedy_swaps:
+            _diversity_notes.append(
+                f"constrained_greedy swaps={_greedy_swaps} "
+                f"distinct_buckets={_greedy_telem['distinct_buckets']} "
+                f"diversity_score={_greedy_telem['diversity_score']} "
+                f"axes={','.join(_greedy_axes)} (DIAGNOSTIC)"
             )
 
     # Sort final selection by (tier_priority, relevance/recency, original_idx)

@@ -704,6 +704,15 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # entities; assigns NO new credit and touches NO gate; fail-soft. Surfacing honest coverage
     # gaps is a POLARIS differentiator for the beat-both run. Flag-OFF byte-identical.
     "PG_REQUIRED_ENTITY_LEDGER": "1",
+    # I-perm-023 (#1215): force-on the constrained-greedy diversity-aware selection pass — a
+    # post-floor, same-tier, COVERAGE-MONOTONE diversification on the safety-category +
+    # evidence-class (+ jurisdiction-beyond-M41d) axes the existing floor stack does NOT cover.
+    # FORWARD GUARD: a no-op until retrieval (#1204/#1207) grows the post-extraction pool past the
+    # generator cap; at that scale it prevents a topical/safety monoculture in the selected evidence.
+    # Touches NO floor / quota / protected row (parity by construction) and NO gate (selection only
+    # changes the generator's candidate menu; strict_verify / 4-role / D8 re-check unchanged).
+    # Flag-OFF byte-identical.
+    "PG_SELECT_CONSTRAINED_GREEDY": "1",
 }
 
 # Minimum effective values the run MUST meet — the preflight FAILS CLOSED if any is below these (i.e.
@@ -874,6 +883,10 @@ _BENCHMARK_FORCE_ON_FLAGS = frozenset({
     # and silently restore the single-pass raw-quote generation path on the paid
     # beat-both run (the I-cap-005 P1-1 force-on pattern).
     "PG_SECTION_DISTILL",
+    # I-perm-023 (#1215): force-on the constrained-greedy diversity pass so a stray operator =0
+    # cannot drop the anti-monoculture forward guard on the paid run. NOT preflight-required (a
+    # no-op until the pool exceeds the cap; never a fail-closed precondition — the I-perm-003 stance).
+    "PG_SELECT_CONSTRAINED_GREEDY",
 })
 
 # Flags/modes that the benchmark slate force-sets to a specific value that is

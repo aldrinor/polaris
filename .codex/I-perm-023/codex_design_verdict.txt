@@ -1,0 +1,19 @@
+```yaml
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Faithfulness proof overclaims the verifier universe. In the sweep path, `evidence_for_gen = evidence_selection.selected_rows` is passed to `generate_multi_section_report`, and that function builds `evidence_pool = {ev['evidence_id']: ev for ev in evidence}`. So strict_verify checks the effective selected generator pool, not the pre-selection full retrieved pool. Fix the design by either threading a separate full verification pool, or by weakening the proof statement to: selection cannot relax strict_verify, but it does bound what evidence can verify."
+  - "The greedy branch must replicate the current truncating-path custody floors before free-fill, or it is weaker than the branch it replaces. Required reservations: present T1/T2/T3 tier floors where feasible, M-42e/M-51 anchor primary custody, M-42c mechanism floor of 3 when the pool qualifies, M-41d one-per-present T3 jurisdiction, and M-42d HC expansion. Source-family caps must yield to protected floor rows or fail closed on infeasible env settings."
+p2:
+  - "New third branch is the right shape for byte-identical-off, but place it after relevance-floor return, after call-time scaled max_rows, and after the short-pool pass-through. That preserves the drb_76 no-op framing: manifest shows 46 selected of 46, dropped_count=0, strategy=tier_balanced_v1_all_m46_ordered."
+  - "Coverage buckets should include jurisdiction as a fourth soft axis for regulatory rows. Mechanism can be an evidence_class bucket if it preserves the existing M-42c hard floor; otherwise make mechanism its own axis."
+  - "The PR-1 scope fence is honest: selector ranking is in scope; finding-level concentration and upstream extraction thinness are out of scope. PR-2 should stay separate."
+  - "The new safety/class predicates are preference-only, so predicate misses cost diversity/coverage rather than faithfulness, provided they are not reused as gates."
+  - "The 200-prod-LOC target is plausible but tight. Keep taxonomy parsing simple and call-time env-read; split only if env override parsing starts crowding the selector."
+  - "Telemetry `diversity_score` must be labeled diagnostic-only. It is not a §-1.1 quality or superiority signal."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "Correct the strict_verify/full-pool proof or add separate full-pool verification wiring."
+  - "Specify and test greedy reservation parity with existing selector floors, including conflict precedence over source-family caps."
+```
