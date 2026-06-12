@@ -1,0 +1,1276 @@
+OpenAI Codex v0.128.0 (research preview)
+--------
+workdir: C:\POLARIS
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, C:\Users\msn\.codex\memories]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019eb9c1-8f37-7031-a9ff-9d2bad3fa52c
+--------
+user
+# Codex DIFF gate — I-perm-018 (#1210): advisory + cross-trial into REDUCE (framing-only)
+
+HARD ITERATION CAP: 5 per document. This is iter 1 of 5.
+- Front-load ALL real findings in iter 1. No drip-feeding across iterations.
+- Same quality bar regardless of iteration count.
+- "Don't pick bone from egg" — reserve P0/P1 for real execution risks; cosmetic = P3/P2.
+- If iter 5 returns REQUEST_CHANGES, force-APPROVE on non-P0/P1; no iter 6.
+- Verdict APPROVE iff zero NOVEL P0 AND zero continuing P0 AND zero P1.
+
+## Output schema (required)
+```yaml
+verdict: APPROVE | REQUEST_CHANGES
+novel_p0: [...]
+continuing_p0: [...]
+p1: [...]
+p2: [...]
+convergence_call: continue | accept_remaining
+remaining_blockers_for_execution: [...]
+```
+
+## The diff
+`.codex/I-perm-018/codex_diff.patch` (staged). 3 files, +~180. Read these EXACT files
+(do NOT scan the whole repo — codex_* temp dirs crash exec):
+- EDIT `src/polaris_graph/generator/evidence_distiller.py` — new `_render_reduce_narrative_context`
+  + `render_reduce_user` gains kw-only `advisory_text` / `cross_trial_summaries`.
+- EDIT `src/polaris_graph/generator/multi_section_generator.py` — distill REDUCE branch builds
+  the summaries + passes advisory_text (the only behavioral edit; also a 1-line doc-comment
+  clarification near line 2398 from the keystone work).
+- NEW `tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py` — 6 tests.
+
+The brief was APPROVED at `.codex/I-perm-018/codex_brief_verdict.txt` (read for acceptance
+criteria + the design rationale).
+
+## What it does (prompt-only; faithfulness-NEUTRAL)
+Threads the legacy domain `advisory_text` + the M-72 cross-trial inferences into the distill
+REDUCE prompt as a FRAMING-ONLY block (TONE/EMPHASIS/ORDER), restoring the legacy path's
+narrative richness that the distill branch had dropped. It is NOT findings/citable.
+
+## Red-team this — focus
+1. **Faithfulness leak (the crux):** can any sentence written FROM the framing block survive?
+   The block says twice "you must NOT write or cite any sentence FROM this block; every
+   sentence comes from the VALIDATED_FINDINGS_LEDGER and carries its [[finding:]] marker." AND
+   the UNCHANGED `filter_and_strip_reduce_markers` drops any sentence lacking a [[finding:]]
+   marker, AND the UNCHANGED strict_verify re-checks every surviving sentence. Is there a path
+   where context prose becomes a published unfaithful claim? (There must be none.)
+2. **Byte-identical when off:** `render_reduce_user(distillate)` and
+   `render_reduce_user(distillate, advisory_text="", cross_trial_summaries=None/[])` must equal
+   the pre-#1210 prompt exactly (no NARRATIVE FRAMING block). Verify the `narrative_section`
+   conditional. The legacy (`distillate is None`) path is untouched.
+3. **No [ev_XXX] leakage from cross-trial:** I use ONLY `p.summary` (plain prose), NOT the
+   legacy renderer's appended evidence-id marks — so the prompt cannot teach a citation grammar
+   incompatible with the distill filter. Confirm.
+4. **Number leakage:** if a cross-trial summary contains a number and the model writes it onto
+   a ledger sentence, strict_verify drops it (number not in the cited finding's span). Confirm
+   the worst case is a dropped sentence, never a fabrication.
+
+## Honest notes
+- This is a prompt string change; its "narrative richness" effect is qualitative, folded into
+  the broad operator-gated run (no separate paid smoke proves a prompt string). The
+  faithfulness argument + the offline render assertions are the proof here.
+- Tests: 6 new pass; 22 existing distiller tests pass (no regression).
+
+codex
+I’ll review only the stated patch, brief, and touched files, then validate the specific faithfulness and byte-identity claims against the diff.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-perm-018/codex_diff.patch' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py' in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -Raw .codex/I-perm-018/codex_brief_verdict.txt' in C:\POLARIS
+ succeeded in 12024ms:
+diff --git a/src/polaris_graph/generator/evidence_distiller.py b/src/polaris_graph/generator/evidence_distiller.py
+index cad5938b..1f26c448 100644
+--- a/src/polaris_graph/generator/evidence_distiller.py
++++ b/src/polaris_graph/generator/evidence_distiller.py
+@@ -285,11 +285,59 @@ def _render_map_user(
+     )
+ 
+ 
++def _render_reduce_narrative_context(
++    advisory_text: str = "",
++    cross_trial_summaries: list[str] | None = None,
++) -> str:
++    """I-perm-018 (#1210): render the domain advisory + cross-trial inferences as
++    FRAMING-ONLY narrative context for the REDUCE prompt.
++
++    The legacy path threads `advisory_text` (domain tone/emphasis guidance) and the
++    M-72 cross-trial synthesis block into the section prompt; the distill REDUCE
++    branch previously dropped both, so the distilled section lost that narrative
++    richness. This block restores it WITHOUT touching faithfulness: it is explicitly
++    framing-only — the REDUCE writer must still produce every sentence from the
++    VALIDATED_FINDINGS_LEDGER and cite its [[finding:]] marker; nothing here is a
++    finding or a citable source. (We deliberately do NOT reuse
++    `render_cross_trial_synthesis_block`, whose 'Cite the contributing [ev_XXX]
++    markers' instruction is incompatible with the distill filter that drops any
++    sentence lacking a [[finding:]] ledger marker.) Empty inputs → "" → the prompt
++    is byte-identical to pre-#1210."""
++    advisory = (advisory_text or "").strip()
++    summaries = [s.strip() for s in (cross_trial_summaries or []) if s and s.strip()]
++    if not advisory and not summaries:
++        return ""
++    parts = [
++        "NARRATIVE FRAMING CONTEXT (framing ONLY — NOT findings, NOT sources):",
++        "Use the guidance below to shape TONE, EMPHASIS, and the ORDER in which you "
++        "present the ledger findings. You must NOT write or cite any sentence FROM "
++        "this block: every sentence still comes from the VALIDATED_FINDINGS_LEDGER "
++        "above and carries its [[finding:]] marker. Do NOT introduce numbers, claims, "
++        "or sources that are not in the ledger.",
++    ]
++    if advisory:
++        parts.append(f"\nDOMAIN_ADVISORY:\n{advisory}")
++    if summaries:
++        bullets = "\n".join(f"  - {s}" for s in summaries)
++        parts.append(
++            "\nCROSS_TRIAL_CONNECTIONS (relationships among ledger findings you may "
++            f"emphasise when ordering your sentences):\n{bullets}"
++        )
++    return "\n".join(parts)
++
++
+ def render_reduce_user(
+     distillate: SectionDistillate,
++    *,
++    advisory_text: str = "",
++    cross_trial_summaries: list[str] | None = None,
+ ) -> str:
+     """Render the REDUCE user prompt (spec Â§3): the validated findings ledger,
+-    one line per finding, plus contradiction clusters."""
++    one line per finding, plus contradiction clusters.
++
++    I-perm-018 (#1210): when `advisory_text` / `cross_trial_summaries` are supplied,
++    a FRAMING-ONLY narrative-context block is appended (see
++    `_render_reduce_narrative_context`). Both empty (the default) → byte-identical."""
+     ledger_lines: list[str] = []
+     for f in distillate.findings:
+         atom_ids = ",".join(f.atom_ids)
+@@ -311,11 +359,15 @@ def render_reduce_user(
+         )
+     clusters = "\n".join(cluster_lines) if cluster_lines else "(none)"
+ 
++    narrative = _render_reduce_narrative_context(advisory_text, cross_trial_summaries)
++    narrative_section = f"{narrative}\n\n" if narrative else ""
++
+     return (
+         f"SECTION_TITLE: {distillate.section_title}\n"
+         f"SECTION_FOCUS: {distillate.section_focus}\n\n"
+         f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"
+         f"CONTRADICTION_CLUSTERS:\n{clusters}\n\n"
++        f"{narrative_section}"
+         "Write the section now. COVER EVERY finding in the ledger (one sentence each, "
+         "co-citing true duplicates), and write each NUMERIC result in its OWN sentence "
+         "(never merge two distinct statistics). Each sentence must use ledger facts "
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index fdd9b5ec..4b0aa298 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -1715,7 +1715,24 @@ async def _call_section(
+         # downstream atom_refusal_validator sees the EXACT catalog.
+         _section_atoms = dict(distillate.atom_catalog)
+         reduce_system = _REDUCE_SYSTEM
+-        reduce_prompt = render_reduce_user(distillate)
++        # I-perm-018 (#1210): thread the domain advisory + cross-trial inferences into
++        # the REDUCE prompt as FRAMING-ONLY narrative context (restores the legacy
++        # path's narrative richness). They are NOT findings/citable — the REDUCE
++        # writer must still produce every sentence from the validated ledger; the
++        # distill filter drops any sentence lacking a [[finding:]] marker, and
++        # strict_verify is unchanged. Empty → byte-identical to pre-#1210.
++        _cross_trial_summaries: list[str] = []
++        if cross_trial_block is not None:
++            _cross_trial_summaries = [
++                p.summary
++                for p in cross_trial_block.get_for_section(section.title)
++                if getattr(p, "summary", "")
++            ]
++        reduce_prompt = render_reduce_user(
++            distillate,
++            advisory_text=advisory_text,
++            cross_trial_summaries=_cross_trial_summaries,
++        )
+         client = OpenRouterClient(model=model)
+         try:
+             set_reasoning_call_context(
+@@ -2395,7 +2412,9 @@ async def _run_section(
+     # I-perm-016 (#1209): in REDUCE mode, drop any uncited reducer prose and
+     # strip the [[finding:...]] markers BEFORE the unchanged
+     # _rewrite_draft_with_spans + strict_verify run. A sentence survives only
+-    # when it cites a KNOWN finding marker AND its matching full [#ev:...] token.
++    # when it cites a KNOWN finding marker AND an evidence marker; the reducer's
++    # legacy [ev_XXX] marker is then rebound to a full [#ev:...] token by the
++    # unchanged sentence-aware span rewriter.
+     # Distillate None (legacy) -> raw is unchanged (byte-identical).
+     if distillate is not None:
+         from src.polaris_graph.generator.evidence_distiller import (
+diff --git a/tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py b/tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py
+new file mode 100644
+index 00000000..ad1bdea4
+--- /dev/null
++++ b/tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py
+@@ -0,0 +1,90 @@
++"""I-perm-018 (#1210) — advisory_text + cross_trial_block threaded into the distill
++REDUCE prompt as FRAMING-ONLY narrative context.
++
++Proves: (1) byte-identical when no advisory/cross-trial supplied; (2) the narrative
++block is framing-only — it explicitly forbids citing/writing FROM it and reaffirms
++that every sentence still comes from the VALIDATED_FINDINGS_LEDGER; (3) the ledger
++itself is unchanged.
++"""
++from __future__ import annotations
++
++from src.polaris_graph.generator.evidence_distiller import (
++    DistilledFinding,
++    SectionDistillate,
++    _render_reduce_narrative_context,
++    render_reduce_user,
++)
++
++
++def _distillate() -> SectionDistillate:
++    f = DistilledFinding(
++        finding_id="f001_000", evidence_id="ev_001",
++        claim="HbA1c fell by -1.86 percentage points with semaglutide.",
++        span_start=10, span_end=51,
++        support_quote="-1.86 percentage points with semaglutide",
++        numbers=["-1.86"], entities=["semaglutide"], caveat="",
++        contradiction_key="", source_tier="T1", atom_ids=["atom_002"],
++    )
++    return SectionDistillate(
++        section_title="Efficacy", section_focus="HbA1c",
++        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
++    )
++
++
++def test_byte_identical_when_no_narrative():
++    dist = _distillate()
++    base = render_reduce_user(dist)
++    assert render_reduce_user(dist, advisory_text="", cross_trial_summaries=None) == base
++    assert render_reduce_user(dist, advisory_text="", cross_trial_summaries=[]) == base
++    assert "NARRATIVE FRAMING CONTEXT" not in base
++
++
++def test_helper_empty_returns_empty_string():
++    assert _render_reduce_narrative_context("", []) == ""
++    assert _render_reduce_narrative_context("", None) == ""
++    assert _render_reduce_narrative_context("   ", ["   "]) == ""
++
++
++def test_advisory_appended_as_framing_only():
++    dist = _distillate()
++    out = render_reduce_user(
++        dist, advisory_text="Emphasise jurisdiction-specific regulatory labels.")
++    assert "NARRATIVE FRAMING CONTEXT" in out
++    assert "DOMAIN_ADVISORY" in out
++    assert "jurisdiction-specific regulatory labels" in out
++    # framing-only guarantee
++    assert "NOT findings" in out
++    assert "must NOT write or cite any sentence FROM this block" in out
++    assert "VALIDATED_FINDINGS_LEDGER" in out
++
++
++def test_cross_trial_summaries_appended():
++    dist = _distillate()
++    out = render_reduce_user(
++        dist,
++        cross_trial_summaries=[
++            "TACT and TACT2 together suggest chelation benefit is unproven.",
++        ],
++    )
++    assert "CROSS_TRIAL_CONNECTIONS" in out
++    assert "TACT and TACT2 together suggest chelation benefit is unproven." in out
++    assert "must NOT write or cite any sentence FROM this block" in out
++
++
++def test_ledger_unchanged_with_narrative():
++    dist = _distillate()
++    out = render_reduce_user(dist, advisory_text="Foo.",
++                             cross_trial_summaries=["Bar baz."])
++    # the ledger row + write instruction survive intact
++    assert "f001_000 | ev_001 | T1 |" in out
++    assert "cite=[ev_001]" in out
++    assert "Write the section now." in out
++    assert "[#ev:ev_" not in out
++
++
++def test_empty_cross_trial_with_advisory_only():
++    dist = _distillate()
++    out = render_reduce_user(dist, advisory_text="Only advisory here.",
++                             cross_trial_summaries=[])
++    assert "DOMAIN_ADVISORY" in out
++    assert "CROSS_TRIAL_CONNECTIONS" not in out   # no empty cross-trial section
+
+
+ succeeded in 31955ms:
+"""I-perm-018 (#1210) — advisory_text + cross_trial_block threaded into the distill
+REDUCE prompt as FRAMING-ONLY narrative context.
+
+Proves: (1) byte-identical when no advisory/cross-trial supplied; (2) the narrative
+block is framing-only — it explicitly forbids citing/writing FROM it and reaffirms
+that every sentence still comes from the VALIDATED_FINDINGS_LEDGER; (3) the ledger
+itself is unchanged.
+"""
+from __future__ import annotations
+
+from src.polaris_graph.generator.evidence_distiller import (
+    DistilledFinding,
+    SectionDistillate,
+    _render_reduce_narrative_context,
+    render_reduce_user,
+)
+
+
+def _distillate() -> SectionDistillate:
+    f = DistilledFinding(
+        finding_id="f001_000", evidence_id="ev_001",
+        claim="HbA1c fell by -1.86 percentage points with semaglutide.",
+        span_start=10, span_end=51,
+        support_quote="-1.86 percentage points with semaglutide",
+        numbers=["-1.86"], entities=["semaglutide"], caveat="",
+        contradiction_key="", source_tier="T1", atom_ids=["atom_002"],
+    )
+    return SectionDistillate(
+        section_title="Efficacy", section_focus="HbA1c",
+        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
+    )
+
+
+def test_byte_identical_when_no_narrative():
+    dist = _distillate()
+    base = render_reduce_user(dist)
+    assert render_reduce_user(dist, advisory_text="", cross_trial_summaries=None) == base
+    assert render_reduce_user(dist, advisory_text="", cross_trial_summaries=[]) == base
+    assert "NARRATIVE FRAMING CONTEXT" not in base
+
+
+def test_helper_empty_returns_empty_string():
+    assert _render_reduce_narrative_context("", []) == ""
+    assert _render_reduce_narrative_context("", None) == ""
+    assert _render_reduce_narrative_context("   ", ["   "]) == ""
+
+
+def test_advisory_appended_as_framing_only():
+    dist = _distillate()
+    out = render_reduce_user(
+        dist, advisory_text="Emphasise jurisdiction-specific regulatory labels.")
+    assert "NARRATIVE FRAMING CONTEXT" in out
+    assert "DOMAIN_ADVISORY" in out
+    assert "jurisdiction-specific regulatory labels" in out
+    # framing-only guarantee
+    assert "NOT findings" in out
+    assert "must NOT write or cite any sentence FROM this block" in out
+    assert "VALIDATED_FINDINGS_LEDGER" in out
+
+
+def test_cross_trial_summaries_appended():
+    dist = _distillate()
+    out = render_reduce_user(
+        dist,
+        cross_trial_summaries=[
+            "TACT and TACT2 together suggest chelation benefit is unproven.",
+        ],
+    )
+    assert "CROSS_TRIAL_CONNECTIONS" in out
+    assert "TACT and TACT2 together suggest chelation benefit is unproven." in out
+    assert "must NOT write or cite any sentence FROM this block" in out
+
+
+def test_ledger_unchanged_with_narrative():
+    dist = _distillate()
+    out = render_reduce_user(dist, advisory_text="Foo.",
+                             cross_trial_summaries=["Bar baz."])
+    # the ledger row + write instruction survive intact
+    assert "f001_000 | ev_001 | T1 |" in out
+    assert "cite=[ev_001]" in out
+    assert "Write the section now." in out
+    assert "[#ev:ev_" not in out
+
+
+def test_empty_cross_trial_with_advisory_only():
+    dist = _distillate()
+    out = render_reduce_user(dist, advisory_text="Only advisory here.",
+                             cross_trial_summaries=[])
+    assert "DOMAIN_ADVISORY" in out
+    assert "CROSS_TRIAL_CONNECTIONS" not in out   # no empty cross-trial section
+
+
+ succeeded in 35181ms:
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking rationale correction: strict_verify verifies the reducer sentence after `_rewrite_draft_with_spans` rebinds `[ev]` against the evidence pool, not literally against the MAP finding support_quote span. The change is still faithfulness-neutral as source-faithfulness: unsupported context-only prose is filtered or dropped by unchanged strict_verify."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+
+
+codex
+I’ve confirmed the brief already approved the design and noted one prior non-blocking rationale correction. Next I’m checking the actual reducer filter and call-site wiring so the verdict is based on execution paths, not just the patch text.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\evidence_distiller.py -Pattern \"def _render_reduce_narrative_context\" -Context 0,95" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\multi_section_generator.py -Pattern \"reduce_prompt = render_reduce_user\" -Context 20,20" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\evidence_distiller.py -Pattern \"def filter_and_strip_reduce_markers\" -Context 0,180" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\multi_section_generator.py -Pattern \"filter_and_strip_reduce_markers\" -Context 15,70" in C:\POLARIS
+ succeeded in 4032ms:
+
+> src\polaris_graph\generator\evidence_distiller.py:288:[7mdef _render_reduce_narrative_context[0m([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:289:    advisory_text: str = "",[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:290:    cross_trial_summaries: list[str] | None = None,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:291:) -> str:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:292: [0m[7m [0m[7m [0m[7m [0m[7m[0m"""I-perm-018 [0m[7m[0m(#1210): [0m[7m[0mrender [0m[7m[0mthe [0m[7m[0mdomain [0m[7m[0madvisory [0m[7m[0m+ [0m
+[7m[0mcross-trial [0m[7m[0minferences [0m[7m[0mas[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:293:    FRAMING-ONLY narrative context for the REDUCE prompt.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:294:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:295: [0m[7m [0m[7m [0m[7m [0m[7m[0mThe [0m[7m[0mlegacy [0m[7m[0mpath [0m[7m[0mthreads [0m[7m[0m`advisory_text` [0m[7m[0m(domain [0m
+[7m[0mtone/emphasis [0m[7m[0mguidance) [0m[7m[0mand [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:296: [0m[7m [0m[7m [0m[7m [0m[7m[0mM-72 [0m[7m[0mcross-trial [0m[7m[0msynthesis [0m[7m[0mblock [0m[7m[0minto [0m[7m[0mthe [0m[7m[0msection [0m[7m[0mprompt; [0m
+[7m[0mthe [0m[7m[0mdistill [0m[7m[0mREDUCE[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:297: [0m[7m [0m[7m [0m[7m [0m[7m[0mbranch [0m[7m[0mpreviously [0m[7m[0mdropped [0m[7m[0mboth, [0m[7m[0mso [0m[7m[0mthe [0m[7m[0mdistilled [0m[7m[0msection [0m
+[7m[0mlost [0m[7m[0mthat [0m[7m[0mnarrative[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:298: [0m[7m [0m[7m [0m[7m [0m[7m[0mrichness. [0m[7m[0mThis [0m[7m[0mblock [0m[7m[0mrestores [0m[7m[0mit [0m[7m[0mWITHOUT [0m[7m[0mtouching [0m
+[7m[0mfaithfulness: [0m[7m[0mit [0m[7m[0mis [0m[7m[0mexplicitly[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:299: [0m[7m [0m[7m [0m[7m [0m[7m[0mframing-only [0m[7m[0m— [0m[7m[0mthe [0m[7m[0mREDUCE [0m[7m[0mwriter [0m[7m[0mmust [0m[7m[0mstill [0m[7m[0mproduce [0m[7m[0mevery [0m
+[7m[0msentence [0m[7m[0mfrom [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:300: [0m[7m [0m[7m [0m[7m [0m[7m[0mVALIDATED_FINDINGS_LEDGER [0m[7m[0mand [0m[7m[0mcite [0m[7m[0mits [0m[7m[0m[[finding:]] [0m
+[7m[0mmarker; [0m[7m[0mnothing [0m[7m[0mhere [0m[7m[0mis [0m[7m[0ma[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:301:    finding or a citable source. (We deliberately do NOT reuse[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:302: [0m[7m [0m[7m [0m[7m [0m[7m[0m`render_cross_trial_synthesis_block`, [0m[7m[0mwhose [0m[7m[0m'Cite [0m[7m[0mthe [0m
+[7m[0mcontributing [0m[7m[0m[ev_XXX][0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:303: [0m[7m [0m[7m [0m[7m [0m[7m[0mmarkers' [0m[7m[0minstruction [0m[7m[0mis [0m[7m[0mincompatible [0m[7m[0mwith [0m[7m[0mthe [0m[7m[0mdistill [0m
+[7m[0mfilter [0m[7m[0mthat [0m[7m[0mdrops [0m[7m[0many[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:304: [0m[7m [0m[7m [0m[7m [0m[7m[0msentence [0m[7m[0mlacking [0m[7m[0ma [0m[7m[0m[[finding:]] [0m[7m[0mledger [0m[7m[0mmarker.) [0m[7m[0mEmpty [0m
+[7m[0minputs [0m[7m[0m→ [0m[7m[0m"" [0m[7m[0m→ [0m[7m[0mthe [0m[7m[0mprompt[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:305:    is byte-identical to pre-#1210."""[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:306:    advisory = (advisory_text or "").strip()[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:307: [0m[7m [0m[7m [0m[7m [0m[7m[0msummaries [0m[7m[0m= [0m[7m[0m[s.strip() [0m[7m[0mfor [0m[7m[0ms [0m[7m[0min [0m[7m[0m(cross_trial_summaries [0m[7m[0mor [0m
+[7m[0m[]) [0m[7m[0mif [0m[7m[0ms [0m[7m[0mand [0m[7m[0ms.strip()][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:308:    if not advisory and not summaries:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:309:        return ""[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:310:    parts = [[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:311: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"NARRATIVE [0m[7m[0mFRAMING [0m[7m[0mCONTEXT [0m[7m[0m(framing [0m[7m[0mONLY [0m[7m[0m— [0m[7m[0mNOT [0m
+[7m[0mfindings, [0m[7m[0mNOT [0m[7m[0msources):",[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:312: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"Use [0m[7m[0mthe [0m[7m[0mguidance [0m[7m[0mbelow [0m[7m[0mto [0m[7m[0mshape [0m[7m[0mTONE, [0m[7m[0mEMPHASIS, [0m[7m[0mand [0m
+[7m[0mthe [0m[7m[0mORDER [0m[7m[0min [0m[7m[0mwhich [0m[7m[0myou [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:313: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"present [0m[7m[0mthe [0m[7m[0mledger [0m[7m[0mfindings. [0m[7m[0mYou [0m[7m[0mmust [0m[7m[0mNOT [0m[7m[0mwrite [0m[7m[0mor [0m
+[7m[0mcite [0m[7m[0many [0m[7m[0msentence [0m[7m[0mFROM [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:314: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"this [0m[7m[0mblock: [0m[7m[0mevery [0m[7m[0msentence [0m[7m[0mstill [0m[7m[0mcomes [0m[7m[0mfrom [0m[7m[0mthe [0m
+[7m[0mVALIDATED_FINDINGS_LEDGER [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:315: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"above [0m[7m[0mand [0m[7m[0mcarries [0m[7m[0mits [0m[7m[0m[[finding:]] [0m[7m[0mmarker. [0m[7m[0mDo [0m[7m[0mNOT [0m
+[7m[0mintroduce [0m[7m[0mnumbers, [0m[7m[0mclaims, [0m[7m[0m"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:316:        "or sources that are not in the ledger.",[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:317:    ][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:318:    if advisory:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:319:        parts.append(f"\nDOMAIN_ADVISORY:\n{advisory}")[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:320:    if summaries:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:321:        bullets = "\n".join(f"  - {s}" for s in summaries)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:322:        parts.append([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:323: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"\nCROSS_TRIAL_CONNECTIONS [0m[7m[0m(relationships [0m[7m[0mamong [0m
+[7m[0mledger [0m[7m[0mfindings [0m[7m[0myou [0m[7m[0mmay [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:324: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mf"emphasise [0m[7m[0mwhen [0m[7m[0mordering [0m[7m[0myour [0m
+[7m[0msentences):\n{bullets}"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:325:        )[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:326:    return "\n".join(parts)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:327:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:328:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:329:def render_reduce_user([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:330:    distillate: SectionDistillate,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:331:    *,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:332:    advisory_text: str = "",[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:333:    cross_trial_summaries: list[str] | None = None,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:334:) -> str:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:335: [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Render [0m[7m[0mthe [0m[7m[0mREDUCE [0m[7m[0muser [0m[7m[0mprompt [0m[7m[0m(spec [0m[7m[0mÂ§3): [0m[7m[0mthe [0m[7m[0mvalidated [0m
+[7m[0mfindings [0m[7m[0mledger,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:336:    one line per finding, plus contradiction clusters.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:337:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:338: [0m[7m [0m[7m [0m[7m [0m[7m[0mI-perm-018 [0m[7m[0m(#1210): [0m[7m[0mwhen [0m[7m[0m`advisory_text` [0m[7m[0m/ [0m
+[7m[0m`cross_trial_summaries` [0m[7m[0mare [0m[7m[0msupplied,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:339:    a FRAMING-ONLY narrative-context block is appended (see[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:340: [0m[7m [0m[7m [0m[7m [0m[7m[0m`_render_reduce_narrative_context`). [0m[7m[0mBoth [0m[7m[0mempty [0m[7m[0m(the [0m
+[7m[0mdefault) [0m[7m[0m→ [0m[7m[0mbyte-identical."""[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:341:    ledger_lines: list[str] = [][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:342:    for f in distillate.findings:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:343:        atom_ids = ",".join(f.atom_ids)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:344:        quote = f.support_quote.replace("\n", " ")[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:345:        ledger_lines.append([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:346: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mf"{f.finding_id} [0m[7m[0m| [0m[7m[0m{f.evidence_id} [0m[7m[0m| [0m
+[7m[0m{f.source_tier} [0m[7m[0m| [0m[7m[0m"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:347:            f"cite=[{f.evidence_id}] | atom_ids={atom_ids} | "[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:348:            f"claim={f.claim} | caveat={f.caveat} | "[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:349: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mf"contradiction_key={f.contradiction_key} [0m[7m[0m| [0m
+[7m[0mquote={quote}"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:350:        )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:351: [0m[7m [0m[7m [0m[7m [0m[7m[0mledger [0m[7m[0m= [0m[7m[0m"\n".join(ledger_lines) [0m[7m[0mif [0m[7m[0mledger_lines [0m[7m[0melse [0m[7m[0m"(no [0m
+[7m[0mfindings)"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:352:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:353:    cluster_lines: list[str] = [][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:354:    for c in distillate.contradiction_clusters:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:355:        ids = ",".join(c.finding_ids)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:356:        cluster_lines.append([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:357:            f"{c.contradiction_key}: {ids}"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:358:            + (f" â€” {c.summary}" if c.summary else "")[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:359:        )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:360: [0m[7m [0m[7m [0m[7m [0m[7m[0mclusters [0m[7m[0m= [0m[7m[0m"\n".join(cluster_lines) [0m[7m[0mif [0m[7m[0mcluster_lines [0m[7m[0melse [0m
+[7m[0m"(none)"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:361:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:362: [0m[7m [0m[7m [0m[7m [0m[7m[0mnarrative [0m[7m[0m= [0m
+[7m[0m_render_reduce_narrative_context(advisory_text, [0m[7m[0mcross_trial_summaries)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:363:    narrative_section = f"{narrative}\n\n" if narrative else ""[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:364:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:365:    return ([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:366:        f"SECTION_TITLE: {distillate.section_title}\n"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:367:        f"SECTION_FOCUS: {distillate.section_focus}\n\n"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:368:        f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:369:        f"CONTRADICTION_CLUSTERS:\n{clusters}\n\n"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:370:        f"{narrative_section}"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:371: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"Write [0m[7m[0mthe [0m[7m[0msection [0m[7m[0mnow. [0m[7m[0mCOVER [0m[7m[0mEVERY [0m[7m[0mfinding [0m[7m[0min [0m[7m[0mthe [0m
+[7m[0mledger [0m[7m[0m(one [0m[7m[0msentence [0m[7m[0meach, [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:372: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"co-citing [0m[7m[0mtrue [0m[7m[0mduplicates), [0m[7m[0mand [0m[7m[0mwrite [0m[7m[0meach [0m[7m[0mNUMERIC [0m
+[7m[0mresult [0m[7m[0min [0m[7m[0mits [0m[7m[0mOWN [0m[7m[0msentence [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:373: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"(never [0m[7m[0mmerge [0m[7m[0mtwo [0m[7m[0mdistinct [0m[7m[0mstatistics). [0m[7m[0mEach [0m[7m[0msentence [0m
+[7m[0mmust [0m[7m[0muse [0m[7m[0mledger [0m[7m[0mfacts [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:374: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"only [0m[7m[0mand [0m[7m[0mplace [0m[7m[0mits [0m[7m[0mfinding [0m[7m[0mmarker(s), [0m[7m[0matom [0m[7m[0mid(s) [0m[7m[0mwhen [0m
+[7m[0mneeded, [0m[7m[0mand [0m[7m[0m[ev_XXX] [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:375: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"marker(s) [0m[7m[0mINSIDE [0m[7m[0mthe [0m[7m[0msentence, [0m[7m[0mimmediately [0m[7m[0mBEFORE [0m[7m[0mthe [0m
+[7m[0mterminal [0m[7m[0mperiod [0m[7m[0m— [0m[7m[0mnever [0m[7m[0m"[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:376: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"on [0m[7m[0ma [0m[7m[0mseparate [0m[7m[0mline [0m[7m[0mor [0m[7m[0mafter [0m[7m[0mthe [0m[7m[0mperiod. [0m[7m[0mDo [0m[7m[0mnot [0m[7m[0mwrite [0m
+[7m[0m[#ev:...] [0m[7m[0mspan [0m[7m[0mtokens."[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:377:    )[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:378:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:379:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:380:# [0m[7m[0mâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â[0m
+[7m[0m”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€[0m
+[7m[0mâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:381:# JSON parsing â€” content-or-reasoning, defensive (spec Â§4)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:382:# [0m[7m[0mâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â[0m
+[7m[0m”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€[0m
+[7m[0mâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:383:[0m
+
+
+ succeeded in 7118ms:
+
+  src\polaris_graph\generator\multi_section_generator.py:1711:            render_reduce_user,
+  src\polaris_graph\generator\multi_section_generator.py:1712:        )
+  src\polaris_graph\generator\multi_section_generator.py:1713:        # _section_atoms comes straight from the 
+distillate (same section-filtered
+  src\polaris_graph\generator\multi_section_generator.py:1714:        # catalog construction as the legacy path) and 
+is returned as today so the
+  src\polaris_graph\generator\multi_section_generator.py:1715:        # downstream atom_refusal_validator sees the 
+EXACT catalog.
+  src\polaris_graph\generator\multi_section_generator.py:1716:        _section_atoms = dict(distillate.atom_catalog)
+  src\polaris_graph\generator\multi_section_generator.py:1717:        reduce_system = _REDUCE_SYSTEM
+  src\polaris_graph\generator\multi_section_generator.py:1718:        # I-perm-018 (#1210): thread the domain advisory 
++ cross-trial inferences into
+  src\polaris_graph\generator\multi_section_generator.py:1719:        # the REDUCE prompt as FRAMING-ONLY narrative 
+context (restores the legacy
+  src\polaris_graph\generator\multi_section_generator.py:1720:        # path's narrative richness). They are NOT 
+findings/citable — the REDUCE
+  src\polaris_graph\generator\multi_section_generator.py:1721:        # writer must still produce every sentence from 
+the validated ledger; the
+  src\polaris_graph\generator\multi_section_generator.py:1722:        # distill filter drops any sentence lacking a 
+[[finding:]] marker, and
+  src\polaris_graph\generator\multi_section_generator.py:1723:        # strict_verify is unchanged. Empty → 
+byte-identical to pre-#1210.
+  src\polaris_graph\generator\multi_section_generator.py:1724:        _cross_trial_summaries: list[str] = []
+  src\polaris_graph\generator\multi_section_generator.py:1725:        if cross_trial_block is not None:
+  src\polaris_graph\generator\multi_section_generator.py:1726:            _cross_trial_summaries = [
+  src\polaris_graph\generator\multi_section_generator.py:1727:                p.summary
+  src\polaris_graph\generator\multi_section_generator.py:1728:                for p in 
+cross_trial_block.get_for_section(section.title)
+  src\polaris_graph\generator\multi_section_generator.py:1729:                if getattr(p, "summary", "")
+  src\polaris_graph\generator\multi_section_generator.py:1730:            ]
+> src\polaris_graph\generator\multi_section_generator.py:1731:        [7mreduce_prompt = render_reduce_user[0m([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1732:            distillate,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1733:            advisory_text=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1734:            cross_trial_summaries=_cross_trial_summaries,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1735:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1736:        client = OpenRouterClient(model=model)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1737:        try:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1738:            set_reasoning_call_context([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1739:                section=section.title,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1740:                call_type="section_reduce",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1741:                attempt_n=1,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1742:                regen_reason=None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1743:            )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1744:            response = await client.generate([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1745:                prompt=reduce_prompt,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1746:                system=reduce_system,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1747:                max_tokens=_reduce_max_tokens(),[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1748:                temperature=temperature,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1749: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0mreasoning_max_tokens=_reduce_reasoning_tokens(),[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1750:            )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1751:        except ReasoningFirstTruncationError as exc:[0m
+
+
+ succeeded in 10237ms:
+
+> src\polaris_graph\generator\evidence_distiller.py:1326:[7mdef filter_and_strip_reduce_markers[0m([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1327:    raw: str,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1328:    distillate: SectionDistillate,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1329:) -> str:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1330: [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Post-process [0m[7m[0mthe [0m[7m[0mREDUCE [0m[7m[0moutput [0m[7m[0mbefore [0m[7m[0mthe [0m[7m[0mUNCHANGED [0m
+[7m[0m_rewrite_draft_with_spans[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1331:    and strict_verify run.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1332:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1333:    For each sentence:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1334: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0mDROP [0m[7m[0mit [0m[7m[0munless [0m[7m[0mit [0m[7m[0mcarries [0m[7m[0mBOTH [0m[7m[0m(a) [0m[7m[0mat [0m[7m[0mleast [0m[7m[0mone [0m[7m[0mKNOWN [0m
+[7m[0m[[finding:<id>]][0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1335: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mmarker [0m[7m[0m(a [0m[7m[0mfinding_id [0m[7m[0mpresent [0m[7m[0min [0m[7m[0mthe [0m[7m[0mdistillate [0m
+[7m[0mledger) [0m[7m[0mAND [0m[7m[0m(b) [0m[7m[0mat [0m[7m[0mleast[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1336: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mone [0m[7m[0mevidence [0m[7m[0mmarker. [0m[7m[0mThe [0m[7m[0mintended [0m[7m[0mmarker [0m[7m[0mis [0m[7m[0mlegacy [0m
+[7m[0m[ev_XXX]; [0m[7m[0mstale[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1337: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mreducer [0m[7m[0moutputs [0m[7m[0mthat [0m[7m[0mstill [0m[7m[0mcontain [0m
+[7m[0m[#ev:evidence_id:start-end] [0m[7m[0mare[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1338:        normalized back to [ev_XXX].[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1339: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0mSTRIP [0m[7m[0mthe [0m[7m[0m[[finding:...]] [0m[7m[0mmarkers [0m[7m[0m(the [0m[7m[0mdownstream [0m
+[7m[0mgate [0m[7m[0mdoes [0m[7m[0mnot [0m[7m[0munderstand[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1340: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mthem; [0m[7m[0mthe [0m[7m[0m[ev_XXX] [0m[7m[0mmarker [0m[7m[0mis [0m[7m[0mrebound [0m[7m[0mby [0m
+[7m[0m_rewrite_draft_with_spans).[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1341:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1342: [0m[7m [0m[7m [0m[7m [0m[7m[0mThe [0m[7m[0mreturned [0m[7m[0mclean [0m[7m[0mprose [0m[7m[0mcarries [0m[7m[0mlegacy [0m[7m[0mevidence [0m[7m[0mmarkers [0m
+[7m[0m(and [0m[7m[0many [0m[7m[0m(atom_NNN)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1343: [0m[7m [0m[7m [0m[7m [0m[7m[0mthe [0m[7m[0mreducer [0m[7m[0mcopied), [0m[7m[0mso [0m[7m[0mthe [0m[7m[0munchanged [0m[7m[0mdownstream [0m[7m[0mpipeline [0m
+[7m[0mbinds [0m[7m[0mspans [0m[7m[0mfrom[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1344: [0m[7m [0m[7m [0m[7m [0m[7m[0mthe [0m[7m[0mFINAL [0m[7m[0msentence [0m[7m[0mexactly [0m[7m[0mas [0m[7m[0mit [0m[7m[0mwould [0m[7m[0ma [0m[7m[0mlegacy [0m[7m[0mdraft. [0m
+[7m[0mUncited [0m[7m[0mreducer [0m[7m[0mprose[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1345: [0m[7m [0m[7m [0m[7m [0m[7m[0mis [0m[7m[0mdropped [0m[7m[0mso [0m[7m[0mit [0m[7m[0mcan [0m[7m[0mnever [0m[7m[0mreach [0m[7m[0mstrict_verify [0m[7m[0mas [0m[7m[0ma [0m
+[7m[0mpass-through [0m[7m[0mlimitations[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1346:    sentence.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1347:    """[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1348: [0m[7m [0m[7m [0m[7m [0m[7m[0mfrom [0m[7m[0msrc.polaris_graph.generator.provenance_generator [0m
+[7m[0mimport [0m[7m[0msplit_into_sentences[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1349:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1350: [0m[7m [0m[7m [0m[7m [0m[7m[0mfinding_by_id [0m[7m[0m= [0m[7m[0m{f.finding_id: [0m[7m[0mf [0m[7m[0mfor [0m[7m[0mf [0m[7m[0min [0m
+[7m[0mdistillate.findings}[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1351: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m#1218: [0m[7m[0mthe [0m[7m[0mevidence [0m[7m[0mpool [0m[7m[0mis [0m[7m[0mINCONSISTENT [0m[7m[0m— [0m[7m[0m457/462 [0m[7m[0mids [0m
+[7m[0mstart [0m[7m[0mwith [0m[7m[0m"ev_" [0m[7m[0mbut [0m[7m[0ma[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1352: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfew [0m[7m[0m(incl. [0m[7m[0mthe [0m[7m[0mkey [0m[7m[0msafety [0m[7m[0msources) [0m[7m[0mdo [0m[7m[0mNOT. [0m[7m[0mThe [0m[7m[0mREDUCE, [0m
+[7m[0mbiased [0m[7m[0mby [0m[7m[0mthe [0m[7m[0mmajority [0m[7m[0m+[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1353: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0m"[ev_001]" [0m[7m[0mexample, [0m[7m[0msometimes [0m[7m[0mADDS [0m[7m[0man [0m[7m[0m"ev_" [0m[7m[0mprefix [0m
+[7m[0mto [0m[7m[0man [0m[7m[0munprefixed [0m[7m[0mid, [0m[7m[0mso[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1354: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0mmarker [0m[7m[0m[ev_<id>] [0m[7m[0mfails [0m[7m[0mto [0m[7m[0mresolve [0m[7m[0mand [0m[7m[0mstrict_verify [0m
+[7m[0mdrops [0m[7m[0mthe [0m[7m[0mwhole [0m[7m[0m(faithful,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1355: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mon-topic) [0m[7m[0msentence. [0m[7m[0mNormalize [0m[7m[0ma [0m[7m[0mbare [0m[7m[0mmarker [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mREAL [0m
+[7m[0mevidence_id [0m[7m[0mbelow [0m[7m[0m(drop [0m[7m[0mor[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1356: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0madd [0m[7m[0mthe [0m[7m[0m"ev_" [0m[7m[0mprefix [0m[7m[0mto [0m[7m[0mmatch [0m[7m[0ma [0m[7m[0mknown [0m[7m[0mid). [0m
+[7m[0mFaithfulness-safe: [0m[7m[0mit [0m[7m[0monly [0m[7m[0mever [0m[7m[0mrewrites[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1357: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mto [0m[7m[0ma [0m[7m[0mGENUINE [0m[7m[0mpool/ledger [0m[7m[0mid; [0m[7m[0mthe [0m[7m[0mfinal [0m[7m[0mstrict_verify [0m
+[7m[0mstill [0m[7m[0mvalidates [0m[7m[0mthe [0m[7m[0mspan.[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1358: [0m[7m [0m[7m [0m[7m [0m[7m[0mknown_ev_ids [0m[7m[0m= [0m[7m[0m{f.evidence_id [0m[7m[0mfor [0m[7m[0mf [0m[7m[0min [0m
+[7m[0mdistillate.findings}[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1359:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1360:    def _normalize_ev_prefix(marker_text: str) -> str:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1361:        def _sub(m: "re.Match[str]") -> str:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1362:            x = m.group("ev_id")[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1363:            if x in known_ev_ids:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1364:                return m.group(0)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1365:            if x.startswith("ev_") and x[3:] in known_ev_ids:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1366:                return f"[{x[3:]}]"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1367:            if f"ev_{x}" in known_ev_ids:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1368:                return f"[ev_{x}]"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1369:            return m.group(0)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1370:        return _BARE_EV_MARKER_RE.sub(_sub, marker_text)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1371:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1372:    sentences = split_into_sentences(raw)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1373: [0m[7m [0m[7m [0m[7m [0m[7m[0m_dbg [0m[7m[0m= [0m[7m[0mos.getenv("PG_DISTILL_DEBUG", [0m[7m[0m"").strip().lower() [0m
+[7m[0min [0m[7m[0m("1", [0m[7m[0m"true", [0m[7m[0m"yes", [0m[7m[0m"on")[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1374:    if _dbg:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1375:        logger.warning([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1376: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[DISTILL_DEBUG] [0m[7m[0msection=%r: [0m[7m[0mledger=%d [0m[7m[0mfindings; [0m
+[7m[0mREDUCE [0m[7m[0mraw=%d [0m[7m[0mchars [0m[7m[0m/ [0m[7m[0m%d [0m[7m[0msentences; [0m[7m[0mraw_sample=%r",[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1377: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mdistillate.section_title, [0m
+[7m[0mlen(distillate.findings), [0m[7m[0mlen(raw), [0m[7m[0mlen(sentences), [0m[7m[0mraw[:900],[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1378:        )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1379: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m#1217 [0m[7m[0mBug [0m[7m[0mA [0m[7m[0mpre-pass [0m[7m[0m(Claude+Codex [0m[7m[0mAGREE, [0m[7m[0mfix=both): [0m
+[7m[0mREATTACH [0m[7m[0man [0m[7m[0morphaned[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1380: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmarker-only [0m[7m[0mfragment [0m[7m[0mto [0m[7m[0mthe [0m[7m[0mimmediately [0m[7m[0mpreceding [0m
+[7m[0msentence [0m[7m[0mbefore [0m[7m[0mfiltering, [0m[7m[0mso[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1381: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0mclaim [0m[7m[0mprose [0m[7m[0mand [0m[7m[0mits [0m[7m[0mcitation [0m[7m[0mmarkers [0m[7m[0mare [0m[7m[0mfiltered [0m
+[7m[0mas [0m[7m[0mONE [0m[7m[0munit. [0m[7m[0mWithout [0m[7m[0mthis,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1382: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0ma [0m[7m[0mREDUCE [0m[7m[0mthat [0m[7m[0memits [0m[7m[0m"claim." [0m[7m[0mthen [0m[7m[0m"[[finding]] [0m[7m[0m[ev]" [0m[7m[0mon [0m
+[7m[0mthe [0m[7m[0mnext [0m[7m[0mline [0m[7m[0mloses [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1383: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mclaim [0m[7m[0m(no [0m[7m[0mmarker) [0m[7m[0mand [0m[7m[0mkeeps [0m[7m[0ma [0m[7m[0mbare [0m[7m[0mmarker [0m[7m[0m-> [0m[7m[0mtotal [0m
+[7m[0msection [0m[7m[0mcollapse. [0m[7m[0mFaithfulness[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1384: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mis [0m[7m[0munchanged: [0m[7m[0mthe [0m[7m[0mreassembled [0m[7m[0msentence [0m[7m[0mstill [0m[7m[0mgoes [0m
+[7m[0mthrough [0m[7m[0mthe [0m[7m[0mUNCHANGED[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1385: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m_rewrite_draft_with_spans [0m[7m[0m+ [0m[7m[0mstrict_verify, [0m[7m[0mwhich [0m
+[7m[0mre-bind [0m[7m[0mand [0m[7m[0mre-verify [0m[7m[0mthe [0m[7m[0mspan[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1386: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfor [0m[7m[0mthe [0m[7m[0mclaim [0m[7m[0mprose [0m[7m[0m— [0m[7m[0ma [0m[7m[0mmis-attached [0m[7m[0mmarker [0m[7m[0mcannot [0m
+[7m[0mpublish [0m[7m[0man [0m[7m[0munsupported [0m[7m[0mclaim.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1387:    merged: list[str] = [][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1388:    reattached = 0[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1389:    for sent in sentences:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1390:        if merged and _is_marker_only_fragment(sent):[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1391: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mmerged[-1] [0m[7m[0m= [0m[7m[0mf"{merged[-1].rstrip()} [0m
+[7m[0m{sent.strip()}"[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1392:            reattached += 1[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1393:        else:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1394:            merged.append(sent)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1395:    sentences = merged[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1396:    if _dbg and reattached:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1397:        logger.warning([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1398: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[DISTILL_DEBUG] [0m[7m[0msection=%r: [0m[7m[0mreattached [0m[7m[0m%d [0m
+[7m[0morphaned [0m[7m[0mmarker-only [0m[7m[0mfragment(s) [0m[7m[0mto [0m[7m[0mpreceding [0m[7m[0msentence(s)",[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1399:            distillate.section_title, reattached,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1400:        )[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1401:    kept: list[str] = [][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1402:    for sent in sentences:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1403: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m#1217 [0m[7m[0mBug [0m[7m[0mA: [0m[7m[0ma [0m[7m[0msentence [0m[7m[0mthat [0m[7m[0mis [0m[7m[0mONLY [0m[7m[0mmarkers [0m[7m[0m(no [0m
+[7m[0mprose) [0m[7m[0mmust [0m[7m[0mnever [0m[7m[0mreach[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1404: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mstrict_verify [0m[7m[0mas [0m[7m[0ma [0m[7m[0mbare [0m[7m[0mtoken. [0m[7m[0mThe [0m[7m[0mpre-pass [0m[7m[0mabove [0m
+[7m[0malready [0m[7m[0mREATTACHED [0m[7m[0many[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1405: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmarker-only [0m[7m[0mfragment [0m[7m[0mthat [0m[7m[0mhad [0m[7m[0ma [0m[7m[0mpreceding [0m[7m[0msentence; [0m
+[7m[0mwhatever [0m[7m[0mis [0m[7m[0mstill[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1406: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmarker-only [0m[7m[0mhere [0m[7m[0mis [0m[7m[0ma [0m[7m[0mLEADING [0m[7m[0morphan [0m[7m[0mwith [0m[7m[0mnothing [0m
+[7m[0mto [0m[7m[0mattach [0m[7m[0mto [0m[7m[0m— [0m[7m[0mdrop [0m[7m[0mit.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1407:        if _is_marker_only_fragment(sent):[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1408:            continue[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1409:        finding_ids = _FINDING_MARKER_RE.findall(sent)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1410: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mcited_known [0m[7m[0m= [0m[7m[0m[fid [0m[7m[0mfor [0m[7m[0mfid [0m[7m[0min [0m[7m[0mfinding_ids [0m[7m[0mif [0m[7m[0mfid [0m[7m[0min [0m
+[7m[0mfinding_by_id][0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1411:        has_known_finding = bool(cited_known)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1412: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m#1217 [0m[7m[0mfollow-up: [0m[7m[0mrequire [0m[7m[0man [0m[7m[0mevidence [0m[7m[0mmarker [0m[7m[0mto [0m[7m[0mbe [0m
+[7m[0mPRESENT, [0m[7m[0mbut [0m[7m[0mdo [0m[7m[0mNOT[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1413: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mrequire [0m[7m[0mits [0m[7m[0mevidence_id [0m[7m[0mto [0m[7m[0mexactly [0m[7m[0mmatch [0m[7m[0mthe [0m[7m[0mcited [0m
+[7m[0mfinding's. [0m[7m[0mThis[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1414: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfilter's [0m[7m[0mjob [0m[7m[0mis [0m[7m[0monly [0m[7m[0mto [0m[7m[0mdrop [0m[7m[0mUNcited [0m[7m[0mreducer [0m[7m[0mprose; [0m
+[7m[0mthe [0m[7m[0mUNCHANGED[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1415: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0m_rewrite_draft_with_spans [0m[7m[0m+ [0m[7m[0mstrict_verify [0m
+[7m[0mdownstream [0m[7m[0mvalidates [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1416: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfinal [0m[7m[0m[#ev:...] [0m[7m[0mtoken [0m[7m[0magainst [0m[7m[0mthe [0m[7m[0mevidence [0m[7m[0mpool. [0m
+[7m[0mPermissive [0m[7m[0mfilter,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1417:        # strict output gate.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1418:        has_full_token = bool(_FULL_EV_TOKEN_RE.search(sent))[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1419: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mhas_bare_marker [0m[7m[0m= [0m
+[7m[0mbool(_BARE_EV_MARKER_RE.search(sent))[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1420: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mif [0m[7m[0mnot [0m[7m[0m(has_known_finding [0m[7m[0mand [0m[7m[0m(has_bare_marker [0m[7m[0mor [0m
+[7m[0mhas_full_token)):[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1421: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mUncited [0m[7m[0mreducer [0m[7m[0mprose, [0m[7m[0mor [0m[7m[0ma [0m[7m[0mmarker [0m[7m[0mpointing [0m[7m[0mat [0m
+[7m[0man [0m[7m[0munknown [0m[7m[0mfinding:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1422: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mdrop [0m[7m[0mit. [0m[7m[0mIt [0m[7m[0mmust [0m[7m[0mnot [0m[7m[0msurvive [0m[7m[0minto [0m[7m[0mstrict_verify [0m
+[7m[0mas [0m[7m[0mpass-through [0m[7m[0mprose.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1423:            continue[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1424: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mStrip [0m[7m[0mthe [0m[7m[0mfinding [0m[7m[0mmarkers. [0m[7m[0mNormalize [0m[7m[0mstale [0m[7m[0mfull [0m
+[7m[0mprovenance [0m[7m[0mtokens [0m[7m[0mback[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1425: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mto [0m[7m[0mlegacy [0m[7m[0m[ev_XXX] [0m[7m[0mso [0m[7m[0mthe [0m[7m[0msentence-aware [0m[7m[0mspan [0m
+[7m[0mbinder [0m[7m[0mrecomputes [0m[7m[0mspans[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1426: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfor [0m[7m[0mthe [0m[7m[0mreducer's [0m[7m[0mFINAL [0m[7m[0mprose [0m[7m[0minstead [0m[7m[0mof [0m[7m[0mtrusting [0m
+[7m[0mMAP [0m[7m[0msupport-quote[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1427:        # offsets.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1428:        clean = _FINDING_MARKER_RE.sub("", sent)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1429: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mclean [0m[7m[0m= [0m[7m[0m_FULL_EV_TOKEN_RE.sub(lambda [0m[7m[0mm: [0m
+[7m[0mf"[{m.group('ev_id')}]", [0m[7m[0mclean)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1430: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mclean [0m[7m[0m= [0m[7m[0m_normalize_ev_prefix(clean) [0m[7m [0m[7m[0m# [0m[7m[0m#1218: [0m[7m[0mfix [0m
+[7m[0mmodel-added/dropped [0m[7m[0m"ev_" [0m[7m[0mprefix[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1431: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mclean [0m[7m[0m= [0m[7m[0m_DUP_BARE_EV_MARKER_RE.sub(lambda [0m[7m[0mm: [0m
+[7m[0mm.group(1), [0m[7m[0mclean)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1432: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mCollapse [0m[7m[0many [0m[7m[0mdouble [0m[7m[0mspaces [0m[7m[0mintroduced [0m[7m[0mby [0m[7m[0mmarker [0m
+[7m[0mremoval.[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1433:        clean = re.sub(r"\s{2,}", " ", clean).strip()[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1434:        if clean:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1435:            kept.append(clean)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1436:    out = " ".join(kept)[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1437:    if _dbg:[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1438:        logger.warning([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1439: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[DISTILL_DEBUG] [0m[7m[0msection=%r: [0m[7m[0mfilter [0m[7m[0mkept [0m[7m[0m%d/%d [0m
+[7m[0msentences [0m[7m[0m-> [0m[7m[0moutput=%d [0m[7m[0mchars; [0m[7m[0mout_sample=%r",[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\evidence_distiller.py:1440: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mdistillate.section_title, [0m[7m[0mlen(kept), [0m
+[7m[0mlen(sentences), [0m[7m[0mlen(out), [0m[7m[0mout[:900],[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1441:        )[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:1442:    return out[0m
+
+
+ succeeded in 13386ms:
+
+  src\polaris_graph\generator\multi_section_generator.py:2406:        advisory_text=advisory_text,
+  src\polaris_graph\generator\multi_section_generator.py:2407:        distillate=distillate,
+  src\polaris_graph\generator\multi_section_generator.py:2408:    )
+  src\polaris_graph\generator\multi_section_generator.py:2409:    total_in_tok += in_tok
+  src\polaris_graph\generator\multi_section_generator.py:2410:    total_out_tok += out_tok
+  src\polaris_graph\generator\multi_section_generator.py:2411:
+  src\polaris_graph\generator\multi_section_generator.py:2412:    # I-perm-016 (#1209): in REDUCE mode, drop any 
+uncited reducer prose and
+  src\polaris_graph\generator\multi_section_generator.py:2413:    # strip the [[finding:...]] markers BEFORE the 
+unchanged
+  src\polaris_graph\generator\multi_section_generator.py:2414:    # _rewrite_draft_with_spans + strict_verify run. A 
+sentence survives only
+  src\polaris_graph\generator\multi_section_generator.py:2415:    # when it cites a KNOWN finding marker AND an 
+evidence marker; the reducer's
+  src\polaris_graph\generator\multi_section_generator.py:2416:    # legacy [ev_XXX] marker is then rebound to a full 
+[#ev:...] token by the
+  src\polaris_graph\generator\multi_section_generator.py:2417:    # unchanged sentence-aware span rewriter.
+  src\polaris_graph\generator\multi_section_generator.py:2418:    # Distillate None (legacy) -> raw is unchanged 
+(byte-identical).
+  src\polaris_graph\generator\multi_section_generator.py:2419:    if distillate is not None:
+  src\polaris_graph\generator\multi_section_generator.py:2420:        from 
+src.polaris_graph.generator.evidence_distiller import (
+> src\polaris_graph\generator\multi_section_generator.py:2421:            [7mfilter_and_strip_reduce_markers[0m,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2422:        )[0m
+> src\polaris_graph\generator\multi_section_generator.py:2423:        raw = [7mfilter_and_strip_reduce_markers[0m(raw, [0m
+[7m[0mdistillate)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2424:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2425:    # Rewrite provenance tokens[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2426: [0m[7m [0m[7m [0m[7m [0m[7m[0mrewritten, [0m[7m[0m_converted, [0m[7m[0m_unver [0m[7m[0m= [0m
+[7m[0m_rewrite_draft_with_spans(raw, [0m[7m[0mevidence_pool)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2427:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2428: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mStrict [0m[7m[0mverify [0m[7m[0magainst [0m[7m[0mfull [0m[7m[0mevidence_pool [0m[7m[0m(not [0m
+[7m[0msubset [0m[7m[0m— [0m[7m[0mthe [0m[7m[0mmodel[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2429: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mmight [0m[7m[0mcite [0m[7m[0man [0m[7m[0mev [0m[7m[0mfrom [0m[7m[0moutside [0m[7m[0mthe [0m[7m[0massigned [0m[7m[0msubset; [0m
+[7m[0mstill [0m[7m[0mvalid).[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2430:    report = strict_verify(rewritten, evidence_pool)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2431:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2432: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-bug-108: [0m[7m[0mverifier-driven [0m[7m[0msentence [0m[7m[0mrepair [0m[7m[0mloop. [0m
+[7m[0mPer [0m[7m[0mCodex[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2433: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mstrategic-review [0m[7m[0miter [0m[7m[0m1 [0m[7m[0mpath [0m[7m[0mB [0m[7m[0m(recommended [0m[7m[0mafter [0m
+[7m[0mPR [0m[7m[0m#350 [0m[7m[0mD).[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2434: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mWhen [0m[7m[0mstrict_verify [0m[7m[0mdrops [0m[7m[0msentences [0m[7m[0mfor [0m[7m[0m"drift" [0m
+[7m[0mreasons [0m[7m[0m(entailment[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2435: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mfailed, [0m[7m[0mnumber/trial-name [0m[7m[0mmismatches, [0m[7m[0mcontent [0m
+[7m[0moverlap), [0m[7m[0mfeed [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2436: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mdropped [0m[7m[0msentence [0m[7m[0m+ [0m[7m[0mcited [0m[7m[0mspans [0m[7m[0m+ [0m[7m[0mfailure [0m[7m[0mreason [0m
+[7m[0mback [0m[7m[0mto [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2437: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mgenerator [0m[7m[0mand [0m[7m[0mask [0m[7m[0mfor [0m[7m[0mone [0m[7m[0mrewrite [0m[7m[0mthat [0m[7m[0mthe [0m[7m[0mcited [0m
+[7m[0mspan [0m[7m[0mentails.[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2438: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mRepaired [0m[7m[0msentences [0m[7m[0mre-run [0m[7m[0mthe [0m[7m[0mFULL [0m[7m[0mverification [0m
+[7m[0mchain [0m[7m[0mbefore[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2439: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mentering [0m[7m[0mkept[]; [0m[7m[0mfailures [0m[7m[0mstay [0m[7m[0mdropped [0m[7m[0m(no [0m
+[7m[0mdouble-counting).[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2440: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mPer [0m[7m[0mCodex [0m[7m[0miter-1 [0m[7m[0mbrief [0m[7m[0mverdict: [0m[7m[0m1 [0m[7m[0mretry [0m[7m[0mper [0m
+[7m[0msentence, [0m[7m[0mMAX [0m[7m[0m10[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2441: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mrepairs [0m[7m[0mper [0m[7m[0msection, [0m[7m[0mdeterministic [0m[7m[0morder, [0m
+[7m[0mtoken-set [0m[7m[0mpreservation[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2442: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mcheck. [0m[7m[0mTelemetry [0m[7m[0m(attempts/successes/failures) [0m
+[7m[0maccumulates [0m[7m[0mon[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2443: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mthe [0m[7m[0mSectionResult [0m[7m[0mso [0m[7m[0mthe [0m[7m[0mmanifest [0m[7m[0mcan [0m[7m[0mreport [0m
+[7m[0mrecovery [0m[7m[0mrate.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2444:    section_repair_telemetry = None[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2445:    try:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2446: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mfrom [0m[7m[0msrc.polaris_graph.generator.sentence_repair [0m
+[7m[0mimport [0m[7m[0m([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2447:            repair_dropped_section_sentences,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2448:        )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2449: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mrepaired_kept, [0m[7m[0mrepaired_dropped, [0m
+[7m[0msection_repair_telemetry [0m[7m[0m= [0m[7m[0m([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2450:            await repair_dropped_section_sentences([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2451:                kept=report.kept_sentences,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2452:                dropped=report.dropped_sentences,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2453:                evidence_pool=evidence_pool,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2454:                model=model,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2455:                max_tokens=400,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2456:                temperature=0.2,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2457:            )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2458:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2459:        if section_repair_telemetry.attempts > 0:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2460:            logger.info([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2461: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[multi_section] [0m[7m[0m%s [0m[7m[0mrepair_loop: [0m
+[7m[0mattempts=%d [0m[7m[0m"[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2462:                "successes=%d (rate=%.2f) null_drops=%d "[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2463: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"token_set_violations=%d [0m
+[7m[0mre_verify_fail=%d [0m[7m[0m"[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2464:                "api_fail=%d",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2465:                section.title,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2466:                section_repair_telemetry.attempts,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2467:                section_repair_telemetry.successes,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2468:                section_repair_telemetry.recovery_rate,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2469:                section_repair_telemetry.null_drops,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2470: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0msection_repair_telemetry.token_set_violations,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2471: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0msection_repair_telemetry.re_verify_failures,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2472:                section_repair_telemetry.api_failures,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2473:            )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2474: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mtotal_in_tok [0m[7m[0m+= [0m
+[7m[0msection_repair_telemetry.input_tokens[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2475: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mtotal_out_tok [0m[7m[0m+= [0m
+[7m[0msection_repair_telemetry.output_tokens[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2476: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mCodex [0m[7m[0miter-1 [0m[7m[0mP0 [0m[7m[0m#2: [0m[7m[0mdrop [0m[7m[0maccounting [0m[7m[0mhonest [0m[7m[0m— [0m
+[7m[0mrecovered[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2477: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0msentences [0m[7m[0mare [0m[7m[0mremoved [0m[7m[0mfrom [0m[7m[0mdropped [0m[7m[0m(already [0m
+[7m[0mdone [0m[7m[0min [0m[7m[0mrepair[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2478: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0morchestrator) [0m[7m[0mand [0m[7m[0madded [0m[7m[0mto [0m[7m[0mkept. [0m[7m[0mReplace [0m[7m[0mthe [0m
+[7m[0mreport's [0m[7m[0mlists[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2479: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0min-place [0m[7m[0mso [0m[7m[0mdownstream [0m[7m[0mM-41c [0m[7m[0mfilter [0m[7m[0msees [0m[7m[0mthe [0m
+[7m[0maugmented [0m[7m[0mkept.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2480:        report.kept_sentences = repaired_kept[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2481:        report.dropped_sentences = repaired_dropped[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2482:        report.total_kept = len(repaired_kept)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2483:        report.total_dropped = len(repaired_dropped)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2484:    except Exception as exc:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2485:        logger.warning([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2486: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[multi_section] [0m[7m[0m%s [0m[7m[0mrepair_loop [0m[7m[0mfailed [0m
+[7m[0m(non-fatal): [0m[7m[0m%s",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2487:            section.title, exc,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2488:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2489:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2490:    total = max(1, report.total_in)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2491:    kept_fraction = report.total_kept / total[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2492:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2493: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mM-41c [0m[7m[0mpre-filter [0m[7m[0m(pass-2 [0m[7m[0mfix [0m[7m[0mfor [0m[7m[0mCodex [0m[7m[0maudit [0m
+[7m[0mblocker): [0m[7m[0mapply [0m[7m[0mthe[0m
+
+
+codex
+The reducer post-filter is doing the important gating: a sentence needs a known `[[finding:...]]` plus an evidence marker before the finding marker is stripped, then `_rewrite_draft_with_spans` and `strict_verify` run as before. I’m checking the cross-trial object usage now for any call-shape or summary-field mismatch.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\multi_section_generator.py -Pattern \"def _call_section\" -Context 0,45" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\multi_section_generator.py -Pattern \"cross_trial_block\" -Context 3,6" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\multi_section_generator.py -Pattern \"advisory_text\" -Context 2,3" in C:\POLARIS
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Select-String -Path src\\polaris_graph\\generator\\evidence_distiller.py -Pattern \"render_reduce_user\\(\" -Context 0,2" in C:\POLARIS
+ succeeded in 4048ms:
+
+> src\polaris_graph\generator\multi_section_generator.py:1654:async [7mdef _call_section[0m([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1655:    section: SectionPlan,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1656:    evidence_subset: list[dict[str, Any]],[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1657:    model: str,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1658:    temperature: float,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1659:    max_tokens: int,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1660:    tighter_retry: bool = False,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1661:    contradictions: list[dict[str, Any]] | None = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1662:    cross_trial_block: Any = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1663:    use_field_agnostic_prompt: bool = False,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1664:    advisory_text: str = "",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1665:    distillate: Any | None = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1666:) -> tuple[str, int, int, dict[str, Any]]:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1667:    """Single LLM call for one section.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1668:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1669:    Returns (raw_draft, in_tok, out_tok, atom_catalog).[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1670:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1671: [0m[7m [0m[7m [0m[7m [0m[7m[0mI-gen-005 [0m[7m[0mStep [0m[7m[0m3b [0m[7m[0mcommit [0m[7m[0m3: [0m[7m[0matom_catalog [0m[7m[0mis [0m[7m[0mthe [0m
+[7m[0mSECTION-FILTERED[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1672: [0m[7m [0m[7m [0m[7m [0m[7m[0mdict[atom_id, [0m[7m[0mClaimAtom] [0m[7m[0mthat [0m[7m[0mwas [0m[7m[0mactually [0m[7m[0minjected [0m
+[7m[0minto [0m[7m[0mV4 [0m[7m[0mPro's[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1673: [0m[7m [0m[7m [0m[7m [0m[7m[0msystem [0m[7m[0mprompt [0m[7m[0m(per [0m[7m[0mStep [0m[7m[0m3a). [0m[7m[0mThreading [0m[7m[0mit [0m[7m[0mback [0m[7m[0mto [0m
+[7m[0mthe [0m[7m[0mcaller[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1674: [0m[7m [0m[7m [0m[7m [0m[7m[0menables [0m[7m[0mthe [0m[7m[0mpost-hoc [0m[7m[0matom_refusal_validator [0m[7m[0mto [0m[7m[0muse [0m
+[7m[0mthe [0m[7m[0mEXACT[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1675: [0m[7m [0m[7m [0m[7m [0m[7m[0mcatalog/numbering [0m[7m[0mthat [0m[7m[0mV4 [0m[7m[0mPro [0m[7m[0msaw [0m[7m[0m— [0m[7m[0mavoiding [0m
+[7m[0mrebuild-and-mismatch[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1676:    failure mode per Codex Step 3a iter-2 P2.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1677:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1678:    Catalog is empty dict {} when:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1679:      - evidence_subset is empty[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1680: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0matom [0m[7m[0mextraction [0m[7m[0merrored [0m[7m[0m(fail-soft [0m[7m[0mfallback [0m[7m[0min [0m
+[7m[0matom [0m[7m[0mblock)[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1681: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m- [0m[7m[0mno [0m[7m[0matoms [0m[7m[0mmatched [0m[7m[0mextraction [0m[7m[0mregex [0m[7m[0mfor [0m[7m[0many [0m
+[7m[0mevidence [0m[7m[0mrow[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1682:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1683: [0m[7m [0m[7m [0m[7m [0m[7m[0mV32 [0m[7m[0m(M-71): [0m[7m[0mwhen [0m[7m[0m`contradictions` [0m[7m[0mis [0m[7m[0mnon-None [0m[7m[0mand [0m
+[7m[0mthe [0m[7m[0msection's[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1684: [0m[7m [0m[7m [0m[7m [0m[7m[0mtitle [0m[7m[0mmatches [0m[7m[0mone [0m[7m[0mof [0m[7m[0mthe [0m[7m[0mrelevant [0m[7m[0mbody [0m[7m[0msections [0m
+[7m[0m(Safety,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1685: [0m[7m [0m[7m [0m[7m [0m[7m[0mComparative, [0m[7m[0mPopulation [0m[7m[0mSubgroups, [0m[7m[0mEfficacy), [0m[7m[0minject [0m
+[7m[0ma[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1686: [0m[7m [0m[7m [0m[7m [0m[7m[0msection-local [0m[7m[0mhedging [0m[7m[0minstruction [0m[7m[0mblock [0m[7m[0minto [0m[7m[0mthe [0m
+[7m[0msystem [0m[7m[0mprompt[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1687: [0m[7m [0m[7m [0m[7m [0m[7m[0masking [0m[7m[0mthe [0m[7m[0mLLM [0m[7m[0mto [0m[7m[0macknowledge [0m[7m[0mhigh-severity [0m
+[7m[0mdisagreements[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1688:    in the body rather than only the appendix.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1689:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1690: [0m[7m [0m[7m [0m[7m [0m[7m[0mV33 [0m[7m[0m(M-72): [0m[7m[0mwhen [0m[7m[0m`cross_trial_block` [0m[7m[0mis [0m[7m[0mnon-None, [0m
+[7m[0minject [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1691: [0m[7m [0m[7m [0m[7m [0m[7m[0mper-section [0m[7m[0mcross-trial [0m[7m[0msynthesis [0m[7m[0msuggestions [0m[7m[0mblock. [0m
+[7m[0mThe [0m[7m[0mLLM[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1692: [0m[7m [0m[7m [0m[7m [0m[7m[0mintegrates [0m[7m[0m1-2 [0m[7m[0mof [0m[7m[0mthese [0m[7m[0minferences [0m[7m[0minto [0m[7m[0mthe [0m[7m[0mbody [0m
+[7m[0mnarrative.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1693:    """[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1694:    from src.polaris_graph.llm.openrouter_client import ([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1695:        OpenRouterClient,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1696:        ReasoningFirstTruncationError,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1697:        set_reasoning_call_context,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1698:    )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1699:[0m
+
+
+ succeeded in 7202ms:
+
+  src\polaris_graph\generator\multi_section_generator.py:1659:    max_tokens: int,
+  src\polaris_graph\generator\multi_section_generator.py:1660:    tighter_retry: bool = False,
+  src\polaris_graph\generator\multi_section_generator.py:1661:    contradictions: list[dict[str, Any]] | None = None,
+> src\polaris_graph\generator\multi_section_generator.py:1662:    [7mcross_trial_block[0m: Any = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1663:    use_field_agnostic_prompt: bool = False,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1664:    advisory_text: str = "",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1665:    distillate: Any | None = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1666:) -> tuple[str, int, int, dict[str, Any]]:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1667:    """Single LLM call for one section.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1668:[0m
+  src\polaris_graph\generator\multi_section_generator.py:1687:    asking the LLM to acknowledge high-severity 
+disagreements
+  src\polaris_graph\generator\multi_section_generator.py:1688:    in the body rather than only the appendix.
+  src\polaris_graph\generator\multi_section_generator.py:1689:
+> src\polaris_graph\generator\multi_section_generator.py:1690:    V33 (M-72): when `[7mcross_trial_block[0m` [0m[7m[0mis [0m[7m[0mnon-None, [0m
+[7m[0minject [0m[7m[0mthe[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1691: [0m[7m [0m[7m [0m[7m [0m[7m[0mper-section [0m[7m[0mcross-trial [0m[7m[0msynthesis [0m[7m[0msuggestions [0m[7m[0mblock. [0m
+[7m[0mThe [0m[7m[0mLLM[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1692: [0m[7m [0m[7m [0m[7m [0m[7m[0mintegrates [0m[7m[0m1-2 [0m[7m[0mof [0m[7m[0mthese [0m[7m[0minferences [0m[7m[0minto [0m[7m[0mthe [0m[7m[0mbody [0m
+[7m[0mnarrative.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1693:    """[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1694:    from src.polaris_graph.llm.openrouter_client import ([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1695:        OpenRouterClient,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1696:        ReasoningFirstTruncationError,[0m
+  src\polaris_graph\generator\multi_section_generator.py:1722:        # distill filter drops any sentence lacking a 
+[[finding:]] marker, and
+  src\polaris_graph\generator\multi_section_generator.py:1723:        # strict_verify is unchanged. Empty → 
+byte-identical to pre-#1210.
+  src\polaris_graph\generator\multi_section_generator.py:1724:        _cross_trial_summaries: list[str] = []
+> src\polaris_graph\generator\multi_section_generator.py:1725:        if [7mcross_trial_block[0m is not None:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1726:            _cross_trial_summaries = [[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1727:                p.summary[0m
+> src\polaris_graph\generator\multi_section_generator.py:1728:                for p in 
+[7mcross_trial_block[0m.get_for_section(section.title)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1729:                if getattr(p, "summary", "")[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1730:            ][0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1731:        reduce_prompt = render_reduce_user([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1732:            distillate,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1733:            advisory_text=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1734:            cross_trial_summaries=_cross_trial_summaries,[0m
+  src\polaris_graph\generator\multi_section_generator.py:1963:            system += hedging_block
+  src\polaris_graph\generator\multi_section_generator.py:1964:
+  src\polaris_graph\generator\multi_section_generator.py:1965:    # V33 M-72: inject cross-trial synthesis suggestions.
+> src\polaris_graph\generator\multi_section_generator.py:1966:    if [7mcross_trial_block[0m is not None:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1967:        from .cross_trial_synthesis import ([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1968:            render_cross_trial_synthesis_block,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1969:        )[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1970: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0msynthesis_block [0m[7m[0m= [0m
+[7m[0mrender_cross_trial_synthesis_block([0m
+> src\polaris_graph\generator\multi_section_generator.py:1971:            section.title, [7mcross_trial_block[0m,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1972:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1973:        if synthesis_block:[0m
+> src\polaris_graph\generator\multi_section_generator.py:1974:            patterns = 
+[7mcross_trial_block[0m.get_for_section(section.title)[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1975:            logger.info([0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1976: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m"[multi_section] [0m[7m[0mM-72 [0m[7m[0minjected [0m[7m[0m%d [0m
+[7m[0mcross-trial [0m[7m[0m"[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1977:                "synthesis patterns into section %r",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1978:                len(patterns), section.title,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1979:            )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1980:            system += synthesis_block[0m
+  src\polaris_graph\generator\multi_section_generator.py:2326:    max_tokens_per_section: int,
+  src\polaris_graph\generator\multi_section_generator.py:2327:    min_kept_fraction: float,
+  src\polaris_graph\generator\multi_section_generator.py:2328:    contradictions: list[dict[str, Any]] | None = None,
+> src\polaris_graph\generator\multi_section_generator.py:2329:    [7mcross_trial_block[0m: [0m[7m[0mAny [0m[7m[0m= [0m[7m[0mNone, [0m[7m [0m[7m[0m# [0m
+[7m[0mCrossTrialSynthesisBlock [0m[7m[0m| [0m[7m[0mNone[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2330:    use_field_agnostic_prompt: bool = False,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2331: [0m[7m [0m[7m [0m[7m [0m[7m[0madvisory_text: [0m[7m[0mstr [0m[7m[0m= [0m[7m[0m"", [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m6 [0m
+[7m[0m(#990): [0m[7m[0mdomain [0m[7m[0madvisory [0m[7m[0mappend[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2332: [0m[7m [0m[7m [0m[7m [0m[7m[0mcredibility_analysis: [0m[7m[0mAny [0m[7m[0m= [0m[7m[0mNone, [0m[7m [0m[7m[0m# [0m[7m[0mI-cred-008b [0m
+[7m[0m(#1162): [0m[7m[0madvisory [0m[7m[0mper-claim [0m[7m[0mdisclosure; [0m[7m[0mNone [0m[7m[0m=> [0m[7m[0mbyte-identical[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2333:) -> SectionResult:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2334: [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Run [0m[7m[0mone [0m[7m[0msection: [0m[7m[0mgenerate, [0m[7m[0mrewrite, [0m[7m[0mverify, [0m
+[7m[0moptionally [0m[7m[0mregenerate.[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2335:[0m
+  src\polaris_graph\generator\multi_section_generator.py:2340:    Qwen flags hedging_appropriateness because explicit 
+contradictions
+  src\polaris_graph\generator\multi_section_generator.py:2341:    live only in the appendix; M-71 routes them into the 
+body prose.
+  src\polaris_graph\generator\multi_section_generator.py:2342:
+> src\polaris_graph\generator\multi_section_generator.py:2343:    V33 (M-72) addition: when `[7mcross_trial_block[0m` [0m[7m[0mis [0m
+[7m[0mnon-None, [0m[7m[0mthis[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2344: [0m[7m [0m[7m [0m[7m [0m[7m[0mfunction [0m[7m[0minjects [0m[7m[0mper-section [0m[7m[0mCROSS-TRIAL [0m[7m[0mSYNTHESIS [0m
+[7m[0msuggestions[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2345: [0m[7m [0m[7m [0m[7m [0m[7m[0mderived [0m[7m[0mfrom [0m[7m[0malready-rendered [0m[7m[0mcontract [0m[7m[0mslot [0m
+[7m[0mpayloads. [0m[7m[0mCodex[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2346: [0m[7m [0m[7m [0m[7m [0m[7m[0mrun-12 [0m[7m[0mverdict: [0m[7m[0mV31+V32 [0m[7m[0mlifted [0m[7m[0mslot [0m[7m[0mquality [0m[7m[0mbut [0m
+[7m[0mNarrative [0m[7m[0mdepth[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2347: [0m[7m [0m[7m [0m[7m [0m[7m[0mstayed [0m[7m[0mLB [0m[7m[0mbecause [0m[7m[0mEfficacy [0m[7m[0m+ [0m[7m[0mMechanism [0m[7m[0mwere [0m
+[7m[0mslot-stacked. [0m[7m[0mM-72[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2348: [0m[7m [0m[7m [0m[7m [0m[7m[0mgenerates [0m[7m[0m1-2 [0m[7m[0mconnective [0m[7m[0minferences [0m[7m[0m(dose-response, [0m
+[7m[0mcomparator[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2349:    progression, safety class) per body section.[0m
+  src\polaris_graph\generator\multi_section_generator.py:2401:        section, ev_subset, model, temperature, 
+max_tokens_per_section,
+  src\polaris_graph\generator\multi_section_generator.py:2402:        tighter_retry=False,
+  src\polaris_graph\generator\multi_section_generator.py:2403:        contradictions=contradictions,
+> src\polaris_graph\generator\multi_section_generator.py:2404:        [7mcross_trial_block[0m=cross_trial_block,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2405: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0muse_field_agnostic_prompt=use_field_agnostic_prompt,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2406:        advisory_text=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2407:        distillate=distillate,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2408:    )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2409:    total_in_tok += in_tok[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2410:    total_out_tok += out_tok[0m
+  src\polaris_graph\generator\multi_section_generator.py:2530:            section, ev_subset, model, temperature, 
+max_tokens_per_section,
+  src\polaris_graph\generator\multi_section_generator.py:2531:            tighter_retry=True,
+  src\polaris_graph\generator\multi_section_generator.py:2532:            contradictions=contradictions,
+> src\polaris_graph\generator\multi_section_generator.py:2533:            [7mcross_trial_block[0m=cross_trial_block,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2534: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0muse_field_agnostic_prompt=use_field_agnostic_prompt,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2535:            advisory_text=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2536:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2537:        total_in_tok += in_tok2[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2538:        total_out_tok += out_tok2[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2539: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0mrewritten2, [0m[7m[0m_c2, [0m[7m[0m_u2 [0m[7m[0m= [0m
+[7m[0m_rewrite_draft_with_spans(raw2, [0m[7m[0mevidence_pool)[0m
+  src\polaris_graph\generator\multi_section_generator.py:5131:    # payloads land. Empty block when fewer than 2 trial 
+frames
+  src\polaris_graph\generator\multi_section_generator.py:5132:    # have extracted content.
+  src\polaris_graph\generator\multi_section_generator.py:5133:    from .cross_trial_synthesis import 
+build_cross_trial_synthesis
+> src\polaris_graph\generator\multi_section_generator.py:5134:    [7mcross_trial_block[0m = build_cross_trial_synthesis([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5135:        contract_slot_payloads,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5136:    )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5137:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5138: [0m[7m [0m[7m [0m[7m [0m[7m[0masync [0m[7m[0mdef [0m[7m[0m_run_legacy_bounded(plan: [0m[7m[0mSectionPlan) [0m[7m[0m-> [0m
+[7m[0mSectionResult:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5139:        async with sem:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5140:            return await _run_section([0m
+  src\polaris_graph\generator\multi_section_generator.py:5144:                
+max_tokens_per_section=section_max_tokens,
+  src\polaris_graph\generator\multi_section_generator.py:5145:                min_kept_fraction=min_kept_fraction,
+  src\polaris_graph\generator\multi_section_generator.py:5146:                contradictions=contradictions,
+> src\polaris_graph\generator\multi_section_generator.py:5147:                [7mcross_trial_block[0m=cross_trial_block,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5148: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m1 [0m[7m[0mFIX [0m[7m[0m4 [0m[7m[0m(Codex [0m
+[7m[0mdiff-gate [0m[7m[0miter-1 [0m[7m[0mP1 [0m[7m[0m#4):[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5149: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mon-mode [0m[7m[0mthe [0m[7m[0mbase [0m[7m[0msection [0m[7m[0mprompt [0m[7m[0mis [0m
+[7m[0mfield-agnostic. [0m[7m[0mOFF:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5150: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mresearch_plan [0m[7m[0mis [0m[7m[0mNone [0m[7m[0m-> [0m[7m[0mthe [0m[7m[0munchanged [0m
+[7m[0mclinical [0m[7m[0mtemplate.[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5151: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0muse_field_agnostic_prompt=research_plan [0m
+[7m[0mis [0m[7m[0mnot [0m[7m[0mNone,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5152: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m6 [0m[7m[0m(#990): [0m[7m[0mdomain [0m
+[7m[0madvisory [0m[7m[0mwriting-guidance,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5153: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mresolved [0m[7m[0monce [0m[7m[0mabove [0m[7m[0m(closure-captured; [0m
+[7m[0m"" [0m[7m[0mOFF [0m[7m[0m-> [0m[7m[0mno [0m[7m[0mappend).[0m
+
+
+ succeeded in 10473ms:
+
+  src\polaris_graph\generator\multi_section_generator.py:1662:    cross_trial_block: Any = None,
+  src\polaris_graph\generator\multi_section_generator.py:1663:    use_field_agnostic_prompt: bool = False,
+> src\polaris_graph\generator\multi_section_generator.py:1664:    [7madvisory_text[0m: str = "",[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1665:    distillate: Any | None = None,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1666:) -> tuple[str, int, int, dict[str, Any]]:[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1667:    """Single LLM call for one section.[0m
+  src\polaris_graph\generator\multi_section_generator.py:1731:        reduce_prompt = render_reduce_user(
+  src\polaris_graph\generator\multi_section_generator.py:1732:            distillate,
+> src\polaris_graph\generator\multi_section_generator.py:1733:            [7madvisory_text[0m=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1734:            cross_trial_summaries=_cross_trial_summaries,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1735:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1736:        client = OpenRouterClient(model=model)[0m
+  src\polaris_graph\generator\multi_section_generator.py:1796:    # select_advisory_prompt_text). Advisory-only: it 
+changes prose guidance, NOT
+  src\polaris_graph\generator\multi_section_generator.py:1797:    # routing/archetypes/verification. OFF / empty -> 
+system unchanged.
+> src\polaris_graph\generator\multi_section_generator.py:1798:    if use_field_agnostic_prompt and [7madvisory_text[0m:[0m
+> src\polaris_graph\generator\multi_section_generator.py:1799:        system = f"{system}\n\n{[7madvisory_text[0m}"[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:1800:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1801: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-gen-005 [0m[7m[0mPattern [0m[7m[0mA [0m[7m[0m(#904): [0m[7m[0mfor [0m[7m[0mreasoning-first [0m
+[7m[0mmodels [0m[7m[0m(V4 [0m[7m[0mPro),[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:1802: [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mappend [0m[7m[0ma [0m[7m[0mper-evidence [0m[7m[0mallow-list [0m[7m[0mof [0m[7m[0mNUMBERS, [0m[7m[0mTRIAL [0m
+[7m[0mNAMES, [0m[7m[0mDRUG[0m
+  src\polaris_graph\generator\multi_section_generator.py:2329:    cross_trial_block: Any = None,  # 
+CrossTrialSynthesisBlock | None
+  src\polaris_graph\generator\multi_section_generator.py:2330:    use_field_agnostic_prompt: bool = False,
+> src\polaris_graph\generator\multi_section_generator.py:2331:    [7madvisory_text[0m: [0m[7m[0mstr [0m[7m[0m= [0m[7m[0m"", [0m[7m [0m[7m[0m# [0m[7m[0mI-meta-005 [0m[7m[0mPhase [0m[7m[0m6 [0m
+[7m[0m(#990): [0m[7m[0mdomain [0m[7m[0madvisory [0m[7m[0mappend[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2332: [0m[7m [0m[7m [0m[7m [0m[7m[0mcredibility_analysis: [0m[7m[0mAny [0m[7m[0m= [0m[7m[0mNone, [0m[7m [0m[7m[0m# [0m[7m[0mI-cred-008b [0m
+[7m[0m(#1162): [0m[7m[0madvisory [0m[7m[0mper-claim [0m[7m[0mdisclosure; [0m[7m[0mNone [0m[7m[0m=> [0m[7m[0mbyte-identical[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2333:) -> SectionResult:[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:2334: [0m[7m [0m[7m [0m[7m [0m[7m[0m"""Run [0m[7m[0mone [0m[7m[0msection: [0m[7m[0mgenerate, [0m[7m[0mrewrite, [0m[7m[0mverify, [0m
+[7m[0moptionally [0m[7m[0mregenerate.[0m
+  src\polaris_graph\generator\multi_section_generator.py:2404:        cross_trial_block=cross_trial_block,
+  src\polaris_graph\generator\multi_section_generator.py:2405:        
+use_field_agnostic_prompt=use_field_agnostic_prompt,
+> src\polaris_graph\generator\multi_section_generator.py:2406:        [7madvisory_text[0m=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2407:        distillate=distillate,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2408:    )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2409:    total_in_tok += in_tok[0m
+  src\polaris_graph\generator\multi_section_generator.py:2533:            cross_trial_block=cross_trial_block,
+  src\polaris_graph\generator\multi_section_generator.py:2534:            
+use_field_agnostic_prompt=use_field_agnostic_prompt,
+> src\polaris_graph\generator\multi_section_generator.py:2535:            [7madvisory_text[0m=advisory_text,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2536:        )[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2537:        total_in_tok += in_tok2[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:2538:        total_out_tok += out_tok2[0m
+  src\polaris_graph\generator\multi_section_generator.py:4834:    # capture the SAME value. Fail-soft: a missing 
+frame/registry -> "".
+  src\polaris_graph\generator\multi_section_generator.py:4835:    _p6_frame = getattr(research_plan, "frame", None) if 
+research_plan else None
+> src\polaris_graph\generator\multi_section_generator.py:4836:    [7madvisory_text[0m = ([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:4837:        select_advisory_prompt_text([0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:4838:            getattr(_p6_frame, "claim_type", ""),[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:4839:            getattr(_p6_frame, "answer_type", "general"),[0m
+  src\polaris_graph\generator\multi_section_generator.py:5152:                # I-meta-005 Phase 6 (#990): domain 
+advisory writing-guidance,
+  src\polaris_graph\generator\multi_section_generator.py:5153:                # resolved once above (closure-captured; 
+"" OFF -> no append).
+> src\polaris_graph\generator\multi_section_generator.py:5154:                [7madvisory_text[0m=advisory_text,[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5155: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m[0m# [0m[7m[0mI-cred-008b [0m[7m[0m(#1162): [0m[7m[0mclosure-captured [0m
+[7m[0mlocal; [0m[7m[0mNone [0m[7m[0m(master [0m[7m[0mflag [0m[7m[0moff) [0m[7m[0m=> [0m[7m[0mbyte-identical.[0m
+[7m [0m[7m [0m[7m[0msrc\polaris_graph\generator\multi_section_generator.py:5156: [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m[7m [0m
+[7m[0mcredibility_analysis=credibility_analysis,[0m
+[7m[0m  src\polaris_graph\generator\multi_section_generator.py:5157:            )[0m
+
+
+ succeeded in 13675ms:
+
+> src\polaris_graph\generator\evidence_distiller.py:329:def [7mrender_reduce_user([0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:330:    distillate: SectionDistillate,[0m
+[7m[0m  src\polaris_graph\generator\evidence_distiller.py:331:    *,[0m
+
+
+codex
+The call shape matches the existing legacy cross-trial usage: distill REDUCE now uses `p.summary` directly, while the legacy branch still goes through the renderer that appends citation instructions. I’m doing one targeted test run for the new file only, then I’ll return the gate verdict.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'pytest tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py -q' in C:\POLARIS
+2026-06-12T03:00:18.971218Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 4.2 seconds
+Output:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator/test_reduce_narrative_context_ip …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+ exited 1 in 4171ms:
+[31;1mpytest: [0m
+[31;1m[36;1mLine |[0m
+[31;1m[36;1m[36;1m   2 | [0m [36;1mpytest[0m tests/polaris_graph/generator/test_reduce_narrative_context_ip …[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m ~~~~~~[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mThe term 'pytest' is not recognized as a name of a cmdlet, function, script file, or executable program.[0m
+[31;1m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m[31;1mCheck the spelling of the name, or if a path was included, verify that the path is correct and try again.[0m
+
+codex
+`pytest` is not on PATH in this shell, so I’m retrying through the Python module entry point before finalizing.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'python -m pytest tests/polaris_graph/generator/test_reduce_narrative_context_iperm018.py -q' in C:\POLARIS
+ succeeded in 9658ms:
+============================= test session starts =============================
+platform win32 -- Python 3.13.13, pytest-8.4.1, pluggy-1.6.0
+rootdir: C:\POLARIS
+configfile: pytest.ini
+plugins: anyio-4.12.1, Faker-40.13.0, hypothesis-6.151.9, langsmith-0.4.13, asyncio-1.1.0, base-url-2.1.0, cov-7.0.0, mock-3.14.1, playwright-0.7.2, recording-0.13.4
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 6 items
+
+tests\polaris_graph\generator\test_reduce_narrative_context_iperm018.py . [ 16%]
+.....                                                                    [100%]
+
+============================== warnings summary ===============================
+..\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\msn\AppData\Roaming\Python\Python313\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\POLARIS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'C:\\POLARIS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 6 passed, 1 warning in 2.79s =========================
+
+codex
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking proof nuance: the filter enforces known [[finding:...]] marker plus evidence marker, not literal text origin from the ledger. A copied framing sentence with valid markers can reach strict_verify; the execution guarantee is that unsupported/fabricated context prose is dropped, while source-faithful prose may survive. I found no path to publish an unfaithful claim."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+tokens used
+85,868

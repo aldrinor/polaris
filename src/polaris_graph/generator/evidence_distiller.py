@@ -285,11 +285,59 @@ def _render_map_user(
     )
 
 
+def _render_reduce_narrative_context(
+    advisory_text: str = "",
+    cross_trial_summaries: list[str] | None = None,
+) -> str:
+    """I-perm-018 (#1210): render the domain advisory + cross-trial inferences as
+    FRAMING-ONLY narrative context for the REDUCE prompt.
+
+    The legacy path threads `advisory_text` (domain tone/emphasis guidance) and the
+    M-72 cross-trial synthesis block into the section prompt; the distill REDUCE
+    branch previously dropped both, so the distilled section lost that narrative
+    richness. This block restores it WITHOUT touching faithfulness: it is explicitly
+    framing-only — the REDUCE writer must still produce every sentence from the
+    VALIDATED_FINDINGS_LEDGER and cite its [[finding:]] marker; nothing here is a
+    finding or a citable source. (We deliberately do NOT reuse
+    `render_cross_trial_synthesis_block`, whose 'Cite the contributing [ev_XXX]
+    markers' instruction is incompatible with the distill filter that drops any
+    sentence lacking a [[finding:]] ledger marker.) Empty inputs → "" → the prompt
+    is byte-identical to pre-#1210."""
+    advisory = (advisory_text or "").strip()
+    summaries = [s.strip() for s in (cross_trial_summaries or []) if s and s.strip()]
+    if not advisory and not summaries:
+        return ""
+    parts = [
+        "NARRATIVE FRAMING CONTEXT (framing ONLY — NOT findings, NOT sources):",
+        "Use the guidance below to shape TONE, EMPHASIS, and the ORDER in which you "
+        "present the ledger findings. You must NOT write or cite any sentence FROM "
+        "this block: every sentence still comes from the VALIDATED_FINDINGS_LEDGER "
+        "above and carries its [[finding:]] marker. Do NOT introduce numbers, claims, "
+        "or sources that are not in the ledger.",
+    ]
+    if advisory:
+        parts.append(f"\nDOMAIN_ADVISORY:\n{advisory}")
+    if summaries:
+        bullets = "\n".join(f"  - {s}" for s in summaries)
+        parts.append(
+            "\nCROSS_TRIAL_CONNECTIONS (relationships among ledger findings you may "
+            f"emphasise when ordering your sentences):\n{bullets}"
+        )
+    return "\n".join(parts)
+
+
 def render_reduce_user(
     distillate: SectionDistillate,
+    *,
+    advisory_text: str = "",
+    cross_trial_summaries: list[str] | None = None,
 ) -> str:
     """Render the REDUCE user prompt (spec Â§3): the validated findings ledger,
-    one line per finding, plus contradiction clusters."""
+    one line per finding, plus contradiction clusters.
+
+    I-perm-018 (#1210): when `advisory_text` / `cross_trial_summaries` are supplied,
+    a FRAMING-ONLY narrative-context block is appended (see
+    `_render_reduce_narrative_context`). Both empty (the default) → byte-identical."""
     ledger_lines: list[str] = []
     for f in distillate.findings:
         atom_ids = ",".join(f.atom_ids)
@@ -311,11 +359,15 @@ def render_reduce_user(
         )
     clusters = "\n".join(cluster_lines) if cluster_lines else "(none)"
 
+    narrative = _render_reduce_narrative_context(advisory_text, cross_trial_summaries)
+    narrative_section = f"{narrative}\n\n" if narrative else ""
+
     return (
         f"SECTION_TITLE: {distillate.section_title}\n"
         f"SECTION_FOCUS: {distillate.section_focus}\n\n"
         f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"
         f"CONTRADICTION_CLUSTERS:\n{clusters}\n\n"
+        f"{narrative_section}"
         "Write the section now. COVER EVERY finding in the ledger (one sentence each, "
         "co-citing true duplicates), and write each NUMERIC result in its OWN sentence "
         "(never merge two distinct statistics). Each sentence must use ledger facts "

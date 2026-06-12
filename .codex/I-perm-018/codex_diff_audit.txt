@@ -1,0 +1,8 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Non-blocking proof nuance: the filter enforces known [[finding:...]] marker plus evidence marker, not literal text origin from the ledger. A copied framing sentence with valid markers can reach strict_verify; the execution guarantee is that unsupported/fabricated context prose is dropped, while source-faithful prose may survive. I found no path to publish an unfaithful claim."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []

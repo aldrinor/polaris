@@ -1715,7 +1715,24 @@ async def _call_section(
         # downstream atom_refusal_validator sees the EXACT catalog.
         _section_atoms = dict(distillate.atom_catalog)
         reduce_system = _REDUCE_SYSTEM
-        reduce_prompt = render_reduce_user(distillate)
+        # I-perm-018 (#1210): thread the domain advisory + cross-trial inferences into
+        # the REDUCE prompt as FRAMING-ONLY narrative context (restores the legacy
+        # path's narrative richness). They are NOT findings/citable — the REDUCE
+        # writer must still produce every sentence from the validated ledger; the
+        # distill filter drops any sentence lacking a [[finding:]] marker, and
+        # strict_verify is unchanged. Empty → byte-identical to pre-#1210.
+        _cross_trial_summaries: list[str] = []
+        if cross_trial_block is not None:
+            _cross_trial_summaries = [
+                p.summary
+                for p in cross_trial_block.get_for_section(section.title)
+                if getattr(p, "summary", "")
+            ]
+        reduce_prompt = render_reduce_user(
+            distillate,
+            advisory_text=advisory_text,
+            cross_trial_summaries=_cross_trial_summaries,
+        )
         client = OpenRouterClient(model=model)
         try:
             set_reasoning_call_context(
@@ -2395,7 +2412,9 @@ async def _run_section(
     # I-perm-016 (#1209): in REDUCE mode, drop any uncited reducer prose and
     # strip the [[finding:...]] markers BEFORE the unchanged
     # _rewrite_draft_with_spans + strict_verify run. A sentence survives only
-    # when it cites a KNOWN finding marker AND its matching full [#ev:...] token.
+    # when it cites a KNOWN finding marker AND an evidence marker; the reducer's
+    # legacy [ev_XXX] marker is then rebound to a full [#ev:...] token by the
+    # unchanged sentence-aware span rewriter.
     # Distillate None (legacy) -> raw is unchanged (byte-identical).
     if distillate is not None:
         from src.polaris_graph.generator.evidence_distiller import (
