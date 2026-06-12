@@ -1,0 +1,143 @@
+**Root Cause**
+
+The structural bug was suspect **(a), with a nuance**: REDUCE’s full `[#ev:evidence_id:start-end]` tokens were not mangled. They survived unchanged and therefore bypassed the legacy sentence-aware span binder.
+
+Legacy path asks the model for `[ev_XXX]` markers, then `_rewrite_draft_with_spans` computes a support span for the final generated sentence: [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:1309), [live_deepseek_generator.py](C:/POLARIS/src/polaris_graph/generator/live_deepseek_generator.py:349), [live_deepseek_generator.py](C:/POLARIS/src/polaris_graph/generator/live_deepseek_generator.py:373).
+
+Distill REDUCE was using pre-bound MAP finding spans instead. Those spans are offsets for the atomic `support_quote`, not for the reducer’s final sentence. strict_verify then checks the final sentence against exactly `direct_quote[tok.start:tok.end]`, including number match, content overlap, and entailment: [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1634), [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1646), [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1706), [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1748), [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1859).
+
+So the reducer was structurally denied the legacy recovery mechanism that makes the same model/evidence pass about half the time.
+
+**Fix Applied**
+
+I changed REDUCE to produce legacy `[ev_XXX]` markers, not full span tokens, and made the filter normalize stale full tokens back to `[ev_XXX]` before `_rewrite_draft_with_spans`.
+
+Key changes:
+
+- REDUCE prompt now requires `[[finding:f...]]` plus `[ev_XXX]`, and explicitly forbids direct `[#ev:...]` span tokens: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:183).
+- Ledger renders `cite=[ev_001]` instead of `span=...`: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:251).
+- Filter accepts evidence markers and rewrites stale `[#ev:ev_001:10-51]` to `[ev_001]`: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:1017), [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:1071), [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:1081).
+- Distiller cache version bumped to avoid replaying old full-token reducer cache: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:68).
+- `_run_section` remains the same behavioral pipeline: filter, then `_rewrite_draft_with_spans`, then strict_verify: [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:2395).
+
+**Suspects**
+
+- **(a) True root cause**: full tokens bypassed `_rewrite_draft_with_spans`; they were not mangled.
+- **(b) Partial symptom**: REDUCE paraphrase becomes fatal only because the span is pre-bound to the MAP quote.
+- **(c) Refuted**: the filter was not the 100% drop point in your described runs; prose reached strict_verify.
+- **(d) Refuted for this path**: MAP and verifier both resolve offsets against `direct_quote`: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:696), [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1634).
+- **(e) Refuted**: reasoning starvation would return empty REDUCE output on truncation, but your runs had REDUCE prose that strict_verify dropped: [multi_section_generator.py](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:1734).
+
+The architecture is compatible with strict_verify only if REDUCE emits evidence IDs and the deterministic postprocessor binds spans after final prose exists. It is not compatible with trusting reducer-supplied or MAP-supplied final span offsets.
+
+**Verification**
+
+- `python -m pytest tests/polaris_graph/generator/test_evidence_distiller_iperm016.py -q` → 17 passed.
+- `python -m pytest tests/polaris_graph/test_provenance_generator.py tests/polaris_graph/test_strict_verify_cleaned_text_integration.py -q` → 18 passed.
+
+Both runs emitted only `.pytest_cache` permission warnings.
+===
+KILLER A — model-authored offsets fail the span checks (suspect d/K1).
+  A reasoning-first writer copying integers like span=120-145 from a text ledger
+  rarely reproduces them character-exact, and it is composing over many findings.
+  If emitted end>len(direct_quote) or start>=end, verify_sentence_provenance
+  appends span_out_of_bounds/span_invalid (provenance_generator.py:1635-1644)
+  and leaves valid_token_found False (1645). EVERY rescue (numeric/content/
+  entailment/local-window) is nested under "if require_number_match and
+  valid_token_found" (1675) and the NEUTRAL local-window branch (1893+), so with
+  no valid token the sentence drops with ZERO rescue. Even if offsets are
+  in-bounds but slightly off, the narrow slice will not share >=2 content words
+  with the composed sentence (no_content_word_overlap_any_cited_span 1809-1813)
+  and will not entail it (enforce-mode judge, 6th check; _DEFAULT_MODE="enforce"
+  strict_verify.py:173,187).
+
+KILLER B — synthetic finding-id gate eats the prose BEFORE strict_verify
+  (suspect c — NOT ruled out by the prior fixes).
+  filter_and_strip_reduce_markers requires has_known_finding: a
+  [[finding:<fid>]] whose fid is in the ledger (evidence_distiller.py:1054-1056;
+  hard gate at 1066: `if not (has_known_finding and has_full_token): continue`).
+  The ledger ids are synthetic strings minted as
+  f"{finding_id_prefix}{n:03d}" with finding_id_prefix = f"f{idx:03d}_"
+  (evidence_distiller.py:966 + 844), e.g. "f007_002". FIX #2 only removed the
+  [#ev] evidence_id CROSS-binding (1057-1064); it did NOT remove the
+  has_known_finding requirement. If the reasoning model does not reproduce
+  "f007_002" verbatim, the sentence is dropped at the FILTER (1066), never
+  reaching strict_verify. From the available telemetry ("strict_verify kept 0")
+  this is INDISTINGUISHABLE from Killer A: a filter that eats every sentence
+  hands strict_verify an empty string -> also reports 0 kept.
+
+DISCRIMINATOR (already in the code; just needs to be read/turned on):
+  PG_DISTILL_DEBUG logs "REDUCE raw=N chars / M sentences"
+  (evidence_distiller.py:1046-1051) and "filter kept X/Y -> output=Z chars"
+  (1077-1081). Verdict map:
+    raw=0           -> suspect (e): REDUCE produced nothing.
+    kept 0 of M>0   -> Killer B (suspect c): filter ate it; finding-id gate.
+    kept K>0, gate0 -> Killer A (suspect d): model offsets fail bounds/overlap/
+                       entailment.
+  The 3 live runs were on the VM; no DISTILL_DEBUG / section_reduce trace is
+  pulled into this workspace (grep of outputs/ found none), so I CANNOT prove
+  A-vs-B from local artifacts. The brief's "REDUCE wrote 50/57/709 content
+  tokens but kept 0" rules out (e) and proves the kill is at the filter+gate; it
+  does not separate A from B. Set PG_DISTILL_DEBUG=1 on one cached/offline replay
+  (no new spend) to lock it. The fix below is robust either way.
+
+================================================================================
+3. WHY THE 3 PRIOR FIXES MISSED IT
+================================================================================
+1 span-recovery in _validate_finding step-1 (evidence_distiller.py:466-502,
+  538-568): improves what enters the LEDGER. REDUCE token offsets are typed by
+  the MODEL at REDUCE time, not taken from the validated finding object, so
+  ledger quality cannot fix a wrong emitted offset (Killer A) or a missing
+  finding-id (Killer B).
+2 relaxed marker filter (1057-1069): removed only the [#ev] cross-binding; the
+  has_known_finding hard gate (1066) survived -> Killer B untouched.
+3 non-blocking step-6 entailment (622-633): grows the ledger; the final
+  per-sentence strict_verify on the model-authored token, and the finding-id
+  filter, are both unchanged -> neither output-side killer touched.
+All three act MAP/ledger-side; both killers live on the REDUCE-output surface.
+
+================================================================================
+4. THE ONE FIX (robust across c/d/e; faithfulness UNWEAKENED)
+================================================================================
+PRINCIPLE: stop requiring the LLM to reproduce ANY synthetic identifier — not
+char offsets, not finding-ids. Make REDUCE emit the SAME proven legacy citation
+shape (short [<evidence_id>] markers) and let the deterministic, prose-matched
+span computer fit the offsets — identical to legacy. strict_verify stays
+byte-unchanged and remains the SOLE faithfulness authority.
+
+  (1) _REDUCE_SYSTEM (evidence_distiller.py:183-192) + render_reduce_user
+      (241-274): instruct the writer to cite each sentence with the SHORT marker
+      [<evidence_id>] (legacy [ev_XXX] shape). REMOVE "span=" from the ledger
+      lines so offsets are never transcribed. Keep finding_id in the ledger text
+      for grounding, but do NOT make the model echo it.
+  (2) filter_and_strip_reduce_markers (1022-1082): require ONLY a short
+      [<evidence_id>] marker whose evidence_id is a known pool/ledger source
+      (the same id that drives _find_best_span_for_sentence). Treat
+      [[finding:...]] as OPTIONAL / best-effort (strip if present) — do NOT hard-
+      gate on has_known_finding. This removes Killer B regardless of whether it
+      was the dominant cause. (This corrects my first-pass fix, which wrongly
+      kept the finding-id requirement.)
+  (3) multi_section_generator.py:2407 unchanged: _rewrite_draft_with_spans now
+      SEES the short marker, runs _find_best_span_for_sentence on the cited row's
+      direct_quote, and computes prose-matched offsets — the exact machinery that
+      makes legacy prose verifiable. This removes Killer A.
+
+Faithfulness is not weakened: every emitted span is still machine-verified for
+numbers-in-span + >=2 content-overlap + enforce-mode entailment against
+direct_quote by the unchanged strict_verify. The only changes are WHO computes
+the span (deterministic post-processor, not the LLM) and dropping a synthetic-id
+filter gate that strict_verify already backstops.
+
+Before the next paid run: set PG_DISTILL_DEBUG=1 on one offline/cached replay to
+confirm raw>0 and to read filter-kept vs gate-dropped counts — so we ship on a
+MEASURED cause, not inference.
+
+================================================================================
+5. IS MAP-REDUCE FUNDAMENTALLY INCOMPATIBLE WITH strict_verify?
+================================================================================
+No. strict_verify's exact-span matching is compatible with map-reduce. What is
+incompatible is having the LLM emit FINAL machine tokens ([#ev:id:start-end]) and
+synthetic finding-ids. The compatible architecture is map-reduce that emits SHORT
+citation markers and DEFERS span computation to the deterministic finder — i.e.
+the proven legacy contract, applied to the validated-findings ledger instead of
+raw quote blocks.

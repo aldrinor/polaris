@@ -16,26 +16,32 @@ content is there in the corpus; the single-pass writer just cannot hold it.
 THE FIX (map-reduce)
 --------------------
 1. MAP â€” one LLM call PER SOURCE distills the source into atomic, span-grounded
-   findings. Each finding is LOCALLY VALIDATED fail-closed against the SAME
-   production verifier the section gate uses (``verify_sentence_provenance`` with
-   ``require_number_match=True``, which enforces numbers-in-span AND entailment).
-   A finding that cannot be validated is rejected here, before it can pollute the
-   ledger. Every input source yields >=1 accepted finding OR a ``CoverageRow`` so
-   no source ever silently disappears (LAW II fail-loud).
+   findings. Each finding is LOCALLY VALIDATED fail-closed: its support_quote must
+   LOCATE a REAL source slice (exact/whitespace/fuzzy recovery, #1217), and a
+   FUZZY (paraphrase-recovered) finding must additionally ENTAIL the claim via the
+   production verifier (``verify_sentence_provenance``). Exact/whitespace findings
+   are verbatim source text, so their per-finding entailment is non-blocking and
+   the (slow) verifier call is skipped for them (#1217 perf). A finding that cannot
+   be located, or a fuzzy finding the verifier does not entail, is rejected here
+   before it can pollute the ledger. Every input source yields >=1 accepted finding
+   OR a ``CoverageRow`` so no source ever silently disappears (LAW II fail-loud).
 2. REDUCE â€” the section writer composes prose over the VALIDATED findings ledger
-   only (reference-first). It never sees raw quotes; it can only cite findings
-   that already passed the gate. The output still carries the original
-   ``[#ev:evidence_id:start-end]`` token for every factual sentence, so the
-   downstream ``_rewrite_draft_with_spans`` (unchanged) and ``strict_verify``
-   (unchanged) re-check every sentence exactly as today â€” the distiller TIGHTENS,
-   it never relaxes, the faithfulness gates.
+   only (reference-first). It never sees raw quotes; it cites findings with the
+   same legacy ``[ev_XXX]`` markers used by the raw-evidence path. The downstream
+   ``_rewrite_draft_with_spans`` (unchanged) binds those markers to spans for the
+   FINAL sentence, then ``strict_verify`` (unchanged) re-checks every sentence
+   exactly as today â€” the distiller TIGHTENS, it never relaxes, the faithfulness
+   gates.
 
 FAITHFULNESS INVARIANT
 ----------------------
 This module NEVER weakens a gate. A distilled finding is only ever a CANDIDATE
-that has ALREADY passed the production verifier on its own; the final section
-prose is re-verified by the unchanged ``strict_verify`` exactly as the legacy
-path is. The distiller can only REDUCE what the writer is allowed to assert.
+admitted by EXTRACTION-side checks (located in a real source slice; fuzzy
+recoveries additionally entailment-gated); the FINAL section prose is re-verified
+sentence-by-sentence by the unchanged ``strict_verify`` (numbers-in-span AND >=2
+content-word overlap AND enforce-mode entailment) exactly as the legacy path is —
+that final gate, NOT the per-finding extraction check, is the SOLE publication
+authority. The distiller can only REDUCE what the writer is allowed to assert.
 
 Flag-gated entirely by ``PG_SECTION_DISTILL`` (read in the multi_section seam).
 This module is only imported when that flag is ON; when OFF the legacy path is
@@ -65,7 +71,7 @@ logger = logging.getLogger("polaris_graph.evidence_distiller")
 
 # Bump when the prompt, validation, or dataclass shape changes so stale cache
 # entries from an older distiller can never be replayed against a new contract.
-DISTILLER_VERSION = "section_distiller_v1"
+DISTILLER_VERSION = "section_distiller_v4"  # bumped #1217: v3=Bug A/B fuzzy-locate; v4=Codex diff-gate P2 (fuzzy span expand-to-clause + entailment only-for-fuzzy) changes validation outcome -> v3 cache MUST invalidate
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -183,12 +189,19 @@ _MAP_SYSTEM = (
 _REDUCE_SYSTEM = (
     "Write the section using only the validated findings ledger.\n"
     "Every factual sentence must cite at least one [[finding:f...]] marker and the "
-    "matching [#ev:evidence_id:start-end] token from that finding.\n"
+    "matching legacy [evidence_id] marker from that finding (for example [ev_001]).\n"
+    "CRITICAL marker placement: put ALL markers INSIDE the sentence they support, "
+    "immediately BEFORE that sentence's terminal period. NEVER place markers on their "
+    "own line, in a separate sentence, or after the period. Correct: "
+    "'Colibactin induces double-strand breaks in cultured cells [[finding:f002_000]] "
+    "[ev_colibactin_pks].' Wrong: 'Colibactin induces double-strand breaks in cultured "
+    "cells. [[finding:f002_000]] [ev_colibactin_pks]'\n"
     "A sentence must be exactly one type: single-source claim, multi-source "
     "conjunction, or conflict-limitation.\n"
     "For numeric outcome/incidence/effect claims, copy the finding's atom_ids as "
-    "(atom_NNN) before the provenance token.\n"
-    "No uncited prose. No headings. No raw evidence IDs without span tokens."
+    "(atom_NNN) before the evidence marker.\n"
+    "Do not emit [#ev:...] span tokens; spans are computed after drafting. "
+    "No uncited prose. No headings."
 )
 
 
@@ -249,7 +262,7 @@ def render_reduce_user(
         quote = f.support_quote.replace("\n", " ")
         ledger_lines.append(
             f"{f.finding_id} | {f.evidence_id} | {f.source_tier} | "
-            f"span={f.span_start}-{f.span_end} | atom_ids={atom_ids} | "
+            f"cite=[{f.evidence_id}] | atom_ids={atom_ids} | "
             f"claim={f.claim} | caveat={f.caveat} | "
             f"contradiction_key={f.contradiction_key} | quote={quote}"
         )
@@ -269,8 +282,10 @@ def render_reduce_user(
         f"SECTION_FOCUS: {distillate.section_focus}\n\n"
         f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"
         f"CONTRADICTION_CLUSTERS:\n{clusters}\n\n"
-        "Write the section now. Each sentence must use ledger facts only and end "
-        "with its finding marker(s), atom id(s) when needed, and [#ev:...] token(s)."
+        "Write the section now. Each sentence must use ledger facts only and place its "
+        "finding marker(s), atom id(s) when needed, and [ev_XXX] marker(s) INSIDE the "
+        "sentence, immediately BEFORE the terminal period — never on a separate line or "
+        "after the period. Do not write [#ev:...] span tokens."
     )
 
 
@@ -331,10 +346,20 @@ def _cache_key(
     evidence_id: str,
     direct_quote: str,
 ) -> str:
-    """sha256(distiller_version + title + focus + evidence_id + sha256(direct_quote))."""
+    """sha256(distiller_version + fuzzy_threshold + title + focus + evidence_id +
+    sha256(direct_quote)).
+
+    #1217 Codex diff-gate P2: the key includes ``PG_DISTILL_FUZZY_MIN_OVERLAP`` so
+    that retuning the fuzzy-recovery threshold after a cache is populated cannot
+    replay stale fuzzy ACCEPTS at the old threshold — a tighter/looser threshold is
+    a different validation outcome and must miss the cache."""
     dq_hash = hashlib.sha256(direct_quote.encode("utf-8")).hexdigest()
     payload = "\n".join(
-        [DISTILLER_VERSION, section_title, section_focus, evidence_id, dq_hash]
+        [
+            DISTILLER_VERSION,
+            f"fuzzy_min_overlap={_distill_fuzzy_min_overlap_frac()}",
+            section_title, section_focus, evidence_id, dq_hash,
+        ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -463,6 +488,141 @@ def _match_atom_ids(
     return matched
 
 
+def _distill_fuzzy_min_overlap_frac() -> float:
+    """Min fraction of the quote's content words that must appear in a candidate
+    source window for #1217 fuzzy span recovery to ACCEPT it (LAW VI: env-tunable,
+    default 0.6). Higher = stricter recovery."""
+    try:
+        return float(os.getenv("PG_DISTILL_FUZZY_MIN_OVERLAP", "0.6"))
+    except ValueError:
+        return 0.6
+
+
+def _fuzzy_locate_span(quote: str, source: str) -> Optional[tuple[int, int]]:
+    """#1217 Bug B fix (Codex pre-approved candidate (c), CONSTRAINED): recover the
+    REAL source window that best matches a PARAPHRASED MAP support_quote, or None.
+
+    The MAP model frequently paraphrases (drops markdown italics like ``_S.
+    cerevisiae_``; atomizes one source sentence into several) so the quote is not a
+    verbatim or whitespace-flexible substring — the live probe on the CDC safety
+    source rejected all 3 contraindication findings here ("3 proposed, 0 validated"),
+    the exact claims the legacy arm verified. This finds the source window with the
+    highest content-word overlap with the quote and ACCEPTS it only if the overlap
+    meets a threshold, then SHRINKS to the tight span between the first and last
+    matched content word. Faithfulness-safe (Codex constraint): it returns a GENUINE
+    source slice — NEVER the model's paraphrase text — and the claim is still
+    entailment-checked against it, then the final REDUCE prose is re-checked by the
+    UNCHANGED strict_verify, so a wrong recovery can never publish an unsupported
+    claim. It only RAISES recall to parity with the final gate's own span binder."""
+    from src.polaris_graph.generator.provenance_generator import _content_words
+
+    qwords = _content_words(quote)
+    if len(qwords) < 2:
+        return None  # too little signal to recover safely
+    need = max(2, int(_distill_fuzzy_min_overlap_frac() * len(qwords) + 0.9999))
+
+    n = len(source)
+    window = min(n, max(200, len(quote) * 2))
+    stride = max(20, window // 8)
+
+    best: Optional[tuple[int, int]] = None
+    best_ov = 0
+    starts = list(range(0, max(1, n - window + 1), stride))
+    starts.append(max(0, n - window))  # always include the tail window
+    for i in starts:
+        end = min(i + window, n)
+        ov = len(qwords & _content_words(source[i:end]))
+        if ov > best_ov:
+            best_ov = ov
+            best = (i, end)
+    if best is None or best_ov < need:
+        return None
+
+    # Localize to the matched content-word region, then EXPAND to the enclosing
+    # clause/sentence boundary — do NOT shrink to the first/last content word.
+    # #1217 Codex diff-gate P2 (clinical faithfulness): a tight content-word shrink
+    # drops leading FUNCTION words, so a source clause "... are not recommended for
+    # immunocompromised patients" would shrink to "recommended for immunocompromised
+    # patients" — flipping the negation BEFORE the per-finding entailment check sees
+    # it. Widening each side to the nearest sentence terminator keeps "not"/"no"/
+    # "without"/qualifier words inside the span so the entailment gate judges the TRUE
+    # meaning. (The final strict_verify still rebinds against the original evidence
+    # row, but the fuzzy gate must not be blind to negation.)
+    wstart, wend = best
+    win = source[wstart:wend]
+    first_off: Optional[int] = None
+    last_off: Optional[int] = None
+    for m in re.finditer(r"[A-Za-z0-9]+", win):
+        if m.group(0).lower() in qwords:
+            if first_off is None:
+                first_off = m.start()
+            last_off = m.end()
+    if first_off is None or last_off is None:
+        return best
+    # Left boundary: just after the previous sentence terminator (. ! ? or newline).
+    left = max(win.rfind(".", 0, first_off), win.rfind("\n", 0, first_off),
+               win.rfind("!", 0, first_off), win.rfind("?", 0, first_off))
+    start_off = left + 1 if left >= 0 else 0
+    while start_off < first_off and win[start_off] in " \t\r\n":
+        start_off += 1
+    # Right boundary: through the next sentence terminator at/after the last match.
+    m_end = re.search(r"[.\n!?]", win[last_off:])
+    end_off = last_off + m_end.end() if m_end else len(win)
+    return wstart + start_off, wstart + end_off
+
+
+def _locate_span_with_method(quote: str, source: str) -> Optional[tuple[int, int, str]]:
+    """Locate ``quote`` inside ``source``, returning (start, end, method) of the
+    REAL source slice, or None. ``method`` ∈ {"exact", "stripped", "whitespace",
+    "fuzzy"} — the caller uses it to apply an EXTRA entailment gate to the riskier
+    "fuzzy" (paraphrase-recovered) case (#1217).
+
+    I-perm-016 / #1217: the MAP model rarely copies a span VERBATIM — it reformats
+    whitespace/newlines AND paraphrases (drops markdown italics, atomizes a source
+    sentence). An exact-substring-only check rejected ~most findings, collapsing the
+    distillate to empty. We recover the real span at four escalating tolerances; the
+    output gates (entailment + the final strict_verify) remain the authority on the
+    prose, and "fuzzy" recoveries get an additional blocking entailment check in
+    `_validate_finding` so a meaning-changing paraphrase (e.g. "all" -> "some",
+    negation flips) cannot enter the ledger on content-word overlap alone."""
+    if not quote or not source:
+        return None
+    i = source.find(quote)
+    if i >= 0:
+        return i, i + len(quote), "exact"
+    stripped = quote.strip()
+    if stripped and stripped != quote:
+        i = source.find(stripped)
+        if i >= 0:
+            return i, i + len(stripped), "stripped"
+    toks = stripped.split()
+    if not toks:
+        return None
+    # Same tokens, any whitespace run between them (newline/space reformatting).
+    pattern = r"\s+".join(re.escape(t) for t in toks)
+    try:
+        m = re.search(pattern, source)
+    except re.error:
+        m = None
+    if m:
+        return m.start(), m.end(), "whitespace"
+    # #1217 Bug B: exact + whitespace-flexible failed -> the MAP paraphrased the
+    # quote (markdown italics dropped, source sentence atomized). Recover the REAL
+    # source window by content-word overlap (CONSTRAINED, threshold-gated). Returns a
+    # genuine source slice or None; the caller adds a blocking entailment gate.
+    fz = _fuzzy_locate_span(stripped, source)
+    if fz is not None:
+        return fz[0], fz[1], "fuzzy"
+    return None
+
+
+def _locate_span_in_source(quote: str, source: str) -> Optional[tuple[int, int]]:
+    """Backward-compatible wrapper: (start, end) of the REAL source slice, or None.
+    See `_locate_span_with_method` for the recovery tolerances."""
+    r = _locate_span_with_method(quote, source)
+    return None if r is None else (r[0], r[1])
+
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # MAP validation â€” fail-closed (spec Â§1)
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -476,32 +636,68 @@ def _validate_finding(
     evidence_pool: dict[str, dict[str, Any]],
     section_atoms: dict[str, Any],
     finding_id: str,
+    raw_index: int = -1,
 ) -> Optional[DistilledFinding]:
     """Validate one raw MAP finding fail-closed. Returns the DistilledFinding on
-    success, or None if it fails ANY check (the source then falls to a
+    success, or None if it fails a BLOCKING check (the source then falls to a
     validation_failed CoverageRow if no finding survives).
 
-    Checks (in order):
-      1. support_quote is an exact substring of direct_quote.
+    Checks (in order; only steps 1-3 are BLOCKING after the #1217 recall fixes):
+      1. (BLOCKING) support_quote is LOCATABLE in direct_quote, tolerant of
+         whitespace/newline reformatting (`_locate_span_in_source`); a reworded
+         quote is unlocatable -> reject.
       2. Offsets: if supplied offsets already point at a matching occurrence keep
-         them; otherwise correct deterministically to the FIRST exact occurrence.
-      3. direct_quote[start:end] == support_quote.
-      4. Every number in claim/numbers appears in the span (local pre-filter).
-      5. Numeric findings must map to >=1 section-local atom (else reject).
-      6. Entailment: build "{claim} [#ev:{evidence_id}:{start}-{end}]" and run the
-         EXISTING production verifier path unchanged; reject if not kept.
+         them; otherwise use the located (recovered) span.
+      3. (BLOCKING) direct_quote[start:end] is non-empty.
+      4. (NON-BLOCKING, #1217) numbers-in-span is computed for telemetry only; it
+         never rejects — strict_verify re-checks numbers against the final span.
+      5. Atom mapping: a numeric finding with NO section-local atom is KEPT
+         (atom_ids stays []) per the #1209 Codex diff-gate ruling.
+      6. Per-finding entailment is computed via the UNCHANGED production verifier.
+         It is NON-BLOCKING for exact/whitespace matches; BLOCKING for a FUZZY
+         (paraphrase-recovered) span (#1217) — a fuzzy span was matched on
+         content-word overlap, blind to meaning-changing function words, so it must
+         additionally ENTAIL the claim. A verifier EXCEPTION rejects (fail-closed).
+         The FINAL per-sentence strict_verify on the REDUCE prose remains the SOLE
+         publication authority for all paths.
+
+    raw_index: the 0-based index of this finding in the MAP `findings` array, used
+    for #1217 PG_DISTILL_DEBUG reject tracing (rejected findings do NOT consume a
+    finding_id, so finding_id alone cannot disambiguate which proposal was killed).
     """
+    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+    def _rej(step: str, reason: str) -> None:
+        """#1217 diagnostic: log which validation STEP killed this proposal (keyed on
+        evidence_id + raw_index) then return None. Logging only — no behavior change."""
+        if _dbg:
+            logger.warning(
+                "[DISTILL_DEBUG] REJECT ev=%s raw_index=%d step=%s reason=%s claim=%r",
+                evidence_id, raw_index, step, reason,
+                str(raw.get("claim", ""))[:90],
+            )
+        return None
+
     claim = str(raw.get("claim", "") or "").strip()
     support_quote = str(raw.get("support_quote", "") or "")
     if not claim or not support_quote:
-        return None
+        return _rej("step0_empty", "empty claim or support_quote")
 
-    # (1) support_quote must be an exact substring of direct_quote.
-    first_idx = direct_quote.find(support_quote)
-    if first_idx < 0:
-        return None
+    # (1) Locate support_quote in direct_quote, TOLERANT of whitespace/newline
+    # reformatting (the MAP model rarely copies verbatim). On a hit we ADOPT the
+    # real source slice as support_quote below — faithfulness-safe (same words,
+    # real offsets). A reworded quote stays unlocatable -> reject. (#1217: the
+    # prior exact-substring-only check rejected ~most findings -> empty distillate
+    # -> section collapse. The MAP filter is an EXTRACTION filter; strict_verify +
+    # the 4-role gate remain the authority on the final prose.)
+    located = _locate_span_with_method(support_quote, direct_quote)
+    if located is None:
+        return _rej("step1_locate", "support_quote not locatable in direct_quote (reworded/paraphrased)")
+    loc_start, loc_end, locate_method = located
 
-    # (2) Offset reconciliation.
+    # (2) Offset reconciliation: prefer the model's supplied offsets ONLY if they
+    # already point at the EXACT support_quote (handles duplicate occurrences);
+    # otherwise use the located (recovered) span.
     try:
         supplied_start = int(raw.get("span_start", -1))
         supplied_end = int(raw.get("span_end", -1))
@@ -512,16 +708,16 @@ def _validate_finding(
         0 <= supplied_start < supplied_end <= len(direct_quote)
         and direct_quote[supplied_start:supplied_end] == support_quote
     ):
-        # Supplied offsets point at a matching occurrence (handles duplicates).
         span_start, span_end = supplied_start, supplied_end
+        locate_method = "exact"  # model offsets pointed at the exact quote
     else:
-        # Correct deterministically to the first exact occurrence.
-        span_start = first_idx
-        span_end = first_idx + len(support_quote)
+        span_start, span_end = loc_start, loc_end
 
-    # (3) Re-assert the span slice equals the quote (belt + suspenders).
-    if direct_quote[span_start:span_end] != support_quote:
-        return None
+    # (3) Adopt the REAL source slice as support_quote (this is what the
+    # whitespace-flexible recovery returns) and re-assert it is non-empty.
+    support_quote = direct_quote[span_start:span_end]
+    if not support_quote.strip():
+        return _rej("step3_empty_slice", "recovered source slice is empty/whitespace")
 
     # Parse declared numbers/entities defensively.
     raw_numbers = raw.get("numbers") or []
@@ -532,9 +728,34 @@ def _validate_finding(
     contradiction_key = str(raw.get("contradiction_key", "") or "").strip()
     source_tier = str(raw.get("source_tier", "") or tier or "").strip()
 
-    # (4) Numbers-in-span local pre-filter.
-    if not _all_numbers_in_span(claim, numbers, support_quote):
-        return None
+    # (4) Numbers-in-span local check is NON-BLOCKING (#1217 RECALL fix — both
+    # Claude AND Codex independent re-forensics AGREE on candidate (b)). This was a
+    # hard `return None` reject; it collapsed distill recall below legacy on the
+    # drb_76 Safety replay (legacy kept 6 numeric-heavy sentences; distill kept the
+    # ONE non-numeric claim). The reject is pure recall loss with ZERO faithfulness
+    # benefit: this narrow-`support_quote` pre-filter is STRICTER than the final
+    # gate, which re-fits an 800-char prose-matched span over the whole direct_quote
+    # (`_find_best_span_for_sentence`, live_deepseek_generator.py:244) and re-runs
+    # strict_verify `require_number_match=True` on it. Concrete killer (Codex): the
+    # CDC stat "14 (95% CI 4-44)" tokenizes "4-44" as ONE range token here, while the
+    # model declares "4" and "44" separately, so a perfectly extractable numeric
+    # finding is rejected before REDUCE ever sees it — even though final strict_verify
+    # normalizes the range dash and would accept/drop the published span correctly.
+    # Its own docstring states this is only a "cheap local pre-filter ... before the
+    # (more expensive) entailment call"; entailment is already non-blocking at step
+    # (6) below, so the pre-filter's sole rationale is dead. Mirrors the step-(6)
+    # treatment exactly: compute the boolean for telemetry, NEVER gate on it.
+    # Faithfulness UNCHANGED: strict_verify on the final REDUCE prose stays the SOLE
+    # publication authority (numbers-in-span AND >=2 content-word overlap AND
+    # enforce-mode entailment); 4-role / D8 byte-untouched.
+    numbers_in_span = _all_numbers_in_span(claim, numbers, support_quote)
+    if not numbers_in_span:
+        logger.debug(
+            "[evidence_distiller] finding %s/%s: declared numbers not all inside the "
+            "narrow support_quote (KEPT — non-blocking per #1217; the final "
+            "strict_verify re-checks numbers against the prose-matched span)",
+            evidence_id, finding_id,
+        )
 
     # (5) Atom mapping for numeric findings.
     claim_numbers = _numbers_in_text(claim)
@@ -559,22 +780,40 @@ def _validate_finding(
         # (atom_NNN) marker, so the default-OFF atom_refusal_validator treats it
         # as narrative-only. (Codex: "choose (b) ... faithfulness-safe".)
 
-    # (6) Entailment via the UNCHANGED production verifier path. Building the
-    #     token with the CORRECTED offsets lets verify_sentence_provenance be the
-    #     authoritative judge of BOTH numbers-in-span AND span-entails-claim.
-    probe = f"{claim} [#ev:{evidence_id}:{span_start}-{span_end}]"
-    try:
-        verdict = verify_sentence_provenance(
-            probe, evidence_pool, require_number_match=True,
-        )
-    except Exception as exc:  # noqa: BLE001 â€” fail closed on any verifier error
+    # (6) Per-finding entailment via the UNCHANGED production verifier path —
+    # BLOCKING for FUZZY recoveries ONLY, and the verifier is CALLED only for them.
+    # A fuzzy span was matched on content-word OVERLAP, blind to meaning-changing
+    # function words ("all"->"some", negation flips), so it must additionally ENTAIL
+    # the claim. Exact/whitespace matches are verbatim source text that cannot drift
+    # in meaning, so their per-finding entailment was NON-BLOCKING — and #1217 Codex
+    # diff-gate P2 (perf) flagged that calling verify_sentence_provenance for EVERY
+    # finding made MAXEV=40 prohibitively slow. We therefore SKIP the (slow) verifier
+    # call entirely for exact/whitespace, since its verdict never gated them. The
+    # final per-sentence strict_verify on the REDUCE prose remains the SOLE
+    # publication authority for ALL paths.
+    finding_entailed = True  # exact/whitespace: verbatim, gated downstream by strict_verify
+    if locate_method == "fuzzy":
+        probe = f"{claim} [#ev:{evidence_id}:{span_start}-{span_end}]"
+        try:
+            verdict = verify_sentence_provenance(
+                probe, evidence_pool, require_number_match=True,
+            )
+        except Exception as exc:  # noqa: BLE001 — fail closed on any verifier error
+            logger.warning(
+                "[evidence_distiller] verifier raised on finding %s/%s: %s — rejecting",
+                evidence_id, finding_id, exc,
+            )
+            return _rej("step6_verifier_error", f"verify_sentence_provenance raised: {exc}")
+        finding_entailed = bool(getattr(verdict, "is_verified", False))
+        if not finding_entailed:
+            return _rej("step6_fuzzy_not_entailed",
+                        "fuzzy-recovered (paraphrased) span does not entail the claim")
+    if _dbg:
         logger.warning(
-            "[evidence_distiller] verifier raised on finding %s/%s: %s â€” rejecting",
-            evidence_id, finding_id, exc,
+            "[DISTILL_DEBUG] KEPT ev=%s raw_index=%d finding_id=%s method=%s entailed=%s numbers_in_span=%s claim=%r",
+            evidence_id, raw_index, finding_id, locate_method, finding_entailed, numbers_in_span,
+            claim[:90],
         )
-        return None
-    if not getattr(verdict, "is_verified", False):
-        return None
 
     return DistilledFinding(
         finding_id=finding_id,
@@ -786,6 +1025,7 @@ async def _map_one_source(
             evidence_pool=evidence_pool,
             section_atoms=section_atoms,
             finding_id=f"{finding_id_prefix}{len(validated):03d}",
+            raw_index=i,
         )
         if finding is not None:
             validated.append(finding)
@@ -961,6 +1201,38 @@ _FINDING_MARKER_RE = re.compile(r"\[\[finding:(?P<fid>[A-Za-z0-9_]+)\]\]")
 _FULL_EV_TOKEN_RE = re.compile(
     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
 )
+_BARE_EV_MARKER_RE = re.compile(r"\[(?P<ev_id>[A-Za-z_][A-Za-z0-9_]*)\]")
+_DUP_BARE_EV_MARKER_RE = re.compile(
+    r"(\[(?P<ev_id>[A-Za-z_][A-Za-z0-9_]*)\])(?:\s+\[(?P=ev_id)\])+"
+)
+_ATOM_MARKER_RE = re.compile(r"\(atom_[A-Za-z0-9_]+\)")
+
+
+def _is_marker_only_fragment(sent: str) -> bool:
+    """True if ``sent`` carries citation markers but NO prose words.
+
+    #1217 Bug A (Claude live-repro + Codex independent confirm): the REDUCE model
+    sometimes places its ``[[finding:...]]``/``[ev_XXX]``/``(atom_NNN)`` markers in
+    their OWN sentence, AFTER the claim sentence's terminal period. ``split_into_
+    sentences`` then yields a marker-only fragment; the per-sentence filter keeps that
+    fragment (it carries the markers) and DROPS the actual claim sentence (no marker)
+    -> bare marker reaches strict_verify -> 0 verified -> placeholder. This detector
+    lets the filter REATTACH such a fragment to the preceding prose sentence so the
+    claim and its markers travel together. A fragment qualifies only if it (a) carries
+    at least one finding/evidence marker AND (b) has no remaining alphanumeric prose
+    after all marker shapes are stripped."""
+    had_marker = bool(
+        _FINDING_MARKER_RE.search(sent)
+        or _FULL_EV_TOKEN_RE.search(sent)
+        or _BARE_EV_MARKER_RE.search(sent)
+    )
+    if not had_marker:
+        return False
+    stripped = _FINDING_MARKER_RE.sub(" ", sent)
+    stripped = _FULL_EV_TOKEN_RE.sub(" ", stripped)
+    stripped = _BARE_EV_MARKER_RE.sub(" ", stripped)
+    stripped = _ATOM_MARKER_RE.sub(" ", stripped)
+    return not any(ch.isalnum() for ch in stripped)
 
 
 def filter_and_strip_reduce_markers(
@@ -973,47 +1245,88 @@ def filter_and_strip_reduce_markers(
     For each sentence:
       - DROP it unless it carries BOTH (a) at least one KNOWN [[finding:<id>]]
         marker (a finding_id present in the distillate ledger) AND (b) at least
-        one full [#ev:evidence_id:start-end] provenance token.
+        one evidence marker. The intended marker is legacy [ev_XXX]; stale
+        reducer outputs that still contain [#ev:evidence_id:start-end] are
+        normalized back to [ev_XXX].
       - STRIP the [[finding:...]] markers (the downstream gate does not understand
-        them; the [#ev:...] token is what strict_verify re-checks).
+        them; the [ev_XXX] marker is rebound by _rewrite_draft_with_spans).
 
-    The returned clean prose carries ONLY the original full provenance tokens (and
-    any (atom_NNN) the reducer copied), so the unchanged downstream pipeline
-    re-verifies it exactly as it would a legacy draft. Uncited reducer prose is
-    dropped so it can never reach strict_verify as a pass-through limitations
+    The returned clean prose carries legacy evidence markers (and any (atom_NNN)
+    the reducer copied), so the unchanged downstream pipeline binds spans from
+    the FINAL sentence exactly as it would a legacy draft. Uncited reducer prose
+    is dropped so it can never reach strict_verify as a pass-through limitations
     sentence.
     """
     from src.polaris_graph.generator.provenance_generator import split_into_sentences
 
     finding_by_id = {f.finding_id: f for f in distillate.findings}
     sentences = split_into_sentences(raw)
+    _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    if _dbg:
+        logger.warning(
+            "[DISTILL_DEBUG] section=%r: ledger=%d findings; REDUCE raw=%d chars / %d sentences; raw_sample=%r",
+            distillate.section_title, len(distillate.findings), len(raw), len(sentences), raw[:900],
+        )
+    # #1217 Bug A pre-pass (Claude+Codex AGREE, fix=both): REATTACH an orphaned
+    # marker-only fragment to the immediately preceding sentence before filtering, so
+    # the claim prose and its citation markers are filtered as ONE unit. Without this,
+    # a REDUCE that emits "claim." then "[[finding]] [ev]" on the next line loses the
+    # claim (no marker) and keeps a bare marker -> total section collapse. Faithfulness
+    # is unchanged: the reassembled sentence still goes through the UNCHANGED
+    # _rewrite_draft_with_spans + strict_verify, which re-bind and re-verify the span
+    # for the claim prose — a mis-attached marker cannot publish an unsupported claim.
+    merged: list[str] = []
+    reattached = 0
+    for sent in sentences:
+        if merged and _is_marker_only_fragment(sent):
+            merged[-1] = f"{merged[-1].rstrip()} {sent.strip()}"
+            reattached += 1
+        else:
+            merged.append(sent)
+    sentences = merged
+    if _dbg and reattached:
+        logger.warning(
+            "[DISTILL_DEBUG] section=%r: reattached %d orphaned marker-only fragment(s) to preceding sentence(s)",
+            distillate.section_title, reattached,
+        )
     kept: list[str] = []
     for sent in sentences:
+        # #1217 Bug A: a sentence that is ONLY markers (no prose) must never reach
+        # strict_verify as a bare token. The pre-pass above already REATTACHED any
+        # marker-only fragment that had a preceding sentence; whatever is still
+        # marker-only here is a LEADING orphan with nothing to attach to — drop it.
+        if _is_marker_only_fragment(sent):
+            continue
         finding_ids = _FINDING_MARKER_RE.findall(sent)
         cited_known = [fid for fid in finding_ids if fid in finding_by_id]
         has_known_finding = bool(cited_known)
-        # I-perm-016 (#1209) Codex diff-gate iter-1 P2: bind the [#ev:...] token to
-        # the CITED finding, not "any full token present anywhere". A sentence
-        # survives only if it carries a token whose evidence_id matches one of the
-        # cited known findings' evidence_ids — so a real finding marker can no
-        # longer be paired with an unrelated (pool-valid but ledger-foreign) token.
-        # We match on evidence_id, NOT the exact span, deliberately: the reducer
-        # assembles the token from the finding's evidence_id + span, and a small
-        # offset drift on a still-valid token must NOT be pre-dropped here (that
-        # would lower coverage — the opposite of this keystone's goal). The
-        # UNCHANGED strict_verify downstream remains the authoritative span judge.
-        token_ev_ids = {m.group("ev_id") for m in _FULL_EV_TOKEN_RE.finditer(sent)}
-        cited_ev_ids = {finding_by_id[fid].evidence_id for fid in cited_known}
-        has_consistent_token = bool(token_ev_ids & cited_ev_ids)
-        if not (has_known_finding and has_consistent_token):
-            # Uncited reducer prose, a marker pointing at an unknown finding, or a
-            # token whose source does not match any cited finding: drop it. It must
-            # not survive into strict_verify as pass-through prose.
+        # #1217 follow-up: require an evidence marker to be PRESENT, but do NOT
+        # require its evidence_id to exactly match the cited finding's. This
+        # filter's job is only to drop UNcited reducer prose; the UNCHANGED
+        # _rewrite_draft_with_spans + strict_verify downstream validates the
+        # final [#ev:...] token against the evidence pool. Permissive filter,
+        # strict output gate.
+        has_full_token = bool(_FULL_EV_TOKEN_RE.search(sent))
+        has_bare_marker = bool(_BARE_EV_MARKER_RE.search(sent))
+        if not (has_known_finding and (has_bare_marker or has_full_token)):
+            # Uncited reducer prose, or a marker pointing at an unknown finding:
+            # drop it. It must not survive into strict_verify as pass-through prose.
             continue
-        # Strip the finding markers; leave the full [#ev:...] token + any (atom_NNN).
+        # Strip the finding markers. Normalize stale full provenance tokens back
+        # to legacy [ev_XXX] so the sentence-aware span binder recomputes spans
+        # for the reducer's FINAL prose instead of trusting MAP support-quote
+        # offsets.
         clean = _FINDING_MARKER_RE.sub("", sent)
+        clean = _FULL_EV_TOKEN_RE.sub(lambda m: f"[{m.group('ev_id')}]", clean)
+        clean = _DUP_BARE_EV_MARKER_RE.sub(lambda m: m.group(1), clean)
         # Collapse any double spaces introduced by marker removal.
         clean = re.sub(r"\s{2,}", " ", clean).strip()
         if clean:
             kept.append(clean)
-    return " ".join(kept)
+    out = " ".join(kept)
+    if _dbg:
+        logger.warning(
+            "[DISTILL_DEBUG] section=%r: filter kept %d/%d sentences -> output=%d chars; out_sample=%r",
+            distillate.section_title, len(kept), len(sentences), len(out), out[:900],
+        )
+    return out

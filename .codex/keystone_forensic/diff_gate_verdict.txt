@@ -1,0 +1,13 @@
+verdict: APPROVE
+faithfulness_fuzzy_gate_sound: false
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Fuzzy entailment is not sound as a standalone negation/quantifier guard: `_fuzzy_locate_span` shrinks to first/last matched content word, so a source phrase like 'not recommended for immunocompromised patients' can become 'recommended for immunocompromised patients' before the per-finding entailment call. Final strict_verify still rebinds against the original evidence row, so this is not a publication blocker. Harden by expanding fuzzy spans to sentence boundaries or +/- context and add a negation regression. Ref: src/polaris_graph/generator/evidence_distiller.py:525"
+  - "Performance blocks broad scaling: `_validate_finding` still calls `verify_sentence_provenance` for every finding, not only fuzzy findings, even though non-fuzzy verdicts are non-blocking. At MAXEV=40 this should be batched, moved to a faster judge, or skipped for exact/whitespace unless debug/telemetry needs it. Ref: src/polaris_graph/generator/evidence_distiller.py:753"
+  - "Cache invalidation via `DISTILLER_VERSION` is correct for v2->v3 and `cache_hit_empty` is safe under the new key, but the cache key does not include `PG_DISTILL_FUZZY_MIN_OVERLAP`. If operators tune that threshold after v3 cache is populated, old fuzzy accepts can replay. Ref: src/polaris_graph/generator/evidence_distiller.py:336"
+perf_blocks_scaling: true
+mergeable_now_with_followup: true
+density_gap_is_blocker: false
+convergence_call: accept_remaining

@@ -1,0 +1,13 @@
+```yaml
+verdict: APPROVE
+faithfulness_fuzzy_gate_sound: true
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+convergence_call: accept_remaining
+```
+
+The three requested fixes look correct. Fuzzy recovery now gives the entailment judge a real source slice widened to sentence/newline boundaries, so the prior leading-negation loss is addressed. Skipping `verify_sentence_provenance` for exact/stripped/whitespace findings is consistent with the current contract because those verifier results were non-blocking and final strict verification remains the publication gate. The cache key change and `DISTILLER_VERSION` bump are also sufficient for threshold retuning and validation-outcome invalidation.
+
+Only non-blocking note: the module-level docstring still says every finding has already passed the production verifier, which is stale after the intentional exact/whitespace verifier skip. That is documentation drift, not a merge blocker.

@@ -1,0 +1,52 @@
+# Keystone map-reduce collapse — consolidated forensic (Claude + Codex, #1217)
+
+**Both independent forensics CONVERGED on the same structural root cause, with file:line proof.** This consolidates the parallel Claude-agent forensic and the Codex forensic, reconciled with the live-run facts and the `PG_DISTILL_DEBUG` dump.
+
+## The symptom
+The map-reduce evidence distiller (#1209 keystone) makes every section EMPTY on the real model. 3 live drb_76 Safety-section runs (deepseek-v4-pro): the DISTILL arm always yields **0 strict_verify-VERIFIED sentences** (drop_rate 1.00, output = the 29-word "no claim survived ... curator-actionable gap" placeholder), while the LEGACY arm on the same evidence yields 6–9 verified (drop_rate ~0.5).
+
+## ROOT CAUSE (both agree): who computes the provenance span offsets
+- **LEGACY** (`multi_section_generator.py:1754-2057`): the writer emits only SHORT `[ev_XXX]` markers and never picks character offsets. `_rewrite_draft_with_spans` (`live_deepseek_generator.py:335-386`) recognizes them via `_EV_MARKER_RE` (`:64` = `\[([A-Za-z_][A-Za-z0-9_]*)\]`) and calls `_find_best_span_for_sentence` (`:244-332`), which scans the whole `direct_quote` and returns the span maximizing decimal + content-word overlap with the ACTUAL sentence — i.e. it computes spans **designed to pass strict_verify**.
+- **REDUCE (broken)**: `_REDUCE_SYSTEM` (`evidence_distiller.py:183-192`) told the model to emit the FULL `[#ev:evidence_id:start-end]` token itself, copying `span={start}-{end}` from the ledger (`render_reduce_user`). That full token starts with `[#`, and `#` is NOT in `_EV_MARKER_RE`'s character class — so `_rewrite_draft_with_spans` passes the REDUCE sentence through **UNCHANGED** (`live_deepseek_generator.py:349-352`). The model's hand-typed offsets are frozen and never re-fit to the prose.
+
+The 100% drop is **overdetermined by two output-side killers** (Claude's precision), both downstream of the (non-empty) ledger:
+- **Killer A:** model-transcribed offsets fail the span-bounds check (`provenance_generator.py:1635-1644`) → `valid_token_found=False` (`:1645`); every rescue is gated on that flag → drop with no recovery. Even in-bounds-but-off offsets miss the ≥2 content-word overlap (`:1809-1813`) + enforce-mode entailment (`strict_verify.py:173,187`). A MAP support_quote span is NARROW (one atomic finding); the REDUCE sentence is a SYNTHESIS, so a narrow span shares <2 content words with it.
+- **Killer B:** `filter_and_strip_reduce_markers` hard-required a KNOWN `[[finding:fXXX]]` marker whose synthetic id the model must reproduce verbatim. If the model didn't echo it, the sentence died at the filter before strict_verify ran.
+
+**Refuted suspects:** (d) "different text" — strict_verify resolves against `direct_quote`, the SAME text the distiller validates against (refuted); (e) reasoning-starvation — the REDUCE wrote 50/57/709 content tokens, yet 0 survived (refuted). The `PG_DISTILL_DEBUG` dump confirmed: ledger=1 finding, REDUCE raw prose present, but the model emitted `[#ev:f004_000:5430-5539]` (finding_id as evidence_id, on a separate sentence) → filter kept only the bare token, prose dropped.
+
+## Why the 3 prior fixes missed it
+All three acted MAP/ledger-side: (1) span-recovery improved the LEDGER not the model-typed OUTPUT offsets; (2) the relaxed marker filter still kept the `has_known_finding` gate; (3) non-blocking per-finding entailment grew the ledger but the final per-sentence strict_verify on the model-authored token was unchanged. The wall is the REDUCE-output citation FORMAT, which none touched. (This empirically refuted the earlier H1 "entailment starves the ledger" call — fix #3 changed nothing.)
+
+## THE FIX (both agree; strict_verify UNWEAKENED)
+Stop trusting the LLM's offsets; emit the SAME short-marker contract legacy uses and let the deterministic prose-matched span finder compute offsets.
+1. `_REDUCE_SYSTEM` + `render_reduce_user` (`evidence_distiller.py:183-192, 241-274`): cite each sentence with short `[<evidence_id>]` (legacy `[ev_XXX]` shape); drop `span=` from ledger lines so offsets are never transcribed; "Do not emit `[#ev:...]` span tokens."
+2. `filter_and_strip_reduce_markers` (`:1028-1087`): accept a bare `[ev_XXX]` marker for a known source (normalize any stale `[#ev:...]` back to `[ev_XXX]`); strip `[[finding:...]]`, KEEP the short marker for `_rewrite_draft_with_spans`. (Killer-B residue: if the `has_known_finding` requirement still drops prose, relax `[[finding]]` to optional — require only a known short `[ev_id]`.)
+3. `multi_section_generator.py:2407` UNCHANGED — `_rewrite_draft_with_spans` now sees the short marker and computes prose-matched offsets via the identical legacy machinery (removes Killer A).
+
+**Faithfulness untouched:** `strict_verify` still re-validates every span (numbers-in-span + ≥2 overlap + enforce entailment). **Map-reduce is NOT incompatible with strict_verify — only emitting final machine tokens FROM the LLM is.** This is also exactly what the distiller's own module docstring already described ("cite findings with the same legacy `[ev_XXX]` markers"); the implementation had drifted from its stated contract.
+
+## Verification plan (the operator's loop)
+1. Forensic (Claude + Codex) — DONE, converged. ✓
+2. Consolidate — this doc. ✓
+3. Fix — applied (short markers). 17 distiller tests pass.
+4. PAID smoke on the VM (cheap A/B, `PG_DISTILL_DEBUG=1`) — confirmed: REDUCE emits short `[ev_XXX]` inline, prose survives, distill drop_rate 1.00 → 0.00 (was empty placeholder; now a real verified cited sentence). ✓ But distill kept only **1** verified vs legacy **6** — a RECALL gap surfaced (below).
+5. Claude + Codex BOTH run forensic AGAIN on the fixed output — DONE, converged (below). ✓
+
+---
+
+## PART 2 — the RECALL gap (#1217 second collapse layer; both re-forensics AGREE)
+
+After the short-marker fix removed the 100% collapse, the cheap 8-source VM smoke showed **distill 1 verified vs legacy 6**. Both independent re-forensics (Claude agent `a4faf584...`, saved `.codex/keystone_forensic/claude_reforensic_verdict.md`; Codex `.codex/keystone_forensic/codex_reforensic_verdict.txt`) converged on the same root cause and the same one-line fix.
+
+**§-1.1 faithfulness of the fixed output — VERIFIED, zero fabrication (both):** the one kept distill sentence "Colibactin induces double-strand breaks in cultured cells [colibactin_pks_ecoli_mechanism]." is a near-verbatim, correctly-scoped restatement of the source `direct_quote` (~offset 5772: "...and **induces double-strand breaks in cultured cells**3."). Hedge handling faithful (the source's "is believed to" scopes to the alkylation clause, which the distiller dropped; the DSB clause is stated by the source as fact). No number distortion. The keystone fix introduced **no fabrication** — it only collapsed recall.
+
+**Recall root cause (both):** `_validate_finding` step 4 `_all_numbers_in_span` (`evidence_distiller.py:584`) is a HARD reject when a claim's declared number is not inside the model's NARROW `support_quote`. But that quote never reaches the output — the REDUCE writes fresh prose cited `[ev_XXX]`, and the unchanged legacy `_rewrite_draft_with_spans` → `_find_best_span_for_sentence` (`live_deepseek_generator.py:244`) re-fits an 800-char prose-matched span over the WHOLE ~24.6k-char `direct_quote`, then strict_verify (`require_number_match=True`) re-checks numbers against THAT span. So step 4 is STRICTER than the final gate and pure recall loss with zero faithfulness benefit. Concrete killer (Codex): the CDC stat "14 (95% CI 4–44)" tokenizes "4–44" as ONE range token here while the model declares "4" and "44" separately → a perfectly extractable numeric finding is rejected before REDUCE; final strict_verify normalizes the range dash and would accept/drop the published span correctly. Evidence step-4-dominant: legacy's 6 verified are all numeric-heavy (OR 14, CI 4–44, 22%/10, 37%/17, 5,876 genomes); the lone distill survivor is the ONLY non-numeric claim — exactly what a narrow numbers-in-span filter leaves standing.
+
+**THE FIX (both agree, candidate (b)):** make step 4 **non-blocking** at `evidence_distiller.py:584` — compute `numbers_in_span = _all_numbers_in_span(...)` for telemetry/debug, but do NOT `return None`. Mirrors EXACTLY the step-6 entailment treatment (lines 624–635: verdict computed, never gates). Step 4's own docstring says its only job was a "cheap local pre-filter ... before the (more expensive) entailment call" — and entailment is already non-blocking, so the pre-filter's rationale is dead. Brings distill to parity with legacy (which does zero numeric checking at extraction) WITHOUT weakening any gate.
+
+**Faithfulness untouched:** `strict_verify` on the final REDUCE prose stays the SOLE publication authority (numbers-in-span AND ≥2 content-word overlap AND enforce-mode entailment); 4-role / D8 byte-untouched. A genuinely fabricated number cannot reach the report — the final gate drops it.
+
+**Rejected alternatives (both):** (a) wider MAP quote — prompt-brittle, makes step-1 locate HARDER; (c) fuzzy locate — larger new mechanism with its own false-accept surface, keep step 1 as the "real source slice exists" gate; (d) multiple findings/source — doesn't address rejection (all 8 MAP calls already produced findings; the loss is validation, not generation). **(b) is also diagnostic:** after it, step-1 locate is the only substantive rejector left; if recall still < legacy on re-prove, the residual is step-1 paraphrase and (c) is the surgical follow-up.
+
+**Applied:** `evidence_distiller.py:583-593` step-4 made non-blocking (+ debug log); `test_map_rejects_out_of_span_numbers` → `test_map_keeps_out_of_span_numbers_nonblocking_1217` (asserts KEPT at MAP, final strict_verify is the number authority). 17/17 distiller tests pass. Next: scp to VM, cheap re-prove MAXEV=8 `PG_DISTILL_DEBUG=1`, confirm distill verified ≥ legacy + §-1.1 on the output, THEN Codex DIFF-gate before commit.

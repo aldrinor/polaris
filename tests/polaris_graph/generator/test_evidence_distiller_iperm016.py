@@ -26,6 +26,7 @@ import pytest
 
 import src.polaris_graph.clinical_generator.strict_verify as strict_verify_mod
 from src.polaris_graph.generator import evidence_distiller as ed
+from src.polaris_graph.generator.live_deepseek_generator import _rewrite_draft_with_spans
 from src.polaris_graph.generator.evidence_distiller import (
     CoverageRow,
     DistilledFinding,
@@ -205,14 +206,29 @@ def test_map_rejects_fake_support_quote(monkeypatch):
     assert dist.coverage[0].evidence_id == _EV_ID
 
 
-def test_map_rejects_out_of_span_numbers(monkeypatch):
-    """A claim asserting a number that is NOT in the support span is rejected."""
+def test_map_keeps_out_of_span_numbers_nonblocking_1217(monkeypatch):
+    """#1217 (RECALL fix, Claude+Codex independent re-forensics AGREE on candidate
+    (b)): the MAP numbers-in-span pre-filter is NON-BLOCKING. A finding whose
+    declared number is not inside the NARROW model support_quote is now KEPT in the
+    ledger (was rejected pre-1217) — exactly mirroring the step-(6) entailment
+    treatment. This narrow-span pre-filter was STRICTER than the final gate and pure
+    recall loss with zero faithfulness benefit: it collapsed distill recall below
+    legacy on the drb_76 Safety replay (legacy kept 6 numeric sentences; distill kept
+    only the 1 non-numeric claim). Faithfulness is UNCHANGED — a genuinely fabricated
+    number CANNOT reach the published report through this path because the final
+    per-sentence strict_verify on the REDUCE prose (require_number_match=True,
+    re-fitting an 800-char prose-matched span over the WHOLE direct_quote) is the SOLE
+    publication authority and drops any number not present in the source span. The
+    real "source slice exists" gate (step 1, _locate_span_in_source) is UNCHANGED and
+    still rejects a quote that is not in the source (see
+    test_map_rejects_bad_offsets_uncorrectable)."""
     _enforce_entailment(monkeypatch, "ENTAILED")
     payload = {
         "evidence_id": _EV_ID,
         "no_relevant_findings": False,
         "findings": [{
-            # 99.9 is not anywhere in the support span.
+            # 99.9 is not anywhere in the narrow support_quote; KEPT at MAP now,
+            # the final strict_verify on the REDUCE prose is the number gate.
             "claim": "Semaglutide reduced HbA1c by 99.9 percentage points.",
             "support_quote": "-1.86 percentage points with semaglutide",
             "span_start": 0, "span_end": 0,
@@ -227,12 +243,20 @@ def test_map_rejects_out_of_span_numbers(monkeypatch):
     dist = asyncio.run(distill_section_evidence(
         _SECTION, [_EV_ROW], _POOL, model="m",
     ))
-    assert dist.findings == []
-    assert dist.coverage[0].status == "validation_failed"
+    # KEPT now (was rejected pre-1217): the extraction filter admits it; the final
+    # strict_verify on the REDUCE output is the authority on the published number.
+    assert len(dist.findings) == 1
+    assert dist.findings[0].numbers == ["99.9"]
 
 
-def test_map_rejects_non_entailed_claim(monkeypatch):
-    """A claim the entailment judge marks NEUTRAL is rejected in enforce mode."""
+def test_map_keeps_non_entailed_finding_h1(monkeypatch):
+    """#1217 (H1, Claude+Codex AGREE): a finding the PER-FINDING entailment judge
+    marks NEUTRAL is now KEPT in the ledger — the per-finding entailment is
+    non-blocking. It still passed the extraction filter (located REAL span +
+    numbers-in-span); the FINAL per-sentence strict_verify on the REDUCE prose is
+    the SOLE publication authority, so a non-entailed claim cannot reach the
+    published report through this path. (Running strict_verify once per finding AND
+    again per sentence starved the reducer -> section collapse on two live runs.)"""
     _enforce_entailment(monkeypatch, "NEUTRAL")  # judge says NOT entailed
     payload = {
         "evidence_id": _EV_ID,
@@ -252,24 +276,29 @@ def test_map_rejects_non_entailed_claim(monkeypatch):
     dist = asyncio.run(distill_section_evidence(
         _SECTION, [_EV_ROW], _POOL, model="m",
     ))
-    assert dist.findings == []
-    assert dist.coverage[0].status == "validation_failed"
+    # KEPT now (was rejected pre-H1): extraction filter admits it; the final
+    # strict_verify on the REDUCE output is the authority.
+    assert len(dist.findings) == 1
+    assert dist.findings[0].numbers == ["-1.86"]
 
 
-def test_map_rejects_bad_offsets_uncorrectable(monkeypatch):
-    """When the quote is NOT a substring at all, offset correction can't rescue
-    it -> rejected. (The offset-correction success path is exercised by the
-    accept test below.)"""
+def test_map_rejects_fabricated_claim_absent_from_source(monkeypatch):
+    """#1217: a finding whose content is GENUINELY ABSENT from the source is rejected
+    at step 1 — even fuzzy content-overlap recovery returns None (no window meets the
+    overlap threshold), so no span is admitted. This preserves the core invariant
+    'unsupported content -> reject' after the fuzzy-recovery recall fix. (Faithful
+    paraphrases that DO overlap a real passage are exercised by the recover/entail
+    tests below.)"""
     _enforce_entailment(monkeypatch, "ENTAILED")
     payload = {
         "evidence_id": _EV_ID,
         "no_relevant_findings": False,
         "findings": [{
-            "claim": "Adverse events occurred in 43% of all participants.",
-            # support_quote text altered so it is no longer a substring.
-            "support_quote": "Adverse events occurred in 43% of NObody",
+            # Nothing about pembrolizumab/melanoma/survival is in _DIRECT_QUOTE.
+            "claim": "Pembrolizumab tripled overall survival in metastatic melanoma.",
+            "support_quote": "Pembrolizumab tripled overall survival in metastatic melanoma",
             "span_start": 999, "span_end": 1099,  # nonsense offsets too
-            "numbers": ["43"], "entities": [],
+            "numbers": [], "entities": [],
             "caveat": "", "contradiction_key": "", "source_tier": "T1",
         }],
     }
@@ -420,7 +449,9 @@ def test_reduce_formatter_has_ledger_rows_not_raw_evidence_blocks():
     rendered = render_reduce_user(dist)
     assert "VALIDATED_FINDINGS_LEDGER" in rendered
     assert "f001_000 | ev_001 | T1 |" in rendered
+    assert "cite=[ev_001]" in rendered
     assert "atom_ids=atom_002" in rendered
+    assert "[#ev:ev_" not in rendered
     # NO raw evidence delimiter blocks.
     assert "<<<evidence:" not in rendered
     assert "<<<end_evidence>>>" not in rendered
@@ -443,21 +474,21 @@ def test_filter_strips_markers_and_drops_uncited_prose():
         findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
     )
     # 3 sentences:
-    #  (1) cited finding + matching full token -> KEPT, marker stripped.
+    #  (1) cited finding + evidence marker -> KEPT, marker stripped.
     #  (2) uncited reducer prose -> DROPPED.
     #  (3) finding marker for an UNKNOWN finding id -> DROPPED.
     raw = (
         "HbA1c fell by -1.86 percentage points [[finding:f001_000]] "
-        "[#ev:ev_001:10-51]. "
+        "[ev_001]. "
         "Overall the drug shows broad metabolic benefit. "
-        "Weight also improved markedly [[finding:f999_999]] [#ev:ev_001:0-5]."
+        "Weight also improved markedly [[finding:f999_999]] [ev_001]."
     )
     out = filter_and_strip_reduce_markers(raw, dist)
 
     # Finding markers stripped entirely.
     assert "[[finding:" not in out
-    # The cited sentence survived with its full provenance token intact.
-    assert "[#ev:ev_001:10-51]" in out
+    # The cited sentence survived with its legacy evidence marker intact.
+    assert "[ev_001]" in out
     assert "HbA1c fell by -1.86 percentage points" in out
     # Uncited prose dropped.
     assert "broad metabolic benefit" not in out
@@ -502,13 +533,15 @@ def test_validate_finding_keeps_numeric_without_section_atom(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 13 (Codex diff-gate iter-1 P2): the marker-strip filter binds the
-# [#ev:...] token to the CITED finding's evidence_id — a real finding marker
-# paired with a token from a DIFFERENT source is dropped; the same prose with
-# the matching-source token survives.
+# Test 13: the marker-strip filter is permissive about evidence-marker source;
+# strict_verify downstream remains the authority on whether the rebound token is
+# valid against the pool.
 # ---------------------------------------------------------------------------
 
-def test_filter_drops_marker_with_mismatched_source_token():
+def test_filter_keeps_cited_sentence_regardless_of_marker_source():
+    # #1217: the marker-strip filter is PERMISSIVE — a sentence with a known
+    # finding marker + ANY evidence marker survives; strict_verify downstream is
+    # the authority on whether the rebound token is valid against the pool.
     f = DistilledFinding(
         finding_id="f001_000", evidence_id=_EV_ID,
         claim="HbA1c fell by -1.86 pp.", span_start=10, span_end=51,
@@ -521,15 +554,210 @@ def test_filter_drops_marker_with_mismatched_source_token():
         findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
     )
     raw = (
-        "HbA1c fell by -1.86 percentage points [[finding:f001_000]] "
-        "[#ev:ev_777:0-5]. "
-        "HbA1c fell by -1.86 percentage points [[finding:f001_000]] "
-        "[#ev:ev_001:10-51]."
+        "HbA1c fell by -1.86 percentage points [[finding:f001_000]] [ev_777]. "
+        "HbA1c fell by -1.86 percentage points [[finding:f001_000]] [ev_001]."
     )
     out = filter_and_strip_reduce_markers(raw, dist)
-    # Mismatched-source token sentence dropped; matching-source one kept.
-    assert "[#ev:ev_777:0-5]" not in out
-    assert "[#ev:ev_001:10-51]" in out
+    # BOTH cited sentences survive the permissive filter; strict_verify is the
+    # authority (it would drop a token not valid against the pool downstream).
+    assert "[ev_777]" in out
+    assert "[ev_001]" in out
+    # An UNcited sentence (no finding marker / no token) is still dropped.
+    assert filter_and_strip_reduce_markers("Plain prose with no markers.", dist) == ""
+
+
+def test_filter_reattaches_orphaned_marker_fragment_1217_bug_a():
+    """#1217 Bug A (Claude live-repro on the VM + Codex independent confirm): when the
+    REDUCE places its [[finding]]/[ev] markers in their OWN sentence AFTER the claim's
+    terminal period, split_into_sentences yields a marker-only fragment. The OLD filter
+    kept that fragment (it carries the markers) and DROPPED the claim sentence (no
+    marker) -> output was a bare '[ev_...]' marker -> strict_verify dropped it -> 0
+    verified -> placeholder -> TOTAL section collapse (distill 0 vs legacy 11 on the
+    paid VM A/B). The pre-pass now REATTACHES the orphaned fragment to the preceding
+    sentence so the claim prose survives WITH its marker. This is the EXACT string from
+    the VM PG_DISTILL_DEBUG dump."""
+    f = DistilledFinding(
+        finding_id="f002_000", evidence_id="ev_colibactin_pks_ecoli_mechanism",
+        claim="Colibactin induces double-strand breaks in cultured cells.",
+        span_start=0, span_end=10, support_quote="x",
+        numbers=[], entities=[], caveat="",
+        contradiction_key="", source_tier="T1", atom_ids=[],
+    )
+    dist = SectionDistillate(
+        section_title="Safety and contraindications", section_focus="",
+        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
+    )
+    raw = (
+        "Colibactin induces double-strand breaks in cultured cells. "
+        "[[finding:f002_000]] [ev_colibactin_pks_ecoli_mechanism]"
+    )
+    out = filter_and_strip_reduce_markers(raw, dist)
+    # The claim PROSE survives, carrying its [ev_XXX] marker; the [[finding]] is stripped.
+    assert "Colibactin induces double-strand breaks in cultured cells" in out
+    assert "[ev_colibactin_pks_ecoli_mechanism]" in out
+    assert "[[finding" not in out
+    # Regression guard: the output is NOT a bare marker (the pre-1217 collapse signature).
+    assert out.strip() != "[ev_colibactin_pks_ecoli_mechanism]"
+
+
+def test_filter_does_not_reattach_to_create_false_attribution_1217():
+    """The reattach pre-pass must only MOVE an orphaned marker fragment onto the
+    immediately preceding sentence; it must NOT invent attribution. A leading
+    marker-only fragment with no preceding sentence is dropped (no prose to keep), and
+    a normal inline-cited sentence is unaffected. Faithfulness: strict_verify still
+    re-binds and re-verifies the reassembled sentence's span downstream."""
+    f = DistilledFinding(
+        finding_id="f001_000", evidence_id=_EV_ID,
+        claim="HbA1c fell by -1.86 pp.", span_start=10, span_end=51,
+        support_quote="-1.86 percentage points with semaglutide",
+        numbers=["-1.86"], entities=[], caveat="",
+        contradiction_key="", source_tier="T1", atom_ids=[],
+    )
+    dist = SectionDistillate(
+        section_title="Efficacy", section_focus="HbA1c",
+        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
+    )
+    # A leading orphaned marker (nothing before it) is dropped, not attached to nothing.
+    assert filter_and_strip_reduce_markers(
+        "[[finding:f001_000]] [ev_001]", dist
+    ) == ""
+    # A normal inline-cited sentence is unchanged by the pre-pass.
+    out = filter_and_strip_reduce_markers(
+        "HbA1c fell by -1.86 percentage points [[finding:f001_000]] [ev_001].", dist
+    )
+    assert "HbA1c fell by -1.86 percentage points" in out
+    assert "[ev_001]" in out
+
+
+def test_filter_normalizes_stale_full_tokens_before_span_rewrite():
+    f = DistilledFinding(
+        finding_id="f001_000", evidence_id=_EV_ID,
+        claim="HbA1c fell by -1.86 pp.", span_start=10, span_end=51,
+        support_quote="-1.86 percentage points with semaglutide",
+        numbers=["-1.86"], entities=[], caveat="",
+        contradiction_key="", source_tier="T1", atom_ids=[],
+    )
+    dist = SectionDistillate(
+        section_title="Efficacy", section_focus="HbA1c",
+        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
+    )
+    raw = (
+        "HbA1c fell by -1.86 percentage points with semaglutide "
+        "[[finding:f001_000]] [#ev:ev_001:10-51]."
+    )
+    filtered = filter_and_strip_reduce_markers(raw, dist)
+    assert "[#ev:" not in filtered
+    assert "[ev_001]" in filtered
+
+    rewritten, converted, unverifiable = _rewrite_draft_with_spans(filtered, _POOL)
+    assert converted == 1
+    assert unverifiable == 0
+    assert "[#ev:ev_001:10-51]" not in rewritten
+    assert f"[#ev:ev_001:0-{len(_DIRECT_QUOTE)}]" in rewritten
+
+
+# ---------------------------------------------------------------------------
+# Test 14 (#1217): MAP span-recovery — a whitespace-reformatted quote is
+# recovered to the REAL source slice and KEPT; a paraphrased quote is recovered
+# by FUZZY content-overlap but must additionally ENTAIL the claim (the fuzzy
+# faithfulness gate) — a meaning-changing paraphrase that is not entailed is
+# rejected.
+# ---------------------------------------------------------------------------
+
+def test_validate_finding_recovers_whitespace_reformatted_quote(monkeypatch):
+    _enforce_entailment(monkeypatch, "ENTAILED")
+    # The MAP model reformats whitespace (newline + double space) in the quote;
+    # the real source has "occurred in 43% of all participants".
+    raw = {
+        "claim": "Adverse events occurred in 43% of all participants.",
+        "support_quote": "occurred in 43%\nof all  participants",
+        "span_start": 0, "span_end": 0, "numbers": ["43"],
+        "entities": [], "caveat": "", "contradiction_key": "", "source_tier": "T1",
+    }
+    result = ed._validate_finding(
+        raw, evidence_id=_EV_ID, direct_quote=_DIRECT_QUOTE, tier="T1",
+        evidence_pool=_POOL, section_atoms={}, finding_id="f001_002",
+    )
+    assert result is not None  # recovered, not rejected
+    assert result.support_quote == "occurred in 43% of all participants"  # REAL slice
+    assert "43" in result.numbers
+
+
+def test_validate_finding_fuzzy_recovers_entailed_paraphrase(monkeypatch):
+    """#1217 Bug B recall fix: a PARAPHRASED support_quote (not a verbatim/whitespace
+    substring) is recovered to the REAL source window by content-word overlap and
+    KEPT when the recovered span ENTAILS the claim. This is the exact pattern that
+    collapsed the CDC safety source on the live probe (the model atomized one source
+    sentence and dropped markdown italics, so all 3 contraindication findings were
+    rejected at step 1). The adopted support_quote is a GENUINE source slice, never
+    the model's paraphrase."""
+    _enforce_entailment(monkeypatch, "ENTAILED")
+    raw = {
+        # Paraphrase: drops words / reorders vs the source "Adverse events occurred
+        # in 43% of all participants." — not a substring, recovered by overlap.
+        "claim": "Adverse events occurred in 43% of participants.",
+        "support_quote": "adverse events in 43% of the participants",
+        "span_start": 0, "span_end": 0, "numbers": ["43"],
+        "entities": [], "caveat": "", "contradiction_key": "", "source_tier": "T1",
+    }
+    result = ed._validate_finding(
+        raw, evidence_id=_EV_ID, direct_quote=_DIRECT_QUOTE, tier="T1",
+        evidence_pool=_POOL, section_atoms={}, finding_id="f001_002b",
+    )
+    assert result is not None  # fuzzy-recovered + entailed -> KEPT
+    # The adopted support_quote is a REAL source slice, not the model's paraphrase.
+    assert result.support_quote in _DIRECT_QUOTE
+    assert "Adverse events occurred in 43%" in result.support_quote
+
+
+def test_validate_finding_fuzzy_block_rejects_non_entailed_paraphrase(monkeypatch):
+    """#1217 Bug B faithfulness gate: a paraphrase that FUZZY-recovers a real span but
+    changes meaning via function words ("all" -> "some") must be rejected when the
+    recovered span does NOT entail the claim. Fuzzy recovery matches on content-word
+    overlap (blind to "some" vs "all"); the BLOCKING entailment check on fuzzy spans
+    is the safety net that catches the meaning change. (Exact/whitespace matches stay
+    non-blocking — verbatim text cannot drift in meaning.)"""
+    _enforce_entailment(monkeypatch, "NEUTRAL")  # span does NOT entail "some"
+    raw = {
+        "claim": "Adverse events occurred in 43% of some participants.",
+        "support_quote": "adverse events occurred in 43% of some participants",
+        "span_start": 0, "span_end": 0, "numbers": ["43"],
+        "entities": [], "caveat": "", "contradiction_key": "", "source_tier": "T1",
+    }
+    result = ed._validate_finding(
+        raw, evidence_id=_EV_ID, direct_quote=_DIRECT_QUOTE, tier="T1",
+        evidence_pool=_POOL, section_atoms={}, finding_id="f001_003",
+    )
+    assert result is None  # fuzzy-recovered but NOT entailed -> rejected (faithful)
+
+
+def test_fuzzy_locate_preserves_leading_negation_1217():
+    """#1217 Codex diff-gate P2 (clinical faithfulness): fuzzy recovery must EXPAND to
+    the enclosing clause/sentence, NEVER shrink past a leading negation. A tight
+    content-word shrink would turn a source clause 'is not recommended for
+    immunocompromised patients' into 'recommended for immunocompromised patients',
+    flipping the meaning BEFORE the per-finding entailment check. The recovered span
+    must RETAIN 'not' so the entailment gate judges the true (negative) meaning."""
+    src = ("Background text here. The agent is not recommended for immunocompromised "
+           "patients in this setting. More unrelated text follows.")
+    quote = "agent not recommended for immunocompromised patients"  # paraphrase
+    span = ed._fuzzy_locate_span(quote, src)
+    assert span is not None
+    s, e = span
+    recovered = src[s:e]
+    assert "not recommended" in recovered  # negation NOT dropped
+    assert recovered in src  # a genuine source slice
+
+
+def test_locate_span_in_source_unit():
+    src = "The estimated mean change was -1.86 points with semaglutide."
+    # exact
+    assert ed._locate_span_in_source("-1.86 points", src) == (src.find("-1.86 points"), src.find("-1.86 points") + len("-1.86 points"))
+    # whitespace-flexible
+    loc = ed._locate_span_in_source("mean   change\nwas", src)
+    assert loc is not None and src[loc[0]:loc[1]] == "mean change was"
+    # reworded -> None
+    assert ed._locate_span_in_source("median change was", src) is None
 
 
 if __name__ == "__main__":  # pragma: no cover

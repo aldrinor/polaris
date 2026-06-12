@@ -1,0 +1,48 @@
+```yaml
+verdict: APPROVE
+diagnosis_agree: true
+
+corrections:
+  - "I verified Bug A directly: the exact E2 string splits into claim + marker-only fragment, and current filter returns only '[ev_colibactin_pks_ecoli_mechanism]'."
+  - "I could not find the exact legacy=11/distill=0 artifact locally. Local artifacts show MAXEV=8 legacy=6/distill=0 and n_ev=40 legacy=9/distill=0. Collapse is still confirmed."
+  - "CoverageRow exists inside SectionDistillate, but the replay harness cannot currently dump it from _run_section because SectionResult does not carry the distillate."
+  - "_validate_finding's docstring is stale: executable code now makes numbers-in-span and non-exception entailment non-blocking."
+
+bug_a_fix_recommendation: both
+
+plan_changes:
+  - "Fix Bug A before any more paid A/B. Add the exact E2 unit test."
+  - "Implement local reattachment for immediate marker-only fragments, not prompt-only. Also tighten the REDUCE prompt with an explicit inline/same-sentence marker example."
+  - "Surface existing coverage by threading distill coverage into the replay result or a PG_DISTILL_DEBUG-only SectionResult diagnostic field; it is not currently reachable by the harness."
+  - "Per-rejected-finding trace must include raw proposal index, because rejected findings can otherwise reuse the same generated finding_id."
+  - "Probe source [4] first after diagnostics. Do not probe all 8 until source [4]'s status is known, but inspect all 8 coverage rows on the next MAXEV=8 re-prove."
+  - "Constrain any fuzzy-locate fix: it must return a real source slice and must not create final [#ev] spans or weaken strict_verify."
+
+novel_p0: []
+
+p1: []
+
+p2:
+  - "Exact E1 legacy=11 artifact was not locally verifiable; keep the VM artifact/log with the final review bundle."
+  - "Coverage exists, but not as a harness output today."
+  - "Prompt-only Bug A fix is brittle; model already violated the current marker-end instruction."
+  - "Update stale validation comments/docstring or future debugging will keep misreading active gates."
+
+faithfulness_risk:
+  - "Bug A reattachment is faithfulness-safe if limited to adjacent marker-only fragments carrying known [[finding]] plus evidence marker; strict_verify remains the publication gate."
+  - "Wrong reattachment can only publish if the rebound evidence passes unchanged strict_verify for the reassembled sentence."
+  - "Bug B fixes must not relax strict_verify/4-role/D8. Avoid approximate fuzzy matching that treats paraphrase as source text; only recover real source slices."
+
+agreed_plan:
+  - "Add exact E2 regression test and implement marker-only-fragment reattachment in filter_and_strip_reduce_markers."
+  - "Tighten REDUCE prompt to require markers in the same sentence, with marker before/at sentence end."
+  - "Expose distill coverage in replay output for distill_on."
+  - "Add PG_DISTILL_DEBUG rejection trace with raw_index, evidence_id, reject_step, and concise reason."
+  - "Run offline tests for the filter, validation, and replay helpers."
+  - "Run one paid source-[4] MAP probe with debug trace."
+  - "Fix Bug B according to source-[4] result: MAP recall if no proposals; locate/span recovery if validation rejects."
+  - "Run MAXEV=8 A/B with coverage dump; inspect all 8 coverage rows."
+  - "Dual review diff, then commit/push/re-prove, then MAXEV=40 plus section audit, then full Q1."
+
+convergence_call: continue
+```

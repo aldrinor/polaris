@@ -1,0 +1,22 @@
+§-1.1: the kept distill sentence is faithful. The cited colibactin row says pks encodes enzymes that synthesize colibactin, then says that compound “induces double-strand breaks in cultured cells.” The distill sentence adds no extra number, population, cancer-genome claim, or mechanism beyond that. Zero fabrication in the distill arm.
+
+The one change: **(b) make `_all_numbers_in_span` non-blocking at MAP extraction**.
+
+File: [evidence_distiller.py](C:/POLARIS/src/polaris_graph/generator/evidence_distiller.py:583). Replace the hard reject:
+
+```python
+if not _all_numbers_in_span(claim, numbers, support_quote):
+    return None
+```
+
+with telemetry/debug metadata only, then keep the finding.
+
+Why this is the highest-leverage safe fix: the missing legacy wins are mostly numeric CDC facts, and this prefilter is stricter than the final verifier. For the CDC CI text `14 (95% CI 4–44)`, distiller tokenization can treat `4–44` as one range token, while model-declared numbers may be `4` and `44`; final strict_verify normalizes range dashes and re-checks the final cited span. So step 4 can reject extractable numeric findings before REDUCE ever gets them, even though the final `[ev]` span re-fit plus strict_verify would accept or drop them correctly.
+
+Rule-outs:
+
+- (a) wider MAP quote helps only if the model copies the longer quote exactly; it is prompt-brittle and still leaves the redundant numeric prefilter.
+- (c) fuzzy locate is riskier: it can admit a claim against an approximate support slice. Keep step 1 as the “real source slice exists” gate.
+- (d) not primary: all 8 MAP calls already produced findings; the collapse is validation loss, not no findings.
+
+Strict_verify stays the sole publication authority: final prose still goes through `_rewrite_draft_with_spans` and `verify_sentence_provenance(require_number_match=True)`.
