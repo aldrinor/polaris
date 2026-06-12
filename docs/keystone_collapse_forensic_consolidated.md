@@ -74,3 +74,18 @@ iter1 APPROVE (mergeable_now, density not a blocker) + iter2 APPROVE (`faithfuln
 
 ### Remaining (filed as #1218 / I-perm-026 — NOT a faithfulness defect)
 distill 2 < legacy 6: the MAP under-extracts on-topic safety numerics, and the REDUCE synthesizes numeric sentences whose numbers don't all bind to one span (→ strict_verify drops them, related to I-gen-005). The fix is a denser MAP prompt + one-number-per-sentence REDUCE. #1217 stays OPEN until #1218 closes the richness gap (distill ≥ legacy on the Safety section).
+
+---
+
+## PART 4 — THINNESS RESOLVED (#1218 / I-perm-026, committed 2e4d1a3a, Codex diff-gate APPROVE)
+
+Dual Claude+Codex line-by-line forensic, then **four land mines cleared** (each found by reading the actual live output, not guessing). strict_verify / `_find_best_span_for_sentence` / 4-role / D8 byte-UNCHANGED; every change is MAP-extraction-side or REDUCE-output-shaping-side.
+
+1. **MAP under-extraction** → `_MAP_SYSTEM`/`_render_map_user` told to extract EVERY distinct on-topic finding incl. every on-topic numeric outcome, each with a CONTIGUOUS support_quote holding all its numbers (split scattered).
+2. **REDUCE numeric span-binding** → one numeric statistic per sentence (no multi-source numeric conjunctions) so numbers bind to one span; use EVERY finding; rewrite `[OR]`→`(OR)`.
+3. **Off-topic over-extraction (the over-correction)** → an un-scoped "be exhaustive" intermediate strip-mined the bile-acid carcinogenesis source and wrote 19 OFF-topic disease-mechanism sentences (a count-win, §-1.1 fail). Fixed with an explicit on-topic SCOPE GUARD: safety section ON-TOPIC = harms/AE/contraindications/toxicity/infections/risks of THE INTERVENTION; OFF-TOPIC = general disease-causation mechanisms → `no_relevant_findings`. **Lesson: the harness's "distill verified count ≥ legacy" acceptance is GAMEABLE by off-topic over-extraction; the real gate is §-1.1 + on-topic relevance.**
+4. **`ev_`-prefix marker resolution (data inconsistency)** → the evidence pool is inconsistent (457/462 ids start with `ev_`, a few key safety ids do NOT); the REDUCE sometimes added an `ev_` prefix so the marker failed to resolve and strict_verify dropped the faithful sentence (the v6 0-verified collapse). Fixed with `_normalize_ev_prefix` in `filter_and_strip_reduce_markers` (rewrite to the real ledger id) + REDUCE "copy cite verbatim". Offline-confirmed before any paid run.
+
+`DISTILLER_VERSION` v4→v7. **Live (clean fresh-cache MAXEV=8 A/B, deepseek-v4-pro, OVH VM): distilled verified 2→13 vs legacy 7** (drop_rate 0.50→0.13); ledger=15 ALL from the CDC safety source (on-topic). **§-1.1 line-by-line on all 13 distilled sentences = ZERO fabrication** (S. boulardii fungemia OR 14 (95% CI 4-44) correctly attributed vs the distinct nonblood OR 10; 22%/37% fatality; "at least 20 (43%) of 46 fungemia patients"; antifungal changed for 23 (50%); the contraindications; the septic-shock death). Codex diff-gate APPROVE (zero P0/P1, faithfulness_risk LOW). 22/22 distiller + 100/100 generator tests. P2 follow-ups (de-dup duplicate numeric sentence; render_reduce_user wording) → #1219.
+
+**The keystone now delivers its goal: faithful AND on-topic AND richer-than-legacy.**
