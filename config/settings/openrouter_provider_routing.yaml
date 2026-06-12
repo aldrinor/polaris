@@ -15,9 +15,14 @@ roles:
     # Friendli — a flaky-PROVIDER empty-200 defect, NOT the model. Io Net (0 blanks) leads; Parasail
     # is removed from `order` and added to `ignore` so allow_fallbacks:false never routes the binding
     # Mirror through it. Model unchanged (operator + Codex confirmed: keep GLM, swap provider only).
-    order: [io-net, friendli, fireworks, baidu, siliconflow]
-    ignore: [chutes, phala, baseten, together, ambient, parasail]
-    notes: "some providers have NULL uptime (ranked last); parasail demoted (I-ready-018 FIX-GLM: ~18% blank)"
+    # 2026-06-12 SILICONFLOW-DEMOTE: SAME defect on SiliconFlow — GLM-5.1 at effort=xhigh returns
+    # empty-content 200s on SiliconFlow (reproduced directly), stalling the binding 4-role gate. The
+    # 16384 token budget is ample (GLM uses ~860 reasoning tok), and DeepInfra serves xhigh CLEAN
+    # (measured: 860 reasoning + 856-char verdict). So SiliconFlow is removed from `order` + added to
+    # `ignore`, and DeepInfra is pinned FIRST. Keeps MAX reasoning (xhigh); swaps the flaky provider only.
+    order: [deepinfra, io-net, friendli, fireworks, baidu]
+    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow]
+    notes: "parasail demoted (I-ready-018 FIX-GLM ~18% blank); siliconflow demoted 2026-06-12 (xhigh empty-200); deepinfra pinned first (xhigh-clean)"
   sentinel:
     model: minimax/minimax-m2
     order: [google-vertex, novita, atlas-cloud, minimax]
