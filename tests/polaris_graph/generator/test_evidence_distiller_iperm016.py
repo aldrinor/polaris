@@ -566,6 +566,30 @@ def test_filter_keeps_cited_sentence_regardless_of_marker_source():
     assert filter_and_strip_reduce_markers("Plain prose with no markers.", dist) == ""
 
 
+def test_filter_normalizes_ev_prefix_mismatch_1218():
+    """#1218: the evidence pool is inconsistent (most ids start with 'ev_', a few do
+    not). The REDUCE, biased by the majority + the example, sometimes ADDS an 'ev_'
+    prefix to an unprefixed id, so [ev_<id>] fails to resolve and strict_verify drops
+    the faithful sentence. The filter normalizes the marker to the REAL ledger id."""
+    f = DistilledFinding(
+        finding_id="f004_001", evidence_id="probiotic_immunocompromised_contraindication",
+        claim="case-fatality rate by day 7 was 22%", span_start=0, span_end=1,
+        support_quote="x", numbers=["22"], entities=[], caveat="",
+        contradiction_key="", source_tier="T1", atom_ids=[],
+    )
+    dist = SectionDistillate(
+        section_title="Safety and contraindications", section_focus="",
+        findings=[f], coverage=[], contradiction_clusters=[], atom_catalog={},
+    )
+    # The model wrongly added an 'ev_' prefix to an unprefixed id.
+    raw = ("The case-fatality rate by day 7 was 22% [[finding:f004_001]] "
+           "[ev_probiotic_immunocompromised_contraindication].")
+    out = filter_and_strip_reduce_markers(raw, dist)
+    assert "[ev_probiotic_immunocompromised_contraindication]" not in out  # prefix removed
+    assert "[probiotic_immunocompromised_contraindication]" in out  # real id restored
+    assert "case-fatality rate by day 7 was 22%" in out
+
+
 def test_filter_reattaches_orphaned_marker_fragment_1217_bug_a():
     """#1217 Bug A (Claude live-repro on the VM + Codex independent confirm): when the
     REDUCE places its [[finding]]/[ev] markers in their OWN sentence AFTER the claim's

@@ -1,0 +1,13 @@
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Minor prompt inconsistency: `render_reduce_user` still says `[ev_XXX] marker(s)` even though some ledger cites are intentionally unprefixed. `_normalize_ev_prefix` covers the observed failure, so this is follow-up cleanup only."
+  - "The OR-14 duplicate from `USE EVERY finding` is a quality nit, not a correctness blocker. De-duping can be follow-up if it becomes noisy."
+faithfulness_risk:
+  - "Low. `_normalize_ev_prefix` only rewrites to an id present in the distillate ledger, exact matches win first, and if both `x` and `ev_x` exist it does not rewrite either form."
+  - "A wrong marker variant still has to survive unchanged span rebinding and strict verification, so this does not create a bypass for unsupported content."
+  - "The safety scope guard could under-extract an indirectly framed intervention risk, but that is recall risk, not a path for unfaithful publication."
+mergeable_now: true
+convergence_call: accept_remaining

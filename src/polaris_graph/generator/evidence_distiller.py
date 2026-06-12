@@ -71,7 +71,7 @@ logger = logging.getLogger("polaris_graph.evidence_distiller")
 
 # Bump when the prompt, validation, or dataclass shape changes so stale cache
 # entries from an older distiller can never be replayed against a new contract.
-DISTILLER_VERSION = "section_distiller_v4"  # bumped #1217: v3=Bug A/B fuzzy-locate; v4=Codex diff-gate P2 (fuzzy span expand-to-clause + entailment only-for-fuzzy) changes validation outcome -> v3 cache MUST invalidate
+DISTILLER_VERSION = "section_distiller_v7"  # bumped #1218: v5=MAP exhaustive+atomic-numeric extraction + REDUCE one-statistic-per-sentence/use-every-finding/[OR]->(OR) (thinness fix) — prompt change invalidates v4 cache
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -182,6 +182,24 @@ _MAP_SYSTEM = (
     "Return JSON only. Use only the supplied evidence text. Do not infer beyond it.\n"
     "Each finding must be one atomic claim grounded in one exact substring of "
     "direct_quote.\n"
+    "EXHAUSTIVE BUT STRICTLY ON-TOPIC (#1218): first decide what THIS section is about "
+    "from SECTION_TITLE/SECTION_FOCUS, then extract EVERY distinct finding that is "
+    "GENUINELY ABOUT THAT TOPIC as its own atomic finding — including every on-topic "
+    "numeric outcome (incidence, rate, fatality, odds ratio, relative risk, hazard "
+    "ratio, confidence interval, count, percentage), and every on-topic qualifier or "
+    "caveat. Do NOT stop at the most salient few WITHIN the topic; but do NOT pad with "
+    "OFF-TOPIC findings. For a SAFETY / ADVERSE-EVENT / CONTRAINDICATION section, "
+    "ON-TOPIC = harms, adverse events, contraindications, toxicity, warnings, "
+    "infections, and risks attributable to THE INTERVENTION itself (with their numbers); "
+    "OFF-TOPIC = general disease-causation or carcinogenesis MECHANISMS not framed as a "
+    "risk of the intervention — return no_relevant_findings=true for a source that only "
+    "describes such mechanisms.\n"
+    "ONE STATISTIC PER FINDING (#1218): each finding's support_quote MUST be an EXACT, "
+    "CONTIGUOUS substring of direct_quote that contains EVERY number in the claim. If "
+    "the numbers for one result are NOT contiguous in the source (e.g. a count in one "
+    "sentence and an odds ratio in another), SPLIT into separate findings, each with "
+    "its own contiguous support_quote. Never bundle numbers from different source "
+    "locations into one finding.\n"
     "If no section-relevant finding exists, return no_relevant_findings=true with "
     "a reason."
 )
@@ -189,15 +207,24 @@ _MAP_SYSTEM = (
 _REDUCE_SYSTEM = (
     "Write the section using only the validated findings ledger.\n"
     "Every factual sentence must cite at least one [[finding:f...]] marker and the "
-    "matching legacy [evidence_id] marker from that finding (for example [ev_001]).\n"
+    "evidence marker copied EXACTLY from that finding's ledger 'cite=[...]' field — "
+    "reproduce the bracketed id verbatim; do NOT add or remove an 'ev_' prefix.\n"
     "CRITICAL marker placement: put ALL markers INSIDE the sentence they support, "
     "immediately BEFORE that sentence's terminal period. NEVER place markers on their "
     "own line, in a separate sentence, or after the period. Correct: "
     "'Colibactin induces double-strand breaks in cultured cells [[finding:f002_000]] "
     "[ev_colibactin_pks].' Wrong: 'Colibactin induces double-strand breaks in cultured "
     "cells. [[finding:f002_000]] [ev_colibactin_pks]'\n"
+    "USE EVERY validated finding (#1218): emit AT LEAST ONE sentence for each finding "
+    "in the ledger (co-cite true duplicates together); do not summarize findings away.\n"
+    "ONE STATISTIC PER SENTENCE (#1218): write each NUMERIC result in its OWN sentence; "
+    "NEVER combine two distinct statistics (e.g. an odds ratio from one finding and a "
+    "fatality rate or sample count from another) into a single sentence. Every number "
+    "in a sentence must come from ONE finding's quote so it binds to one source span.\n"
+    "Rewrite any source bracket abbreviation (e.g. [OR], [CI], [RR]) as PARENTHESES — "
+    "(OR), (CI), (RR) — so it is never mistaken for a citation marker.\n"
     "A sentence must be exactly one type: single-source claim, multi-source "
-    "conjunction, or conflict-limitation.\n"
+    "conjunction (NON-numeric only), or conflict-limitation.\n"
     "For numeric outcome/incidence/effect claims, copy the finding's atom_ids as "
     "(atom_NNN) before the evidence marker.\n"
     "Do not emit [#ev:...] span tokens; spans are computed after drafting. "
@@ -247,7 +274,14 @@ def _render_map_user(
         "}\n"
         "Rules: every number in claim must appear in support_quote; do not round; "
         "do not combine multiple claims; caveats/limitations are findings only when "
-        "the quote directly states them."
+        "the quote directly states them.\n"
+        "#1218 EXHAUSTIVE + ATOMIC: return a SEPARATE finding for EVERY distinct "
+        "numeric outcome (rate, incidence, fatality, odds/risk/hazard ratio, "
+        "confidence interval, count, percentage), contraindication, adverse event, and "
+        "caveat the quote states — do not stop early. Each finding's support_quote is "
+        "an EXACT contiguous substring holding ALL of that finding's numbers; if a "
+        "result's numbers are not contiguous in the source, split into separate "
+        "findings each with its own contiguous quote (never bundle scattered numbers)."
     )
 
 
@@ -282,10 +316,12 @@ def render_reduce_user(
         f"SECTION_FOCUS: {distillate.section_focus}\n\n"
         f"VALIDATED_FINDINGS_LEDGER:\n{ledger}\n\n"
         f"CONTRADICTION_CLUSTERS:\n{clusters}\n\n"
-        "Write the section now. Each sentence must use ledger facts only and place its "
-        "finding marker(s), atom id(s) when needed, and [ev_XXX] marker(s) INSIDE the "
-        "sentence, immediately BEFORE the terminal period — never on a separate line or "
-        "after the period. Do not write [#ev:...] span tokens."
+        "Write the section now. COVER EVERY finding in the ledger (one sentence each, "
+        "co-citing true duplicates), and write each NUMERIC result in its OWN sentence "
+        "(never merge two distinct statistics). Each sentence must use ledger facts "
+        "only and place its finding marker(s), atom id(s) when needed, and [ev_XXX] "
+        "marker(s) INSIDE the sentence, immediately BEFORE the terminal period — never "
+        "on a separate line or after the period. Do not write [#ev:...] span tokens."
     )
 
 
@@ -1260,6 +1296,27 @@ def filter_and_strip_reduce_markers(
     from src.polaris_graph.generator.provenance_generator import split_into_sentences
 
     finding_by_id = {f.finding_id: f for f in distillate.findings}
+    # #1218: the evidence pool is INCONSISTENT — 457/462 ids start with "ev_" but a
+    # few (incl. the key safety sources) do NOT. The REDUCE, biased by the majority +
+    # the "[ev_001]" example, sometimes ADDS an "ev_" prefix to an unprefixed id, so
+    # the marker [ev_<id>] fails to resolve and strict_verify drops the whole (faithful,
+    # on-topic) sentence. Normalize a bare marker to the REAL evidence_id below (drop or
+    # add the "ev_" prefix to match a known id). Faithfulness-safe: it only ever rewrites
+    # to a GENUINE pool/ledger id; the final strict_verify still validates the span.
+    known_ev_ids = {f.evidence_id for f in distillate.findings}
+
+    def _normalize_ev_prefix(marker_text: str) -> str:
+        def _sub(m: "re.Match[str]") -> str:
+            x = m.group("ev_id")
+            if x in known_ev_ids:
+                return m.group(0)
+            if x.startswith("ev_") and x[3:] in known_ev_ids:
+                return f"[{x[3:]}]"
+            if f"ev_{x}" in known_ev_ids:
+                return f"[ev_{x}]"
+            return m.group(0)
+        return _BARE_EV_MARKER_RE.sub(_sub, marker_text)
+
     sentences = split_into_sentences(raw)
     _dbg = os.getenv("PG_DISTILL_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
     if _dbg:
@@ -1318,6 +1375,7 @@ def filter_and_strip_reduce_markers(
         # offsets.
         clean = _FINDING_MARKER_RE.sub("", sent)
         clean = _FULL_EV_TOKEN_RE.sub(lambda m: f"[{m.group('ev_id')}]", clean)
+        clean = _normalize_ev_prefix(clean)  # #1218: fix model-added/dropped "ev_" prefix
         clean = _DUP_BARE_EV_MARKER_RE.sub(lambda m: m.group(1), clean)
         # Collapse any double spaces introduced by marker removal.
         clean = re.sub(r"\s{2,}", " ", clean).strip()

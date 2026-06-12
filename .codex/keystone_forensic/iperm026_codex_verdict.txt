@@ -1,0 +1,111 @@
+```yaml
+root_causes:
+  - mechanism: "MAP recall is under-specified: prompts ask for atomic findings but never require exhaustive extraction of every safety/contraindication numeric fact, risk estimate, fatality, contamination, AMR-transfer, subgroup OR/CI, or denominator."
+    file_line: "src/polaris_graph/generator/evidence_distiller.py:180-187,208-250"
+  - mechanism: "The fail-loud invariant is source-level, not fact-level. A CDC source can be 'mapped' with 3 findings while other faithful facts from the same source vanish with no per-fact coverage signal."
+    file_line: "src/polaris_graph/generator/evidence_distiller.py:1005-1072,1118-1120,1167-1177"
+  - mechanism: "REDUCE is allowed to compress: it is not told to use every finding, preserve one numeric statistic per sentence, or keep all numbers inside one source-local support phrase."
+    file_line: "src/polaris_graph/generator/evidence_distiller.py:189-204,254-288"
+  - mechanism: "The span binder computes one best ~800-char span per evidence marker from the whole final sentence, while strict_verify requires every integer/decimal token in the sentence to appear in the cited span text."
+    file_line: "src/polaris_graph/generator/live_deepseek_generator.py:244-332,335-386; src/polaris_graph/clinical_generator/strict_verify.py:86,257-266"
+  - mechanism: "Current MAP validation mostly does not explain the thin ledger: numeric-in-span and atom matching are explicitly non-blocking now, so if numeric safety facts were proposed they should usually survive to the ledger."
+    file_line: "src/polaris_graph/generator/evidence_distiller.py:731-781"
+
+land_mines:
+  - location: "evidence_distiller.py:180-187,208-250"
+    mechanism: "MAP prompt has no exhaustive safety checklist."
+    faithful_content_lost: "odds ratios, CI bounds, fatality rates, contamination risks, AMR-transfer risks, subgroup denominators."
+    fix: "Add safety-section MAP instructions: extract every contraindication, adverse-event, contamination/transmission, fatality, risk-factor, OR/RR/HR, CI, count, percent, and subgroup qualifier as separate findings."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:227-250,838-856"
+    mechanism: "NUMERIC_ATOMS_AVAILABLE is shown but optional; MAP is not required to cover each safety-relevant atom."
+    faithful_content_lost: "numeric CDC facts legacy can mine from raw quote but MAP never turns into findings."
+    fix: "Tell MAP to create one finding per relevant numeric atom plus any adjacent qualifier/caveat needed to bind it."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:1127-1128,838-856"
+    mechanism: "Only section-local atoms are rendered. If an atom was routed to another primary section, the MAP loses that numeric cue."
+    faithful_content_lost: "safety numbers catalogued elsewhere despite being on-topic for Safety and contraindications."
+    fix: "For safety MAP only, render section-local atoms plus direct_quote-local safety-looking numeric atoms as extraction cues; final publication still depends on strict_verify."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:1005-1031"
+    mechanism: "Only proposed raw findings are validated. Missing proposed findings leave no trace if at least one finding survives."
+    faithful_content_lost: "all omitted CDC numeric safety facts after the first 3 accepted findings."
+    fix: "Add MAP self-check field or prompt footer: list uncovered safety numeric atoms/reasons; fail prompt-quality tests if relevant atoms are uncovered."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:74,342-364,896-931,1046-1064"
+    mechanism: "Cache key does not include prompt checksum; prompt-density fixes can replay stale thin validated maps unless DISTILLER_VERSION changes."
+    faithful_content_lost: "old 3-finding CDC ledger after a prompt fix."
+    fix: "Bump DISTILLER_VERSION for any MAP/REDUCE prompt change, or include prompt hash in cache key."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:189-204,280-288"
+    mechanism: "REDUCE has no 'use every finding' contract."
+    faithful_content_lost: "faithful ledger findings can be summarized away before span binding."
+    fix: "Require REDUCE to emit at least one sentence for every safety finding unless it is a duplicate, with duplicate IDs explicitly co-cited."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:199-202; live_deepseek_generator.py:373"
+    mechanism: "Numeric multi-source conjunctions are allowed, but span binding passes the whole sentence to each evidence marker."
+    faithful_content_lost: "multi-source numeric safety comparisons where no single source contains all numbers in the sentence."
+    fix: "For numeric safety facts, forbid multi-source numeric conjunctions; one source-specific statistic per sentence."
+    faithfulness_safe: true
+
+  - location: "live_deepseek_generator.py:281,305-332; strict_verify.py:263-266"
+    mechanism: "One 800-char window cannot bind numbers scattered across a long CDC quote."
+    faithful_content_lost: "the observed 24/19%/OR 10/CI 3-32 sentence when count/proportion and OR/CI are not all inside the chosen span."
+    fix: "Shape REDUCE output as separate source-phrase-sized sentences: denominator/proportion sentence; OR/CI sentence; fatality sentence; contamination sentence."
+    faithfulness_safe: true
+
+  - location: "live_deepseek_generator.py:244-260,292-295; strict_verify.py:86,107-109"
+    mechanism: "Binder is described/implemented around sentence decimals from provenance helpers, while strict_verify treats every integer and decimal as binding."
+    faithful_content_lost: "integer-heavy safety facts: 24 patients, 19%, OR 10, CI 3-32, years, counts."
+    fix: "Do not rely on binder relaxation; instead make each numeric sentence copy the exact local quote phrase containing all its integers."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:201-202,1208,1254-1256,1319-1325; strict_verify.py:86,263-266"
+    mechanism: "REDUCE is told to emit `(atom_NNN)` markers, and the filter preserves them. strict_verify has no atom-marker stripping here, so atom IDs can become extra numeric tokens."
+    faithful_content_lost: "otherwise valid numeric sentences dropped because `NNN` is not in the evidence span."
+    fix: "REDUCE-output shaping: stop emitting atom markers into final prose, or strip `_ATOM_MARKER_RE` before `_rewrite_draft_with_spans`."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:1204,1309-1314; live_deepseek_generator.py:64,362-366"
+    mechanism: "Any `[A-Za-z_]` bracket token is treated as a bare evidence marker. Source abbreviation `[OR]` can be misread as a citation."
+    faithful_content_lost: "odds-ratio facts if REDUCE preserves `odds ratio [OR]` but omits/garbles the real `[ev_XXX]` marker."
+    fix: "Tell REDUCE to rewrite square-bracket abbreviations as parentheses, e.g. `odds ratio (OR)`, and always copy `cite=[ev_XXX]` exactly."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:1293-1314"
+    mechanism: "Marker filter drops any sentence lacking both a known finding marker and an evidence marker."
+    faithful_content_lost: "faithful contraindication prose if REDUCE forgets `[[finding:...]]`, uses malformed finding syntax, or puts a leading marker-only fragment before the claim."
+    fix: "Prompt REDUCE with exact marker grammar and require markers inside every sentence immediately before the period; keep the existing strict downstream gate."
+    faithfulness_safe: true
+
+  - location: "evidence_distiller.py:501-523,574-616,681-695"
+    mechanism: "Fuzzy support recovery needs enough content-word overlap. Short/paraphrased numeric-only support quotes can fail locate before ledger entry."
+    faithful_content_lost: "bare OR/CI or fatality-rate findings if MAP emits too-short support_quote fragments."
+    fix: "Tell MAP support_quote must be an exact source substring containing the full local statistic phrase plus subgroup qualifier."
+    faithfulness_safe: true
+
+proposed_fix_plan:
+  - "Bump `DISTILLER_VERSION` before any prompt/output-shaping change."
+  - "Densify `_MAP_SYSTEM` / `_render_map_user` for Safety sections: exhaustive extraction checklist, one finding per safety numeric atom/statistic, include subgroup and caveat, exact support substring."
+  - "Add MAP prompt self-audit: every safety-relevant number in direct_quote is either extracted or explicitly marked not section-relevant."
+  - "Change REDUCE prompt: use every validated safety finding; numeric findings are one source, one statistic tuple, one sentence; no multi-source numeric conjunctions."
+  - "Change REDUCE output shaping to prevent strict technical drops: no `(atom_NNN)` in final prose, no square-bracket abbreviations like `[OR]`, copy `[ev_XXX]` exactly."
+  - "Verify fresh-cache A/B on drb_76 Safety with debug on: ledger count, REDUCE kept count, strict kept/dropped reasons; acceptance is distilled verified >= legacy with zero fabrication."
+
+faithfulness_risks:
+  - "Higher MAP recall only admits candidate findings; final strict_verify remains the publication authority."
+  - "One-stat-per-sentence increases recall by making binding easier, not by weakening numeric checks."
+  - "Removing atom markers from final prose removes non-clinical bookkeeping tokens, not evidence requirements."
+  - "Rendering more numeric cues to MAP can increase candidates, but unsupported prose still dies at span binding and strict_verify."
+
+honesty_caveats:
+  - "I read only the three requested files and did not inspect the evidence text, cache, logs, commit 8d74d1bb, 4-role vote, D8 gate, or other modules."
+  - "The exact CDC missing facts beyond the provided trace are inferred from your trace and from these code paths, not re-measured from source data."
+  - "I did not verify whether `strip_tokens` strips atom markers, because that function is outside the allowed file set; from `strict_verify.py` alone, no atom stripping is visible."
+```
