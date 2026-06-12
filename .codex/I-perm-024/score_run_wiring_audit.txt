@@ -1,0 +1,10 @@
+```yaml
+verdict: APPROVE
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "score_run.py:187-218: non-blocking methodology caveat: live wiring cannot apply Claimify text dedup because ClaimRow has no text; schema/reconcile enforce unique claim_id but not semantic near-duplicate collapse at this layer. The block discloses dedup_applied:false, default-off output is unchanged, and extended metrics are diagnostic-only."
+convergence_call: accept_remaining
+remaining_blockers_for_execution: []
+```

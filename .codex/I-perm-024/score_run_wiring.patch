@@ -1,0 +1,51 @@
+diff --git a/scripts/dr_benchmark/score_run.py b/scripts/dr_benchmark/score_run.py
+index 49c10de0..4a238612 100644
+--- a/scripts/dr_benchmark/score_run.py
++++ b/scripts/dr_benchmark/score_run.py
+@@ -22,6 +22,7 @@ from __future__ import annotations
+ 
+ import argparse
+ import json
++import os
+ import sys
+ from pathlib import Path
+ 
+@@ -183,6 +184,38 @@ def score_one(
+         "lane1": result["lane1"],
+         "lane2": result["lane2"],
+     }
++    # I-perm-024 (#1216): wire the extended claim-by-claim metrics into the LIVE scorer
++    # (the wiring audit found run_scorecard.py is never invoked in the live path — this is).
++    # Default-OFF PG_BENCH_EXTENDED_METRICS -> byte-identical when off. Every metric is derived
++    # ONLY from the audited ledger rows + the frozen rubric, NEVER raw report text (§-1.1). The
++    # Claimify dedup is intentionally SKIPPED: the reconciled ledger's claims are already atomic
++    # and unique by claim_id (the dual-§-1.1 audit deduplicates), so there is no inflation vector
++    # to collapse and the ledger carries no per-claim text to dedup on.
++    if os.environ.get("PG_BENCH_EXTENDED_METRICS", "").strip().lower() in (
++        "1", "true", "yes", "on",
++    ):
++        from src.polaris_graph.benchmark.extended_metrics import (
++            citation_support_rate,
++            diversity_score,
++            faithfulness_precision,
++            load_safety_floor_element_ids,
++            required_entity_recall,
++            safety_floor_recall,
++        )
++        _safety_ids = load_safety_floor_element_ids(question_id)
++        out["extended"] = {
++            "faithfulness_precision": faithfulness_precision(rows),
++            "citation_support_rate": citation_support_rate(rows),
++            "diversity_score": diversity_score(rows),
++            "required_entity_recall": required_entity_recall(rubric_elements),
++            "safety_floor_recall": safety_floor_recall(rubric_elements, _safety_ids),
++            "dedup_applied": False,
++            "methodology_note": (
++                "derived from the reconciled dual-§-1.1 audit ledger rows (already atomic/"
++                "unique by claim_id) + the frozen rubric; NEVER from raw report text; "
++                "diversity_score is a diagnostic, NOT a superiority signal."
++            ),
++        }
+     if polaris_gate_identity is not None:
+         out["pathB_gate_identity"] = polaris_gate_identity
+     return out
