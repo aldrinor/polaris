@@ -951,30 +951,31 @@ def _assign_evidence_to_planned_outline(
             # certified facet's only row, billing a section whose sub-question has
             # ZERO evidence. Repro: 31 facets, target 31, cap 30 -> facet 30
             # dropped. Clamp ORDER guarantees len(reserved) survives.).
+            cap = target if target > 0 else max_ev_per_section
+            cap = min(cap, max_ev_per_section)
             # I-bench-veracity-003 (#1225): SOURCE-BREADTH fix. `evidence_target`
             # was a HARD per-section cap, truncating a section to 1-4 rows even
             # when more ABOVE-FLOOR (authority-passing), already-section-mapped
             # rows were available — so high-authority sources were cut BEFORE the
             # generator ever saw them (drb_72: 12 uncited T1-T3; 196 pool -> 21
-            # cited). When PG_SECTION_SOURCE_BREADTH_TARGET > 0, treat
-            # `evidence_target` as a MINIMUM and fill the section with its
-            # ABOVE-FLOOR rows up to the breadth target — CLAMPED to the count of
-            # rows that are actually above-floor (`above_avail`), so we NEVER pull
-            # a below-floor / low-tier row just to hit a number — still capped by
-            # `max_ev_per_section`. Default 0 => byte-identical (cap =
-            # evidence_target as before). FAITHFULNESS-SAFE: only widens the
-            # candidate MENU with rows that already passed relevant_section_indices
-            # + the authority floor; strict_verify / 4-role / D8 re-verify every
-            # sentence against its cited span unchanged.
+            # cited). When PG_SECTION_SOURCE_BREADTH_TARGET > 0, breadth ADDS more
+            # ABOVE-FLOOR rows on top of the original evidence_target cap, via
+            # `max(cap, ...)`. The breadth ADDITION is clamped to `above_avail`
+            # (= count of rows actually above the authority floor), so the BREADTH
+            # term can NEVER pull a below-floor / low-tier row (Codex diff-gate
+            # iter-1 P1). The original `evidence_target` behaviour — INCLUDING its
+            # below-floor sufficiency filler when target exceeds the above-floor
+            # count — is preserved UNCHANGED (the `max(cap, ...)` only raises, never
+            # lowers, the original cap). Default 0 => byte-identical. FAITHFULNESS-
+            # SAFE: the breadth term only widens the candidate MENU with rows that
+            # already passed relevant_section_indices + the authority floor;
+            # strict_verify / 4-role / D8 re-verify every sentence unchanged.
             _breadth = int(os.getenv("PG_SECTION_SOURCE_BREADTH_TARGET", "0") or 0)
             if _breadth > 0:
                 above_avail = len(reserved) + sum(
                     1 for e in section_above_any[i] if e not in reserved
                 )
-                cap = min(max_ev_per_section, max(target, min(_breadth, above_avail)))
-            else:
-                cap = target if target > 0 else max_ev_per_section
-                cap = min(cap, max_ev_per_section)
+                cap = max(cap, min(max_ev_per_section, min(_breadth, above_avail)))
             cap = max(cap, len(reserved))
             ordered_ev = reserved + rest
             plans.append(SectionPlan(
