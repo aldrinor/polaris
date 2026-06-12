@@ -843,6 +843,104 @@ _ARCHETYPE_FALLBACK: list[tuple[str, str]] = [
 ]
 
 
+def _normalize_source_key(url: str | None) -> str | None:
+    """Normalize a source URL to a comparison key (scheme-stripped, lowercased,
+    trailing-slash-trimmed). Returns None when the url is missing/blank so the
+    caller can fall back to evidence_id. No regex (avoids an import dependency)."""
+    if not url:
+        return None
+    u = url.strip().lower()
+    for prefix in ("https://", "http://"):
+        if u.startswith(prefix):
+            u = u[len(prefix):]
+            break
+    u = u.rstrip("/")
+    return u or None
+
+
+def _build_source_key_fn(evidence: list[dict[str, Any]]):
+    """Return a function ev_id -> source-key. Source-key = normalized source_url;
+    when a row has no usable URL, the ev_id is its OWN source (so unknown-URL rows
+    are treated as distinct sources — weakens but never corrupts the cap/interleave,
+    per Codex iter-1 P2)."""
+    mapping: dict[str, str] = {}
+    for row in evidence:
+        eid = row.get("evidence_id", "")
+        if not eid:
+            continue
+        key = _normalize_source_key(row.get("source_url") or row.get("url"))
+        mapping[eid] = key if key else f"__evid__:{eid}"
+
+    def _key(eid: str) -> str:
+        return mapping.get(eid, f"__evid__:{eid}")
+
+    return _key
+
+
+def _spread_within_tier(
+    seq: list[str],
+    src_key,
+    seen_keys: set[str],
+    per_source_cap: int,
+    interleave: bool,
+) -> list[str]:
+    """I-bench-veracity-003 PR-1 (#1225): SUBTRACTION-SAFE anti-concentration on ONE
+    authority tier's filler rows (caller applies this to above-floor and below-floor
+    SEPARATELY so a below-floor row can never be promoted ahead of an above-floor row).
+
+    - `interleave` (PG_SECTION_SOURCE_INTERLEAVE): stable round-robin BY OCCURRENCE so
+      distinct source-keys are surfaced before a source repeats. Source-keys already in
+      `seen_keys` (reserved rows / earlier tier) are de-prioritized so they are not
+      re-surfaced first (Codex iter-1 P2).
+    - `per_source_cap` N (PG_SECTION_PER_SOURCE_SPAN_CAP): rows beyond the N-th of each
+      source-key are moved to the BACK of this tier (overflow), NOT dropped — so the
+      later `ordered_ev[:cap]` truncation reaches them only if capacity remains (SOFT
+      cap + within-tier BACKFILL; never strands capacity, never promotes below over
+      above; Codex iter-2 P1). Backfill order follows the same round-robin (Codex
+      iter-3 P2) so overflow does not re-cluster a single source.
+
+    Pure reorder — the SET of ev_ids is invariant; default-off (no interleave, cap<=0)
+    returns the input unchanged (byte-identical)."""
+    if not interleave and per_source_cap <= 0:
+        return list(seq)
+    groups: dict[str, list[str]] = {}
+    order: list[str] = []
+    for e in seq:
+        k = src_key(e)
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(e)
+    eff_cap = per_source_cap if per_source_cap and per_source_cap > 0 else None
+    if interleave:
+        # not-yet-seen keys first (stable), then already-seen keys
+        key_order = [k for k in order if k not in seen_keys] + [
+            k for k in order if k in seen_keys
+        ]
+        primary: list[str] = []
+        overflow: list[str] = []
+        max_len = max((len(groups[k]) for k in key_order), default=0)
+        for occ in range(max_len):
+            for k in key_order:
+                if occ < len(groups[k]):
+                    if eff_cap is None or occ < eff_cap:
+                        primary.append(groups[k][occ])
+                    else:
+                        overflow.append(groups[k][occ])
+        return primary + overflow
+    # cap-only (no interleave): preserve original order, push per-source overflow back
+    pos = {e: i for i, e in enumerate(seq)}
+    primary = []
+    overflow = []
+    for k in order:
+        rows = groups[k]
+        primary.extend(rows[:eff_cap])
+        overflow.extend(rows[eff_cap:])
+    primary.sort(key=lambda e: pos[e])
+    overflow.sort(key=lambda e: pos[e])
+    return primary + overflow
+
+
 def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
@@ -941,8 +1039,32 @@ def _assign_evidence_to_planned_outline(
                     if taken >= min_per_facet:
                         break
             # 2. Fill the rest: remaining above-floor, then below-floor as filler.
-            rest = [e for e in section_above_any[i] if e not in reserved]
-            rest += [e for e in section_below_any[i] if e not in reserved]
+            rest_above = [e for e in section_above_any[i] if e not in reserved]
+            rest_below = [e for e in section_below_any[i] if e not in reserved]
+            # I-bench-veracity-003 PR-1 (#1225): SUBTRACTION-SAFE anti-concentration.
+            # Apply the distinct-source interleave + per-source saturation cap WITHIN
+            # each authority tier SEPARATELY (above-floor, then below-floor) so a
+            # below-floor row can NEVER be promoted ahead of an above-floor credited
+            # row when `ordered_ev[:cap]` truncates (Codex iter-1/iter-2 P1). Both knobs
+            # default-OFF => `rest` is the original above+below concatenation, byte-
+            # identical. The transform is a pure REORDER (set of ev_ids invariant); it
+            # only changes WHICH candidate spans the generator sees first — strict_verify
+            # + NLI-enforce + 4-role re-verify every emitted sentence unchanged.
+            _interleave = os.getenv("PG_SECTION_SOURCE_INTERLEAVE", "0").strip().lower() not in (
+                "0", "", "false", "no", "off",
+            )
+            _per_source_cap = int(os.getenv("PG_SECTION_PER_SOURCE_SPAN_CAP", "0") or 0)
+            if _interleave or _per_source_cap > 0:
+                _src_key = _build_source_key_fn(evidence)
+                _seen = {_src_key(e) for e in reserved}
+                rest_above = _spread_within_tier(
+                    rest_above, _src_key, _seen, _per_source_cap, _interleave
+                )
+                _seen |= {_src_key(e) for e in rest_above}
+                rest_below = _spread_within_tier(
+                    rest_below, _src_key, _seen, _per_source_cap, _interleave
+                )
+            rest = rest_above + rest_below
             # cap = evidence_target, clamped to the soft section size cap FIRST,
             # then raised to never drop the RESERVED set (architect/Codex P1: the
             # max_ev_per_section ceiling must apply only to the FILLER — the
