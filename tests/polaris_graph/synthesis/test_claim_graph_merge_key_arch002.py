@@ -591,8 +591,15 @@ _POLARITY_CASES = [
     ("non-renal patients", "without"),                        # negation prefix on the cue token
     ("causes no nausea in renal impairment", "with"),         # 'no' governs nausea, NOT population
     ("does not cause nausea in renal impairment", "with"),    # 'not' governs the verb (before 'in')
-    ("associated with renal impairment", "with"),             # 'with' boundary
+    ("associated with renal impairment", "with"),             # 'with' introducer
     ("safe in normal renal function", "with"),
+    # Codex iter-3 P0: EXCLUSION phrasings invert the population -> 'without' (non-renal).
+    ("in patients other than those with renal impairment", "without"),
+    ("in patients excluding those with renal impairment", "without"),
+    ("in patients except those with renal impairment", "without"),
+    ("rather than those with renal impairment", "without"),
+    ("apart from patients with renal impairment", "without"),
+    ("in patients with severe renal impairment", "with"),     # affirmative must NOT false-flip
     ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 
@@ -600,3 +607,37 @@ _POLARITY_CASES = [
 @_pytest.mark.parametrize("sentence,expected", _POLARITY_CASES)
 def test_condition_polarity_negation_scoping(sentence, expected):
     assert _ecp(sentence, _ll()) == expected
+
+
+def test_population_polarity_exclusion_does_not_merge_with_affirmative():
+    """Codex iter-3 P0 end-to-end: an EXCLUSION-phrased population ("patients other than /
+    excluding those with renal impairment" = the NON-renal population) must NOT share a
+    merge key with the affirmative "with renal impairment" claim. Run through the REAL
+    extractor + build_merge_key under the flag."""
+    import os
+    os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
+    try:
+        affirmative = "Semaglutide causes nausea in patients with renal impairment."
+        exclusions = [
+            "Semaglutide causes nausea in patients other than those with renal impairment.",
+            "Semaglutide causes nausea in patients excluding those with renal impairment.",
+        ]
+        a_aff = extract_qualitative_assertions(
+            [{"evidence_id": "AFF", "direct_quote": affirmative, "tier": "T1"}], domain="clinical")
+        assert a_aff and a_aff[0].condition_polarity == "with"
+        k_aff = build_merge_key(_merge_key_view(
+            a_aff[0], kind="qualitative", evidence_id="AFF", domain="clinical",
+            atom_uid="qualitative:AFF:0"))
+        assert k_aff[0] != "__unresolved__"
+        for n, sent in enumerate(exclusions):
+            ev = f"EXC{n}"
+            a_exc = extract_qualitative_assertions(
+                [{"evidence_id": ev, "direct_quote": sent, "tier": "T1"}], domain="clinical")
+            assert a_exc and a_exc[0].condition_polarity == "without", sent
+            k_exc = build_merge_key(_merge_key_view(
+                a_exc[0], kind="qualitative", evidence_id=ev, domain="clinical",
+                atom_uid=f"qualitative:{ev}:0"))
+            # the excluded (non-renal) population must NOT merge with the affirmative (renal).
+            assert k_exc != k_aff, f"exclusion over-merged with affirmative: {sent}"
+    finally:
+        os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
