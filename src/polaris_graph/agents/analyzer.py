@@ -1067,8 +1067,11 @@ async def analyze_sources(
                                 f"1. HIGH\n2. MODERATE\n...\n\n"
                                 f"EVIDENCE:\n{_grade_items}"
                             ),
-                            effort="low",
-                            max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "500")),
+                            # I-arch-002 (operator 2026-06-13: reasoning stays MAX everywhere): GRADE was
+                            # effort=low + 500 tok; raised to high + 4096 so high-effort reasoning completes
+                            # AND emits the ratings (a starved budget would truncate). Env-overridable.
+                            effort=os.getenv("PG_GRADE_REASONING_EFFORT", "high"),
+                            max_tokens=int(os.getenv("PG_GRADE_MAX_TOKENS", "4096")),
                         )
                         if _grade_resp.content.strip():
                             break

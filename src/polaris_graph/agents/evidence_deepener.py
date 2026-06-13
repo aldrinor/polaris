@@ -293,7 +293,7 @@ async def _extract_named_studies(
     try:
         result = await client.reason(
             prompt=prompt,
-            effort="low",
+            effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
             max_tokens=2000,
         )
         text = result.content.strip()
@@ -814,7 +814,7 @@ async def _mechanism_search(
     try:
         result = await client.reason(
             prompt=prompt,
-            effort="low",
+            effort=os.getenv("PG_DEEPENER_REASONING_EFFORT", "high"),  # operator 2026-06-13: reasoning MAX
             max_tokens=500,
         )
         text = result.content.strip()
