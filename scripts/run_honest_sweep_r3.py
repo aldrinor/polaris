@@ -61,11 +61,10 @@ from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
 from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
-    # I-pipe-008 (#1233): post-bibliography breadth canary (pure helper) +
-    # the SAME url-normalization the breadth code uses, so the CITED-source
-    # count is computed on the same key space.
-    enforce_breadth_canary,
-    _normalize_source_key,
+    # I-arch-002 (#1246) P-W2breadth: enforce_breadth_canary + _normalize_source_key
+    # were imported only for the post-bibliography breadth-count REFUSAL gate, a
+    # §-1.1-banned metadata (cited-source COUNT) proxy. Both the gate and the helper
+    # are deleted; breadth EMERGES from no-drop weighted multi-attribution.
 )
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     resolve_provenance_to_citations,
@@ -5623,7 +5622,15 @@ async def run_one_query(
                     # NO-CAP relevance-floor selector too — without this, a saturation-expansion run
                     # bypasses the cap and sends an uncapped base to the generator (regress #1070). Apply
                     # the SAME dedup-then-cap composition (the shared helper) as the initial selection.
-                    if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
+                    # I-arch-002 (#1246) P-W4sel: under the redesign flag, SKIP this regen-round re-cap
+                    # too (sibling of the initial-selection gate ~L4911) — CONSOLIDATE-keep-all means the
+                    # saturation pool also flows uncapped to composition. OFF => the cap holds.
+                    if (
+                        _use_finding_dedup
+                        and _capped_dedup
+                        and _relevance_floor is not None
+                        and not _cred_redesign_on
+                    ):
                         _resel = _capped_finding_dedup_selection(
                             base_rows=_resel.selected_rows,
                             classified_sources=retrieval.classified_sources,
@@ -5935,7 +5942,15 @@ async def run_one_query(
             _dedup = dedup_by_finding(
                 evidence_for_gen, gov_suffixes=_gov_suffixes
             )
-            evidence_for_gen = _dedup.deduped_rows
+            # I-arch-002 (#1246) P3.3 (member-drop bypass): under the redesign flag,
+            # SKIP replacing evidence_for_gen with the deduped (member-DROPPED) rows so
+            # ALL same-claim rows flow to composition (CONSOLIDATE-keep-all, DNA §-1.3
+            # Principle 2 — repetition is corroboration). The dedup IS still COMPUTED so
+            # its telemetry (corroboration counts) survives; only the row-drop is
+            # bypassed. OFF => the legacy collapse-to-representative, byte-identical.
+            # (Full basket routing is a later slice; here we only stop the drop.)
+            if not _cred_redesign_on:
+                evidence_for_gen = _dedup.deduped_rows
             _finding_dedup_telemetry = {
                 "raw_row_count": _dedup.raw_row_count,
                 "distinct_finding_count": _dedup.distinct_finding_count,
@@ -5955,6 +5970,28 @@ async def run_one_query(
                 f"collapsed={_dedup.collapsed_row_count} "
                 f"-> {len(evidence_for_gen)} generator rows"
             )
+
+        # I-arch-002 (#1246) P-W2breadth: breadth telemetry may be DISCLOSED, never
+        # ENFORCED. The deleted enforce_breadth_canary REFUSAL gate (a §-1.1-banned
+        # cited-source COUNT floor) is replaced here by a pure DISCLOSURE log of the
+        # distinct source-keys actually reaching the generator (the candidate breadth,
+        # honestly labeled). It NEVER aborts — breadth EMERGES from no-drop weighted
+        # multi-attribution; the only hard gate is the faithfulness engine downstream.
+        _breadth_keys: set[str] = set()
+        for _r in evidence_for_gen:
+            _u = str(_r.get("source_url") or _r.get("url") or "").strip().lower()
+            if _u:
+                for _pfx in ("https://", "http://"):
+                    if _u.startswith(_pfx):
+                        _u = _u[len(_pfx):]
+                        break
+                _u = _u.rstrip("/")
+            _breadth_keys.add(_u or f"__evid__:{_r.get('evidence_id', '')}")
+        _log(
+            f"[breadth-disclosure] generator-visible distinct source-keys="
+            f"{len(_breadth_keys)} over {len(evidence_for_gen)} rows "
+            f"(disclosed, NOT enforced)"
+        )
 
         # I-ready-017 #1134: journal_only FAIL-CLOSED no-leak backstop. At the
         # immediate pre-generator point (after contract + upload prepend + dedup/
@@ -6758,37 +6795,11 @@ async def run_one_query(
             require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=False),
         )
 
-        # I-pipe-008 (#1233): breadth canary. Codex iter-1 REQUEST_CHANGES: the old
-        # canary lived inside _augment_legacy_section_breadth and measured the
-        # pre-generation candidate-MENU breadth, so it could pass while the final
-        # report cited too few (strict_verify drops most). The binding canary now
-        # runs HERE, against `multi.bibliography` — the DISTINCT CITED sources that
-        # actually survived into the rendered report — AFTER verified_sections was
-        # confirmed non-empty (the abort above) and BEFORE report.md is written.
-        # Count DISTINCT normalized source keys (the SAME _normalize_source_key the
-        # breadth code uses); fall back to the entry doi / num when a row has no
-        # resolvable url so locator-less rows are counted as distinct sources rather
-        # than collapsing to a single empty key. PG_BREADTH_CANARY_MIN default 0 =>
-        # no-op (current behavior). On failure enforce_breadth_canary raises and the
-        # run aborts loudly (fail-closed). Faithfulness gates untouched.
-        try:
-            _canary_min = int(os.getenv("PG_BREADTH_CANARY_MIN", "0") or 0)
-        except ValueError:
-            _canary_min = 0
-        if _canary_min > 0:
-            _cited_keys: set[str] = set()
-            for _bib in (multi.bibliography or []):
-                _key = _normalize_source_key(str(_bib.get("url") or "") or None)
-                if not _key:
-                    _doi = str(_bib.get("doi") or "").strip().lower()
-                    _key = _doi or f"__bibnum__:{_bib.get('num')}"
-                _cited_keys.add(_key)
-            _distinct_cited = len(_cited_keys)
-            _log(
-                f"[breadth_canary] distinct CITED sources={_distinct_cited} "
-                f"min={_canary_min}"
-            )
-            enforce_breadth_canary(_distinct_cited, _canary_min)
+        # I-arch-002 (#1246) P-W2breadth: the post-bibliography breadth canary
+        # (PG_BREADTH_CANARY_MIN + enforce_breadth_canary, a cited-source COUNT-floor
+        # REFUSAL) was a §-1.1-banned metadata proxy and is DELETED. It defaulted to 0
+        # (no-op), so removal is byte-identical. Breadth telemetry may be DISCLOSED,
+        # never ENFORCED; the ONLY hard gate is the faithfulness engine.
 
         # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
         # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified

@@ -54,6 +54,102 @@ from src.polaris_graph.generator.provenance_generator import (
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
+# I-arch-002 (#1246) P-W4gen: master WEIGHT-AND-CONSOLIDATE flag reader (CLAUDE.md §-1.3).
+#
+# Read at CALL time (NOT an import-time constant / default-arg) so the gate is
+# monkeypatch-testable per run and so the OFF path is byte-identical: when unset,
+# every generator source cap (PG_OUTLINE_MAX_EV menu truncation + the FOUR/FIVE
+# PG_MAX_EV_PER_SECTION row clamps) keeps its exact legacy literal, and OFF is byte-
+# identical to today. When ON, those ROW caps dissolve into a serialized CHARACTER
+# budget against the real 1M-context model — sources flow to composition bounded by
+# the prompt budget + the faithfulness gate, never by a row count (the DNA: WEIGHT-
+# AND-CONSOLIDATE, not FILTER-AND-CAP). Faithfulness (strict_verify / NLI / 4-role) is
+# downstream of full-pool text resolution and is untouched.
+def _credibility_redesign_enabled() -> bool:
+    """True iff PG_SWEEP_CREDIBILITY_REDESIGN is truthy ({1,true,yes,on}). Default
+    OFF. Mirrors the hoisted ``_cred_redesign_on`` boolean in the sweep runner and
+    ``credibility_pass.credibility_redesign_enabled`` so ONE flag coherently governs
+    the whole migration."""
+    return (
+        os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+
+
+# I-arch-002 (#1246) P-W4gen: per-section serialized CHARACTER budget that REPLACES the
+# PG_MAX_EV_PER_SECTION row cap under the redesign flag. Read at CALL time. Default is a
+# generous slice of the 1M-context generator's window (~120K chars ≈ a large fraction of
+# the context) so a section keeps every assigned row whose serialized
+# statement+direct_quote fits — never a row count. The faithfulness engine re-verifies
+# every emitted sentence regardless of how many rows reach the prompt.
+PG_SECTION_EV_CHAR_BUDGET_DEFAULT: str = "120000"
+
+
+def _section_ev_char_budget() -> int:
+    """Per-section character budget (statement+direct_quote serialized) for the
+    redesign no-row-cap path. Read at call time; non-positive => effectively unbounded
+    (a huge ceiling) so the budget never silently drops a row."""
+    try:
+        val = int(os.getenv("PG_SECTION_EV_CHAR_BUDGET", PG_SECTION_EV_CHAR_BUDGET_DEFAULT))
+    except (TypeError, ValueError):
+        val = int(PG_SECTION_EV_CHAR_BUDGET_DEFAULT)
+    if val <= 0:
+        return 1 << 62  # disabled => no char bound
+    return val
+
+
+def _ev_serialized_len(row: dict[str, Any]) -> int:
+    """Serialized length of one evidence row for the per-section char budget:
+    len(statement) + len(direct_quote). Used to decide how many rows fit a section's
+    character budget under the redesign flag (replacing the row-count cap)."""
+    if not isinstance(row, dict):
+        return 0
+    stmt = row.get("statement") or ""
+    quote = row.get("direct_quote") or ""
+    return len(str(stmt)) + len(str(quote))
+
+
+def _ev_char_len_by_id(evidence: list[dict[str, Any]]) -> dict[str, int]:
+    """Build an ev_id -> serialized-char-length map from the FULL evidence pool so the
+    per-section budget trim (which operates on ev_id lists) can size each candidate."""
+    out: dict[str, int] = {}
+    for row in evidence:
+        eid = row.get("evidence_id", "") if isinstance(row, dict) else ""
+        if eid:
+            out[eid] = _ev_serialized_len(row)
+    return out
+
+
+def _budget_trim_ev_ids(
+    ev_ids: list[str],
+    char_len_by_id: dict[str, int],
+    budget: int,
+    *,
+    reserved_floor: int = 0,
+) -> list[str]:
+    """Keep ev_ids in order until the cumulative serialized char budget is reached;
+    ALWAYS keep at least ``reserved_floor`` leading rows (the SACRED reserved set is
+    never truncated by the budget). Replaces the row-count clamp on the redesign path:
+    bounded by characters, never by a row count."""
+    if not ev_ids:
+        return ev_ids
+    kept: list[str] = []
+    used = 0
+    for idx, eid in enumerate(ev_ids):
+        size = char_len_by_id.get(eid, 0)
+        if idx < reserved_floor:
+            # Reserved rows are sacred — always kept, and they still consume budget so
+            # the filler accounting stays honest.
+            kept.append(eid)
+            used += size
+            continue
+        if used + size > budget and kept:
+            break
+        kept.append(eid)
+        used += size
+    return kept
+
+
 # D-1 / I-ready-017 (#1182): per-section + analyst-synthesis CONTENT token budget.
 #
 # The default generator (deepseek/deepseek-v4-pro per I-cd-009 Carney lock) is
@@ -806,10 +902,22 @@ def _build_deterministic_fallback_outline(
     # PG_LIVE_MAX_EV_TO_GEN cap — held total generation evidence below corpus size. Env-tunable now
     # (PG_MAX_EV_PER_SECTION, default 30 = byte-identical when unset); the full-cap slate raises it in
     # lockstep. Still bounded to keep per-section bodies under the >100K-token OpenRouter 400 limit.
+    # I-arch-002 (#1246) P-W4gen site 1/5: under the redesign flag the ROW cap
+    # dissolves into a per-section serialized CHARACTER budget (keep rows until the
+    # generous char budget is reached, never a row count). OFF => the exact
+    # min(.., PG_MAX_EV_PER_SECTION=30) clamp, byte-identical.
+    _redesign = _credibility_redesign_enabled()
     _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
+    _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
+    _char_budget = _section_ev_char_budget() if _redesign else 0
     plans: list[SectionPlan] = []
     for i, title in enumerate(allowed_titles):
-        section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
+        if _redesign:
+            section_ev = _budget_trim_ev_ids(
+                ev_ids[i::3], _char_len_by_id, _char_budget
+            )
+        else:
+            section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
         if len(section_ev) < 2:
             # If slicing leaves a section too thin, bail out.
             return []
@@ -941,264 +1049,6 @@ def _spread_within_tier(
     return primary + overflow
 
 
-_BREADTH_STOPWORDS = frozenset((
-    "the a an of and or to in for on with by is are was were be been being this that these "
-    "those it its as at from into about over under more most than then so such can could may "
-    "might will would shall should has have had do does did not no nor but if while we our you "
-    "their they them his her she he which who whom whose what when where why how all any each "
-    "both few many much some other only own same too very out up down off above below between "
-    "through during before after again further here there also based using study paper report"
-).split())
-
-
-def _breadth_content_tokens(text: str) -> set[str]:
-    """Lowercased alpha content tokens (len>=3, stopwords removed) for the legacy
-    breadth-augmentation relevance check. Regex-free (no import dependency)."""
-    toks: set[str] = set()
-    for raw in (text or "").lower().replace("/", " ").replace("-", " ").split():
-        w = "".join(c for c in raw if c.isalpha())
-        if len(w) >= 3 and w not in _BREADTH_STOPWORDS:
-            toks.add(w)
-    return toks
-
-
-def _breadth_row_is_marquee(row: dict[str, Any]) -> bool:
-    """I-pipe-006 (#1231): True iff an evidence row was contributed by the
-    required-entity / anchor lane and therefore represents a marquee primary
-    source that MUST reach the writers when present.
-
-    Detection uses ONLY existing evidence-row fields (no schema invention) — the
-    required-entity lane stamps rows with ``seed_source='required_entity_lane'``
-    and ``query_origin='required_entity_targeted_search'`` (see
-    src/polaris_graph/retrieval/required_entity_retrieval.py SEED_SOURCE_LABEL /
-    SEED_QUERY_ORIGIN), and primary-anchor injections set an ``anchor_seed`` /
-    ``is_anchor`` / ``required_entity`` / ``is_marquee`` truthy flag. Any of these
-    being present marks the row as a marquee anchor."""
-    if not isinstance(row, dict):
-        return False
-    for flag in ("is_marquee", "required_entity", "anchor_seed", "is_anchor",
-                 "entity_anchor", "marquee"):
-        if row.get(flag):
-            return True
-    seed_source = str(row.get("seed_source") or "").lower()
-    if "required_entity" in seed_source or "anchor" in seed_source:
-        return True
-    for origin_key in ("query_origin", "seed_query_origin"):
-        origin = str(row.get(origin_key) or "").lower()
-        if "required_entity" in origin or "anchor" in origin:
-            return True
-    return False
-
-
-def _augment_legacy_section_breadth(
-    plans: list[Any],
-    evidence: list[dict[str, Any]],
-    research_question: str,
-    skip_titles: set[str],
-    *,
-    target: int,
-    authority_floor: float | None = None,
-) -> dict[str, int]:
-    """I-bench-veracity-003 (forensic 2026-06-12): LEGACY-PATH source-breadth fix.
-
-    ROOT CAUSE (forensic): with the research planner OFF (PG_USE_RESEARCH_PLANNER
-    default "0"), `_assign_evidence_to_planned_outline` and ALL its breadth knobs are
-    DEAD CODE; the legacy `_call_outline` path runs and the outline LLM under-selects
-    (~20 of ~360 distinct sources -> ~21 cited). This pass deterministically WIDENS
-    each non-contract section's `ev_ids` with above-floor, on-topic, DISTINCT-source
-    rows from the FULL evidence pool, ON TOP of the outline LLM's picks, until the
-    section reaches `target` distinct sources. Cross-section spreading prefers
-    globally-unused sources so total report breadth rises.
-
-    FAITHFULNESS-SAFE (selection-stage only): only ADDS rows that already passed
-    retrieval + the authority floor + a >=2 content-word question-relevance bar; it
-    never lowers a cap, never edits prose, never touches strict_verify / NLI-enforce /
-    4-role D8 — those re-verify every emitted sentence exactly as before. A widened
-    menu cannot make an unsupported sentence pass; it only lets the writer ground MORE
-    sentences in MORE distinct sources. Returns per-section distinct-source counts
-    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op).
-
-    ENV FLAGS (all DEFAULT-OFF == byte-identical historical selection):
-      * PG_BREADTH_AUGMENT_MIN_OVERLAP (int, default 2): question-relevance bar.
-        Default 2 == the historical >=2 content-word bar; higher rejects off-topic
-        rows (I-pipe-004 #1229). Values < 2 are clamped to 2.
-      * PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP ("0"/"1", default "0"): when on,
-        additionally require >=1 content token shared with the section focus, so
-        topically-off rows are rejected (I-pipe-004 #1229).
-      * PG_BREADTH_MARQUEE_PRIORITY ("0"/"1", default "0"): when on, rank
-        required-entity / marquee anchor rows FIRST among candidates so the most
-        important primaries reach the writers (I-pipe-006 #1231). Reorders only.
-      * PG_BREADTH_CANARY_MIN (int, default 0=off): when > 0, RAISE RuntimeError if
-        the achieved report-wide distinct-source breadth is below it, so the run
-        FAILS LOUD instead of silently under-delivering (I-pipe-008 #1233)."""
-    from src.polaris_graph.adequacy.plan_sufficiency_gate import (
-        _authority_floor_default,
-        _enrich_authority_if_missing,
-    )
-
-    floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
-
-    # I-pipe-004 (#1229): the augmentation relevance bar (>=2 shared question
-    # content words) is bag-of-words-weak and admitted an off-topic methods paper
-    # (ev_412) 5x. PG_BREADTH_AUGMENT_MIN_OVERLAP lets the benchmark raise the
-    # threshold; default 2 reproduces the current bar EXACTLY (flag-off identity).
-    try:
-        _min_overlap = int(os.getenv("PG_BREADTH_AUGMENT_MIN_OVERLAP", "2") or 2)
-    except ValueError:
-        _min_overlap = 2
-    if _min_overlap < 2:
-        # Never go BELOW the historical >=2 floor — that would only ever ADMIT
-        # more off-topic rows, the opposite of this gate's intent.
-        _min_overlap = 2
-    # I-pipe-004 (#1229): when on, additionally require the candidate to share at
-    # least one CONTENT token with the section's focus, rejecting rows that pass
-    # the question bar on generic methods/boilerplate tokens but are off-topic for
-    # the section. Default "0" => not required (flag-off identity).
-    _require_section_overlap = (
-        os.getenv("PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP", "0").strip().lower()
-        in ("1", "true", "yes", "on")
-    )
-    # I-pipe-006 (#1231): when on, rank required-entity / marquee anchor rows FIRST
-    # among augmentation candidates so the most important primary sources reach the
-    # writers instead of being crowded out by generic above-floor rows. Default "0"
-    # => ranking unchanged (flag-off identity). SELECTION-STAGE ONLY: this only
-    # reorders WHICH already-eligible rows are added first; it never lowers a cap,
-    # never edits prose, and never touches strict_verify / NLI / 4-role.
-    _marquee_priority = (
-        os.getenv("PG_BREADTH_MARQUEE_PRIORITY", "0").strip().lower()
-        in ("1", "true", "yes", "on")
-    )
-
-    by_id: dict[str, dict[str, Any]] = {}
-    for row in evidence:
-        eid = row.get("evidence_id", "")
-        if eid:
-            by_id[eid] = row
-
-    def _src_key(eid: str) -> str:
-        row = by_id.get(eid, {})
-        key = _normalize_source_key(row.get("source_url") or row.get("url"))
-        return key if key else f"__evid__:{eid}"
-
-    q_tokens = _breadth_content_tokens(research_question)
-    # globally-used source-keys (across ALL sections incl contract) so augmentation
-    # spreads FRESH distinct sources rather than re-adding ones already present.
-    global_used: set[str] = set()
-    for p in plans:
-        for eid in getattr(p, "ev_ids", []) or []:
-            global_used.add(_src_key(eid))
-
-    out_counts: dict[str, int] = {}
-    for p in plans:
-        title = getattr(p, "title", "") or ""
-        assigned = list(getattr(p, "ev_ids", []) or [])
-        have = {_src_key(e) for e in assigned}
-        if title in skip_titles:
-            out_counts[title] = len(have)
-            continue
-        if len(have) >= target:
-            out_counts[title] = len(have)
-            continue
-        assigned_set = set(assigned)
-        sec_tokens = _breadth_content_tokens(
-            title + " " + (getattr(p, "focus", "") or "")
-        )
-        cands: list[tuple[tuple[int, int, int, float, int], str, str]] = []
-        for row in evidence:
-            eid = row.get("evidence_id", "")
-            if not eid or eid in assigned_set:
-                continue
-            auth = _enrich_authority_if_missing(row)
-            if auth < floor:
-                continue
-            key = _src_key(eid)
-            if key in have:
-                continue
-            txt = (
-                row.get("direct_quote") or row.get("statement")
-                or row.get("text") or row.get("snippet") or ""
-            )
-            row_tokens = _breadth_content_tokens(txt)
-            q_overlap = len(q_tokens & row_tokens)
-            # I-pipe-004 (#1229): tunable question-relevance bar (default 2 ==
-            # the historical >=2 content-word bar). Higher => stricter (rejects
-            # off-topic methods rows that pass on 2 generic shared tokens).
-            if q_overlap < _min_overlap:
-                continue
-            sec_overlap = len(sec_tokens & row_tokens)
-            # I-pipe-004 (#1229): when required, drop rows that share NO content
-            # token with the section focus (topically-off for this section).
-            if _require_section_overlap and sec_overlap < 1:
-                continue
-            fresh = 0 if key in global_used else 1  # prefer globally-unused sources
-            # I-pipe-006 (#1231): when marquee-priority is on, required-entity /
-            # anchor rows rank FIRST (marquee=1) so they reach writers ahead of
-            # generic above-floor rows; OFF => marquee=0 for every row, so the
-            # ranking is byte-identical to the historical (fresh, sec_overlap,
-            # auth, q_overlap) order.
-            marquee = 1 if (_marquee_priority and _breadth_row_is_marquee(row)) else 0
-            cands.append(((marquee, fresh, sec_overlap, auth, q_overlap), eid, key))
-        cands.sort(key=lambda t: t[0], reverse=True)
-        for _score, eid, key in cands:
-            if len(have) >= target:
-                break
-            if key in have:
-                continue
-            assigned.append(eid)
-            have.add(key)
-            global_used.add(key)
-        # mutate ev_ids IN PLACE (preserves frozen-dataclass + downstream identity)
-        p.ev_ids[:] = assigned
-        out_counts[title] = len(have)
-
-    # I-pipe-008 (#1233): breadth telemetry — NOT the canary gate. `global_used`
-    # accumulates every distinct source-key ASSIGNED to a section menu (contract +
-    # augmented) AT SELECTION TIME, BEFORE generation/strict_verify. It is the
-    # CANDIDATE MENU breadth, NOT the count of sources the final report actually
-    # cites (strict_verify drops most). The earlier code raised a RuntimeError here
-    # against this menu count and falsely labeled it "distinct cited sources" — a
-    # canary that could pass while the rendered report cited far fewer (#1233,
-    # Codex iter-1 REQUEST_CHANGES). The real breadth canary now runs in the sweep
-    # runner AFTER the bibliography (= the distinct CITED sources) is built, via the
-    # pure `enforce_breadth_canary` helper below. Here we only DISCLOSE the menu
-    # breadth, honestly labeled. The PG_BREADTH_CANARY_MIN knob is still read — but
-    # at the post-bibliography binding site, not here.
-    logger.info(
-        "[multi_section] candidate menu breadth (pre-generation, not the cited "
-        "count): %d distinct source-keys assigned across section menus. The "
-        "binding breadth canary (PG_BREADTH_CANARY_MIN) is enforced post-"
-        "bibliography against the final CITED-source count.",
-        len(global_used),
-    )
-    return out_counts
-
-
-def enforce_breadth_canary(distinct_cited_sources: int, minimum: int) -> None:
-    """I-pipe-008 (#1233): fail-loud breadth canary against the FINAL CITED-source
-    count (computed by the sweep runner from the rendered bibliography, NOT the
-    pre-generation candidate menu). PURE: raises ``RuntimeError`` iff ``minimum > 0``
-    and ``distinct_cited_sources < minimum``; otherwise returns None.
-
-    This NEVER fabricates, pads, or relaxes anything — it only REFUSES to proceed
-    when the report provably cites too few distinct sources. ``minimum <= 0`` (the
-    default when PG_BREADTH_CANARY_MIN is unset) is a no-op, so the default path is
-    byte-identical to today. Faithfulness gates (strict_verify / NLI / 4-role D8 /
-    provenance) are entirely untouched: this gate runs on their OUTPUT and can only
-    abort, never weaken, the verdict.
-    """
-    if minimum <= 0:
-        return
-    if distinct_cited_sources < minimum:
-        raise RuntimeError(
-            "[breadth_canary] PG_BREADTH_CANARY_MIN breadth canary FAILED: the "
-            f"final report cites {distinct_cited_sources} distinct source(s), "
-            f"below the required minimum of {minimum}. Refusing to emit a report "
-            "that under-delivers cited-source breadth. Widen retrieval / raise the "
-            "candidate pool, or lower PG_BREADTH_CANARY_MIN if this floor is "
-            "intentionally above the achievable cited breadth."
-        )
-
-
 def _assign_evidence_to_planned_outline(
     planned_outline: list[Any],
     evidence: list[dict[str, Any]],
@@ -1227,6 +1077,15 @@ def _assign_evidence_to_planned_outline(
     """
     n_sections = len(planned_outline)
     plans: list[SectionPlan] = []
+
+    # I-arch-002 (#1246) P-W4gen sites 3+4/5: under the redesign flag the per-section
+    # ROW clamp (min(cap, max_ev_per_section)) dissolves into a serialized CHARACTER
+    # budget applied to the FILLER while the SACRED reserved set (per-facet credited
+    # rows) is never truncated. Read at CALL time so the gate is monkeypatch-testable;
+    # OFF => the literal min(.., max_ev_per_section) clamp, byte-identical.
+    _redesign = _credibility_redesign_enabled()
+    _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
+    _char_budget = _section_ev_char_budget() if _redesign else 0
 
     if sub_queries is not None:
         # PROVENANCE-FIRST (on-mode). Shared mapping + floor imported lazily to
@@ -1333,35 +1192,26 @@ def _assign_evidence_to_planned_outline(
             # dropped. Clamp ORDER guarantees len(reserved) survives.).
             cap = target if target > 0 else max_ev_per_section
             cap = min(cap, max_ev_per_section)
-            # I-bench-veracity-003 (#1225): SOURCE-BREADTH fix. `evidence_target`
-            # was a HARD per-section cap, truncating a section to 1-4 rows even
-            # when more ABOVE-FLOOR (authority-passing), already-section-mapped
-            # rows were available — so high-authority sources were cut BEFORE the
-            # generator ever saw them (drb_72: 12 uncited T1-T3; 196 pool -> 21
-            # cited). When PG_SECTION_SOURCE_BREADTH_TARGET > 0, breadth ADDS more
-            # ABOVE-FLOOR rows on top of the original evidence_target cap, via
-            # `max(cap, ...)`. The breadth ADDITION is clamped to `above_avail`
-            # (= count of rows actually above the authority floor), so the BREADTH
-            # term can NEVER pull a below-floor / low-tier row (Codex diff-gate
-            # iter-1 P1). The original `evidence_target` behaviour — INCLUDING its
-            # below-floor sufficiency filler when target exceeds the above-floor
-            # count — is preserved UNCHANGED (the `max(cap, ...)` only raises, never
-            # lowers, the original cap). Default 0 => byte-identical. FAITHFULNESS-
-            # SAFE: the breadth term only widens the candidate MENU with rows that
-            # already passed relevant_section_indices + the authority floor;
-            # strict_verify / 4-role / D8 re-verify every sentence unchanged.
-            _breadth = int(os.getenv("PG_SECTION_SOURCE_BREADTH_TARGET", "0") or 0)
-            if _breadth > 0:
-                above_avail = len(reserved) + sum(
-                    1 for e in section_above_any[i] if e not in reserved
-                )
-                cap = max(cap, min(max_ev_per_section, min(_breadth, above_avail)))
             cap = max(cap, len(reserved))
             ordered_ev = reserved + rest
+            # I-arch-002 (#1246) P-W4gen site 3/5 (on-mode clamp): under the redesign
+            # flag the ROW cap dissolves into a per-section serialized CHARACTER
+            # budget; the SACRED reserved set is never truncated (reserved_floor).
+            # OFF => the exact ordered_ev[:cap] row clamp, byte-identical.
+            # (I-arch-002 P-W2breadth: the PG_SECTION_SOURCE_BREADTH_TARGET widener
+            # term was DELETED here — it is subsumed once the per-section cap is a
+            # byte-budget, and was a 0-default no-op so removal is byte-identical.)
+            if _redesign:
+                section_ev_ids = _budget_trim_ev_ids(
+                    ordered_ev, _char_len_by_id, _char_budget,
+                    reserved_floor=len(reserved),
+                )
+            else:
+                section_ev_ids = ordered_ev[:cap]
             plans.append(SectionPlan(
                 title=title,
                 focus=title,
-                ev_ids=ordered_ev[:cap],
+                ev_ids=section_ev_ids,
                 archetype=archetype,
             ))
         return plans
@@ -1378,7 +1228,15 @@ def _assign_evidence_to_planned_outline(
         section_ev = ev_ids[i::n_sections] if n_sections else []
         cap = target if target > 0 else max_ev_per_section
         cap = min(cap, max_ev_per_section)
-        section_ev = section_ev[:cap]
+        # I-arch-002 (#1246) P-W4gen site 4/5 (legacy round-robin clamp): under the
+        # redesign flag the ROW cap dissolves into a serialized CHARACTER budget;
+        # OFF => the exact section_ev[:cap] row clamp, byte-identical.
+        if _redesign:
+            section_ev = _budget_trim_ev_ids(
+                section_ev, _char_len_by_id, _char_budget
+            )
+        else:
+            section_ev = section_ev[:cap]
         plans.append(SectionPlan(
             title=title,
             focus=title,
@@ -1400,10 +1258,25 @@ def _build_archetype_fallback_outline(
     ev_ids = [e for e in ev_ids if e]
     if len(set(ev_ids)) < 6:
         return []
+    # I-arch-002 (#1246) P-W4gen site 5/5 (archetype fallback outline): the literal
+    # [:30] is a real per-section ROW cap that drops kept rows. Under the redesign
+    # flag it dissolves into the per-section CHARACTER budget; OFF => the exact
+    # ev_ids[i::n][:30] clamp, byte-identical. (Beyond the four PG_MAX_EV_PER_SECTION
+    # sites the checklist named — a hardcoded 30 here would otherwise be a residual
+    # cap, so it is gated for exhaustiveness per the "missed site = residual cap"
+    # directive.)
+    _redesign = _credibility_redesign_enabled()
+    _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
+    _char_budget = _section_ev_char_budget() if _redesign else 0
     plans: list[SectionPlan] = []
     n = len(_ARCHETYPE_FALLBACK)
     for i, (archetype, title) in enumerate(_ARCHETYPE_FALLBACK):
-        section_ev = ev_ids[i::n][:30]
+        if _redesign:
+            section_ev = _budget_trim_ev_ids(
+                ev_ids[i::n], _char_len_by_id, _char_budget
+            )
+        else:
+            section_ev = ev_ids[i::n][:30]
         if len(section_ev) < 2:
             return []
         plans.append(SectionPlan(
@@ -1456,7 +1329,20 @@ async def _call_outline(
         # Non-positive => disabled => no cap (full pool, verbose digest = byte-identical).
         _outline_max_ev = len(evidence)
 
-    if len(evidence) <= _outline_max_ev:
+    # I-arch-002 (#1246) P-W4gen (outline menu): under the redesign flag the outline
+    # menu is NEVER row-truncated — it ALWAYS uses the TERSE digest (ev_id + tier +
+    # title only) over the FULL pool (the [:N] menu cap dissolves; the terse digest is
+    # what keeps reasoning headroom, NOT the row cut). Read at CALL time. OFF => the
+    # exact PG_OUTLINE_MAX_EV (default 150) small/large-pool split, byte-identical.
+    # LIVE-ONLY RISK (surfaced, not blocked): a very large full terse menu re-enters
+    # the reasoning-first headroom hazard PG_OUTLINE_MAX_EV was built to bound; it is
+    # fail-loud (FX-01 catches it, never ships the scratchpad) and only fires on the
+    # paid live run (which carries its own canary). The documented lever is the Novita
+    # 32K route (PG_REASONING_FIRST_HARD_CAP=32000 + OPENROUTER_PROVIDER_ORDER=novita),
+    # NOT re-adding a menu row cap (a cap would fight the WEIGHT-AND-CONSOLIDATE DNA).
+    _outline_redesign = _credibility_redesign_enabled()
+
+    if not _outline_redesign and len(evidence) <= _outline_max_ev:
         # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
         # that the outline never truncated before, so this branch is left exactly as it was
         # (verbose per-row digest incl. the 160-char statement, count == len(evidence)).
@@ -1492,7 +1378,10 @@ async def _call_outline(
         # structure; dropping it widens reasoning headroom at the same N, which is what
         # prevents the reasoning-first writer from spending the whole completion ceiling on
         # planning and emitting zero content (the drb_76 ReasoningFirstTruncationError).
-        outline_evidence = evidence[:_outline_max_ev]
+        # I-arch-002 (#1246) P-W4gen: under the redesign flag this terse digest covers the
+        # FULL pool (no [:N] truncation) — CONSOLIDATE-keep-all; OFF => the [:_outline_max_ev]
+        # menu slice, byte-identical.
+        outline_evidence = evidence if _outline_redesign else evidence[:_outline_max_ev]
         summary_blocks = []
         for ev in outline_evidence:
             ev_id = ev.get("evidence_id", "")
@@ -5366,31 +5255,12 @@ async def generate_multi_section_report(
 
     evidence_pool = {ev["evidence_id"]: ev for ev in evidence}
 
-    # I-bench-veracity-003 (forensic 2026-06-12): LEGACY-PATH source-breadth fix.
-    # FORENSIC ROOT CAUSE: with the research planner OFF (PG_USE_RESEARCH_PLANNER
-    # default "0" -> the shipping config), `_assign_evidence_to_planned_outline` and
-    # its breadth knobs are DEAD CODE; the legacy `_call_outline` path runs, and the
-    # outline LLM under-selects (built 9 sections around ~20 of ~360 distinct sources
-    # -> ~21 cited). Section writers can only cite what the outline LLM assigned
-    # (`_run_section` ev_subset = section.ev_ids). This pass WIDENS each non-contract
-    # section's ev_ids with above-floor, on-topic, DISTINCT-source rows from the FULL
-    # pool, ON TOP of the outline LLM's picks, up to PG_LEGACY_SECTION_BREADTH_TARGET
-    # distinct sources/section. Default 0 => no-op (byte-identical). SELECTION-STAGE
-    # ONLY: never lowers a cap, never edits prose; strict_verify + NLI-enforce + 4-role
-    # D8 re-verify every emitted sentence unchanged (the gates dropped 0 unique sources
-    # in the failing run, so they are NOT the limiter and are untouched here).
-    _legacy_breadth = int(os.getenv("PG_LEGACY_SECTION_BREADTH_TARGET", "0") or 0)
-    if _legacy_breadth > 0 and plans:
-        _contract_titles = {p.title for p in (v30_contract_plans or [])}
-        _aug_counts = _augment_legacy_section_breadth(
-            plans, evidence, research_question, _contract_titles,
-            target=_legacy_breadth,
-        )
-        logger.info(
-            "[multi_section] I-bench-veracity-003 legacy-breadth augmentation FIRED "
-            "(target=%d distinct/section); per-section distinct sources now: %s",
-            _legacy_breadth, _aug_counts,
-        )
+    # I-arch-002 (#1246) P-W2breadth: the LEGACY-PATH source-breadth augmenter
+    # (_augment_legacy_section_breadth + PG_LEGACY_SECTION_BREADTH_TARGET) was a
+    # breadth-NUMBER-forcing bolt-on named in the CLAUDE.md §-1.3 BANNED list and is
+    # DELETED. It defaulted to 0 (no-op), so removal is byte-identical. Breadth now
+    # EMERGES from honest weighted multi-attribution (no-drop floor/cap under the
+    # redesign flag), never from a forced per-section distinct-source target.
 
     # M-44 (2026-04-22): detect M-42e primary-trial rows in the pool
     # and inject them into primary-eligible sections' ev_ids lists.
