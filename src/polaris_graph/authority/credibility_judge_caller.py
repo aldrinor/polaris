@@ -93,7 +93,17 @@ def make_openrouter_credibility_caller(
         except Exception:  # noqa: BLE001 — routing lookup must never break the call
             _pathb = None
             gate_provider = None
-        if gate_provider:
+        # I-arch-002 (#1250): operator-directed (2026-06-13) — the open-weight judge MODEL is the
+        # sovereign unit; the HOSTING provider may be US/China if more stable. A slow/trickling
+        # pinned provider (allow_fallbacks=False) FROZE the whole run: this is a synchronous httpx
+        # call on the asyncio MainThread, so a stalled SSL read blocks the entire event loop
+        # (py-spy root cause). When PG_ROLE_ALLOW_FALLBACKS is set, SKIP the single-provider pin so
+        # OpenRouter free-routes the model to its fastest available provider (sidesteps a slow pin
+        # entirely — better than allow_fallbacks=True, which only fails over on ERROR, not slowness).
+        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if gate_provider and not _free_route:
             json_body["provider"] = {
                 "order": [gate_provider], "allow_fallbacks": False, "require_parameters": True,
             }

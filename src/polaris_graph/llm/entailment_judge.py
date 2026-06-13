@@ -226,7 +226,13 @@ class _EntailmentJudge:
             "max_tokens": 100,
             "response_format": {"type": "json_object"},
         }
-        if _gate_provider:
+        # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
+        # PG_ROLE_ALLOW_FALLBACKS is set so the open-weight evaluator model free-routes to its
+        # fastest provider (the model is the sovereign unit; hosting provider may be US/China).
+        _free_route = os.environ.get("PG_ROLE_ALLOW_FALLBACKS", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if _gate_provider and not _free_route:
             json_body["provider"] = {
                 "order": [_gate_provider],
                 "allow_fallbacks": False,
