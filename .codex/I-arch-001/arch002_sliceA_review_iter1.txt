@@ -1,0 +1,22 @@
+**Findings**
+- P1: No-dumping is incomplete when the scope gates are enabled. Under `PG_SWEEP_CREDIBILITY_REDESIGN=1`, `_apply_scope_denylist` still hard-drops rows via `continue` in `src/polaris_graph/retrieval/evidence_selector.py:1483`, before the keep-all floor path at `:1640`. The runner also drops topic-gate rows by assigning `evidence_for_gen = _topic_result.kept_rows` at `scripts/run_honest_sweep_r3.py:5020`, and drops arXiv twins at `:5024-5027` through `prefer_journal_over_arxiv` (`evidence_selector.py:1555-1559`). The checklist explicitly says these must weight-demote/cluster under the master flag (`.codex/I-arch-001/arch002_build_checklist.md:89-93`).
+
+- P2: The new breadth disclosure is not stdout-only. `_log` writes both stdout and `run_log.txt` (`scripts/run_honest_sweep_r3.py:2684-2687`), and the new `[breadth-disclosure]` call fires unconditionally at `:5980-5994`. It does not touch report/SVs/manifest, but it breaks strict run-log byte identity on the default OFF path.
+
+Other checks: the per-section and outline cap dissolves are gated correctly; OFF keeps the legacy row clamps at `multi_section_generator.py:915-920`, `:1204-1210`, `:1234-1239`, `:1274-1279`, and the `PG_OUTLINE_MAX_EV` slice at `:1345`/`:1384`. `strict_verify`, provenance resolution, NLI, and 4-role verdict logic are not weakened. The outline full-menu risk is fail-loud for the scratchpad/truncation case via `ReasoningFirstTruncationError`, but invalid outline JSON can still fall back deterministically; I’d treat that as P2 live quality/headroom risk, not a faithfulness gate regression.
+
+Targeted tests passed: `python -m pytest tests/polaris_graph/test_arch002_no_dumping.py -q` (5 passed; pytest cache warning only).
+
+```yaml
+verdict: REQUEST_CHANGES
+off_byte_identical: no — default OFF adds a run_log.txt line at scripts/run_honest_sweep_r3.py:5980 via _log at 2684-2687; report/SVs/manifest unchanged
+no_dumping_complete: no — scope denylist/topic/prefer-journal remain hard drops under their subflags: evidence_selector.py:1483, 1555-1559; run_honest_sweep_r3.py:5020, 5024-5027
+faithfulness_untouched: yes — no strict_verify/provenance/NLI/4-role verdict path changed
+novel_p0: []
+continuing_p0: []
+p1: ["Scope gates still drop rows under the redesign instead of weight-demoting/clustering them."]
+p2: ["Unconditional breadth-disclosure log changes run_log.txt on the default OFF path.", "Full outline menu under the flag is a live headroom/fallback quality risk, but not a hard faithfulness regression."]
+breadth_deletions_zero_default: confirmed — cb4c6306 defaults were PG_LEGACY_SECTION_BREADTH_TARGET=0, PG_SECTION_SOURCE_BREADTH_TARGET=0, PG_BREADTH_CANARY_MIN=0; run_gate_b.py does not set them nonzero
+convergence_call: continue
+top_changes_before_execution: ["Convert the three #1244 scope drops to keep-with-weight/cluster behavior when PG_SWEEP_CREDIBILITY_REDESIGN is on.", "Gate or remove the new breadth-disclosure run_log line on the master-OFF path if strict run-log byte identity is required."]
+```

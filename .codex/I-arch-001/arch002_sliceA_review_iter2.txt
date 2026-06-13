@@ -1,0 +1,19 @@
+No P0/P1 findings. Iter-2 closes the scope-gate P1 and the disclosure-log OFF-identity issue.
+
+The three scope gates now preserve legacy drops when the master flag is off and keep rows when it is on: denylist at `evidence_selector.py:1490`, arXiv twin handling at `evidence_selector.py:1575`, and topic-gate reassignment at `run_honest_sweep_r3.py:5025`. The `[breadth-disclosure]` `_log` is now gated at `run_honest_sweep_r3.py:5999`, so the default OFF path no longer writes that extra `run_log.txt` line.
+
+Verification: `python -m pytest tests/polaris_graph/test_arch002_no_dumping.py -q` passed, 9 tests. `test_scope_gate.py` could not run in this sandbox because temp directory creation fails with `WinError 5`, including with `TEMP/TMP` redirected.
+
+```yaml
+verdict: APPROVE
+off_byte_identical: yes — no OFF behavior changes found; guards at evidence_selector.py:1663, run_honest_sweep_r3.py:4910/5025/5638/5958/5999, multi_section_generator.py:915/1204/1234/1274/1345/1384
+no_dumping_complete: yes — no remaining row drop/cap found on the Slice-A activated Gate-B/relevance-floor path; intentional char-budget trim remains at multi_section_generator.py:123
+faithfulness_untouched: yes — no strict_verify/provenance/NLI/4-role verdict logic changed; strict_verify still runs downstream at multi_section_generator.py:2722
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: ["multi_section_generator.py:1332 — full outline menu under the flag remains a live headroom risk, but it is fail-loud/accepted run-quality risk, not a blocker"]
+breadth_deletions_zero_default: confirmed — prior env defaults were 0/no-op and rg found no run_gate_b.py setters for PG_LEGACY_SECTION_BREADTH_TARGET, PG_SECTION_SOURCE_BREADTH_TARGET, or PG_BREADTH_CANARY_MIN
+convergence_call: continue
+top_changes_before_execution: []
+```
