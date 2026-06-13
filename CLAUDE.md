@@ -715,6 +715,25 @@ C (frozen legacy) are governed separately — see `architecture.md`.**
    containing `<<<evidence:...>>>` or other delimiter literals —
    including via NFKD/invisible-char/homoglyph evasions — is neutralized
    before prompt wrapping. Byte-preserves legitimate multilingual content.
+8. **LLM model + token MAX governance** (operator-locked 2026-06-13, GH I-arch-003 #1253):
+   - **Model must be RIGHT — always double-check.** Every LLM call's model must
+     match the operator-signed lock `config/architecture/polaris_runtime_lock.yaml`:
+     generator=`deepseek/deepseek-v4-pro`, mirror=`z-ai/glm-5.1`,
+     sentinel=`minimax/minimax-m2`, judge=`qwen/qwen3.6-35b-a3b`. **NO gemma**,
+     no closed-source (sovereignty). The side judges (entailment / semantic_conflict
+     / credibility) are NOT one of the 4 locked roles → they map to the **mirror**
+     (GLM-5.1) per the lock's `legacy_compat`. The Gemma defaults that drifted into
+     those judges (#1249/#1251/#1252) are the failure this rule prevents.
+   - **Reasoning effort + max_tokens ALWAYS go MAX.** Never starve. Set `max_tokens`
+     to the model's REAL OpenRouter limit and reasoning effort to the max (high/xhigh).
+     A starved budget truncates reasoning → empty content → fail/collapse ("half-ass
+     job"). `max_tokens` is a CAP, not a target (billed by actual usage) — a generous
+     cap is free insurance.
+   - **Read the API, DON'T guess.** Per-model max = `GET https://openrouter.ai/api/v1/models`
+     (`context_length` + `top_provider.max_completion_tokens`); reconcile vs the serving
+     provider's actual cap (e.g. deepseek-v4-pro: OpenRouter 384000 but DeepInfra caps 16384).
+   - The lock pins MODELS but historically NOT token budgets — that gap let the
+     starvation drift undetected. Token caps are now a first-class governed setting.
 
 ### 9.2 Quality Gates (pipeline A)
 
