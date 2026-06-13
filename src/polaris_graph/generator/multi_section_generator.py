@@ -5380,17 +5380,31 @@ async def generate_multi_section_report(
                 "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
                 "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
             )
-        credibility_analysis = _credibility_pass.run_credibility_analysis(
+        # I-arch-002 (#1251): run the credibility pass OFF the event-loop thread. It makes hundreds of
+        # SYNC LLM judge calls (now CONCURRENT inside score_source_credibility); running it inline FROZE the
+        # loop (py-spy: ssl.recv on MainThread, 0 CPU/0 sockets). asyncio.to_thread copies THIS task's
+        # context (run_id + Path-B sink + current cost) into the worker; the pool's per-source spend lands
+        # in the process-global cost ledger but NOT this task's _RUN_COST_CTX (a copy), so reconcile the
+        # delta back after so the run-budget gate stays inclusive for the rest of generation.
+        from ..llm import openrouter_client as _orc_cred
+        _cred_sid = _orc_cred.current_run_id() or ""
+        _cred_cost_before = _orc_cred.ledger_cumulative(_cred_sid)
+        credibility_analysis = await asyncio.to_thread(
+            _credibility_pass.run_credibility_analysis,
             research_question, list(evidence_pool.values()),
             # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
             # (in scope as generate_multi_section_report's `domain` param) so the
             # claim graph's fail-closed dispatch can consolidate equal clinical atoms
             # instead of singleton-ing every claim (domain=None made consolidation
             # INERT). ``domain or None`` normalizes the '' default back to today's
-            # None when unset. ONLY change to this call (Slice-A untouched).
+            # None when unset.
             gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
             judge=credibility_pass_judge,
         )
+        _cred_cost_delta = _orc_cred.ledger_cumulative(_cred_sid) - _cred_cost_before
+        if _cred_cost_delta > 0:
+            _orc_cred._add_run_cost(_cred_cost_delta)  # reflect the offloaded credibility spend in the budget
+            _orc_cred.check_run_budget(0)              # raises BudgetExceededError if the cap is now exceeded
 
     # Stage 2: per-section generation (bounded parallelism)
     sem = asyncio.Semaphore(max_parallel_sections)

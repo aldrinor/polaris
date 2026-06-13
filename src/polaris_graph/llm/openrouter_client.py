@@ -312,6 +312,18 @@ def reset_ledger_cumulative(session_id: str) -> None:
         _LEDGER_CUM_BY_SESSION.pop(sid, None)
 
 
+def ledger_cumulative(session_id: str) -> float:
+    """Read the per-session monotonic ledger total (process-global, thread-safe). I-arch-002 (#1251):
+    when a spend-bearing pass runs OFF the event-loop thread via ``asyncio.to_thread`` (the credibility
+    judging pool), its cost lands in this accumulator (every ``append_cost_ledger_row`` bumps it under the
+    lock) but NOT in the event-loop task's ``_RUN_COST_CTX`` (a copied context). The caller reconciles by
+    reading this before/after the offload and ``_add_run_cost(after - before)`` so the run-budget gate stays
+    inclusive. Returns 0.0 for an unseen session."""
+    sid = session_id or "no_run_id"
+    with _LEDGER_CUM_LOCK:
+        return _LEDGER_CUM_BY_SESSION.get(sid, 0.0)
+
+
 def append_cost_ledger_row(
     *,
     session_id: str,

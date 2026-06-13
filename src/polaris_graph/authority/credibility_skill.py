@@ -43,6 +43,11 @@ _ENV_MAX_UPLIFT = "PG_CREDIBILITY_MAX_UPLIFT"
 _ENV_SNIPPET_CHARS = "PG_CREDIBILITY_SNIPPET_CHARS"
 _DEFAULT_MAX_UPLIFT = 0.15
 _DEFAULT_SNIPPET_CHARS = 1200
+# I-arch-002 (#1251): per-source judging concurrency. The judge is a SYNC LLM call (~24s at full
+# reasoning); over hundreds of sources SEQUENTIALLY it froze the run. Default 12 parallel workers. 1
+# forces the byte-identical sequential path (off-mode / single source / tests).
+_ENV_JUDGE_CONCURRENCY = "PG_CREDIBILITY_JUDGE_CONCURRENCY"
+_DEFAULT_JUDGE_CONCURRENCY = 12
 
 # The deterministic prior-signal names the judge may cite (anti-hallucination: a
 # ``signals_cited`` entry that is not one of these AND present on the row is dropped).
@@ -251,7 +256,69 @@ def score_source_credibility(
     an injected ``judge(research_question, payload) -> dict`` runs it PER SOURCE so a judge error is
     isolated to one row. ``domain`` is forwarded only as the ``domain_hint`` payload field — there is
     no domain-keyed branch or rubric table (operator: no fixed rubrics).
+
+    I-arch-002 (#1251): the judge is a SYNCHRONOUS LLM call; over hundreds of sources run SEQUENTIALLY on
+    the asyncio MainThread it FROZE the pipeline (py-spy: ssl.recv). With ``PG_CREDIBILITY_JUDGE_CONCURRENCY``
+    > 1 the per-source calls run CONCURRENTLY, mirroring the proven 4-role parallel cost pattern
+    (``roles/sweep_integration.py``): each source runs in its OWN ``contextvars.copy_context()`` snapshot
+    taken on THIS thread (so it inherits the parent run_id + Path-B capture sink), ``reset_run_cost()``s its
+    copy, and returns ``current_run_cost()`` as a per-source delta the parent re-adds to the SINGLE run
+    counter and re-checks the cap with DURING-compute enforcement (overspend bounded to ~workers in flight).
+    Order is preserved (downstream ``zip(rows, judgments)`` requires it). A worker ``BudgetExceededError`` /
+    exception PROPAGATES (fail closed; no silent drop). The caller (``multi_section_generator`` 5383) runs
+    this whole pass under ``asyncio.to_thread`` so the blocking pool join never sits on the event loop.
     """
+    rows = rows or []
     if judge is None:
-        return [_priors_only_judgment(row) for row in (rows or [])]
-    return [_apply_judge(research_question, row, domain, judge) for row in (rows or [])]
+        return [_priors_only_judgment(row) for row in rows]
+    n = len(rows)
+    try:
+        workers = max(1, int(
+            os.environ.get(_ENV_JUDGE_CONCURRENCY, _DEFAULT_JUDGE_CONCURRENCY) or _DEFAULT_JUDGE_CONCURRENCY
+        ))
+    except (TypeError, ValueError):
+        workers = _DEFAULT_JUDGE_CONCURRENCY
+    # SEQUENTIAL fast path (1 worker or <=1 row): byte-identical to the pre-#1251 listcomp.
+    if workers == 1 or n <= 1:
+        return [_apply_judge(research_question, row, domain, judge) for row in rows]
+
+    import concurrent.futures
+    import contextvars
+    from src.polaris_graph.llm.openrouter_client import (
+        reset_run_cost, current_run_cost, _add_run_cost, check_run_budget,
+    )
+
+    def _score_one(
+        idx: int, row: dict[str, Any], ctx: contextvars.Context
+    ) -> tuple[int, CredibilityJudgment, float]:
+        def _run() -> tuple[CredibilityJudgment, float]:
+            reset_run_cost()  # isolate THIS source's spend in the copied context (parent re-adds a clean delta)
+            judgment = _apply_judge(research_question, row, domain, judge)
+            return judgment, current_run_cost()
+        result, delta = ctx.run(_run)
+        return idx, result, delta
+
+    results: list[Optional[CredibilityJudgment]] = [None] * n
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=workers)
+    try:
+        futures = [
+            pool.submit(_score_one, i, row, contextvars.copy_context())
+            for i, row in enumerate(rows)
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            idx, judgment, delta = future.result()  # re-raises BudgetExceededError / worker exc (fail closed)
+            results[idx] = judgment
+            _add_run_cost(delta)            # thread the per-source spend into the single run counter
+            check_run_budget(0)             # raises BudgetExceededError -> bounded overspend (~workers in flight)
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
+    for i, judgment in enumerate(results):
+        if judgment is None:
+            raise RuntimeError(
+                f"score_source_credibility: source index {i} produced no judgment from the compute pool "
+                f"(fail-closed — a dropped future must never reduce silently)."
+            )
+    return [j for j in results if j is not None]
