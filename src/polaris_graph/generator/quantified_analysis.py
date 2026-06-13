@@ -46,6 +46,32 @@ _CALC_PLACEHOLDER_RE = re.compile(r"\{\{calc:(?P<field>[^}]+)\}\}")
 # manifest telemetry so the operator sees the corpus contradiction (named, Law VI).
 _CALC_CONFLICT_REL_TOL = float(os.environ.get("PG_CALC_CONFLICT_REL_TOL", "0.05"))
 
+# I-pipe-012 (#1237): typed-status discrimination for the quantified differentiator.
+# The pre-fix function returned a bare ``None`` at three distinct death points
+# (spec_provider raised / returned non-dict / build_quantified_spec rejected /
+# execution failed / no verified sentences) that a caller could only tell apart by
+# scraping the free-text log. ``telem["quantified_status"]`` is the discrete, machine-
+# readable verdict so a post-run audit can separate "no numbers to model" (decline)
+# from "the differentiator silently broke" (transport/parse failure). The success path
+# stamps ``ok``. None of these statuses changes a VERIFIED claim — they only label WHY
+# the (already strict_verify/Regime-C-gated) section did or did not land.
+QUANTIFIED_STATUS_OK = "ok"                       # spec validated, executed, ≥1 sentence survived Regime C
+QUANTIFIED_STATUS_DECLINED_NO_SPEC = "declined_no_spec"  # Writer returned no dict (decline OR collapsed transport — see cross-file)
+QUANTIFIED_STATUS_EMPTY_TRANSPORT = "empty_transport"    # reserved: a true empty-200/404 transport miss (only reachable once the caller stops collapsing it into None — see cross_file_deferred)
+QUANTIFIED_STATUS_PARSE_ERROR = "parse_error"     # spec_provider RAISED, or emitted a dict that failed hard validation / execution
+
+# Kill-switch (LAW VI): default-ON typed-status + bounded transient retry. Set to
+# "0"/"false" to REVERT to the pre-fix behavior — a bare ``None`` return with NO
+# ``quantified_status`` key added to telem and a SINGLE spec_provider call (no retry).
+_TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+
+# Bounded retries for a TRANSIENT spec_provider transport/parse failure (the RAISED
+# path only — a non-dict return is a Writer DECLINE, never retried; re-billing a
+# decline is waste). Total attempts = 1 + retries. Default 1 retry (2 attempts).
+_SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
+
 
 def detect_sourced_conflicts(
     sourced_numbers: list[dict[str, Any]],
@@ -304,6 +330,46 @@ def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> s
 _MODELED_LABEL_TEXT = "(modeled assumption)"
 
 
+def _stamp_status(telem: dict[str, Any], status: str) -> None:
+    """I-pipe-012 (#1237): ADD the discrete typed ``quantified_status`` to telem,
+    but ONLY when the kill-switch is ON. With ``PG_QUANTIFIED_TYPED_STATUS=0`` this
+    is a no-op so the returned telem dict is byte-identical to the pre-fix shape
+    (existing ``firing_status`` + every other key is preserved either way — this
+    only ever ADDS a key, never mutates or removes an existing one)."""
+    if _TYPED_STATUS_ENABLED:
+        telem["quantified_status"] = status
+
+
+async def _call_spec_provider_with_retry(
+    spec_provider, question: str, sourced_numbers: list[dict[str, Any]],
+) -> tuple[Any, BaseException | None]:
+    """I-pipe-012 (#1237): call the (billed) ``spec_provider`` with a BOUNDED retry
+    on a TRANSIENT transport/parse failure (the RAISED path only).
+
+    Returns ``(raw_spec, last_exc)``. On success ``raw_spec`` is the provider's
+    return value (which may legitimately be a non-dict DECLINE) and ``last_exc`` is
+    None. If every attempt raised, ``raw_spec`` is None and ``last_exc`` is the final
+    exception. A non-dict return is NOT retried here (that is a Writer decline, not a
+    transient fault — re-billing it is waste); only a raised exception is retried.
+
+    When the kill-switch is OFF, exactly ONE attempt is made (no retry), preserving
+    the pre-fix single-call billing profile. NEVER fabricates a spec on failure."""
+    attempts = (1 + _SPEC_PROVIDER_RETRIES) if _TYPED_STATUS_ENABLED else 1
+    last_exc: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            raw_spec = await spec_provider(question, sourced_numbers)
+            return raw_spec, None
+        except Exception as exc:  # noqa: BLE001 — transient transport/parse fault; bounded retry
+            last_exc = exc
+            if attempt + 1 < attempts:
+                logger.warning(
+                    "[quantified_analysis] spec_provider raised (attempt %d/%d), retrying: %s",
+                    attempt + 1, attempts, str(exc)[:160],
+                )
+    return None, last_exc
+
+
 async def run_quantified_section(
     question: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -353,16 +419,23 @@ async def run_quantified_section(
     telem["conflicts"] = detect_sourced_conflicts(sourced_numbers)
     telem["sourced_numbers_extracted"] = len(sourced_numbers)
 
-    try:
-        raw_spec = await spec_provider(question, sourced_numbers)
-    except Exception as exc:
+    # I-pipe-012 (#1237): bounded retry on a TRANSIENT raised transport/parse fault
+    # (kill-switch ON). With PG_QUANTIFIED_TYPED_STATUS=0 this is a single call (no
+    # retry) and the except-branch below is byte-identical to the pre-fix path.
+    raw_spec, _spec_exc = await _call_spec_provider_with_retry(
+        spec_provider, question, sourced_numbers,
+    )
+    if _spec_exc is not None:
         # UNAMBIGUOUSLY broken: the Writer/transport raised (e.g. a 404 on the
         # generator route surfaced as an exception). Loud, distinct, non-aborting.
         telem["firing_status"] = "spec_provider_error"
-        telem["firing_error"] = str(exc)[:200]
+        telem["firing_error"] = str(_spec_exc)[:200]
+        # I-pipe-012 (#1237): a raised provider is a transport/parse fault (we already
+        # exhausted the bounded retry) — the discrete "silently broke" verdict.
+        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
         logger.warning(
             "[quantified_analysis] NO-OP (spec_provider_error): spec_provider raised: %s",
-            str(exc)[:160],
+            str(_spec_exc)[:160],
         )
         return None, telem
     if not isinstance(raw_spec, dict):
@@ -373,6 +446,12 @@ async def run_quantified_section(
         # here — the caller lane must stop collapsing the two (see module summary). Tag
         # it honestly rather than guess a confident reason we can't support.
         telem["firing_status"] = "no_spec_returned"
+        # I-pipe-012 (#1237): a non-dict return is the Writer DECLINE (or a caller-
+        # collapsed transport miss — see cross-file note). We map it to
+        # declined_no_spec because that is all we can HONESTLY assert module-side; the
+        # true empty_transport status only becomes reachable once the caller stops
+        # collapsing a 404/empty-200 into the same bare None (cross_file_deferred).
+        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
         logger.warning(
             "[quantified_analysis] NO-OP (no_spec_returned): spec_provider returned "
             "no dict (transport failure OR legitimate Writer decline — caller collapses "
@@ -390,6 +469,10 @@ async def run_quantified_section(
         # build_quantified_spec (datapoint identity, formula AST, material-dependency,
         # etc.). A defensible-but-rejected model, not a transport failure.
         telem["firing_status"] = "spec_validation_rejected"
+        # I-pipe-012 (#1237): the Writer emitted a dict that FAILED hard validation —
+        # a malformed/unparseable spec, classed with the parse_error family (the
+        # differentiator broke on a bad payload, not a clean decline).
+        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
         logger.warning(
             "[quantified_analysis] NO-OP (spec_validation_rejected): Writer emitted a "
             "spec dict but it failed build_quantified_spec validation (fail-closed)",
@@ -403,6 +486,9 @@ async def run_quantified_section(
     result = await execute_quantified_model(spec, evidence_pool, run_dir=run_dir)
     if result is None:
         telem["firing_status"] = "execution_failed"
+        # I-pipe-012 (#1237): the sandbox returned no clean outputs — a parse/execution
+        # fault on an otherwise-valid spec, classed with the parse_error family.
+        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
         logger.warning(
             "[quantified_analysis] NO-OP (execution_failed): spec validated but the "
             "deterministic sandbox execution did not return clean outputs (model %s)",
@@ -423,6 +509,11 @@ async def run_quantified_section(
         # The spec executed but EVERY computed sentence failed Regime C (e.g. an
         # unlabeled modeled assumption, a number≠display mismatch). No verified prose.
         telem["firing_status"] = "no_verified_sentences"
+        # I-pipe-012 (#1237): the spec executed but EVERY computed sentence failed
+        # Regime C — this is the faithfulness gate doing its job (a legitimate,
+        # NON-broken decline-to-emit). Class it as declined_no_spec (the
+        # differentiator did not silently break; it correctly emitted nothing).
+        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
         logger.warning(
             "[quantified_analysis] NO-OP (no_verified_sentences): %d computed "
             "sentence(s) all failed Regime C verification (model %s)",
@@ -455,6 +546,10 @@ async def run_quantified_section(
     # Reached only when a spec validated, executed, and ≥1 computed sentence survived
     # Regime C — the differentiator actually FIRED.
     telem["firing_status"] = "fired"
+    # I-pipe-012 (#1237): the success verdict — a parseable spec produced a verified
+    # payload (the kept sentences, surfaced via verified_sentences / the rendered
+    # section). "ok+payload" per the acceptance criteria.
+    _stamp_status(telem, QUANTIFIED_STATUS_OK)
 
     rendered, _biblio = resolve_provenance_to_citations(
         report.kept_sentences, evidence_pool,

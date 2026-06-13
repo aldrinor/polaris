@@ -14,12 +14,16 @@ exactly what the generator saw.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Tier priority for within-pool ranking. Lower tier number = higher priority.
@@ -1308,6 +1312,79 @@ def _m46_short_pool_ordered_selection(
     )
 
 
+# ── I-pipe-003 (#1228): honest relevance-floor drop telemetry + anchor preserve ─
+# Forensic (dual Claude+Codex 2026-06-12): PG_RELEVANCE_FLOOR=0.30 cut 236 of 589
+# rows (589 -> 353) but the operator-facing `[select] ... dropped=0` hid it. Root
+# cause: `_relevance_floor_selection` ALREADY reports the real drop in
+# `dropped_count` (len(scored) - len(kept)), but the downstream capped-finding-dedup
+# pass in run_honest_sweep_r3.py REASSIGNS the EvidenceSelection to a SECOND
+# `relevance_floor=None` call whose short-pool path legitimately returns
+# `dropped_count=0` — laundering the floor cut out of the surfaced telemetry. The
+# operator-facing line fix is cross-file (run_honest_sweep_r3.py:4723); the in-file
+# fix here EMITS the real floor-cut count at the moment the cut happens, which
+# survives the downstream reassignment.
+#
+# PG_RELEVANCE_HONEST_DROP (default ON): log the ACTUAL number of rows cut by the
+#   floor (never 0 when cuts occurred). `=0` reverts to the prior no-log behavior.
+#   Telemetry-only — does NOT change `dropped_count`, `notes`, or which rows are
+#   kept, so flag value never alters the selection itself.
+# PG_RELEVANCE_PRESERVE_ANCHORS (default OFF): when on, never cut a marquee /
+#   required-entity row even if it scores below the floor. This EXTENDS the existing
+#   `primary_trial_anchors` floor-exemption (line ~1342) to the DISTINCT marquee
+#   marker set (`is_marquee` / `required_entity` / `anchor_seed` / `is_anchor` /
+#   `entity_anchor` / `marquee` flags, or a `required_entity`/`anchor` seed_source /
+#   query_origin — mirrors multi_section_generator._breadth_row_is_marquee, I-pipe-006
+#   #1231). OFF => byte-identical keep set. Faithfulness-safe: this can only ADD an
+#   already-fetched row to the candidate pool — strict_verify / NLI / 4-role still
+#   gate every emitted sentence; no unverified claim is fabricated to fill a gap.
+
+
+def _relevance_honest_drop_enabled() -> bool:
+    """Kill-switch `PG_RELEVANCE_HONEST_DROP` (default ON). When ON, the
+    relevance-floor selection logs the ACTUAL number of rows cut by the floor.
+    `=0`/`false`/`off`/`no` reverts to the prior no-log behavior. Telemetry-only:
+    NEVER changes which rows are kept or the returned `dropped_count`."""
+    raw = os.environ.get("PG_RELEVANCE_HONEST_DROP", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def _relevance_preserve_anchors_enabled() -> bool:
+    """Kill-switch `PG_RELEVANCE_PRESERVE_ANCHORS` (default OFF). When ON, a
+    marquee / required-entity row is floor-EXEMPT (kept even below the floor),
+    extending the existing primary-anchor exemption to the distinct marquee marker
+    set. OFF => byte-identical keep set (the prior behavior)."""
+    raw = os.environ.get("PG_RELEVANCE_PRESERVE_ANCHORS", "0").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
+    """True iff an evidence row was contributed by the required-entity / anchor
+    lane and therefore is a marquee primary source that must not be floor-cut.
+
+    Detection uses ONLY existing evidence-row fields (no schema invention) and
+    mirrors `multi_section_generator._breadth_row_is_marquee` (I-pipe-006 #1231):
+    a truthy `is_marquee` / `required_entity` / `anchor_seed` / `is_anchor` /
+    `entity_anchor` / `marquee` flag, OR a `required_entity`/`anchor` substring in
+    `seed_source` / `query_origin` / `seed_query_origin`. This is a DISTINCT marker
+    set from `primary_trial_anchors` (which `_m42e_detect_primary_for_anchor` matches
+    by RCT name/title) — a required-entity row can score below floor AND fail the
+    primary-anchor name match, so without this exemption it would be silently cut."""
+    if not isinstance(row, dict):
+        return False
+    for flag in ("is_marquee", "required_entity", "anchor_seed", "is_anchor",
+                 "entity_anchor", "marquee"):
+        if row.get(flag):
+            return True
+    seed_source = str(row.get("seed_source") or "").lower()
+    if "required_entity" in seed_source or "anchor" in seed_source:
+        return True
+    for origin_key in ("query_origin", "seed_query_origin"):
+        origin = str(row.get(origin_key) or "").lower()
+        if "required_entity" in origin or "anchor" in origin:
+            return True
+    return False
+
+
 def _relevance_floor_selection(
     *,
     scored: list[tuple[int, float, str, dict[str, Any]]],
@@ -1337,9 +1414,22 @@ def _relevance_floor_selection(
         a = row.get("authority_score")
         return 1.0 if a is None else float(a)
 
+    # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
+    # below-floor marquee / required-entity row is also floor-EXEMPT. OFF =>
+    # `_preserve_marquee` is False => predicate is byte-identical to the prior
+    # `item[1] >= relevance_floor or _is_anchor(item[3])`.
+    _preserve_marquee = _relevance_preserve_anchors_enabled()
+
+    def _floor_exempt(row: dict[str, Any]) -> bool:
+        if _is_anchor(row):
+            return True
+        if _preserve_marquee and _row_is_marquee_anchor(row):
+            return True
+        return False
+
     kept = [
         item for item in scored
-        if item[1] >= relevance_floor or _is_anchor(item[3])
+        if item[1] >= relevance_floor or _floor_exempt(item[3])
     ]
     kept.sort(
         key=lambda s: (
@@ -1359,17 +1449,45 @@ def _relevance_floor_selection(
         1 for item in kept
         if item[1] < relevance_floor and _is_anchor(item[3])
     )
+    # I-pipe-003 (#1228): rows kept ONLY because the preserve-anchors flag exempted
+    # a below-floor marquee row (i.e. not already a primary anchor). 0 when the flag
+    # is OFF — so the note below is byte-identical in the default (OFF) case.
+    marquee_exempt = sum(
+        1 for item in kept
+        if (_preserve_marquee
+            and item[1] < relevance_floor
+            and not _is_anchor(item[3])
+            and _row_is_marquee_anchor(item[3]))
+    )
+    dropped_count = len(scored) - len(kept)
+    # I-pipe-003 (#1228): emit the ACTUAL floor-cut count (PG_RELEVANCE_HONEST_DROP,
+    # default ON). This is the count the operator-facing telemetry was hiding as
+    # `dropped=0` (the downstream capped-finding-dedup reassignment laundered the
+    # floor object's honest `dropped_count` out of the surfaced line). Telemetry-only
+    # — `dropped_count` / `notes` / kept rows are unchanged by this flag.
+    if _relevance_honest_drop_enabled():
+        _LOGGER.info(
+            "[select] relevance_floor=%s honest_drop: cut %d of %d rows "
+            "(kept %d; anchor_floor_exempt=%d; marquee_floor_exempt=%d)",
+            relevance_floor, dropped_count, len(scored), len(kept),
+            anchor_exempt, marquee_exempt,
+        )
+    note = (
+        f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
+        f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
+        f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}"
+    )
+    # Only widen the note string when the preserve-anchors flag is ON, so the
+    # default (OFF) note is byte-identical to the prior behavior.
+    if _preserve_marquee:
+        note += f"; marquee_floor_exempt={marquee_exempt}"
     return EvidenceSelection(
         selected_rows=selected_rows,
         full_counts=full_counts,
         selected_counts=selected_counts,
-        dropped_count=len(scored) - len(kept),
+        dropped_count=dropped_count,
         selection_strategy="relevance_floor_v1",
-        notes=[
-            f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
-            f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
-            f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
-        ],
+        notes=[note],
     )
 
 

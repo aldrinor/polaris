@@ -344,6 +344,113 @@ _PROVENANCE_TOKEN_RE = re.compile(
     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
 )
 
+# I-pipe-015 (#1240) — MALFORMED-but-recognizable cross-ref token honesty.
+#
+# WHY: the fact_dedup rewrite prompt example (fact_dedup.py:411, cross-file —
+# see cross_file_deferred) lacks the leading '#', so the model sometimes emits
+# `[ev:<id>:<start>-<end>]` (colon form, no '#') instead of the canonical
+# `[#ev:<id>:<start>-<end>]`. `_PROVENANCE_TOKEN_RE` requires the '#', so these
+# tokens were SILENTLY dropped by the parser → citations vanished with no
+# telemetry. This is a faithfulness-RELEVANT honesty bug: a dropped citation
+# must be COUNTED, never silently lost.
+#
+# This regex recognizes the malformed shape `[ev:<id>:<start>-<end>]` — the
+# SAME grammar as the canonical token minus the '#'. It CANNOT match the
+# canonical `[#ev:...]` because the literal `[ev:` requires the char after `[`
+# to be `e`, whereas the canonical token has `#` there. (Verified in tests:
+# `_MALFORMED_EV_TOKEN_RE.search("[#ev:y:0-3]")` is None.) So canonicalization
+# is idempotent on already-canonical input — OFF == identity holds.
+_MALFORMED_EV_TOKEN_RE = re.compile(
+    r"\[ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
+)
+
+# I-pipe-015 (#1240) — a BROADER recognizer for a `[ev:...]` cross-ref ATTEMPT
+# that is NOT the clean canonicalizable shape above (e.g. `[ev:abc]` with no
+# span, `[ev:abc:12]` with a malformed span). These are recognizable as a
+# cross-ref attempt but cannot be rewritten into a valid canonical token, so
+# they are COUNTED as dropped-malformed (never silently vanished). The literal
+# `[ev:` prefix means this never matches the canonical `[#ev:...]` (which has
+# `#` after `[`). Requires `[ev:` followed by at least one non-`]` char. The
+# clean canonicalizable shape is a SUBSET of this; the caller subtracts the
+# clean count so only the UNFIXABLE attempts are counted as dropped.
+_RECOGNIZABLE_EV_ATTEMPT_RE = re.compile(r"\[ev:[^\]]+\]")
+
+
+def _token_honest_drop_enabled() -> bool:
+    """I-pipe-015 (#1240). True (default) => malformed `[ev:...]` tokens are
+    canonicalized to `[#ev:...]` (then run through the SAME full validation) OR
+    counted as dropped-malformed in telemetry — never silently lost.
+
+    Kill-switch: PG_PROVENANCE_TOKEN_HONEST_DROP=0 reverts to the legacy
+    behavior where a malformed `[ev:...]` token is invisible to the parser and
+    silently vanishes (byte-identical to pre-#1240). Read at call time so tests
+    can toggle without re-import.
+    """
+    v = os.getenv("PG_PROVENANCE_TOKEN_HONEST_DROP", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+# I-pipe-015 (#1240) — token-honesty telemetry. Module-level counters, read +
+# reset by the sweep (mirrors _REANCHOR_TELEMETRY). ONLY mutated on the
+# flag-ON path, so OFF-mode never touches them (byte-identity).
+_TOKEN_HONESTY_TELEMETRY: dict[str, int] = {
+    # A malformed `[ev:...]` token that was recognizable and got rewritten to
+    # the canonical `[#ev:...]` shape (it STILL runs through the full
+    # evidence-id/span/numeric validation — only the bracket format is fixed).
+    "malformed_canonicalized": 0,
+    # A malformed-but-recognizable token that could NOT be canonicalized into a
+    # canonical token (so it would otherwise vanish) — counted, never silent.
+    "malformed_dropped": 0,
+}
+
+
+def get_token_honesty_telemetry() -> dict[str, int]:
+    """Snapshot of the malformed-token counters (canonicalized / dropped)."""
+    return dict(_TOKEN_HONESTY_TELEMETRY)
+
+
+def reset_token_honesty_telemetry() -> None:
+    """Zero the malformed-token counters (call between runs / tests)."""
+    for k in _TOKEN_HONESTY_TELEMETRY:
+        _TOKEN_HONESTY_TELEMETRY[k] = 0
+
+
+def _canonicalize_malformed_ev_tokens(sentence: str) -> str:
+    """I-pipe-015 (#1240). Rewrite recognizable malformed `[ev:id:s-e]` tokens
+    to the canonical `[#ev:id:s-e]` form so the parser sees them, and bump the
+    `malformed_canonicalized` telemetry counter for each rewrite.
+
+    IMPORTANT — faithfulness: this ONLY fixes the bracket FORMAT. The resulting
+    `[#ev:...]` token is parsed and validated by the SAME full pipeline
+    (evidence-id-in-pool, span-bounds, numeric match, >=2 content-word overlap,
+    NLI entailment). A token whose evidence id / span is invalid still FAILS
+    verification and its sentence is dropped — canonicalization NEVER bypasses
+    any validation check. It only prevents the silent loss of an otherwise-valid
+    citation. A canonical `[#ev:...]` token already present is untouched.
+
+    No-op (returns the input unchanged) when there is no malformed token. The
+    caller gates this behind `_token_honest_drop_enabled()`.
+    """
+    n_clean = len(_MALFORMED_EV_TOKEN_RE.findall(sentence))
+    # All recognizable `[ev:...]` attempts (clean + unfixable). Anything that is
+    # a recognizable attempt but NOT a clean canonicalizable token is
+    # unfixable-malformed and is COUNTED as dropped (never silently lost).
+    n_attempts = len(_RECOGNIZABLE_EV_ATTEMPT_RE.findall(sentence))
+    n_unfixable = max(0, n_attempts - n_clean)
+    if n_unfixable:
+        _TOKEN_HONESTY_TELEMETRY["malformed_dropped"] += n_unfixable
+    if not n_clean:
+        # Nothing to canonicalize. Any unfixable attempt was already counted
+        # above; the literal stays in the sentence text (it is NOT a valid
+        # token, so the parser ignores it and the sentence verifies/drops on
+        # its remaining content exactly as before).
+        return sentence
+    _TOKEN_HONESTY_TELEMETRY["malformed_canonicalized"] += n_clean
+    return _MALFORMED_EV_TOKEN_RE.sub(
+        lambda m: f"[#ev:{m.group('ev_id')}:{m.group('start')}-{m.group('end')}]",
+        sentence,
+    )
+
 # I-meta-005 Phase 7 (#991): Regime C — COMPUTED numbers. A calc token binds a
 # rendered number to ONE field of THIS run's quantified model. Grammar:
 #   [#calc:<model_id>:<spec_hash>:<field>]
@@ -2243,6 +2350,55 @@ def verify_limitations_sentence_against_telemetry(
     )
 
 
+# I-pipe-016 (#1241) — content-empty sentence honesty.
+#
+# WHY: the lightweight splitter (split_into_sentences) can emit an ORPHANED
+# citation-only fragment as its own "sentence" (e.g. a bare `[#ev:a:0-5]` left
+# over from a rewrite, or `.[3]` punctuation residue). In the Limitations
+# PASS-THROUGH branch these fragments were counted as is_verified=True and
+# pulled into BOTH the kept total (numerator) AND total_in (denominator) —
+# inflating the verified-sentence telemetry with content-empty noise. (The
+# findings branch already drops them via BUG-03 / no_provenance_token, but the
+# pass-through branch did not.)
+#
+# FIX (default-ON, PG_PROVENANCE_SKIP_EMPTY=0 reverts): a content-empty
+# "sentence" — no content words AND no numeric values after stripping citation
+# artifacts, dose/placebo/threshold residue — is EXCLUDED from the verified
+# numerator AND from total_in (denominator). It is neither kept nor dropped; it
+# simply does not count. This changes ONLY the counting of empty noise; it does
+# NOT alter which REAL sentences pass strict_verify (a real sentence has at
+# least one content word or number and is never content-empty).
+def _skip_empty_enabled() -> bool:
+    """I-pipe-016 (#1241). True (default) => content-empty sentences are
+    excluded from the verified numerator AND total_in denominator. Kill-switch:
+    PG_PROVENANCE_SKIP_EMPTY=0 reverts to the legacy behavior where a
+    content-empty pass-through fragment is counted as verified (byte-identical
+    to pre-#1241). Read at call time so tests can toggle without re-import."""
+    v = os.getenv("PG_PROVENANCE_SKIP_EMPTY", "1").strip().lower()
+    return v in ("1", "true", "yes", "on", "enabled")
+
+
+def _is_content_empty_sentence(sentence: str) -> bool:
+    """I-pipe-016 (#1241). True iff `sentence` carries NO real claim content —
+    no content words AND no numeric values — after stripping citation artifacts
+    (provenance/calc tokens, atom_NNN, bare [ev_XXX]) and dose/placebo/threshold
+    structural residue.
+
+    Uses the SAME stripping the BUG-03 numeric/empty floor uses inside
+    verify_sentence_provenance, so the two definitions agree: a fragment this
+    returns True for is exactly the kind verify_sentence_provenance would drop
+    with `empty_or_contentless_sentence`. A sentence with ANY content word OR
+    ANY number returns False (never excluded), so REAL sentences are untouched.
+    """
+    cleaned = _verifier_cleaned_text(sentence)
+    stripped = _strip_dose_patterns(cleaned)
+    stripped = _PLACEBO_COMPARATOR_RE.sub(" ", stripped)
+    stripped = _THRESHOLD_RE.sub(" ", stripped)
+    no_content = not _content_words(stripped)
+    no_numbers = not _decimals_in(stripped) and not _numbers_in(stripped)
+    return no_content and no_numbers
+
+
 def strict_verify(
     draft_text: str,
     evidence_pool: dict[str, dict[str, Any]],
@@ -2268,9 +2424,35 @@ def strict_verify(
     kept: list[SentenceVerification] = []
     dropped: list[SentenceVerification] = []
 
+    # I-pipe-015 (#1240) + I-pipe-016 (#1241) flags, read once per call.
+    _honest_tokens = _token_honest_drop_enabled()
+    _skip_empty = _skip_empty_enabled()
+
+    # I-pipe-016 (#1241): content-empty fragments are excluded from total_in
+    # (denominator) — they are neither kept nor dropped, they do not count.
+    _excluded_empty = 0
+
     # Findings: strict provenance verification
     findings_sentences = split_into_sentences(findings_text)
     for s in findings_sentences:
+        # I-pipe-015 (#1240): canonicalize a malformed `[ev:...]` token to
+        # `[#ev:...]` so an otherwise-valid citation is not silently lost. The
+        # canonical form is what flows to verify_sentence_provenance (and is
+        # stored on .sentence), so downstream token-stripping in
+        # resolve_provenance_to_citations works and no malformed literal leaks
+        # into the rendered report. The canonicalized token STILL runs the full
+        # validation — bracket format is fixed, no check is bypassed.
+        if _honest_tokens:
+            s = _canonicalize_malformed_ev_tokens(s)
+        # I-pipe-016 (#1241): a content-empty fragment (orphaned citation /
+        # punctuation residue with no content word and no number) is excluded
+        # from BOTH numerator and denominator. verify_sentence_provenance would
+        # already DROP it (BUG-03 / no_provenance_token), so excluding it from
+        # the denominator instead of dropping it only removes empty noise from
+        # the telemetry; it never lets an unverified REAL sentence through.
+        if _skip_empty and _is_content_empty_sentence(s):
+            _excluded_empty += 1
+            continue
         v = verify_sentence_provenance(
             s, evidence_pool,
             require_number_match=require_number_match,
@@ -2302,6 +2484,17 @@ def strict_verify(
     # else pass-through (M-204 backward-compat).
     limitations_sentences = split_into_sentences(limitations_text)
     for s in limitations_sentences:
+        # I-pipe-015 (#1240): same malformed-token canonicalization as findings.
+        if _honest_tokens:
+            s = _canonicalize_malformed_ev_tokens(s)
+        # I-pipe-016 (#1241): exclude content-empty pass-through fragments from
+        # the verified numerator AND total_in. This is the PRIMARY inflation
+        # site the forensic flagged: the pass-through branch below counted a
+        # bare `[#ev:...]` orphan as is_verified=True. A REAL limitations
+        # sentence carries telemetry numbers / words and is never excluded.
+        if _skip_empty and _is_content_empty_sentence(s):
+            _excluded_empty += 1
+            continue
         if telemetry_block is not None:
             v = verify_limitations_sentence_against_telemetry(
                 s, telemetry_block,
@@ -2320,7 +2513,12 @@ def strict_verify(
                 soft_warnings=["limitations_paragraph_pass_through"],
             ))
 
-    total_in = len(findings_sentences) + len(limitations_sentences)
+    # I-pipe-016 (#1241): total_in excludes content-empty fragments so the
+    # verified ratio reflects only real sentences. When PG_PROVENANCE_SKIP_EMPTY
+    # is OFF, _excluded_empty stays 0 and total_in is byte-identical to before.
+    total_in = (
+        len(findings_sentences) + len(limitations_sentences) - _excluded_empty
+    )
     return StrictVerificationReport(
         kept_sentences=kept,
         dropped_sentences=dropped,

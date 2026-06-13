@@ -104,6 +104,8 @@ def _format_telemetry_block(
     contradictions: list[dict[str, Any]] | None,
     date_range: dict[str, str | None] | None = None,
     uncovered_topics: list[str] | None = None,
+    *,
+    tier_disclosure_override: str | None = None,
 ) -> str:
     """Build the <<<pipeline_telemetry>>> data block for Gap-3.
 
@@ -113,13 +115,28 @@ def _format_telemetry_block(
       - contradictions: list of (subject, predicate, rel_diff)
       - date_range: from protocol
       - uncovered_topics: completeness-checklist gaps (R-6 Gap-3)
+
+    #1242 (Codex iter-1 REQUEST_CHANGES): ``tier_disclosure_override`` — when a
+    non-None string is supplied, the tier line is emitted as that EXACT canonical
+    string (verbatim, single block) INSTEAD of re-deriving a per-tier percentage
+    list from ``tier_fractions``. This makes the LLM-authored Limitations quote the
+    SAME tier-mix string the deterministic Methods disclosure quotes, so the report
+    can never self-contradict ("Methods 11% vs Limitations 13%"). Default None =>
+    the legacy per-tier derivation runs, byte-identical to today. Faithfulness is
+    untouched — this is disclosure-consistency only (the canonical string already
+    comes from the same _tier_mix_disclosure_summary the Methods section uses).
     """
     # B-5 fix: build body WITHOUT structural delimiters, sanitize the body
     # only, then wrap. Otherwise the sanitizer redacts our own structural
     # delimiters because the delimiter-literal pass doesn't know caller intent.
     lines: list[str] = []
 
-    if tier_fractions:
+    if tier_disclosure_override is not None:
+        # #1242: emit the canonical tier-mix string verbatim (single source of truth).
+        if str(tier_disclosure_override).strip():
+            lines.append("tier_distribution:")
+            lines.append(f"  {tier_disclosure_override}")
+    elif tier_fractions:
         # Sort so T1 first, then T2, etc.
         lines.append("tier_distribution:")
         for tier in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"):

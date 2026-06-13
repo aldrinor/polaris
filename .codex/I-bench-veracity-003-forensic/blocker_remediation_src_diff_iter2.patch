@@ -1,0 +1,2034 @@
+diff --git a/scripts/run_honest_sweep_r3.py b/scripts/run_honest_sweep_r3.py
+index f66ca04d..dfb39e72 100644
+--- a/scripts/run_honest_sweep_r3.py
++++ b/scripts/run_honest_sweep_r3.py
+@@ -61,10 +61,22 @@ from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
+ from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
+ from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
+     generate_multi_section_report,
++    # I-pipe-008 (#1233): post-bibliography breadth canary (pure helper) +
++    # the SAME url-normalization the breadth code uses, so the CITED-source
++    # count is computed on the same key space.
++    enforce_breadth_canary,
++    _normalize_source_key,
+ )
+ from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
+     resolve_provenance_to_citations,
+     strict_verify,
++    # I-pipe-015 (#1240): per-run reset + snapshot of the module-global token-honesty
++    # counters (malformed_canonicalized / malformed_dropped) so counts don't accumulate
++    # across queries and the per-run totals surface in the manifest. `_token_honest_drop_enabled`
++    # gates the snapshot so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a byte-identical manifest.
++    get_token_honesty_telemetry,
++    reset_token_honesty_telemetry,
++    _token_honest_drop_enabled,
+ )
+ from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
+     BudgetExceededError,
+@@ -608,6 +620,141 @@ def _env_flag(name: str, *, default: bool) -> bool:
+     return raw.strip().lower() in _TRUE_TOKENS
+ 
+ 
++# --- I-pipe-010/013/014/012/017/001 (#1235/#1238/#1239/#1237/#1242/#1226) -------------
++# Forensic dual Claude+Codex 2026-06-12 (.codex/I-bench-veracity-003-forensic/) surfaced a
++# cluster of run-sweep gates that FAIL OPEN on a benchmark run: a skewed corpus is accepted
++# as sweep-ready with only a disclosure (#1235), a V30-contract fault silently degrades to
++# the legacy generator (#1238), a manifest can read `success` without the 4-role D8 audit
++# ever running (#1226), and an enabled-but-empty quantified differentiator passes silently
++# (#1237). The shared strict-gate flag below turns those four fail-open paths LOUD on a
++# benchmark run (abort / raise / hold) WITHOUT touching strict_verify, the NLI judge, the
++# 4-role D8 release policy, or any provenance check. DEFAULT OFF: with the flag unset, every
++# `_benchmark_strict_gates_on()`-guarded branch is skipped and the file is behaviorally
++# byte-identical to today.
++#
++# #1239 (empty bibliography locator) and #1242 (tier-mix self-contradiction) get their OWN
++# narrow flags (a selection/rendering change and a pure-correctness change respectively), per
++# the SAFE-PATTERN gating split — they are NOT folded into the shared strict flag.
++_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
++_V30_ALLOW_LEGACY_FALLBACK_ENV = "PG_V30_ALLOW_LEGACY_FALLBACK"
++_BIB_REQUIRE_LOCATOR_ENV = "PG_BIB_REQUIRE_LOCATOR"
++_TIER_DISCLOSURE_SINGLE_SOURCE_ENV = "PG_TIER_DISCLOSURE_SINGLE_SOURCE"
++
++
++def _benchmark_strict_gates_on() -> bool:
++    """Shared benchmark strict-gates flag (default OFF). When ON, the four currently
++    fail-open run-sweep gates (#1235/#1238/#1226/#1237) fail LOUD instead of silently
++    accepting/degrading. OFF == byte-identical to the legacy behavior. PURE env read."""
++    return _env_flag(_BENCHMARK_STRICT_GATES_ENV, default=False)
++
++
++def _corpus_skew_blocks_ready(strict: bool, has_material_deviation: bool) -> bool:
++    """#1235: under strict gates, a corpus with a MATERIAL tier deviation must NOT be
++    silently accepted as sweep-ready on the weighted-corpus path — it falls through to the
++    EXISTING structured-authorization gate (check_auto_approve_allowed, which honors the
++    operator override PG_AUTHORIZED_SWEEP_APPROVAL) instead. Returns True iff the caller must
++    bypass the weighted-corpus auto-approve. PURE — no faithfulness logic. Off => always
++    False => unchanged."""
++    return bool(strict and has_material_deviation)
++
++
++def _v30_should_reraise(strict: bool, allow_legacy_fallback: bool) -> bool:
++    """#1238: under strict gates, a V30 contract Phase-2 fault must be FATAL (re-raise to the
++    run_one_query handler -> terminal error_unexpected manifest) instead of silently falling
++    back to the legacy generator — UNLESS the operator explicitly allows the fallback via
++    PG_V30_ALLOW_LEGACY_FALLBACK=1. PURE. Off (or fallback allowed) => False => unchanged."""
++    return bool(strict and not allow_legacy_fallback)
++
++
++def _d8_success_without_audit(
++    strict: bool, unified_status: str, d8_audit_ran: bool
++) -> bool:
++    """#1226: under strict gates, a manifest may NOT read `success` unless the 4-role D8 audit
++    actually completed for this run. Returns True iff the strict guard must convert a would-be
++    success into a loud hold. PURE — does NOT alter the D8 release decision itself (that stays
++    the single binding gate); it only forbids a *pre-D8* success on a benchmark run. Off =>
++    False => unchanged."""
++    return bool(strict and unified_status == "success" and not d8_audit_ran)
++
++
++def _quantified_readiness_failed(
++    strict: bool, force_enabled: bool, telemetry: "dict | None"
++) -> bool:
++    """#1237: under strict gates, if quantified analysis is force-enabled
++    (PG_ENABLE_QUANTIFIED_ANALYSIS=1) but produced NO verified quantified output, fail
++    readiness LOUDLY instead of proceeding silently. Keys on the existing normalized `fired`
++    boolean (telemetry["fired"], computed by _normalize_quantified_telemetry) so this hook
++    works regardless of the exact typed-status strings quantified_analysis.py emits
++    (declined / empty_transport / parse_error). Returns True iff readiness must fail. PURE.
++    Off => False => unchanged."""
++    if not (strict and force_enabled):
++        return False
++    if telemetry is None:
++        # Force-enabled yet no telemetry object at all == the silent no-op this guards.
++        return True
++    return not bool(telemetry.get("fired"))
++
++
++def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
++    """#1242: the SINGLE source of truth for the per-tier mix percentage string rendered in
++    the report (e.g. ``T1=12%, T2=1%, ...``). The run's Methods disclosure references THIS one
++    value so two disclosure strings can never quote different denominators/rounding. PURE +
++    deterministic (sorted keys, round-half-to-even-free integer percent). Byte-identical to
++    the prior inline ``", ".join(f"{k}={v*100:.0f}%" ...)`` builder."""
++    return ", ".join(
++        f"{k}={v * 100:.0f}%" for k, v in sorted((tier_fractions or {}).items())
++    )
++
++
++def _bib_entry_has_locator(entry: "dict") -> bool:
++    """#1239: True iff a bibliography entry carries a non-blank URL or DOI locator. A CITED bib
++    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE."""
++    url = str(entry.get("url") or "").strip()
++    doi = str(entry.get("doi") or "").strip()
++    return bool(url or doi)
++
++
++def _render_bibliography_lines(
++    bibliography: "list[dict]", *, require_locator: bool
++) -> str:
++    """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
++    to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
++    are both blank is NOT emitted as a numbered citation pointing at nothing — it is relabeled to
++    a NON-cited evidence gap (`[gap]` prefix, no resolvable locator). This NEVER fabricates a
++    locator and NEVER drops the reader's awareness of the entry; it stops a citation marker from
++    pointing at an empty URL. The upstream resolution (resolve the locator, or stop assigning a
++    citation number to a locator-less row) lives in multi_section_generator.py and is deferred."""
++    out = "\n\n## Bibliography\n"
++    for b in bibliography:
++        statement = str(b.get("statement", ""))[:200]
++        url = b.get("url", "")
++        tier = b.get("tier", "")
++        if require_locator and not _bib_entry_has_locator(b):
++            # #1239 (Codex iter-1 REQUEST_CHANGES): a cited-but-locator-less entry must KEEP its
++            # citation number so the report BODY's [N] marker still resolves (the old code dropped
++            # the number and emitted a number-less "[gap]" line, ORPHANING the body [N]). We keep
++            # [num] AND honestly disclose the missing locator. _bib_entry_has_locator already ruled
++            # out a non-blank URL or DOI, so there is genuinely no resolvable locator to show.
++            out += (
++                f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
++                f"(disclosed evidence gap, tier {tier})\n"
++            )
++        else:
++            # #1239 (Codex iter-1 REQUEST_CHANGES): when require_locator is ON and the URL is
++            # blank but a non-blank DOI exists, render the DOI as the locator
++            # (https://doi.org/<doi>) instead of an empty string. Never fabricates — only uses a
++            # real DOI the entry already carries. The DOI fallback is gated behind require_locator
++            # so require_locator=False is byte-identical to today (the prior inline loop rendered
++            # the raw `url`, even when blank). A present URL is rendered EXACTLY as before.
++            locator = url
++            if require_locator and not str(url or "").strip():
++                _doi = str(b.get("doi") or "").strip()
++                if _doi:
++                    locator = f"https://doi.org/{_doi}"
++            out += f"[{b['num']}] {statement} — {locator} (tier {tier})\n"
++    return out
++
++
+ def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
+     """BB5-P02: reduce a scraped row's raw text to a short, trimmed claim summary.
+ 
+@@ -2370,6 +2517,17 @@ async def run_one_query(
+     except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
+         pass
+ 
++    # I-pipe-015 (#1240, Codex iter-1 REQUEST_CHANGES): reset the MODULE-GLOBAL token-honesty
++    # counters (malformed_canonicalized / malformed_dropped) at the run boundary so they reflect
++    # ONLY this query — without this reset they accumulate across queries in a multi-query sweep
++    # and the per-run manifest over-reports. Safe regardless of PG_PROVENANCE_TOKEN_HONEST_DROP:
++    # when the honest-drop path is off the counters stay 0, so reset/snapshot are no-ops. The
++    # snapshot into manifest['token_honesty'] happens at report assembly. Best-effort import.
++    try:
++        reset_token_honesty_telemetry()
++    except Exception:  # noqa: BLE001 — telemetry reset must never abort the run
++        pass
++
+     # I-arch-001a: v6 actor passes out_root_override (UUID-scoped artifact_dir)
+     # to prevent same-slug concurrent overwrites. Legacy CLI sweep keeps the
+     # domain/slug nesting unchanged.
+@@ -3447,10 +3605,18 @@ async def run_one_query(
+         dist = compute_tier_distribution(
+             retrieval.classified_sources, protocol,
+         )
+-        tier_summary = ", ".join(
+-            f"{k}={v*100:.0f}%"
+-            for k, v in sorted(dist.tier_fractions.items())
+-        )
++        # I-pipe-017 (#1242): compute the per-tier mix percentage string ONCE via the single
++        # source of truth so every disclosure that quotes it (the Methods "Actual distribution"
++        # line, the approval-abort report, the corpus log) cannot diverge on rounding/denominator.
++        # Default-ON; PG_TIER_DISCLOSURE_SINGLE_SOURCE=0 reverts to the prior inline builder
++        # (byte-identical output either way — the helper is the same formula).
++        if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True):
++            tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
++        else:
++            tier_summary = ", ".join(
++                f"{k}={v*100:.0f}%"
++                for k, v in sorted(dist.tier_fractions.items())
++            )
+         _log(f"[corpus]      total={dist.total_sources}  {tier_summary}  "
+              f"material_deviation={dist.has_material_deviation}")
+ 
+@@ -3604,10 +3770,16 @@ async def run_one_query(
+                 dist = compute_tier_distribution(
+                     retrieval.classified_sources, protocol,
+                 )
+-                tier_summary = ", ".join(
+-                    f"{k}={v*100:.0f}%"
+-                    for k, v in sorted(dist.tier_fractions.items())
+-                )
++                # I-pipe-017 (#1242): same single-source-of-truth helper after the expansion
++                # round re-classifies the merged corpus, so the post-expansion Methods line and
++                # any other tier-mix disclosure stay in lockstep.
++                if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True):
++                    tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
++                else:
++                    tier_summary = ", ".join(
++                        f"{k}={v*100:.0f}%"
++                        for k, v in sorted(dist.tier_fractions.items())
++                    )
+                 # Re-check completeness
+                 completeness = check_completeness(
+                     domain=q["domain"],
+@@ -4341,7 +4513,18 @@ async def run_one_query(
+             # approval logic (material deviation + no structured authorization -> abort), never proceeds.
+             evidence_rows=retrieval.evidence_rows,
+         )
+-        if _weighted_corpus_approve:
++        # I-pipe-010 (#1235): under the shared benchmark strict gate, a MATERIAL tier deviation
++        # must NOT be silently accepted as sweep-ready by the weighted-corpus path — it falls
++        # through to the EXISTING structured-authorization gate (check_auto_approve_allowed),
++        # which honors the operator override PG_AUTHORIZED_SWEEP_APPROVAL and otherwise denies.
++        # The credibility disclosure below still WRITES (it is gated on _weighted_corpus_on, not
++        # on `approved`), so the corpus skew stays disclosed; it is just no longer rubber-stamped
++        # as ready. Off (or no material deviation) => byte-identical to the prior weighted-gate
++        # behavior. strict_verify + 4-role D8 unchanged.
++        _strict_corpus_skew = _corpus_skew_blocks_ready(
++            _benchmark_strict_gates_on(), dist.has_material_deviation,
++        )
++        if _weighted_corpus_approve and not _strict_corpus_skew:
+             approved = True
+             approval_error = ""
+         elif dist.has_material_deviation:
+@@ -4356,7 +4539,10 @@ async def run_one_query(
+             + (
+                 "weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE): corpus accepted with a "
+                 "credibility-weighted disclosure (no tier-count refusal)"
+-                if _weighted_corpus_approve
++                # I-pipe-010 (#1235): when the strict gate bypassed the weighted auto-approve on a
++                # material deviation, the note must reflect the ACTUAL structured-authorization
++                # decision, not falsely claim "corpus accepted".
++                if (_weighted_corpus_approve and not _strict_corpus_skew)
+                 else ("structured authorization present"
+                       if authorization is not None else "no structured authorization")
+             )
+@@ -4687,6 +4873,13 @@ async def run_one_query(
+             sub_queries=_subquery_texts,        # I-perm-011: flag-gated facet floor
+         )
+         evidence_for_gen = evidence_selection.selected_rows
++        # I-pipe-002 (#1228, Codex iter-1 REQUEST_CHANGES): capture the REAL relevance-floor drop
++        # count from the FLOOR selection object BEFORE the capped-finding-dedup block below may
++        # REASSIGN `evidence_selection` to the dedup object (whose dropped_count is from the
++        # relevance_floor=None short path == 0, laundering the floor cut on the [select] line).
++        # evidence_selector.py:1468-1474 already logs the honest floor cut; this preserves it through
++        # to the final [select] line + manifest. Telemetry-only — selection is NOT changed.
++        _floor_dropped_count = evidence_selection.dropped_count
+         # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
+         # NO-CAP (keeps every row >= floor) — at 1000 URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN
+         # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set, dedup the
+@@ -4718,9 +4911,13 @@ async def run_one_query(
+         # evidence_for_gen and `everything ahead of it` == the exact injected
+         # prepend a gap round must re-apply (Codex diff-gate P1).
+         _selection_base_rows = list(evidence_for_gen)
++        # I-pipe-002 (#1228): surface the REAL relevance-floor cut (`floor_dropped`) on the final
++        # [select] line. `dropped` reflects the (possibly-reassigned) selection object; floor_dropped
++        # is the floor-stage cut captured before the dedup reassignment so it is never laundered to 0.
+         _log(f"[select]      strategy={evidence_selection.selection_strategy} "
+              f"selected={len(evidence_for_gen)} of {len(retrieval.evidence_rows)} "
+-             f"dropped={evidence_selection.dropped_count}")
++             f"dropped={evidence_selection.dropped_count} "
++             f"floor_dropped={_floor_dropped_count}")
+         _log(f"              full_tiers={evidence_selection.full_counts} "
+              f"selected_tiers={evidence_selection.selected_counts}")
+         _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
+@@ -5048,10 +5245,28 @@ async def run_one_query(
+                         f"{q['slug']!r}; running legacy generator only"
+                     )
+             except Exception as _p2_exc:
++                # I-pipe-013 (#1238): ALWAYS log the exception + reason (the log line below is the
++                # unconditional record). Under the shared benchmark strict gate, a V30 contract
++                # Phase-2 fault is FATAL (re-raise -> run_one_query handler -> terminal
++                # error_unexpected manifest) instead of silently degrading to the legacy generator,
++                # UNLESS the operator explicitly allows the fallback via PG_V30_ALLOW_LEGACY_FALLBACK=1.
++                # Off (or fallback allowed) => the legacy fall-through below is byte-identical to today.
++                _v30_reraise = _v30_should_reraise(
++                    _benchmark_strict_gates_on(),
++                    _env_flag(_V30_ALLOW_LEGACY_FALLBACK_ENV, default=False),
++                )
+                 _log(
+                     f"[V30-P2]      ERROR: {type(_p2_exc).__name__}: "
+-                    f"{_p2_exc} — falling back to legacy generator"
++                    f"{_p2_exc} — "
++                    + (
++                        "benchmark strict gate: V30 fault is FATAL "
++                        "(set PG_V30_ALLOW_LEGACY_FALLBACK=1 to allow legacy fallback)"
++                        if _v30_reraise
++                        else "falling back to legacy generator"
++                    )
+                 )
++                if _v30_reraise:
++                    raise
+ 
+         # I-rdy-010 (#506): inject sovereignty-cleared uploaded-document
+         # evidence. Prepended onto evidence_for_gen (mirroring the V30-P2
+@@ -5753,6 +5968,17 @@ async def run_one_query(
+             )),
+             max_parallel_sections=int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "3")),
+             tier_fractions=dist.tier_fractions,
++            # I-pipe-017 (#1242, Codex iter-1 REQUEST_CHANGES): single-source tier disclosure.
++            # When PG_TIER_DISCLOSURE_SINGLE_SOURCE is on (default), compute the canonical tier-mix
++            # string ONCE via the SAME _tier_mix_disclosure_summary the Methods disclosure uses, and
++            # pass it as the verbatim override so the LLM-authored Limitations cannot quote a
++            # DIFFERENT percentage (the forensic "Methods 11% vs Limitations 13%" contradiction).
++            # Flag OFF => None => the generator re-derives per-tier from fractions (byte-identical).
++            tier_disclosure_override=(
++                _tier_mix_disclosure_summary(dist.tier_fractions)
++                if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True)
++                else None
++            ),
+             contradictions=[asdict(c) for c in contradictions],
+             date_range=(
+                 protocol.get("date_range")
+@@ -6393,12 +6619,49 @@ async def run_one_query(
+         # + predicate of EVERY record still render inline (those are the substrings PT08 checks).
+         methods += render_semantic_disclosure(semantic_records)
+ 
+-        biblio_section = "\n\n## Bibliography\n"
+-        for b in multi.bibliography:
+-            biblio_section += (
+-                f"[{b['num']}] {b['statement'][:200]} — {b['url']} "
+-                f"(tier {b['tier']})\n"
++        # I-pipe-014 (#1239): render the Bibliography. Default (PG_BIB_REQUIRE_LOCATOR off) is
++        # byte-identical to the prior inline loop. When ON, a CITED entry whose URL AND DOI are
++        # both blank is relabeled to a disclosed NON-cited evidence gap instead of a numbered
++        # citation pointing at an empty URL — never fabricating a locator, never dropping the
++        # reader's awareness of the entry. The upstream resolution (resolve the locator, or stop
++        # assigning a citation number to a locator-less row) lives in multi_section_generator.py
++        # and is recorded in cross_file_deferred.
++        biblio_section = _render_bibliography_lines(
++            multi.bibliography,
++            require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=False),
++        )
++
++        # I-pipe-008 (#1233): breadth canary. Codex iter-1 REQUEST_CHANGES: the old
++        # canary lived inside _augment_legacy_section_breadth and measured the
++        # pre-generation candidate-MENU breadth, so it could pass while the final
++        # report cited too few (strict_verify drops most). The binding canary now
++        # runs HERE, against `multi.bibliography` — the DISTINCT CITED sources that
++        # actually survived into the rendered report — AFTER verified_sections was
++        # confirmed non-empty (the abort above) and BEFORE report.md is written.
++        # Count DISTINCT normalized source keys (the SAME _normalize_source_key the
++        # breadth code uses); fall back to the entry doi / num when a row has no
++        # resolvable url so locator-less rows are counted as distinct sources rather
++        # than collapsing to a single empty key. PG_BREADTH_CANARY_MIN default 0 =>
++        # no-op (current behavior). On failure enforce_breadth_canary raises and the
++        # run aborts loudly (fail-closed). Faithfulness gates untouched.
++        try:
++            _canary_min = int(os.getenv("PG_BREADTH_CANARY_MIN", "0") or 0)
++        except ValueError:
++            _canary_min = 0
++        if _canary_min > 0:
++            _cited_keys: set[str] = set()
++            for _bib in (multi.bibliography or []):
++                _key = _normalize_source_key(str(_bib.get("url") or "") or None)
++                if not _key:
++                    _doi = str(_bib.get("doi") or "").strip().lower()
++                    _key = _doi or f"__bibnum__:{_bib.get('num')}"
++                _cited_keys.add(_key)
++            _distinct_cited = len(_cited_keys)
++            _log(
++                f"[breadth_canary] distinct CITED sources={_distinct_cited} "
++                f"min={_canary_min}"
+             )
++            enforce_breadth_canary(_distinct_cited, _canary_min)
+ 
+         # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
+         # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
+@@ -6870,6 +7133,27 @@ async def run_one_query(
+             "evaluator_gate": eval_gate.to_dict(),
+             # BUG-M-201: generator-visible evidence provenance.
+             "evidence_selection": evidence_selection.to_dict(),
++            # I-pipe-002 (#1228, Codex iter-1 REQUEST_CHANGES): the REAL relevance-floor drop count,
++            # captured from the floor selection object BEFORE the capped-finding-dedup reassignment
++            # (whose dropped_count is 0 on the relevance_floor=None short path). Surfaced so the
++            # manifest does not launder the honest floor cut that evidence_selector.py:1468-1474 logs.
++            # Telemetry-only; selection unchanged. Added only when the relevance floor was active
++            # (`_relevance_floor is not None`) so a no-floor run keeps a byte-identical manifest.
++            **(
++                {"evidence_floor_dropped": _floor_dropped_count}
++                if _relevance_floor is not None
++                else {}
++            ),
++            # I-pipe-015 (#1240, Codex iter-1 REQUEST_CHANGES): per-RUN token-honesty telemetry
++            # (malformed_canonicalized / malformed_dropped). Reset at run start (above) so these
++            # counts are THIS query's, not the accumulated process total. Gated on
++            # _token_honest_drop_enabled() so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a
++            # byte-identical manifest (the path is off, counters stay 0, key omitted).
++            **(
++                {"token_honesty": get_token_honesty_telemetry()}
++                if _token_honest_drop_enabled()
++                else {}
++            ),
+             # I-perm-011 (#1205): the post-floor extraction funnel endpoint —
+             # rows that survived the relevance floor + capped-dedup and form the
+             # generator BASE (pre-prepend; the contract/upload prepends are added
+@@ -7047,6 +7331,14 @@ async def run_one_query(
+         _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
+             "1", "true", "True",
+         )
++        # I-pipe-001 (#1226): track whether the 4-role D8 audit ACTUALLY ran+completed for this
++        # run. Under the shared benchmark strict gate, a manifest may not read `success` unless this
++        # is True (a benchmark run that fell onto the legacy single-evaluator gate, or never ran D8
++        # at all, must NOT be marked success). Set True only after run_four_role_seam returns a
++        # FourRoleEvaluationResult (incl. the fail-closed HELD result on timeout/error — D8 ran and
++        # produced a binding decision). The legacy path leaves it False. Default OFF strict gate =>
++        # the guard never fires => byte-identical.
++        _d8_audit_ran = False
+         # I-meta-008 (#1014) loud guard: PG_FOUR_ROLE_MODE is on but NO transport was injected,
+         # so the 4-role seam stays INERT and this run would silently use the legacy single-evaluator
+         # gate. That is the exact "benchmark started via a legacy entrypoint" trap (#1014): the
+@@ -7309,6 +7601,10 @@ async def run_one_query(
+                 f"coverage={four_role_result.coverage_fraction:.3f} "
+                 f"held_reasons={four_role_result.held_reasons}"
+             )
++            # I-pipe-001 (#1226): D8 produced a binding decision for this run (released OR
++            # fail-closed HELD). The strict post-status guard below uses this to forbid a
++            # would-be `success` that never went through D8.
++            _d8_audit_ran = True
+ 
+             # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
+             # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
+@@ -7885,6 +8181,57 @@ async def run_one_query(
+             # at L5156-5158: a held status can never read as releasable).
+             manifest["release_allowed"] = False
+             manifest["discovery_degraded_features"] = _fl05["degraded_features"]
++
++        # I-pipe-001 (#1226) + I-pipe-012 (#1237): shared-benchmark-strict-gate readiness backstops,
++        # mirroring the FL-05 "force-enabled feature silently degraded -> refuse success" pattern.
++        # Both run AFTER all status reconciliation (legacy gate, D8 seam, FL-05) and only ever
++        # convert a would-be SUCCESS into a loud abort — a partial_*/abort_*/error_* is already a
++        # non-success signal and is left untouched. Default OFF (PG_BENCHMARK_STRICT_GATES unset) =>
++        # neither guard fires => byte-identical. strict_verify / NLI / 4-role D8 release decisions
++        # are NOT touched — these only forbid mislabeling an UN-audited or empty run as success.
++        _strict_gates = _benchmark_strict_gates_on()
++
++        # I-pipe-001 (#1226): a manifest may not read `success` unless the 4-role D8 audit actually
++        # completed for this run. Catches a benchmark run that fell onto the legacy single-evaluator
++        # gate (PG_FOUR_ROLE_MODE unset / no transport) yet still produced a `success` manifest.
++        if _d8_success_without_audit(_strict_gates, unified_status, _d8_audit_ran):
++            _log(
++                "[strict-gate] ABORT (#1226): manifest would read `success` but the 4-role D8 "
++                "audit did NOT run this benchmark run — refusing to mark success before D8. "
++                "Run via scripts/dr_benchmark/run_gate_b.py (injects the 4-role transport)."
++            )
++            summary_status = "four_role_held"
++            unified_status = to_unified_status(summary_status)
++            manifest["status"] = unified_status
++            manifest["release_allowed"] = False
++            manifest["strict_gate_d8_missing"] = True
++
++        # I-pipe-012 (#1237): if quantified analysis was FORCE-ENABLED but produced NO verified
++        # quantified output (the silent no-op forensic #1237), fail readiness loudly instead of
++        # silently shipping the differentiator-less report as success. Keys on the normalized
++        # telemetry `fired` boolean (so it is robust to the exact typed-status strings
++        # quantified_analysis.py emits: declined / empty_transport / parse_error).
++        _quant_force_on = os.environ.get(
++            "PG_ENABLE_QUANTIFIED_ANALYSIS", "0"
++        ).strip() in ("1", "true", "TRUE", "yes")
++        if (
++            _quantified_readiness_failed(
++                _strict_gates, _quant_force_on, _quantified_telemetry
++            )
++            and unified_status == "success"
++        ):
++            _log(
++                "[strict-gate] ABORT (#1237): quantified analysis was FORCE-ENABLED "
++                "(PG_ENABLE_QUANTIFIED_ANALYSIS=1) but produced NO verified quantified output "
++                "(silent no-op) — refusing to ship a benchmark run as success without the "
++                "force-enabled quantified differentiator."
++            )
++            summary_status = "abort_discovery_degraded"
++            unified_status = to_unified_status(summary_status)
++            manifest["status"] = unified_status
++            manifest["release_allowed"] = False
++            manifest["strict_gate_quantified_empty"] = True
++
+         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
+         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when
+         # PG_COMPLEXITY_ROUTING is unset). Auditable: complexity, confidence, reasons, whether it was
+diff --git a/src/polaris_graph/evaluator/evaluator_gate.py b/src/polaris_graph/evaluator/evaluator_gate.py
+index 769e8a75..6569706f 100644
+--- a/src/polaris_graph/evaluator/evaluator_gate.py
++++ b/src/polaris_graph/evaluator/evaluator_gate.py
+@@ -23,10 +23,32 @@ status. Two new manifest statuses are added to the taxonomy:
+ """
+ from __future__ import annotations
+ 
++import os
+ from dataclasses import dataclass, field
+ from typing import Any, Optional
+ 
+ 
++# ── I-pipe-011 (#1236): shared benchmark-strict-gates switch ──────────────────
++# Mirrors completeness_checker._benchmark_strict_gates (the two modules are
++# LAW-VII-isolated and must not import each other; the env contract is the shared
++# surface). OFF by default → every existing gate decision is byte-identical. When
++# the operator turns the SHARED flag ON, a vacuous "0 of 0" completeness
++# (completeness_state == "not_applicable") is NOT-COMPLETE and the evaluator gate
++# WITHHOLDS release instead of passing it vacuously. This only ADDS a fail-loud
++# held verdict; it never relaxes strict_verify / NLI / the 4-role D8 audit and
++# never alters a measured fraction.
++_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
++_STRICT_GATE_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
++
++
++def _benchmark_strict_gates() -> bool:
++    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token (default OFF)."""
++    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
++    if raw is None:
++        return False
++    return raw.strip().lower() in _STRICT_GATE_TRUE_TOKENS
++
++
+ # Reason codes that map rule-check item IDs to stable gate reasons.
+ # Release-blocking deterministic rules:
+ RELEASE_BLOCKING_RULES: dict[str, str] = {
+@@ -217,6 +239,26 @@ def compute_evaluator_gate(
+                 if axis not in judge_critical_axes:
+                     judge_critical_axes.append(axis)
+ 
++    # ── 2b. I-pipe-011 (#1236): vacuous 0/0 completeness under benchmark strict mode ──
++    # A completeness with NO measured denominator (completeness_state ==
++    # "not_applicable" → empty checklist / no planner facet applied) yields a VACUOUS
++    # covered_fraction of 1.0. Today (and whenever PG_BENCHMARK_STRICT_GATES is off) that
++    # is left advisory — the run reads as complete even though nothing was actually
++    # measured. Under the SHARED benchmark strict flag, a 0/0 result is NOT-COMPLETE: it
++    # withholds release (gate_class="partial", release_allowed=False) so the gap is
++    # surfaced rather than passing vacuously. This runs INDEPENDENT of the judge verdict
++    # (the empty denominator looks complete to the judge too), and only when the flag is
++    # on — so flag-OFF behaviour is byte-identical. It never relaxes a verify gate.
++    if (
++        _benchmark_strict_gates()
++        and completeness is not None
++        and getattr(completeness, "completeness_state", "measured") == "not_applicable"
++    ):
++        if "completeness" not in judge_critical_axes:
++            judge_critical_axes.append("completeness")
++        if "completeness_vacuous_zero_denominator" not in reasons:
++            reasons.append("completeness_vacuous_zero_denominator")
++
+     # ── 3. Decide gate_class ──
+     if abort_on_rule:
+         return EvaluatorGateResult(
+diff --git a/src/polaris_graph/generator/fact_dedup.py b/src/polaris_graph/generator/fact_dedup.py
+index 3efcd7d0..14c389fc 100644
+--- a/src/polaris_graph/generator/fact_dedup.py
++++ b/src/polaris_graph/generator/fact_dedup.py
+@@ -28,6 +28,7 @@ fact.
+ from __future__ import annotations
+ 
+ import logging
++import os
+ import re
+ from dataclasses import dataclass, field
+ from typing import Any, Callable, Optional
+@@ -35,6 +36,173 @@ from typing import Any, Callable, Optional
+ logger = logging.getLogger("polaris_graph.fact_dedup")
+ 
+ 
++# ─────────────────────────────────────────────────────────────────────────
++# Span over-concentration cap — I-pipe-007 (GH#1232)
++# ─────────────────────────────────────────────────────────────────────────
++#
++# Forensic finding (dual Claude+Codex 2026-06-12, drb_72): a single ~800-char
++# evidence span (e.g. brynjolfsson:0-800, acemoglu:0-800) was cited 18-19x as
++# near-redundant padding that fact_dedup's numeric+≥2-section grouping missed
++# (the citing sentences had distinct or empty numeric signatures, so they were
++# never grouped). This inflates the "verified sentence" count without adding
++# information: the SAME 800-char span is re-cited over and over.
++#
++# Fix: a per-(evidence_id, start, end) citation cap. When the cap is exceeded,
++# the EXCESS citing sentences are DROPPED (selection only) — never replaced
++# with anything, never rewritten, never fabricated. A sentence is droppable by
++# this cap ONLY when EVERY distinct evidence span it cites has already reached
++# the cap; a sentence that still contributes an under-cap span is always kept.
++# Sentences carrying no `[#ev:...]` provenance token are NEVER touched by this
++# cap (the cap is about evidence-span concentration, not bare prose).
++#
++# FAITHFULNESS LOCK: this is presentation/selection only. strict_verify, the
++# NLI entailment judge, the 4-role D8 audit, and provenance binding are
++# completely untouched. Dropping an already-verified, over-concentrated
++# citation cannot introduce an unverified claim.
++#
++# Default OFF: PG_SPAN_PER_SOURCE_CITE_CAP unset / "0" / "" / non-positive →
++# the cap is a no-op and the sections are returned byte-identical.
++SPAN_CITE_CAP_ENV = "PG_SPAN_PER_SOURCE_CITE_CAP"
++
++# Mirror of provenance_generator._PROVENANCE_TOKEN_RE — the canonical
++# `[#ev:<evidence_id>:<start>-<end>]` provenance grammar. Kept as a local copy
++# (LAW VII CLI-isolation: fact_dedup must not import across the generator
++# package's verifier internals just to read this constant).
++_SPAN_PROVENANCE_TOKEN_RE = re.compile(
++    r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
++)
++
++
++def _read_span_cite_cap() -> int:
++    """Read PG_SPAN_PER_SOURCE_CITE_CAP as a non-negative int (0 == off).
++
++    Malformed / negative values are treated as OFF (0) and logged once at
++    WARNING, never raised — a typo in an env var must not crash a paid run,
++    and "off" is the byte-identical safe default.
++    """
++    raw = os.environ.get(SPAN_CITE_CAP_ENV, "").strip()
++    if not raw:
++        return 0
++    try:
++        value = int(raw)
++    except (ValueError, TypeError):
++        logger.warning(
++            "[fact_dedup] %s=%r is not an int; treating span-cite cap as OFF",
++            SPAN_CITE_CAP_ENV, raw,
++        )
++        return 0
++    if value < 0:
++        logger.warning(
++            "[fact_dedup] %s=%d is negative; treating span-cite cap as OFF",
++            SPAN_CITE_CAP_ENV, value,
++        )
++        return 0
++    return value
++
++
++def _sentence_spans(sentence: str) -> set[tuple[str, int, int]]:
++    """Extract the distinct (evidence_id, start, end) spans a sentence cites.
++
++    Returns an empty set for a sentence with no `[#ev:...]` provenance token.
++    """
++    spans: set[tuple[str, int, int]] = set()
++    for match in _SPAN_PROVENANCE_TOKEN_RE.finditer(sentence):
++        try:
++            spans.add((
++                match.group("ev_id"),
++                int(match.group("start")),
++                int(match.group("end")),
++            ))
++        except (ValueError, TypeError):
++            continue
++    return spans
++
++
++def apply_span_cite_cap(
++    sections: dict[str, list[str]],
++    cap: int,
++    section_order: Optional[list[str]] = None,
++) -> tuple[dict[str, list[str]], dict[str, Any]]:
++    """Drop sentences that only re-cite already-over-capped evidence spans.
++
++    A pure, side-effect-free selection pass (no LLM, no rewrite, no fabrication).
++    For each distinct evidence span `(evidence_id, start, end)`, allow at most
++    `cap` citing sentences across the WHOLE report. Sentences are visited in
++    `section_order` (then by their index within each section) so the FIRST
++    `cap` occurrences of any span are the ones kept — deterministic and stable.
++
++    A sentence is dropped ONLY when EVERY distinct span it cites has already
++    reached `cap`. A sentence that still carries at least one under-cap span,
++    or that cites no span at all, is always kept (and, if kept, its spans'
++    counters are incremented).
++
++    Args:
++        sections: section_title -> list of sentence strings.
++        cap: max citations per span. cap <= 0 is a no-op (returns the SAME
++            dict object unchanged and an empty-effect telemetry).
++        section_order: explicit visitation order; defaults to insertion order.
++
++    Returns:
++        (new_sections, telemetry). When cap <= 0 the original `sections` object
++        is returned unchanged (byte-identical no-op). telemetry keys:
++            - n_span_cite_dropped: sentences removed by the cap
++            - n_spans_over_cap: distinct spans that exceeded `cap`
++    """
++    telemetry: dict[str, Any] = {
++        "n_span_cite_dropped": 0,
++        "n_spans_over_cap": 0,
++    }
++    if cap <= 0:
++        # OFF: return the caller's object untouched — byte-identical.
++        return sections, telemetry
++
++    if section_order is None:
++        section_order = list(sections.keys())
++    # Visit every section deterministically: ordered sections first, then any
++    # remaining sections not named in section_order (defensive — keeps every
++    # sentence accounted for).
++    ordered_titles = [t for t in section_order if t in sections]
++    ordered_titles += [t for t in sections if t not in set(ordered_titles)]
++
++    span_counts: dict[tuple[str, int, int], int] = {}
++    over_cap_spans: set[tuple[str, int, int]] = set()
++    new_sections: dict[str, list[str]] = {t: [] for t in sections}
++
++    for title in ordered_titles:
++        for sentence in sections[title]:
++            spans = _sentence_spans(sentence)
++            if not spans:
++                # No provenance token → never a cap candidate; keep as-is.
++                new_sections[title].append(sentence)
++                continue
++            # Under-cap spans this sentence still contributes.
++            under_cap = {s for s in spans if span_counts.get(s, 0) < cap}
++            if not under_cap:
++                # Every cited span is already saturated → over-concentration.
++                telemetry["n_span_cite_dropped"] += 1
++                for s in spans:
++                    over_cap_spans.add(s)
++                continue
++            # Keep the sentence and charge ALL its cited spans (a kept sentence
++            # really does cite each of them once more).
++            new_sections[title].append(sentence)
++            for s in spans:
++                span_counts[s] = span_counts.get(s, 0) + 1
++                if span_counts[s] >= cap:
++                    over_cap_spans.add(s)
++
++    telemetry["n_spans_over_cap"] = len(over_cap_spans)
++    if telemetry["n_span_cite_dropped"]:
++        logger.info(
++            "[fact_dedup] span-cite cap=%d dropped %d over-concentrated "
++            "citation sentence(s) across %d saturated span(s)",
++            cap,
++            telemetry["n_span_cite_dropped"],
++            telemetry["n_spans_over_cap"],
++        )
++    return new_sections, telemetry
++
++
+ # ─────────────────────────────────────────────────────────────────────────
+ # Numeric-token extraction
+ # ─────────────────────────────────────────────────────────────────────────
+@@ -558,7 +726,18 @@ async def dedup_pass(
+             - n_redundants: total redundant sentences flagged
+             - n_rewrites_applied: successful rewrites
+             - n_drops: sentences dropped because rewrite returned None
++            - n_span_cite_dropped: sentences dropped by the span-cite cap
++              (I-pipe-007 #1232; 0 unless PG_SPAN_PER_SOURCE_CITE_CAP > 0)
++            - n_spans_over_cap: distinct spans that saturated the cap
+     """
++    # I-pipe-007 (#1232): span over-concentration cap. Read once up front;
++    # default 0 == OFF == byte-identical. The cap runs as the FINAL selection
++    # step on BOTH dedup paths (groups present OR not) because the
++    # over-concentrated padding sentences have distinct/empty numeric
++    # signatures and are NOT caught by build_groups — that is precisely the
++    # gap this cap closes. Selection only; faithfulness gates untouched.
++    span_cite_cap = _read_span_cite_cap()
++
+     groups = build_groups(sections, section_order=section_order)
+     n_redundants = count_redundancy(groups)
+     telemetry: dict[str, Any] = {
+@@ -566,9 +745,15 @@ async def dedup_pass(
+         "n_redundants": n_redundants,
+         "n_rewrites_applied": 0,
+         "n_drops": 0,
++        "n_span_cite_dropped": 0,
++        "n_spans_over_cap": 0,
+     }
+     if not groups:
+-        return sections, telemetry
++        capped_sections, cap_telemetry = apply_span_cite_cap(
++            sections, span_cite_cap, section_order=section_order,
++        )
++        telemetry.update(cap_telemetry)
++        return capped_sections, telemetry
+ 
+     logger.info(
+         "[fact_dedup] %d duplicate-fact groups detected, "
+@@ -587,4 +772,9 @@ async def dedup_pass(
+         "[fact_dedup] applied=%d, dropped=%d",
+         telemetry["n_rewrites_applied"], telemetry["n_drops"],
+     )
++
++    new_sections, cap_telemetry = apply_span_cite_cap(
++        new_sections, span_cite_cap, section_order=section_order,
++    )
++    telemetry.update(cap_telemetry)
+     return new_sections, telemetry
+diff --git a/src/polaris_graph/generator/live_deepseek_generator.py b/src/polaris_graph/generator/live_deepseek_generator.py
+index 6cd4da4d..becba8e8 100644
+--- a/src/polaris_graph/generator/live_deepseek_generator.py
++++ b/src/polaris_graph/generator/live_deepseek_generator.py
+@@ -104,6 +104,8 @@ def _format_telemetry_block(
+     contradictions: list[dict[str, Any]] | None,
+     date_range: dict[str, str | None] | None = None,
+     uncovered_topics: list[str] | None = None,
++    *,
++    tier_disclosure_override: str | None = None,
+ ) -> str:
+     """Build the <<<pipeline_telemetry>>> data block for Gap-3.
+ 
+@@ -113,13 +115,28 @@ def _format_telemetry_block(
+       - contradictions: list of (subject, predicate, rel_diff)
+       - date_range: from protocol
+       - uncovered_topics: completeness-checklist gaps (R-6 Gap-3)
++
++    #1242 (Codex iter-1 REQUEST_CHANGES): ``tier_disclosure_override`` — when a
++    non-None string is supplied, the tier line is emitted as that EXACT canonical
++    string (verbatim, single block) INSTEAD of re-deriving a per-tier percentage
++    list from ``tier_fractions``. This makes the LLM-authored Limitations quote the
++    SAME tier-mix string the deterministic Methods disclosure quotes, so the report
++    can never self-contradict ("Methods 11% vs Limitations 13%"). Default None =>
++    the legacy per-tier derivation runs, byte-identical to today. Faithfulness is
++    untouched — this is disclosure-consistency only (the canonical string already
++    comes from the same _tier_mix_disclosure_summary the Methods section uses).
+     """
+     # B-5 fix: build body WITHOUT structural delimiters, sanitize the body
+     # only, then wrap. Otherwise the sanitizer redacts our own structural
+     # delimiters because the delimiter-literal pass doesn't know caller intent.
+     lines: list[str] = []
+ 
+-    if tier_fractions:
++    if tier_disclosure_override is not None:
++        # #1242: emit the canonical tier-mix string verbatim (single source of truth).
++        if str(tier_disclosure_override).strip():
++            lines.append("tier_distribution:")
++            lines.append(f"  {tier_disclosure_override}")
++    elif tier_fractions:
+         # Sort so T1 first, then T2, etc.
+         lines.append("tier_distribution:")
+         for tier in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "UNKNOWN"):
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index 038a1742..791eeafa 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -962,6 +962,34 @@ def _breadth_content_tokens(text: str) -> set[str]:
+     return toks
+ 
+ 
++def _breadth_row_is_marquee(row: dict[str, Any]) -> bool:
++    """I-pipe-006 (#1231): True iff an evidence row was contributed by the
++    required-entity / anchor lane and therefore represents a marquee primary
++    source that MUST reach the writers when present.
++
++    Detection uses ONLY existing evidence-row fields (no schema invention) — the
++    required-entity lane stamps rows with ``seed_source='required_entity_lane'``
++    and ``query_origin='required_entity_targeted_search'`` (see
++    src/polaris_graph/retrieval/required_entity_retrieval.py SEED_SOURCE_LABEL /
++    SEED_QUERY_ORIGIN), and primary-anchor injections set an ``anchor_seed`` /
++    ``is_anchor`` / ``required_entity`` / ``is_marquee`` truthy flag. Any of these
++    being present marks the row as a marquee anchor."""
++    if not isinstance(row, dict):
++        return False
++    for flag in ("is_marquee", "required_entity", "anchor_seed", "is_anchor",
++                 "entity_anchor", "marquee"):
++        if row.get(flag):
++            return True
++    seed_source = str(row.get("seed_source") or "").lower()
++    if "required_entity" in seed_source or "anchor" in seed_source:
++        return True
++    for origin_key in ("query_origin", "seed_query_origin"):
++        origin = str(row.get(origin_key) or "").lower()
++        if "required_entity" in origin or "anchor" in origin:
++            return True
++    return False
++
++
+ def _augment_legacy_section_breadth(
+     plans: list[Any],
+     evidence: list[dict[str, Any]],
+@@ -988,13 +1016,59 @@ def _augment_legacy_section_breadth(
+     4-role D8 — those re-verify every emitted sentence exactly as before. A widened
+     menu cannot make an unsupported sentence pass; it only lets the writer ground MORE
+     sentences in MORE distinct sources. Returns per-section distinct-source counts
+-    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op)."""
++    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op).
++
++    ENV FLAGS (all DEFAULT-OFF == byte-identical historical selection):
++      * PG_BREADTH_AUGMENT_MIN_OVERLAP (int, default 2): question-relevance bar.
++        Default 2 == the historical >=2 content-word bar; higher rejects off-topic
++        rows (I-pipe-004 #1229). Values < 2 are clamped to 2.
++      * PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP ("0"/"1", default "0"): when on,
++        additionally require >=1 content token shared with the section focus, so
++        topically-off rows are rejected (I-pipe-004 #1229).
++      * PG_BREADTH_MARQUEE_PRIORITY ("0"/"1", default "0"): when on, rank
++        required-entity / marquee anchor rows FIRST among candidates so the most
++        important primaries reach the writers (I-pipe-006 #1231). Reorders only.
++      * PG_BREADTH_CANARY_MIN (int, default 0=off): when > 0, RAISE RuntimeError if
++        the achieved report-wide distinct-source breadth is below it, so the run
++        FAILS LOUD instead of silently under-delivering (I-pipe-008 #1233)."""
+     from src.polaris_graph.adequacy.plan_sufficiency_gate import (
+         _authority_floor_default,
+         _enrich_authority_if_missing,
+     )
+ 
+     floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
++
++    # I-pipe-004 (#1229): the augmentation relevance bar (>=2 shared question
++    # content words) is bag-of-words-weak and admitted an off-topic methods paper
++    # (ev_412) 5x. PG_BREADTH_AUGMENT_MIN_OVERLAP lets the benchmark raise the
++    # threshold; default 2 reproduces the current bar EXACTLY (flag-off identity).
++    try:
++        _min_overlap = int(os.getenv("PG_BREADTH_AUGMENT_MIN_OVERLAP", "2") or 2)
++    except ValueError:
++        _min_overlap = 2
++    if _min_overlap < 2:
++        # Never go BELOW the historical >=2 floor — that would only ever ADMIT
++        # more off-topic rows, the opposite of this gate's intent.
++        _min_overlap = 2
++    # I-pipe-004 (#1229): when on, additionally require the candidate to share at
++    # least one CONTENT token with the section's focus, rejecting rows that pass
++    # the question bar on generic methods/boilerplate tokens but are off-topic for
++    # the section. Default "0" => not required (flag-off identity).
++    _require_section_overlap = (
++        os.getenv("PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP", "0").strip().lower()
++        in ("1", "true", "yes", "on")
++    )
++    # I-pipe-006 (#1231): when on, rank required-entity / marquee anchor rows FIRST
++    # among augmentation candidates so the most important primary sources reach the
++    # writers instead of being crowded out by generic above-floor rows. Default "0"
++    # => ranking unchanged (flag-off identity). SELECTION-STAGE ONLY: this only
++    # reorders WHICH already-eligible rows are added first; it never lowers a cap,
++    # never edits prose, and never touches strict_verify / NLI / 4-role.
++    _marquee_priority = (
++        os.getenv("PG_BREADTH_MARQUEE_PRIORITY", "0").strip().lower()
++        in ("1", "true", "yes", "on")
++    )
++
+     by_id: dict[str, dict[str, Any]] = {}
+     for row in evidence:
+         eid = row.get("evidence_id", "")
+@@ -1029,7 +1103,7 @@ def _augment_legacy_section_breadth(
+         sec_tokens = _breadth_content_tokens(
+             title + " " + (getattr(p, "focus", "") or "")
+         )
+-        cands: list[tuple[tuple[int, int, float, int], str, str]] = []
++        cands: list[tuple[tuple[int, int, int, float, int], str, str]] = []
+         for row in evidence:
+             eid = row.get("evidence_id", "")
+             if not eid or eid in assigned_set:
+@@ -1046,11 +1120,24 @@ def _augment_legacy_section_breadth(
+             )
+             row_tokens = _breadth_content_tokens(txt)
+             q_overlap = len(q_tokens & row_tokens)
+-            if q_overlap < 2:  # must share >=2 content words with the question
++            # I-pipe-004 (#1229): tunable question-relevance bar (default 2 ==
++            # the historical >=2 content-word bar). Higher => stricter (rejects
++            # off-topic methods rows that pass on 2 generic shared tokens).
++            if q_overlap < _min_overlap:
+                 continue
+             sec_overlap = len(sec_tokens & row_tokens)
++            # I-pipe-004 (#1229): when required, drop rows that share NO content
++            # token with the section focus (topically-off for this section).
++            if _require_section_overlap and sec_overlap < 1:
++                continue
+             fresh = 0 if key in global_used else 1  # prefer globally-unused sources
+-            cands.append(((fresh, sec_overlap, auth, q_overlap), eid, key))
++            # I-pipe-006 (#1231): when marquee-priority is on, required-entity /
++            # anchor rows rank FIRST (marquee=1) so they reach writers ahead of
++            # generic above-floor rows; OFF => marquee=0 for every row, so the
++            # ranking is byte-identical to the historical (fresh, sec_overlap,
++            # auth, q_overlap) order.
++            marquee = 1 if (_marquee_priority and _breadth_row_is_marquee(row)) else 0
++            cands.append(((marquee, fresh, sec_overlap, auth, q_overlap), eid, key))
+         cands.sort(key=lambda t: t[0], reverse=True)
+         for _score, eid, key in cands:
+             if len(have) >= target:
+@@ -1063,9 +1150,55 @@ def _augment_legacy_section_breadth(
+         # mutate ev_ids IN PLACE (preserves frozen-dataclass + downstream identity)
+         p.ev_ids[:] = assigned
+         out_counts[title] = len(have)
++
++    # I-pipe-008 (#1233): breadth telemetry — NOT the canary gate. `global_used`
++    # accumulates every distinct source-key ASSIGNED to a section menu (contract +
++    # augmented) AT SELECTION TIME, BEFORE generation/strict_verify. It is the
++    # CANDIDATE MENU breadth, NOT the count of sources the final report actually
++    # cites (strict_verify drops most). The earlier code raised a RuntimeError here
++    # against this menu count and falsely labeled it "distinct cited sources" — a
++    # canary that could pass while the rendered report cited far fewer (#1233,
++    # Codex iter-1 REQUEST_CHANGES). The real breadth canary now runs in the sweep
++    # runner AFTER the bibliography (= the distinct CITED sources) is built, via the
++    # pure `enforce_breadth_canary` helper below. Here we only DISCLOSE the menu
++    # breadth, honestly labeled. The PG_BREADTH_CANARY_MIN knob is still read — but
++    # at the post-bibliography binding site, not here.
++    logger.info(
++        "[multi_section] candidate menu breadth (pre-generation, not the cited "
++        "count): %d distinct source-keys assigned across section menus. The "
++        "binding breadth canary (PG_BREADTH_CANARY_MIN) is enforced post-"
++        "bibliography against the final CITED-source count.",
++        len(global_used),
++    )
+     return out_counts
+ 
+ 
++def enforce_breadth_canary(distinct_cited_sources: int, minimum: int) -> None:
++    """I-pipe-008 (#1233): fail-loud breadth canary against the FINAL CITED-source
++    count (computed by the sweep runner from the rendered bibliography, NOT the
++    pre-generation candidate menu). PURE: raises ``RuntimeError`` iff ``minimum > 0``
++    and ``distinct_cited_sources < minimum``; otherwise returns None.
++
++    This NEVER fabricates, pads, or relaxes anything — it only REFUSES to proceed
++    when the report provably cites too few distinct sources. ``minimum <= 0`` (the
++    default when PG_BREADTH_CANARY_MIN is unset) is a no-op, so the default path is
++    byte-identical to today. Faithfulness gates (strict_verify / NLI / 4-role D8 /
++    provenance) are entirely untouched: this gate runs on their OUTPUT and can only
++    abort, never weaken, the verdict.
++    """
++    if minimum <= 0:
++        return
++    if distinct_cited_sources < minimum:
++        raise RuntimeError(
++            "[breadth_canary] PG_BREADTH_CANARY_MIN breadth canary FAILED: the "
++            f"final report cites {distinct_cited_sources} distinct source(s), "
++            f"below the required minimum of {minimum}. Refusing to emit a report "
++            "that under-delivers cited-source breadth. Widen retrieval / raise the "
++            "candidate pool, or lower PG_BREADTH_CANARY_MIN if this floor is "
++            "intentionally above the achievable cited breadth."
++        )
++
++
+ def _assign_evidence_to_planned_outline(
+     planned_outline: list[Any],
+     evidence: list[dict[str, Any]],
+@@ -3742,6 +3875,7 @@ async def _call_limitations(
+     temperature: float,
+     max_tokens: int,
+     uncovered_topics: list[str] | None = None,
++    tier_disclosure_override: str | None = None,
+ ) -> tuple[str, int, int]:
+     """Generate the Limitations paragraph from pipeline telemetry.
+ 
+@@ -3761,8 +3895,13 @@ async def _call_limitations(
+         set_reasoning_call_context,
+     )
+ 
++    # #1242 (Codex iter-1 REQUEST_CHANGES): when a canonical tier-disclosure string is
++    # threaded in, the telemetry block emits it VERBATIM (single source of truth) so the
++    # model can only quote the SAME tier mix the Methods disclosure quotes — never a
++    # re-derived, divergent percentage. None => legacy per-tier derivation (byte-identical).
+     telemetry = _format_telemetry_block(
+         tier_fractions, contradictions, date_range, uncovered_topics,
++        tier_disclosure_override=tier_disclosure_override,
+     )
+ 
+     prompt = (
+@@ -5006,6 +5145,13 @@ async def generate_multi_section_report(
+     tier_fractions: dict[str, float] | None = None,
+     contradictions: list[dict[str, Any]] | None = None,
+     date_range: dict[str, Any] | None = None,
++    # #1242 (Codex iter-1 REQUEST_CHANGES): the canonical tier-mix disclosure string
++    # (the SAME value the Methods section renders). When non-None, the LLM-authored
++    # Limitations is given ONLY this verbatim string instead of per-tier fractions, so
++    # Methods and Limitations cannot quote a different tier percentage. None => legacy
++    # per-fraction derivation (byte-identical). Threaded by the sweep runner when
++    # PG_TIER_DISCLOSURE_SINGLE_SOURCE is on.
++    tier_disclosure_override: str | None = None,
+     limitations_temperature: float = 0.3,
+     limitations_max_tokens: int = 400,
+     # R-6 Gap-3: completeness-checklist uncovered topics surfaced to
+@@ -6096,6 +6242,9 @@ async def generate_multi_section_report(
+             model=gen_model,
+             temperature=limitations_temperature,
+             max_tokens=limitations_max_tokens,
++            # #1242: when the sweep runner supplies the canonical tier-mix string,
++            # the Limitations telemetry quotes it VERBATIM (single source of truth).
++            tier_disclosure_override=tier_disclosure_override,
+         )
+         total_in_tok += lim_in_tok
+         total_out_tok += lim_out_tok
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index 808fd895..b8d724fa 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -344,6 +344,113 @@ _PROVENANCE_TOKEN_RE = re.compile(
+     r"\[#ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
+ )
+ 
++# I-pipe-015 (#1240) — MALFORMED-but-recognizable cross-ref token honesty.
++#
++# WHY: the fact_dedup rewrite prompt example (fact_dedup.py:411, cross-file —
++# see cross_file_deferred) lacks the leading '#', so the model sometimes emits
++# `[ev:<id>:<start>-<end>]` (colon form, no '#') instead of the canonical
++# `[#ev:<id>:<start>-<end>]`. `_PROVENANCE_TOKEN_RE` requires the '#', so these
++# tokens were SILENTLY dropped by the parser → citations vanished with no
++# telemetry. This is a faithfulness-RELEVANT honesty bug: a dropped citation
++# must be COUNTED, never silently lost.
++#
++# This regex recognizes the malformed shape `[ev:<id>:<start>-<end>]` — the
++# SAME grammar as the canonical token minus the '#'. It CANNOT match the
++# canonical `[#ev:...]` because the literal `[ev:` requires the char after `[`
++# to be `e`, whereas the canonical token has `#` there. (Verified in tests:
++# `_MALFORMED_EV_TOKEN_RE.search("[#ev:y:0-3]")` is None.) So canonicalization
++# is idempotent on already-canonical input — OFF == identity holds.
++_MALFORMED_EV_TOKEN_RE = re.compile(
++    r"\[ev:(?P<ev_id>[A-Za-z0-9_]+):(?P<start>\d+)-(?P<end>\d+)\]"
++)
++
++# I-pipe-015 (#1240) — a BROADER recognizer for a `[ev:...]` cross-ref ATTEMPT
++# that is NOT the clean canonicalizable shape above (e.g. `[ev:abc]` with no
++# span, `[ev:abc:12]` with a malformed span). These are recognizable as a
++# cross-ref attempt but cannot be rewritten into a valid canonical token, so
++# they are COUNTED as dropped-malformed (never silently vanished). The literal
++# `[ev:` prefix means this never matches the canonical `[#ev:...]` (which has
++# `#` after `[`). Requires `[ev:` followed by at least one non-`]` char. The
++# clean canonicalizable shape is a SUBSET of this; the caller subtracts the
++# clean count so only the UNFIXABLE attempts are counted as dropped.
++_RECOGNIZABLE_EV_ATTEMPT_RE = re.compile(r"\[ev:[^\]]+\]")
++
++
++def _token_honest_drop_enabled() -> bool:
++    """I-pipe-015 (#1240). True (default) => malformed `[ev:...]` tokens are
++    canonicalized to `[#ev:...]` (then run through the SAME full validation) OR
++    counted as dropped-malformed in telemetry — never silently lost.
++
++    Kill-switch: PG_PROVENANCE_TOKEN_HONEST_DROP=0 reverts to the legacy
++    behavior where a malformed `[ev:...]` token is invisible to the parser and
++    silently vanishes (byte-identical to pre-#1240). Read at call time so tests
++    can toggle without re-import.
++    """
++    v = os.getenv("PG_PROVENANCE_TOKEN_HONEST_DROP", "1").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++# I-pipe-015 (#1240) — token-honesty telemetry. Module-level counters, read +
++# reset by the sweep (mirrors _REANCHOR_TELEMETRY). ONLY mutated on the
++# flag-ON path, so OFF-mode never touches them (byte-identity).
++_TOKEN_HONESTY_TELEMETRY: dict[str, int] = {
++    # A malformed `[ev:...]` token that was recognizable and got rewritten to
++    # the canonical `[#ev:...]` shape (it STILL runs through the full
++    # evidence-id/span/numeric validation — only the bracket format is fixed).
++    "malformed_canonicalized": 0,
++    # A malformed-but-recognizable token that could NOT be canonicalized into a
++    # canonical token (so it would otherwise vanish) — counted, never silent.
++    "malformed_dropped": 0,
++}
++
++
++def get_token_honesty_telemetry() -> dict[str, int]:
++    """Snapshot of the malformed-token counters (canonicalized / dropped)."""
++    return dict(_TOKEN_HONESTY_TELEMETRY)
++
++
++def reset_token_honesty_telemetry() -> None:
++    """Zero the malformed-token counters (call between runs / tests)."""
++    for k in _TOKEN_HONESTY_TELEMETRY:
++        _TOKEN_HONESTY_TELEMETRY[k] = 0
++
++
++def _canonicalize_malformed_ev_tokens(sentence: str) -> str:
++    """I-pipe-015 (#1240). Rewrite recognizable malformed `[ev:id:s-e]` tokens
++    to the canonical `[#ev:id:s-e]` form so the parser sees them, and bump the
++    `malformed_canonicalized` telemetry counter for each rewrite.
++
++    IMPORTANT — faithfulness: this ONLY fixes the bracket FORMAT. The resulting
++    `[#ev:...]` token is parsed and validated by the SAME full pipeline
++    (evidence-id-in-pool, span-bounds, numeric match, >=2 content-word overlap,
++    NLI entailment). A token whose evidence id / span is invalid still FAILS
++    verification and its sentence is dropped — canonicalization NEVER bypasses
++    any validation check. It only prevents the silent loss of an otherwise-valid
++    citation. A canonical `[#ev:...]` token already present is untouched.
++
++    No-op (returns the input unchanged) when there is no malformed token. The
++    caller gates this behind `_token_honest_drop_enabled()`.
++    """
++    n_clean = len(_MALFORMED_EV_TOKEN_RE.findall(sentence))
++    # All recognizable `[ev:...]` attempts (clean + unfixable). Anything that is
++    # a recognizable attempt but NOT a clean canonicalizable token is
++    # unfixable-malformed and is COUNTED as dropped (never silently lost).
++    n_attempts = len(_RECOGNIZABLE_EV_ATTEMPT_RE.findall(sentence))
++    n_unfixable = max(0, n_attempts - n_clean)
++    if n_unfixable:
++        _TOKEN_HONESTY_TELEMETRY["malformed_dropped"] += n_unfixable
++    if not n_clean:
++        # Nothing to canonicalize. Any unfixable attempt was already counted
++        # above; the literal stays in the sentence text (it is NOT a valid
++        # token, so the parser ignores it and the sentence verifies/drops on
++        # its remaining content exactly as before).
++        return sentence
++    _TOKEN_HONESTY_TELEMETRY["malformed_canonicalized"] += n_clean
++    return _MALFORMED_EV_TOKEN_RE.sub(
++        lambda m: f"[#ev:{m.group('ev_id')}:{m.group('start')}-{m.group('end')}]",
++        sentence,
++    )
++
+ # I-meta-005 Phase 7 (#991): Regime C — COMPUTED numbers. A calc token binds a
+ # rendered number to ONE field of THIS run's quantified model. Grammar:
+ #   [#calc:<model_id>:<spec_hash>:<field>]
+@@ -2243,6 +2350,55 @@ def verify_limitations_sentence_against_telemetry(
+     )
+ 
+ 
++# I-pipe-016 (#1241) — content-empty sentence honesty.
++#
++# WHY: the lightweight splitter (split_into_sentences) can emit an ORPHANED
++# citation-only fragment as its own "sentence" (e.g. a bare `[#ev:a:0-5]` left
++# over from a rewrite, or `.[3]` punctuation residue). In the Limitations
++# PASS-THROUGH branch these fragments were counted as is_verified=True and
++# pulled into BOTH the kept total (numerator) AND total_in (denominator) —
++# inflating the verified-sentence telemetry with content-empty noise. (The
++# findings branch already drops them via BUG-03 / no_provenance_token, but the
++# pass-through branch did not.)
++#
++# FIX (default-ON, PG_PROVENANCE_SKIP_EMPTY=0 reverts): a content-empty
++# "sentence" — no content words AND no numeric values after stripping citation
++# artifacts, dose/placebo/threshold residue — is EXCLUDED from the verified
++# numerator AND from total_in (denominator). It is neither kept nor dropped; it
++# simply does not count. This changes ONLY the counting of empty noise; it does
++# NOT alter which REAL sentences pass strict_verify (a real sentence has at
++# least one content word or number and is never content-empty).
++def _skip_empty_enabled() -> bool:
++    """I-pipe-016 (#1241). True (default) => content-empty sentences are
++    excluded from the verified numerator AND total_in denominator. Kill-switch:
++    PG_PROVENANCE_SKIP_EMPTY=0 reverts to the legacy behavior where a
++    content-empty pass-through fragment is counted as verified (byte-identical
++    to pre-#1241). Read at call time so tests can toggle without re-import."""
++    v = os.getenv("PG_PROVENANCE_SKIP_EMPTY", "1").strip().lower()
++    return v in ("1", "true", "yes", "on", "enabled")
++
++
++def _is_content_empty_sentence(sentence: str) -> bool:
++    """I-pipe-016 (#1241). True iff `sentence` carries NO real claim content —
++    no content words AND no numeric values — after stripping citation artifacts
++    (provenance/calc tokens, atom_NNN, bare [ev_XXX]) and dose/placebo/threshold
++    structural residue.
++
++    Uses the SAME stripping the BUG-03 numeric/empty floor uses inside
++    verify_sentence_provenance, so the two definitions agree: a fragment this
++    returns True for is exactly the kind verify_sentence_provenance would drop
++    with `empty_or_contentless_sentence`. A sentence with ANY content word OR
++    ANY number returns False (never excluded), so REAL sentences are untouched.
++    """
++    cleaned = _verifier_cleaned_text(sentence)
++    stripped = _strip_dose_patterns(cleaned)
++    stripped = _PLACEBO_COMPARATOR_RE.sub(" ", stripped)
++    stripped = _THRESHOLD_RE.sub(" ", stripped)
++    no_content = not _content_words(stripped)
++    no_numbers = not _decimals_in(stripped) and not _numbers_in(stripped)
++    return no_content and no_numbers
++
++
+ def strict_verify(
+     draft_text: str,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -2268,9 +2424,35 @@ def strict_verify(
+     kept: list[SentenceVerification] = []
+     dropped: list[SentenceVerification] = []
+ 
++    # I-pipe-015 (#1240) + I-pipe-016 (#1241) flags, read once per call.
++    _honest_tokens = _token_honest_drop_enabled()
++    _skip_empty = _skip_empty_enabled()
++
++    # I-pipe-016 (#1241): content-empty fragments are excluded from total_in
++    # (denominator) — they are neither kept nor dropped, they do not count.
++    _excluded_empty = 0
++
+     # Findings: strict provenance verification
+     findings_sentences = split_into_sentences(findings_text)
+     for s in findings_sentences:
++        # I-pipe-015 (#1240): canonicalize a malformed `[ev:...]` token to
++        # `[#ev:...]` so an otherwise-valid citation is not silently lost. The
++        # canonical form is what flows to verify_sentence_provenance (and is
++        # stored on .sentence), so downstream token-stripping in
++        # resolve_provenance_to_citations works and no malformed literal leaks
++        # into the rendered report. The canonicalized token STILL runs the full
++        # validation — bracket format is fixed, no check is bypassed.
++        if _honest_tokens:
++            s = _canonicalize_malformed_ev_tokens(s)
++        # I-pipe-016 (#1241): a content-empty fragment (orphaned citation /
++        # punctuation residue with no content word and no number) is excluded
++        # from BOTH numerator and denominator. verify_sentence_provenance would
++        # already DROP it (BUG-03 / no_provenance_token), so excluding it from
++        # the denominator instead of dropping it only removes empty noise from
++        # the telemetry; it never lets an unverified REAL sentence through.
++        if _skip_empty and _is_content_empty_sentence(s):
++            _excluded_empty += 1
++            continue
+         v = verify_sentence_provenance(
+             s, evidence_pool,
+             require_number_match=require_number_match,
+@@ -2302,6 +2484,17 @@ def strict_verify(
+     # else pass-through (M-204 backward-compat).
+     limitations_sentences = split_into_sentences(limitations_text)
+     for s in limitations_sentences:
++        # I-pipe-015 (#1240): same malformed-token canonicalization as findings.
++        if _honest_tokens:
++            s = _canonicalize_malformed_ev_tokens(s)
++        # I-pipe-016 (#1241): exclude content-empty pass-through fragments from
++        # the verified numerator AND total_in. This is the PRIMARY inflation
++        # site the forensic flagged: the pass-through branch below counted a
++        # bare `[#ev:...]` orphan as is_verified=True. A REAL limitations
++        # sentence carries telemetry numbers / words and is never excluded.
++        if _skip_empty and _is_content_empty_sentence(s):
++            _excluded_empty += 1
++            continue
+         if telemetry_block is not None:
+             v = verify_limitations_sentence_against_telemetry(
+                 s, telemetry_block,
+@@ -2320,7 +2513,12 @@ def strict_verify(
+                 soft_warnings=["limitations_paragraph_pass_through"],
+             ))
+ 
+-    total_in = len(findings_sentences) + len(limitations_sentences)
++    # I-pipe-016 (#1241): total_in excludes content-empty fragments so the
++    # verified ratio reflects only real sentences. When PG_PROVENANCE_SKIP_EMPTY
++    # is OFF, _excluded_empty stays 0 and total_in is byte-identical to before.
++    total_in = (
++        len(findings_sentences) + len(limitations_sentences) - _excluded_empty
++    )
+     return StrictVerificationReport(
+         kept_sentences=kept,
+         dropped_sentences=dropped,
+diff --git a/src/polaris_graph/generator/quantified_analysis.py b/src/polaris_graph/generator/quantified_analysis.py
+index 98a879f8..23904c61 100644
+--- a/src/polaris_graph/generator/quantified_analysis.py
++++ b/src/polaris_graph/generator/quantified_analysis.py
+@@ -46,6 +46,32 @@ _CALC_PLACEHOLDER_RE = re.compile(r"\{\{calc:(?P<field>[^}]+)\}\}")
+ # manifest telemetry so the operator sees the corpus contradiction (named, Law VI).
+ _CALC_CONFLICT_REL_TOL = float(os.environ.get("PG_CALC_CONFLICT_REL_TOL", "0.05"))
+ 
++# I-pipe-012 (#1237): typed-status discrimination for the quantified differentiator.
++# The pre-fix function returned a bare ``None`` at three distinct death points
++# (spec_provider raised / returned non-dict / build_quantified_spec rejected /
++# execution failed / no verified sentences) that a caller could only tell apart by
++# scraping the free-text log. ``telem["quantified_status"]`` is the discrete, machine-
++# readable verdict so a post-run audit can separate "no numbers to model" (decline)
++# from "the differentiator silently broke" (transport/parse failure). The success path
++# stamps ``ok``. None of these statuses changes a VERIFIED claim — they only label WHY
++# the (already strict_verify/Regime-C-gated) section did or did not land.
++QUANTIFIED_STATUS_OK = "ok"                       # spec validated, executed, ≥1 sentence survived Regime C
++QUANTIFIED_STATUS_DECLINED_NO_SPEC = "declined_no_spec"  # Writer returned no dict (decline OR collapsed transport — see cross-file)
++QUANTIFIED_STATUS_EMPTY_TRANSPORT = "empty_transport"    # reserved: a true empty-200/404 transport miss (only reachable once the caller stops collapsing it into None — see cross_file_deferred)
++QUANTIFIED_STATUS_PARSE_ERROR = "parse_error"     # spec_provider RAISED, or emitted a dict that failed hard validation / execution
++
++# Kill-switch (LAW VI): default-ON typed-status + bounded transient retry. Set to
++# "0"/"false" to REVERT to the pre-fix behavior — a bare ``None`` return with NO
++# ``quantified_status`` key added to telem and a SINGLE spec_provider call (no retry).
++_TYPED_STATUS_ENABLED = os.environ.get("PG_QUANTIFIED_TYPED_STATUS", "1").strip().lower() not in (
++    "0", "false", "no", "off",
++)
++
++# Bounded retries for a TRANSIENT spec_provider transport/parse failure (the RAISED
++# path only — a non-dict return is a Writer DECLINE, never retried; re-billing a
++# decline is waste). Total attempts = 1 + retries. Default 1 retry (2 attempts).
++_SPEC_PROVIDER_RETRIES = max(0, int(os.environ.get("PG_QUANTIFIED_SPEC_RETRIES", "1")))
++
+ 
+ def detect_sourced_conflicts(
+     sourced_numbers: list[dict[str, Any]],
+@@ -304,6 +330,46 @@ def render_decision_matrix_prose(spec: ModelSpec, result: QuantifiedResult) -> s
+ _MODELED_LABEL_TEXT = "(modeled assumption)"
+ 
+ 
++def _stamp_status(telem: dict[str, Any], status: str) -> None:
++    """I-pipe-012 (#1237): ADD the discrete typed ``quantified_status`` to telem,
++    but ONLY when the kill-switch is ON. With ``PG_QUANTIFIED_TYPED_STATUS=0`` this
++    is a no-op so the returned telem dict is byte-identical to the pre-fix shape
++    (existing ``firing_status`` + every other key is preserved either way — this
++    only ever ADDS a key, never mutates or removes an existing one)."""
++    if _TYPED_STATUS_ENABLED:
++        telem["quantified_status"] = status
++
++
++async def _call_spec_provider_with_retry(
++    spec_provider, question: str, sourced_numbers: list[dict[str, Any]],
++) -> tuple[Any, BaseException | None]:
++    """I-pipe-012 (#1237): call the (billed) ``spec_provider`` with a BOUNDED retry
++    on a TRANSIENT transport/parse failure (the RAISED path only).
++
++    Returns ``(raw_spec, last_exc)``. On success ``raw_spec`` is the provider's
++    return value (which may legitimately be a non-dict DECLINE) and ``last_exc`` is
++    None. If every attempt raised, ``raw_spec`` is None and ``last_exc`` is the final
++    exception. A non-dict return is NOT retried here (that is a Writer decline, not a
++    transient fault — re-billing it is waste); only a raised exception is retried.
++
++    When the kill-switch is OFF, exactly ONE attempt is made (no retry), preserving
++    the pre-fix single-call billing profile. NEVER fabricates a spec on failure."""
++    attempts = (1 + _SPEC_PROVIDER_RETRIES) if _TYPED_STATUS_ENABLED else 1
++    last_exc: BaseException | None = None
++    for attempt in range(attempts):
++        try:
++            raw_spec = await spec_provider(question, sourced_numbers)
++            return raw_spec, None
++        except Exception as exc:  # noqa: BLE001 — transient transport/parse fault; bounded retry
++            last_exc = exc
++            if attempt + 1 < attempts:
++                logger.warning(
++                    "[quantified_analysis] spec_provider raised (attempt %d/%d), retrying: %s",
++                    attempt + 1, attempts, str(exc)[:160],
++                )
++    return None, last_exc
++
++
+ async def run_quantified_section(
+     question: str,
+     evidence_pool: dict[str, dict[str, Any]],
+@@ -353,16 +419,23 @@ async def run_quantified_section(
+     telem["conflicts"] = detect_sourced_conflicts(sourced_numbers)
+     telem["sourced_numbers_extracted"] = len(sourced_numbers)
+ 
+-    try:
+-        raw_spec = await spec_provider(question, sourced_numbers)
+-    except Exception as exc:
++    # I-pipe-012 (#1237): bounded retry on a TRANSIENT raised transport/parse fault
++    # (kill-switch ON). With PG_QUANTIFIED_TYPED_STATUS=0 this is a single call (no
++    # retry) and the except-branch below is byte-identical to the pre-fix path.
++    raw_spec, _spec_exc = await _call_spec_provider_with_retry(
++        spec_provider, question, sourced_numbers,
++    )
++    if _spec_exc is not None:
+         # UNAMBIGUOUSLY broken: the Writer/transport raised (e.g. a 404 on the
+         # generator route surfaced as an exception). Loud, distinct, non-aborting.
+         telem["firing_status"] = "spec_provider_error"
+-        telem["firing_error"] = str(exc)[:200]
++        telem["firing_error"] = str(_spec_exc)[:200]
++        # I-pipe-012 (#1237): a raised provider is a transport/parse fault (we already
++        # exhausted the bounded retry) — the discrete "silently broke" verdict.
++        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
+         logger.warning(
+             "[quantified_analysis] NO-OP (spec_provider_error): spec_provider raised: %s",
+-            str(exc)[:160],
++            str(_spec_exc)[:160],
+         )
+         return None, telem
+     if not isinstance(raw_spec, dict):
+@@ -373,6 +446,12 @@ async def run_quantified_section(
+         # here — the caller lane must stop collapsing the two (see module summary). Tag
+         # it honestly rather than guess a confident reason we can't support.
+         telem["firing_status"] = "no_spec_returned"
++        # I-pipe-012 (#1237): a non-dict return is the Writer DECLINE (or a caller-
++        # collapsed transport miss — see cross-file note). We map it to
++        # declined_no_spec because that is all we can HONESTLY assert module-side; the
++        # true empty_transport status only becomes reachable once the caller stops
++        # collapsing a 404/empty-200 into the same bare None (cross_file_deferred).
++        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
+         logger.warning(
+             "[quantified_analysis] NO-OP (no_spec_returned): spec_provider returned "
+             "no dict (transport failure OR legitimate Writer decline — caller collapses "
+@@ -390,6 +469,10 @@ async def run_quantified_section(
+         # build_quantified_spec (datapoint identity, formula AST, material-dependency,
+         # etc.). A defensible-but-rejected model, not a transport failure.
+         telem["firing_status"] = "spec_validation_rejected"
++        # I-pipe-012 (#1237): the Writer emitted a dict that FAILED hard validation —
++        # a malformed/unparseable spec, classed with the parse_error family (the
++        # differentiator broke on a bad payload, not a clean decline).
++        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
+         logger.warning(
+             "[quantified_analysis] NO-OP (spec_validation_rejected): Writer emitted a "
+             "spec dict but it failed build_quantified_spec validation (fail-closed)",
+@@ -403,6 +486,9 @@ async def run_quantified_section(
+     result = await execute_quantified_model(spec, evidence_pool, run_dir=run_dir)
+     if result is None:
+         telem["firing_status"] = "execution_failed"
++        # I-pipe-012 (#1237): the sandbox returned no clean outputs — a parse/execution
++        # fault on an otherwise-valid spec, classed with the parse_error family.
++        _stamp_status(telem, QUANTIFIED_STATUS_PARSE_ERROR)
+         logger.warning(
+             "[quantified_analysis] NO-OP (execution_failed): spec validated but the "
+             "deterministic sandbox execution did not return clean outputs (model %s)",
+@@ -423,6 +509,11 @@ async def run_quantified_section(
+         # The spec executed but EVERY computed sentence failed Regime C (e.g. an
+         # unlabeled modeled assumption, a number≠display mismatch). No verified prose.
+         telem["firing_status"] = "no_verified_sentences"
++        # I-pipe-012 (#1237): the spec executed but EVERY computed sentence failed
++        # Regime C — this is the faithfulness gate doing its job (a legitimate,
++        # NON-broken decline-to-emit). Class it as declined_no_spec (the
++        # differentiator did not silently break; it correctly emitted nothing).
++        _stamp_status(telem, QUANTIFIED_STATUS_DECLINED_NO_SPEC)
+         logger.warning(
+             "[quantified_analysis] NO-OP (no_verified_sentences): %d computed "
+             "sentence(s) all failed Regime C verification (model %s)",
+@@ -455,6 +546,10 @@ async def run_quantified_section(
+     # Reached only when a spec validated, executed, and ≥1 computed sentence survived
+     # Regime C — the differentiator actually FIRED.
+     telem["firing_status"] = "fired"
++    # I-pipe-012 (#1237): the success verdict — a parseable spec produced a verified
++    # payload (the kept sentences, surfaced via verified_sentences / the rendered
++    # section). "ok+payload" per the acceptance criteria.
++    _stamp_status(telem, QUANTIFIED_STATUS_OK)
+ 
+     rendered, _biblio = resolve_provenance_to_citations(
+         report.kept_sentences, evidence_pool,
+diff --git a/src/polaris_graph/nodes/completeness_checker.py b/src/polaris_graph/nodes/completeness_checker.py
+index c822b08d..19a818ec 100644
+--- a/src/polaris_graph/nodes/completeness_checker.py
++++ b/src/polaris_graph/nodes/completeness_checker.py
+@@ -14,6 +14,7 @@ the gap into the pipeline_telemetry block).
+ from __future__ import annotations
+ 
+ import logging
++import os
+ import re
+ from dataclasses import dataclass, field
+ from pathlib import Path
+@@ -29,6 +30,32 @@ logger = logging.getLogger("polaris_graph.completeness_checker")
+ _REPO_ROOT = Path(__file__).resolve().parents[3]
+ _CHECKLIST_DIR = _REPO_ROOT / "config" / "completeness_checklists"
+ 
++# ── I-pipe-011 (#1236): shared benchmark-strict-gates switch ──────────────────
++# When OFF (default) a vacuous "0 of 0" completeness (no planner facet / empty
++# checklist applied → `completeness_state == "not_applicable"`) is left ADVISORY,
++# exactly as before — every existing consumer is byte-identical. When the operator
++# turns the SHARED benchmark flag ON, a run with no measured coverage DENOMINATOR
++# must NOT read as complete: `completeness_ready` flips to False for not_applicable
++# so a 0/0 run is surfaced as NOT-COMPLETE rather than a silent vacuous pass.
++#
++# Faithfulness note: this gate only adds a FAIL-LOUD condition (a 0/0 run is held,
++# not released). It NEVER relaxes strict_verify / NLI / the 4-role D8 audit, never
++# fabricates a denominator, and never changes a MEASURED fraction.
++_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
++_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
++
++
++def _benchmark_strict_gates() -> bool:
++    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
++
++    Default OFF: an unset / empty / falsy value yields False, so the strict
++    0/0-is-not-complete behavior is opt-in for benchmark runs only.
++    """
++    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
++    if raw is None:
++        return False
++    return raw.strip().lower() in _TRUE_TOKENS
++
+ 
+ @dataclass
+ class ChecklistTopic:
+@@ -76,6 +103,41 @@ class CompletenessReport:
+         """
+         return "not_applicable" if self.total_applicable == 0 else "measured"
+ 
++    @property
++    def completeness_ready(self) -> bool:
++        """I-pipe-011 (#1236): is this completeness result a NON-vacuous PASS?
++
++        Three-valued logic, gated by ``PG_BENCHMARK_STRICT_GATES``:
++
++        * ``measured`` (real denominator, ``total_applicable > 0``): READY iff the
++          measured fraction clears ``min_covered_fraction`` (default 0.5) — same
++          measured behaviour in both flag states.
++        * ``not_applicable`` (``total_applicable == 0`` → vacuous ``covered_fraction``
++          of 1.0 from an empty checklist / no planner facet):
++            - flag OFF (default): READY (advisory pass — byte-identical to the prior
++              behaviour where a 0/0 result was never a release blocker).
++            - flag ON (benchmark strict): NOT READY. A run with no measured coverage
++              DENOMINATOR must not read as complete; 0/0 is surfaced as NOT-COMPLETE
++              so the gate FAILS LOUD instead of passing vacuously.
++
++        This NEVER touches strict_verify / NLI / the 4-role D8 audit, never invents a
++        denominator, and never alters a measured fraction. It only adds a held verdict
++        for an empty denominator when the benchmark flag is on.
++        """
++        return self.is_complete()
++
++    def is_complete(self, *, min_covered_fraction: float = 0.5) -> bool:
++        """Parametrised form of :pyattr:`completeness_ready` (testable threshold).
++
++        ``min_covered_fraction`` only affects the ``measured`` branch; the
++        ``not_applicable`` branch is decided solely by ``PG_BENCHMARK_STRICT_GATES``.
++        """
++        if self.completeness_state == "not_applicable":
++            # 0/0: vacuous. Strict benchmark mode refuses to call it complete.
++            return not _benchmark_strict_gates()
++        # Measured denominator: identical decision regardless of the flag.
++        return self.covered_fraction >= min_covered_fraction
++
+     def uncovered_topic_ids(self) -> list[str]:
+         return [
+             tc.topic.id
+diff --git a/src/polaris_graph/retrieval/evidence_selector.py b/src/polaris_graph/retrieval/evidence_selector.py
+index 10508793..94248a5b 100644
+--- a/src/polaris_graph/retrieval/evidence_selector.py
++++ b/src/polaris_graph/retrieval/evidence_selector.py
+@@ -14,6 +14,7 @@ exactly what the generator saw.
+ """
+ from __future__ import annotations
+ 
++import logging
+ import math
+ import os
+ import re
+@@ -22,6 +23,9 @@ from dataclasses import dataclass, field
+ from typing import Any
+ 
+ 
++_LOGGER = logging.getLogger(__name__)
++
++
+ # Tier priority for within-pool ranking. Lower tier number = higher priority.
+ _TIER_PRIORITY: dict[str, int] = {
+     "T1": 1, "T2": 2, "T3": 3, "T4": 4,
+@@ -1308,6 +1312,79 @@ def _m46_short_pool_ordered_selection(
+     )
+ 
+ 
++# ── I-pipe-003 (#1228): honest relevance-floor drop telemetry + anchor preserve ─
++# Forensic (dual Claude+Codex 2026-06-12): PG_RELEVANCE_FLOOR=0.30 cut 236 of 589
++# rows (589 -> 353) but the operator-facing `[select] ... dropped=0` hid it. Root
++# cause: `_relevance_floor_selection` ALREADY reports the real drop in
++# `dropped_count` (len(scored) - len(kept)), but the downstream capped-finding-dedup
++# pass in run_honest_sweep_r3.py REASSIGNS the EvidenceSelection to a SECOND
++# `relevance_floor=None` call whose short-pool path legitimately returns
++# `dropped_count=0` — laundering the floor cut out of the surfaced telemetry. The
++# operator-facing line fix is cross-file (run_honest_sweep_r3.py:4723); the in-file
++# fix here EMITS the real floor-cut count at the moment the cut happens, which
++# survives the downstream reassignment.
++#
++# PG_RELEVANCE_HONEST_DROP (default ON): log the ACTUAL number of rows cut by the
++#   floor (never 0 when cuts occurred). `=0` reverts to the prior no-log behavior.
++#   Telemetry-only — does NOT change `dropped_count`, `notes`, or which rows are
++#   kept, so flag value never alters the selection itself.
++# PG_RELEVANCE_PRESERVE_ANCHORS (default OFF): when on, never cut a marquee /
++#   required-entity row even if it scores below the floor. This EXTENDS the existing
++#   `primary_trial_anchors` floor-exemption (line ~1342) to the DISTINCT marquee
++#   marker set (`is_marquee` / `required_entity` / `anchor_seed` / `is_anchor` /
++#   `entity_anchor` / `marquee` flags, or a `required_entity`/`anchor` seed_source /
++#   query_origin — mirrors multi_section_generator._breadth_row_is_marquee, I-pipe-006
++#   #1231). OFF => byte-identical keep set. Faithfulness-safe: this can only ADD an
++#   already-fetched row to the candidate pool — strict_verify / NLI / 4-role still
++#   gate every emitted sentence; no unverified claim is fabricated to fill a gap.
++
++
++def _relevance_honest_drop_enabled() -> bool:
++    """Kill-switch `PG_RELEVANCE_HONEST_DROP` (default ON). When ON, the
++    relevance-floor selection logs the ACTUAL number of rows cut by the floor.
++    `=0`/`false`/`off`/`no` reverts to the prior no-log behavior. Telemetry-only:
++    NEVER changes which rows are kept or the returned `dropped_count`."""
++    raw = os.environ.get("PG_RELEVANCE_HONEST_DROP", "1").strip().lower()
++    return raw not in ("0", "false", "no", "off")
++
++
++def _relevance_preserve_anchors_enabled() -> bool:
++    """Kill-switch `PG_RELEVANCE_PRESERVE_ANCHORS` (default OFF). When ON, a
++    marquee / required-entity row is floor-EXEMPT (kept even below the floor),
++    extending the existing primary-anchor exemption to the distinct marquee marker
++    set. OFF => byte-identical keep set (the prior behavior)."""
++    raw = os.environ.get("PG_RELEVANCE_PRESERVE_ANCHORS", "0").strip().lower()
++    return raw not in ("0", "false", "no", "off", "")
++
++
++def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
++    """True iff an evidence row was contributed by the required-entity / anchor
++    lane and therefore is a marquee primary source that must not be floor-cut.
++
++    Detection uses ONLY existing evidence-row fields (no schema invention) and
++    mirrors `multi_section_generator._breadth_row_is_marquee` (I-pipe-006 #1231):
++    a truthy `is_marquee` / `required_entity` / `anchor_seed` / `is_anchor` /
++    `entity_anchor` / `marquee` flag, OR a `required_entity`/`anchor` substring in
++    `seed_source` / `query_origin` / `seed_query_origin`. This is a DISTINCT marker
++    set from `primary_trial_anchors` (which `_m42e_detect_primary_for_anchor` matches
++    by RCT name/title) — a required-entity row can score below floor AND fail the
++    primary-anchor name match, so without this exemption it would be silently cut."""
++    if not isinstance(row, dict):
++        return False
++    for flag in ("is_marquee", "required_entity", "anchor_seed", "is_anchor",
++                 "entity_anchor", "marquee"):
++        if row.get(flag):
++            return True
++    seed_source = str(row.get("seed_source") or "").lower()
++    if "required_entity" in seed_source or "anchor" in seed_source:
++        return True
++    for origin_key in ("query_origin", "seed_query_origin"):
++        origin = str(row.get(origin_key) or "").lower()
++        if "required_entity" in origin or "anchor" in origin:
++            return True
++    return False
++
++
+ def _relevance_floor_selection(
+     *,
+     scored: list[tuple[int, float, str, dict[str, Any]]],
+@@ -1337,9 +1414,22 @@ def _relevance_floor_selection(
+         a = row.get("authority_score")
+         return 1.0 if a is None else float(a)
+ 
++    # I-pipe-003 (#1228): PG_RELEVANCE_PRESERVE_ANCHORS (default OFF). When ON, a
++    # below-floor marquee / required-entity row is also floor-EXEMPT. OFF =>
++    # `_preserve_marquee` is False => predicate is byte-identical to the prior
++    # `item[1] >= relevance_floor or _is_anchor(item[3])`.
++    _preserve_marquee = _relevance_preserve_anchors_enabled()
++
++    def _floor_exempt(row: dict[str, Any]) -> bool:
++        if _is_anchor(row):
++            return True
++        if _preserve_marquee and _row_is_marquee_anchor(row):
++            return True
++        return False
++
+     kept = [
+         item for item in scored
+-        if item[1] >= relevance_floor or _is_anchor(item[3])
++        if item[1] >= relevance_floor or _floor_exempt(item[3])
+     ]
+     kept.sort(
+         key=lambda s: (
+@@ -1359,17 +1449,45 @@ def _relevance_floor_selection(
+         1 for item in kept
+         if item[1] < relevance_floor and _is_anchor(item[3])
+     )
++    # I-pipe-003 (#1228): rows kept ONLY because the preserve-anchors flag exempted
++    # a below-floor marquee row (i.e. not already a primary anchor). 0 when the flag
++    # is OFF — so the note below is byte-identical in the default (OFF) case.
++    marquee_exempt = sum(
++        1 for item in kept
++        if (_preserve_marquee
++            and item[1] < relevance_floor
++            and not _is_anchor(item[3])
++            and _row_is_marquee_anchor(item[3]))
++    )
++    dropped_count = len(scored) - len(kept)
++    # I-pipe-003 (#1228): emit the ACTUAL floor-cut count (PG_RELEVANCE_HONEST_DROP,
++    # default ON). This is the count the operator-facing telemetry was hiding as
++    # `dropped=0` (the downstream capped-finding-dedup reassignment laundered the
++    # floor object's honest `dropped_count` out of the surfaced line). Telemetry-only
++    # — `dropped_count` / `notes` / kept rows are unchanged by this flag.
++    if _relevance_honest_drop_enabled():
++        _LOGGER.info(
++            "[select] relevance_floor=%s honest_drop: cut %d of %d rows "
++            "(kept %d; anchor_floor_exempt=%d; marquee_floor_exempt=%d)",
++            relevance_floor, dropped_count, len(scored), len(kept),
++            anchor_exempt, marquee_exempt,
++        )
++    note = (
++        f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
++        f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
++        f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}"
++    )
++    # Only widen the note string when the preserve-anchors flag is ON, so the
++    # default (OFF) note is byte-identical to the prior behavior.
++    if _preserve_marquee:
++        note += f"; marquee_floor_exempt={marquee_exempt}"
+     return EvidenceSelection(
+         selected_rows=selected_rows,
+         full_counts=full_counts,
+         selected_counts=selected_counts,
+-        dropped_count=len(scored) - len(kept),
++        dropped_count=dropped_count,
+         selection_strategy="relevance_floor_v1",
+-        notes=[
+-            f"relevance_floor={relevance_floor}: kept {len(kept)}/{len(scored)} "
+-            f"rows (>= floor OR primary anchor); no max_rows cap; ranked "
+-            f"relevance x authority_score; anchor_floor_exempt={anchor_exempt}",
+-        ],
++        notes=[note],
+     )
+ 
+ 
+diff --git a/src/polaris_graph/roles/openrouter_role_transport.py b/src/polaris_graph/roles/openrouter_role_transport.py
+index 67c7ca72..6d376218 100644
+--- a/src/polaris_graph/roles/openrouter_role_transport.py
++++ b/src/polaris_graph/roles/openrouter_role_transport.py
+@@ -389,8 +389,95 @@ def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
+ # I-meta-008 FULL-POWER: the reasoning verifiers (Mirror/Judge at effort=xhigh against a 16384-token
+ # budget) take MINUTES per claim — give them their OWN generous timeout (default 900s/15min), not the
+ # cheap 90s shared default (which also governs retrieval/embeddings). Env-overridable (LAW VI).
++# NOTE: this is the PER-POST httpx timeout (bounds ONE network call). It does NOT bound the COMPOSED
++# retry loop (effort-ladder x transport-retries x rate-limit-backoff), which can stack to hours per
++# claim — that composition is bounded SEPARATELY by the #1226 wall-clock watchdog below.
+ _TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
+ 
++# === #1226 (I-pipe-001): blank-content bound + per-call wall-clock watchdog =====================
++# THE FAILURE: a reasoning verifier (e.g. GLM-5.1 Mirror under xhigh) can burn its whole token
++# budget on reasoning and emit EMPTY content every attempt; combined with the per-POST 900s timeout
++# (_TIMEOUT_SECONDS) the COMPOSED retry loop (effort-ladder/provider-failover x transport-retries x
++# rate-limit-backoff) can stall for HOURS per claim, so the D8 4-role gate never finishes and the
++# whole sweep hangs. Two RELIABILITY backstops (NEVER touch a verify/NLI/4-role verdict; on
++# exhaustion they re-raise the EXISTING fail-loud BlankVerdictError/RoleTransportError -> release
++# stays HELD; no fake/empty verdict is ever synthesized):
++#
++#   (1) PG_ROLE_BLANK_MAX_RETRIES (default 3): a HARD ceiling on the number of blank-content RETRIES.
++#       Implemented by TRUNCATING the per-call effort/provider ladder to `1 + max_retries` attempts.
++#       At the default (1 + 3 = 4) this ceiling is >= every role's existing default ladder length
++#       (Judge 3, Mirror/routed-Sentinel 1+PG_PROVIDER_BLANK_RETRIES=4, classifier-Sentinel 1,
++#       decomposition-Sentinel 3), so the truncation is the IDENTITY at default — it only bites when
++#       a custom PG_PROVIDER_BLANK_RETRIES / PG_FOUR_ROLE_EFFORT_LADDER pushes a ladder past the cap.
++#       Exhaustion fires the SAME existing `raise` at ladder-end -> the existing BlankVerdictError.
++#
++#   (2) PG_ROLE_CALL_TIMEOUT_S (default 3600s/1h): a COOPERATIVE wall-clock watchdog over the whole
++#       `complete()` retry loop (checked at the top of each attempt + before each rate-limit sleep).
++#       It does NOT interrupt an in-flight POST (httpx's _TIMEOUT_SECONDS bounds that) — it bounds the
++#       COMPOSITION so a stuck-in-retries call aborts LOUDLY instead of hanging the sweep. 1h is a
++#       deliberately-generous BACKSTOP against a wedged call, NOT a tight SLO: it sits well above any
++#       HEALTHY 4-role call (a healthy claim resolves in seconds-to-minutes — the ladder rarely runs
++#       to exhaustion, and a single blanking call returns its empty 200 quickly, it does not consume
++#       the full per-POST 900s). The worst-case LEGITIMATE composition (every rung waiting near the
++#       full _TIMEOUT_SECONDS, plus transport-retries and rate-limit backoff) CAN approach/exceed 1h;
++#       that path is already pathological (it IS the stall this fix targets), so aborting it loudly is
++#       the intended behavior, and the operator RAISES PG_ROLE_CALL_TIMEOUT_S if a slower legitimate
++#       budget is ever needed (LAW VI). On trip it re-raises the last BlankVerdictError (if the loop
++#       was blanking) else a RoleTransportError (both fail-loud; never a synthesized verdict).
++#
++# KILL-SWITCH (default-ON correct fix): PG_ROLE_BLANK_WATCHDOG (default "1"). Set "0"/"false"/"no" to
++# REVERT to the prior behavior — when OFF neither the ladder truncation nor the watchdog check ever
++# fires, so control flow is byte-identical to before #1226. (Reliability-only kill-switch pattern.)
++# Read LAZILY per-call (mirrors the adjacent PG_* knobs) so an override set after import is honored.
++_ROLE_BLANK_WATCHDOG_ENV = "PG_ROLE_BLANK_WATCHDOG"
++_ROLE_BLANK_MAX_RETRIES_ENV = "PG_ROLE_BLANK_MAX_RETRIES"
++_ROLE_BLANK_MAX_RETRIES_DEFAULT = "3"
++_ROLE_CALL_TIMEOUT_S_ENV = "PG_ROLE_CALL_TIMEOUT_S"
++_ROLE_CALL_TIMEOUT_S_DEFAULT = "3600.0"
++
++
++def role_blank_watchdog_enabled() -> bool:
++    """Whether the #1226 blank-bound + wall-clock watchdog is ON (kill-switch, default ON).
++
++    `PG_ROLE_BLANK_WATCHDOG` "0"/"false"/"no" -> OFF (revert to pre-#1226 behavior, byte-identical
++    control flow); absent or anything else -> ON (the default-ON correct fix). LAW VI: env-driven,
++    read lazily so a runtime override is honored.
++    """
++    token = os.getenv(_ROLE_BLANK_WATCHDOG_ENV, "1").strip().lower()
++    return token not in ("0", "false", "no", "off")
++
++
++def role_blank_max_retries() -> int:
++    """The #1226 hard ceiling on blank-content RETRIES (default 3 -> 1+3=4 total attempts).
++
++    Clamped to >= 0 (a negative env can never produce a sub-1 attempt budget). The ladder is
++    truncated to `1 + role_blank_max_retries()` attempts. LAW VI: env-driven, read lazily.
++    """
++    return max(0, int(os.getenv(_ROLE_BLANK_MAX_RETRIES_ENV, _ROLE_BLANK_MAX_RETRIES_DEFAULT)))
++
++
++def role_call_timeout_seconds() -> float:
++    """The #1226 wall-clock watchdog budget for the WHOLE `complete()` retry loop (default 3600s).
++
++    Clamped to > 0 (a non-positive value would abort every call immediately); a non-positive or
++    unparseable override falls back to the generous default. LAW VI: env-driven, read lazily.
++    """
++    raw = os.getenv(_ROLE_CALL_TIMEOUT_S_ENV, _ROLE_CALL_TIMEOUT_S_DEFAULT)
++    try:
++        value = float(raw)
++    except (TypeError, ValueError):
++        return float(_ROLE_CALL_TIMEOUT_S_DEFAULT)
++    return value if value > 0 else float(_ROLE_CALL_TIMEOUT_S_DEFAULT)
++
++
++def _watchdog_expired(start_monotonic: float, timeout_s: float, now_monotonic: float) -> bool:
++    """Pure predicate: has `(now - start)` exceeded the watchdog budget? (testable in isolation).
++
++    Uses a monotonic clock delta (never wall-clock, so an NTP step cannot spuriously trip it).
++    Returns True iff the elapsed time strictly exceeds `timeout_s`.
++    """
++    return (now_monotonic - start_monotonic) > timeout_s
++
+ # I-beatboth-429 (#1173): a per-claim judge burst (~178 calls for drb_72) trips OpenRouter's
+ # rate limit on the qwen judge — a 429 (or a transient 503) on a SINGLE role call must NOT hold
+ # the 4-role release. Bounded exponential backoff-retry on the retryable HTTP statuses, honoring
+@@ -775,8 +862,36 @@ class OpenRouterRoleTransport:
+         )
+         last_blank: BlankVerdictError | None = None
+ 
++        # #1226 (I-pipe-001) — RELIABILITY backstops (kill-switch default-ON; PG_ROLE_BLANK_WATCHDOG=0
++        # reverts to byte-identical control flow). When ON: (1) TRUNCATE the ladder to a hard ceiling
++        # of (1 + PG_ROLE_BLANK_MAX_RETRIES) attempts so a custom ladder / high PG_PROVIDER_BLANK_RETRIES
++        # can never make the blank loop unbounded — at the default cap (4) this is the IDENTITY for every
++        # role (Judge 3, Mirror/routed-Sentinel 4, classifier 1, decomp 3 are all <= 4). (2) START a
++        # monotonic-clock wall-clock watchdog over the WHOLE retry loop (checked below at the top of each
++        # attempt + before each rate-limit sleep). NEITHER affects a verdict: exhaustion re-raises the
++        # SAME existing fail-loud BlankVerdictError/RoleTransportError -> release HELD; no fake verdict.
++        _watchdog_on = role_blank_watchdog_enabled()
++        if _watchdog_on:
++            _max_attempts = 1 + role_blank_max_retries()
++            effort_ladder = effort_ladder[:_max_attempts]
++        _call_timeout_s = role_call_timeout_seconds()
++        _watchdog_start = time.monotonic()
++
+         with _pathb_capture.llm_role(request.role):
+             for attempt, effort in enumerate(effort_ladder):
++                # #1226: COOPERATIVE wall-clock watchdog. If the COMPOSED retry loop has already
++                # exceeded PG_ROLE_CALL_TIMEOUT_S, abort LOUDLY rather than entering yet another (up
++                # to _TIMEOUT_SECONDS-long) POST and hanging the D8 gate. Re-raise the last blank if
++                # the loop was blanking (recoverable-shape, fail-closed downstream) else a plain
++                # RoleTransportError. Never synthesizes a verdict. OFF -> this block never runs.
++                if _watchdog_on and _watchdog_expired(
++                    _watchdog_start, _call_timeout_s, time.monotonic()
++                ):
++                    raise last_blank or RoleTransportError(
++                        f"OpenRouter {request.role!r} call exceeded the #1226 wall-clock watchdog "
++                        f"({_ROLE_CALL_TIMEOUT_S_ENV}={_call_timeout_s}s) across the retry loop at "
++                        f"{url} — aborting loudly so the 4-role D8 gate cannot hang (fail-closed)."
++                    )
+                 # Step the reasoning effort DOWN per attempt (only meaningful for a reasoning role,
+                 # whose body carries a `reasoning` block). `effort is None` => reasoning DISABLED
+                 # (final resort, guarantees content): drop the `reasoning` param. Keep
+@@ -882,6 +997,19 @@ class OpenRouterRoleTransport:
+                         # backoff_cap so a hostile/misconfigured `Retry-After` (e.g. 7200s) can never
+                         # make the judge sleep past the cap (which would itself stall the 4-role run).
+                         delay = min(backoff_cap, delay)
++                        # #1226: before SLEEPING on a rate-limit backoff, honor the wall-clock
++                        # watchdog — if the composed loop has already blown its budget, abort loudly
++                        # instead of sleeping another `delay` seconds and hanging the D8 gate. OFF ->
++                        # this check never runs (control flow byte-identical to pre-#1226).
++                        if _watchdog_on and _watchdog_expired(
++                            _watchdog_start, _call_timeout_s, time.monotonic()
++                        ):
++                            raise last_blank or RoleTransportError(
++                                f"OpenRouter {request.role!r} call exceeded the #1226 wall-clock "
++                                f"watchdog ({_ROLE_CALL_TIMEOUT_S_ENV}={_call_timeout_s}s) while "
++                                f"backing off on HTTP {http_response.status_code} at {url} — "
++                                "aborting loudly (fail-closed; no fake verdict)."
++                            )
+                         logger.warning(
+                             "[polaris graph] #1173: role %s HTTP %d rate-limited, backing off %.1fs "
+                             "(retry %d/%d) at %s",
+diff --git a/src/tools/access_bypass.py b/src/tools/access_bypass.py
+index 9b30c20f..3c93d7e3 100644
+--- a/src/tools/access_bypass.py
++++ b/src/tools/access_bypass.py
+@@ -26,6 +26,7 @@ import re
+ import sys
+ import threading
+ import time as _time_module
++import weakref
+ from typing import Any, Dict, List, Optional
+ from dataclasses import dataclass
+ from urllib.parse import urlparse
+@@ -117,16 +118,97 @@ _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
+ # semaphore (mirrors the PG_JINA_CONCURRENCY=2 pattern). Lazy-init so it binds to the running loop.
+ _crawl4ai_semaphore: "asyncio.Semaphore | None" = None
+ 
++# I-pipe-002 (#1227): per-running-loop crawl4ai concurrency gates.
++#
++# THE BUG (old global path below): `_crawl4ai_semaphore` was a SINGLE module-global
++# `asyncio.Semaphore`. `live_retriever._fetch_content` runs each bypass fetch on a fresh
++# daemon thread with its OWN `asyncio.run` loop. An `asyncio.Semaphore` binds (on 3.11
++# via `_LoopBoundMixin`, lazily on FIRST acquire) to the loop that first acquired it. The
++# first worker thread's loop wins the binding; EVERY OTHER worker thread then hits
++# `RuntimeError: <Semaphore> is bound to a different event loop` inside `async with`,
++# crashing the fetch -> EPIPE -> ~159 distinct JS-rendered journal sources (Oxford/Cambridge)
++# never fetched (553 EPIPE in the forensic).
++#
++# THE FIX (default, kill-switch): keep ONE `asyncio.Semaphore` PER running loop, looked up
++# inside the async context by the loop OBJECT. A `weakref.WeakKeyDictionary` keyed by the
++# loop (NOT a plain dict keyed by `id(loop)`):
++#   - auto-evicts the entry when the worker's loop is GC'd (no per-fetch leak over 1000 URLs),
++#   - is immune to `id()` address-recycling: a closed loop whose address is reused would, with
++#     an id-keyed dict, hand a NEW loop the dead loop's semaphore -> the exact RuntimeError
++#     we are fixing, now intermittent. Keying by the live object cannot alias.
++# A `threading.Lock` guards the dict (WeakKeyDictionary is not safe under concurrent inserts +
++# weakref-removal callbacks).
++#
++# This is a PURE-RELIABILITY kill-switch (default-ON correct fix). It does NOT change WHICH urls
++# are fetched, the concurrency VALUE (still PG_CRAWL4AI_CONCURRENCY), or any verification gate —
++# only that already-selected fetches stop crashing cross-loop. Each worker loop runs ~1 crawl4ai
++# call, so the per-loop value (2) is never contended: the gate never BLOCKS, it just stops the
++# crash. Setting PG_CRAWL4AI_PERLOOP_SEMAPHORE=0 reverts to the old single-global behavior.
++PG_CRAWL4AI_PERLOOP_SEMAPHORE_ENV = "PG_CRAWL4AI_PERLOOP_SEMAPHORE"
++_crawl4ai_perloop_semaphores: "weakref.WeakKeyDictionary[Any, asyncio.Semaphore]" = (
++    weakref.WeakKeyDictionary()
++)
++_crawl4ai_perloop_lock = threading.Lock()
++
++
++def _crawl4ai_perloop_enabled() -> bool:
++    """I-pipe-002 (#1227): per-loop semaphore is ON unless PG_CRAWL4AI_PERLOOP_SEMAPHORE=0.
++
++    Default-ON is the sanctioned kill-switch (pure-reliability correct fix); '0' reverts to
++    the old loop-bound module-global that crashed on every worker thread but the first."""
++    return os.getenv(PG_CRAWL4AI_PERLOOP_SEMAPHORE_ENV, "1").strip() != "0"
++
++
++def _crawl4ai_concurrency() -> int:
++    """Concurrency ceiling for crawl4ai browsers. Default 2 (env PG_CRAWL4AI_CONCURRENCY).
++    A malformed/<=0 value falls back to 2 so a bad knob never disables the bound."""
++    raw = os.getenv("PG_CRAWL4AI_CONCURRENCY", "2")
++    try:
++        parsed = int(raw)
++        if parsed > 0:
++            return parsed
++    except (TypeError, ValueError):
++        pass
++    return 2
++
+ 
+ def _get_crawl4ai_semaphore() -> "asyncio.Semaphore":
+-    """I-fetch-002 (#1168): lazy-init the crawl4ai browser-concurrency gate on the running loop.
++    """I-fetch-002 (#1168) + I-pipe-002 (#1227): crawl4ai browser-concurrency gate.
++
++    MUST be called from inside the running event loop (the `async with` site at the crawl
++    region). Default (PG_CRAWL4AI_PERLOOP_SEMAPHORE != '0'): one `asyncio.Semaphore` per
++    running loop, keyed by the loop object in a `WeakKeyDictionary` — so each worker thread's
++    fresh loop gets a semaphore bound to ITSELF and the `async with` never raises the cross-loop
++    `RuntimeError`. Old path (='0'): the single loop-bound module-global (preserved verbatim).
+     Default 2 concurrent browsers (env PG_CRAWL4AI_CONCURRENCY)."""
++    if not _crawl4ai_perloop_enabled():
++        # --- OLD GLOBAL PATH (PG_CRAWL4AI_PERLOOP_SEMAPHORE=0): byte-for-byte the pre-#1227
++        # behavior. Binds to the first acquiring loop; crashes on every other worker loop. ---
++        global _crawl4ai_semaphore
++        if _crawl4ai_semaphore is None:
++            _crawl4ai_semaphore = asyncio.Semaphore(
++                int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
++            )
++        return _crawl4ai_semaphore
++
++    # --- PER-LOOP PATH (default): a semaphore bound to THIS running loop. ---
++    loop = asyncio.get_running_loop()
++    with _crawl4ai_perloop_lock:
++        sem = _crawl4ai_perloop_semaphores.get(loop)
++        if sem is None:
++            sem = asyncio.Semaphore(_crawl4ai_concurrency())
++            _crawl4ai_perloop_semaphores[loop] = sem
++        return sem
++
++
++def reset_crawl4ai_semaphore_state() -> None:
++    """I-pipe-002 (#1227): reset BOTH crawl4ai semaphore holders (global + per-loop map).
++    For test isolation ONLY — not called on the production path (mirrors
++    `reset_bypass_leak_state`)."""
+     global _crawl4ai_semaphore
+-    if _crawl4ai_semaphore is None:
+-        _crawl4ai_semaphore = asyncio.Semaphore(
+-            int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
+-        )
+-    return _crawl4ai_semaphore
++    _crawl4ai_semaphore = None
++    with _crawl4ai_perloop_lock:
++        _crawl4ai_perloop_semaphores.clear()
+ 
+ 
+ # ---------------------------------------------------------------------------

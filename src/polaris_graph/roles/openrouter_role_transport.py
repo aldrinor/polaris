@@ -389,7 +389,94 @@ def role_reasoning_enabled(role: str, slug_override: str | None = None) -> bool:
 # I-meta-008 FULL-POWER: the reasoning verifiers (Mirror/Judge at effort=xhigh against a 16384-token
 # budget) take MINUTES per claim — give them their OWN generous timeout (default 900s/15min), not the
 # cheap 90s shared default (which also governs retrieval/embeddings). Env-overridable (LAW VI).
+# NOTE: this is the PER-POST httpx timeout (bounds ONE network call). It does NOT bound the COMPOSED
+# retry loop (effort-ladder x transport-retries x rate-limit-backoff), which can stack to hours per
+# claim — that composition is bounded SEPARATELY by the #1226 wall-clock watchdog below.
 _TIMEOUT_SECONDS = int(os.getenv("PG_VERIFIER_LLM_TIMEOUT_SECONDS", "900"))
+
+# === #1226 (I-pipe-001): blank-content bound + per-call wall-clock watchdog =====================
+# THE FAILURE: a reasoning verifier (e.g. GLM-5.1 Mirror under xhigh) can burn its whole token
+# budget on reasoning and emit EMPTY content every attempt; combined with the per-POST 900s timeout
+# (_TIMEOUT_SECONDS) the COMPOSED retry loop (effort-ladder/provider-failover x transport-retries x
+# rate-limit-backoff) can stall for HOURS per claim, so the D8 4-role gate never finishes and the
+# whole sweep hangs. Two RELIABILITY backstops (NEVER touch a verify/NLI/4-role verdict; on
+# exhaustion they re-raise the EXISTING fail-loud BlankVerdictError/RoleTransportError -> release
+# stays HELD; no fake/empty verdict is ever synthesized):
+#
+#   (1) PG_ROLE_BLANK_MAX_RETRIES (default 3): a HARD ceiling on the number of blank-content RETRIES.
+#       Implemented by TRUNCATING the per-call effort/provider ladder to `1 + max_retries` attempts.
+#       At the default (1 + 3 = 4) this ceiling is >= every role's existing default ladder length
+#       (Judge 3, Mirror/routed-Sentinel 1+PG_PROVIDER_BLANK_RETRIES=4, classifier-Sentinel 1,
+#       decomposition-Sentinel 3), so the truncation is the IDENTITY at default — it only bites when
+#       a custom PG_PROVIDER_BLANK_RETRIES / PG_FOUR_ROLE_EFFORT_LADDER pushes a ladder past the cap.
+#       Exhaustion fires the SAME existing `raise` at ladder-end -> the existing BlankVerdictError.
+#
+#   (2) PG_ROLE_CALL_TIMEOUT_S (default 3600s/1h): a COOPERATIVE wall-clock watchdog over the whole
+#       `complete()` retry loop (checked at the top of each attempt + before each rate-limit sleep).
+#       It does NOT interrupt an in-flight POST (httpx's _TIMEOUT_SECONDS bounds that) — it bounds the
+#       COMPOSITION so a stuck-in-retries call aborts LOUDLY instead of hanging the sweep. 1h is a
+#       deliberately-generous BACKSTOP against a wedged call, NOT a tight SLO: it sits well above any
+#       HEALTHY 4-role call (a healthy claim resolves in seconds-to-minutes — the ladder rarely runs
+#       to exhaustion, and a single blanking call returns its empty 200 quickly, it does not consume
+#       the full per-POST 900s). The worst-case LEGITIMATE composition (every rung waiting near the
+#       full _TIMEOUT_SECONDS, plus transport-retries and rate-limit backoff) CAN approach/exceed 1h;
+#       that path is already pathological (it IS the stall this fix targets), so aborting it loudly is
+#       the intended behavior, and the operator RAISES PG_ROLE_CALL_TIMEOUT_S if a slower legitimate
+#       budget is ever needed (LAW VI). On trip it re-raises the last BlankVerdictError (if the loop
+#       was blanking) else a RoleTransportError (both fail-loud; never a synthesized verdict).
+#
+# KILL-SWITCH (default-ON correct fix): PG_ROLE_BLANK_WATCHDOG (default "1"). Set "0"/"false"/"no" to
+# REVERT to the prior behavior — when OFF neither the ladder truncation nor the watchdog check ever
+# fires, so control flow is byte-identical to before #1226. (Reliability-only kill-switch pattern.)
+# Read LAZILY per-call (mirrors the adjacent PG_* knobs) so an override set after import is honored.
+_ROLE_BLANK_WATCHDOG_ENV = "PG_ROLE_BLANK_WATCHDOG"
+_ROLE_BLANK_MAX_RETRIES_ENV = "PG_ROLE_BLANK_MAX_RETRIES"
+_ROLE_BLANK_MAX_RETRIES_DEFAULT = "3"
+_ROLE_CALL_TIMEOUT_S_ENV = "PG_ROLE_CALL_TIMEOUT_S"
+_ROLE_CALL_TIMEOUT_S_DEFAULT = "3600.0"
+
+
+def role_blank_watchdog_enabled() -> bool:
+    """Whether the #1226 blank-bound + wall-clock watchdog is ON (kill-switch, default ON).
+
+    `PG_ROLE_BLANK_WATCHDOG` "0"/"false"/"no" -> OFF (revert to pre-#1226 behavior, byte-identical
+    control flow); absent or anything else -> ON (the default-ON correct fix). LAW VI: env-driven,
+    read lazily so a runtime override is honored.
+    """
+    token = os.getenv(_ROLE_BLANK_WATCHDOG_ENV, "1").strip().lower()
+    return token not in ("0", "false", "no", "off")
+
+
+def role_blank_max_retries() -> int:
+    """The #1226 hard ceiling on blank-content RETRIES (default 3 -> 1+3=4 total attempts).
+
+    Clamped to >= 0 (a negative env can never produce a sub-1 attempt budget). The ladder is
+    truncated to `1 + role_blank_max_retries()` attempts. LAW VI: env-driven, read lazily.
+    """
+    return max(0, int(os.getenv(_ROLE_BLANK_MAX_RETRIES_ENV, _ROLE_BLANK_MAX_RETRIES_DEFAULT)))
+
+
+def role_call_timeout_seconds() -> float:
+    """The #1226 wall-clock watchdog budget for the WHOLE `complete()` retry loop (default 3600s).
+
+    Clamped to > 0 (a non-positive value would abort every call immediately); a non-positive or
+    unparseable override falls back to the generous default. LAW VI: env-driven, read lazily.
+    """
+    raw = os.getenv(_ROLE_CALL_TIMEOUT_S_ENV, _ROLE_CALL_TIMEOUT_S_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(_ROLE_CALL_TIMEOUT_S_DEFAULT)
+    return value if value > 0 else float(_ROLE_CALL_TIMEOUT_S_DEFAULT)
+
+
+def _watchdog_expired(start_monotonic: float, timeout_s: float, now_monotonic: float) -> bool:
+    """Pure predicate: has `(now - start)` exceeded the watchdog budget? (testable in isolation).
+
+    Uses a monotonic clock delta (never wall-clock, so an NTP step cannot spuriously trip it).
+    Returns True iff the elapsed time strictly exceeds `timeout_s`.
+    """
+    return (now_monotonic - start_monotonic) > timeout_s
 
 # I-beatboth-429 (#1173): a per-claim judge burst (~178 calls for drb_72) trips OpenRouter's
 # rate limit on the qwen judge — a 429 (or a transient 503) on a SINGLE role call must NOT hold
@@ -775,8 +862,36 @@ class OpenRouterRoleTransport:
         )
         last_blank: BlankVerdictError | None = None
 
+        # #1226 (I-pipe-001) — RELIABILITY backstops (kill-switch default-ON; PG_ROLE_BLANK_WATCHDOG=0
+        # reverts to byte-identical control flow). When ON: (1) TRUNCATE the ladder to a hard ceiling
+        # of (1 + PG_ROLE_BLANK_MAX_RETRIES) attempts so a custom ladder / high PG_PROVIDER_BLANK_RETRIES
+        # can never make the blank loop unbounded — at the default cap (4) this is the IDENTITY for every
+        # role (Judge 3, Mirror/routed-Sentinel 4, classifier 1, decomp 3 are all <= 4). (2) START a
+        # monotonic-clock wall-clock watchdog over the WHOLE retry loop (checked below at the top of each
+        # attempt + before each rate-limit sleep). NEITHER affects a verdict: exhaustion re-raises the
+        # SAME existing fail-loud BlankVerdictError/RoleTransportError -> release HELD; no fake verdict.
+        _watchdog_on = role_blank_watchdog_enabled()
+        if _watchdog_on:
+            _max_attempts = 1 + role_blank_max_retries()
+            effort_ladder = effort_ladder[:_max_attempts]
+        _call_timeout_s = role_call_timeout_seconds()
+        _watchdog_start = time.monotonic()
+
         with _pathb_capture.llm_role(request.role):
             for attempt, effort in enumerate(effort_ladder):
+                # #1226: COOPERATIVE wall-clock watchdog. If the COMPOSED retry loop has already
+                # exceeded PG_ROLE_CALL_TIMEOUT_S, abort LOUDLY rather than entering yet another (up
+                # to _TIMEOUT_SECONDS-long) POST and hanging the D8 gate. Re-raise the last blank if
+                # the loop was blanking (recoverable-shape, fail-closed downstream) else a plain
+                # RoleTransportError. Never synthesizes a verdict. OFF -> this block never runs.
+                if _watchdog_on and _watchdog_expired(
+                    _watchdog_start, _call_timeout_s, time.monotonic()
+                ):
+                    raise last_blank or RoleTransportError(
+                        f"OpenRouter {request.role!r} call exceeded the #1226 wall-clock watchdog "
+                        f"({_ROLE_CALL_TIMEOUT_S_ENV}={_call_timeout_s}s) across the retry loop at "
+                        f"{url} — aborting loudly so the 4-role D8 gate cannot hang (fail-closed)."
+                    )
                 # Step the reasoning effort DOWN per attempt (only meaningful for a reasoning role,
                 # whose body carries a `reasoning` block). `effort is None` => reasoning DISABLED
                 # (final resort, guarantees content): drop the `reasoning` param. Keep
@@ -882,6 +997,19 @@ class OpenRouterRoleTransport:
                         # backoff_cap so a hostile/misconfigured `Retry-After` (e.g. 7200s) can never
                         # make the judge sleep past the cap (which would itself stall the 4-role run).
                         delay = min(backoff_cap, delay)
+                        # #1226: before SLEEPING on a rate-limit backoff, honor the wall-clock
+                        # watchdog — if the composed loop has already blown its budget, abort loudly
+                        # instead of sleeping another `delay` seconds and hanging the D8 gate. OFF ->
+                        # this check never runs (control flow byte-identical to pre-#1226).
+                        if _watchdog_on and _watchdog_expired(
+                            _watchdog_start, _call_timeout_s, time.monotonic()
+                        ):
+                            raise last_blank or RoleTransportError(
+                                f"OpenRouter {request.role!r} call exceeded the #1226 wall-clock "
+                                f"watchdog ({_ROLE_CALL_TIMEOUT_S_ENV}={_call_timeout_s}s) while "
+                                f"backing off on HTTP {http_response.status_code} at {url} — "
+                                "aborting loudly (fail-closed; no fake verdict)."
+                            )
                         logger.warning(
                             "[polaris graph] #1173: role %s HTTP %d rate-limited, backing off %.1fs "
                             "(retry %d/%d) at %s",

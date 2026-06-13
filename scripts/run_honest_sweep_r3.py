@@ -61,10 +61,22 @@ from src.polaris_graph.synthesis.credibility_pass import (  # noqa: E402
 from src.polaris_graph.benchmark import pathB_capture as _pathb  # noqa: E402
 from src.polaris_graph.generator.multi_section_generator import (  # noqa: E402
     generate_multi_section_report,
+    # I-pipe-008 (#1233): post-bibliography breadth canary (pure helper) +
+    # the SAME url-normalization the breadth code uses, so the CITED-source
+    # count is computed on the same key space.
+    enforce_breadth_canary,
+    _normalize_source_key,
 )
 from src.polaris_graph.generator.provenance_generator import (  # noqa: E402
     resolve_provenance_to_citations,
     strict_verify,
+    # I-pipe-015 (#1240): per-run reset + snapshot of the module-global token-honesty
+    # counters (malformed_canonicalized / malformed_dropped) so counts don't accumulate
+    # across queries and the per-run totals surface in the manifest. `_token_honest_drop_enabled`
+    # gates the snapshot so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a byte-identical manifest.
+    get_token_honesty_telemetry,
+    reset_token_honesty_telemetry,
+    _token_honest_drop_enabled,
 )
 from src.polaris_graph.llm.openrouter_client import (  # noqa: E402
     BudgetExceededError,
@@ -606,6 +618,141 @@ def _env_flag(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in _TRUE_TOKENS
+
+
+# --- I-pipe-010/013/014/012/017/001 (#1235/#1238/#1239/#1237/#1242/#1226) -------------
+# Forensic dual Claude+Codex 2026-06-12 (.codex/I-bench-veracity-003-forensic/) surfaced a
+# cluster of run-sweep gates that FAIL OPEN on a benchmark run: a skewed corpus is accepted
+# as sweep-ready with only a disclosure (#1235), a V30-contract fault silently degrades to
+# the legacy generator (#1238), a manifest can read `success` without the 4-role D8 audit
+# ever running (#1226), and an enabled-but-empty quantified differentiator passes silently
+# (#1237). The shared strict-gate flag below turns those four fail-open paths LOUD on a
+# benchmark run (abort / raise / hold) WITHOUT touching strict_verify, the NLI judge, the
+# 4-role D8 release policy, or any provenance check. DEFAULT OFF: with the flag unset, every
+# `_benchmark_strict_gates_on()`-guarded branch is skipped and the file is behaviorally
+# byte-identical to today.
+#
+# #1239 (empty bibliography locator) and #1242 (tier-mix self-contradiction) get their OWN
+# narrow flags (a selection/rendering change and a pure-correctness change respectively), per
+# the SAFE-PATTERN gating split — they are NOT folded into the shared strict flag.
+_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+_V30_ALLOW_LEGACY_FALLBACK_ENV = "PG_V30_ALLOW_LEGACY_FALLBACK"
+_BIB_REQUIRE_LOCATOR_ENV = "PG_BIB_REQUIRE_LOCATOR"
+_TIER_DISCLOSURE_SINGLE_SOURCE_ENV = "PG_TIER_DISCLOSURE_SINGLE_SOURCE"
+
+
+def _benchmark_strict_gates_on() -> bool:
+    """Shared benchmark strict-gates flag (default OFF). When ON, the four currently
+    fail-open run-sweep gates (#1235/#1238/#1226/#1237) fail LOUD instead of silently
+    accepting/degrading. OFF == byte-identical to the legacy behavior. PURE env read."""
+    return _env_flag(_BENCHMARK_STRICT_GATES_ENV, default=False)
+
+
+def _corpus_skew_blocks_ready(strict: bool, has_material_deviation: bool) -> bool:
+    """#1235: under strict gates, a corpus with a MATERIAL tier deviation must NOT be
+    silently accepted as sweep-ready on the weighted-corpus path — it falls through to the
+    EXISTING structured-authorization gate (check_auto_approve_allowed, which honors the
+    operator override PG_AUTHORIZED_SWEEP_APPROVAL) instead. Returns True iff the caller must
+    bypass the weighted-corpus auto-approve. PURE — no faithfulness logic. Off => always
+    False => unchanged."""
+    return bool(strict and has_material_deviation)
+
+
+def _v30_should_reraise(strict: bool, allow_legacy_fallback: bool) -> bool:
+    """#1238: under strict gates, a V30 contract Phase-2 fault must be FATAL (re-raise to the
+    run_one_query handler -> terminal error_unexpected manifest) instead of silently falling
+    back to the legacy generator — UNLESS the operator explicitly allows the fallback via
+    PG_V30_ALLOW_LEGACY_FALLBACK=1. PURE. Off (or fallback allowed) => False => unchanged."""
+    return bool(strict and not allow_legacy_fallback)
+
+
+def _d8_success_without_audit(
+    strict: bool, unified_status: str, d8_audit_ran: bool
+) -> bool:
+    """#1226: under strict gates, a manifest may NOT read `success` unless the 4-role D8 audit
+    actually completed for this run. Returns True iff the strict guard must convert a would-be
+    success into a loud hold. PURE — does NOT alter the D8 release decision itself (that stays
+    the single binding gate); it only forbids a *pre-D8* success on a benchmark run. Off =>
+    False => unchanged."""
+    return bool(strict and unified_status == "success" and not d8_audit_ran)
+
+
+def _quantified_readiness_failed(
+    strict: bool, force_enabled: bool, telemetry: "dict | None"
+) -> bool:
+    """#1237: under strict gates, if quantified analysis is force-enabled
+    (PG_ENABLE_QUANTIFIED_ANALYSIS=1) but produced NO verified quantified output, fail
+    readiness LOUDLY instead of proceeding silently. Keys on the existing normalized `fired`
+    boolean (telemetry["fired"], computed by _normalize_quantified_telemetry) so this hook
+    works regardless of the exact typed-status strings quantified_analysis.py emits
+    (declined / empty_transport / parse_error). Returns True iff readiness must fail. PURE.
+    Off => False => unchanged."""
+    if not (strict and force_enabled):
+        return False
+    if telemetry is None:
+        # Force-enabled yet no telemetry object at all == the silent no-op this guards.
+        return True
+    return not bool(telemetry.get("fired"))
+
+
+def _tier_mix_disclosure_summary(tier_fractions: "dict[str, float]") -> str:
+    """#1242: the SINGLE source of truth for the per-tier mix percentage string rendered in
+    the report (e.g. ``T1=12%, T2=1%, ...``). The run's Methods disclosure references THIS one
+    value so two disclosure strings can never quote different denominators/rounding. PURE +
+    deterministic (sorted keys, round-half-to-even-free integer percent). Byte-identical to
+    the prior inline ``", ".join(f"{k}={v*100:.0f}%" ...)`` builder."""
+    return ", ".join(
+        f"{k}={v * 100:.0f}%" for k, v in sorted((tier_fractions or {}).items())
+    )
+
+
+def _bib_entry_has_locator(entry: "dict") -> bool:
+    """#1239: True iff a bibliography entry carries a non-blank URL or DOI locator. A CITED bib
+    entry (one assigned a citation number) with NO locator is unverifiable by the reader. PURE."""
+    url = str(entry.get("url") or "").strip()
+    doi = str(entry.get("doi") or "").strip()
+    return bool(url or doi)
+
+
+def _render_bibliography_lines(
+    bibliography: "list[dict]", *, require_locator: bool
+) -> str:
+    """#1239: render the report Bibliography. Default (require_locator=False) is byte-identical
+    to the prior inline loop. When PG_BIB_REQUIRE_LOCATOR is ON, a CITED entry whose URL AND DOI
+    are both blank is NOT emitted as a numbered citation pointing at nothing — it is relabeled to
+    a NON-cited evidence gap (`[gap]` prefix, no resolvable locator). This NEVER fabricates a
+    locator and NEVER drops the reader's awareness of the entry; it stops a citation marker from
+    pointing at an empty URL. The upstream resolution (resolve the locator, or stop assigning a
+    citation number to a locator-less row) lives in multi_section_generator.py and is deferred."""
+    out = "\n\n## Bibliography\n"
+    for b in bibliography:
+        statement = str(b.get("statement", ""))[:200]
+        url = b.get("url", "")
+        tier = b.get("tier", "")
+        if require_locator and not _bib_entry_has_locator(b):
+            # #1239 (Codex iter-1 REQUEST_CHANGES): a cited-but-locator-less entry must KEEP its
+            # citation number so the report BODY's [N] marker still resolves (the old code dropped
+            # the number and emitted a number-less "[gap]" line, ORPHANING the body [N]). We keep
+            # [num] AND honestly disclose the missing locator. _bib_entry_has_locator already ruled
+            # out a non-blank URL or DOI, so there is genuinely no resolvable locator to show.
+            out += (
+                f"[{b['num']}] {statement} — no resolvable URL/DOI locator "
+                f"(disclosed evidence gap, tier {tier})\n"
+            )
+        else:
+            # #1239 (Codex iter-1 REQUEST_CHANGES): when require_locator is ON and the URL is
+            # blank but a non-blank DOI exists, render the DOI as the locator
+            # (https://doi.org/<doi>) instead of an empty string. Never fabricates — only uses a
+            # real DOI the entry already carries. The DOI fallback is gated behind require_locator
+            # so require_locator=False is byte-identical to today (the prior inline loop rendered
+            # the raw `url`, even when blank). A present URL is rendered EXACTLY as before.
+            locator = url
+            if require_locator and not str(url or "").strip():
+                _doi = str(b.get("doi") or "").strip()
+                if _doi:
+                    locator = f"https://doi.org/{_doi}"
+            out += f"[{b['num']}] {statement} — {locator} (tier {tier})\n"
+    return out
 
 
 def _normalize_claim_summary(text: str, *, quote_trim: int) -> str:
@@ -2370,6 +2517,17 @@ async def run_one_query(
     except Exception:  # noqa: BLE001 — defensive: alert reset failure must not abort run
         pass
 
+    # I-pipe-015 (#1240, Codex iter-1 REQUEST_CHANGES): reset the MODULE-GLOBAL token-honesty
+    # counters (malformed_canonicalized / malformed_dropped) at the run boundary so they reflect
+    # ONLY this query — without this reset they accumulate across queries in a multi-query sweep
+    # and the per-run manifest over-reports. Safe regardless of PG_PROVENANCE_TOKEN_HONEST_DROP:
+    # when the honest-drop path is off the counters stay 0, so reset/snapshot are no-ops. The
+    # snapshot into manifest['token_honesty'] happens at report assembly. Best-effort import.
+    try:
+        reset_token_honesty_telemetry()
+    except Exception:  # noqa: BLE001 — telemetry reset must never abort the run
+        pass
+
     # I-arch-001a: v6 actor passes out_root_override (UUID-scoped artifact_dir)
     # to prevent same-slug concurrent overwrites. Legacy CLI sweep keeps the
     # domain/slug nesting unchanged.
@@ -3447,10 +3605,18 @@ async def run_one_query(
         dist = compute_tier_distribution(
             retrieval.classified_sources, protocol,
         )
-        tier_summary = ", ".join(
-            f"{k}={v*100:.0f}%"
-            for k, v in sorted(dist.tier_fractions.items())
-        )
+        # I-pipe-017 (#1242): compute the per-tier mix percentage string ONCE via the single
+        # source of truth so every disclosure that quotes it (the Methods "Actual distribution"
+        # line, the approval-abort report, the corpus log) cannot diverge on rounding/denominator.
+        # Default-ON; PG_TIER_DISCLOSURE_SINGLE_SOURCE=0 reverts to the prior inline builder
+        # (byte-identical output either way — the helper is the same formula).
+        if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True):
+            tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
+        else:
+            tier_summary = ", ".join(
+                f"{k}={v*100:.0f}%"
+                for k, v in sorted(dist.tier_fractions.items())
+            )
         _log(f"[corpus]      total={dist.total_sources}  {tier_summary}  "
              f"material_deviation={dist.has_material_deviation}")
 
@@ -3604,10 +3770,16 @@ async def run_one_query(
                 dist = compute_tier_distribution(
                     retrieval.classified_sources, protocol,
                 )
-                tier_summary = ", ".join(
-                    f"{k}={v*100:.0f}%"
-                    for k, v in sorted(dist.tier_fractions.items())
-                )
+                # I-pipe-017 (#1242): same single-source-of-truth helper after the expansion
+                # round re-classifies the merged corpus, so the post-expansion Methods line and
+                # any other tier-mix disclosure stay in lockstep.
+                if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True):
+                    tier_summary = _tier_mix_disclosure_summary(dist.tier_fractions)
+                else:
+                    tier_summary = ", ".join(
+                        f"{k}={v*100:.0f}%"
+                        for k, v in sorted(dist.tier_fractions.items())
+                    )
                 # Re-check completeness
                 completeness = check_completeness(
                     domain=q["domain"],
@@ -4341,7 +4513,18 @@ async def run_one_query(
             # approval logic (material deviation + no structured authorization -> abort), never proceeds.
             evidence_rows=retrieval.evidence_rows,
         )
-        if _weighted_corpus_approve:
+        # I-pipe-010 (#1235): under the shared benchmark strict gate, a MATERIAL tier deviation
+        # must NOT be silently accepted as sweep-ready by the weighted-corpus path — it falls
+        # through to the EXISTING structured-authorization gate (check_auto_approve_allowed),
+        # which honors the operator override PG_AUTHORIZED_SWEEP_APPROVAL and otherwise denies.
+        # The credibility disclosure below still WRITES (it is gated on _weighted_corpus_on, not
+        # on `approved`), so the corpus skew stays disclosed; it is just no longer rubber-stamped
+        # as ready. Off (or no material deviation) => byte-identical to the prior weighted-gate
+        # behavior. strict_verify + 4-role D8 unchanged.
+        _strict_corpus_skew = _corpus_skew_blocks_ready(
+            _benchmark_strict_gates_on(), dist.has_material_deviation,
+        )
+        if _weighted_corpus_approve and not _strict_corpus_skew:
             approved = True
             approval_error = ""
         elif dist.has_material_deviation:
@@ -4356,7 +4539,10 @@ async def run_one_query(
             + (
                 "weighted-corpus gate (PG_SWEEP_WEIGHTED_CORPUS_GATE): corpus accepted with a "
                 "credibility-weighted disclosure (no tier-count refusal)"
-                if _weighted_corpus_approve
+                # I-pipe-010 (#1235): when the strict gate bypassed the weighted auto-approve on a
+                # material deviation, the note must reflect the ACTUAL structured-authorization
+                # decision, not falsely claim "corpus accepted".
+                if (_weighted_corpus_approve and not _strict_corpus_skew)
                 else ("structured authorization present"
                       if authorization is not None else "no structured authorization")
             )
@@ -4687,6 +4873,13 @@ async def run_one_query(
             sub_queries=_subquery_texts,        # I-perm-011: flag-gated facet floor
         )
         evidence_for_gen = evidence_selection.selected_rows
+        # I-pipe-002 (#1228, Codex iter-1 REQUEST_CHANGES): capture the REAL relevance-floor drop
+        # count from the FLOOR selection object BEFORE the capped-finding-dedup block below may
+        # REASSIGN `evidence_selection` to the dedup object (whose dropped_count is from the
+        # relevance_floor=None short path == 0, laundering the floor cut on the [select] line).
+        # evidence_selector.py:1468-1474 already logs the honest floor cut; this preserves it through
+        # to the final [select] line + manifest. Telemetry-only — selection is NOT changed.
+        _floor_dropped_count = evidence_selection.dropped_count
         # I-ready-004 (#1078): CAPPED finding-dedup for Gate-B. The relevance-floor selection above is
         # NO-CAP (keeps every row >= floor) — at 1000 URLs that bypasses #1070's PG_LIVE_MAX_EV_TO_GEN
         # cap and floods the generator (Codex brief P1-1). When PG_CAPPED_FINDING_DEDUP is set, dedup the
@@ -4718,9 +4911,13 @@ async def run_one_query(
         # evidence_for_gen and `everything ahead of it` == the exact injected
         # prepend a gap round must re-apply (Codex diff-gate P1).
         _selection_base_rows = list(evidence_for_gen)
+        # I-pipe-002 (#1228): surface the REAL relevance-floor cut (`floor_dropped`) on the final
+        # [select] line. `dropped` reflects the (possibly-reassigned) selection object; floor_dropped
+        # is the floor-stage cut captured before the dedup reassignment so it is never laundered to 0.
         _log(f"[select]      strategy={evidence_selection.selection_strategy} "
              f"selected={len(evidence_for_gen)} of {len(retrieval.evidence_rows)} "
-             f"dropped={evidence_selection.dropped_count}")
+             f"dropped={evidence_selection.dropped_count} "
+             f"floor_dropped={_floor_dropped_count}")
         _log(f"              full_tiers={evidence_selection.full_counts} "
              f"selected_tiers={evidence_selection.selected_counts}")
         _log(f"[generation]  multi-section DeepSeek V3.2-Exp, "
@@ -5048,10 +5245,28 @@ async def run_one_query(
                         f"{q['slug']!r}; running legacy generator only"
                     )
             except Exception as _p2_exc:
+                # I-pipe-013 (#1238): ALWAYS log the exception + reason (the log line below is the
+                # unconditional record). Under the shared benchmark strict gate, a V30 contract
+                # Phase-2 fault is FATAL (re-raise -> run_one_query handler -> terminal
+                # error_unexpected manifest) instead of silently degrading to the legacy generator,
+                # UNLESS the operator explicitly allows the fallback via PG_V30_ALLOW_LEGACY_FALLBACK=1.
+                # Off (or fallback allowed) => the legacy fall-through below is byte-identical to today.
+                _v30_reraise = _v30_should_reraise(
+                    _benchmark_strict_gates_on(),
+                    _env_flag(_V30_ALLOW_LEGACY_FALLBACK_ENV, default=False),
+                )
                 _log(
                     f"[V30-P2]      ERROR: {type(_p2_exc).__name__}: "
-                    f"{_p2_exc} — falling back to legacy generator"
+                    f"{_p2_exc} — "
+                    + (
+                        "benchmark strict gate: V30 fault is FATAL "
+                        "(set PG_V30_ALLOW_LEGACY_FALLBACK=1 to allow legacy fallback)"
+                        if _v30_reraise
+                        else "falling back to legacy generator"
+                    )
                 )
+                if _v30_reraise:
+                    raise
 
         # I-rdy-010 (#506): inject sovereignty-cleared uploaded-document
         # evidence. Prepended onto evidence_for_gen (mirroring the V30-P2
@@ -5753,6 +5968,17 @@ async def run_one_query(
             )),
             max_parallel_sections=int(os.environ.get("PG_MAX_PARALLEL_SECTIONS", "3")),
             tier_fractions=dist.tier_fractions,
+            # I-pipe-017 (#1242, Codex iter-1 REQUEST_CHANGES): single-source tier disclosure.
+            # When PG_TIER_DISCLOSURE_SINGLE_SOURCE is on (default), compute the canonical tier-mix
+            # string ONCE via the SAME _tier_mix_disclosure_summary the Methods disclosure uses, and
+            # pass it as the verbatim override so the LLM-authored Limitations cannot quote a
+            # DIFFERENT percentage (the forensic "Methods 11% vs Limitations 13%" contradiction).
+            # Flag OFF => None => the generator re-derives per-tier from fractions (byte-identical).
+            tier_disclosure_override=(
+                _tier_mix_disclosure_summary(dist.tier_fractions)
+                if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True)
+                else None
+            ),
             contradictions=[asdict(c) for c in contradictions],
             date_range=(
                 protocol.get("date_range")
@@ -6393,12 +6619,49 @@ async def run_one_query(
         # + predicate of EVERY record still render inline (those are the substrings PT08 checks).
         methods += render_semantic_disclosure(semantic_records)
 
-        biblio_section = "\n\n## Bibliography\n"
-        for b in multi.bibliography:
-            biblio_section += (
-                f"[{b['num']}] {b['statement'][:200]} — {b['url']} "
-                f"(tier {b['tier']})\n"
+        # I-pipe-014 (#1239): render the Bibliography. Default (PG_BIB_REQUIRE_LOCATOR off) is
+        # byte-identical to the prior inline loop. When ON, a CITED entry whose URL AND DOI are
+        # both blank is relabeled to a disclosed NON-cited evidence gap instead of a numbered
+        # citation pointing at an empty URL — never fabricating a locator, never dropping the
+        # reader's awareness of the entry. The upstream resolution (resolve the locator, or stop
+        # assigning a citation number to a locator-less row) lives in multi_section_generator.py
+        # and is recorded in cross_file_deferred.
+        biblio_section = _render_bibliography_lines(
+            multi.bibliography,
+            require_locator=_env_flag(_BIB_REQUIRE_LOCATOR_ENV, default=False),
+        )
+
+        # I-pipe-008 (#1233): breadth canary. Codex iter-1 REQUEST_CHANGES: the old
+        # canary lived inside _augment_legacy_section_breadth and measured the
+        # pre-generation candidate-MENU breadth, so it could pass while the final
+        # report cited too few (strict_verify drops most). The binding canary now
+        # runs HERE, against `multi.bibliography` — the DISTINCT CITED sources that
+        # actually survived into the rendered report — AFTER verified_sections was
+        # confirmed non-empty (the abort above) and BEFORE report.md is written.
+        # Count DISTINCT normalized source keys (the SAME _normalize_source_key the
+        # breadth code uses); fall back to the entry doi / num when a row has no
+        # resolvable url so locator-less rows are counted as distinct sources rather
+        # than collapsing to a single empty key. PG_BREADTH_CANARY_MIN default 0 =>
+        # no-op (current behavior). On failure enforce_breadth_canary raises and the
+        # run aborts loudly (fail-closed). Faithfulness gates untouched.
+        try:
+            _canary_min = int(os.getenv("PG_BREADTH_CANARY_MIN", "0") or 0)
+        except ValueError:
+            _canary_min = 0
+        if _canary_min > 0:
+            _cited_keys: set[str] = set()
+            for _bib in (multi.bibliography or []):
+                _key = _normalize_source_key(str(_bib.get("url") or "") or None)
+                if not _key:
+                    _doi = str(_bib.get("doi") or "").strip().lower()
+                    _key = _doi or f"__bibnum__:{_bib.get('num')}"
+                _cited_keys.add(_key)
+            _distinct_cited = len(_cited_keys)
+            _log(
+                f"[breadth_canary] distinct CITED sources={_distinct_cited} "
+                f"min={_canary_min}"
             )
+            enforce_breadth_canary(_distinct_cited, _canary_min)
 
         # I-meta-002-q1d (#949b): verified-only extractive Key Findings block (frontier DR leads with
         # findings-up-front; POLARIS opened cold into Efficacy). Pure extraction over already-verified
@@ -6870,6 +7133,27 @@ async def run_one_query(
             "evaluator_gate": eval_gate.to_dict(),
             # BUG-M-201: generator-visible evidence provenance.
             "evidence_selection": evidence_selection.to_dict(),
+            # I-pipe-002 (#1228, Codex iter-1 REQUEST_CHANGES): the REAL relevance-floor drop count,
+            # captured from the floor selection object BEFORE the capped-finding-dedup reassignment
+            # (whose dropped_count is 0 on the relevance_floor=None short path). Surfaced so the
+            # manifest does not launder the honest floor cut that evidence_selector.py:1468-1474 logs.
+            # Telemetry-only; selection unchanged. Added only when the relevance floor was active
+            # (`_relevance_floor is not None`) so a no-floor run keeps a byte-identical manifest.
+            **(
+                {"evidence_floor_dropped": _floor_dropped_count}
+                if _relevance_floor is not None
+                else {}
+            ),
+            # I-pipe-015 (#1240, Codex iter-1 REQUEST_CHANGES): per-RUN token-honesty telemetry
+            # (malformed_canonicalized / malformed_dropped). Reset at run start (above) so these
+            # counts are THIS query's, not the accumulated process total. Gated on
+            # _token_honest_drop_enabled() so a PG_PROVENANCE_TOKEN_HONEST_DROP=0 run keeps a
+            # byte-identical manifest (the path is off, counters stay 0, key omitted).
+            **(
+                {"token_honesty": get_token_honesty_telemetry()}
+                if _token_honest_drop_enabled()
+                else {}
+            ),
             # I-perm-011 (#1205): the post-floor extraction funnel endpoint —
             # rows that survived the relevance floor + capped-dedup and form the
             # generator BASE (pre-prepend; the contract/upload prepends are added
@@ -7047,6 +7331,14 @@ async def run_one_query(
         _four_role_on = os.environ.get("PG_FOUR_ROLE_MODE", "0").strip() in (
             "1", "true", "True",
         )
+        # I-pipe-001 (#1226): track whether the 4-role D8 audit ACTUALLY ran+completed for this
+        # run. Under the shared benchmark strict gate, a manifest may not read `success` unless this
+        # is True (a benchmark run that fell onto the legacy single-evaluator gate, or never ran D8
+        # at all, must NOT be marked success). Set True only after run_four_role_seam returns a
+        # FourRoleEvaluationResult (incl. the fail-closed HELD result on timeout/error — D8 ran and
+        # produced a binding decision). The legacy path leaves it False. Default OFF strict gate =>
+        # the guard never fires => byte-identical.
+        _d8_audit_ran = False
         # I-meta-008 (#1014) loud guard: PG_FOUR_ROLE_MODE is on but NO transport was injected,
         # so the 4-role seam stays INERT and this run would silently use the legacy single-evaluator
         # gate. That is the exact "benchmark started via a legacy entrypoint" trap (#1014): the
@@ -7309,6 +7601,10 @@ async def run_one_query(
                 f"coverage={four_role_result.coverage_fraction:.3f} "
                 f"held_reasons={four_role_result.held_reasons}"
             )
+            # I-pipe-001 (#1226): D8 produced a binding decision for this run (released OR
+            # fail-closed HELD). The strict post-status guard below uses this to forbid a
+            # would-be `success` that never went through D8.
+            _d8_audit_ran = True
 
             # I-beatboth-fix-000 (#1171) FAITHFULNESS LEAK CLOSURE: report.md was assembled
             # (L5780) from strict_verify-KEPT sentences BEFORE this stronger 4-role seam ran.
@@ -7885,6 +8181,57 @@ async def run_one_query(
             # at L5156-5158: a held status can never read as releasable).
             manifest["release_allowed"] = False
             manifest["discovery_degraded_features"] = _fl05["degraded_features"]
+
+        # I-pipe-001 (#1226) + I-pipe-012 (#1237): shared-benchmark-strict-gate readiness backstops,
+        # mirroring the FL-05 "force-enabled feature silently degraded -> refuse success" pattern.
+        # Both run AFTER all status reconciliation (legacy gate, D8 seam, FL-05) and only ever
+        # convert a would-be SUCCESS into a loud abort — a partial_*/abort_*/error_* is already a
+        # non-success signal and is left untouched. Default OFF (PG_BENCHMARK_STRICT_GATES unset) =>
+        # neither guard fires => byte-identical. strict_verify / NLI / 4-role D8 release decisions
+        # are NOT touched — these only forbid mislabeling an UN-audited or empty run as success.
+        _strict_gates = _benchmark_strict_gates_on()
+
+        # I-pipe-001 (#1226): a manifest may not read `success` unless the 4-role D8 audit actually
+        # completed for this run. Catches a benchmark run that fell onto the legacy single-evaluator
+        # gate (PG_FOUR_ROLE_MODE unset / no transport) yet still produced a `success` manifest.
+        if _d8_success_without_audit(_strict_gates, unified_status, _d8_audit_ran):
+            _log(
+                "[strict-gate] ABORT (#1226): manifest would read `success` but the 4-role D8 "
+                "audit did NOT run this benchmark run — refusing to mark success before D8. "
+                "Run via scripts/dr_benchmark/run_gate_b.py (injects the 4-role transport)."
+            )
+            summary_status = "four_role_held"
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            manifest["release_allowed"] = False
+            manifest["strict_gate_d8_missing"] = True
+
+        # I-pipe-012 (#1237): if quantified analysis was FORCE-ENABLED but produced NO verified
+        # quantified output (the silent no-op forensic #1237), fail readiness loudly instead of
+        # silently shipping the differentiator-less report as success. Keys on the normalized
+        # telemetry `fired` boolean (so it is robust to the exact typed-status strings
+        # quantified_analysis.py emits: declined / empty_transport / parse_error).
+        _quant_force_on = os.environ.get(
+            "PG_ENABLE_QUANTIFIED_ANALYSIS", "0"
+        ).strip() in ("1", "true", "TRUE", "yes")
+        if (
+            _quantified_readiness_failed(
+                _strict_gates, _quant_force_on, _quantified_telemetry
+            )
+            and unified_status == "success"
+        ):
+            _log(
+                "[strict-gate] ABORT (#1237): quantified analysis was FORCE-ENABLED "
+                "(PG_ENABLE_QUANTIFIED_ANALYSIS=1) but produced NO verified quantified output "
+                "(silent no-op) — refusing to ship a benchmark run as success without the "
+                "force-enabled quantified differentiator."
+            )
+            summary_status = "abort_discovery_degraded"
+            unified_status = to_unified_status(summary_status)
+            manifest["status"] = unified_status
+            manifest["release_allowed"] = False
+            manifest["strict_gate_quantified_empty"] = True
+
         # I-ready-006 (#1082): surface the complexity-routing decision on the SUCCESS manifest ONLY when
         # the router is ON (Codex brief P2-2 — byte-identical OFF: no field appears when
         # PG_COMPLEXITY_ROUTING is unset). Auditable: complexity, confidence, reasons, whether it was

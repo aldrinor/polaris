@@ -1,0 +1,15 @@
+verdict: REQUEST_CHANGES
+novel_p0: []
+continuing_p0: []
+p1:
+  - "#1233: PG_BREADTH_CANARY_MIN checks assigned menu breadth, not verified cited breadth. src/polaris_graph/generator/multi_section_generator.py:1154-1168 counts global_used before generation/strict_verify, so the canary can pass while the final report still cites too few sources."
+  - "#1239: PG_BIB_REQUIRE_LOCATOR can orphan body citations. scripts/run_honest_sweep_r3.py:720-730 relabels a bibliography entry to [gap], but scripts/run_honest_sweep_r3.py:6585-6587 appends the already-rendered body with [N] markers unchanged. DOI-only entries are also treated as locatable but still render only the blank URL."
+  - "#1242: tier disclosure is not actually single-source across Methods and Limitations. Methods uses tier_summary at scripts/run_honest_sweep_r3.py:6466, but Limitations is generated separately from raw telemetry in src/polaris_graph/generator/multi_section_generator.py:3876 and appended at scripts/run_honest_sweep_r3.py:6333, so the original Methods-vs-Limitations percentage contradiction can still ship."
+p2:
+  - "#1228: the true relevance-floor cut is logged at src/polaris_graph/retrieval/evidence_selector.py:1468-1472, but the final [select] line still uses the reassigned capped selection at scripts/run_honest_sweep_r3.py:4852 and scripts/run_honest_sweep_r3.py:4873, so manifest/final selection telemetry can still show dropped=0."
+  - "#1240: token-honesty counters are module-global at src/polaris_graph/generator/provenance_generator.py:396-415, but the sweep does not reset/snapshot them between run_one_query calls, so per-run telemetry can accumulate or remain unsurfaced."
+convergence_call: continue
+remaining_blockers_for_execution:
+  - "#1233 final verified/cited breadth canary"
+  - "#1239 locator-aware citation/bibliography consistency"
+  - "#1242 single rendered tier-disclosure source for Methods and Limitations"

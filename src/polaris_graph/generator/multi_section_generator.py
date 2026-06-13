@@ -962,6 +962,34 @@ def _breadth_content_tokens(text: str) -> set[str]:
     return toks
 
 
+def _breadth_row_is_marquee(row: dict[str, Any]) -> bool:
+    """I-pipe-006 (#1231): True iff an evidence row was contributed by the
+    required-entity / anchor lane and therefore represents a marquee primary
+    source that MUST reach the writers when present.
+
+    Detection uses ONLY existing evidence-row fields (no schema invention) — the
+    required-entity lane stamps rows with ``seed_source='required_entity_lane'``
+    and ``query_origin='required_entity_targeted_search'`` (see
+    src/polaris_graph/retrieval/required_entity_retrieval.py SEED_SOURCE_LABEL /
+    SEED_QUERY_ORIGIN), and primary-anchor injections set an ``anchor_seed`` /
+    ``is_anchor`` / ``required_entity`` / ``is_marquee`` truthy flag. Any of these
+    being present marks the row as a marquee anchor."""
+    if not isinstance(row, dict):
+        return False
+    for flag in ("is_marquee", "required_entity", "anchor_seed", "is_anchor",
+                 "entity_anchor", "marquee"):
+        if row.get(flag):
+            return True
+    seed_source = str(row.get("seed_source") or "").lower()
+    if "required_entity" in seed_source or "anchor" in seed_source:
+        return True
+    for origin_key in ("query_origin", "seed_query_origin"):
+        origin = str(row.get(origin_key) or "").lower()
+        if "required_entity" in origin or "anchor" in origin:
+            return True
+    return False
+
+
 def _augment_legacy_section_breadth(
     plans: list[Any],
     evidence: list[dict[str, Any]],
@@ -988,13 +1016,59 @@ def _augment_legacy_section_breadth(
     4-role D8 — those re-verify every emitted sentence exactly as before. A widened
     menu cannot make an unsupported sentence pass; it only lets the writer ground MORE
     sentences in MORE distinct sources. Returns per-section distinct-source counts
-    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op)."""
+    (post-augment) for telemetry. `target <= 0` is handled by the caller (no-op).
+
+    ENV FLAGS (all DEFAULT-OFF == byte-identical historical selection):
+      * PG_BREADTH_AUGMENT_MIN_OVERLAP (int, default 2): question-relevance bar.
+        Default 2 == the historical >=2 content-word bar; higher rejects off-topic
+        rows (I-pipe-004 #1229). Values < 2 are clamped to 2.
+      * PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP ("0"/"1", default "0"): when on,
+        additionally require >=1 content token shared with the section focus, so
+        topically-off rows are rejected (I-pipe-004 #1229).
+      * PG_BREADTH_MARQUEE_PRIORITY ("0"/"1", default "0"): when on, rank
+        required-entity / marquee anchor rows FIRST among candidates so the most
+        important primaries reach the writers (I-pipe-006 #1231). Reorders only.
+      * PG_BREADTH_CANARY_MIN (int, default 0=off): when > 0, RAISE RuntimeError if
+        the achieved report-wide distinct-source breadth is below it, so the run
+        FAILS LOUD instead of silently under-delivering (I-pipe-008 #1233)."""
     from src.polaris_graph.adequacy.plan_sufficiency_gate import (
         _authority_floor_default,
         _enrich_authority_if_missing,
     )
 
     floor = _authority_floor_default() if authority_floor is None else float(authority_floor)
+
+    # I-pipe-004 (#1229): the augmentation relevance bar (>=2 shared question
+    # content words) is bag-of-words-weak and admitted an off-topic methods paper
+    # (ev_412) 5x. PG_BREADTH_AUGMENT_MIN_OVERLAP lets the benchmark raise the
+    # threshold; default 2 reproduces the current bar EXACTLY (flag-off identity).
+    try:
+        _min_overlap = int(os.getenv("PG_BREADTH_AUGMENT_MIN_OVERLAP", "2") or 2)
+    except ValueError:
+        _min_overlap = 2
+    if _min_overlap < 2:
+        # Never go BELOW the historical >=2 floor — that would only ever ADMIT
+        # more off-topic rows, the opposite of this gate's intent.
+        _min_overlap = 2
+    # I-pipe-004 (#1229): when on, additionally require the candidate to share at
+    # least one CONTENT token with the section's focus, rejecting rows that pass
+    # the question bar on generic methods/boilerplate tokens but are off-topic for
+    # the section. Default "0" => not required (flag-off identity).
+    _require_section_overlap = (
+        os.getenv("PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP", "0").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    # I-pipe-006 (#1231): when on, rank required-entity / marquee anchor rows FIRST
+    # among augmentation candidates so the most important primary sources reach the
+    # writers instead of being crowded out by generic above-floor rows. Default "0"
+    # => ranking unchanged (flag-off identity). SELECTION-STAGE ONLY: this only
+    # reorders WHICH already-eligible rows are added first; it never lowers a cap,
+    # never edits prose, and never touches strict_verify / NLI / 4-role.
+    _marquee_priority = (
+        os.getenv("PG_BREADTH_MARQUEE_PRIORITY", "0").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+
     by_id: dict[str, dict[str, Any]] = {}
     for row in evidence:
         eid = row.get("evidence_id", "")
@@ -1029,7 +1103,7 @@ def _augment_legacy_section_breadth(
         sec_tokens = _breadth_content_tokens(
             title + " " + (getattr(p, "focus", "") or "")
         )
-        cands: list[tuple[tuple[int, int, float, int], str, str]] = []
+        cands: list[tuple[tuple[int, int, int, float, int], str, str]] = []
         for row in evidence:
             eid = row.get("evidence_id", "")
             if not eid or eid in assigned_set:
@@ -1046,11 +1120,24 @@ def _augment_legacy_section_breadth(
             )
             row_tokens = _breadth_content_tokens(txt)
             q_overlap = len(q_tokens & row_tokens)
-            if q_overlap < 2:  # must share >=2 content words with the question
+            # I-pipe-004 (#1229): tunable question-relevance bar (default 2 ==
+            # the historical >=2 content-word bar). Higher => stricter (rejects
+            # off-topic methods rows that pass on 2 generic shared tokens).
+            if q_overlap < _min_overlap:
                 continue
             sec_overlap = len(sec_tokens & row_tokens)
+            # I-pipe-004 (#1229): when required, drop rows that share NO content
+            # token with the section focus (topically-off for this section).
+            if _require_section_overlap and sec_overlap < 1:
+                continue
             fresh = 0 if key in global_used else 1  # prefer globally-unused sources
-            cands.append(((fresh, sec_overlap, auth, q_overlap), eid, key))
+            # I-pipe-006 (#1231): when marquee-priority is on, required-entity /
+            # anchor rows rank FIRST (marquee=1) so they reach writers ahead of
+            # generic above-floor rows; OFF => marquee=0 for every row, so the
+            # ranking is byte-identical to the historical (fresh, sec_overlap,
+            # auth, q_overlap) order.
+            marquee = 1 if (_marquee_priority and _breadth_row_is_marquee(row)) else 0
+            cands.append(((marquee, fresh, sec_overlap, auth, q_overlap), eid, key))
         cands.sort(key=lambda t: t[0], reverse=True)
         for _score, eid, key in cands:
             if len(have) >= target:
@@ -1063,7 +1150,53 @@ def _augment_legacy_section_breadth(
         # mutate ev_ids IN PLACE (preserves frozen-dataclass + downstream identity)
         p.ev_ids[:] = assigned
         out_counts[title] = len(have)
+
+    # I-pipe-008 (#1233): breadth telemetry — NOT the canary gate. `global_used`
+    # accumulates every distinct source-key ASSIGNED to a section menu (contract +
+    # augmented) AT SELECTION TIME, BEFORE generation/strict_verify. It is the
+    # CANDIDATE MENU breadth, NOT the count of sources the final report actually
+    # cites (strict_verify drops most). The earlier code raised a RuntimeError here
+    # against this menu count and falsely labeled it "distinct cited sources" — a
+    # canary that could pass while the rendered report cited far fewer (#1233,
+    # Codex iter-1 REQUEST_CHANGES). The real breadth canary now runs in the sweep
+    # runner AFTER the bibliography (= the distinct CITED sources) is built, via the
+    # pure `enforce_breadth_canary` helper below. Here we only DISCLOSE the menu
+    # breadth, honestly labeled. The PG_BREADTH_CANARY_MIN knob is still read — but
+    # at the post-bibliography binding site, not here.
+    logger.info(
+        "[multi_section] candidate menu breadth (pre-generation, not the cited "
+        "count): %d distinct source-keys assigned across section menus. The "
+        "binding breadth canary (PG_BREADTH_CANARY_MIN) is enforced post-"
+        "bibliography against the final CITED-source count.",
+        len(global_used),
+    )
     return out_counts
+
+
+def enforce_breadth_canary(distinct_cited_sources: int, minimum: int) -> None:
+    """I-pipe-008 (#1233): fail-loud breadth canary against the FINAL CITED-source
+    count (computed by the sweep runner from the rendered bibliography, NOT the
+    pre-generation candidate menu). PURE: raises ``RuntimeError`` iff ``minimum > 0``
+    and ``distinct_cited_sources < minimum``; otherwise returns None.
+
+    This NEVER fabricates, pads, or relaxes anything — it only REFUSES to proceed
+    when the report provably cites too few distinct sources. ``minimum <= 0`` (the
+    default when PG_BREADTH_CANARY_MIN is unset) is a no-op, so the default path is
+    byte-identical to today. Faithfulness gates (strict_verify / NLI / 4-role D8 /
+    provenance) are entirely untouched: this gate runs on their OUTPUT and can only
+    abort, never weaken, the verdict.
+    """
+    if minimum <= 0:
+        return
+    if distinct_cited_sources < minimum:
+        raise RuntimeError(
+            "[breadth_canary] PG_BREADTH_CANARY_MIN breadth canary FAILED: the "
+            f"final report cites {distinct_cited_sources} distinct source(s), "
+            f"below the required minimum of {minimum}. Refusing to emit a report "
+            "that under-delivers cited-source breadth. Widen retrieval / raise the "
+            "candidate pool, or lower PG_BREADTH_CANARY_MIN if this floor is "
+            "intentionally above the achievable cited breadth."
+        )
 
 
 def _assign_evidence_to_planned_outline(
@@ -3742,6 +3875,7 @@ async def _call_limitations(
     temperature: float,
     max_tokens: int,
     uncovered_topics: list[str] | None = None,
+    tier_disclosure_override: str | None = None,
 ) -> tuple[str, int, int]:
     """Generate the Limitations paragraph from pipeline telemetry.
 
@@ -3761,8 +3895,13 @@ async def _call_limitations(
         set_reasoning_call_context,
     )
 
+    # #1242 (Codex iter-1 REQUEST_CHANGES): when a canonical tier-disclosure string is
+    # threaded in, the telemetry block emits it VERBATIM (single source of truth) so the
+    # model can only quote the SAME tier mix the Methods disclosure quotes — never a
+    # re-derived, divergent percentage. None => legacy per-tier derivation (byte-identical).
     telemetry = _format_telemetry_block(
         tier_fractions, contradictions, date_range, uncovered_topics,
+        tier_disclosure_override=tier_disclosure_override,
     )
 
     prompt = (
@@ -5006,6 +5145,13 @@ async def generate_multi_section_report(
     tier_fractions: dict[str, float] | None = None,
     contradictions: list[dict[str, Any]] | None = None,
     date_range: dict[str, Any] | None = None,
+    # #1242 (Codex iter-1 REQUEST_CHANGES): the canonical tier-mix disclosure string
+    # (the SAME value the Methods section renders). When non-None, the LLM-authored
+    # Limitations is given ONLY this verbatim string instead of per-tier fractions, so
+    # Methods and Limitations cannot quote a different tier percentage. None => legacy
+    # per-fraction derivation (byte-identical). Threaded by the sweep runner when
+    # PG_TIER_DISCLOSURE_SINGLE_SOURCE is on.
+    tier_disclosure_override: str | None = None,
     limitations_temperature: float = 0.3,
     limitations_max_tokens: int = 400,
     # R-6 Gap-3: completeness-checklist uncovered topics surfaced to
@@ -6096,6 +6242,9 @@ async def generate_multi_section_report(
             model=gen_model,
             temperature=limitations_temperature,
             max_tokens=limitations_max_tokens,
+            # #1242: when the sweep runner supplies the canonical tier-mix string,
+            # the Limitations telemetry quotes it VERBATIM (single source of truth).
+            tier_disclosure_override=tier_disclosure_override,
         )
         total_in_tok += lim_in_tok
         total_out_tok += lim_out_tok

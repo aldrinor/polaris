@@ -26,6 +26,7 @@ import re
 import sys
 import threading
 import time as _time_module
+import weakref
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -117,16 +118,97 @@ _CRAWL4AI_CIRCUIT_BREAKER_COOLDOWN = float(
 # semaphore (mirrors the PG_JINA_CONCURRENCY=2 pattern). Lazy-init so it binds to the running loop.
 _crawl4ai_semaphore: "asyncio.Semaphore | None" = None
 
+# I-pipe-002 (#1227): per-running-loop crawl4ai concurrency gates.
+#
+# THE BUG (old global path below): `_crawl4ai_semaphore` was a SINGLE module-global
+# `asyncio.Semaphore`. `live_retriever._fetch_content` runs each bypass fetch on a fresh
+# daemon thread with its OWN `asyncio.run` loop. An `asyncio.Semaphore` binds (on 3.11
+# via `_LoopBoundMixin`, lazily on FIRST acquire) to the loop that first acquired it. The
+# first worker thread's loop wins the binding; EVERY OTHER worker thread then hits
+# `RuntimeError: <Semaphore> is bound to a different event loop` inside `async with`,
+# crashing the fetch -> EPIPE -> ~159 distinct JS-rendered journal sources (Oxford/Cambridge)
+# never fetched (553 EPIPE in the forensic).
+#
+# THE FIX (default, kill-switch): keep ONE `asyncio.Semaphore` PER running loop, looked up
+# inside the async context by the loop OBJECT. A `weakref.WeakKeyDictionary` keyed by the
+# loop (NOT a plain dict keyed by `id(loop)`):
+#   - auto-evicts the entry when the worker's loop is GC'd (no per-fetch leak over 1000 URLs),
+#   - is immune to `id()` address-recycling: a closed loop whose address is reused would, with
+#     an id-keyed dict, hand a NEW loop the dead loop's semaphore -> the exact RuntimeError
+#     we are fixing, now intermittent. Keying by the live object cannot alias.
+# A `threading.Lock` guards the dict (WeakKeyDictionary is not safe under concurrent inserts +
+# weakref-removal callbacks).
+#
+# This is a PURE-RELIABILITY kill-switch (default-ON correct fix). It does NOT change WHICH urls
+# are fetched, the concurrency VALUE (still PG_CRAWL4AI_CONCURRENCY), or any verification gate —
+# only that already-selected fetches stop crashing cross-loop. Each worker loop runs ~1 crawl4ai
+# call, so the per-loop value (2) is never contended: the gate never BLOCKS, it just stops the
+# crash. Setting PG_CRAWL4AI_PERLOOP_SEMAPHORE=0 reverts to the old single-global behavior.
+PG_CRAWL4AI_PERLOOP_SEMAPHORE_ENV = "PG_CRAWL4AI_PERLOOP_SEMAPHORE"
+_crawl4ai_perloop_semaphores: "weakref.WeakKeyDictionary[Any, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
+_crawl4ai_perloop_lock = threading.Lock()
+
+
+def _crawl4ai_perloop_enabled() -> bool:
+    """I-pipe-002 (#1227): per-loop semaphore is ON unless PG_CRAWL4AI_PERLOOP_SEMAPHORE=0.
+
+    Default-ON is the sanctioned kill-switch (pure-reliability correct fix); '0' reverts to
+    the old loop-bound module-global that crashed on every worker thread but the first."""
+    return os.getenv(PG_CRAWL4AI_PERLOOP_SEMAPHORE_ENV, "1").strip() != "0"
+
+
+def _crawl4ai_concurrency() -> int:
+    """Concurrency ceiling for crawl4ai browsers. Default 2 (env PG_CRAWL4AI_CONCURRENCY).
+    A malformed/<=0 value falls back to 2 so a bad knob never disables the bound."""
+    raw = os.getenv("PG_CRAWL4AI_CONCURRENCY", "2")
+    try:
+        parsed = int(raw)
+        if parsed > 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+    return 2
+
 
 def _get_crawl4ai_semaphore() -> "asyncio.Semaphore":
-    """I-fetch-002 (#1168): lazy-init the crawl4ai browser-concurrency gate on the running loop.
+    """I-fetch-002 (#1168) + I-pipe-002 (#1227): crawl4ai browser-concurrency gate.
+
+    MUST be called from inside the running event loop (the `async with` site at the crawl
+    region). Default (PG_CRAWL4AI_PERLOOP_SEMAPHORE != '0'): one `asyncio.Semaphore` per
+    running loop, keyed by the loop object in a `WeakKeyDictionary` — so each worker thread's
+    fresh loop gets a semaphore bound to ITSELF and the `async with` never raises the cross-loop
+    `RuntimeError`. Old path (='0'): the single loop-bound module-global (preserved verbatim).
     Default 2 concurrent browsers (env PG_CRAWL4AI_CONCURRENCY)."""
+    if not _crawl4ai_perloop_enabled():
+        # --- OLD GLOBAL PATH (PG_CRAWL4AI_PERLOOP_SEMAPHORE=0): byte-for-byte the pre-#1227
+        # behavior. Binds to the first acquiring loop; crashes on every other worker loop. ---
+        global _crawl4ai_semaphore
+        if _crawl4ai_semaphore is None:
+            _crawl4ai_semaphore = asyncio.Semaphore(
+                int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
+            )
+        return _crawl4ai_semaphore
+
+    # --- PER-LOOP PATH (default): a semaphore bound to THIS running loop. ---
+    loop = asyncio.get_running_loop()
+    with _crawl4ai_perloop_lock:
+        sem = _crawl4ai_perloop_semaphores.get(loop)
+        if sem is None:
+            sem = asyncio.Semaphore(_crawl4ai_concurrency())
+            _crawl4ai_perloop_semaphores[loop] = sem
+        return sem
+
+
+def reset_crawl4ai_semaphore_state() -> None:
+    """I-pipe-002 (#1227): reset BOTH crawl4ai semaphore holders (global + per-loop map).
+    For test isolation ONLY — not called on the production path (mirrors
+    `reset_bypass_leak_state`)."""
     global _crawl4ai_semaphore
-    if _crawl4ai_semaphore is None:
-        _crawl4ai_semaphore = asyncio.Semaphore(
-            int(os.getenv("PG_CRAWL4AI_CONCURRENCY", "2"))
-        )
-    return _crawl4ai_semaphore
+    _crawl4ai_semaphore = None
+    with _crawl4ai_perloop_lock:
+        _crawl4ai_perloop_semaphores.clear()
 
 
 # ---------------------------------------------------------------------------

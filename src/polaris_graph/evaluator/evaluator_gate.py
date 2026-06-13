@@ -23,8 +23,30 @@ status. Two new manifest statuses are added to the taxonomy:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+
+# ── I-pipe-011 (#1236): shared benchmark-strict-gates switch ──────────────────
+# Mirrors completeness_checker._benchmark_strict_gates (the two modules are
+# LAW-VII-isolated and must not import each other; the env contract is the shared
+# surface). OFF by default → every existing gate decision is byte-identical. When
+# the operator turns the SHARED flag ON, a vacuous "0 of 0" completeness
+# (completeness_state == "not_applicable") is NOT-COMPLETE and the evaluator gate
+# WITHHOLDS release instead of passing it vacuously. This only ADDS a fail-loud
+# held verdict; it never relaxes strict_verify / NLI / the 4-role D8 audit and
+# never alters a measured fraction.
+_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+_STRICT_GATE_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+
+def _benchmark_strict_gates() -> bool:
+    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token (default OFF)."""
+    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+    if raw is None:
+        return False
+    return raw.strip().lower() in _STRICT_GATE_TRUE_TOKENS
 
 
 # Reason codes that map rule-check item IDs to stable gate reasons.
@@ -216,6 +238,26 @@ def compute_evaluator_gate(
             for axis in needs:
                 if axis not in judge_critical_axes:
                     judge_critical_axes.append(axis)
+
+    # ── 2b. I-pipe-011 (#1236): vacuous 0/0 completeness under benchmark strict mode ──
+    # A completeness with NO measured denominator (completeness_state ==
+    # "not_applicable" → empty checklist / no planner facet applied) yields a VACUOUS
+    # covered_fraction of 1.0. Today (and whenever PG_BENCHMARK_STRICT_GATES is off) that
+    # is left advisory — the run reads as complete even though nothing was actually
+    # measured. Under the SHARED benchmark strict flag, a 0/0 result is NOT-COMPLETE: it
+    # withholds release (gate_class="partial", release_allowed=False) so the gap is
+    # surfaced rather than passing vacuously. This runs INDEPENDENT of the judge verdict
+    # (the empty denominator looks complete to the judge too), and only when the flag is
+    # on — so flag-OFF behaviour is byte-identical. It never relaxes a verify gate.
+    if (
+        _benchmark_strict_gates()
+        and completeness is not None
+        and getattr(completeness, "completeness_state", "measured") == "not_applicable"
+    ):
+        if "completeness" not in judge_critical_axes:
+            judge_critical_axes.append("completeness")
+        if "completeness_vacuous_zero_denominator" not in reasons:
+            reasons.append("completeness_vacuous_zero_denominator")
 
     # ── 3. Decide gate_class ──
     if abort_on_rule:

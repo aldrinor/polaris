@@ -14,6 +14,7 @@ the gap into the pipeline_telemetry block).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,32 @@ logger = logging.getLogger("polaris_graph.completeness_checker")
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CHECKLIST_DIR = _REPO_ROOT / "config" / "completeness_checklists"
+
+# ── I-pipe-011 (#1236): shared benchmark-strict-gates switch ──────────────────
+# When OFF (default) a vacuous "0 of 0" completeness (no planner facet / empty
+# checklist applied → `completeness_state == "not_applicable"`) is left ADVISORY,
+# exactly as before — every existing consumer is byte-identical. When the operator
+# turns the SHARED benchmark flag ON, a run with no measured coverage DENOMINATOR
+# must NOT read as complete: `completeness_ready` flips to False for not_applicable
+# so a 0/0 run is surfaced as NOT-COMPLETE rather than a silent vacuous pass.
+#
+# Faithfulness note: this gate only adds a FAIL-LOUD condition (a 0/0 run is held,
+# not released). It NEVER relaxes strict_verify / NLI / the 4-role D8 audit, never
+# fabricates a denominator, and never changes a MEASURED fraction.
+_BENCHMARK_STRICT_GATES_ENV = "PG_BENCHMARK_STRICT_GATES"
+_TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
+
+
+def _benchmark_strict_gates() -> bool:
+    """Return True iff PG_BENCHMARK_STRICT_GATES is set to a truthy token.
+
+    Default OFF: an unset / empty / falsy value yields False, so the strict
+    0/0-is-not-complete behavior is opt-in for benchmark runs only.
+    """
+    raw = os.getenv(_BENCHMARK_STRICT_GATES_ENV)
+    if raw is None:
+        return False
+    return raw.strip().lower() in _TRUE_TOKENS
 
 
 @dataclass
@@ -75,6 +102,41 @@ class CompletenessReport:
         field is what disambiguates a vacuous 1.0 from a genuinely-measured 1.0.
         """
         return "not_applicable" if self.total_applicable == 0 else "measured"
+
+    @property
+    def completeness_ready(self) -> bool:
+        """I-pipe-011 (#1236): is this completeness result a NON-vacuous PASS?
+
+        Three-valued logic, gated by ``PG_BENCHMARK_STRICT_GATES``:
+
+        * ``measured`` (real denominator, ``total_applicable > 0``): READY iff the
+          measured fraction clears ``min_covered_fraction`` (default 0.5) — same
+          measured behaviour in both flag states.
+        * ``not_applicable`` (``total_applicable == 0`` → vacuous ``covered_fraction``
+          of 1.0 from an empty checklist / no planner facet):
+            - flag OFF (default): READY (advisory pass — byte-identical to the prior
+              behaviour where a 0/0 result was never a release blocker).
+            - flag ON (benchmark strict): NOT READY. A run with no measured coverage
+              DENOMINATOR must not read as complete; 0/0 is surfaced as NOT-COMPLETE
+              so the gate FAILS LOUD instead of passing vacuously.
+
+        This NEVER touches strict_verify / NLI / the 4-role D8 audit, never invents a
+        denominator, and never alters a measured fraction. It only adds a held verdict
+        for an empty denominator when the benchmark flag is on.
+        """
+        return self.is_complete()
+
+    def is_complete(self, *, min_covered_fraction: float = 0.5) -> bool:
+        """Parametrised form of :pyattr:`completeness_ready` (testable threshold).
+
+        ``min_covered_fraction`` only affects the ``measured`` branch; the
+        ``not_applicable`` branch is decided solely by ``PG_BENCHMARK_STRICT_GATES``.
+        """
+        if self.completeness_state == "not_applicable":
+            # 0/0: vacuous. Strict benchmark mode refuses to call it complete.
+            return not _benchmark_strict_gates()
+        # Measured denominator: identical decision regardless of the flag.
+        return self.covered_fraction >= min_covered_fraction
 
     def uncovered_topic_ids(self) -> list[str]:
         return [
