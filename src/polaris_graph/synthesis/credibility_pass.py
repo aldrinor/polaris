@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from src.polaris_graph.authority.credibility_skill import score_source_credibility
@@ -55,6 +55,82 @@ class EvidenceCredibility:
     soft_warning: str | None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# I-arch-002 [8] / Wave-3 design §5/§6 — the per-claim ClaimBasket.
+#
+# A basket is one claim_cluster_id's whole group of supporting sources. Principle
+# 2 (CONSOLIDATE, don't DROP): ``supporting_members`` keeps ALL sources, never a
+# representative. Principle 3 (BASKET FAITHFULNESS): the verdict is decided against
+# the WHOLE basket, but ``verified_support_origin_count`` is computed by ISOLATED
+# per-member verification — each member verified against its OWN single span, never
+# a multi-citation union (design §0/§5 FIX-3: a union that passes while a member
+# fails alone must count that member UNVERIFIED). ``basket_verdict`` is a LABEL only
+# (design §6): it may downgrade / drop / label, but NEVER resurrect a
+# strict_verify-dropped sentence.
+#
+# These are ADVISORY side-outputs assembled under the master flag. strict_verify +
+# the 4-role D8 release policy stay the ONLY binding gates — nothing here keeps or
+# drops a sentence or flips release.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# basket_verdict labels (design §5 — NAMED constants, no inline magic strings).
+BASKET_VERDICT_FULL = "full"            # every supporting member independently verified on its own span
+BASKET_VERDICT_PARTIAL = "partial"      # some but not all members verified
+BASKET_VERDICT_CONTESTED = "contested"  # >=1 refuter edge references this cluster (user judges)
+BASKET_VERDICT_UNVERIFIED = "unverified"  # no member verified alone
+
+
+@dataclass
+class BasketMember:
+    """One source backing a claim basket, carrying its OWN isolated span verdict.
+
+    ``span_verdict`` is the result of verifying this member ALONE against its own
+    span (SUPPORTS / UNSUPPORTED). It is never a union verdict — that is the whole
+    anti-laundering property (design §5 FIX-3). A member with no verified span is
+    kept (Principle 2: never dropped) and shown as UNSUPPORTED.
+    """
+
+    evidence_id: str
+    source_url: str
+    source_tier: str
+    origin_cluster_id: str
+    credibility_weight: float | None
+    authority_score: float
+    span: tuple                     # (start, end) of the member's own verified span
+    direct_quote: str               # the span text the member was verified against
+    # "SUPPORTS" | "UNSUPPORTED" — the BINARY result of isolated per-member
+    # verification. Design §5's enum also lists CONTEXT, but that is a RENDER-layer
+    # (P5.x) distinction (a span shown as background, not support); isolated
+    # strict_verify is pass/fail, so this assembly emits only the two binary values.
+    span_verdict: str
+
+
+@dataclass
+class ClaimBasket:
+    """A per-claim basket — the group of sources carrying the SAME claim (design §5).
+
+    ``supporting_members`` keeps ALL sources (never dropped). ``refuter_cluster_ids``
+    REFERENCE the contradicting clusters (not duplicated). ``total_clustered_origin_count``
+    is ADVISORY (the clustered, not-verified origin count from weight_mass) and is
+    NEVER rendered as support strength. ``verified_support_origin_count`` —
+    the ONLY strengthening count — is the number of DISTINCT origin clusters whose
+    member passed ISOLATED per-member verification on its own span. ``basket_verdict``
+    is a LABEL derived from those counts + refuter references; it can never upgrade a
+    dropped sentence.
+    """
+
+    claim_cluster_id: str
+    claim_text: str
+    subject: str
+    predicate: str
+    supporting_members: list                 # list[BasketMember] — ALL sources, never dropped
+    refuter_cluster_ids: tuple               # REFERENCE only (design §5)
+    weight_mass: float                       # authority-only, copy-uninflatable (from weight_mass.py)
+    total_clustered_origin_count: int        # ADVISORY ONLY — never rendered as support strength
+    verified_support_origin_count: int       # isolated-verified distinct origins (the only strengthening count)
+    basket_verdict: str                      # full | partial | contested | unverified (LABEL only)
+
+
 @dataclass
 class CredibilityAnalysis:
     credibility_by_evidence: dict   # evidence_id -> EvidenceCredibility
@@ -62,6 +138,10 @@ class CredibilityAnalysis:
     claims: list                    # AtomicClaim[] (Phase-5)
     edges: list                     # ContradictionEdge[] (Phase-5)
     weight_mass: list               # ClaimWeightMass[] (Phase-6)
+    # I-arch-002 [8] — per-claim baskets + the sentence->claim_cluster_id binding.
+    # Defaulted so the empty-rows early-return (and any legacy caller) still builds.
+    baskets: list = field(default_factory=list)             # ClaimBasket[]
+    cluster_id_by_evidence: dict = field(default_factory=dict)  # evidence_id -> claim_cluster_id[] (binding)
 
 
 def _require_evidence_id(row: dict, index: int) -> str:
@@ -76,6 +156,177 @@ def _require_evidence_id(row: dict, index: int) -> str:
 
 def _clamp01(value: float) -> float:
     return 0.0 if value < 0.0 else 1.0 if value > 1.0 else value
+
+
+# ── I-arch-002 [8] — ClaimBasket assembly + isolated per-member verification ───
+
+
+def _row_span_text(row: dict) -> str:
+    """The member's own span text (the same field strict_verify reads). Mirrors
+    ``provenance_generator``'s ``direct_quote or statement`` resolution so the
+    isolated verification runs against the SAME bytes strict_verify would."""
+    return str((row or {}).get("direct_quote") or (row or {}).get("statement") or "")
+
+
+def _verify_member_in_isolation(
+    claim_text: str,
+    member_row: dict,
+    *,
+    verify_fn: Callable,
+) -> str:
+    """Verify ONE member against ITS OWN single span — never a union (design §5 FIX-3).
+
+    Builds a single-provenance-token sentence (``<claim_text> [#ev:<eid>:0-<len>]``)
+    so ``verify_sentence_provenance`` has EXACTLY ONE token. The per-token union loop
+    inside the verifier (which aggregates decimals/text across MULTIPLE tokens) is the
+    laundering path; one token means no union, so a member whose own span lacks the
+    claim's number/content fails ALONE — even if a multi-citation union would pass.
+
+    Returns ``"SUPPORTS"`` iff the isolated sentence is verified, else ``"UNSUPPORTED"``.
+    The verifier is INJECTED (production ``verify_sentence_provenance`` by default; a
+    deterministic fake in tests) and is NEVER re-run as a gate — this is advisory.
+    """
+    eid = str((member_row or {}).get("evidence_id") or "")
+    span = _row_span_text(member_row)
+    if not eid or not span:
+        return "UNSUPPORTED"
+    # Defensive single-token guarantee (the anti-laundering invariant, design §5
+    # FIX-3): strip ANY stray provenance / calc token already in the claim text so
+    # the appended one is the ONLY token. With exactly one token the verifier's
+    # per-token union loop cannot aggregate this member's span with any other — a
+    # member whose own span lacks the claim fails ALONE.
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        _CALC_TOKEN_RE,
+        _PROVENANCE_TOKEN_RE,
+    )
+    safe_text = _PROVENANCE_TOKEN_RE.sub(" ", str(claim_text or ""))
+    safe_text = _CALC_TOKEN_RE.sub(" ", safe_text).strip()
+    # ONE token spanning the member's whole own span.
+    sentence = f"{safe_text} [#ev:{eid}:0-{len(span)}]"
+    pool = {eid: dict(member_row)}
+    try:
+        result = verify_fn(sentence, pool)
+    except Exception:
+        # Advisory path: a verifier failure on one member is conservatively UNSUPPORTED
+        # (never resurrects the member, never aborts the basket) — fail-closed for the
+        # strengthening count, which can only ever UNDERCOUNT, never inflate.
+        return "UNSUPPORTED"
+    return "SUPPORTS" if bool(getattr(result, "is_verified", False)) else "UNSUPPORTED"
+
+
+def _assemble_baskets(
+    graph: Any,
+    weight_mass: list,
+    annotated: list[dict],
+    credibility_by_evidence: dict,
+    *,
+    verify_fn: Callable,
+) -> list:
+    """Assemble one ClaimBasket per claim cluster (design §5/§6).
+
+    Principle 2: ALL members of a cluster are kept (``supporting_members`` is the full
+    group, never a representative). Principle 3: ``verified_support_origin_count`` is the
+    count of DISTINCT origin clusters whose member passed ISOLATED per-member verification
+    (NOT the raw passing-member count, and NOT ``weight_mass.independent_origin_count`` —
+    that is the clustered, not-verified count, surfaced ONLY as the ADVISORY
+    ``total_clustered_origin_count``). ``basket_verdict`` is a pure LABEL.
+    """
+    row_by_eid = {str(r.get("evidence_id", "")): r for r in (annotated or [])}
+    wm_by_cluster = {
+        str(getattr(w, "claim_cluster_id", "") or ""): w for w in (weight_mass or [])
+    }
+
+    # Refuter references (design §5): for each cluster, the OTHER cluster ids it is
+    # joined to by a ContradictionEdge. REFERENCE only — never duplicated into the basket.
+    refuters_by_cluster: dict[str, set] = {}
+    for edge in (getattr(graph, "edges", None) or []):
+        ids = [str(c) for c in (getattr(edge, "claim_cluster_ids", ()) or ()) if str(c)]
+        for cid in ids:
+            for other in ids:
+                if other != cid:
+                    refuters_by_cluster.setdefault(cid, set()).add(other)
+
+    clusters = getattr(graph, "clusters", None) or {}
+    claims = getattr(graph, "claims", None) or []
+
+    baskets: list[ClaimBasket] = []
+    for cluster_id in sorted(clusters):
+        member_indices = clusters[cluster_id]
+        member_claims = [claims[i] for i in member_indices]
+        if not member_claims:
+            continue
+        head = member_claims[0]
+        cwm = wm_by_cluster.get(cluster_id)
+
+        members: list[BasketMember] = []
+        verified_origin_ids: set[str] = set()
+        verified_any = False
+        all_verified = True
+        for claim in member_claims:
+            eid = str(getattr(claim, "evidence_id", "") or "")
+            row = row_by_eid.get(eid, {})
+            ec = credibility_by_evidence.get(eid)
+            origin_id = str(getattr(ec, "origin_cluster_id", "") or "") if ec else ""
+            if not origin_id:
+                # an unmapped member is its own independent origin (mirrors weight_mass)
+                origin_id = f"origin::{eid}"
+            span = _row_span_text(row)
+            # ISOLATED per-member verification (design §5 FIX-3): the claim's TEXT against
+            # THIS member's own single span — never a union of basket spans.
+            verdict = _verify_member_in_isolation(
+                str(getattr(claim, "text", "") or ""), row, verify_fn=verify_fn,
+            )
+            if verdict == "SUPPORTS":
+                verified_any = True
+                verified_origin_ids.add(origin_id)
+            else:
+                all_verified = False
+            members.append(BasketMember(
+                evidence_id=eid,
+                source_url=str(getattr(claim, "source_url", "") or row.get("source_url", "")),
+                source_tier=str(getattr(claim, "source_tier", "") or row.get("tier", "")),
+                origin_cluster_id=origin_id,
+                credibility_weight=(getattr(ec, "credibility_weight", None) if ec else None),
+                authority_score=_clamp01(float(row.get("authority_score", 0.0) or 0.0)),
+                span=(0, len(span)),
+                direct_quote=span,
+                span_verdict=verdict,
+            ))
+
+        refuter_ids = tuple(sorted(refuters_by_cluster.get(cluster_id, set())))
+        # verified count = DISTINCT verified origin clusters (the only strengthening count).
+        verified_support_origin_count = len(verified_origin_ids)
+        # advisory clustered count (NOT verified) — sourced from weight_mass, never reused
+        # as the strengthening count.
+        total_clustered_origin_count = int(
+            getattr(cwm, "independent_origin_count", 0) or 0
+        ) if cwm is not None else 0
+
+        # basket_verdict is a pure LABEL (design §6): derived from verified counts +
+        # refuter references. It NEVER feeds is_verified / strict_verify — a downstream
+        # consumer reads it for display, it can never resurrect a dropped sentence.
+        if refuter_ids:
+            basket_verdict = BASKET_VERDICT_CONTESTED
+        elif not verified_any:
+            basket_verdict = BASKET_VERDICT_UNVERIFIED
+        elif all_verified:
+            basket_verdict = BASKET_VERDICT_FULL
+        else:
+            basket_verdict = BASKET_VERDICT_PARTIAL
+
+        baskets.append(ClaimBasket(
+            claim_cluster_id=cluster_id,
+            claim_text=str(getattr(head, "text", "") or ""),
+            subject=str(getattr(head, "subject", "") or ""),
+            predicate=str(getattr(head, "predicate", "") or ""),
+            supporting_members=members,
+            refuter_cluster_ids=refuter_ids,
+            weight_mass=float(getattr(cwm, "weight_mass", 0.0) or 0.0) if cwm is not None else 0.0,
+            total_clustered_origin_count=total_clustered_origin_count,
+            verified_support_origin_count=verified_support_origin_count,
+            basket_verdict=basket_verdict,
+        ))
+    return baskets
 
 
 def run_credibility_analysis(
@@ -193,12 +444,41 @@ def _run_chain(
     # ── P6: origin-cluster weight-mass (mass = authority(canonical) ONLY; credibility disclosed) ──
     weight_mass = aggregate_weight_mass(graph.claims, annotated, adjusted_judgments)
 
+    # ── I-arch-002 [8] — assemble per-claim baskets with ISOLATED per-member verification.
+    # The verifier is the PRODUCTION single-sentence callable, lazy-imported here so this
+    # module's import graph stays decoupled from the big provenance module (mirrors the
+    # local imports at run_credibility_analysis / apply_disclosure_to_svs). It is used
+    # ADVISORY only — strict_verify itself is never re-run as a gate.
+    from src.polaris_graph.generator.provenance_generator import (  # noqa: PLC0415
+        verify_sentence_provenance,
+    )
+    baskets = _assemble_baskets(
+        graph, weight_mass, annotated, credibility_by_evidence,
+        verify_fn=verify_sentence_provenance,
+    )
+
+    # ── sentence -> claim_cluster_id binding (design §6): evidence_id -> the cluster
+    #    id(s) its atomic claim(s) belong to. The resolve sites today carry only cited
+    #    tokens (each an evidence_id), so this lets the render layer (P5.x) map a cited
+    #    token to the basket whose verified count it should surface. Reference data only.
+    cluster_id_by_evidence: dict[str, list[str]] = {}
+    for claim in (graph.claims or []):
+        eid = str(getattr(claim, "evidence_id", "") or "")
+        ccid = str(getattr(claim, "claim_cluster_id", "") or "")
+        if not eid or not ccid:
+            continue
+        bucket = cluster_id_by_evidence.setdefault(eid, [])
+        if ccid not in bucket:
+            bucket.append(ccid)
+
     return CredibilityAnalysis(
         credibility_by_evidence=credibility_by_evidence,
         origin_by_evidence=origin_by_evidence,
         claims=graph.claims,
         edges=graph.edges,
         weight_mass=weight_mass,
+        baskets=baskets,
+        cluster_id_by_evidence=cluster_id_by_evidence,
     )
 
 

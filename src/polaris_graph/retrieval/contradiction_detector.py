@@ -179,8 +179,23 @@ class ExtractedNumericClaim:
     source_url: str = ""
     source_tier: str = ""
     dose: str = ""             # "2.4 mg", "7.2 mg", or "" if not present
-    arm: str = "treatment"     # "treatment", "placebo", "comparator"
+    # arm is positively-known ONLY when a placebo/comparator cue fired. A
+    # DEFAULTED arm is NOT positively-known (design §4.3): no-cue -> None, so
+    # build_merge_key (Wave-3 step [6]) treats it as an unknown discriminator
+    # and keeps the claim a singleton rather than over-merging.
+    arm: Optional[str] = None  # "comparator_adjacent" on cue; None = UNKNOWN
     endpoint_phrase: str = ""  # e.g., "at week 68", "from baseline", "mean change"
+    # ── Wave-3 positive-known discriminator fields (I-arch-002 [1]) ──────────
+    # All default '' = UNKNOWN sentinel. Dormant carriers: no consumer reads
+    # them until claim_graph.build_merge_key reads them under
+    # PG_SWEEP_CREDIBILITY_REDESIGN. A value is set ONLY when a positive token
+    # was extracted (never derived/defaulted) per design §4.3.
+    dose_frequency: str = ""    # "qd"/"bid"/"weekly"/... cadence token; '' = UNKNOWN
+    comparator: str = ""        # the "vs X" comparator phrase; '' = UNKNOWN
+    route_formulation: str = "" # "iv"/"po"/"sc"/"er"/...; '' = UNKNOWN
+    effect_measure: str = ""    # "relative"/"absolute"/"hr"/"or"/"raw"; '' = UNKNOWN
+    direction: str = ""         # "increase"/"decrease" TOKEN-only; '' = UNKNOWN
+    population: str = ""         # "patients with X" cohort phrase; '' = UNKNOWN
 
 
 @dataclass
@@ -329,15 +344,59 @@ _VALUE_PHRASE_VERBS = re.compile(
     re.IGNORECASE,
 )
 
+# ── Wave-3 master flag (I-arch-002) ──────────────────────────────────────────
+# Read at CALL time (never import-time) so tests can monkeypatch os.environ and
+# the OFF path is honoured per-invocation. Mirrors
+# credibility_pass._OFF_VALUES semantics; inlined here to avoid importing the
+# synthesis layer into retrieval (no cross-layer / circular-import coupling).
+_CRED_REDESIGN_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
+_CRED_REDESIGN_OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
+
+
+def _credibility_redesign_enabled() -> bool:
+    """True when PG_SWEEP_CREDIBILITY_REDESIGN is on. OFF => byte-identical."""
+    return (
+        os.environ.get(_CRED_REDESIGN_FLAG, "").strip().lower()
+        not in _CRED_REDESIGN_OFF_VALUES
+    )
+
+
 # Dose pattern (captures the full "X.X mg" string for grouping).
 _DOSE_CAPTURE_RE = re.compile(
     r"(\d+(?:\.\d+)?\s*m[gc]g?|\d+(?:\.\d+)?\s*[µu]g|\d+(?:\.\d+)?\s*g\b)",
     re.IGNORECASE,
 )
 
+# Wave-3 variant (I-arch-002 [2], DRIFT-MGKG): preserves a per-weight ('/kg') or
+# per-time ('/day','/m2',...) denominator so '5 mg/kg' is DISTINCT from '5 mg'
+# (design §4.1/§4.3 — prevents a false dose-response merge). This change feeds
+# the LEGACY detect_contradictions grouping key (:596 includes dose) and is
+# therefore NOT byte-inert when the master flag is OFF; per the non-negotiable
+# byte-identity rule it is GATED behind PG_SWEEP_CREDIBILITY_REDESIGN. When the
+# flag is OFF the original _DOSE_CAPTURE_RE path runs verbatim.
+_DOSE_CAPTURE_MGKG_RE = re.compile(
+    r"(\d+(?:\.\d+)?\s*m[gc]g?|\d+(?:\.\d+)?\s*[µu]g|\d+(?:\.\d+)?\s*g\b)"
+    r"(\s*/\s*(?:kg|m2|m\^?2|day|d|hr?|h|dose|week|wk))?",
+    re.IGNORECASE,
+)
+
 
 def _extract_dose(text: str) -> str:
-    """Extract the most-salient dose token from the text (for grouping)."""
+    """Extract the most-salient dose token from the text (for grouping).
+
+    DRIFT-MGKG (I-arch-002 [2]): under PG_SWEEP_CREDIBILITY_REDESIGN a trailing
+    per-weight/per-time denominator ('/kg', '/m2', ...) is preserved so
+    '5 mg/kg' != '5 mg'. Flag OFF => original behaviour byte-for-byte.
+    """
+    if _credibility_redesign_enabled():
+        m = _DOSE_CAPTURE_MGKG_RE.search(text or "")
+        if not m:
+            return ""
+        base = m.group(1)
+        denom = m.group(2) or ""
+        # Normalize internal whitespace out of the denominator ('  / kg' -> '/kg')
+        denom = re.sub(r"\s+", "", denom)
+        return (base + denom).replace(" ", " ").lower()
     m = _DOSE_CAPTURE_RE.search(text or "")
     if not m:
         return ""
@@ -362,11 +421,210 @@ def _extract_endpoint_phrase(text: str) -> str:
         r"intent\s*-?\s*to\s*-?\s*treat",
         r"per\s+protocol",
         r"trial\s+product\s+estimand",
+        # Wave-3 (I-arch-002 [2]): day + year endpoint patterns, placed LAST so
+        # they fire ONLY when no pre-existing pattern matched. This keeps the
+        # extractor byte-identical for every input the current tree already
+        # matches (e.g. "change from baseline at day 28" still -> "from
+        # baseline"); the day/year forms only newly resolve inputs that
+        # previously returned "" ("at day N" / "at N days" / "at year N" /
+        # "at N years").
+        r"at\s+day\s+\d+", r"at\s+\d+\s+days?",
+        r"at\s+year\s+\d+", r"at\s+\d+\s+years?",
     ):
         m = re.search(pat, low)
         if m:
             return m.group(0)
     return ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave-3 positive-known discriminator extractors (I-arch-002 [2])
+#
+# Each returns '' (the UNKNOWN sentinel) unless a POSITIVE token was extracted.
+# A defaulted or PREDICATE-DERIVED value is NOT "known" (design §4.3): these
+# extractors read the evidence text ONLY, never the predicate. Dormant carriers
+# until claim_graph.build_merge_key reads them under PG_SWEEP_CREDIBILITY_REDESIGN.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Dosing cadence (per-time schedule). Orthogonal to the per-mass dose axis:
+# "15 mg weekly" != "15 mg daily" (the ISMP methotrexate sentinel error).
+_DOSE_FREQUENCY_RE = re.compile(
+    r"\b(?P<tok>"
+    r"q\.?d\.?|b\.?i\.?d\.?|t\.?i\.?d\.?|q\.?i\.?d\.?|"   # latin abbreviations
+    r"q\s*\d+\s*h|q\s*\d+\s*hours?|"                       # q8h / q 12 hours
+    r"once[-\s]?(?:daily|a\s+day|per\s+day|weekly|a\s+week)|"
+    r"twice[-\s]?(?:daily|a\s+day|per\s+day|weekly|a\s+week)|"
+    r"three\s+times[-\s]?(?:daily|a\s+day|per\s+day)|"
+    r"daily|weekly|biweekly|fortnightly|monthly"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Normalize a matched cadence token to a canonical key.
+_DOSE_FREQUENCY_NORMALIZE = (
+    (re.compile(r"^q\.?d\.?$", re.IGNORECASE), "qd"),
+    (re.compile(r"^b\.?i\.?d\.?$", re.IGNORECASE), "bid"),
+    (re.compile(r"^t\.?i\.?d\.?$", re.IGNORECASE), "tid"),
+    (re.compile(r"^q\.?i\.?d\.?$", re.IGNORECASE), "qid"),
+    (re.compile(r"^q\s*(\d+)\s*h(?:ours?)?$", re.IGNORECASE), r"q\1h"),
+    (re.compile(r"^once[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "qd"),
+    (re.compile(r"^twice[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "bid"),
+    (re.compile(r"^three\s+times[-\s]?(?:daily|a\s+day|per\s+day)$", re.IGNORECASE), "tid"),
+    (re.compile(r"^once[-\s]?(?:weekly|a\s+week)$", re.IGNORECASE), "weekly"),
+    (re.compile(r"^twice[-\s]?(?:weekly|a\s+week)$", re.IGNORECASE), "biweekly"),
+)
+
+
+def _extract_dose_frequency(text: str) -> str:
+    """Cadence token (qd/bid/tid/q\\d+h/once-daily/weekly/...) or '' if none."""
+    if not text:
+        return ""
+    m = _DOSE_FREQUENCY_RE.search(text)
+    if not m:
+        return ""
+    raw = re.sub(r"\s+", " ", m.group("tok").strip()).lower()
+    for pat, repl in _DOSE_FREQUENCY_NORMALIZE:
+        if pat.match(raw):
+            return pat.sub(repl, raw)
+    return raw
+
+
+# Comparator: "vs X" / "versus X" / "compared to X". Captures the comparator
+# noun phrase (short, stops at clause punctuation).
+_COMPARATOR_RE = re.compile(
+    r"(?:vs\.?|versus|compared\s+(?:to|with)|relative\s+to)\s+"
+    r"(?P<comp>[a-z0-9][a-z0-9\-\s]{0,40}?)"
+    r"(?=[,.;:)\]]|\s+(?:at|in|with|for|over|by|and|was|were|achiev|reduc)\b|$)",
+    re.IGNORECASE,
+)
+
+
+def _extract_comparator(text: str) -> str:
+    """The 'vs/versus/compared-to X' comparator phrase, or '' if none."""
+    if not text:
+        return ""
+    m = _COMPARATOR_RE.search(text)
+    if not m:
+        return ""
+    return re.sub(r"\s+", " ", m.group("comp").strip()).lower()
+
+
+# Route / formulation: IV / PO / SC / IM / ER / XR / SR, plus spelled-out forms.
+_ROUTE_FORMULATION_RE = re.compile(
+    r"\b(?P<tok>"
+    r"i\.?v\.?|intravenous(?:ly)?|"
+    r"p\.?o\.?|per\s+os|oral(?:ly)?|by\s+mouth|"
+    r"s\.?c\.?|subcutaneous(?:ly)?|subq|"
+    r"i\.?m\.?|intramuscular(?:ly)?|"
+    r"e\.?r\.?|x\.?r\.?|s\.?r\.?|"
+    r"extended[-\s]?release|sustained[-\s]?release|immediate[-\s]?release"
+    r")\b",
+    re.IGNORECASE,
+)
+_ROUTE_FORMULATION_NORMALIZE = (
+    (re.compile(r"^(?:i\.?v\.?|intravenous(?:ly)?)$", re.IGNORECASE), "iv"),
+    (re.compile(r"^(?:p\.?o\.?|per\s+os|oral(?:ly)?|by\s+mouth)$", re.IGNORECASE), "po"),
+    (re.compile(r"^(?:s\.?c\.?|subcutaneous(?:ly)?|subq)$", re.IGNORECASE), "sc"),
+    (re.compile(r"^(?:i\.?m\.?|intramuscular(?:ly)?)$", re.IGNORECASE), "im"),
+    (re.compile(r"^(?:e\.?r\.?|extended[-\s]?release)$", re.IGNORECASE), "er"),
+    (re.compile(r"^(?:x\.?r\.?)$", re.IGNORECASE), "xr"),
+    (re.compile(r"^(?:s\.?r\.?|sustained[-\s]?release)$", re.IGNORECASE), "sr"),
+    (re.compile(r"^immediate[-\s]?release$", re.IGNORECASE), "ir"),
+)
+
+
+def _extract_route_formulation(text: str) -> str:
+    """Route/formulation token (iv/po/sc/im/er/...) or '' if none."""
+    if not text:
+        return ""
+    m = _ROUTE_FORMULATION_RE.search(text)
+    if not m:
+        return ""
+    raw = re.sub(r"\s+", " ", m.group("tok").strip()).lower()
+    for pat, repl in _ROUTE_FORMULATION_NORMALIZE:
+        if pat.match(raw):
+            return repl
+    return raw
+
+
+# Effect measure: relative / absolute / HR / OR / RR / raw — ONLY on an EXPLICIT
+# measure word. "30% relative risk reduction" != "30% absolute risk reduction".
+_EFFECT_MEASURE_RE = (
+    (re.compile(r"\brelative\s+risk\s+reduction\b|\brelative\s+reduction\b|"
+                r"\brelative\s+risk\b|\brrr\b", re.IGNORECASE), "relative"),
+    (re.compile(r"\babsolute\s+risk\s+reduction\b|\babsolute\s+reduction\b|"
+                r"\babsolute\s+risk\b|\barr\b", re.IGNORECASE), "absolute"),
+    (re.compile(r"\bhazard\s+ratio\b|\bhr\b", re.IGNORECASE), "hr"),
+    (re.compile(r"\bodds\s+ratio\b|\bor\b", re.IGNORECASE), "or"),
+    (re.compile(r"\brisk\s+ratio\b|\brate\s+ratio\b|\brr\b", re.IGNORECASE), "rr"),
+)
+
+
+def _extract_effect_measure(text: str) -> str:
+    """Effect-measure type (relative/absolute/hr/or/rr) on explicit word, else ''."""
+    if not text:
+        return ""
+    for pat, label in _EFFECT_MEASURE_RE:
+        if pat.search(text):
+            return label
+    return ""
+
+
+# Direction: EXPLICIT increase/decrease token ONLY. NEVER inferred from the
+# predicate (design §4.3 — the predicate-derived fallback made "rose 5%" and
+# "fell 5%" merge and broke design test #5).
+_DIRECTION_INCREASE_RE = re.compile(
+    r"\b(?:increas\w+|rose|rise|risen|rising|higher|elevat\w+|gain\w*|"
+    r"up\s+by|grew|grow\w*|improv\w+|more)\b",
+    re.IGNORECASE,
+)
+_DIRECTION_DECREASE_RE = re.compile(
+    r"\b(?:decreas\w+|reduc\w+|reduction|fell|fall\w*|fallen|drop\w*|lower\w*|"
+    r"declin\w+|loss|los[ts]?|down\s+by|shrank|shrunk|fewer|less)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_direction(text: str) -> str:
+    """'increase'/'decrease' from an EXPLICIT token only; '' if none/ambiguous.
+
+    Token-only by design (§4.3): never derived from the predicate. When BOTH an
+    increase and a decrease token appear the direction is ambiguous -> '' (keep
+    separate / fail-closed at the merge key).
+    """
+    if not text:
+        return ""
+    up = bool(_DIRECTION_INCREASE_RE.search(text))
+    down = bool(_DIRECTION_DECREASE_RE.search(text))
+    if up and not down:
+        return "increase"
+    if down and not up:
+        return "decrease"
+    return ""
+
+
+# Population / cohort: "in patients with X" / "in adults with X" / "among ...".
+# The terminating lookahead stops the cohort phrase at a clause boundary or the
+# onset of an outcome verb. Verb stems (achiev/reduc/...) intentionally carry NO
+# trailing \b so they match the inflected forms ("achieved", "reduced").
+_POPULATION_RE = re.compile(
+    r"\b(?:in|among)\s+"
+    r"(?P<pop>(?:patients?|adults?|children|subjects?|participants?|women|men|"
+    r"individuals?|people)\b[a-z0-9\-\s]{0,50}?)"
+    r"(?=[,.;:)\]]|\s+(?:achiev|reduc|experienc|demonstrat|report|produc|"
+    r"had\b|who\s+receiv|with\s+a\b)|$)",
+    re.IGNORECASE,
+)
+
+
+def _extract_population(text: str) -> str:
+    """The 'in/among patients with X' cohort phrase, or '' if none."""
+    if not text:
+        return ""
+    m = _POPULATION_RE.search(text)
+    if not m:
+        return ""
+    return re.sub(r"\s+", " ", m.group("pop").strip()).lower()
 
 
 def _find_value_in_context(
@@ -522,13 +780,28 @@ def extract_numeric_claims(
         dose = _extract_dose(ctx_window) or _extract_dose(quote)
         # arm classification: if the value sits in a placebo context
         # it wouldn't have passed _find_value_in_context, but we also
-        # tag "comparator" when the ctx includes "vs placebo" farther
-        # out (this is additional info for display, not a filter).
+        # tag "comparator_adjacent" when the ctx includes "vs placebo"
+        # farther out (this is additional info for display, not a filter).
+        # Wave-3 (I-arch-002 [2], design §4.3): a DEFAULTED arm is NOT
+        # positively-known — so when NO placebo/comparator cue fires the arm is
+        # None (UNKNOWN), not the legacy "treatment" default. build_merge_key
+        # then treats it as an unknown discriminator and keeps the claim a
+        # singleton rather than over-merging.
         if _detect_placebo_arm(ctx_window):
-            arm = "comparator_adjacent"
+            arm: Optional[str] = "comparator_adjacent"
         else:
-            arm = "treatment"
+            arm = None
         endpoint_phrase = _extract_endpoint_phrase(ctx_window) or _extract_endpoint_phrase(quote)
+
+        # Wave-3 positive-known discriminators (I-arch-002 [2]). Each reads the
+        # evidence text ONLY (ctx first, then full quote) and yields '' when no
+        # positive token is present. Dormant until build_merge_key reads them.
+        dose_frequency = _extract_dose_frequency(ctx_window) or _extract_dose_frequency(quote)
+        comparator = _extract_comparator(ctx_window) or _extract_comparator(quote)
+        route_formulation = _extract_route_formulation(ctx_window) or _extract_route_formulation(quote)
+        effect_measure = _extract_effect_measure(ctx_window) or _extract_effect_measure(quote)
+        direction = _extract_direction(ctx_window) or _extract_direction(quote)
+        population = _extract_population(ctx_window) or _extract_population(quote)
 
         claims.append(ExtractedNumericClaim(
             evidence_id=str(ev.get("evidence_id", "")),
@@ -542,6 +815,12 @@ def extract_numeric_claims(
             dose=dose,
             arm=arm,
             endpoint_phrase=endpoint_phrase,
+            dose_frequency=dose_frequency,
+            comparator=comparator,
+            route_formulation=route_formulation,
+            effect_measure=effect_measure,
+            direction=direction,
+            population=population,
         ))
     return claims
 

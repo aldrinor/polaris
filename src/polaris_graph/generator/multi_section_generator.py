@@ -5340,7 +5340,13 @@ async def generate_multi_section_report(
             )
         credibility_analysis = _credibility_pass.run_credibility_analysis(
             research_question, list(evidence_pool.values()),
-            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=None,
+            # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
+            # (in scope as generate_multi_section_report's `domain` param) so the
+            # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+            # instead of singleton-ing every claim (domain=None made consolidation
+            # INERT). ``domain or None`` normalizes the '' default back to today's
+            # None when unset. ONLY change to this call (Slice-A untouched).
+            gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
             judge=credibility_pass_judge,
         )
 

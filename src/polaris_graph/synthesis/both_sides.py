@@ -69,6 +69,8 @@ def compose_both_sides(
     contradiction_edges: list,
     weight_mass: list,
     claims: list,
+    *,
+    verified_count_by_cluster: dict | None = None,
 ) -> list[BothSidesBlock]:
     """Compose one BothSidesBlock per contradiction edge — pure, no input mutation.
 
@@ -77,7 +79,19 @@ def compose_both_sides(
     Sides are ordered by ``weight_mass`` DESC — disclosing which side has MORE evidence weight, never
     asserting which is true; the low-weight side is kept, never dropped. A missing weight defaults to
     0.0 / 0 (fail-soft disclosure, never a crash, never a fabricated weight).
+
+    I-arch-002 [10] / design §5 FIX-4 (Reading A): when ``verified_count_by_cluster``
+    (``claim_cluster_id -> basket verified_support_origin_count``, from the P3.2 baskets) is
+    threaded in, each side's ``independent_origin_count`` is OVERWRITTEN with ITS OWN basket's
+    ISOLATED-verified count (looked up by the side's ``claim_cluster_id``) instead of the
+    clustered, not-verified ``ClaimWeightMass.independent_origin_count``. This OVERWRITES the
+    value feeding the existing field — no parallel field is added. When the map is absent
+    (default OFF) or a side's cluster is not in it, the legacy ``cwm.independent_origin_count``
+    is used BYTE-IDENTICALLY.
     """
+    verified_by_cluster = {
+        str(k): int(v or 0) for k, v in (verified_count_by_cluster or {}).items()
+    }
     weight_by_cluster: dict[str, Any] = {}
     for cwm in (weight_mass or []):
         ccid = str(getattr(cwm, "claim_cluster_id", "") or "")
@@ -118,15 +132,21 @@ def compose_both_sides(
                 str(rec.get("statement", "") or "").strip()
                 or f"{side_subject} {side_predicate}".strip()
             )
+            # Legacy clustered, not-verified count (default-OFF byte-identity).
+            legacy_origin_count = (
+                int(getattr(cwm, "independent_origin_count", 0) or 0) if cwm is not None else 0
+            )
+            # I-arch-002 [10]: OVERWRITE with this side's OWN basket verified count when threaded
+            # (keyed by the side's claim_cluster_id — its own basket, never the other side's,
+            # never a sentence-wide count). Absent => legacy clustered count, byte-identical.
+            side_origin_count = verified_by_cluster.get(ccid, legacy_origin_count)
             sides.append(SidePosition(
                 claim_cluster_id=ccid,
                 subject=side_subject,
                 predicate=side_predicate,
                 statement=side_statement,
                 weight_mass=_num(getattr(cwm, "weight_mass", 0.0)) if cwm is not None else 0.0,
-                independent_origin_count=(
-                    int(getattr(cwm, "independent_origin_count", 0) or 0) if cwm is not None else 0
-                ),
+                independent_origin_count=side_origin_count,
                 evidence_ids=tuple(sorted(rec.get("evidence_ids", set()))),
             ))
         # Order by weight DESC; stable claim_cluster_id tiebreak for determinism. This discloses which

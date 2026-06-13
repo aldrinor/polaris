@@ -75,6 +75,15 @@ from src.polaris_graph.retrieval.semantic_conflict_detector import (
 _FLAG = "PG_SWEEP_CLAIM_GRAPH"
 _OFF_VALUES = frozenset({"", "0", "false", "off", "no"})
 
+# Wave-3 master flag (I-arch-002). When ON, the merge key is the spec-driven,
+# FAIL-CLOSED ``build_merge_key``; when OFF the legacy positional
+# ``_normalized_key_*`` keys run, so the SHA-1 grouping input — and therefore the
+# whole claim-graph — is byte-identical to the pre-change tree. Read at CALL time
+# (never import-time) so tests can monkeypatch os.environ per-invocation. Inlined
+# here (mirrors contradiction_detector._credibility_redesign_enabled) to avoid
+# importing the credibility_pass layer and coupling the import graph.
+_CRED_REDESIGN_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
+
 # The subject sentinel the numeric extractor returns when it cannot identify the
 # entity nearest the value. Such claims are NEVER mergeable (per-claim singleton).
 _UNKNOWN_SUBJECT = "unknown"
@@ -109,6 +118,12 @@ def claim_graph_enabled() -> bool:
     return os.environ.get(_FLAG, "").strip().lower() not in _OFF_VALUES
 
 
+def _credibility_redesign_enabled() -> bool:
+    """True when ``PG_SWEEP_CREDIBILITY_REDESIGN`` is on. OFF => byte-identical
+    (the legacy positional merge keys run, so clustering is unchanged)."""
+    return os.environ.get(_CRED_REDESIGN_FLAG, "").strip().lower() not in _OFF_VALUES
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, "") or default)
@@ -135,17 +150,32 @@ class AtomicClaim:
     is the conservative grouping key (the per-claim sentinel for an ``unknown``
     subject / a raw-text claim — never mergeable). ``kind`` records which extractor
     produced the claim (``numeric`` / ``qualitative`` / ``raw``) for audit.
+
+    Wave-3 (I-arch-002 [5], design §4.2/§7) adds two additive fields that are
+    DORMANT on the OFF path (default-value carriers — they do NOT feed
+    ``normalized_key`` unless ``PG_SWEEP_CREDIBILITY_REDESIGN`` is ON, and only
+    ``normalized_key`` is hashed into ``claim_cluster_id``, so OFF stays
+    byte-identical):
+      * ``domain`` — the normalized {clinical, nonclinical}|UNKNOWN hint
+        ``build_merge_key`` dispatches on (design §4.2). Stamped at extraction from
+        the threaded query domain (P3.1 wires the real value; '' until then).
+      * ``atom_uid`` — a per-atom-unique id, set at extraction from the threaded
+        ``claim_index`` so two distinct UNRESOLVED atoms from one ``evidence_id``
+        (the §1 numeric fan-out produces these) cannot collide on the fail-closed
+        singleton key (design §4.2 / §9.7, test #23).
     """
 
     evidence_id: str
     kind: str                      # "numeric" | "qualitative" | "raw"
     subject: str
     predicate: str
-    normalized_key: tuple          # conservative grouping key (see _normalized_key_*)
+    normalized_key: tuple          # conservative grouping key (see _normalized_key_* / build_merge_key)
     text: str                      # original snippet / quote for display
     source_url: str = ""
     source_tier: str = ""
     claim_cluster_id: str = ""     # set by cluster_equivalent_claims
+    domain: str = ""               # normalized {clinical, nonclinical}|UNKNOWN dispatch hint (Wave-3)
+    atom_uid: str = ""             # per-atom-unique id for the fail-closed singleton key (Wave-3)
 
 
 @dataclass
@@ -239,8 +269,277 @@ def _normalized_key_qualitative(
     )
 
 
+# ── Wave-3 spec-generated, catalog-covered, FAIL-CLOSED merge key (design §4) ──
+#
+# THE keystone. ``strict_verify`` is basket-blind (design §0), so the merge key is
+# the SOLE defence against over-merge — the clinical-lethal direction. Therefore
+# the key is GENERATED from one ordered spec, and the spec is REQUIRED to cover a
+# declared dimension catalog, so omission is impossible BY CONSTRUCTION (design
+# §4.2), not by a one-way test.
+#
+# Reached only when ``PG_SWEEP_CREDIBILITY_REDESIGN`` is ON (the extraction sites
+# branch on it). OFF keeps the legacy ``_normalized_key_*`` keys -> byte-identical.
+
+# Slot roles (design §4.2). NAMED constants (no inline magic strings).
+_ROLE_TAG = "TAG"                  # constant header (e.g. the kind literal)
+_ROLE_EXACT = "EXACT"             # compared exactly, never rounded (e.g. value)
+_ROLE_DISCRIMINATOR = "DISCRIMINATOR"  # MUST be positively known or -> singleton
+
+# Normalized domain buckets the spec dispatches on (design §4.2).
+_DOMAIN_CLINICAL = "clinical"
+_DOMAIN_NONCLINICAL = "nonclinical"
+_DOMAIN_UNKNOWN = "UNKNOWN"
+
+# Free-form domain hints (from the query router / scope templates) that map to the
+# clinical bucket. Anything not positively recognised maps to UNKNOWN -> the
+# fail-closed dispatch forces a singleton (NEVER a coarse default spec).
+_CLINICAL_DOMAIN_HINTS = frozenset({
+    "clinical", "clinical_research", "medical", "medicine", "pharma",
+    "pharmaceutical", "drug", "health", "healthcare", "regulatory_clinical",
+})
+_NONCLINICAL_DOMAIN_HINTS = frozenset({
+    "nonclinical", "non_clinical", "non-clinical", "economics", "economic",
+    "finance", "financial", "policy", "technology", "tech", "climate",
+    "environment", "general", "scientific", "science", "social",
+})
+
+
+@dataclass(frozen=True)
+class Slot:
+    """One ordered field of the merge key (design §4.2).
+
+    ``value_getter`` reads the raw field off the claim view (a numeric/qualitative
+    extractor object carrying ``kind`` / ``domain`` / ``evidence_id`` / ``atom_uid``
+    plus its own discriminator fields). ``role`` is TAG / EXACT / DISCRIMINATOR.
+    ``unknown_predicate`` returns True when a DISCRIMINATOR value is NOT positively
+    known (design §4.3) — a defaulted/derived value is unknown -> singleton.
+    """
+
+    name: str
+    value_getter: Callable[[Any], Any]
+    role: str
+    unknown_predicate: Callable[[Any], bool] = lambda v: False
+
+
+def _get(name: str) -> Callable[[Any], Any]:
+    """A value_getter reading ``name`` off the claim view, normalized (strip+lower
+    for strings; EXACT slots override this). '' for a missing attribute."""
+    def getter(claim: Any) -> Any:
+        return (str(getattr(claim, name, "") or "")).strip().lower()
+    return getter
+
+
+def _get_value(claim: Any) -> float:
+    """EXACT numeric value getter — preserves the exact float (no rounding, design
+    §4.5 / the close-value invariant); 14.9001 stays distinct from 14.9002."""
+    return float(getattr(claim, "value", 0.0) or 0.0)
+
+
+def _unknown_blank(v: Any) -> bool:
+    """A string DISCRIMINATOR is unknown on '' / None (design §4.3)."""
+    return not (str(v or "").strip())
+
+
+def _unknown_arm(v: Any) -> bool:
+    """``arm`` is unknown unless a placebo/comparator cue fired. None (no-cue
+    default, P1.2) OR '' is unknown; a non-empty default like 'treatment' is ALSO
+    treated as unknown per the design's arm lesson (§4.3) — only a positively
+    extracted arm anchors a merge."""
+    s = str(v or "").strip().lower()
+    return s in ("", "treatment")
+
+
+# ── §4.1 the dimension catalog: the authoritative set of dimensions where a
+#    difference changes WHAT the claim asserts (so a merge across it fabricates a
+#    different claim). The single source of truth; test #1(a) forces every entry
+#    into the corresponding MERGE_KEY_SPEC as a DISCRIMINATOR slot.
+DISCRIMINATING_DIMENSIONS: dict[str, frozenset] = {
+    "numeric_clinical": frozenset({
+        "subject", "predicate", "value", "unit", "dose", "dose_frequency",
+        "arm", "comparator", "effect_measure", "direction", "endpoint_phrase",
+        "population", "route_formulation",
+    }),
+    "numeric_nonclinical": frozenset({
+        "subject", "predicate", "value", "unit", "endpoint_phrase",
+    }),
+    "qualitative_clinical": frozenset({
+        "subject", "concept_type", "causal_strength", "warning_severity",
+        "object_slot", "condition_scope", "assertion_status",
+    }),
+    "qualitative_nonclinical": frozenset({
+        "subject", "concept_type", "object_slot", "condition_scope",
+        "assertion_status",
+    }),
+}
+
+
+# ── §4.2 the spec generates the key. ``MERGE_KEY_SPEC[(kind, domain)]`` is an
+#    ORDERED list of Slot. field-in-key == field-in-spec BY CONSTRUCTION (the
+#    tuple is emitted FROM the spec). Any (kind, domain) NOT here -> fail-closed
+#    singleton (incl. kind=='raw', UNKNOWN domain). 'value' is EXACT; every
+#    catalog dimension above appears here as a DISCRIMINATOR.
+MERGE_KEY_SPEC: dict[tuple, list] = {
+    ("numeric", _DOMAIN_CLINICAL): [
+        Slot("kind_tag", lambda c: "numeric", _ROLE_TAG),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("predicate", _get("predicate"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("value", _get_value, _ROLE_EXACT),
+        Slot("unit", _get("unit"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("dose", _get("dose"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("dose_frequency", _get("dose_frequency"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("arm", _get("arm"), _ROLE_DISCRIMINATOR, _unknown_arm),
+        Slot("comparator", _get("comparator"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("effect_measure", _get("effect_measure"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("direction", _get("direction"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("endpoint_phrase", _get("endpoint_phrase"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("population", _get("population"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("route_formulation", _get("route_formulation"), _ROLE_DISCRIMINATOR, _unknown_blank),
+    ],
+    ("numeric", _DOMAIN_NONCLINICAL): [
+        Slot("kind_tag", lambda c: "numeric", _ROLE_TAG),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("predicate", _get("predicate"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("value", _get_value, _ROLE_EXACT),
+        Slot("unit", _get("unit"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("endpoint_phrase", _get("endpoint_phrase"), _ROLE_DISCRIMINATOR, _unknown_blank),
+    ],
+    ("qualitative", _DOMAIN_CLINICAL): [
+        Slot("kind_tag", lambda c: "qualitative", _ROLE_TAG),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("concept_type", _get("concept_type"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        # causal_strength / warning_severity are EXACT, NOT DISCRIMINATOR (design
+        # §4.3 enumerates every singleton-forcing slot and deliberately OMITS these
+        # two; §4.4 requires only the SPLIT — "causes" != "associated", boxed !=
+        # routine — which EXACT delivers since the bucket strings differ exactly,
+        # exactly as the design's own cataloged-and-EXACT ``value`` dimension). A
+        # concept-conditional discriminator ('' is "not applicable" for a non-matching
+        # concept_type, not "unknown") would otherwise paralyse EVERY clinical
+        # qualitative merge: an ae_causation claim always has warning_severity='' and
+        # vice-versa. The five surrounding DISCRIMINATORs (subject/concept_type/
+        # object_slot/condition_scope/assertion_status) must all be positively-known-
+        # and-equal for any merge, so a '' strength only co-merges genuinely-same
+        # claims; a PRESENT cue always carries a non-empty bucket (the lexicon
+        # partitions every present cue) so different-strength claims still split.
+        Slot("causal_strength", _get("causal_strength"), _ROLE_EXACT),
+        Slot("warning_severity", _get("warning_severity"), _ROLE_EXACT),
+        Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
+    ],
+    ("qualitative", _DOMAIN_NONCLINICAL): [
+        Slot("kind_tag", lambda c: "qualitative", _ROLE_TAG),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("concept_type", _get("concept_type"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
+    ],
+}
+
+
+def normalize_domain(hint: str | None) -> str:
+    """Map a free-form domain hint to ``{clinical, nonclinical}`` else ``UNKNOWN``.
+
+    UNKNOWN is the fail-closed default (design §4.2): an unrecognised / unset /
+    empty hint dispatches to NO spec -> forced singleton, NEVER a coarse default.
+    """
+    s = (str(hint or "")).strip().lower()
+    if not s:
+        return _DOMAIN_UNKNOWN
+    if s in (_DOMAIN_CLINICAL, _DOMAIN_NONCLINICAL):
+        return s
+    if s in _CLINICAL_DOMAIN_HINTS:
+        return _DOMAIN_CLINICAL
+    if s in _NONCLINICAL_DOMAIN_HINTS:
+        return _DOMAIN_NONCLINICAL
+    return _DOMAIN_UNKNOWN
+
+
+def _canonicalize(slot: Slot, value: Any) -> Any:
+    """Render a slot value into the key tuple. EXACT slots keep the raw value (the
+    exact float); all others are already strip+lower normalized by their getter."""
+    return value
+
+
+def build_merge_key(claim: Any) -> tuple:
+    """Spec-generated, FAIL-CLOSED merge key for one atomic claim (design §4.2).
+
+    ``claim`` is a claim view carrying ``kind`` / ``domain`` / ``evidence_id`` /
+    ``atom_uid`` plus the extractor discriminator fields the slots read.
+
+    FAIL-CLOSED on two axes (the clinical-lethal direction is OVER-merge, so every
+    ambiguity resolves to a SINGLETON):
+      1. DISPATCH: any ``(kind, domain)`` with no spec — incl. ``kind=='raw'``, a
+         None/unnormalizable domain, or any uncatalogued pair — returns a globally
+         unique singleton ``('__unresolved__', kind, str(domain), evidence_id,
+         atom_uid)``. NEVER a coarse/default spec (silent over-merge).
+      2. PER-SLOT: any DISCRIMINATOR not positively known (its ``unknown_predicate``
+         is True) returns the SAME singleton. A defaulted/derived value is unknown
+         (design §4.3).
+    Otherwise the tuple is emitted FROM the spec (field-in-key == field-in-spec).
+    """
+    raw_domain = getattr(claim, "domain", "")
+    domain = normalize_domain(raw_domain)
+    kind = str(getattr(claim, "kind", "") or "")
+    evidence_id = str(getattr(claim, "evidence_id", "") or "")
+    atom_uid = str(getattr(claim, "atom_uid", "") or "")
+    spec = MERGE_KEY_SPEC.get((kind, domain))
+    if spec is None:
+        # raw / unknown-domain / any uncatalogued (kind, domain) -> forced singleton.
+        return ("__unresolved__", kind, str(raw_domain), evidence_id, atom_uid)
+    parts: list[Any] = []
+    for slot in spec:
+        v = slot.value_getter(claim)
+        if slot.role == _ROLE_DISCRIMINATOR and slot.unknown_predicate(v):
+            return ("__unresolved__", kind, domain, evidence_id, atom_uid)
+        parts.append(_canonicalize(slot, v))
+    return tuple(parts)
+
+
+def _merge_key_view(extractor_claim: Any, *, kind: str, evidence_id: str,
+                    domain: str, atom_uid: str) -> Any:
+    """A lightweight claim view that exposes the extractor object's discriminator
+    fields PLUS ``kind`` / ``domain`` / ``evidence_id`` / ``atom_uid`` so a single
+    ``build_merge_key(view)`` call reads everything it needs.
+
+    We wrap (not mutate) the extractor object so its real dataclass is untouched;
+    ``__getattr__`` delegates any field the spec slots request to the underlying
+    extractor object (test #21 spec<->extractor binding holds against the real
+    dataclass fields).
+    """
+    return _MergeKeyView(extractor_claim, kind, evidence_id, domain, atom_uid)
+
+
+class _MergeKeyView:
+    """Read-only view over an extractor claim for ``build_merge_key`` (see above)."""
+
+    __slots__ = ("_inner", "kind", "evidence_id", "domain", "atom_uid")
+
+    def __init__(self, inner: Any, kind: str, evidence_id: str,
+                 domain: str, atom_uid: str) -> None:
+        self._inner = inner
+        self.kind = kind
+        self.evidence_id = evidence_id
+        self.domain = domain
+        self.atom_uid = atom_uid
+
+    def __getattr__(self, name: str) -> Any:
+        # only reached for names NOT in __slots__ (i.e. the extractor's own fields)
+        return getattr(self._inner, name, "")
+
+
 def _row_text(row: dict[str, Any]) -> str:
     return str(row.get("direct_quote") or row.get("statement") or row.get("text") or "")
+
+
+def _atom_uid(kind: str, evidence_id: str, claim_index: int) -> str:
+    """Per-atom-unique id (design §4.2 / §9.7, test #23): ``kind:evidence_id:index``.
+
+    Two distinct atoms from one ``evidence_id`` (the numeric fan-out produces these)
+    get DIFFERENT indices, so the fail-closed singleton key cannot collide them.
+    Deterministic (no uuid/random/time) so the cluster id stays reproducible.
+    """
+    return f"{kind}:{evidence_id}:{claim_index}"
 
 
 def extract_atomic_claims(
@@ -274,6 +573,14 @@ def extract_atomic_claims(
     rows = list(rows or [])
     out: list[AtomicClaim] = []
     structured_evidence_ids: set[str] = set()
+    # Read the master flag ONCE per call (never import-time). OFF -> the legacy
+    # positional _normalized_key_* keys run, so the SHA-1 grouping input — and thus
+    # the whole graph — is byte-identical to the pre-change tree. ON -> the
+    # spec-driven, fail-closed build_merge_key keys run (design §4).
+    redesign_on = _credibility_redesign_enabled()
+    # Normalized domain stamped on each claim (design §4.2 / P3.1). '' on the OFF
+    # path is inert (never read); on the ON path normalize_domain maps it.
+    claim_domain = domain or ""
 
     # 1. numeric extractor (per-row so we can attribute claim ids deterministically).
     for row in rows:
@@ -286,15 +593,24 @@ def extract_atomic_claims(
             numeric_claims = numeric_extractor([row])
         for ci, nc in enumerate(numeric_claims):
             structured_evidence_ids.add(evid)
+            uid = _atom_uid("numeric", evid, ci)
+            if redesign_on:
+                nkey = build_merge_key(_merge_key_view(
+                    nc, kind="numeric", evidence_id=evid,
+                    domain=claim_domain, atom_uid=uid))
+            else:
+                nkey = _normalized_key_numeric(nc, evid, ci)
             out.append(AtomicClaim(
                 evidence_id=evid,
                 kind="numeric",
                 subject=(getattr(nc, "subject", "") or "").strip().lower(),
                 predicate=(getattr(nc, "predicate", "") or "").strip().lower(),
-                normalized_key=_normalized_key_numeric(nc, evid, ci),
+                normalized_key=nkey,
                 text=str(getattr(nc, "context_snippet", "") or _row_text(row))[:200],
                 source_url=str(getattr(nc, "source_url", "") or row.get("source_url", "")),
                 source_tier=str(getattr(nc, "source_tier", "") or row.get("tier", "")),
+                domain=claim_domain,
+                atom_uid=uid,
             ))
 
     # 2. qualitative extractor (whole-corpus; one row may yield several assertions).
@@ -311,15 +627,24 @@ def extract_atomic_claims(
         ci = qual_index_by_evid.get(evid, 0)
         qual_index_by_evid[evid] = ci + 1
         structured_evidence_ids.add(evid)
+        uid = _atom_uid("qualitative", evid, ci)
+        if redesign_on:
+            nkey = build_merge_key(_merge_key_view(
+                qa, kind="qualitative", evidence_id=evid,
+                domain=claim_domain, atom_uid=uid))
+        else:
+            nkey = _normalized_key_qualitative(qa, evid, ci)
         out.append(AtomicClaim(
             evidence_id=evid,
             kind="qualitative",
             subject=(getattr(qa, "subject", "") or "").strip().lower(),
             predicate=(getattr(qa, "concept_type", "") or "").strip().lower(),
-            normalized_key=_normalized_key_qualitative(qa, evid, ci),
+            normalized_key=nkey,
             text=str(getattr(qa, "context_snippet", "") or "")[:200],
             source_url=str(getattr(qa, "source_url", "") or ""),
             source_tier=str(getattr(qa, "source_tier", "") or ""),
+            domain=claim_domain,
+            atom_uid=uid,
         ))
 
     # 3. conservative raw fallback: any row that produced NO structured claim yields
@@ -332,15 +657,31 @@ def extract_atomic_claims(
             continue
         if evid in structured_evidence_ids:
             continue
+        norm_text = _norm_text_key(text)
+        # ATOM_UID-RAW-SITE (design §9.7): the raw site has no threaded claim_index.
+        # Retain the normalized text in atom_uid so even on a duplicate/empty
+        # evidence_id two raw atoms cannot collide on the fail-closed singleton key
+        # (build_merge_key returns a singleton for kind=='raw'). On the OFF path the
+        # key is byte-identical to today's ("__raw__", evid, norm_text).
+        if redesign_on:
+            uid = f"raw:{evid}:{norm_text}"
+            nkey = build_merge_key(_merge_key_view(
+                row, kind="raw", evidence_id=evid,
+                domain=claim_domain, atom_uid=uid))
+        else:
+            uid = ""
+            nkey = ("__raw__", evid, norm_text)
         out.append(AtomicClaim(
             evidence_id=evid,
             kind="raw",
             subject="",
             predicate="",
-            normalized_key=("__raw__", evid, _norm_text_key(text)),
+            normalized_key=nkey,
             text=text[:200],
             source_url=str(row.get("source_url", "")),
             source_tier=str(row.get("tier", "")),
+            domain=claim_domain,
+            atom_uid=uid,
         ))
 
     return out

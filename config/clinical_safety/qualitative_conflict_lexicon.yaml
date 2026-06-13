@@ -37,12 +37,32 @@ concept_types:
     present_cues: ["boxed warning", "black box warning", "black-box warning", "warning of",
                    "increased risk of", "risk of", "caution in", "should be monitored for"]
     absent_cues: ["no increased risk of", "no warning", "no excess risk of"]
+    # Ontology split of the present_cues by regulatory severity (design §4.4 — Wave 3 I-arch-001 #1245).
+    # A boxed/black-box warning must NOT be corroborated by a routine caution (severity laundering).
+    # NESTED here (rides concept_types validation 71-72); consulted ONLY by the qualitative detector's
+    # warning_severity emit, never by the present/absent matcher (so OFF = byte-identical). 'warning of'
+    # is routine_caution per §4.4. EVERY warning present_cue is partitioned into exactly one bucket.
+    warning_severity_cues:
+      boxed_regulatory: ["boxed warning", "black box warning", "black-box warning"]
+      routine_caution: ["warning of", "increased risk of", "risk of", "caution in",
+                        "should be monitored for"]
   ae_causation:
     present_cues: ["causes", "caused", "leads to", "led to", "results in", "resulted in",
                    "is associated with", "was associated with", "associated with", "a leading cause of",
                    "leading cause of", "induces", "induced"]
     absent_cues: ["did not cause", "does not cause", "did not lead to", "does not lead to",
                   "not a cause of", "did not result in"]
+    # Ontology split of the present_cues by causal strength (design §4.4 — Wave 3 I-arch-001 #1245).
+    # "drug X causes Y" must NOT merge with "drug X is associated with Y" (the textbook
+    # correlation-as-causation error). NESTED here (rides concept_types validation 71-72); consulted
+    # ONLY by the qualitative detector's causal_strength emit, never by the present/absent matcher (so
+    # OFF = byte-identical). 'a leading cause of' / 'leading cause of' are associational per §4.4.
+    # EVERY ae_causation present_cue is partitioned into exactly one bucket.
+    causal_strength_cues:
+      causal: ["causes", "caused", "leads to", "led to", "results in", "resulted in",
+               "induces", "induced"]
+      associational: ["is associated with", "was associated with", "associated with",
+                      "a leading cause of", "leading cause of"]
 
 # Which key field owns the extracted text per concept_type (no double-encoding).
 #   "condition_scope" => the population/organ-status owns the key (object_slot stays "").

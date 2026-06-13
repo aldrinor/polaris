@@ -384,6 +384,48 @@ def test_offline_smoke_full_path_no_spend(tmp_path):
     assert "high" in sev and "review" in sev
 
 
+# ── Wave 3 I-arch-001 #1245 §8 tests #15/#16 — intra-slot ontology discriminators (extractor level) ─
+# These are EXTRACTOR-LEVEL proofs: the merge key that consumes causal_strength / warning_severity
+# lives in claim_graph.build_merge_key (checklist step [6], out of this assignment). Here we prove the
+# discriminator the merge key keys on is emitted DISTINCTLY for cues that must NOT corroborate — so the
+# downstream no-merge is structurally guaranteed. The emit is unconditional (inert by non-consumption,
+# not by a flag), so no flag manipulation is needed.
+
+def _by_concept(quote: str, concept_type: str):
+    """All extracted assertions for one concept_type from a single quote."""
+    rows = extract_qualitative_assertions([_ev("ev_000", quote, "https://x")])
+    return [a for a in rows if a.concept_type == concept_type]
+
+
+def test_arch001_15_causes_vs_associated_distinct_causal_strength():
+    """§8 #15: 'drug X causes Y' (causal) vs 'drug X is associated with Y' (associational) must carry
+    DIFFERENT causal_strength so the merge key keeps them separate (correlation-as-causation error)."""
+    causal = _by_concept("Semaglutide causes pancreatitis.", "ae_causation")
+    assoc = _by_concept("Semaglutide is associated with pancreatitis.", "ae_causation")
+    assert causal and assoc, "both ae_causation assertions must extract"
+    assert all(a.assertion_status == PRESENT for a in causal + assoc)
+    assert {a.causal_strength for a in causal} == {"causal"}
+    assert {a.causal_strength for a in assoc} == {"associational"}
+    # the discriminator differs -> distinct merge key -> NO false corroboration.
+    assert causal[0].causal_strength != assoc[0].causal_strength
+    # the orthogonal warning_severity slot stays UNKNOWN for ae_causation.
+    assert all(a.warning_severity == "" for a in causal + assoc)
+
+
+def test_arch001_16_boxed_vs_routine_distinct_warning_severity():
+    """§8 #16: a boxed/black-box warning (boxed_regulatory) must NOT be corroborated by a routine
+    caution (routine_caution) — they must carry DIFFERENT warning_severity (severity laundering)."""
+    boxed = _by_concept("Semaglutide carries a boxed warning for thyroid tumors.", "warning")
+    routine = _by_concept("Semaglutide has an increased risk of thyroid tumors.", "warning")
+    assert boxed and routine, "both warning assertions must extract"
+    assert all(a.assertion_status == PRESENT for a in boxed + routine)
+    assert {a.warning_severity for a in boxed} == {"boxed_regulatory"}
+    assert {a.warning_severity for a in routine} == {"routine_caution"}
+    assert boxed[0].warning_severity != routine[0].warning_severity
+    # the orthogonal causal_strength slot stays UNKNOWN for warning.
+    assert all(a.causal_strength == "" for a in boxed + routine)
+
+
 # ── empty inputs ─────────────────────────────────────────────────────────────────────────────────
 def test_empty_inputs():
     assert extract_qualitative_assertions([]) == []

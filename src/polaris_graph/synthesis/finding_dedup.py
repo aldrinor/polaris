@@ -77,18 +77,33 @@ def _host_of(url: str) -> str:
     return host
 
 
-def _finding_key(claim: Any, evidence_id: str, claim_index: int) -> tuple:
+def _finding_key(
+    claim: Any,
+    evidence_id: str,
+    claim_index: int,
+    *,
+    exact_value: bool = False,
+) -> tuple:
     """Conservative finding key. An ``unknown`` subject yields a per-CLAIM
     sentinel (evidence_id + claim_index) so it can never collide — even two
     unknown claims on the SAME row stay distinct singletons.
+
+    ``exact_value`` (I-arch-002 (#1246) P3.3, design §2) — under
+    ``PG_SWEEP_CREDIBILITY_REDESIGN`` the value slot is the EXACT float (no
+    ``round(..., 3)``), matching ``claim_graph._normalized_key_numeric`` (L238)
+    so basket clustering keys agree across the two consolidators (a shared
+    type-consistency requirement of the design). OFF keeps ``round(value, 3)``
+    byte-for-byte (the legacy survivor-selection key).
     """
     subject = getattr(claim, "subject", "") or ""
     if not subject or subject == _UNKNOWN_SUBJECT:
         return ("__unknown__", evidence_id, claim_index)
+    raw_value = float(getattr(claim, "value", 0.0) or 0.0)
+    value_slot = raw_value if exact_value else round(raw_value, 3)
     return (
         subject,
         getattr(claim, "predicate", "") or "",
-        round(float(getattr(claim, "value", 0.0) or 0.0), 3),
+        value_slot,
         getattr(claim, "unit", "") or "",
         getattr(claim, "dose", "") or "",
         getattr(claim, "arm", "") or "",
@@ -138,7 +153,29 @@ def dedup_by_finding(
         FindingDedupResult. `deduped_rows` are SHALLOW COPIES (the caller's rows
         are never mutated); representative copies carry additive
         `corroboration_count` / `independent_hosts` / `finding_keys` keys.
+
+    I-arch-002 (#1246) P3.3 (design §7 / DNA §-1.3 Principle 2 — CONSOLIDATE,
+    don't DROP): under ``PG_SWEEP_CREDIBILITY_REDESIGN`` this function STOPS
+    being a source-dropper. The non-representative collapse-drop is bypassed so
+    EVERY same-claim row flows through as a basket carrying corroboration as
+    weight (routed into claim_graph clusters downstream); clustering uses the
+    EXACT numeric value (no ``round(..., 3)``). The 3 safe guards are preserved
+    in BOTH modes: qualitative pass-through (no-finding rows always kept),
+    conservative-singleton (every extracted qualifier must match to cluster),
+    and the unknown-subject sentinel (an ``unknown`` subject never merges). The
+    faithfulness engine (strict_verify / provenance / NLI / 4-role) is
+    untouched. OFF ⇒ the legacy collapse-to-representative drop, byte-identical.
     """
+    # Deferred import: the call sites already defer-import this module, and
+    # credibility_pass pulls in weight_mass / independence_collapse at module
+    # scope — importing the predicate inside the function avoids any import
+    # cycle and keeps the activation gate a single source of truth.
+    from src.polaris_graph.synthesis.credibility_pass import (
+        credibility_redesign_enabled,
+    )
+
+    redesign_on = credibility_redesign_enabled()
+
     rows = list(rows or [])
 
     # 1. Extract claims per row, group by conservative finding key.
@@ -150,7 +187,7 @@ def dedup_by_finding(
             row_has_finding[ri] = True
         ev_id = str(row.get("evidence_id", ri))
         for cj, claim in enumerate(claims):
-            key = _finding_key(claim, ev_id, cj)
+            key = _finding_key(claim, ev_id, cj, exact_value=redesign_on)
             groups.setdefault(key, []).append(ri)
 
     def _rank(ri: int) -> tuple:
@@ -195,11 +232,20 @@ def dedup_by_finding(
 
     # 3. Retain: every row that is the rep of >=1 cluster, plus every row with NO
     #    extractable finding (qualitative rows are never rehashes). Original order.
-    #    A finding-bearing row that is the rep of nothing is REDUNDANT -> dropped;
-    #    every distinct finding it carried survives on that finding's rep row.
+    #
+    #    OFF (legacy): a finding-bearing row that is the rep of nothing is
+    #    REDUNDANT -> dropped; every distinct finding it carried survives on that
+    #    finding's rep row.
+    #
+    #    I-arch-002 (#1246) P3.3 (CONSOLIDATE-keep-all): under
+    #    ``PG_SWEEP_CREDIBILITY_REDESIGN`` the non-representative DROP is BYPASSED
+    #    so ALL same-claim rows flow through as a basket (repetition IS
+    #    corroboration). The representative still carries the corroboration
+    #    sidecar; non-rep members now survive in original order instead of being
+    #    collapsed away. ``collapsed_row_count`` honestly becomes 0.
     deduped_rows: list[dict[str, Any]] = []
     for ri, row in enumerate(rows):
-        if not (ri in rep_indices or not row_has_finding[ri]):
+        if not redesign_on and not (ri in rep_indices or not row_has_finding[ri]):
             continue
         new_row = dict(row)  # shallow copy — never mutate the caller's row
         if ri in rep_meta:

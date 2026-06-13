@@ -110,6 +110,13 @@ class QualitativeAssertion:
     context_snippet: str
     source_url: str
     source_tier: str
+    # Intra-slot ontology discriminators (Wave 3 I-arch-001 #1245, design §4.4). '' == UNKNOWN.
+    # Emitted on a PRESENT-cue hit by classifying the matched cue against the lexicon's
+    # causal_strength_cues / warning_severity_cues buckets. Dormant carriers: read ONLY by
+    # claim_graph.build_merge_key under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized on the
+    # OFF path (NOT in _claim_dict), so additive defaults are byte-identical when the redesign is off.
+    causal_strength: str = ''      # {causal, associational} for ae_causation, else ''
+    warning_severity: str = ''     # {boxed_regulatory, routine_caution} for warning, else ''
 
 
 @dataclass
@@ -317,6 +324,23 @@ def _extract_condition_scope(sentence_lc: str, lex: dict[str, Any]) -> str:
     return ""
 
 
+def _classify_cue_bucket(cset: dict[str, Any], bucket_field: str, cue: str) -> str:
+    """Return the ontology bucket name a matched PRESENT cue falls into, else '' (UNKNOWN).
+
+    `bucket_field` is the per-concept lexicon sub-map name (`causal_strength_cues` for ae_causation,
+    `warning_severity_cues` for warning). The matched `cue` is the exact lexicon string, so an exact
+    `cue in bucket_list` membership test is sufficient and deterministic. A concept_type that owns no
+    such sub-map, or a cue not partitioned into any bucket, yields '' (UNKNOWN) — design §4.4 Wave 3.
+    """
+    buckets = cset.get(bucket_field)
+    if not isinstance(buckets, dict):
+        return ''
+    for bucket_name, bucket_cues in buckets.items():
+        if cue in (bucket_cues or []):
+            return str(bucket_name)
+    return ''
+
+
 def extract_qualitative_assertions(
     evidence: list[dict[str, Any]], domain: str | None = None,
 ) -> list[QualitativeAssertion]:
@@ -370,11 +394,24 @@ def extract_qualitative_assertions(
                             clause_raw, clause, concept_type, pos, cue, subject
                         )
                         condition_scope = cscope
+                    # Intra-slot ontology discriminators (Wave 3 §4.4): classify the matched cue ONLY
+                    # on a PRESENT hit (an ABSENT cue is not partitioned into the present buckets).
+                    # '' (UNKNOWN) for every other concept_type and on every absent hit. Dormant until
+                    # claim_graph.build_merge_key reads it under PG_SWEEP_CREDIBILITY_REDESIGN.
+                    causal_strength, warning_severity = '', ''
+                    if base == PRESENT:
+                        if concept_type == "ae_causation":
+                            causal_strength = _classify_cue_bucket(
+                                cset, "causal_strength_cues", cue)
+                        elif concept_type == "warning":
+                            warning_severity = _classify_cue_bucket(
+                                cset, "warning_severity_cues", cue)
                     out.append(QualitativeAssertion(
                         evidence_id=evid, subject=subject, concept_type=concept_type,
                         object_slot=object_slot, condition_scope=condition_scope,
                         assertion_status=status, cue=cue, context_snippet=clause_raw[:200],
                         source_url=url, source_tier=tier,
+                        causal_strength=causal_strength, warning_severity=warning_severity,
                     ))
     return out
 

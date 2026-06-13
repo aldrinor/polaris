@@ -2533,29 +2533,132 @@ def strict_verify(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _basket_for_biblio(basket: Any) -> dict[str, Any]:
+    """Project a ``credibility_pass.ClaimBasket`` onto the bibliography render
+    contract (design §6, checklist [11] P5.2).
+
+    Surfaces ONLY what the basket already computed upstream — never recomputes a
+    verdict and never resurrects a dropped sentence (the basket is assembled in
+    ``credibility_pass`` AFTER strict_verify; a dropped sentence never reaches
+    this resolver, so a ``basket_verdict=full`` can't upgrade it). Each member is
+    shown with its OWN isolated ``span_verdict``: a member with no verified span
+    is surfaced as context/unverified, never silently counted as support. The
+    basket itself is labelled ``partial``/``contested`` in that case (never
+    silently ``full``) by the upstream assembly.
+
+    Read via ``getattr`` (duck-typed) so this module never imports
+    ``credibility_pass`` (which lazy-imports THIS module — a hard cycle).
+    """
+    members_out: list[dict[str, Any]] = []
+    for member in (getattr(basket, "supporting_members", None) or []):
+        members_out.append({
+            "evidence_id": str(getattr(member, "evidence_id", "") or ""),
+            "source_url": str(getattr(member, "source_url", "") or ""),
+            "source_tier": str(getattr(member, "source_tier", "") or ""),
+            "origin_cluster_id": str(getattr(member, "origin_cluster_id", "") or ""),
+            "credibility_weight": getattr(member, "credibility_weight", None),
+            "authority_score": float(getattr(member, "authority_score", 0.0) or 0.0),
+            # the member's OWN isolated span verdict — SUPPORTS members are the
+            # ones counted in verified_support_origin_count; UNSUPPORTED members
+            # are shown as context, never as support strength.
+            "span_verdict": str(getattr(member, "span_verdict", "") or ""),
+            "direct_quote": str(getattr(member, "direct_quote", "") or ""),
+        })
+    refuter_ids = tuple(
+        str(c) for c in (getattr(basket, "refuter_cluster_ids", ()) or ())
+    )
+    return {
+        "claim_cluster_id": str(getattr(basket, "claim_cluster_id", "") or ""),
+        "claim_text": str(getattr(basket, "claim_text", "") or ""),
+        "subject": str(getattr(basket, "subject", "") or ""),
+        "predicate": str(getattr(basket, "predicate", "") or ""),
+        # the ONLY strengthening count — N VERIFIED independent origins (isolated
+        # per-member verification), NEVER the clustered total.
+        "verified_support_origin_count": int(
+            getattr(basket, "verified_support_origin_count", 0) or 0
+        ),
+        # ADVISORY clustered count — surfaced labelled, never as support strength.
+        "total_clustered_origin_count": int(
+            getattr(basket, "total_clustered_origin_count", 0) or 0
+        ),
+        "weight_mass": float(getattr(basket, "weight_mass", 0.0) or 0.0),
+        "basket_verdict": str(getattr(basket, "basket_verdict", "") or ""),
+        # contested -> reference to the both_sides neutral block (the refuting
+        # cluster ids), never the refuters' content duplicated here.
+        "refuter_cluster_ids": refuter_ids,
+        "supporting_members": members_out,
+    }
+
+
 def resolve_provenance_to_citations(
     kept_sentences: list[SentenceVerification],
     evidence_pool: dict[str, dict[str, Any]],
+    *,
+    baskets: list | None = None,
+    cluster_id_by_evidence: dict[str, list[str]] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Strip [#ev:...] tokens and replace with numbered citations.
 
     Returns (rendered_text, bibliography_list). Bibliography is a list
     of dicts: {num, evidence_id, url, tier, statement}.
+
+    I-arch-002 [11] P5.2 — basket-carrying bibliography (design §6). When
+    ``baskets`` (the ``credibility_pass.ClaimBasket`` list) AND
+    ``cluster_id_by_evidence`` (the evidence_id -> claim_cluster_id[] binding,
+    both from ``CredibilityAnalysis``) are supplied, each bibliography row ALSO
+    carries the basket(s) the cited source backs: supporting sources + weights +
+    N VERIFIED independent origins, with a contested basket referencing the
+    both_sides neutral block via ``refuter_cluster_ids``. This is the render
+    extension only; the faithfulness engine (strict_verify / provenance / NLI /
+    4-role) runs UPSTREAM and is untouched — a dropped sentence never reaches
+    this resolver, so no basket label can resurrect it.
+
+    GATE = parameter presence (NOT an env read). All production callers today
+    pass only ``(kept_sentences, evidence_pool)``; with ``baskets is None`` the
+    emitted rows are the legacy ``{num,evidence_id,url,tier,statement}`` dict
+    BYTE-IDENTICAL. The basket list itself only exists when
+    ``PG_SWEEP_CREDIBILITY_REDESIGN`` is ON (``credibility_analysis is not
+    None``), so "behind the master flag" holds transitively — without coupling
+    this render layer to global flag state. The new params are keyword-only with
+    ``None`` defaults so positional callers cannot break.
     """
     ev_to_num: dict[str, int] = {}
     biblio: list[dict[str, Any]] = []
+
+    # Index claim_cluster_id -> projected basket dict ONCE (the binding is
+    # 1-to-MANY: one evidence_id can back several baskets, design §5 per-cluster
+    # rule). Built only when basket data is present, so OFF stays a no-op.
+    _basket_by_cluster: dict[str, dict[str, Any]] = {}
+    _carry_baskets = baskets is not None and cluster_id_by_evidence is not None
+    if _carry_baskets:
+        for _basket in (baskets or []):
+            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
+            if _ccid:
+                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
 
     def _num_for(ev_id: str) -> int:
         if ev_id not in ev_to_num:
             ev_to_num[ev_id] = len(ev_to_num) + 1
             ev = evidence_pool.get(ev_id, {})
-            biblio.append({
+            row: dict[str, Any] = {
                 "num": ev_to_num[ev_id],
                 "evidence_id": ev_id,
                 "url": ev.get("source_url", ""),
                 "tier": ev.get("tier", ""),
                 "statement": (ev.get("statement") or "")[:300],
-            })
+            }
+            # Enrich with the basket(s) this source backs — ONLY when basket data
+            # was supplied. The legacy 5-key dict above is emitted UNCHANGED when
+            # baskets is None (byte-identical OFF path).
+            if _carry_baskets:
+                _ccids = (cluster_id_by_evidence or {}).get(ev_id, []) or []
+                _rows_baskets = [
+                    _basket_by_cluster[c]
+                    for c in _ccids
+                    if c in _basket_by_cluster
+                ]
+                row["baskets"] = _rows_baskets
+            biblio.append(row)
         return ev_to_num[ev_id]
 
     findings_lines: list[str] = []
