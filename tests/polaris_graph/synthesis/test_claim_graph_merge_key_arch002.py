@@ -618,6 +618,12 @@ _POLARITY_FAIL_CLOSED = [
     "in patients not restricted to those with renal impairment",   # iter-8 broadening
     "causes no nausea in renal impairment",              # verb-negation now fails closed too (accepted)
     "does not cause nausea in patients with renal impairment",
+    # Codex final-close P0: severity/stage/threshold modifiers (condition_scope drops them).
+    "in stage 3 renal impairment",
+    "in stage 4 renal impairment",
+    "in patients with egfr below 30",
+    "in patients with egfr above 60",
+    "renal impairment grade 2",
 ]
 
 

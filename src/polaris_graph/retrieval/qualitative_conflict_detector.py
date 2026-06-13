@@ -383,17 +383,29 @@ _POST_CUE_RESTRICTION_CUES = frozenset({
 # FAIL CLOSED to a singleton (Codex Slice-B iter-7 P0). Bare "criterion/criteria" is NOT
 # here (it is usually inclusion language); only the explicit exclusion noun.
 _EXCLUSION_META_NOUNS = frozenset({"exclusion", "exclusions"})
+# Population SEVERITY / STAGE / THRESHOLD modifier WORDS. `_extract_condition_scope` drops
+# these (it keeps only the organ cue + a severity adjective), so "STAGE 3 renal impairment"
+# and "STAGE 4 renal impairment" — or "eGFR BELOW 30" and "eGFR ABOVE 60" — both collapse to
+# the same condition_scope and would over-merge DIFFERENT severity populations. Their presence
+# ⇒ FAIL CLOSED to a singleton (Codex Slice-B final-close P0). Digits in the clause are also
+# caught directly (covers bare "stage 3" / "eGFR 30" numeric thresholds).
+_POPULATION_MODIFIER_CUES = frozenset({
+    "stage", "stages", "grade", "grades", "class", "classes",
+    "below", "above", "under", "over", "exceeding", "less", "greater",
+    "fewer", "between", "threshold",
+})
 # Sentinel: a population is present but its polarity cannot be confidently resolved.
 # build_merge_key (via _ambiguous_polarity) treats it as UNKNOWN ⇒ forces a singleton.
 POLARITY_AMBIGUOUS = "ambiguous"
 
 
 # All population-altering tokens. If ANY appears in the population clause, the polarity is
-# NOT a provably-clean affirmative ⇒ fail closed (Codex Slice-B iter-2..iter-8 proved token
-# heuristics cannot safely RESOLVE with/without/broadened across 9 standard phrasings).
+# NOT a provably-clean affirmative ⇒ fail closed (Codex Slice-B iter-2..iter-8 + final-close
+# proved token heuristics cannot safely RESOLVE with/without/broadened/severity-stratified
+# across many standard phrasings).
 _POLARITY_COMPLEXITY_TOKENS = (
     _POPULATION_NEGATION_CUES | _EXCLUSION_SINGLE | _EXCLUSION_META_NOUNS
-    | _RELATIVE_CLAUSE_MARKERS | _POST_CUE_RESTRICTION_CUES
+    | _RELATIVE_CLAUSE_MARKERS | _POST_CUE_RESTRICTION_CUES | _POPULATION_MODIFIER_CUES
 )
 
 
@@ -452,6 +464,11 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
             for k in range(len(clause) - 1):
                 if (clause[k], clause[k + 1]) in _EXCLUSION_BIGRAMS:
                     return POLARITY_AMBIGUOUS
+            # a DIGIT anywhere in the population clause (stage/grade number, eGFR threshold,
+            # "type 2", a frequency) ⇒ the population is severity/threshold-stratified and the
+            # bare condition_scope cannot capture it ⇒ FAIL CLOSED (Codex Slice-B final-close).
+            if any(ch.isdigit() for w in sentence_lc.split()[lo:hi] for ch in w):
+                return POLARITY_AMBIGUOUS
             return "with"
     return ""
 
