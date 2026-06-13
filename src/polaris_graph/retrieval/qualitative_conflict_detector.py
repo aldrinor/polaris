@@ -343,10 +343,6 @@ _POPULATION_NEGATION_CUES = frozenset({
     "without", "not", "no", "non", "absent", "absence", "free", "lacking", "lack",
     "lacks", "devoid", "sans", "minus", "negative",
 })
-# Affirmative population INTRODUCERS ('in patients with renal'): a SOFT boundary for the
-# negation scan (a negation BEFORE the introducer governs the verb/object, not the
-# population — "causes NO nausea IN renal") but TRANSPARENT to the exclusion scan.
-_POPULATION_INTRODUCERS = frozenset({"in", "among", "amongst", "with"})
 # HARD clause boundaries: a coordinating/subordinating conjunction starts a NEW clause —
 # nothing before it is part of THIS population phrase. Relative pronouns (who/that/which)
 # are deliberately NOT here: they are part of the population description ("patients WHO HAVE
@@ -392,44 +388,54 @@ _EXCLUSION_META_NOUNS = frozenset({"exclusion", "exclusions"})
 POLARITY_AMBIGUOUS = "ambiguous"
 
 
+# All population-altering tokens. If ANY appears in the population clause, the polarity is
+# NOT a provably-clean affirmative ⇒ fail closed (Codex Slice-B iter-2..iter-8 proved token
+# heuristics cannot safely RESOLVE with/without/broadened across 9 standard phrasings).
+_POLARITY_COMPLEXITY_TOKENS = (
+    _POPULATION_NEGATION_CUES | _EXCLUSION_SINGLE | _EXCLUSION_META_NOUNS
+    | _RELATIVE_CLAUSE_MARKERS | _POST_CUE_RESTRICTION_CUES
+)
+
+
 def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
     """Polarity of the population/condition qualifier (Wave-3 I-arch-001 #1245 P0).
 
-    SAFE-BY-CONSTRUCTION (Codex Slice-B iter-2..iter-4): the only LETHAL error is reading a
-    WITHOUT/EXCLUDED population as the mergeable affirmative 'with', so anything not provably
-    a clean affirmative or a clean negation/exclusion FAILS CLOSED to a singleton.
+    MAXIMALLY FAIL-CLOSED (operator decision 2026-06-13 after Codex Slice-B iters 2..8 found
+    9 standard English phrasings of an excluded/without/broadened population that token
+    heuristics cannot safely RESOLVE). The only LETHAL error is reading a non-affirmative
+    population as the mergeable affirmative 'with', so we never try to resolve 'without' —
+    we only ever emit the mergeable 'with' for a PROVABLY-clean affirmative, and a SINGLETON
+    sentinel for everything else.
 
     Returns:
-      * 'without' — the population is NEGATED ('without renal', 'no evidence of renal', 'free
-        of hepatic disease', 'do not have renal', 'non-renal') or EXCLUDED ('other than /
-        excluding / except / rather than / apart from ... renal', incl. across a relative
-        clause or a long participant description — the WHOLE population clause is scanned).
-      * 'with' — a CLEAN affirmative population: an introducer ('in'/'with'/'among') with no
-        negation, no exclusion operator, and NO embedded relative clause.
-      * ``POLARITY_AMBIGUOUS`` — a population is present but carries an unresolved relative
-        clause ('patients WHO HAVE renal impairment'); fail-closed to a SINGLETON rather than
-        guess 'with' (a hidden restriction could make it a different population).
+      * 'with' — a PROVABLY-clean affirmative population: a BARE condition cue (no hyphen, so
+        no compound adjective like 'renal-sparing'/'non-renal') whose surrounding clause
+        contains NO population-altering token (negation / exclusion operator or noun /
+        relative pronoun / restriction verb / exclusion bigram). The ONLY mergeable verdict.
+      * ``POLARITY_AMBIGUOUS`` — a population cue is present but is NOT a provably-clean
+        affirmative (any complexity token, or a hyphenated/compound cue) ⇒ a SINGLETON
+        (never merges, with anything — incl. another non-affirmative). This is what makes the
+        merge key have NO over-merge tail: a without/excluded/broadened population can never
+        share a key with the affirmative (or with each other) because it always singletons.
       * '' — NO population cue (an unstratified claim).
 
-    Scoping rules: the population CLAUSE is the cue back to a hard clause boundary
-    ('and'/'but'/'while'/...). Exclusion operators count ANYWHERE in that clause (no token
-    cap — fixes the long-participant-description miss). A negation counts only INSIDE the
-    population phrase, i.e. before crossing an introducer scanning back ('causes NO nausea IN
-    renal' stays 'with' — the "no" governs the verb). A negation PREFIX on the cue token
-    ('non-renal') ⇒ 'without'. Tokenisation mirrors `_extract_condition_scope`. Dormant: read
-    ONLY by `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
+    Cost (accepted per operator): without/excluded/broadened population claims do NOT
+    consolidate (each a singleton); over-fragmentation is SAFE, over-merge is lethal. A
+    richer LLM polarity classifier is the tracked follow-up. Tokenisation mirrors
+    `_extract_condition_scope`. Dormant: read ONLY by `build_merge_key` under
+    PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
     """
     tokens = [re.sub(r"[^a-z\-]", "", w) for w in sentence_lc.split()]
     for i, tok in enumerate(tokens):
         if not tok:
             continue
         if any(cue in tok for cue in lex["condition_scope_cues"]):
-            # (a) a negation PREFIX on the cue token itself ('non-renal' -> 'non' + 'renal').
-            if any(p in _POPULATION_NEGATION_CUES for p in tok.split("-")[:-1]):
-                return "without"
-            # delimit the population CLAUSE: cue OUT to a hard clause boundary in BOTH
-            # directions (a population restriction can appear before OR after the cue —
-            # "EXCLUDING those with renal" / "renal impairment EXCLUDED").
+            # a hyphenated / compound-adjective or prefixed cue token ('renal-sparing',
+            # 'non-renal', 'renal-free') is NOT a bare affirmative condition ⇒ FAIL CLOSED.
+            if "-" in tok:
+                return POLARITY_AMBIGUOUS
+            # delimit the population CLAUSE around the cue (both directions, to a hard clause
+            # boundary) and fail closed on ANY population-altering token anywhere in it.
             lo = 0
             for j in range(i - 1, -1, -1):
                 if tokens[j] in _POPULATION_CLAUSE_BOUNDARIES:
@@ -441,44 +447,11 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
                     hi = j
                     break
             clause = tokens[lo:hi]
-            post = tokens[i + 1:hi]
-            clause_set = set(clause)
-            has_exclusion = bool(clause_set & _EXCLUSION_SINGLE) or any(
-                (clause[k], clause[k + 1]) in _EXCLUSION_BIGRAMS
-                for k in range(len(clause) - 1))
-            has_negation = bool(clause_set & _POPULATION_NEGATION_CUES)
-            # (b) negation AND exclusion TOGETHER ⇒ FAIL CLOSED. The combinatorics are unsafe
-            # to resolve by token order — "renal impairment NOT EXCLUDED" is INCLUSION (with),
-            # not exclusion (Codex Slice-B iter-7 P0). Singleton, never a guessed with/without.
-            if has_exclusion and has_negation:
+            if any(t in _POLARITY_COMPLEXITY_TOKENS for t in clause):
                 return POLARITY_AMBIGUOUS
-            # (c) a CLEAN exclusion operator ANYWHERE in the clause (pre OR post cue, no
-            # negation) ⇒ 'without': "excluding those with renal" / "renal impairment excluded".
-            if has_exclusion:
-                return "without"
-            # (d) a negation INSIDE the population phrase ⇒ 'without'. Bounded by the OUTERMOST
-            # (earliest) introducer: a negation BEFORE it governs the verb ("causes NO nausea
-            # IN renal" -> 'with'), AFTER it governs the population ("patients NOT including
-            # those with renal" -> 'without'). No introducer ⇒ the whole pre-cue span.
-            intro_lo = next(
-                (j for j in range(lo, i) if tokens[j] in _POPULATION_INTRODUCERS), None)
-            neg_lo = intro_lo + 1 if intro_lo is not None else lo
-            if any(tokens[j] in _POPULATION_NEGATION_CUES for j in range(neg_lo, i)):
-                return "without"
-            # (e) a POST-cue negation restricting the population ("renal impairment NOT
-            # present") ⇒ FAIL CLOSED. The pre-cue verb-negation is before the cue, so the
-            # verb-negation guard "causes no nausea in renal" -> 'with' is preserved.
-            if any(t in _POPULATION_NEGATION_CUES for t in post):
-                return POLARITY_AMBIGUOUS
-            # (f) a POST-cue passive restriction verb (removed/withdrawn/...) ⇒ FAIL CLOSED.
-            if any(t in _POST_CUE_RESTRICTION_CUES for t in post):
-                return POLARITY_AMBIGUOUS
-            # (g) an exclusion-META noun ("as an EXCLUSION criterion") ⇒ FAIL CLOSED.
-            if clause_set & _EXCLUSION_META_NOUNS:
-                return POLARITY_AMBIGUOUS
-            # (h) an unresolved relative clause ⇒ FAIL CLOSED to a singleton (never 'with').
-            if clause_set & _RELATIVE_CLAUSE_MARKERS:
-                return POLARITY_AMBIGUOUS
+            for k in range(len(clause) - 1):
+                if (clause[k], clause[k + 1]) in _EXCLUSION_BIGRAMS:
+                    return POLARITY_AMBIGUOUS
             return "with"
     return ""
 

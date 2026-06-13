@@ -539,8 +539,9 @@ def test_population_polarity_same_polarity_still_merges():
 
 
 def test_population_polarity_end_to_end_real_extractor():
-    """BEHAVIORAL proof through the REAL extractor (not a hand-built view): WITH vs WITHOUT
-    renal impairment, run through extract_qualitative_assertions + build_merge_key, split."""
+    """BEHAVIORAL proof through the REAL extractor: a clean affirmative WITH-population is a
+    mergeable 'with' key; the WITHOUT-population fails closed to a SINGLETON (maximally
+    fail-closed). They MUST NOT share a key — the lethal over-merge is impossible."""
     import os
     os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
     try:
@@ -552,16 +553,16 @@ def test_population_polarity_end_to_end_real_extractor():
             [{"evidence_id": "EVO", "direct_quote": s_without, "tier": "T1"}], domain="clinical")
         assert aw and ao, "extractor must yield assertions for both"
         assert aw[0].condition_polarity == "with"
-        assert ao[0].condition_polarity == "without"
+        assert ao[0].condition_polarity == POLARITY_AMBIGUOUS  # without -> fail closed
         kw = build_merge_key(_merge_key_view(
             aw[0], kind="qualitative", evidence_id="EVW", domain="clinical",
             atom_uid="qualitative:EVW:0"))
         ko = build_merge_key(_merge_key_view(
             ao[0], kind="qualitative", evidence_id="EVO", domain="clinical",
             atom_uid="qualitative:EVO:0"))
-        # neither is a fail-closed singleton here (object_slot=nausea is known), and they
-        # MUST NOT share a key — the lethal over-merge is fixed.
-        assert kw[0] != "__unresolved__" and ko[0] != "__unresolved__"
+        # the affirmative is a real spec key; the without-population is a forced singleton.
+        assert kw[0] != "__unresolved__"
+        assert ko[0] == "__unresolved__"
         assert kw != ko
     finally:
         os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
@@ -579,100 +580,66 @@ from src.polaris_graph.retrieval.qualitative_conflict_detector import (
     _load_lexicon as _ll,
 )
 
-_POLARITY_CASES = [
-    ("in patients with renal impairment", "with"),
-    ("in patients without renal impairment", "without"),
-    ("in patients without any renal impairment", "without"),  # Codex iter-2 P0: filler 'any'
-    ("no evidence of renal impairment", "without"),           # Codex iter-2 P0: 'evidence of' filler
-    ("without severe renal impairment", "without"),           # walk past PRE_QUALIFIER
-    ("in renal impairment", "with"),
-    ("patients free of renal impairment", "without"),         # walk past 'of' linker
-    ("patients free from hepatic disease", "without"),        # walk past 'from' linker
-    ("no renal impairment", "without"),
-    ("patients who do not have renal impairment", "without"), # 'not have renal'
-    ("non-renal patients", "without"),                        # negation prefix on the cue token
-    ("causes no nausea in renal impairment", "with"),         # 'no' governs nausea, NOT population
-    ("does not cause nausea in renal impairment", "with"),    # 'not' governs the verb (before 'in')
-    ("associated with renal impairment", "with"),             # 'with' introducer
-    ("safe in normal renal function", "with"),
-    # Codex iter-3 P0: EXCLUSION phrasings invert the population -> 'without' (non-renal).
-    ("in patients other than those with renal impairment", "without"),
-    ("in patients excluding those with renal impairment", "without"),
-    ("in patients except those with renal impairment", "without"),
-    ("rather than those with renal impairment", "without"),
-    ("apart from patients with renal impairment", "without"),
-    ("in patients with severe renal impairment", "with"),     # affirmative must NOT false-flip
-    # Codex iter-4 P0: exclusion across a relative clause / long participant description.
-    ("in patients other than those who have renal impairment", "without"),
-    ("excluding adult participants with documented prior history of severe renal impairment", "without"),
-    # Codex iter-4 fail-closed: a population under an UNRESOLVED relative clause (no
-    # negation/exclusion) -> POLARITY_AMBIGUOUS (forces a singleton, never a guessed 'with').
-    ("in patients who have renal impairment", POLARITY_AMBIGUOUS),
-    ("in patients that present with renal impairment", POLARITY_AMBIGUOUS),
-    # Codex iter-5 P0: NEGATED-INCLUSION exclusion across a nested introducer ("in ... not
-    # ... with ...") — the population phrase is bounded by the OUTERMOST introducer so the
-    # 'not' (after 'in', before the cue) governs the population -> 'without'.
-    ("in patients not including those with renal impairment", "without"),
-    ("in patients not having renal impairment", "without"),
-    # regression guard: a verb-negation BEFORE the outer introducer stays 'with'.
-    ("does not cause nausea in patients with renal impairment", "with"),
-    # Codex iter-6 P0: POST-cue passive exclusion (the cue precedes the exclusion word).
-    ("causes nausea with patients with renal impairment excluded", "without"),
-    ("patients with renal impairment were excluded", "without"),
-    ("renal impairment patients omitted", "without"),
-    ("in patients with renal impairment not included", POLARITY_AMBIGUOUS),  # post-cue negation -> fail closed
-    ("patients with renal impairment withdrawn from the cohort", POLARITY_AMBIGUOUS),  # restriction verb -> fail closed
-    # Codex iter-7 P0: exclusion-meta noun + negated-exclusion combinatorics -> fail closed.
-    ("renal impairment as an exclusion criterion", POLARITY_AMBIGUOUS),
-    ("in patients with renal impairment not excluded", POLARITY_AMBIGUOUS),  # "not excluded" = inclusion
-    ("met the inclusion criteria for renal impairment", "with"),             # 'criteria' alone stays clean 'with'
-    ("causes nausea", ""),                                     # no population cue -> unstratified
+# MAXIMALLY FAIL-CLOSED (operator decision 2026-06-13 after Codex Slice-B iters 2..8 found 9
+# standard phrasings token heuristics can't safely resolve): the ONLY mergeable verdict is
+# 'with' for a PROVABLY-clean affirmative population; ANY population-altering token
+# (negation / exclusion operator-or-noun / relative pronoun / restriction verb) OR a
+# hyphenated/compound cue -> POLARITY_AMBIGUOUS singleton. No over-merge tail by construction.
+_POLARITY_CLEAN_WITH = [
+    "in patients with renal impairment",
+    "in renal impairment",
+    "in patients with severe renal impairment",
+    "associated with renal impairment",
+    "in obese adult patients with chronic renal impairment",
+    "safe in normal renal function",
+    "met the inclusion criteria for renal impairment",  # 'inclusion'/'criteria' not complexity tokens
+]
+# Every one of the 9 Codex-found phrasings (+ compound adjectives + verb-negation) -> singleton.
+_POLARITY_FAIL_CLOSED = [
+    "in patients without renal impairment",
+    "in patients without any renal impairment",          # iter-2
+    "no evidence of renal impairment",                   # iter-2
+    "without severe renal impairment",
+    "patients free of renal impairment",
+    "no renal impairment",
+    "patients who do not have renal impairment",
+    "non-renal patients",                                # compound/prefixed cue
+    "renal-sparing regimen",                             # compound adjective
+    "in patients other than those with renal impairment",          # iter-3 exclusion
+    "in patients other than those who have renal impairment",      # iter-4 exclusion+relative
+    "excluding adult participants with documented prior history of severe renal impairment",  # iter-4 long
+    "in patients who have renal impairment",             # iter-4 relative clause
+    "in patients not including those with renal impairment",       # iter-5 nested introducer
+    "causes nausea with patients with renal impairment excluded",  # iter-6 post-cue passive
+    "patients with renal impairment were excluded",
+    "renal impairment as an exclusion criterion",        # iter-7 exclusion-meta noun
+    "in patients with renal impairment not excluded",    # iter-7 negated-exclusion = inclusion
+    "in patients not limited to those with renal impairment",      # iter-8 broadening
+    "in patients not restricted to those with renal impairment",   # iter-8 broadening
+    "causes no nausea in renal impairment",              # verb-negation now fails closed too (accepted)
+    "does not cause nausea in patients with renal impairment",
 ]
 
 
-@_pytest.mark.parametrize("sentence,expected", _POLARITY_CASES)
-def test_condition_polarity_negation_scoping(sentence, expected):
-    assert _ecp(sentence, _ll()) == expected
+@_pytest.mark.parametrize("sentence", _POLARITY_CLEAN_WITH)
+def test_condition_polarity_clean_affirmative_merges(sentence):
+    assert _ecp(sentence, _ll()) == "with"
 
 
-def test_population_polarity_exclusion_does_not_merge_with_affirmative():
-    """Codex iter-3 P0 end-to-end: an EXCLUSION-phrased population ("patients other than /
-    excluding those with renal impairment" = the NON-renal population) must NOT share a
-    merge key with the affirmative "with renal impairment" claim. Run through the REAL
-    extractor + build_merge_key under the flag."""
-    import os
-    os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
-    try:
-        affirmative = "Semaglutide causes nausea in patients with renal impairment."
-        exclusions = [
-            "Semaglutide causes nausea in patients other than those with renal impairment.",
-            "Semaglutide causes nausea in patients excluding those with renal impairment.",
-        ]
-        a_aff = extract_qualitative_assertions(
-            [{"evidence_id": "AFF", "direct_quote": affirmative, "tier": "T1"}], domain="clinical")
-        assert a_aff and a_aff[0].condition_polarity == "with"
-        k_aff = build_merge_key(_merge_key_view(
-            a_aff[0], kind="qualitative", evidence_id="AFF", domain="clinical",
-            atom_uid="qualitative:AFF:0"))
-        assert k_aff[0] != "__unresolved__"
-        for n, sent in enumerate(exclusions):
-            ev = f"EXC{n}"
-            a_exc = extract_qualitative_assertions(
-                [{"evidence_id": ev, "direct_quote": sent, "tier": "T1"}], domain="clinical")
-            assert a_exc and a_exc[0].condition_polarity == "without", sent
-            k_exc = build_merge_key(_merge_key_view(
-                a_exc[0], kind="qualitative", evidence_id=ev, domain="clinical",
-                atom_uid=f"qualitative:{ev}:0"))
-            # the excluded (non-renal) population must NOT merge with the affirmative (renal).
-            assert k_exc != k_aff, f"exclusion over-merged with affirmative: {sent}"
-    finally:
-        os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
+@_pytest.mark.parametrize("sentence", _POLARITY_FAIL_CLOSED)
+def test_condition_polarity_any_complexity_fails_closed(sentence):
+    assert _ecp(sentence, _ll()) == POLARITY_AMBIGUOUS
 
 
-def test_population_polarity_iter4_relative_clause_and_long_exclusion():
-    """Codex iter-4 P0 end-to-end (fail-closed): an EXCLUSION across a relative clause /
-    long participant description must split from the affirmative, and an UNRESOLVED
-    relative-clause population must fail closed to a singleton (never a guessed 'with')."""
+def test_condition_polarity_no_cue_is_empty():
+    assert _ecp("causes nausea", _ll()) == ""
+
+
+def test_population_polarity_non_affirmative_never_merges_with_affirmative():
+    """Maximally fail-closed end-to-end: NONE of the 9 Codex-found non-affirmative phrasings
+    (without / excluded / broadened / relative-clause) may share a merge key with the
+    affirmative 'with renal impairment' — each fails closed to a SINGLETON. Run through the
+    REAL extractor + build_merge_key under the flag."""
     import os
     os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
     try:
@@ -685,14 +652,20 @@ def test_population_polarity_iter4_relative_clause_and_long_exclusion():
                 atom_uid=f"qualitative:{ev}:0")), a[0].condition_polarity
         k_aff, p_aff = k("Semaglutide causes nausea in patients with renal impairment.", "AFF")
         assert p_aff == "with" and k_aff[0] != "__unresolved__"
-        # exclusion across a relative clause -> 'without' -> distinct key
-        k1, p1 = k("Semaglutide causes nausea in patients other than those who have renal impairment.", "X1")
-        assert p1 == "without" and k1 != k_aff
-        # long exclusion (operator far from cue) -> 'without' -> distinct key
-        k2, p2 = k("Semaglutide causes nausea in patients excluding adult participants with documented prior history of severe renal impairment.", "X2")
-        assert p2 == "without" and k2 != k_aff
-        # unresolved relative clause (no negation/exclusion) -> ambiguous -> SINGLETON
-        k3, p3 = k("Semaglutide causes nausea in patients who have renal impairment.", "X3")
-        assert p3 == POLARITY_AMBIGUOUS and k3[0] == "__unresolved__"
+        non_affirmative = [
+            "Semaglutide causes nausea in patients without renal impairment.",
+            "Semaglutide causes nausea in patients other than those who have renal impairment.",
+            "Semaglutide causes nausea in patients not limited to those with renal impairment.",
+            "Semaglutide causes nausea with patients with renal impairment excluded.",
+            "Semaglutide causes nausea in patients with renal impairment not excluded.",
+            "Semaglutide causes nausea in patients who have renal impairment.",
+        ]
+        for n, sent in enumerate(non_affirmative):
+            ev = f"NA{n}"
+            kk, pp = k(sent, ev)
+            # fail closed -> ambiguous polarity -> a forced singleton -> cannot equal the affirmative.
+            assert pp == POLARITY_AMBIGUOUS, sent
+            assert kk[0] == "__unresolved__", sent
+            assert kk != k_aff, sent
     finally:
         os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
