@@ -75,7 +75,9 @@ from src.polaris_graph.llm import openrouter_client as _orc
 logger = logging.getLogger(__name__)
 
 
-_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+# I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
+# non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
+_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
 _ENTAILMENT_TIMEOUT_S = 30.0
 # I-transport-001 (#1191) Site 4 (LAW VI — no magic numbers): bounded SAME-provider retry count
 # for a single judge call. A transient transport/parse/empty-choices fault on the entailment judge

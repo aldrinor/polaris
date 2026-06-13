@@ -63,7 +63,9 @@ _DEFAULT_MAX_PAIRS = 60
 _DEFAULT_MAX_ROWS = 200
 _DEFAULT_MIN_CONFIDENCE = 0.7
 
-_DEFAULT_ENTAILMENT_MODEL = "google/gemma-4-31b-it"
+# I-arch-002 (operator 2026-06-13): default to the sovereign open-weight evaluator GLM-5.1 (was the stale
+# non-reasoning "google/gemma-4-31b-it" leftover — #1249/#1252; only env PG_ENTAILMENT_MODEL had masked it).
+_DEFAULT_ENTAILMENT_MODEL = "z-ai/glm-5.1"
 _JUDGE_TIMEOUT_S = 30.0
 
 # Small, domain-aware stopword set. Salient-word overlap (NOT all words) keys the
