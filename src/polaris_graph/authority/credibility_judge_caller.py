@@ -95,8 +95,11 @@ def make_openrouter_credibility_caller(
     call_timeout = timeout or _float_env(_ENV_TIMEOUT_S, _DEFAULT_TIMEOUT_S)
     # Reasoning effort (operator: MAX, never disabled). An off/disabled value is coerced UP to the default
     # so a stray env can never strip the judge's reasoning.
+    # Operator 2026-06-13: reasoning effort stays MAX, never starved. ANY sub-max / off / disabled value
+    # (low, medium, off, none, garbage, ...) is coerced UP to the default (high). Only high or a HIGHER
+    # tier (xhigh) passes through — the credibility judge can never run with lowered or disabled reasoning.
     reasoning_effort = (os.environ.get(_ENV_REASONING_EFFORT, "").strip().lower() or _DEFAULT_REASONING_EFFORT)
-    if reasoning_effort in ("off", "none", "disabled", "false", "0", "no"):
+    if reasoning_effort not in ("high", "xhigh"):
         reasoning_effort = _DEFAULT_REASONING_EFFORT
     try:  # retries=0 must be honored (disable), so not _int_env (which clamps <=0 to the default)
         retries = max(0, int(os.environ.get(_ENV_RETRIES, _DEFAULT_RETRIES) or _DEFAULT_RETRIES))
@@ -218,12 +221,17 @@ def make_openrouter_credibility_caller(
             _orc.check_run_budget(0)  # raises BudgetExceededError on cap breach (MUST propagate — not masked)
 
             try:
-                last_content = data["choices"][0]["message"]["content"] or ""
+                choice0 = data["choices"][0]
+                last_content = choice0["message"]["content"] or ""
+                finish_reason = choice0.get("finish_reason")
             except (KeyError, IndexError, TypeError):
                 last_content = ""
-            if last_content.strip():
+                finish_reason = None
+            # Accept only a COMPLETE, non-empty body. Empty content OR a length-truncation (high-effort
+            # reasoning consumed the whole budget -> the JSON never lands) is retried on a fresh call before
+            # the row becomes a judge_error. With max_tokens=8000 a truncation is rare; the retry is bounded.
+            if last_content.strip() and finish_reason != "length":
                 return last_content
-            # Empty/truncated content (e.g. reasoning consumed the whole budget): retry on a fresh call.
             if _attempt < retries:
                 time.sleep(retry_backoff)
                 continue

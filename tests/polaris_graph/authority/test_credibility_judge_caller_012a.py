@@ -161,8 +161,11 @@ def test_raw_io_labels_malformed_envelope_as_judge_error(monkeypatch):
 
     monkeypatch.setattr(_orc, "current_raw_io_sink", lambda: _Sink())
     caller = make_openrouter_credibility_caller()
-    with pytest.raises(Exception):  # the content extract on an empty envelope fails -> judge_error upstream
-        caller("hi")
+    # I-arch-002 (#1251): a no-choices envelope now returns EMPTY content after bounded retries (rather than
+    # raising in the caller); the judge wrapper maps empty -> {} -> per-row judge_error (fail-loud upstream).
+    # The raw-IO sink still labels the malformed envelope status="judge_error".
+    result = caller("hi")
+    assert (result or "").strip() == ""
     assert seen["status"] == "judge_error"
 
 
