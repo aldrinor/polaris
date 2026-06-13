@@ -167,3 +167,59 @@ def test_arch002_per_section_char_budget_trims_by_chars_not_rows(monkeypatch) ->
         f"tight char budget must trim by chars (~5 rows), not the row cap; got "
         f"{[len(p.ev_ids) for p in plans]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P-W2scope (Codex Slice-A P1) — the three #1244 scope gates WEIGHT/CLUSTER under
+# the flag instead of DROPPING. OFF keeps the exact prior drop (byte-identical).
+# ---------------------------------------------------------------------------
+
+from src.polaris_graph.retrieval.evidence_selector import (  # noqa: E402
+    _apply_scope_denylist,
+    prefer_journal_over_arxiv,
+)
+
+
+def _scored_pair():
+    return [
+        (0, 0.50, "T1", {"source_url": "https://nejm.org/x"}),
+        (1, 0.40, "T5", {"source_url": "https://facebook.com/y"}),
+    ]
+
+
+def test_arch002_denylist_off_drops(monkeypatch) -> None:
+    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    monkeypatch.setenv("PG_SCOPE_DENYLIST_DOMAINS", "facebook.com")
+    kept, n_dropped, _ = _apply_scope_denylist(_scored_pair(), None)
+    assert n_dropped == 1 and len(kept) == 1
+
+
+def test_arch002_denylist_on_keeps_with_weight(monkeypatch) -> None:
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "1")
+    monkeypatch.setenv("PG_SCOPE_DENYLIST_DOMAINS", "facebook.com")
+    kept, n_dropped, _ = _apply_scope_denylist(_scored_pair(), None)
+    assert n_dropped == 0 and len(kept) == 2
+    fb = [it for it in kept if "facebook" in it[3]["source_url"]][0]
+    assert fb[3].get("scope_denylist_demoted") is True
+    assert fb[3].get("credibility_class") == "low_denylist"
+
+
+def _twin_rows():
+    return [
+        {"source_url": "https://doi.org/10.1/x", "title": "Trial X primary results"},
+        {"source_url": "https://arxiv.org/abs/1", "title": "Trial X primary results"},
+    ]
+
+
+def test_arch002_prefer_journal_off_drops_twin(monkeypatch) -> None:
+    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    kept, n_dropped, _ = prefer_journal_over_arxiv(_twin_rows())
+    assert n_dropped == 1 and len(kept) == 1
+
+
+def test_arch002_prefer_journal_on_keeps_both_versions(monkeypatch) -> None:
+    monkeypatch.setenv("PG_SWEEP_CREDIBILITY_REDESIGN", "1")
+    kept, n_dropped, _ = prefer_journal_over_arxiv(_twin_rows())
+    assert n_dropped == 0 and len(kept) == 2
+    arx = [r for r in kept if "arxiv" in r["source_url"]][0]
+    assert arx.get("arxiv_journal_twin") is True

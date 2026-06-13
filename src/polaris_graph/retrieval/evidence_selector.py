@@ -1475,12 +1475,24 @@ def _apply_scope_denylist(
             return True
         return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
 
+    # I-arch-002 (#1246) P-W2scope: under the master redesign flag the denylist becomes
+    # a credibility-CLASS WEIGHT, not a DROP (DNA §-1.3 — social/junk hosts STAY at low
+    # weight; they sometimes report a real journal). The matched row is KEPT, stamped
+    # `scope_denylist_demoted` + a low credibility class, and surfaced per-citation.
+    # OFF => the exact prior `continue`-drop => byte-identical.
+    _cred_redesign = _credibility_redesign_enabled()
     kept: list[tuple[int, float, str, dict[str, Any]]] = []
     dropped_netlocs: list[str] = []
     for item in scored:
         row = item[3]
         netloc = _row_netloc(row)
         if _netloc_matches_denylist(netloc, denylist) and not _is_exempt(row):
+            if _cred_redesign:
+                demoted = dict(row)
+                demoted["scope_denylist_demoted"] = True
+                demoted["credibility_class"] = "low_denylist"
+                kept.append((item[0], item[1], item[2], demoted))
+                continue
             dropped_netlocs.append(netloc)
             continue
         kept.append(item)
@@ -1549,12 +1561,23 @@ def prefer_journal_over_arxiv(
                 journal_titles.add(norm)
     if not journal_titles:
         return list(rows), 0, []
+    # I-arch-002 (#1246) P-W2scope: under the master redesign flag the arXiv twin is
+    # CONSOLIDATED as a VERSION of the same source (CONSOLIDATE-don't-DROP, DNA §-1.3),
+    # not dropped — the preprint + journal both stay (journal is the preferred rep).
+    # OFF => the exact prior twin-drop => byte-identical.
+    _cred_redesign = _credibility_redesign_enabled()
     kept: list[dict[str, Any]] = []
     dropped_titles: list[str] = []
     for row in rows:
         if _row_is_arxiv(row):
             norm = _normalize_title_for_twin(_row_title_text(row))
             if norm and norm in journal_titles:
+                if _cred_redesign:
+                    twin = dict(row)
+                    twin["arxiv_journal_twin"] = True
+                    twin["preferred_version"] = "journal"
+                    kept.append(twin)
+                    continue
                 dropped_titles.append(_row_title_text(row) or "(no title)")
                 continue
         kept.append(row)

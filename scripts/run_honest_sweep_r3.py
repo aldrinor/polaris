@@ -5017,7 +5017,13 @@ async def run_one_query(
                     f"exempt {_topic_result.n_exempt}); titles: "
                     + "; ".join(t[:80] for t in _topic_result.dropped_titles)
                 )
-            evidence_for_gen = _topic_result.kept_rows
+            # I-arch-002 (#1246) P-W2scope: under the redesign flag the LLM topic gate
+            # WEIGHT-DEMOTES confidently-off-topic rows rather than dropping them — keep
+            # the full set (its verdict is surfaced via the [scope] log above); a
+            # confidently-off-topic row stays at low weight, never deleted (DNA §-1.3).
+            # OFF => the exact prior `kept_rows` drop => byte-identical.
+            if not _cred_redesign_on:
+                evidence_for_gen = _topic_result.kept_rows
         # Gate 3: arXiv -> journal version preference. Drop an arxiv.org twin when
         # the same (normalized-title) paper appears as a journal/DOI row; never
         # drop a twinless arXiv row. Default-OFF (PG_SCOPE_PREFER_JOURNAL).
@@ -5987,11 +5993,15 @@ async def run_one_query(
                         break
                 _u = _u.rstrip("/")
             _breadth_keys.add(_u or f"__evid__:{_r.get('evidence_id', '')}")
-        _log(
-            f"[breadth-disclosure] generator-visible distinct source-keys="
-            f"{len(_breadth_keys)} over {len(evidence_for_gen)} rows "
-            f"(disclosed, NOT enforced)"
-        )
+        # I-arch-002 (#1246) Codex Slice-A P2: gate the disclosure log behind the
+        # master flag so the default OFF path adds NO run_log.txt line (strict
+        # OFF-byte-identity; _log writes both stdout AND run_log.txt). ON only.
+        if _cred_redesign_on:
+            _log(
+                f"[breadth-disclosure] generator-visible distinct source-keys="
+                f"{len(_breadth_keys)} over {len(evidence_for_gen)} rows "
+                f"(disclosed, NOT enforced)"
+            )
 
         # I-ready-017 #1134: journal_only FAIL-CLOSED no-leak backstop. At the
         # immediate pre-generator point (after contract + upload prepend + dedup/
