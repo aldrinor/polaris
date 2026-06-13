@@ -1,0 +1,35 @@
+**Findings**
+P0: The false-merge guard set is still incomplete because `dose` is a discriminating clinical slot but is not in the generalized sentinel list. The design says a clinical effect atom includes `dose` and the clinical blocker is `Population, Intervention+Dose+Arm, Comparator...` in [consolidation_design_wave3.md](C:/POLARIS/docs/consolidation_design_wave3.md:32) and line 57. Current code has `ExtractedNumericClaim.dose: str = ""` in [contradiction_detector.py](C:/POLARIS/src/polaris_graph/retrieval/contradiction_detector.py:181), `_extract_dose()` returns `""` on miss at lines 339-344, and `_normalized_key_numeric()` puts `(claim.dose or "")` directly into the merge key in [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:210). But §4’s sentinel list names `condition_scope`, `object_slot`, `endpoint/timeframe`, `direction`, population, and comparator, not dose, at [consolidation_design_wave3.md](C:/POLARIS/docs/consolidation_design_wave3.md:70). Two same-value/same-endpoint claims with different real doses that both fail dose extraction can still merge and fabricate `verified_support_origin_count`.
+
+P2: §1 overstates numeric fan-out. `extract_atomic_claims()` can accept multiple numeric claims if the injected extractor emits them, but the current default `extract_numeric_claims()` selects one predicate via `_normalize_predicate()` and one value via `_find_value_in_context()` in [contradiction_detector.py](C:/POLARIS/src/polaris_graph/retrieval/contradiction_detector.py:208) and lines 502-508. That is under-consolidation, not a false-merge blocker, but the design should not say “One source → many atomic claims... already works” without qualifying numeric coverage.
+
+P2 / cut: `PG_SWEEP_CLAIM_EQUIV` is extra complexity for Wave 3. The design states the right fail direction, but any NLI equivalence merge is still a new merge path; fail-closed handles errors, not false-positive entailment. Given the operator’s asymmetry, exact structural keys plus sentinels are enough for Wave 3. Defer it.
+
+**Review Answers**
+1. Guard completeness: not complete. The current code holes for `endpoint_phrase`, `object_slot`, and `condition_scope` are real in [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:212), lines 236-237, and [qualitative_conflict_detector.py](C:/POLARIS/src/polaris_graph/retrieval/qualitative_conflict_detector.py:363), but the design explicitly fixes those. The remaining design-missed slot is numeric `dose`; `arm` also needs an explicit decision if it remains a required blocking slot, because the key accepts `""` at [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:211).
+2. §0 is correct. Production `strict_verify()` loops sentence-by-sentence and calls `verify_sentence_provenance()` in [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2435). That verifier parses only the sentence’s own provenance tokens/spans at lines 1681-1756 and returns a single `SentenceVerification` at lines 2187-2194. There is no basket-member cross-comparison.
+3. Faithfulness safety: the §5-§6 contract is directionally safe: separate `total_clustered_origin_count` vs `verified_support_origin_count`, no OR acceptance, and `basket_verdict` can downgrade/label. The safety risk is the remaining false-merge slot, not an OR that directly lowers strict_verify.
+3b. `PG_SWEEP_CLAIM_EQUIV` is a new optional merge path. The design says fail-closed on errors/budget/non-finite confidence, which is the correct direction, but it is still unnecessary and should be deferred.
+4. Principles: weight = yes; consolidate = partial until dose sentinel and numeric fan-out wording are fixed; basket faithfulness = partial until the merge key is complete.
+5. Over-engineering: cut/defer optional NLI equivalence for Wave 3.
+6. Broken working parts: no direct break found. `finding_dedup` retirement is correctly targeted at the representative drop in [finding_dedup.py](C:/POLARIS/src/polaris_graph/synthesis/finding_dedup.py:196) and rounding at line 91, while preserving qualitative pass-through and unknown-subject singleton behavior.
+7. Reuse-not-rebuild: mostly accurate. `claim_graph`, `weight_mass`, `both_sides`, and `credibility_pass` are real existing components; `credibility_skill` is the existing adaptive scorer.
+8. Wave scope/off: correct. The design leaves `PG_MAX_EV_PER_SECTION`/source-cap dissolution to Wave 4, matching [pipeline_redesign_master_plan.md](C:/POLARIS/docs/pipeline_redesign_master_plan.md:151). Default-off/byte-identical is achievable if all new Wave 3 wiring stays behind the existing flags and the new `PG_SWEEP_CLAIM_EQUIV` path is not on the main path.
+
+```yaml
+verdict: REQUEST_CHANGES
+sole_defense_claim_confirmed: yes — strict_verify is per-sentence/per-cited-span-set; see generator/provenance_generator.py:2435-2481 and verify_sentence_provenance at 1681-2194
+unsentineled_slots_found: ["numeric dose: ExtractedNumericClaim.dose defaults '' at retrieval/contradiction_detector.py:181, _extract_dose returns '' at 339-344, and _normalized_key_numeric merges on '' at synthesis/claim_graph.py:210; design marks dose discriminating at docs/consolidation_design_wave3.md:32 and :57 but omits it from the sentinel set at :70-73", "numeric arm, if retained as a required blocking slot: design includes Arm at docs/consolidation_design_wave3.md:57 and key accepts blank at synthesis/claim_graph.py:211; production currently defaults to 'treatment' at retrieval/contradiction_detector.py:182"]
+faithfulness_safety: RISK — no direct OR/upgrade path found, but the dose false-merge can fabricate verified corroboration count after per-member strict_verify passes
+delivers_principle_1_weight: yes
+delivers_principle_2_consolidate: partial
+delivers_principle_3_basket_faithfulness: partial
+novel_p0: ["Add dose to the generalized unknown-blocks-merge sentinel/required-known clinical key; otherwise same-value different-dose claims with dose extraction misses can share one basket."]
+continuing_p0: []
+p1: []
+p2: ["Qualify or fix numeric multi-claim fan-out: current default numeric extractor emits at most one predicate/value claim per row.", "Defer/cut optional PG_SWEEP_CLAIM_EQUIV from Wave 3; it is unnecessary recall complexity on the merge path."]
+over_engineering_to_cut: ["PG_SWEEP_CLAIM_EQUIV bidirectional-NLI equivalence merge for Wave 3"]
+breaks_working_part: ["none"]
+convergence_call: continue
+top_changes_before_execution: ["Add dose, and arm if retained, to the sentinel-guarded required-known discriminating slots plus proof tests.", "Make the sentinel rule implementation generic over required-known slots so future PICO fields cannot be omitted by enumeration.", "Remove or explicitly defer PG_SWEEP_CLAIM_EQUIV from Wave 3.", "Correct §1's numeric fan-out claim or add a scoped extractor change/test."]
+```

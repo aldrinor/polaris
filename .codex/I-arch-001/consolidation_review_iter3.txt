@@ -1,0 +1,28 @@
+**Findings**
+
+No P0/P1 design blockers found. The current code still has the old unsafe baseline the design is replacing: numeric `endpoint_phrase` can be `""` in the key at `src/polaris_graph/synthesis/claim_graph.py:204-213`, qualitative `object_slot` / `condition_scope` can be `""` at `claim_graph.py:232-238`, and the extractors default those values at `contradiction_detector.py:181-183`, `contradiction_detector.py:353-369`, and `qualitative_conflict_detector.py:363-372`. Iter-3 closes those at the design level with the generated `MERGE_KEY_SPEC`, four-domain catalog, and positive-known predicates in `docs/consolidation_design_wave3.md:49-77`, plus bidirectional coverage test #1 at `:145`.
+
+The load-bearing strict-verify claim is confirmed, with the correction now reflected in §0: production `strict_verify` is per sentence and basket-blind, calling `verify_sentence_provenance` per sentence at `provenance_generator.py:2402-2456`. Multi-citation sentences union cited span text/decimals at `:1722-1756` and judge entailment against the combined span at `:1974-1977`; the clinical twin similarly combines spans at `clinical_generator/strict_verify.py:241-258` and judges `combined_span` at `:287-290`. That cannot detect false consolidation across independently grounded basket members.
+
+Faithfulness safety is sound: §6 makes strict grounding the hard gate and `basket_verdict` only a label at `docs/consolidation_design_wave3.md:115-118`; §5 makes `verified_support_origin_count` the only strengthening count at `:98-105`; both render carriers are identified for override at `:107` and `:120`; and NLI equivalence merging is deferred out of Wave 3 at `:35`.
+
+One non-blocking implementation note: make the unresolved singleton identity explicitly unique in code. The pseudocode at `docs/consolidation_design_wave3.md:63-66` uses `("__unresolved__", evidence_id, claim_index)`; that is only literally singleton-safe if `claim_index` is global across all atomic claims for that evidence row. Including `kind/domain` or a global atomic index would remove ambiguity.
+
+```yaml
+verdict: APPROVE
+sole_defense_claim_confirmed: yes — strict_verify is per-sentence/basket-blind at provenance_generator.py:2402-2456; multi-citation spans are unioned at provenance_generator.py:1722-1756 and judged as combined_span at provenance_generator.py:1974-1977
+unsentineled_slots_found: ["none remaining in the iter-3 design"]
+faithfulness_safety: SAFE — no weaker-than-today accept path; basket_verdict is label-only, verified_support_origin_count is isolated/member-verified, and PG_SWEEP_CLAIM_EQUIV is deferred
+delivers_principle_1_weight: yes
+delivers_principle_2_consolidate: yes
+delivers_principle_3_basket_faithfulness: yes
+novel_p0: []
+continuing_p0: []
+p1: []
+p2:
+  - "Clarify implementation identity for unresolved singleton keys: docs/consolidation_design_wave3.md:63-66 is safe only if claim_index is globally unique per evidence row; include kind/domain or a global atomic index."
+over_engineering_to_cut: ["none"]
+breaks_working_part: ["none"]
+convergence_call: accept_remaining
+top_changes_before_execution: []
+```

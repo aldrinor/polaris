@@ -1,0 +1,21 @@
+No P0/P1 findings. The two iter-5 wiring fixes are closed at design level: `atom_uid` is now specified on `AtomicClaim` and used in unresolved singleton keys, and the real query `domain` is explicitly threaded from the sweep/generator path into claim graph atoms with proof tests #22/#23.
+
+Current code still shows the pre-design hazards the doc is replacing: numeric empty `dose`/`arm`/`endpoint_phrase` can currently key-equal at [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:210), and qualitative empty `object_slot`/`condition_scope` can key-equal at [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:236). The iter-5 design closes those by making every catalogued discriminator positive-known-only, with unknown forcing a unique unresolved key via `evidence_id + atom_uid` in [consolidation_design_wave3.md](C:/POLARIS/docs/consolidation_design_wave3.md:57).
+
+```yaml
+verdict: APPROVE
+sole_defense_claim_confirmed: yes — strict_verify is per-sentence/basket-blind, not literally per-member for multi-citation sentences: production calls verify_sentence_provenance per sentence at src/polaris_graph/generator/provenance_generator.py:2456, unions cited span text at :1722-1756, and judges combined_span at :1974-1978; clinical twin combines spans at src/polaris_graph/clinical_generator/strict_verify.py:241-258 and judges at :289. It never cross-compares basket members.
+unsentineled_slots_found: ["none in the iter-5 design"]
+faithfulness_safety: SAFE — no weaker-than-today accept path found; verified_support_origin_count is isolated per-member only, basket_verdict is label-only, and the NLI equivalence merge is deferred out of Wave 3.
+delivers_principle_1_weight: yes
+delivers_principle_2_consolidate: yes
+delivers_principle_3_basket_faithfulness: yes
+novel_p0: []
+continuing_p0: []
+p1: []
+p2: []
+over_engineering_to_cut: ["none"]
+breaks_working_part: ["none"]
+convergence_call: accept_remaining
+top_changes_before_execution: []
+```

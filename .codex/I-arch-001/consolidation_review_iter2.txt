@@ -1,0 +1,29 @@
+**Findings**
+
+P1: §0 overstates `strict_verify` as “per-member.” Production verification is per sentence and basket-blind, but it aggregates all cited spans inside that sentence. `strict_verify` calls `verify_sentence_provenance` per sentence at [provenance_generator.py](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2456); that verifier unions cited-span decimals/text at [1722](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1722), checks numbers/content against the aggregate at [1813](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1813) and [1855](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1855), then judges entailment against `combined_span` at [1974](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1974). The clinical twin also combines token spans at [strict_verify.py](C:/POLARIS/src/polaris_graph/clinical_generator/strict_verify.py:241) and judges the combined span at [289](C:/POLARIS/src/polaris_graph/clinical_generator/strict_verify.py:289).
+
+That does **not** refute the merge-key-is-sole-defense claim; it reinforces it. But it creates an execution risk: `verified_support_origin_count` must be computed by verifying the canonical claim against each basket member/span in isolation, not by counting all tokens from one multi-citation `SentenceVerification`. Add an explicit union-laundering test: one sentence/basket where the union passes but one member fails alone must render count `1`, not `2`.
+
+P2: §8 test #1 is one-way as written. “Every key-tuple field is in `REQUIRED_KNOWN_*` or allowlist” prevents unguarded tuple fields, but does not by itself prove every required-known discriminator is actually included in the equality tuple. §4’s prose says the builder iterates the required-known set, which is the right fix; make the test bidirectional or generate the tuple directly from an ordered required-known spec.
+
+The iter-1 holes are otherwise addressed at design level: current code still has the old empty/default collisions in numeric `dose/arm/endpoint` at [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:210), qualitative `object_slot/condition_scope` at [236](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:236), `arm="treatment"` default at [contradiction_detector.py](C:/POLARIS/src/polaris_graph/retrieval/contradiction_detector.py:181), `/kg` stripping risk at [333](C:/POLARIS/src/polaris_graph/retrieval/contradiction_detector.py:333), and day/year endpoint gaps at [353](C:/POLARIS/src/polaris_graph/retrieval/contradiction_detector.py:353). The rewritten design names those and routes them through required-known singletoning.
+
+`PG_SWEEP_CLAIM_EQUIV` is genuinely out of Wave 3: I found no code flag/path by that name, and the only NLI in `claim_graph` is injected semantic contradiction edges, not equivalence merging, at [claim_graph.py](C:/POLARIS/src/polaris_graph/synthesis/claim_graph.py:521). The current render/count conflation is correctly identified: `weight_mass` emits unverified `independent_origin_count` at [weight_mass.py](C:/POLARIS/src/polaris_graph/synthesis/weight_mass.py:175), `both_sides` renders it at [both_sides.py](C:/POLARIS/src/polaris_graph/synthesis/both_sides.py:167), and `disclosure_population` computes cited-origin count without strict filtering at [disclosure_population.py](C:/POLARIS/src/polaris_graph/synthesis/disclosure_population.py:101).
+
+```yaml
+verdict: REQUEST_CHANGES
+sole_defense_claim_confirmed: yes — core confirmed: strict_verify is sentence-local and basket-blind, so it cannot catch false merges; correction: it is not literally per-member because multi-citation sentences union spans at provenance_generator.py:1722-1756 and judge combined_span at :1974-1978
+unsentineled_slots_found: ["none residual in the proposed clinical required-known merge set; current pre-implementation holes are the known ones at claim_graph.py:210-212 and :236-238"]
+faithfulness_safety: RISK — verified_support_origin_count can be inflated if implemented from a multi-citation SentenceVerification instead of isolated per-member verification
+delivers_principle_1_weight: yes
+delivers_principle_2_consolidate: yes
+delivers_principle_3_basket_faithfulness: partial
+novel_p0: []
+continuing_p0: []
+p1: ["Correct §0/§6/§8 to state strict_verify is per-sentence with citation-union behavior, and require isolated per-member verification plus a union-laundering render-count test before coding."]
+p2: ["Make §8 test #1 bidirectional: every required-known discriminator must be present in the normalized equality tuple, and every tuple field must be guarded or explicitly allowlisted."]
+over_engineering_to_cut: ["none"]
+breaks_working_part: ["none"]
+convergence_call: continue
+top_changes_before_execution: ["Pin per-member verification as single-member/span isolated, not multi-citation SentenceVerification reuse.", "Strengthen the generic slot-coverage test to prove required-known fields cannot be omitted from the key."]
+```

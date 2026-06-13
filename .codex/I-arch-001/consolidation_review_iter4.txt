@@ -1,0 +1,28 @@
+**Findings**
+
+P1: The iter-4 fail-closed domain dispatch is safe, but the current main-path caller hard-codes the credibility/claim-graph domain to `None`. `generate_multi_section_report` receives a real `domain` argument ([multi_section_generator.py:5224](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:5224), called with `q["domain"]` at [run_honest_sweep_r3.py:6146](C:/POLARIS/scripts/run_honest_sweep_r3.py:6146)), but the credibility pass still calls `run_credibility_analysis(..., domain=None)` at [multi_section_generator.py:5471](C:/POLARIS/src/polaris_graph/generator/multi_section_generator.py:5471). Under the new §4.2 rule, missing/unnormalizable domain correctly forces singleton, so this would make production consolidation mostly inert rather than delivering per-claim baskets. It is an under-merge, not a faithfulness hole, but it blocks Principle 2 execution.
+
+No novel P0 found. The dose-frequency and fail-closed dispatch fixes are conceptually sound in the design: `dose_frequency` is now catalogued and sentinel-guarded ([docs/consolidation_design_wave3.md:51](C:/POLARIS/docs/consolidation_design_wave3.md:51), [docs/consolidation_design_wave3.md:85](C:/POLARIS/docs/consolidation_design_wave3.md:85), [docs/consolidation_design_wave3.md:173](C:/POLARIS/docs/consolidation_design_wave3.md:173)), and dispatch is fail-closed for raw/missing/unknown domain ([docs/consolidation_design_wave3.md:57](C:/POLARIS/docs/consolidation_design_wave3.md:57), [docs/consolidation_design_wave3.md:174](C:/POLARIS/docs/consolidation_design_wave3.md:174)). I found no other common clinical-lethal discriminator missing from the seeded catalog; rarer uncatalogued qualifiers remain correctly bounded in §9.1.
+
+`strict_verify` claim is confirmed with the design’s correction: production verification is per sentence and basket-blind, not literally per basket member. It unions cited spans for a multi-citation sentence ([provenance_generator.py:1722](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1722), [provenance_generator.py:1974](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:1974)) and `strict_verify` calls it sentence-by-sentence ([provenance_generator.py:2402](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2402), [provenance_generator.py:2456](C:/POLARIS/src/polaris_graph/generator/provenance_generator.py:2456)). It cannot detect cross-member false fusion.
+
+```yaml
+verdict: REQUEST_CHANGES
+sole_defense_claim_confirmed: yes — strict_verify is per-sentence/basket-blind; it calls verify_sentence_provenance at src/polaris_graph/generator/provenance_generator.py:2456, which unions cited span text/decimals at :1722-1756 and judges the combined span at :1974-1978
+unsentineled_slots_found: ["none in the iter-4 design; current pre-implementation key holes at claim_graph.py:210-212 and :236-238 are explicitly replaced by §4.2/§4.3"]
+faithfulness_safety: SAFE — no weaker-than-today accept path found; basket verdict is label-only, verified_support_origin_count is isolated per-member, and PG_SWEEP_CLAIM_EQUIV is deferred/grep-clean
+delivers_principle_1_weight: yes
+delivers_principle_2_consolidate: partial
+delivers_principle_3_basket_faithfulness: yes
+novel_p0: []
+continuing_p0: []
+p1:
+  - "Main-path domain is currently discarded before claim-graph construction: generate_multi_section_report receives domain at multi_section_generator.py:5224/run_honest_sweep_r3.py:6146, but passes domain=None to run_credibility_analysis at multi_section_generator.py:5473. With iter-4 fail-closed dispatch, this makes all normal claims singleton in production unless domain is threaded."
+p2: []
+over_engineering_to_cut: ["none"]
+breaks_working_part:
+  - "Safe under-merge risk: fail-closed domain dispatch plus current domain=None wiring makes consolidation inert on the main path."
+convergence_call: continue
+top_changes_before_execution:
+  - "Thread the normalized query domain into run_credibility_analysis/build_claim_graph/AtomicClaim, and add an activated main-path test proving two all-known clinical atoms merge while missing/unknown domain remains singleton."
+```
