@@ -622,6 +622,10 @@ _POLARITY_CASES = [
     ("renal impairment patients omitted", "without"),
     ("in patients with renal impairment not included", POLARITY_AMBIGUOUS),  # post-cue negation -> fail closed
     ("patients with renal impairment withdrawn from the cohort", POLARITY_AMBIGUOUS),  # restriction verb -> fail closed
+    # Codex iter-7 P0: exclusion-meta noun + negated-exclusion combinatorics -> fail closed.
+    ("renal impairment as an exclusion criterion", POLARITY_AMBIGUOUS),
+    ("in patients with renal impairment not excluded", POLARITY_AMBIGUOUS),  # "not excluded" = inclusion
+    ("met the inclusion criteria for renal impairment", "with"),             # 'criteria' alone stays clean 'with'
     ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 
