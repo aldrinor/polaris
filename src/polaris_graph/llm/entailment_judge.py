@@ -86,6 +86,15 @@ _ENTAILMENT_TIMEOUT_S = 30.0
 _DEFAULT_ENTAILMENT_RETRIES = 2
 # Short fixed backoff between judge retries (seconds). Env-overridable per LAW VI.
 _DEFAULT_ENTAILMENT_RETRY_BACKOFF_S = 0.5
+# I-arch-002 (#1251 sibling): the judge model (GLM-5.1) is a REASONING model; at max_tokens=100 it burned
+# the whole budget on its internal reasoning -> finish=length, EMPTY content -> json.loads(None) NoneType
+# error -> fail-open, which the consumers DROP -> the drb_72-class COVERAGE COLLAPSE. Operator 2026-06-13:
+# reasoning stays MAX. Fix: UN-STARVE the budget so high-effort reasoning COMPLETES + emits the JSON verdict
+# (measured: 2000 tok + effort=high -> finish=stop, valid JSON, ~11.7s). Env-overridable per LAW VI.
+_ENV_ENTAILMENT_MAX_TOKENS = "PG_ENTAILMENT_MAX_TOKENS"
+_DEFAULT_ENTAILMENT_MAX_TOKENS = 2000
+_ENV_ENTAILMENT_REASONING_EFFORT = "PG_ENTAILMENT_REASONING_EFFORT"
+_DEFAULT_ENTAILMENT_REASONING_EFFORT = "high"
 
 
 class _RetryableJudgeError(Exception):
@@ -219,11 +228,24 @@ class _EntailmentJudge:
             _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
         except Exception:
             _gate_provider = None
+        # Operator 2026-06-13: reasoning stays MAX; any sub-max/off effort is coerced UP to high so the
+        # NLI verdict is never starved. Un-starved max_tokens lets the high-effort reasoning complete AND
+        # emit the JSON verdict (the old max_tokens=100 truncated mid-reasoning -> empty -> coverage collapse).
+        _ent_effort = (os.environ.get(_ENV_ENTAILMENT_REASONING_EFFORT, "").strip().lower()
+                       or _DEFAULT_ENTAILMENT_REASONING_EFFORT)
+        if _ent_effort not in ("high", "xhigh"):
+            _ent_effort = _DEFAULT_ENTAILMENT_REASONING_EFFORT
+        try:
+            _ent_maxtok = max(256, int(os.environ.get(_ENV_ENTAILMENT_MAX_TOKENS, _DEFAULT_ENTAILMENT_MAX_TOKENS)
+                                       or _DEFAULT_ENTAILMENT_MAX_TOKENS))
+        except (TypeError, ValueError):
+            _ent_maxtok = _DEFAULT_ENTAILMENT_MAX_TOKENS
         json_body: dict = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
-            "max_tokens": 100,
+            "max_tokens": _ent_maxtok,
+            "reasoning": {"effort": _ent_effort},
             "response_format": {"type": "json_object"},
         }
         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when

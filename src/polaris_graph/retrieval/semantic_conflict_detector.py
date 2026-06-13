@@ -356,11 +356,24 @@ class _SemanticContradictionJudge:
         from src.polaris_graph.llm import openrouter_client as _orc
 
         prompt = _CONTRADICTION_PROMPT.format(claim_a=claim_a, claim_b=claim_b)
+        # I-arch-002 (#1251 sibling): GLM-5.1 is a REASONING model; at max_tokens=60 it truncated mid-
+        # reasoning -> EMPTY content -> json.loads(None) NoneType -> fail-open neutral (silently misses real
+        # conflicts). Operator 2026-06-13: reasoning stays MAX. Un-starve so high-effort reasoning completes
+        # AND emits the JSON verdict; any sub-max/off effort is coerced UP to high. Env-overridable (LAW VI).
+        _sc_effort = (os.environ.get("PG_SEMANTIC_CONFLICT_REASONING_EFFORT", "").strip().lower()
+                      or "high")
+        if _sc_effort not in ("high", "xhigh"):
+            _sc_effort = "high"
+        try:
+            _sc_maxtok = max(256, int(os.environ.get("PG_SEMANTIC_CONFLICT_MAX_TOKENS", "2000") or "2000"))
+        except (TypeError, ValueError):
+            _sc_maxtok = 2000
         json_body: dict = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
-            "max_tokens": 60,
+            "max_tokens": _sc_maxtok,
+            "reasoning": {"effort": _sc_effort},
             "response_format": {"type": "json_object"},
         }
         try:
