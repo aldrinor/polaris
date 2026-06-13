@@ -341,12 +341,25 @@ def _unknown_blank(v: Any) -> bool:
 
 
 def _unknown_arm(v: Any) -> bool:
-    """``arm`` is unknown unless a placebo/comparator cue fired. None (no-cue
-    default, P1.2) OR '' is unknown; a non-empty default like 'treatment' is ALSO
-    treated as unknown per the design's arm lesson (§4.3) — only a positively
-    extracted arm anchors a merge."""
+    """``arm`` is unknown unless a placebo/comparator cue fired. The extractor's
+    legacy no-cue DEFAULT ``'treatment'`` (kept for OFF byte-identity — Codex
+    Slice-B P1) is treated as UNKNOWN per the design's arm lesson (§4.3), as are
+    ``''`` and ``None`` (defense-in-depth for any caller). Only a positively
+    extracted arm (e.g. ``'comparator_adjacent'``) anchors a merge — so a
+    defaulted arm still forces a singleton flag-ON without needing a None default."""
     s = str(v or "").strip().lower()
     return s in ("", "treatment")
+
+
+def _unknown_subject(v: Any) -> bool:
+    """``subject`` is unknown on '' / None OR the extractor's ``_UNKNOWN_SUBJECT``
+    sentinel ('unknown' — the contradiction_detector unresolved-subject fallback).
+    Codex Slice-B P0: _unknown_blank missed the 'unknown' STRING, so two distinct
+    unresolved-subject clinical claims could share a key and over-merge. The legacy
+    key guarded exactly this at :232; a defaulted 'unknown' subject must NEVER anchor
+    a merge -> forced singleton."""
+    s = str(v or "").strip().lower()
+    return s in ("", _UNKNOWN_SUBJECT)
 
 
 # ── §4.1 the dimension catalog: the authoritative set of dimensions where a
@@ -364,11 +377,11 @@ DISCRIMINATING_DIMENSIONS: dict[str, frozenset] = {
     }),
     "qualitative_clinical": frozenset({
         "subject", "concept_type", "causal_strength", "warning_severity",
-        "object_slot", "condition_scope", "assertion_status",
+        "object_slot", "condition_scope", "condition_polarity", "assertion_status",
     }),
     "qualitative_nonclinical": frozenset({
         "subject", "concept_type", "object_slot", "condition_scope",
-        "assertion_status",
+        "condition_polarity", "assertion_status",
     }),
 }
 
@@ -381,7 +394,7 @@ DISCRIMINATING_DIMENSIONS: dict[str, frozenset] = {
 MERGE_KEY_SPEC: dict[tuple, list] = {
     ("numeric", _DOMAIN_CLINICAL): [
         Slot("kind_tag", lambda c: "numeric", _ROLE_TAG),
-        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
         Slot("predicate", _get("predicate"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("value", _get_value, _ROLE_EXACT),
         Slot("unit", _get("unit"), _ROLE_DISCRIMINATOR, _unknown_blank),
@@ -397,7 +410,7 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
     ],
     ("numeric", _DOMAIN_NONCLINICAL): [
         Slot("kind_tag", lambda c: "numeric", _ROLE_TAG),
-        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
         Slot("predicate", _get("predicate"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("value", _get_value, _ROLE_EXACT),
         Slot("unit", _get("unit"), _ROLE_DISCRIMINATOR, _unknown_blank),
@@ -405,7 +418,7 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
     ],
     ("qualitative", _DOMAIN_CLINICAL): [
         Slot("kind_tag", lambda c: "qualitative", _ROLE_TAG),
-        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
         Slot("concept_type", _get("concept_type"), _ROLE_DISCRIMINATOR, _unknown_blank),
         # causal_strength / warning_severity are EXACT, NOT DISCRIMINATOR (design
         # §4.3 enumerates every singleton-forcing slot and deliberately OMITS these
@@ -424,14 +437,24 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
         Slot("warning_severity", _get("warning_severity"), _ROLE_EXACT),
         Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        # condition_polarity is EXACT (not DISCRIMINATOR), exactly like causal_strength/
+        # warning_severity above: '' == '' (an UNSTRATIFIED claim — no population qualifier —
+        # still merges), 'with' == 'with', 'without' == 'without', but 'with' != 'without'
+        # SPLITS the lethal over-merge ("causes nausea WITH renal impairment" vs "...WITHOUT").
+        # A DISCRIMINATOR here would force EVERY no-population claim to a singleton ('' unknown),
+        # paralysing all qualitative consolidation (the same lesson §4.3 records for the EXACT
+        # ontology slots). condition_polarity only adds discrimination when condition_scope is
+        # already EQUAL and non-empty, so it never over-fragments beyond condition_scope itself.
+        Slot("condition_polarity", _get("condition_polarity"), _ROLE_EXACT),
         Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
     ],
     ("qualitative", _DOMAIN_NONCLINICAL): [
         Slot("kind_tag", lambda c: "qualitative", _ROLE_TAG),
-        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("subject", _get("subject"), _ROLE_DISCRIMINATOR, _unknown_subject),
         Slot("concept_type", _get("concept_type"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
+        Slot("condition_polarity", _get("condition_polarity"), _ROLE_EXACT),
         Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
     ],
 }

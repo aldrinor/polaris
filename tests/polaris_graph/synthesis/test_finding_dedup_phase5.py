@@ -12,6 +12,8 @@ Serialized per CLAUDE.md §8.4 (pure-python).
 """
 from __future__ import annotations
 
+import types
+
 import pytest
 
 from src.polaris_graph.authority.data_loader import load_authority_data
@@ -20,6 +22,7 @@ from src.polaris_graph.retrieval.evidence_selector import (
     select_evidence_for_generation,
 )
 from src.polaris_graph.synthesis.finding_dedup import (
+    _finding_key,
     _host_of,
     dedup_by_finding,
 )
@@ -293,3 +296,143 @@ def test_p5_floor_mode_ignores_zero_max_rows():
         evidence_rows=rows, max_rows=0,
     )
     assert off.selected_rows == []
+
+
+# ── I-arch-002 (#1246) P3.3 — CONSOLIDATE-keep-all + OFF byte-identical ───────
+#
+# Under PG_SWEEP_CREDIBILITY_REDESIGN, finding_dedup STOPS being a source-dropper:
+# every same-claim row flows through as a basket carrying corroboration as weight
+# (DNA §-1.3 Principle 2). OFF keeps the legacy collapse-to-representative drop
+# byte-for-byte. delenv on the OFF test so a stray env =1 cannot flip it.
+
+_REDESIGN_FLAG = "PG_SWEEP_CREDIBILITY_REDESIGN"
+
+
+def test_p3_3_consolidate_keep_all_when_redesign_on(monkeypatch):
+    # Three independent hosts asserting the SAME finding. ON: all 3 rows survive
+    # (no member dropped), the representative still carries corroboration, and
+    # the collapsed count is honestly 0 (nothing was dropped).
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    rows = [
+        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
+        _row("ev1", "https://thelancet.com/b", _WL72, authority=0.7),
+        _row("ev2", "https://nih.gov/c", _WL72, authority=0.6),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert res.distinct_finding_count == 1
+    assert len(res.deduped_rows) == 3              # CONSOLIDATE: no member dropped
+    assert res.collapsed_row_count == 0            # nothing collapsed away
+    ids = [r["evidence_id"] for r in res.deduped_rows]
+    assert ids == ["ev0", "ev1", "ev2"]            # original order preserved
+    # Corroboration weight still surfaced on the representative (highest authority).
+    rep = next(r for r in res.deduped_rows if r["evidence_id"] == "ev0")
+    assert rep["corroboration_count"] == 3
+    assert rep["independent_hosts"] == ["nejm.org", "nih.gov", "thelancet.com"]
+    # Caller's rows still never mutated (shallow-copy purity holds in ON mode too).
+    assert "corroboration_count" not in rows[0]
+
+
+def test_p3_3_off_byte_identical_collapse_drop(monkeypatch):
+    # OFF (flag absent): the legacy collapse-to-representative drop is byte-for-byte
+    # — exactly the test_p5_2 expectation. Explicit delenv guards against a stray
+    # PG_SWEEP_CREDIBILITY_REDESIGN=1 in the ambient environment.
+    monkeypatch.delenv(_REDESIGN_FLAG, raising=False)
+    rows = [
+        _row("ev0", "https://nejm.org/a", _WL72, authority=0.9),
+        _row("ev1", "https://thelancet.com/b", _WL72, authority=0.7),
+        _row("ev2", "https://nih.gov/c", _WL72, authority=0.6),
+    ]
+    res = dedup_by_finding(rows, gov_suffixes=_GOV)
+    assert res.distinct_finding_count == 1
+    assert len(res.deduped_rows) == 1              # legacy: collapsed to the rep
+    assert res.deduped_rows[0]["evidence_id"] == "ev0"
+    assert res.deduped_rows[0]["corroboration_count"] == 3
+    assert res.collapsed_row_count == 2
+
+
+def test_p3_3_off_preserves_safe_guards(monkeypatch):
+    # The 3 safe guards survive in OFF mode unchanged: qualitative pass-through,
+    # conservative-singleton (distinct endpoint), unknown-subject sentinel.
+    monkeypatch.delenv(_REDESIGN_FLAG, raising=False)
+    # qualitative pass-through — two qualitative rows, both kept, zero findings.
+    qual = dedup_by_finding(
+        [
+            _row("q0", "https://a.org/x", "The therapy was generally well tolerated."),
+            _row("q1", "https://b.org/y", "A favorable safety profile was reported."),
+        ],
+        gov_suffixes=_GOV,
+    )
+    assert len(qual.deduped_rows) == 2
+    assert qual.distinct_finding_count == 0
+    # conservative-singleton — same value, DIFFERENT endpoint -> never merged.
+    sep = dedup_by_finding(
+        [_row("ev0", "https://a.org/x", _WL72), _row("ev1", "https://b.org/y", _WL20)],
+        gov_suffixes=_GOV,
+    )
+    assert sep.distinct_finding_count == 2
+    assert len(sep.deduped_rows) == 2
+
+
+def test_p3_3_on_preserves_safe_guards(monkeypatch):
+    # The same 3 safe guards survive ON: qualitative rows pass through (kept),
+    # distinct-endpoint findings stay separate (conservative-singleton), and an
+    # unknown subject never merges. CONSOLIDATE only stops the SAME-claim drop —
+    # it never relaxes the over-merge defense.
+    monkeypatch.setenv(_REDESIGN_FLAG, "1")
+    qual = dedup_by_finding(
+        [
+            _row("q0", "https://a.org/x", "The therapy was generally well tolerated."),
+            _row("q1", "https://b.org/y", "A favorable safety profile was reported."),
+        ],
+        gov_suffixes=_GOV,
+    )
+    assert len(qual.deduped_rows) == 2
+    assert qual.distinct_finding_count == 0
+    sep = dedup_by_finding(
+        [_row("ev0", "https://a.org/x", _WL72), _row("ev1", "https://b.org/y", _WL20)],
+        gov_suffixes=_GOV,
+    )
+    assert sep.distinct_finding_count == 2
+    assert len(sep.deduped_rows) == 2             # distinct endpoints never merged
+    # unknown subject -> per-claim sentinel -> never merged.
+    q = "A mean reduction of 20.9% at week 72 was observed."
+    unk = dedup_by_finding(
+        [_row("u0", "https://a.org/x", q), _row("u1", "https://b.org/y", q)],
+        gov_suffixes=_GOV,
+    )
+    assert len(unk.deduped_rows) == 2
+
+
+# ── I-arch-002 (#1246) P3.3 — round(value,3) retirement on the redesign key ───
+
+def _claim_stub(value):
+    # Known subject so the key is the full numeric tuple (not the unknown sentinel).
+    return types.SimpleNamespace(
+        subject="tirzepatide",
+        predicate="weight loss",
+        value=value,
+        unit="%",
+        dose="",
+        arm="",
+        endpoint_phrase="week 72",
+    )
+
+
+def test_p3_3_finding_key_off_rounds_value():
+    # OFF (default exact_value=False) keeps round(value, 3): two values that differ
+    # only in the 4th decimal collapse to the SAME rounded slot (legacy behaviour).
+    k_a = _finding_key(_claim_stub(14.9001), "evA", 0)
+    k_b = _finding_key(_claim_stub(14.9002), "evB", 0)
+    assert k_a == k_b
+    assert k_a[2] == round(14.9001, 3) == 14.9     # the rounded value slot
+
+
+def test_p3_3_finding_key_on_keeps_exact_value():
+    # ON (exact_value=True) retires the rounding: the two near-distinct values now
+    # produce DISTINCT keys, matching claim_graph._normalized_key_numeric's EXACT
+    # value (the basket-clustering key the two consolidators must agree on).
+    k_a = _finding_key(_claim_stub(14.9001), "evA", 0, exact_value=True)
+    k_b = _finding_key(_claim_stub(14.9002), "evB", 0, exact_value=True)
+    assert k_a != k_b
+    assert k_a[2] == 14.9001
+    assert k_b[2] == 14.9002

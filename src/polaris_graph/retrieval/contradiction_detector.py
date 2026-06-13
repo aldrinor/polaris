@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 logger = logging.getLogger("polaris_graph.contradiction_detector")
@@ -179,11 +179,18 @@ class ExtractedNumericClaim:
     source_url: str = ""
     source_tier: str = ""
     dose: str = ""             # "2.4 mg", "7.2 mg", or "" if not present
-    # arm is positively-known ONLY when a placebo/comparator cue fired. A
-    # DEFAULTED arm is NOT positively-known (design §4.3): no-cue -> None, so
-    # build_merge_key (Wave-3 step [6]) treats it as an unknown discriminator
-    # and keeps the claim a singleton rather than over-merging.
-    arm: Optional[str] = None  # "comparator_adjacent" on cue; None = UNKNOWN
+    # arm: legacy default "treatment"; "comparator_adjacent" only when a
+    # placebo/comparator cue fired. Kept at the LEGACY default (NOT None) for
+    # OFF byte-identity: the OFF-path legacy key _normalized_key_numeric reads
+    # ``arm`` into position 7 of the SHA-1-hashed cluster key
+    # (claim_graph.py:241) and honest_pipeline/run_honest_sweep_r3 asdict it
+    # into contradictions.json — so changing this default to None drifts the OFF
+    # cluster ids + serialized bytes (Codex Slice-B P1). Flag-ON consolidation
+    # is unaffected: claim_graph._unknown_arm treats "treatment" (the default,
+    # never-cued) AS UNKNOWN, so a defaulted arm still forces a singleton and
+    # only a positively-extracted "comparator_adjacent" anchors a merge
+    # (design §4.3, the arm lesson — fail-closed without the None change).
+    arm: str = "treatment"     # "treatment" (default/no-cue), "comparator_adjacent" (cue)
     endpoint_phrase: str = ""  # e.g., "at week 68", "from baseline", "mean change"
     # ── Wave-3 positive-known discriminator fields (I-arch-002 [1]) ──────────
     # All default '' = UNKNOWN sentinel. Dormant carriers: no consumer reads
@@ -213,6 +220,35 @@ class ContradictionRecord:
         "If one source is T1 (RCT) and another is T5 (industry), note the "
         "authority gap alongside the numeric gap."
     )
+
+
+# The Wave-3 dormant discriminator fields added to ExtractedNumericClaim (I-arch-002 [2]).
+# They are read ONLY by claim_graph.build_merge_key under PG_SWEEP_CREDIBILITY_REDESIGN and
+# must NOT appear in ANY serialized artifact on the OFF path, or OFF byte-identity breaks
+# (the legacy contradictions.json never had these keys). asdict() emits EVERY dataclass
+# field, so every site that serializes a ContradictionRecord routes through
+# serialize_contradiction_record() which strips them when the flag is OFF.
+_WAVE3_DORMANT_NUMERIC_FIELDS = (
+    "dose_frequency", "comparator", "route_formulation",
+    "effect_measure", "direction", "population",
+)
+
+
+def serialize_contradiction_record(record: "ContradictionRecord") -> dict:
+    """asdict a numeric ContradictionRecord for contradictions.json / manifest / PT08.
+
+    When PG_SWEEP_CREDIBILITY_REDESIGN is OFF the Wave-3 dormant discriminator fields are
+    STRIPPED from each nested claim so the serialized bytes are byte-identical to the
+    pre-Slice-B tree (Claude Slice-B iter-2 Fix C). When ON the full field set is emitted
+    (the redesign is the new behavior; ON is allowed to differ). endpoint_phrase/arm are
+    pre-existing and always retained.
+    """
+    d = asdict(record)
+    if not _credibility_redesign_enabled():
+        for claim in d.get("claims", []) or []:
+            for fname in _WAVE3_DORMANT_NUMERIC_FIELDS:
+                claim.pop(fname, None)
+    return d
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -409,28 +445,43 @@ def _detect_placebo_arm(text: str) -> bool:
     return bool(_PLACEBO_CONTEXT_RE.search(text))
 
 
+# Pre-existing endpoint patterns (legacy; OFF path uses ONLY these).
+_ENDPOINT_PATTERNS_LEGACY = (
+    r"at\s+week\s+\d+", r"at\s+\d+\s+weeks?",
+    r"at\s+month\s+\d+", r"at\s+\d+\s+months?",
+    r"from\s+baseline", r"mean\s+change",
+    r"intent\s*-?\s*to\s*-?\s*treat",
+    r"per\s+protocol",
+    r"trial\s+product\s+estimand",
+)
+# Wave-3 (I-arch-002 [2]): day + year endpoint patterns. They are appended AFTER the
+# legacy patterns so they only fire when no legacy pattern matched, BUT they still
+# change the OFF output for inputs that previously returned "" (e.g. "at day 28" with
+# no week/month phrase) — and endpoint_phrase feeds BOTH the legacy cluster key
+# (_normalized_key_numeric position 7) AND contradictions.json (asdict). Per the
+# non-negotiable byte-identity rule they are therefore GATED behind
+# PG_SWEEP_CREDIBILITY_REDESIGN (Claude Slice-B iter-2 P1); OFF runs the legacy set
+# verbatim.
+_ENDPOINT_PATTERNS_WAVE3 = (
+    r"at\s+day\s+\d+", r"at\s+\d+\s+days?",
+    r"at\s+year\s+\d+", r"at\s+\d+\s+years?",
+)
+
+
 def _extract_endpoint_phrase(text: str) -> str:
-    """Extract a short endpoint descriptor ('at week 68', 'from baseline')."""
+    """Extract a short endpoint descriptor ('at week 68', 'from baseline').
+
+    The day/year forms are GATED behind PG_SWEEP_CREDIBILITY_REDESIGN (they would
+    otherwise resolve previously-"" inputs and drift the OFF cluster key + serialized
+    bytes — Claude Slice-B iter-2 P1). Flag OFF => legacy patterns only, byte-for-byte.
+    """
     if not text:
         return ""
     low = text.lower()
-    for pat in (
-        r"at\s+week\s+\d+", r"at\s+\d+\s+weeks?",
-        r"at\s+month\s+\d+", r"at\s+\d+\s+months?",
-        r"from\s+baseline", r"mean\s+change",
-        r"intent\s*-?\s*to\s*-?\s*treat",
-        r"per\s+protocol",
-        r"trial\s+product\s+estimand",
-        # Wave-3 (I-arch-002 [2]): day + year endpoint patterns, placed LAST so
-        # they fire ONLY when no pre-existing pattern matched. This keeps the
-        # extractor byte-identical for every input the current tree already
-        # matches (e.g. "change from baseline at day 28" still -> "from
-        # baseline"); the day/year forms only newly resolve inputs that
-        # previously returned "" ("at day N" / "at N days" / "at year N" /
-        # "at N years").
-        r"at\s+day\s+\d+", r"at\s+\d+\s+days?",
-        r"at\s+year\s+\d+", r"at\s+\d+\s+years?",
-    ):
+    patterns = _ENDPOINT_PATTERNS_LEGACY
+    if _credibility_redesign_enabled():
+        patterns = patterns + _ENDPOINT_PATTERNS_WAVE3
+    for pat in patterns:
         m = re.search(pat, low)
         if m:
             return m.group(0)
@@ -570,17 +621,27 @@ def _extract_effect_measure(text: str) -> str:
     return ""
 
 
-# Direction: EXPLICIT increase/decrease token ONLY. NEVER inferred from the
-# predicate (design §4.3 — the predicate-derived fallback made "rose 5%" and
+# Direction: EXPLICIT clinical increase/decrease token ONLY. NEVER inferred from
+# the predicate (design §4.3 — the predicate-derived fallback made "rose 5%" and
 # "fell 5%" merge and broke design test #5).
+#
+# Codex Slice-B P1 (over-merge narrowing): BARE QUANTITY COMPARATIVES + ambiguous
+# nouns are EXCLUDED — "more"/"less"/"fewer" (a magnitude comparison, not a
+# clinical direction) and "loss"/"lost" (the outcome NOUN, e.g. "weight loss" is
+# the predicate, not a fall in a metric). Including them converted an otherwise-
+# UNKNOWN direction into a positive discriminator, making two distinct claims
+# merge-eligible instead of safe singletons. The retained tokens are explicit
+# directional verbs/adjectives only (increased/decreased/rose/fell/reduced/
+# reduction/elevated/declined/lowered/raised + clear motion synonyms). Unknown
+# direction returns '' so the merge-key slot forces a singleton (safe under-merge).
 _DIRECTION_INCREASE_RE = re.compile(
-    r"\b(?:increas\w+|rose|rise|risen|rising|higher|elevat\w+|gain\w*|"
-    r"up\s+by|grew|grow\w*|improv\w+|more)\b",
+    r"\b(?:increas\w+|rose|rise|risen|rising|higher|elevat\w+|"
+    r"rais\w+|up\s+by|grew|grow\w*)\b",
     re.IGNORECASE,
 )
 _DIRECTION_DECREASE_RE = re.compile(
     r"\b(?:decreas\w+|reduc\w+|reduction|fell|fall\w*|fallen|drop\w*|lower\w*|"
-    r"declin\w+|loss|los[ts]?|down\s+by|shrank|shrunk|fewer|less)\b",
+    r"declin\w+|down\s+by|shrank|shrunk)\b",
     re.IGNORECASE,
 )
 
@@ -782,15 +843,18 @@ def extract_numeric_claims(
         # it wouldn't have passed _find_value_in_context, but we also
         # tag "comparator_adjacent" when the ctx includes "vs placebo"
         # farther out (this is additional info for display, not a filter).
-        # Wave-3 (I-arch-002 [2], design §4.3): a DEFAULTED arm is NOT
-        # positively-known — so when NO placebo/comparator cue fires the arm is
-        # None (UNKNOWN), not the legacy "treatment" default. build_merge_key
-        # then treats it as an unknown discriminator and keeps the claim a
-        # singleton rather than over-merging.
+        # OFF byte-identity (Codex Slice-B P1): a no-cue arm stays the LEGACY
+        # "treatment" string, NOT None — the OFF-path cluster key
+        # (_normalized_key_numeric, claim_graph.py:241) and contradictions.json
+        # asdict both read this field, so emitting None would drift OFF cluster
+        # ids + bytes. Flag-ON consolidation is still fail-closed: a defaulted
+        # "treatment" arm is treated as UNKNOWN by claim_graph._unknown_arm and
+        # forces a singleton; only the positively-extracted "comparator_adjacent"
+        # cue anchors a merge (design §4.3 — the arm lesson holds without None).
         if _detect_placebo_arm(ctx_window):
-            arm: Optional[str] = "comparator_adjacent"
+            arm = "comparator_adjacent"
         else:
-            arm = None
+            arm = "treatment"
         endpoint_phrase = _extract_endpoint_phrase(ctx_window) or _extract_endpoint_phrase(quote)
 
         # Wave-3 positive-known discriminators (I-arch-002 [2]). Each reads the

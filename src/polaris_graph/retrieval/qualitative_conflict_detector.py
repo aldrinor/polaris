@@ -117,6 +117,17 @@ class QualitativeAssertion:
     # OFF path (NOT in _claim_dict), so additive defaults are byte-identical when the redesign is off.
     causal_strength: str = ''      # {causal, associational} for ae_causation, else ''
     warning_severity: str = ''     # {boxed_regulatory, routine_caution} for warning, else ''
+    # condition_polarity: the POPULATION polarity of condition_scope — {with, without}
+    # when a population/organ qualifier is named, else '' (no population qualifier).
+    # Wave-3 I-arch-001 #1245 P0 (Claude audit): the merge key was polarity-BLIND on the
+    # population, so "causes nausea in patients WITH renal impairment" and "...WITHOUT
+    # renal impairment" produced an IDENTICAL key and over-merged into a fabricated
+    # multi-source basket of OPPOSITE populations (clinical-lethal; the per-sentence
+    # faithfulness engine is basket-blind and cannot catch a false-merge). Same dormant
+    # contract as causal_strength/warning_severity: read ONLY by claim_graph.build_merge_key
+    # under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized (NOT in _claim_dict), so the
+    # additive default is byte-identical when the redesign is OFF.
+    condition_polarity: str = ''   # {with, without} when a population is named, else ''
 
 
 @dataclass
@@ -324,6 +335,48 @@ def _extract_condition_scope(sentence_lc: str, lex: dict[str, Any]) -> str:
     return ""
 
 
+# Population-NEGATION cues that flip a condition_scope from the (default) WITH-population
+# polarity to WITHOUT-population. ADJACENT-only (<=3-token lookback past an intervening
+# severity PRE_QUALIFIER) so a verb-negation far from the population ("does NOT cause X in
+# renal impairment" -> assertion_status flips, the population stays PRESENT) does NOT flip
+# the population polarity. Mirrors the lexicon real_negation family, restricted to cues that
+# plausibly govern a population noun.
+_POPULATION_NEGATION_CUES = frozenset({
+    "without", "absent", "no", "non", "free", "lacking", "sans", "minus", "negative",
+})
+_POLARITY_LOOKBACK = 3
+
+
+def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
+    """Polarity of the population/condition qualifier (Wave-3 I-arch-001 #1245 P0).
+
+    Returns 'without' when an explicit population-negation cue ADJACENTLY governs the
+    condition cue (e.g. 'without renal impairment', 'free of hepatic disease', 'no renal'),
+    'with' when a condition cue is found with no adjacent negation (the common case — 'in
+    patients with renal impairment', 'in renal impairment'), and '' when NO population cue
+    is present (an unstratified claim). Tokenisation mirrors `_extract_condition_scope` so
+    the located cue index aligns; the <=3-token lookback steps past an intervening severity
+    PRE_QUALIFIER ('without severe renal impairment'). Dormant: read ONLY by
+    `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
+
+    Known limitation (documented, non-lethal): a compound multi-condition clause names two
+    populations; only the FIRST cue's polarity is returned. This can UNDER-split (miss a
+    legitimate distinction) but the over-merge it would permit requires every other key
+    field to also be identical AND both members to survive span-grounding — a vanishing tail.
+    The primary single-population WITH/WITHOUT case (the lethal one) is fully covered.
+    """
+    tokens = [re.sub(r"[^a-z\-]", "", w) for w in sentence_lc.split()]
+    for i, tok in enumerate(tokens):
+        if not tok:
+            continue
+        if any(cue in tok for cue in lex["condition_scope_cues"]):
+            for j in range(i - 1, max(-1, i - 1 - _POLARITY_LOOKBACK), -1):
+                if tokens[j] in _POPULATION_NEGATION_CUES:
+                    return "without"
+            return "with"
+    return ""
+
+
 def _classify_cue_bucket(cset: dict[str, Any], bucket_field: str, cue: str) -> str:
     """Return the ontology bucket name a matched PRESENT cue falls into, else '' (UNKNOWN).
 
@@ -387,6 +440,10 @@ def extract_qualitative_assertions(
                     owner = lex["object_slot_owner"].get(concept_type, "object_slot")
                     object_slot, condition_scope = "", ""
                     cscope = _extract_condition_scope(clause, lex)
+                    # POPULATION polarity of the same condition cue (Wave-3 #1245 P0).
+                    # Aligns with cscope: non-empty cscope <-> polarity in {with, without};
+                    # empty cscope <-> ''. Dormant: read ONLY by build_merge_key under the flag.
+                    condition_polarity = _extract_condition_polarity(clause, lex)
                     if owner == "condition_scope":
                         condition_scope = cscope
                     else:
@@ -412,6 +469,7 @@ def extract_qualitative_assertions(
                         assertion_status=status, cue=cue, context_snippet=clause_raw[:200],
                         source_url=url, source_tier=tier,
                         causal_strength=causal_strength, warning_severity=warning_severity,
+                        condition_polarity=condition_polarity,
                     ))
     return out
 

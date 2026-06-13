@@ -183,6 +183,7 @@ from src.polaris_graph.auto_induction.precision_metrics import (  # noqa: E402
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
+    serialize_contradiction_record,
 )
 from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
     _is_low_content_host_or_page,
@@ -4733,7 +4734,7 @@ async def run_one_query(
             semantic_records = []
         (run_dir / "contradictions.json").write_text(
             json.dumps(
-                [asdict(c) for c in contradictions]
+                [serialize_contradiction_record(c) for c in contradictions]
                 + [asdict(qr) for qr in qualitative_records]
                 + [asdict(sr) for sr in semantic_records],
                 indent=2, sort_keys=True, default=str,
@@ -6153,7 +6154,7 @@ async def run_one_query(
                 if _env_flag(_TIER_DISCLOSURE_SINGLE_SOURCE_ENV, default=True)
                 else None
             ),
-            contradictions=[asdict(c) for c in contradictions],
+            contradictions=[serialize_contradiction_record(c) for c in contradictions],
             date_range=(
                 protocol.get("date_range")
                 if isinstance(protocol.get("date_range"), dict)
@@ -7122,7 +7123,7 @@ async def run_one_query(
                 # (abort_evaluator_critical), exactly like a numeric one. asdict carries subject +
                 # predicate; PT08 reads only those (substring presence), so the extra semantic fields
                 # are ignored. Numeric records are unchanged.
-                contradictions=[asdict(c) for c in contradictions]
+                contradictions=[serialize_contradiction_record(c) for c in contradictions]
                 + [asdict(sr) for sr in semantic_records],
                 evidence_pool=ev_pool,
                 enable_llm_judge=False,

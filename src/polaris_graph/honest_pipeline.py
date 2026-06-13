@@ -57,6 +57,7 @@ from src.polaris_graph.retrieval.contradiction_detector import (
     detect_contradictions,
     extract_numeric_claims,
     format_contradictions_for_user,
+    serialize_contradiction_record,
 )
 from src.polaris_graph.retrieval.tier_classifier import (
     ClassificationSignals,
@@ -274,7 +275,7 @@ def run_honest_pipeline(
     contradictions_path = run_dir_path / "contradictions.json"
     contradictions_path.write_text(
         json.dumps(
-            [asdict(c) for c in contradictions],
+            [serialize_contradiction_record(c) for c in contradictions],
             indent=2, sort_keys=True, default=str,
         ) + "\n",
         encoding="utf-8",
@@ -373,7 +374,7 @@ def run_honest_pipeline(
         report_text=final_report_text,
         protocol=protocol_dict,
         tier_distribution_report=asdict(report),
-        contradictions=[asdict(c) for c in contradictions],
+        contradictions=[serialize_contradiction_record(c) for c in contradictions],
         evidence_pool=evidence_pool,
         enable_llm_judge=False,
     )

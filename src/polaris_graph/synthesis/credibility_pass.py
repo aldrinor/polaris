@@ -541,7 +541,23 @@ def apply_disclosure_to_svs(svs: list, analysis: "CredibilityAnalysis") -> list:
     cred_floats = {
         eid: ec.credibility_weight for eid, ec in cred_by_ev.items()
     }
-    populated = populate_disclosure(svs, cred_floats, origin_by_ev)
+    # I-arch-002 [10] / design §5 FIX-4 (Reading A) — Codex Slice-B P1: thread the
+    # per-claim baskets + the evidence_id->claim_cluster_id binding (both built by
+    # _run_chain on this CredibilityAnalysis) into populate_disclosure so the
+    # OVERWRITE of independent_origin_count -> verified_support_origin_count actually
+    # reaches the operator-visible claim_disclosure.json emit
+    # (run_honest_sweep_r3.py:353 / quantified_analysis.py:539 both read this field
+    # off kept_sentences_pre_resolve). Pre-fix apply_disclosure_to_svs omitted these,
+    # so the clustered (not-verified) count still leaked to the JSON. OFF byte-identity
+    # is structural: this whole function only runs when credibility_analysis is not
+    # None (itself gated on PG_SWEEP_CREDIBILITY_REDESIGN at every call site); when the
+    # flag is OFF baskets is empty / the binding is empty, so populate_disclosure's
+    # _surfaced_verified_count returns None and the legacy clustered count is preserved.
+    populated = populate_disclosure(
+        svs, cred_floats, origin_by_ev,
+        baskets=getattr(analysis, "baskets", None),
+        cluster_id_by_evidence=getattr(analysis, "cluster_id_by_evidence", None),
+    )
 
     # ── Step 3: P3 certainty carrier (downgrade + soft_warning surface) ──
     out: list = []

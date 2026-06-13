@@ -16,7 +16,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.polaris_graph.synthesis.credibility_pass import ClaimBasket
+from src.polaris_graph.synthesis.credibility_pass import (
+    ClaimBasket,
+    CredibilityAnalysis,
+    EvidenceCredibility,
+    apply_disclosure_to_svs,
+)
 from src.polaris_graph.synthesis.both_sides import (
     compose_both_sides,
     render_both_sides,
@@ -154,6 +159,100 @@ def test_claim_disclosure_emit_surfaces_verified_not_clustered_count():
     # certainty is bucketed on the SAME surfaced verified count (advisor trap #2): verified=1 < the
     # default high_min_origins=2, so a single verified origin cannot read "high".
     assert row["certainty_label"] != "high"
+
+
+def _evidence_cred(eid, weight, origin):
+    """A minimal real EvidenceCredibility row for the production apply_disclosure path."""
+    return EvidenceCredibility(
+        evidence_id=eid,
+        credibility_weight=weight,
+        reliability_score=weight,
+        relevance_score=weight,
+        origin_cluster_id=origin,
+        is_canonical_origin=True,
+        certainty_downgrade=False,
+        soft_warning=None,
+    )
+
+
+def test_18_production_apply_disclosure_to_svs_surfaces_verified_count():
+    """#18 HARDENED (Codex Slice-B P1): exercise the PRODUCTION wiring
+    ``apply_disclosure_to_svs(svs, analysis)`` — the exact entry all four resolve
+    sites call — with a REAL CredibilityAnalysis carrying a mixed basket
+    (clustered=2 / verified=1) + the evidence->cluster binding, then run the
+    operator-visible emit builder and assert the JSON row carries the verified 1,
+    not the clustered 2.
+
+    Pre-fix apply_disclosure_to_svs called populate_disclosure WITHOUT baskets /
+    cluster_id_by_evidence, so the basket overwrite never reached the SVs and the
+    clustered count leaked to claim_disclosure.json. This test fails on that bug
+    (it would assert 2) and passes only with the threading fix in place — i.e. it
+    pins the wiring, not a hand-populated shortcut.
+    """
+    # Two cited sources in ONE claim cluster cA: clustered origin count = 2 (o1, o2),
+    # but only ONE member verified in isolation -> basket verified count = 1.
+    analysis = CredibilityAnalysis(
+        credibility_by_evidence={
+            "e0": _evidence_cred("e0", 0.9, "o1"),
+            "e1": _evidence_cred("e1", 0.9, "o2"),
+        },
+        origin_by_evidence={"e0": "o1", "e1": "o2"},
+        claims=[],
+        edges=[],
+        weight_mass=[],
+        baskets=[_basket("cA", clustered=2, verified=1)],
+        cluster_id_by_evidence={"e0": ["cA"], "e1": ["cA"]},
+    )
+    svs = [_sv("drug X reduced the rate by 30 percent", ["e0", "e1"], is_verified=True)]
+
+    # PRODUCTION entry point — the shared implementation all 4 resolve sites call.
+    populated = apply_disclosure_to_svs(svs, analysis)
+    assert populated[0].independent_origin_count == 1, (
+        "production apply_disclosure_to_svs must thread the basket so the verified "
+        "count (1) overwrites the clustered count (2); got "
+        f"{populated[0].independent_origin_count}"
+    )
+
+    # And it must reach the operator-visible claim_disclosure.json emit unchanged.
+    multi = SimpleNamespace(
+        credibility_analysis=analysis,            # non-None => emit builder runs
+        sections=[SimpleNamespace(
+            title="Findings",
+            dropped_due_to_failure=False,
+            kept_sentences_pre_resolve=populated,
+        )],
+    )
+    doc = _build_claim_disclosure_doc(multi, {})
+    assert doc is not None
+    row = doc["sections"][0]["claims"][0]
+    assert row["independent_origin_count"] == 1, (
+        "the operator-visible emit must carry the basket verified count (1), never "
+        "the clustered/unverified count (2) — this is the wiring P5.2 flagged"
+    )
+    assert row["certainty_label"] != "high"  # bucketed on the verified 1 < high_min_origins(2)
+
+
+def test_18_production_off_path_keeps_clustered_count_byte_identical():
+    """#18 OFF guard: with NO baskets on the analysis (the OFF default — baskets is
+    empty when PG_SWEEP_CREDIBILITY_REDESIGN is off because _run_chain never runs),
+    apply_disclosure_to_svs surfaces the LEGACY clustered count (2 distinct origins),
+    byte-identical. Proves the overwrite is strictly additive and basket-gated."""
+    analysis = CredibilityAnalysis(
+        credibility_by_evidence={
+            "e0": _evidence_cred("e0", 0.9, "o1"),
+            "e1": _evidence_cred("e1", 0.9, "o2"),
+        },
+        origin_by_evidence={"e0": "o1", "e1": "o2"},
+        claims=[],
+        edges=[],
+        weight_mass=[],
+        # baskets + cluster_id_by_evidence default to empty (the OFF shape).
+    )
+    svs = [_sv("s", ["e0", "e1"], is_verified=True)]
+    populated = apply_disclosure_to_svs(svs, analysis)
+    assert populated[0].independent_origin_count == 2, (
+        "with no basket threaded the legacy clustered count (2) must be preserved"
+    )
 
 
 def test_multi_cluster_sentence_surfaces_conservative_single_basket_count():

@@ -25,7 +25,10 @@ from __future__ import annotations
 import pytest
 
 from src.polaris_graph.retrieval.contradiction_detector import ExtractedNumericClaim
-from src.polaris_graph.retrieval.qualitative_conflict_detector import QualitativeAssertion
+from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+    QualitativeAssertion,
+    extract_qualitative_assertions,
+)
 from src.polaris_graph.synthesis.claim_graph import (
     DISCRIMINATING_DIMENSIONS,
     MERGE_KEY_SPEC,
@@ -320,7 +323,9 @@ def test_20_defaulted_arm_treatment_is_unknown_singleton():
     known -> singleton. Only a positively-extracted comparator arm anchors a merge."""
     view = _numeric_view(evidence_id="t", atom_uid="numeric:t:0", arm="treatment")
     assert build_merge_key(view)[0] == "__unresolved__"
-    # arm=None (the P1.2 no-cue default) is likewise unknown.
+    # arm=None is likewise unknown (defense-in-depth: the extractor default is the
+    # legacy "treatment" string for OFF byte-identity per Codex Slice-B P1, but
+    # _unknown_arm must also reject a None should any caller pass one).
     view_none = _numeric_view(evidence_id="n", atom_uid="numeric:n:0", arm=None)
     assert build_merge_key(view_none)[0] == "__unresolved__"
 
@@ -398,6 +403,69 @@ def test_13_off_path_is_byte_identical_when_flag_unset(monkeypatch):
         assert _graph_signature(_OFF_ROWS) == sig_unset, f"off-value {off!r} drifted"
 
 
+# The EXACT frozen pre-change (legacy) numeric normalized_key tuples for _OFF_ROWS.
+# These were captured by EXECUTING the legacy positional builder (build_claim_graph ->
+# _normalized_key_numeric) from the Slice-B PARENT commit 8e938d49~1 in isolation over
+# this same _OFF_ROWS fixture (not reasoned by hand): the run emitted exactly
+#   e1/e2 -> ('numeric','semaglutide','weight loss',14.9,'%','','treatment','at week 68')
+#   e3    -> ('numeric','tirzepatide','weight loss',22.5,'%','','treatment','at week 72')
+# This is the byte-identity baseline test #13 compares against — NOT a self-referential
+# "it runs" check. Position 7 is ``arm``: the legacy/no-cue value is "treatment" (the
+# Codex Slice-B P1 fix reverts the extractor's transient ``arm=None`` back to this), so a
+# regression to None would surface here as position 7 drifting "treatment" -> "" and the
+# cluster ids changing.
+_FROZEN_OFF_NUMERIC_KEYS = {
+    # e1 + e2 are the SAME claim text -> identical legacy key -> they co-cluster.
+    "e1": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "at week 68"),
+    "e2": ("numeric", "semaglutide", "weight loss", 14.9, "%", "", "treatment", "at week 68"),
+    "e3": ("numeric", "tirzepatide", "weight loss", 22.5, "%", "", "treatment", "at week 72"),
+}
+
+
+def test_13_off_normalized_keys_match_frozen_legacy_tuples(monkeypatch):
+    """#13 anchor (HARDENED): on the OFF path each numeric key equals the EXACT
+    pre-change legacy positional tuple captured at 8e938d49~1 — a real frozen
+    expectation, byte-for-byte, NOT just an 8-field shape check. Position 7 (arm)
+    must be the legacy "treatment" string; the Codex Slice-B P1 arm-revert is what
+    keeps it so. Any drift here = OFF byte-identity broken."""
+    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    g = build_claim_graph(_OFF_ROWS)
+    by_evid = {}
+    for c in g.claims:
+        if c.kind == "numeric" and c.normalized_key[0] == "numeric":
+            by_evid[str(c.evidence_id)] = tuple(c.normalized_key)
+    assert by_evid, "fixture must yield resolved numeric claims on the OFF path"
+    for evid, expected in _FROZEN_OFF_NUMERIC_KEYS.items():
+        assert by_evid.get(evid) == expected, (
+            f"OFF numeric key for {evid} drifted from the frozen legacy tuple:\n"
+            f"  got      {by_evid.get(evid)}\n  expected {expected}\n"
+            "(check position 7 'arm' — a regression to None drifts 'treatment' -> '')"
+        )
+    # The arm position is specifically "treatment" on every resolved key (the revert anchor).
+    for evid, key in by_evid.items():
+        assert key[6] == "treatment", f"{evid} arm slot {key[6]!r} != legacy 'treatment'"
+
+
+def test_13_off_cluster_ids_are_frozen_and_dedup_identical_claims(monkeypatch):
+    """#13 structural anchor: the OFF cluster ids are deterministic AND the two
+    identical-text rows (e1/e2) collapse to ONE cluster while the distinct row (e3)
+    is its own — exactly the legacy positional-key grouping. A SHA-1 over a drifted
+    key (e.g. arm None -> '') would change these ids, so freezing them is the
+    byte-identity guard at the cluster-id surface."""
+    monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
+    g = build_claim_graph(_OFF_ROWS)
+    cid_by_evid = {
+        str(c.evidence_id): c.claim_cluster_id
+        for c in g.claims if c.kind == "numeric" and c.normalized_key[0] == "numeric"
+    }
+    # e1 and e2 carry the identical legacy key -> identical cluster id (co-clustered).
+    assert cid_by_evid["e1"] == cid_by_evid["e2"], (
+        "identical-text rows must share a cluster id under the legacy key"
+    )
+    # e3 is a distinct claim -> distinct cluster id.
+    assert cid_by_evid["e3"] != cid_by_evid["e1"], "distinct claim must not co-cluster"
+
+
 def test_13_off_normalized_keys_match_legacy_positional_shape(monkeypatch):
     """#13 anchor: on the OFF path the numeric key keeps the EXACT legacy positional
     tuple ('numeric', subject, predicate, value, unit, dose, arm, endpoint) — i.e.
@@ -438,3 +506,61 @@ def test_13_on_path_uses_spec_key_not_legacy(monkeypatch):
         # the 8-field legacy positional tuple unless it co-incidentally singletons.
         if c.kind == "numeric" and c.normalized_key[0] == "numeric":
             assert len(c.normalized_key) == 14, "ON numeric spec key is 14 fields"
+
+
+# ── §8 NEW: population-polarity over-merge proof (Claude Slice-B iter-2 P0, #1245) ──
+# The merge key was polarity-BLIND on condition_scope: "causes nausea in patients WITH
+# renal impairment" and "...WITHOUT renal impairment" produced an IDENTICAL key and
+# over-merged into a fabricated 2-source basket of OPPOSITE populations. The per-sentence
+# faithfulness engine is basket-blind and cannot catch a false-merge, so the merge key is
+# the SOLE defense (design §0). condition_polarity (EXACT) splits with!=without.
+
+
+def test_population_polarity_with_vs_without_does_not_merge():
+    """Two clinical qualitative claims identical in every field EXCEPT the population
+    polarity (with vs without) MUST get distinct merge keys (no fabricated corroboration)."""
+    with_pop = _qual_view(evidence_id="w1", atom_uid="qualitative:w1:0",
+                          condition_scope="renal impairment", condition_polarity="with")
+    without_pop = _qual_view(evidence_id="o1", atom_uid="qualitative:o1:0",
+                             condition_scope="renal impairment", condition_polarity="without")
+    assert build_merge_key(with_pop) != build_merge_key(without_pop)
+
+
+def test_population_polarity_same_polarity_still_merges():
+    """Two claims with the SAME population polarity (both 'with') and all else equal MUST
+    still merge — the fix splits opposite populations, it does not over-fragment same ones."""
+    a = _qual_view(evidence_id="a", atom_uid="qualitative:a:0",
+                   condition_scope="renal impairment", condition_polarity="with")
+    b = _qual_view(evidence_id="b", atom_uid="qualitative:b:0",
+                   condition_scope="renal impairment", condition_polarity="with")
+    ka, kb = build_merge_key(a), build_merge_key(b)
+    assert ka[0] != "__unresolved__" and ka == kb
+
+
+def test_population_polarity_end_to_end_real_extractor():
+    """BEHAVIORAL proof through the REAL extractor (not a hand-built view): WITH vs WITHOUT
+    renal impairment, run through extract_qualitative_assertions + build_merge_key, split."""
+    import os
+    os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
+    try:
+        s_with = "Semaglutide causes nausea in patients with renal impairment."
+        s_without = "Semaglutide causes nausea in patients without renal impairment."
+        aw = extract_qualitative_assertions(
+            [{"evidence_id": "EVW", "direct_quote": s_with, "tier": "T1"}], domain="clinical")
+        ao = extract_qualitative_assertions(
+            [{"evidence_id": "EVO", "direct_quote": s_without, "tier": "T1"}], domain="clinical")
+        assert aw and ao, "extractor must yield assertions for both"
+        assert aw[0].condition_polarity == "with"
+        assert ao[0].condition_polarity == "without"
+        kw = build_merge_key(_merge_key_view(
+            aw[0], kind="qualitative", evidence_id="EVW", domain="clinical",
+            atom_uid="qualitative:EVW:0"))
+        ko = build_merge_key(_merge_key_view(
+            ao[0], kind="qualitative", evidence_id="EVO", domain="clinical",
+            atom_uid="qualitative:EVO:0"))
+        # neither is a fail-closed singleton here (object_slot=nausea is known), and they
+        # MUST NOT share a key — the lethal over-merge is fixed.
+        assert kw[0] != "__unresolved__" and ko[0] != "__unresolved__"
+        assert kw != ko
+    finally:
+        os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
