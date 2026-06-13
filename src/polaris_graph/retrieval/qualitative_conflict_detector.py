@@ -336,28 +336,39 @@ def _extract_condition_scope(sentence_lc: str, lex: dict[str, Any]) -> str:
 
 
 # Population-NEGATION cues that flip a condition_scope from the (default) WITH-population
-# polarity to WITHOUT-population. ADJACENT-only (<=3-token lookback past an intervening
-# severity PRE_QUALIFIER) so a verb-negation far from the population ("does NOT cause X in
-# renal impairment" -> assertion_status flips, the population stays PRESENT) does NOT flip
-# the population polarity. Mirrors the lexicon real_negation family, restricted to cues that
-# plausibly govern a population noun.
+# polarity to WITHOUT-population. The cue must govern the POPULATION noun — see the
+# tightly-scoped back-walk in _extract_condition_polarity. Mirrors the lexicon real_negation
+# family, restricted to cues that plausibly govern a population noun.
 _POPULATION_NEGATION_CUES = frozenset({
     "without", "absent", "no", "non", "free", "lacking", "sans", "minus", "negative",
 })
-_POLARITY_LOOKBACK = 3
+# Tokens we walk PAST when looking for a population negation before the condition cue:
+# severity PRE_QUALIFIERS ("without SEVERE renal") and the linker prepositions of the
+# "free OF renal" / "free FROM renal" negation phrases. ANY other token (a population
+# introducer "in"/"with"/"among", a content noun/verb) BOUNDS the population phrase and
+# STOPS the walk -> so a verb-negation OUTSIDE the population phrase ("causes NO nausea IN
+# renal impairment") cannot reach across the "in" to flip the population polarity.
+_POLARITY_SKIP_LINKERS = frozenset({"of", "from"})
+_POLARITY_LOOKBACK = 4
 
 
 def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
     """Polarity of the population/condition qualifier (Wave-3 I-arch-001 #1245 P0).
 
-    Returns 'without' when an explicit population-negation cue ADJACENTLY governs the
-    condition cue (e.g. 'without renal impairment', 'free of hepatic disease', 'no renal'),
-    'with' when a condition cue is found with no adjacent negation (the common case — 'in
-    patients with renal impairment', 'in renal impairment'), and '' when NO population cue
-    is present (an unstratified claim). Tokenisation mirrors `_extract_condition_scope` so
-    the located cue index aligns; the <=3-token lookback steps past an intervening severity
-    PRE_QUALIFIER ('without severe renal impairment'). Dormant: read ONLY by
-    `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
+    Returns 'without' when an explicit population-negation cue governs the condition cue
+    INSIDE the population phrase ('without renal impairment', 'without severe renal',
+    'free of hepatic disease', 'no renal'), 'with' when a condition cue is found with no
+    such negation (the common case — 'in patients with renal impairment', 'in renal
+    impairment'), and '' when NO population cue is present (an unstratified claim).
+
+    The back-walk from the condition cue STOPS at the first token that is neither a
+    severity PRE_QUALIFIER nor an 'of'/'from' linker — i.e. at the population introducer
+    ('in'/'with'/'among') or any content word. This scopes the negation to the population
+    phrase: "causes NO nausea IN renal impairment" stops at "in" and stays 'with' (the
+    "no" negates nausea, the assertion_status, NOT the population — the population is
+    PRESENT). "free of renal" still resolves 'without' by walking past the "of" linker.
+    Tokenisation mirrors `_extract_condition_scope` so the cue index aligns. Dormant: read
+    ONLY by `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
 
     Known limitation (documented, non-lethal): a compound multi-condition clause names two
     populations; only the FIRST cue's polarity is returned. This can UNDER-split (miss a
@@ -371,8 +382,12 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
             continue
         if any(cue in tok for cue in lex["condition_scope_cues"]):
             for j in range(i - 1, max(-1, i - 1 - _POLARITY_LOOKBACK), -1):
-                if tokens[j] in _POPULATION_NEGATION_CUES:
+                t = tokens[j]
+                if t in _POPULATION_NEGATION_CUES:
                     return "without"
+                if t in _PRE_QUALIFIERS or t in _POLARITY_SKIP_LINKERS:
+                    continue
+                break  # a population introducer / content word bounds the population phrase
             return "with"
     return ""
 

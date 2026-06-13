@@ -564,3 +564,34 @@ def test_population_polarity_end_to_end_real_extractor():
         assert kw != ko
     finally:
         os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
+
+
+# ── condition_polarity negation-scoping edge cases (Claude self-audit, iter-2b) ──
+# The negation must govern the POPULATION noun, not a verb/object elsewhere in the clause.
+# A loose lookback would mislabel "causes NO nausea IN renal impairment" as 'without' (the
+# "no" negates nausea) and could over-merge it with a genuine without-renal claim — the
+# lethal direction. The scoped back-walk stops at the "in" population introducer.
+import pytest as _pytest
+from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+    _extract_condition_polarity as _ecp,
+    _load_lexicon as _ll,
+)
+
+_POLARITY_CASES = [
+    ("in patients with renal impairment", "with"),
+    ("in patients without renal impairment", "without"),
+    ("without severe renal impairment", "without"),       # walk past PRE_QUALIFIER
+    ("in renal impairment", "with"),
+    ("patients free of renal impairment", "without"),       # walk past 'of' linker
+    ("patients free from hepatic disease", "without"),       # walk past 'from' linker
+    ("no renal impairment", "without"),
+    ("causes no nausea in renal impairment", "with"),        # 'no' governs nausea, NOT population
+    ("does not cause nausea in renal impairment", "with"),   # 'not' governs the verb
+    ("safe in normal renal function", "with"),
+    ("causes nausea", ""),                                    # no population cue -> unstratified
+]
+
+
+@_pytest.mark.parametrize("sentence,expected", _POLARITY_CASES)
+def test_condition_polarity_negation_scoping(sentence, expected):
+    assert _ecp(sentence, _ll()) == expected
