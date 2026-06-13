@@ -61,6 +61,7 @@ from src.polaris_graph.retrieval.contradiction_detector import (
     extract_numeric_claims,
 )
 from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+    POLARITY_AMBIGUOUS,
     QualitativeAssertion,
     detect_qualitative_conflicts,
     extract_qualitative_assertions,
@@ -351,6 +352,17 @@ def _unknown_arm(v: Any) -> bool:
     return s in ("", "treatment")
 
 
+def _ambiguous_polarity(v: Any) -> bool:
+    """``condition_polarity`` is UNKNOWN (⇒ singleton) ONLY on the extractor's
+    ``POLARITY_AMBIGUOUS`` sentinel — a population that is present but whose with/without
+    polarity could not be confidently resolved (e.g. an unparsed relative clause "patients
+    WHO HAVE renal impairment"). 'with' / 'without' / '' are all POSITIVELY known and compare
+    normally; only the ambiguous sentinel fails closed. Codex Slice-B iter-4 P0: the only
+    LETHAL error is reading a without/excluded population as a mergeable 'with', so anything
+    not provably clean fails to a singleton (over-fragment is SAFE)."""
+    return str(v or "").strip().lower() == POLARITY_AMBIGUOUS
+
+
 def _unknown_subject(v: Any) -> bool:
     """``subject`` is unknown on '' / None OR the extractor's ``_UNKNOWN_SUBJECT``
     sentinel ('unknown' — the contradiction_detector unresolved-subject fallback).
@@ -437,19 +449,17 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
         Slot("warning_severity", _get("warning_severity"), _ROLE_EXACT),
         Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
-        # condition_polarity is EXACT (not DISCRIMINATOR), exactly like causal_strength/
-        # warning_severity above: 'with' == 'with', 'without' == 'without', but 'with' !=
-        # 'without' SPLITS the lethal over-merge ("causes nausea WITH renal impairment" vs
-        # "...WITHOUT"). It only matters when condition_scope is itself EQUAL and non-empty
-        # (same named population on both sides) — that is the ONLY case condition_scope (a
-        # DISCRIMINATOR) cannot split. It NEVER affects an UNSTRATIFIED claim: a blank
-        # condition_scope is already a singleton via its own _unknown_blank DISCRIMINATOR,
-        # so the merge never reaches this slot. (EXACT, not DISCRIMINATOR, so that a stray
-        # '' polarity on a stratified claim — which cannot occur, polarity is non-blank
-        # whenever condition_scope is — could not paralyse a merge; mirrors §4.3's EXACT
-        # ontology lesson.) Therefore condition_polarity adds discrimination ONLY among
-        # already-stratified same-population claims and never over-fragments.
-        Slot("condition_polarity", _get("condition_polarity"), _ROLE_EXACT),
+        # condition_polarity is a DISCRIMINATOR whose unknown_predicate fires ONLY on the
+        # POLARITY_AMBIGUOUS sentinel (Codex Slice-B iter-4 P0 fail-closed): 'with' ==
+        # 'with', 'without' == 'without', '' == '' all compare normally, 'with' != 'without'
+        # SPLITS the lethal over-merge ("causes nausea WITH renal" vs "...WITHOUT"), and an
+        # AMBIGUOUS polarity (a population present under an unresolved relative clause —
+        # "patients WHO HAVE renal") forces a SINGLETON rather than a guessed 'with'. It only
+        # adds discrimination when condition_scope is itself EQUAL and non-empty (an
+        # unstratified claim is already a singleton via the blank condition_scope
+        # DISCRIMINATOR, so the merge never reaches this slot) — so it never over-fragments
+        # genuine same-population claims, only fails closed on truly-ambiguous populations.
+        Slot("condition_polarity", _get("condition_polarity"), _ROLE_DISCRIMINATOR, _ambiguous_polarity),
         Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
     ],
     ("qualitative", _DOMAIN_NONCLINICAL): [
@@ -458,7 +468,7 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
         Slot("concept_type", _get("concept_type"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
-        Slot("condition_polarity", _get("condition_polarity"), _ROLE_EXACT),
+        Slot("condition_polarity", _get("condition_polarity"), _ROLE_DISCRIMINATOR, _ambiguous_polarity),
         Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
     ],
 }

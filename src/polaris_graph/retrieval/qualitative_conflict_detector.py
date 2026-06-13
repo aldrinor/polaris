@@ -345,57 +345,62 @@ _POPULATION_NEGATION_CUES = frozenset({
 })
 # Affirmative population INTRODUCERS ('in patients with renal'): a SOFT boundary for the
 # negation scan (a negation BEFORE the introducer governs the verb/object, not the
-# population — "causes NO nausea IN renal") but TRANSPARENT to the exclusion scan (an
-# exclusion operator BEFORE the introducer inverts the population — "OTHER THAN those WITH
-# renal" = the non-renal population).
+# population — "causes NO nausea IN renal") but TRANSPARENT to the exclusion scan.
 _POPULATION_INTRODUCERS = frozenset({"in", "among", "amongst", "with"})
-# HARD clause boundaries: end BOTH scans (a new clause; nothing before it is in this
-# population phrase).
+# HARD clause boundaries: a coordinating/subordinating conjunction starts a NEW clause —
+# nothing before it is part of THIS population phrase. Relative pronouns (who/that/which)
+# are deliberately NOT here: they are part of the population description ("patients WHO HAVE
+# renal", "those WITH renal"), so the scan stays transparent across them.
 _POPULATION_CLAUSE_BOUNDARIES = frozenset({
-    "and", "or", "but", "that", "who", "whom", "which", "while", "whereas",
-    "because", "since", "however", "though", "although",
+    "and", "or", "but", "while", "whereas", "because", "since", "however",
+    "though", "although", "nevertheless",
+})
+# A RELATIVE-CLAUSE marker inside the population description ('patients WHO HAVE renal') means
+# the population carries an embedded restriction the token scan cannot fully parse. With no
+# resolved negation/exclusion the polarity is therefore UNCERTAIN ⇒ fail-closed to a
+# SINGLETON (never a guessed 'with'). Over-fragmentation is SAFE; a guessed 'with' on a
+# hidden exclusion is the lethal over-merge (Codex Slice-B iter-4 P0).
+_RELATIVE_CLAUSE_MARKERS = frozenset({
+    "who", "whom", "whose", "that", "which", "where", "wherein", "whereby",
 })
 # UNAMBIGUOUS exclusion operators that INVERT the population ("excluding/except/other than/
 # rather than/apart from those with renal" ⇒ the population WITHOUT renal). Deliberately
-# conservative: a FALSE-positive exclusion flip of an affirmative "with X" to "without X"
-# would ITSELF be a lethal over-merge (with a genuine "without X"), so only operators that
-# reliably denote exclusion are listed; ambiguous ones ('besides'/'outside'/'exclusive')
-# are NOT, and stay 'with'.
+# conservative: a FALSE-positive flip of an affirmative "with X" to "without X" would ITSELF
+# be a lethal over-merge (with a genuine "without X"), so only operators that reliably denote
+# exclusion are listed; ambiguous ones ('besides'/'outside'/'exclusive') are NOT.
 _EXCLUSION_SINGLE = frozenset({"excluding", "except", "exclude", "excludes"})
 _EXCLUSION_BIGRAMS = frozenset({("other", "than"), ("rather", "than"), ("apart", "from")})
-_POLARITY_LOOKBACK = 8
+# Sentinel: a population is present but its polarity cannot be confidently resolved.
+# build_merge_key (via _ambiguous_polarity) treats it as UNKNOWN ⇒ forces a singleton.
+POLARITY_AMBIGUOUS = "ambiguous"
 
 
 def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
     """Polarity of the population/condition qualifier (Wave-3 I-arch-001 #1245 P0).
 
-    Returns 'without' when the population is NEGATED ('without renal', 'without any renal',
-    'no evidence of renal', 'free of hepatic disease', 'do not have renal') or EXCLUDED
-    ('patients other than/excluding those with renal impairment' — the non-renal
-    population); 'with' for an affirmative population ('in patients with renal impairment',
-    'in renal impairment'); and '' when NO population cue is present (an unstratified claim).
+    SAFE-BY-CONSTRUCTION (Codex Slice-B iter-2..iter-4): the only LETHAL error is reading a
+    WITHOUT/EXCLUDED population as the mergeable affirmative 'with', so anything not provably
+    a clean affirmative or a clean negation/exclusion FAILS CLOSED to a singleton.
 
-    Algorithm (Codex Slice-B iter-2/iter-3 P0 — robust to intervening quantifiers/evidence
-    phrases AND exclusion phrasings): from the condition cue, scan backwards.
-      * a population-negation cue ('without'/'no'/'not'/'free'/...) counts ONLY while we are
-        still INSIDE the population phrase (before crossing an introducer) ⇒ 'without'. This
-        keeps "causes NO nausea IN renal" as 'with' — the "no" is past the "in" introducer
-        so it governs the verb, not the population.
-      * an UNAMBIGUOUS exclusion operator counts EVEN past the introducer ⇒ 'without', since
-        "OTHER THAN those WITH renal" inverts the population to non-renal (and so legitimately
-        consolidates with a genuine "without renal", never with the affirmative "with renal").
-      * a HARD clause boundary ('and'/'who'/'but'/...) ends the scan ⇒ 'with'.
-      * everything else (qualifiers, 'of'/'from' linkers, filler nouns 'any'/'evidence'/
-        'those'/'patients', and the introducer itself) is transparent — keep scanning.
-    A negation PREFIX on the cue token ('non-renal') also ⇒ 'without'. Tokenisation mirrors
-    `_extract_condition_scope` so the cue index aligns. Dormant: read ONLY by
-    `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
+    Returns:
+      * 'without' — the population is NEGATED ('without renal', 'no evidence of renal', 'free
+        of hepatic disease', 'do not have renal', 'non-renal') or EXCLUDED ('other than /
+        excluding / except / rather than / apart from ... renal', incl. across a relative
+        clause or a long participant description — the WHOLE population clause is scanned).
+      * 'with' — a CLEAN affirmative population: an introducer ('in'/'with'/'among') with no
+        negation, no exclusion operator, and NO embedded relative clause.
+      * ``POLARITY_AMBIGUOUS`` — a population is present but carries an unresolved relative
+        clause ('patients WHO HAVE renal impairment'); fail-closed to a SINGLETON rather than
+        guess 'with' (a hidden restriction could make it a different population).
+      * '' — NO population cue (an unstratified claim).
 
-    Known limitation (documented, non-lethal): a compound multi-condition clause names two
-    populations; only the FIRST cue's polarity is returned. This can UNDER-split (miss a
-    legitimate distinction) but the over-merge it would permit requires every other key
-    field to also be identical AND both members to survive span-grounding — a vanishing tail.
-    The primary single-population WITH/WITHOUT/EXCLUDED case (the lethal one) is covered.
+    Scoping rules: the population CLAUSE is the cue back to a hard clause boundary
+    ('and'/'but'/'while'/...). Exclusion operators count ANYWHERE in that clause (no token
+    cap — fixes the long-participant-description miss). A negation counts only INSIDE the
+    population phrase, i.e. before crossing an introducer scanning back ('causes NO nausea IN
+    renal' stays 'with' — the "no" governs the verb). A negation PREFIX on the cue token
+    ('non-renal') ⇒ 'without'. Tokenisation mirrors `_extract_condition_scope`. Dormant: read
+    ONLY by `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
     """
     tokens = [re.sub(r"[^a-z\-]", "", w) for w in sentence_lc.split()]
     for i, tok in enumerate(tokens):
@@ -405,23 +410,30 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
             # (a) a negation PREFIX on the cue token itself ('non-renal' -> 'non' + 'renal').
             if any(p in _POPULATION_NEGATION_CUES for p in tok.split("-")[:-1]):
                 return "without"
-            # (b) bounded back-scan for an in-phrase negation OR an exclusion operator.
-            crossed_introducer = False
-            for j in range(i - 1, max(-1, i - 1 - _POLARITY_LOOKBACK), -1):
-                t = tokens[j]
-                # exclusion operators invert the population even before the introducer.
-                nxt = tokens[j + 1] if j + 1 < len(tokens) else ""
-                if t in _EXCLUSION_SINGLE or (t, nxt) in _EXCLUSION_BIGRAMS:
+            # delimit the population CLAUSE: cue back to a hard clause boundary (or start).
+            lo = 0
+            for j in range(i - 1, -1, -1):
+                if tokens[j] in _POPULATION_CLAUSE_BOUNDARIES:
+                    lo = j + 1
+                    break
+            clause = tokens[lo:i]
+            # (b) an exclusion operator ANYWHERE in the population clause ⇒ 'without' (no cap).
+            if any(t in _EXCLUSION_SINGLE for t in clause):
+                return "without"
+            for k in range(len(clause) - 1):
+                if (clause[k], clause[k + 1]) in _EXCLUSION_BIGRAMS:
                     return "without"
-                # negations count only inside the population phrase (before the introducer).
+            # (c) an in-phrase negation (before crossing an introducer scanning back) ⇒ 'without'.
+            crossed_introducer = False
+            for j in range(i - 1, lo - 1, -1):
+                t = tokens[j]
                 if not crossed_introducer and t in _POPULATION_NEGATION_CUES:
                     return "without"
                 if t in _POPULATION_INTRODUCERS:
                     crossed_introducer = True
-                    continue  # transparent to the exclusion scan; keep going
-                if t in _POPULATION_CLAUSE_BOUNDARIES:
-                    break  # a new clause; nothing earlier is in this population phrase
-                # else: transparent filler/qualifier/linker -> keep scanning back
+            # (d) an unresolved relative clause ⇒ FAIL CLOSED to a singleton (never 'with').
+            if any(t in _RELATIVE_CLAUSE_MARKERS for t in clause):
+                return POLARITY_AMBIGUOUS
             return "with"
     return ""
 

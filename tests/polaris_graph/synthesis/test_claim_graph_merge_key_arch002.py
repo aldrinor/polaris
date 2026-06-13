@@ -87,6 +87,7 @@ def _qual_view(*, evidence_id="q1", domain="clinical", atom_uid="qualitative:q1:
         assertion_status="present", cue="causes", context_snippet="ctx",
         source_url="https://a.org", source_tier="T1",
         causal_strength="causal", warning_severity="",
+        condition_polarity="with",  # a fully-known claim has a definite (non-ambiguous) polarity
     )
     base.update(fields)
     qa = QualitativeAssertion(**base)
@@ -573,6 +574,7 @@ def test_population_polarity_end_to_end_real_extractor():
 # lethal direction. The scoped back-walk stops at the "in" population introducer.
 import pytest as _pytest
 from src.polaris_graph.retrieval.qualitative_conflict_detector import (
+    POLARITY_AMBIGUOUS,
     _extract_condition_polarity as _ecp,
     _load_lexicon as _ll,
 )
@@ -600,6 +602,13 @@ _POLARITY_CASES = [
     ("rather than those with renal impairment", "without"),
     ("apart from patients with renal impairment", "without"),
     ("in patients with severe renal impairment", "with"),     # affirmative must NOT false-flip
+    # Codex iter-4 P0: exclusion across a relative clause / long participant description.
+    ("in patients other than those who have renal impairment", "without"),
+    ("excluding adult participants with documented prior history of severe renal impairment", "without"),
+    # Codex iter-4 fail-closed: a population under an UNRESOLVED relative clause (no
+    # negation/exclusion) -> POLARITY_AMBIGUOUS (forces a singleton, never a guessed 'with').
+    ("in patients who have renal impairment", POLARITY_AMBIGUOUS),
+    ("in patients that present with renal impairment", POLARITY_AMBIGUOUS),
     ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 
@@ -639,5 +648,34 @@ def test_population_polarity_exclusion_does_not_merge_with_affirmative():
                 atom_uid=f"qualitative:{ev}:0"))
             # the excluded (non-renal) population must NOT merge with the affirmative (renal).
             assert k_exc != k_aff, f"exclusion over-merged with affirmative: {sent}"
+    finally:
+        os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
+
+
+def test_population_polarity_iter4_relative_clause_and_long_exclusion():
+    """Codex iter-4 P0 end-to-end (fail-closed): an EXCLUSION across a relative clause /
+    long participant description must split from the affirmative, and an UNRESOLVED
+    relative-clause population must fail closed to a singleton (never a guessed 'with')."""
+    import os
+    os.environ["PG_SWEEP_CREDIBILITY_REDESIGN"] = "1"
+    try:
+        def k(sent, ev):
+            a = extract_qualitative_assertions(
+                [{"evidence_id": ev, "direct_quote": sent, "tier": "T1"}], domain="clinical")
+            assert a, sent
+            return build_merge_key(_merge_key_view(
+                a[0], kind="qualitative", evidence_id=ev, domain="clinical",
+                atom_uid=f"qualitative:{ev}:0")), a[0].condition_polarity
+        k_aff, p_aff = k("Semaglutide causes nausea in patients with renal impairment.", "AFF")
+        assert p_aff == "with" and k_aff[0] != "__unresolved__"
+        # exclusion across a relative clause -> 'without' -> distinct key
+        k1, p1 = k("Semaglutide causes nausea in patients other than those who have renal impairment.", "X1")
+        assert p1 == "without" and k1 != k_aff
+        # long exclusion (operator far from cue) -> 'without' -> distinct key
+        k2, p2 = k("Semaglutide causes nausea in patients excluding adult participants with documented prior history of severe renal impairment.", "X2")
+        assert p2 == "without" and k2 != k_aff
+        # unresolved relative clause (no negation/exclusion) -> ambiguous -> SINGLETON
+        k3, p3 = k("Semaglutide causes nausea in patients who have renal impairment.", "X3")
+        assert p3 == POLARITY_AMBIGUOUS and k3[0] == "__unresolved__"
     finally:
         os.environ.pop("PG_SWEEP_CREDIBILITY_REDESIGN", None)
