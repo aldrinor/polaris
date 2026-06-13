@@ -609,6 +609,13 @@ _POLARITY_CASES = [
     # negation/exclusion) -> POLARITY_AMBIGUOUS (forces a singleton, never a guessed 'with').
     ("in patients who have renal impairment", POLARITY_AMBIGUOUS),
     ("in patients that present with renal impairment", POLARITY_AMBIGUOUS),
+    # Codex iter-5 P0: NEGATED-INCLUSION exclusion across a nested introducer ("in ... not
+    # ... with ...") — the population phrase is bounded by the OUTERMOST introducer so the
+    # 'not' (after 'in', before the cue) governs the population -> 'without'.
+    ("in patients not including those with renal impairment", "without"),
+    ("in patients not having renal impairment", "without"),
+    # regression guard: a verb-negation BEFORE the outer introducer stays 'with'.
+    ("does not cause nausea in patients with renal impairment", "with"),
     ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 

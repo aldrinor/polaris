@@ -423,14 +423,18 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
             for k in range(len(clause) - 1):
                 if (clause[k], clause[k + 1]) in _EXCLUSION_BIGRAMS:
                     return "without"
-            # (c) an in-phrase negation (before crossing an introducer scanning back) ⇒ 'without'.
-            crossed_introducer = False
-            for j in range(i - 1, lo - 1, -1):
-                t = tokens[j]
-                if not crossed_introducer and t in _POPULATION_NEGATION_CUES:
-                    return "without"
-                if t in _POPULATION_INTRODUCERS:
-                    crossed_introducer = True
+            # (c) a negation INSIDE the population phrase ⇒ 'without'. The phrase is bounded
+            # by the OUTERMOST (earliest) introducer in the clause: a negation BEFORE that
+            # introducer governs the verb ("causes NO nausea IN renal" -> 'with'), a negation
+            # AFTER it governs the population ("patients NOT including those with renal" ->
+            # 'without' — Codex Slice-B iter-5 P0, the nested-introducer 'in ... with ...'
+            # case). With no introducer the WHOLE clause is the population phrase ("without
+            # renal", "no evidence of renal").
+            intro_lo = next(
+                (j for j in range(lo, i) if tokens[j] in _POPULATION_INTRODUCERS), None)
+            neg_lo = intro_lo + 1 if intro_lo is not None else lo
+            if any(tokens[j] in _POPULATION_NEGATION_CUES for j in range(neg_lo, i)):
+                return "without"
             # (d) an unresolved relative clause ⇒ FAIL CLOSED to a singleton (never 'with').
             if any(t in _RELATIVE_CLAUSE_MARKERS for t in clause):
                 return POLARITY_AMBIGUOUS
