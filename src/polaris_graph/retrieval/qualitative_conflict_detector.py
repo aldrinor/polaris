@@ -336,37 +336,45 @@ def _extract_condition_scope(sentence_lc: str, lex: dict[str, Any]) -> str:
 
 
 # Population-NEGATION cues that flip a condition_scope from the (default) WITH-population
-# polarity to WITHOUT-population. The cue must govern the POPULATION noun — see the
-# tightly-scoped back-walk in _extract_condition_polarity. Mirrors the lexicon real_negation
-# family, restricted to cues that plausibly govern a population noun.
+# polarity to WITHOUT-population. A cue counts ONLY when it sits INSIDE the population
+# phrase (between a population introducer and the condition cue) — see the bounded
+# back-scan in _extract_condition_polarity.
 _POPULATION_NEGATION_CUES = frozenset({
-    "without", "absent", "no", "non", "free", "lacking", "sans", "minus", "negative",
+    "without", "not", "no", "non", "absent", "free", "lacking", "sans", "minus", "negative",
 })
-# Tokens we walk PAST when looking for a population negation before the condition cue:
-# severity PRE_QUALIFIERS ("without SEVERE renal") and the linker prepositions of the
-# "free OF renal" / "free FROM renal" negation phrases. ANY other token (a population
-# introducer "in"/"with"/"among", a content noun/verb) BOUNDS the population phrase and
-# STOPS the walk -> so a verb-negation OUTSIDE the population phrase ("causes NO nausea IN
-# renal impairment") cannot reach across the "in" to flip the population polarity.
-_POLARITY_SKIP_LINKERS = frozenset({"of", "from"})
-_POLARITY_LOOKBACK = 4
+# Population-phrase BOUNDARIES: an affirmative population introducer ('in'/'with'/'among')
+# or a clause joiner. The back-scan from the condition cue STOPS here, so a negation that
+# governs a verb/object OUTSIDE the population phrase ("causes NO nausea IN renal
+# impairment" — the "no" is before "in") cannot reach across to flip the population
+# polarity. Everything that is NOT a boundary and NOT a negation (qualifiers, fillers,
+# linkers: 'any', 'evidence', 'of', 'from', 'severe', 'known', 'clinically', ...) is
+# transparent — the scan walks past it ("without ANY renal", "no evidence OF renal",
+# "free OF renal" all reach their negation).
+_POPULATION_PHRASE_BOUNDARIES = frozenset({
+    "in", "among", "amongst", "with", "and", "or", "but",
+    "that", "who", "whom", "which", "while", "whereas", "because", "since",
+})
+_POLARITY_LOOKBACK = 6
 
 
 def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
     """Polarity of the population/condition qualifier (Wave-3 I-arch-001 #1245 P0).
 
-    Returns 'without' when an explicit population-negation cue governs the condition cue
-    INSIDE the population phrase ('without renal impairment', 'without severe renal',
-    'free of hepatic disease', 'no renal'), 'with' when a condition cue is found with no
-    such negation (the common case — 'in patients with renal impairment', 'in renal
-    impairment'), and '' when NO population cue is present (an unstratified claim).
+    Returns 'without' when a population-negation cue governs the condition cue INSIDE the
+    population phrase ('without renal', 'without any renal', 'no evidence of renal', 'free
+    of hepatic disease', 'patients who do not have renal impairment'), 'with' when a
+    condition cue is found with no such negation ('in patients with renal impairment', 'in
+    renal impairment'), and '' when NO population cue is present (an unstratified claim).
 
-    The back-walk from the condition cue STOPS at the first token that is neither a
-    severity PRE_QUALIFIER nor an 'of'/'from' linker — i.e. at the population introducer
-    ('in'/'with'/'among') or any content word. This scopes the negation to the population
-    phrase: "causes NO nausea IN renal impairment" stops at "in" and stays 'with' (the
-    "no" negates nausea, the assertion_status, NOT the population — the population is
-    PRESENT). "free of renal" still resolves 'without' by walking past the "of" linker.
+    Algorithm (Codex Slice-B iter-2 P0 — robust to intervening quantifiers/evidence
+    phrases): from the condition cue, scan backwards; the FIRST population-negation cue
+    seen ⇒ 'without'; a population-phrase BOUNDARY ('in'/'with'/'among'/clause joiner)
+    ends the phrase ⇒ 'with'; everything else (qualifiers, 'of'/'from' linkers, filler
+    nouns like 'any'/'evidence') is transparent and the scan continues. This scopes the
+    negation to the population phrase: "causes NO nausea IN renal impairment" stops at the
+    "in" boundary and stays 'with' (the "no" negates nausea / assertion_status, NOT the
+    population), while "without ANY renal" and "no evidence OF renal" both reach their
+    negation. A negation PREFIX on the cue token itself ('non-renal') also ⇒ 'without'.
     Tokenisation mirrors `_extract_condition_scope` so the cue index aligns. Dormant: read
     ONLY by `build_merge_key` under PG_SWEEP_CREDIBILITY_REDESIGN; never serialized.
 
@@ -381,13 +389,17 @@ def _extract_condition_polarity(sentence_lc: str, lex: dict[str, Any]) -> str:
         if not tok:
             continue
         if any(cue in tok for cue in lex["condition_scope_cues"]):
+            # (a) a negation PREFIX on the cue token itself ('non-renal' -> 'non' + 'renal').
+            if any(p in _POPULATION_NEGATION_CUES for p in tok.split("-")[:-1]):
+                return "without"
+            # (b) a negation INSIDE the population phrase (bounded back-scan).
             for j in range(i - 1, max(-1, i - 1 - _POLARITY_LOOKBACK), -1):
                 t = tokens[j]
                 if t in _POPULATION_NEGATION_CUES:
                     return "without"
-                if t in _PRE_QUALIFIERS or t in _POLARITY_SKIP_LINKERS:
-                    continue
-                break  # a population introducer / content word bounds the population phrase
+                if t in _POPULATION_PHRASE_BOUNDARIES:
+                    break  # an affirmative introducer / clause boundary ends the phrase
+                # else: transparent filler/qualifier/linker -> keep scanning back
             return "with"
     return ""
 

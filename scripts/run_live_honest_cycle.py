@@ -69,6 +69,7 @@ from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
+    serialize_contradiction_record,
 )
 from src.polaris_graph.retrieval.live_retriever import (  # noqa: E402
     run_live_retrieval,
@@ -231,7 +232,7 @@ async def main_async() -> int:
              f"severity={c.severity}")
     (run_dir / "contradictions.json").write_text(
         json.dumps(
-            [asdict(c) for c in contradictions],
+            [serialize_contradiction_record(c) for c in contradictions],
             indent=2, sort_keys=True, default=str,
         ) + "\n",
         encoding="utf-8",
@@ -355,7 +356,7 @@ async def main_async() -> int:
         report_text=final_report,
         protocol=protocol_dict,
         tier_distribution_report=asdict(dist_report),
-        contradictions=[asdict(c) for c in contradictions],
+        contradictions=[serialize_contradiction_record(c) for c in contradictions],
         evidence_pool=evidence_pool,
         enable_llm_judge=False,
     )

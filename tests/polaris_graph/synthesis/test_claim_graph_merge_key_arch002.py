@@ -580,15 +580,20 @@ from src.polaris_graph.retrieval.qualitative_conflict_detector import (
 _POLARITY_CASES = [
     ("in patients with renal impairment", "with"),
     ("in patients without renal impairment", "without"),
-    ("without severe renal impairment", "without"),       # walk past PRE_QUALIFIER
+    ("in patients without any renal impairment", "without"),  # Codex iter-2 P0: filler 'any'
+    ("no evidence of renal impairment", "without"),           # Codex iter-2 P0: 'evidence of' filler
+    ("without severe renal impairment", "without"),           # walk past PRE_QUALIFIER
     ("in renal impairment", "with"),
-    ("patients free of renal impairment", "without"),       # walk past 'of' linker
-    ("patients free from hepatic disease", "without"),       # walk past 'from' linker
+    ("patients free of renal impairment", "without"),         # walk past 'of' linker
+    ("patients free from hepatic disease", "without"),        # walk past 'from' linker
     ("no renal impairment", "without"),
-    ("causes no nausea in renal impairment", "with"),        # 'no' governs nausea, NOT population
-    ("does not cause nausea in renal impairment", "with"),   # 'not' governs the verb
+    ("patients who do not have renal impairment", "without"), # 'not have renal'
+    ("non-renal patients", "without"),                        # negation prefix on the cue token
+    ("causes no nausea in renal impairment", "with"),         # 'no' governs nausea, NOT population
+    ("does not cause nausea in renal impairment", "with"),    # 'not' governs the verb (before 'in')
+    ("associated with renal impairment", "with"),             # 'with' boundary
     ("safe in normal renal function", "with"),
-    ("causes nausea", ""),                                    # no population cue -> unstratified
+    ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 
 

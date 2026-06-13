@@ -438,13 +438,17 @@ MERGE_KEY_SPEC: dict[tuple, list] = {
         Slot("object_slot", _get("object_slot"), _ROLE_DISCRIMINATOR, _unknown_blank),
         Slot("condition_scope", _get("condition_scope"), _ROLE_DISCRIMINATOR, _unknown_blank),
         # condition_polarity is EXACT (not DISCRIMINATOR), exactly like causal_strength/
-        # warning_severity above: '' == '' (an UNSTRATIFIED claim — no population qualifier —
-        # still merges), 'with' == 'with', 'without' == 'without', but 'with' != 'without'
-        # SPLITS the lethal over-merge ("causes nausea WITH renal impairment" vs "...WITHOUT").
-        # A DISCRIMINATOR here would force EVERY no-population claim to a singleton ('' unknown),
-        # paralysing all qualitative consolidation (the same lesson §4.3 records for the EXACT
-        # ontology slots). condition_polarity only adds discrimination when condition_scope is
-        # already EQUAL and non-empty, so it never over-fragments beyond condition_scope itself.
+        # warning_severity above: 'with' == 'with', 'without' == 'without', but 'with' !=
+        # 'without' SPLITS the lethal over-merge ("causes nausea WITH renal impairment" vs
+        # "...WITHOUT"). It only matters when condition_scope is itself EQUAL and non-empty
+        # (same named population on both sides) — that is the ONLY case condition_scope (a
+        # DISCRIMINATOR) cannot split. It NEVER affects an UNSTRATIFIED claim: a blank
+        # condition_scope is already a singleton via its own _unknown_blank DISCRIMINATOR,
+        # so the merge never reaches this slot. (EXACT, not DISCRIMINATOR, so that a stray
+        # '' polarity on a stratified claim — which cannot occur, polarity is non-blank
+        # whenever condition_scope is — could not paralyse a merge; mirrors §4.3's EXACT
+        # ontology lesson.) Therefore condition_polarity adds discrimination ONLY among
+        # already-stratified same-population claims and never over-fragments.
         Slot("condition_polarity", _get("condition_polarity"), _ROLE_EXACT),
         Slot("assertion_status", _get("assertion_status"), _ROLE_DISCRIMINATOR, _unknown_blank),
     ],

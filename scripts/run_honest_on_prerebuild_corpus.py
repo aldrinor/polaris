@@ -68,6 +68,7 @@ from src.polaris_graph.nodes.scope_gate import run_scope_gate  # noqa: E402
 from src.polaris_graph.retrieval.contradiction_detector import (  # noqa: E402
     detect_contradictions,
     extract_numeric_claims,
+    serialize_contradiction_record,
 )
 from src.polaris_graph.retrieval.tier_classifier import (  # noqa: E402
     ClassificationSignals,
@@ -277,7 +278,7 @@ async def main_async() -> int:
     numeric_claims = extract_numeric_claims(evidence_rows)
     contradictions = detect_contradictions(numeric_claims)
     (run_dir / "contradictions.json").write_text(
-        json.dumps([asdict(c) for c in contradictions], indent=2, sort_keys=True, default=str) + "\n",
+        json.dumps([serialize_contradiction_record(c) for c in contradictions], indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
     _log(f"[4/6] contradictions: {len(numeric_claims)} claims extracted, "
@@ -303,7 +304,7 @@ async def main_async() -> int:
         max_parallel_sections=3,
         # R-1: pipeline telemetry for Limitations synthesis
         tier_fractions=dist.tier_fractions,
-        contradictions=[asdict(c) for c in contradictions],
+        contradictions=[serialize_contradiction_record(c) for c in contradictions],
         date_range=(
             protocol_dict.get("date_range")
             if isinstance(protocol_dict.get("date_range"), dict)
@@ -411,7 +412,7 @@ async def main_async() -> int:
         report_text=final_report,
         protocol=protocol_dict,
         tier_distribution_report=asdict(dist),
-        contradictions=[asdict(c) for c in contradictions],
+        contradictions=[serialize_contradiction_record(c) for c in contradictions],
         evidence_pool=ev_pool,
         enable_llm_judge=False,
     )
