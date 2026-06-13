@@ -54,6 +54,48 @@ from src.polaris_graph.generator.provenance_generator import (
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
+# I-arch-002 (#1248): per-section wall-clock guard. DEFAULT-OFF
+# (PG_SECTION_WALLCLOCK_SECONDS unset / <= 0) => byte-identical (no wait_for wrap).
+# When set, each section's bounded runner is wrapped in asyncio.wait_for so a WEDGED
+# section (a 0-socket provider stall — observed on the drb_72 smoke: the section
+# asyncio.gather hung 19 min with NO open sockets / ~0 CPU, immune to the httpx read
+# timeout because no socket was open to time out) gets a hard wall-clock bound: it
+# RETRIES once (a fresh call likely hits a healthy provider), then FAILS LOUD instead
+# of hanging the whole report forever. Faithfulness-neutral: only affects WHETHER a
+# section generates; strict_verify / NLI / 4-role / provenance are untouched.
+def _section_wallclock_seconds() -> int:
+    try:
+        return int(os.getenv("PG_SECTION_WALLCLOCK_SECONDS", "0"))
+    except ValueError:
+        return 0
+
+
+async def _run_section_with_wallclock(runner, plan):
+    """Wrap a section bounded-runner in a per-section wall-clock guard (I-arch-002
+    #1248). OFF (<= 0) => exact ``await runner(plan)`` (byte-identical). ON => one
+    wait_for, one retry, then fail-loud on a persistent wedge. ``runner`` re-runs the
+    full section on retry (re-acquires the semaphore + re-does the work); a cancelled
+    first attempt appends nothing, so there is no double-write."""
+    wall = _section_wallclock_seconds()
+    if wall <= 0:
+        return await runner(plan)
+    last_exc: BaseException | None = None
+    for attempt in (1, 2):
+        try:
+            return await asyncio.wait_for(runner(plan), timeout=wall)
+        except asyncio.TimeoutError as exc:
+            last_exc = exc
+            logger.warning(
+                "[gen-wallclock] section exceeded %ds wall-clock (attempt %d/2) — "
+                "likely a transient provider stall; %s",
+                wall, attempt, "retrying" if attempt == 1 else "failing loud",
+            )
+    raise TimeoutError(
+        f"section generation exceeded {wall}s wall-clock x2 — failing loud instead "
+        f"of hanging the report (I-arch-002 #1248)"
+    ) from last_exc
+
+
 # I-arch-002 (#1246) P-W4gen: master WEIGHT-AND-CONSOLIDATE flag reader (CLAUDE.md §-1.3).
 #
 # Read at CALL time (NOT an import-time constant / default-arg) so the gate is
@@ -5442,7 +5484,7 @@ async def generate_multi_section_report(
             return result
 
     contract_results = await asyncio.gather(*[
-        _run_contract_bounded(p) for p in contract_plans
+        _run_section_with_wallclock(_run_contract_bounded, p) for p in contract_plans
     ])
 
     # V33 M-72: build the cross-trial synthesis block AFTER contract
@@ -5483,7 +5525,7 @@ async def generate_multi_section_report(
         return await _run_legacy_bounded(plan)
 
     legacy_results = await asyncio.gather(*[
-        _run_legacy_bounded(p) for p in legacy_plans
+        _run_section_with_wallclock(_run_legacy_bounded, p) for p in legacy_plans
     ])
 
     # Merge results back in original `plans` order so downstream
@@ -5776,7 +5818,7 @@ async def generate_multi_section_report(
             # Run regens in parallel with the same semaphore.
             regen_items = list(regen_plans_by_idx.items())
             regen_tasks = [
-                _bounded_run(plan) for _, plan in regen_items
+                _run_section_with_wallclock(_bounded_run, plan) for _, plan in regen_items
             ]
             regen_results = await asyncio.gather(
                 *regen_tasks, return_exceptions=True,
@@ -5938,7 +5980,14 @@ async def generate_multi_section_report(
                             archetype=getattr(orig_plan, "archetype", ""),
                         )
                         try:
-                            regen_result = await _bounded_run(regen_plan)
+                            # I-arch-002 (#1248) Codex iter-1 P1: the M-47 mechanism
+                            # regen is a fresh full section-generation call and must
+                            # carry the same per-section wall-clock guard as the main
+                            # gathers + M-44 regen, else a wedged regen hangs the
+                            # report indefinitely under PG_SECTION_WALLCLOCK_SECONDS.
+                            regen_result = await _run_section_with_wallclock(
+                                _bounded_run, regen_plan
+                            )
                             regen_diag = (
                                 _m47_validate_mechanism_clamp_extraction(
                                     verified_text=regen_result.verified_text,
