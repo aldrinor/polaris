@@ -9,7 +9,7 @@ Scope: All POLARIS development, research pipeline implementation, and maintenanc
 
 ## §-1. STANDING EVALUATION & DEBUG STANDARDS (binding for ALL work)
 
-**These two standards override every other directive in this file when they conflict. Both flagged by user 2026-05-09 night as repeat-violation patterns.**
+**These three standards override every other directive in this file when they conflict. §-1.1 and §-1.2 were flagged by user 2026-05-09 night as repeat-violation patterns; §-1.3 was operator-locked 2026-06-13 after a full day lost to symptom-patching.**
 
 ### §-1.1 Line-by-line audit standard (clinical-safety-critical)
 
@@ -51,6 +51,24 @@ Every task / bug / issue follows this exact sequence — no shortcuts:
 **Ordering vs §3.1 boot ritual + §3.0 halt gates:** §-1.2 governs *task-work* tool calls. The §3.1 step-0 canonical-pin verification, CHARTER+PLAN SHA pins (§10), halt-marker check (`state/halt_*`), and any active halt gate ALWAYS run first. Only after those pass does the issue-driven sequence below kick in.
 
 **Application:** for the assigned task, the FIRST *task-work* tool call (after boot ritual + halt checks) is `gh issue create` or `gh issue view`. The SECOND is comprehensive grep. The THIRD is offline smoke test. THEN brief Codex. Anything else is a §3.0 violation.
+
+### §-1.3 Deep-research pipeline architecture DNA (operator-locked 2026-06-13)
+
+**The pipeline is WEIGHT-AND-CONSOLIDATE, not FILTER-AND-CAP.** Locked by the operator after a full day was lost to symptom-patching the pipeline with hardcoded caps/targets/thinners to hit a breadth NUMBER. Three binding principles govern every retrieval/selection/composition design decision:
+
+1. **WEIGHT, DON'T FILTER.** Every relevant source flows through to composition carrying a credibility **weight** (peer-review status, journal/venue reputation, gov / institute / news / social media). Do NOT hard-drop a source to hit a number. Social media STAYS at low weight — sometimes it reports a real journal. The tier classifier (T1–T7) and `authority_score` ARE the weighting system: use them as a per-citation **weight surfaced to the user**, never as a rank-then-drop hard filter.
+
+2. **CONSOLIDATE, DON'T DROP.** Group sources that carry the SAME claim into a **basket**. Repetition is **corroboration** — the entire point of consolidate / distill / map-reduce. Multiple citations per claim is GOOD and expected. `finding_dedup` / `fact_dedup` must CONSOLIDATE (keep ALL sources per claim as multi-citation) and operate on **qualitative** claims too — never delete corroborating sources, never restrict to numeric-only.
+
+3. **BASKET FAITHFULNESS.** Decide a claim's faithfulness against its **whole basket** of supporting sources, never a single URL/span — single-source verification is a blind spot. The verdict carries the corroboration (count + weights + agreement). This **STRENGTHENS** faithfulness; it NEVER relaxes it.
+
+**THE ONLY HARD GATE is the faithfulness engine** (strict_verify / NLI entailment / 4-role D8 / provenance / span-grounding). Everything else is a WEIGHT or a CONSOLIDATION — never a DROP / CAP / THIN / TARGET.
+
+**BANNED anti-pattern (the day-waster):** bolting hardcoded caps / targets / thinners / hard-filters onto the pipeline to make a breadth number go up (`PG_SPAN_PER_SOURCE_CITE_CAP`, `PG_LEGACY_SECTION_BREADTH_TARGET`, `PG_BREADTH_CANARY_MIN`, scope hard-filter, and similar). They FIGHT the architecture. Breadth and quality **EMERGE** from honest weighted multi-attribution; they are never forced. If you find yourself adding a knob to make a number hit a target — STOP. That is the bug.
+
+**SURGICAL, NOT REWRITE.** The good machinery already exists — STORM retrieval, Zyte/crawl4ai/distill, the tier classifier (= weighting), `finding_dedup`/`fact_dedup` (= consolidation), the faithfulness engine. RE-WIRE it to the right semantics (weight not filter; consolidate-keep-all not drop; basket not single-span) and DELETE only the specific number-forcing bolt-ons. Do not over-kill.
+
+Canonical detail lives in `docs/polaris_pipeline_canonical.md` and the forensic design doc `docs/pipeline_architecture_forensic_2026_06_13.md`. GitHub anchor: **I-arch-001 (#1245)**.
 
 ---
 

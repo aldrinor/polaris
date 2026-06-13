@@ -18,6 +18,16 @@ gates, and `config/architecture/polaris_runtime_lock.yaml`.
   the "AI checking" slot until the 3 roles replace it.
 - **THE SYSTEM IS NOT FULLY BUILT.** Do not claim or imply otherwise anywhere.
 
+## Architecture DNA — WEIGHT-AND-CONSOLIDATE, not FILTER-AND-CAP (operator-locked 2026-06-13, CLAUDE.md §-1.3)
+
+The pipeline's design genome. Binding. See CLAUDE.md §-1.3 and `docs/pipeline_architecture_forensic_2026_06_13.md` (I-arch-001 #1245).
+
+1. **WEIGHT, DON'T FILTER.** Every relevant source flows to composition carrying a credibility **weight**. Do not hard-drop a source to hit a number; social media stays at low weight. The tier classifier (T1–T7) + `authority_score` ARE the weighting system — surface them per-citation, never rank-then-drop. *(Forensic 2026-06-13: today weight is used only to rank-then-cut at the lexical relevance floor + a corpus-level advisory mean; it is NOT surfaced per-claim. Re-wire.)*
+2. **CONSOLIDATE, DON'T DROP.** Group same-claim sources into a **basket**; keep ALL of them as multi-citation corroboration; cover qualitative claims, not numeric-only. *(Forensic: `finding_dedup` keeps ONE representative, DROPS corroborators, and is numeric-only — qualitative drb_72 claims get no consolidation. Re-wire.)*
+3. **BASKET FAITHFULNESS.** Decide faithfulness against the whole basket of sources, never one span (single-source = blind spot); the verdict carries corroboration count + weights + agreement. STRENGTHENS faithfulness, never relaxes it.
+
+**Only hard gate = the faithfulness engine** (strict_verify / NLI / 4-role D8 / provenance). Everything else is a weight or a consolidation. **BANNED:** hardcoded caps/targets/thinners/hard-filters to force a breadth number. **SURGICAL, not rewrite:** the machinery exists; re-wire semantics + delete the bolt-ons.
+
 ## The 20-stage pipeline
 
 | # | Stage | Input | Output | Task | Tool | Status |

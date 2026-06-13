@@ -1,5 +1,7 @@
 > **NOTE (I-meta-001 #933, 2026-05-28):** This document predates the 4-role architecture lock at `config/architecture/polaris_runtime_lock.yaml`. References to a 2-LLM (generator + evaluator) topology are LEGACY. The locked architecture is Generator (DeepSeek V4 Pro) + Mirror (Cohere Command A+) + Sentinel (IBM Granite Guardian 4.1 8B) + Judge (Qwen 3.6-35B-A3B) + 2 deterministic layers. Full rewrite of this doc is queued as a follow-up PR.
 
+> **ARCHITECTURE DNA (operator-locked 2026-06-13, CLAUDE.md §-1.3):** The pipeline is **WEIGHT-AND-CONSOLIDATE, not FILTER-AND-CAP.** (1) **Weight** every relevant source by credibility — don't filter it out (social media stays at low weight; the tier classifier IS the weighting system). (2) **Consolidate** same-claim sources into a basket and keep them ALL as multi-citation corroboration. (3) Decide **faithfulness against the whole basket**, never one span (single-source verification is a blind spot). The faithfulness engine (strict_verify/NLI/4-role/provenance) is the ONLY hard gate; everything else is a weight or a consolidation. **Banned:** hardcoded caps/targets/thinners to force a breadth number. **Surgical, not rewrite.** See CLAUDE.md §-1.3, `docs/polaris_pipeline_canonical.md`, `docs/pipeline_architecture_forensic_2026_06_13.md`, I-arch-001 (#1245).
+
 # POLARIS Architecture — Current State
 
 **Document date**: 2026-04-18

@@ -5326,3 +5326,201 @@
 - EVIDENCE/FINDINGS: 215/8 floor regression suite green (M-41/42/46/48/51/201 + source-diversity + cap) — floors intact, byte-identical-OFF. 15 #1215 tests + 38 (#1213+#1216) tests green. WIRING FINDING: #1210 advisory_text is planner-gated (research_plan present) and the live slate has PG_USE_RESEARCH_PLANNER OFF -> the advisory richness lever is dark in the beat-both run; NOT a #1210 bug (REDUCE<->legacy parity correct), but a config decision (.codex/I-perm-018/advisory_planner_config_finding.md). VM RECON: 51.79.90.35 CPU-only(4) reachable; .env+keys present; polaris-beatboth venv (py3.12, torch/transformers/playwright lib); NO chromium (the STORM blocker -> last smoke held coverage 0.286); passwordless sudo; 8.9G free. Deploy branch = current (descendant of I-ready-consolidated = strict superset, 2021 commits ahead of main).
 - STATUS: 4/5 committed; #1215 diff-gate iter2 in flight. Faithfulness gates (strict_verify/4-role/D8) untouched across all 5. Next phases: wiring-confirm -> deploy+chromium -> drb_72 A/B canary (§-1.1 audited) -> full Q1 5-Q run -> §-1.1 beat-both verdict. All operator-authorized spend on the VM.
 - NEXT_STEP: collect #1215 diff-gate iter2 verdict; on APPROVE commit+push #1215 + GitHub; then comprehensive wiring-confirmation across all 5; then deploy + chromium + drb_72 canary.
+
+[2026-06-12 02:00:00]
+- ACTION: All 5 fixes committed; deployed to OVH VM with chromium; drb_72 beat-both CANARY launched + running (operator authorized full run tonight).
+- RATIONALE: Operator "I authorize everything... clear all land mines tonight... present a top frontier deep research model outperform beat both tonight... once A/B small-scale shows it work + everything fully wired, run it full for Q1." Sequenced: clear land mines -> wiring-confirm -> deploy+chromium -> canary -> full Q1.
+  * #1215 (I-perm-023 constrained-greedy diversity) Codex diff-gate iter2 APPROVE (0 P0/P1/P2; domain-cap-preservation P1 fixed) -> COMMITTED 66d3bde0. ALL 5 land mines now committed (#1210/1213/1214/1215/1216).
+  * WIRING CONFIRMATION: Claude scan + Codex forensic wiring audit (.codex/wiring_audit_perm/). 4/5 (#1210/1213/1214/1215) confirmed WIRED + byte-identical-off + faithfulness-neutral with file:line evidence. #1216 extended-metrics is wired into score_run.score_one (the correct §-1.1 scorer) but activates at SCORING time (separate process) -> set PG_BENCH_EXTENDED_METRICS=1 when scoring; no code change (the other harnesses run_scorecard/benchmark_proof_package are inert/v6, beat_both_scoring is the §-1.1-banned dimension scorer). NO byte-identical-off failure, NO gate mutation in any of the 5.
+  * DEPLOY: git-archive HEAD (66d3bde0, 707 files changed vs deployed base) -> ~/polaris-perm-fix on 51.79.90.35; .env copied; competitor outputs (gitignored) scp'd for FA2 preflight; CHROMIUM INSTALLED (playwright, v148 launch OK) — the STORM lever absent in the 28.6% smoke. run_gate_b --list resolves 4-role panel (V4Pro/GLM-5.1/MiniMax-M2/Qwen3.6, 4 distinct families).
+  * CANARY drb_72: BEHAVIORAL_CANARY_OK + SUPER_HEAVY_PREFLIGHT_OK (pre-spend gates passed), STORM FIRING (8 personas, multi-round interviews, 60-90 search results each), now fetch/extract phase; ~$0.13 spent of $25; journal_only OFF (broad credibility per #1146).
+- DOCS/RESEARCH: .codex/wiring_audit_perm/verdict.txt; state/beat_both_status.json; VM 51.79.90.35.
+- SYNC: N/A.
+- AFFECTED_FILES: commit 66d3bde0 (#1215); VM ~/polaris-perm-fix (deploy); .codex/wiring_audit_perm/; docs/file_directory.md; outputs/audits/I-perm-{021,023}/.
+- EVIDENCE/FINDINGS: STORM now fires (chromium present) — the retrieval-breadth lever that depressed coverage to 28.6% in the prior smoke. The canary's D8 coverage_fraction (vs prior 0.286) is THE result to watch; D8 HOLDS the report if coverage < floor (correct safety behavior, not a crash). Beat-both verdict = §-1.1 line-by-line audit of report.md, NOT the automated metrics.
+- STATUS: All 5 committed + Codex-approved. Canary running (~45min). Background monitor armed (wakes on completion). Faithfulness gates untouched.
+- NEXT_STEP: on canary completion -> read status + coverage_fraction + report.md; §-1.1 line-by-line audit (Claude+Codex) of the report vs fetched spans; if coverage clears D8 + audit clean -> full Q1 5-question run; else diagnose coverage gap (retrieval-breadth vs verifier-strictness).
+
+[2026-06-12 08:35:00]
+- ACTION: Live drb_72 beat-both run exposed + fixed 3 production issues (mirror-blank/SiliconFlow #1220, Zyte deploy-gap #1221, distill latency #1222); runs restarted clean.
+- RATIONALE: Operator "monitor closely, don't fuck up; calculate the token needs." (1) MIRROR-BLANK: 4-role D8 stalled on `#1026 mirror blank verdict at effort=xhigh`. CALCULATED (operator-prompted): PG_VERIFIER_REASONING_MAX_TOKENS=16384 is ample (GLM-5.1 xhigh uses ~860 reasoning tok); xhigh is CLEAN on DeepInfra (860 reasoning + 856-char verdict); blank is SiliconFlow-specific empty-200 (reproduced) — same class as the Parasail demote (#1100). FIX (7102df44): openrouter_provider_routing.yaml mirror role demote siliconflow order->ignore + pin deepinfra first; KEEPS xhigh (operator MAX-reasoning directive). Initially mis-fixed by lowering effort to medium; operator correctly pushed for the calculation -> proper provider fix. (2) ZYTE: deploy .env (from polaris-ready-017) lacked ZYTE_API_KEY -> Zyte-blind run (journal 403s); key is in ~/polaris_run/.env; wired in; validated (740K-char browserHtml on a 403'd DOI; 197+ live unlocks). (3) DISTILL LATENCY: ~2-3h/question -> full 5-Q sweep ~10-15h; #1222 decision pending (#1215 PR-2 vs overnight).
+- DOCS/RESEARCH: GitHub #1220/#1221/#1222; commit 7102df44; OpenRouter reasoning-tokens best-practices.
+- SYNC: N/A.
+- AFFECTED_FILES: config/settings/openrouter_provider_routing.yaml (commit 7102df44); VM ~/polaris-perm-fix (.env Zyte wired, config pushed); memories fact_zyte_key_location + fact_mirror_blank_xhigh_effort_fix.
+- EVIDENCE/FINDINGS: both drb_72 runs (no-Zyte baseline + Zyte) ALIVE at medium, 0 mirror-blanks, 0 aborts; the medium canary finishes for the coverage proof, the full sweep uses xhigh+DeepInfra+Zyte. Corpus accepted 822 sources (vs prior ~46 collapse); STORM fired (8 personas, 9-section outline); Zyte unlocking journals.
+- STATUS: 3 issues filed; mirror+Zyte fixed; runs healthy. Faithfulness gates (strict_verify/4-role/D8) untouched.
+- NEXT_STEP: collect drb_72 coverage from the medium runs; §-1.1 line-by-line audit of report.md; decide full-sweep config (xhigh+DeepInfra+Zyte) + timing (#1222).
+
+[2026-06-12 10:13:00]
+- ACTION: Diagnosed RED FLAG 1 (report padding) root cause + launched RUN C concise A/B arm (PAID, authorized).
+- RATIONALE: RUN A's pre-D8 report.md pads single facts ~12 ways (Frey&Osborne section = 2 facts in 12 sentences; robots section = 1 ID strategy x10). Root cause: multi_section_generator.py has a built+Codex-APPROVED anti-verbosity rewrite (#1083 I-ready-014) that REPLACES the length-maximizing templates (which carry literal sentence-count FLOORS 20-35/15-20/10-15) with information-density language ("length earned by distinct facts, not sentence count"). It is gated on PG_ANTI_VERBOSITY, read at CALL TIME, prompt-text-ONLY (never touches strict_verify/provenance/4-role/evidence-selection). The flag is NOT in run_gate_b _FULL_CAPABILITY_BENCHMARK_SLATE (grep count 0) -> benchmark runs use the floor-bearing templates -> generator pads to hit the floor. Confirmed OFF in RUN A's /proc env. No regression note found -> oversight (same class as STORM dead-by-config pre-#1168). Operator mandate "empirically test candidates" -> controlled A/B rather than blind slate edit.
+- DOCS/RESEARCH: multi_section_generator.py L1480-1638 (_build_concise_variant, _anti_verbosity_enabled, _select_section_system_prompt); tests/polaris_graph/test_anti_verbosity_front_loading.py; .codex/I-ready-014/codex_diff_audit_APPROVE.txt.
+- SYNC: state/active_fix_campaign.json + outputs/audits/drb_72_2026_06_12/preliminary_redflags.md updated.
+- AFFECTED_FILES: launched RUN C on VM (no repo change yet); outputs/audits/drb_72_2026_06_12/preliminary_redflags.md (new); state/active_fix_campaign.json.
+- EVIDENCE/FINDINGS: RUN C PID 2174199, out outputs/honest_sweep_r3_concise, env PG_ANTI_VERBOSITY=1 + PG_FOUR_ROLE_REASONING_EFFORT=medium + ZYTE_API_KEY= empty (identical to RUN A baseline except the one variable). 3 runs concurrent, VM load 0.06, 9GB avail, 7.7G disk. RUN A at D8 110/173, cost $9.64/$25.
+- STATUS: A/B in flight. RUN A=padded baseline (PG_ANTI_VERBOSITY off), RUN C=concise (on). RUN B=Zyte padded. The morning §-1.1 audit compares padded-vs-concise density + faithfulness vs gpt_5_5_pro. NEV off-topic claim (RED FLAG 2, relevance/scope) is SEPARATE and likely persists in RUN C (concise is length-only) -> its own follow-up.
+- NEXT_STEP: await RUN A D8 completion (manifest) -> §-1.1 audit baseline; await RUN C -> §-1.1 audit concise; A/B decide; if concise wins -> add PG_ANTI_VERBOSITY=1 to slate (Codex-gated) + scale full 5-Q sweep with flag ON.
+
+[2026-06-12 10:55:00]
+- ACTION: Completed §-1.1 DUAL claim-by-claim audit of RUN A (drb_72 padded baseline) + diagnosed both remaining beat-both fixes + built reusable audit harness.
+- RATIONALE: Operator overnight directive "win this round" -> the §-1.1 line-by-line audit is the binding verdict mechanism. RUN A done (cov 0.429, up from 0.286) so audited it claim-by-claim (175 claims, NO sampling) with Claude (Workflow w7a69e94e, 5 agents) + Codex (5 chunks) independently, cross-reviewed. Same harness re-runs on RUN C (the concise/padding-fix decision arm, ~1.5h out).
+- DOCS/RESEARCH: multi_section_generator.py (PG_ANTI_VERBOSITY #1083); run_gate_b.py slate; config/dr_benchmark/safety_floor_elements_v3.json (drb_72 question); gpt_5_5_pro Q72 competitor.
+- SYNC: state/active_fix_campaign.json + outputs/audits/drb_72_2026_06_12/* updated; GH #1223 #1224 filed.
+- AFFECTED_FILES: NEW scripts/dr_benchmark/{build_claims_ledger,build_audit_prompts,aggregate_audit,compare_density}.py (reusable §-1.1 audit infra, read-only); outputs/audits/drb_72_2026_06_12/{preliminary_redflags,runA_baseline_assessment,runA_section11_audit_verdict}.md + runA_final/codex_audit/{audit_summary,audit_combined}.* ; state/active_fix_campaign.json; logs/session_log.md.
+- EVIDENCE/FINDINGS: RUN A §-1.1 dual verdict = VERIFIED 155 / PARTIAL 19 / UNSUPPORTED 1 / FABRICATED 0 / UNREACHABLE 0, auditor-agreement 162/174 (93%). ZERO fabrications (edge vs Gemini). 19/175 (11%) OFF-TOPIC across 3 sections (China-EV/energy, GATS trade-law, Industry-4.0/food) -> #1224. Padding (#1223) generates the 19 PARTIAL over-statements. coverage 0.286->0.429 (tonight's 5 fixes work). RUN B (Zyte) HELD (abort_four_role_release_held) -> Zyte correlates with the hold, may hurt; morning check. Beat-both: WINS gemini, LOSES gpt on padded config; 2 fixes (#1223 padding + #1224 relevance) gate a clean win.
+- STATUS: RUN A done+audited. RUN B held. RUN C (concise A/B) generating, watcher b4l9rs112 + cron 55e6a8de armed. Fix #1 (#1223) PR held for RUN C empirical confirm; fix #2 (#1224) design for operator/Codex. Harness ready to one-pass RUN C.
+- NEXT_STEP: on RUN C completion -> pull artifacts -> build ledger -> §-1.1 dual audit -> compare_density(RUN A padded vs RUN C concise) -> if concise denser + no coverage regression + faithfulness intact: merge #1223 + decide full 5-Q sweep; else fix-first.
+
+[2026-06-12 14:02:00]
+- ACTION: RUN C concise A/B §-1.1 audit DONE -> fix #1 validated -> launched the FULL 5-Q sweep with the validated config.
+- RATIONALE: RUN C (PG_ANTI_VERBOSITY=1) dual §-1.1 audit (367 claims, Claude+Codex): VERIFIED 337/PARTIAL 29/UNSUPPORTED 1/FABRICATED 0/UNREACHABLE 0; coverage 0.571 (vs RUN A padded 0.429 vs prior 0.286). Concise WINS the A/B on EVERY axis (coverage up, verified-rate up 91.8%, PARTIAL-rate down 7.9%, off-topic-rate down 7.4%, no regression, released). Clears the cron launch criterion (0 fab + beats Gemini + matches gpt faithfulness). Per operator pre-authorization, launched the full sweep with the VALIDATED config (NOT the cron's stale literal command which omits PG_ANTI_VERBOSITY=padded, uses xhigh=worse sentinel-blank D8, Zyte=RUN B held).
+- DOCS/RESEARCH: outputs/audits/drb_72_2026_06_12/runC_section11_audit_verdict.md; runC_final/codex_audit/audit_summary.md.
+- SYNC: state/active_fix_campaign.json + beat_both_status.json updated; GH #1223 comment.
+- AFFECTED_FILES: launched full sweep on VM (PID 2305907, out outputs/honest_sweep_full, log ~/full_sweep_*.log); outputs/audits/drb_72_2026_06_12/runC_section11_audit_verdict.md (new); logs/session_log.md.
+- EVIDENCE/FINDINGS: sweep env CONFIRMED PG_ANTI_VERBOSITY=1 + PG_FOUR_ROLE_REASONING_EFFORT=medium + ZYTE_API_KEY= empty + PG_AUTHORIZED_SWEEP_APPROVAL=1. 5 Qs, started drb_72. VM idle pre-launch (13G free). HONEST beat-both: beats Gemini cleanly (0 fab); beats/matches gpt on faithfulness+traceability (the lead differentiator); still trails gpt on raw completeness (0.571=43% entities uncovered) + 7.4% off-topic tail (#1224 relevance gate unfixed). NOT a clean all-axis beat-both yet.
+- STATUS: full sweep running (~3h/Q x5 = ~15h w/ sentinel-blank D8 slowdown). Residuals: #1224 relevance gate, entity-coverage gap, sentinel provider-pin for D8 speed. Each sweep report gets its own §-1.1 audit.
+- NEXT_STEP: monitor sweep; as each Q's manifest lands -> §-1.1 dual audit (same harness) + beat-both call; assemble the 5-Q beat-both verdict for the morning.
+
+[2026-06-12 14:40:00]
+- ACTION: Operator (awake) ordered STOP sweep + dual forensic on the source-breadth bug + fix + small A/B before any sweep. Stopped sweep, dual forensic launched, Claude forensic landed.
+- RATIONALE: drb_72 cites only 21 of 197 available pool sources (176 unused). Claude forensic root cause: NOT selection (M-46 short-pool kept all 196, handed to generator) — the GENERATOR over-concentrates citations (re-cites same span x49) instead of spreading across the menu it already has (117/176 uncited rows were on a cited section's menu). Fix = generation-side citation-spread nudge + per-span re-cite saturation cap; faithfulness-SAFE (only changes candidate menu; strict_verify/4-role/D8 untouched). Codex forensic cross-check running.
+- AFFECTED_FILES: stopped full sweep (PID 2305907, PID-scoped); GH #1225 filed+commented; .codex/I-bench-veracity-003/{claude_forensic_full.json, codex_forensic_brief.md}; state/active_fix_campaign.json (DO_NOT_RELAUNCH pin); 10-min status cron 04a4e1a2 (replaces 55e6a8de).
+- EVIDENCE/FINDINGS: 196 pool->21 cited, 176 unused; per-section ~12 claims/source; sections 0-2 by-design single-anchor (V30 contract), sections 3-8 generator over-concentration. Uncited skew T4/UNKNOWN/STORM-expansion.
+- STATUS: forensic phase. Codex cross-check pending. Fix not yet implemented.
+- NEXT_STEP: reconcile Claude+Codex forensic -> implement citation-spread + per-span saturation cap -> offline smoke -> Codex-gate diff -> deploy VM -> small drb_72 A/B (target >=30 distinct cited, 0 new fab, no coverage regression) -> confirm breadth opened -> THEN full sweep.
+
+[2026-06-12 17:38:00]
+- ACTION: Breadth A/B (target=16) measured + dual deep-research on the generation-side breadth fix (Codex done, Claude re-launched).
+- RATIONALE: Operator asked Claude AND Codex to deep-research how frontier DR systems achieve broad multi-source synthesis BEFORE coding the 2nd breadth lever (no blind hand-roll). Measured the finished A/B report.md: 27 distinct cited sources (up from 21) but over-concentrated (top 5 cited 51/45/41/31/31x) — binding cause = generation over-concentration, not assignment. Codex's research → "Source-Slot Coverage Ledger" + per-source saturation cap + breadth regen loop, faithfulness-safe (strict_verify + D8 unchanged). Re-launched the Claude web cross-check (lost in compaction) as Workflow w4g0qgt00.
+- DOCS/RESEARCH: Attribute-First (arXiv 2403.17104), ALCE (2305.14627), STORM (2402.14207), lost-in-the-middle (2307.03172), OpenAI/Gemini Deep Research public descriptions.
+- SYNC: state/active_fix_campaign.json updated (BREADTH_AB_MEASURED + CODEX_DR_DONE + CLAUDE_DR_RELAUNCHED); GH #1225 commented.
+- AFFECTED_FILES: .codex/I-bench-veracity-003/{codex_breadth_deep_research_brief.md,codex_breadth_deep_research.txt,breadth_fix_research_synthesis.md}, state/active_fix_campaign.json, logs/session_log.md
+- EVIDENCE/FINDINGS: report.md (VM ~/polaris-perm-fix/.../drb_72_ai_labor) = 27 distinct cited / 229 pool; bibliography.json=27; 435 [N] markers; concentration top=51. Codex DR exit 0.
+- STATUS: Research phase. Codex DR complete + strong; Claude cross-check (w4g0qgt00) in flight; A/B D8 audit still grinding (does not change breadth). NO code yet (await Claude + operator review).
+- NEXT_STEP: Reconcile Claude w4g0qgt00 with Codex → present calm fix design to operator → implement env-gated → Codex diff-gate → re-run A/B targeting ≥30 distinct.
+
+[2026-06-12 17:55:00]
+- ACTION: Reconciled both deep-research streams; operator picked "include saturation cap"; scoped PR-1; authored + launched Codex brief-gate.
+- RATIONALE: Codex DR + Claude wp2c4uwn4 (5 agents) + corroboration w4g0qgt00 (4 agents) converge: root cause = G-Cite coverage ceiling + draft-time concentration; safety boundary = breadth at SELECTION not generation-time prompt (the prompt-nudge is the documented failure mode). Corroboration confirmed strict_verify NLI is enforce-by-default (de-risks fix) + cap must be drop-redundant-only/extractive/soft. PR-1 = subtraction-safe (distinct-source interleave + per-source span-budget cap, both default-OFF); PR-2 = append-only coverage-gap (addition-unsafe, separate gate). Verified seams: multi_section_generator.py:973-984, strict_verify.py:173.
+- DOCS/RESEARCH: arXiv 2509.21557 (G-Cite vs P-Cite), 2403.17104 (Attribute-First), 2305.14627 (ALCE), 2402.14207 (STORM), 2307.03172 (lost-in-middle), 2601.13217 (revision regresses), Anthropic multi-agent post.
+- SYNC: active_fix_campaign.json (OPERATOR_DECISION + CORROBORATION + PR_PLAN); GH #1225 commented; breadth_fix_research_synthesis.md reconciled section.
+- AFFECTED_FILES: .codex/I-bench-veracity-003/{breadth_fix_research_synthesis.md, pr1_brief.md}, state/active_fix_campaign.json, logs/session_log.md
+- EVIDENCE/FINDINGS: A/B = 27 distinct cited / 229 pool, top source 51x (over-concentration confirmed). strict_verify _DEFAULT_MODE="enforce" verified. Codex brief-gate launched (b2ns0eawy).
+- STATUS: PR-1 brief authored + Codex brief-gate in flight. NO diff yet (await brief APPROVE). VM A/B D8 audit progressing (~53%, doesn't change breadth).
+- NEXT_STEP: On brief APPROVE → Claude authors PR-1 diff → offline smoke → Codex diff-gate → deploy VM → drb_72 A/B (>=30 distinct, 0 new fab, dual §-1.1 audit).
+
+[2026-06-12 18:25:00]
+- ACTION: PR-1 brief APPROVED (Codex iter-3); wrote + committed PR-1 code; 57/57 tests green; launched Codex diff-gate.
+- RATIONALE: Brief converged iter1(1 P1)→iter2(2 P1, scoping CONFIRMED)→iter3 APPROVE (0 P0/P1). Wrote 2 default-OFF env knobs at _assign_evidence_to_planned_outline: PG_SECTION_SOURCE_INTERLEAVE (distinct-source round-robin) + PG_SECTION_PER_SOURCE_SPAN_CAP (soft cap, within-tier backfill), applied per authority tier separately (below never precedes above). Commit 4eea76ea. 9 new helper tests + 48 existing assignment tests pass (OFF=byte-identical confirmed).
+- DOCS/RESEARCH: §-1.2 debug workflow; §8.3 Codex iteration discipline; arXiv 2307.03172 (lost-in-middle) as the cited basis for interleave.
+- SYNC: iteration_trajectory.md (brief iters 1-3); pr1_codex_diff.patch generated.
+- AFFECTED_FILES: src/polaris_graph/generator/multi_section_generator.py, tests/polaris_graph/generator/test_source_breadth_spread.py, .codex/I-bench-veracity-003/{pr1_brief.md,pr1_codex_diff.patch,pr1_diff_gate_input.md}
+- EVIDENCE/FINDINGS: commit 4eea76ea (247 ins/2 del); pytest 9 passed (new) + 48 passed (regression). Codex diff-gate launched (bkctd14ma).
+- STATUS: Code committed, fully tested OFF=byte-identical. Diff-gate in flight. Not yet deployed.
+- NEXT_STEP: Diff-gate APPROVE → deploy to VM → drb_72 A/B at PG_SECTION_SOURCE_INTERLEAVE=1 + PG_SECTION_PER_SOURCE_SPAN_CAP set + breadth target → measure distinct cited (≥30) + dual §-1.1 audit.
+
+[2026-06-12 20:41:00]
+- ACTION: Dual forensic (Claude w2ncoju44 + Codex) located real breadth root cause; implemented + tested + deployed keystone fix PR-2; A/B running.
+- RATIONALE: Operator halted piecemeal fixes after PR-1 gave 21 (worse than 27). Forensic found PR-1 was DEAD CODE: planner OFF (PG_USE_RESEARCH_PLANNER='0') -> _assign_evidence_to_planned_outline + its knobs never run; legacy _call_outline path runs, outline LLM under-selects ~20 of 360 -> 21 cited. Gates drop 0 unique sources (not the limiter). Fix = _augment_legacy_section_breadth in the live path (commit 02b9e47f); 15/15 tests; deployed; A/B PID 2532473 at PG_LEGACY_SECTION_BREADTH_TARGET=10.
+- DOCS/RESEARCH: forensic artifacts .codex/I-bench-veracity-003-forensic/ (whole_run.log, forensic_codex.txt, assignment_funnel_trace.md, trace_finding_dedup_emitter.md).
+- SYNC: active_fix_campaign.json (FORENSIC_COMPLETE + PR2_KEYSTONE); GH #1225 commented; branch pushed.
+- AFFECTED_FILES: src/polaris_graph/generator/multi_section_generator.py, tests/polaris_graph/generator/test_source_breadth_spread.py
+- EVIDENCE/FINDINGS: commit 02b9e47f (233 ins); 15/15 pytest; VM deploy 4 fn/knob matches; A/B CANARY_OK 0 import errors.
+- STATUS: Real keystone fix live in A/B; augmentation will log FIRED at outline stage. Awaiting breadth result (~1.5h).
+- NEXT_STEP: Confirm augmentation fires; measure distinct cited from report.md (>=30 goal); dual §-1.1 audit.
+
+[2026-06-12 22:13:00]
+- ACTION: PR-2 keystone fix VALIDATED — drb_72 breadth 21 -> 29 distinct cited; relaunched at target=14 to clear 30.
+- RATIONALE: Fix (_augment_legacy_section_breadth, target=10) fired (confirmed log) + widened thematic menus to 14-30 sources -> 29 distinct cited (up from 21), 341 markers, top 37x (was 51x). Added sources are the exact high-auth AI-labor ones missing before (OECD/World Bank/BLS/Fed/EU-Parliament/QJE/JEP) — on-topic, not padding. 1 short of >=30 -> bumped target 10->14, killed target=10 run (PID-scoped, breadth measured), relaunched PID 2595899 out breadth_pr2b.
+- EVIDENCE/FINDINGS: breadth_pr2 report.md=29 distinct/bibliography=29/43KB; on-topic bib verified; target=14 run live.
+- STATUS: Fix validated (21->29). target=14 run in flight to clear 30; full dual §-1.1 audit pending on the >=30 report.
+- NEXT_STEP: When breadth_pr2b report.md lands (~1.5h): measure (>=30), dual §-1.1 audit (0 new fab), then full sweep if pass.
+
+[2026-06-12 — I-bench-veracity-003 18-blocker remediation Workflow launched]
+- ACTION: Authored + launched parallel Claude+Codex Workflow (run wf_c0557858-6de, task wicqm3l2a) to fix+test all 18 drb_72 pipeline blockers (#1226-#1243) across 9 file-disjoint agents.
+- RATIONALE: Operator directive "Update GitHub and all doc, fix, test, verify everything via Claude codex workflow for 18 issues, and make workflow in parallel to save time." File-disjoint groups (one agent per file/coupled-pair) eliminate edit races; every fix is DEFAULT-OFF/additive (flag-off byte-identical) or kill-switch for pure-reliability fixes; faithfulness gates (strict_verify/NLI-enforce/4-role D8/provenance) LOCKED in every agent prompt; one single pytest pass over tests/polaris_graph/blockers/ (no parallel pytest per §8.4). Codex review of the combined diff is the single gate, run by Claude after the workflow (5-iter cap) per ledger-first discipline.
+- SYNC: N/A (issue-driven; #1225 umbrella + #1226-#1243).
+- AFFECTED_FILES (planned, per agent): multi_section_generator.py(G1 #1229/#1231/#1233), run_honest_sweep_r3.py(G2 #1235/#1238/#1239/#1242 + hooks #1226/#1237), evidence_selector.py(G3 #1228/#1230), access_bypass.py+live_retriever.py(G4 #1227), openrouter_role_transport.py(G5 #1226), quantified_analysis.py(G6 #1237), fact_dedup.py(G7 #1232), completeness_checker.py+evaluator_gate.py(G8 #1236), provenance_generator.py(G9 #1240/#1241). Config-only knobs set at A/B runtime: #1233/#1234/#1243/#1228-floor.
+- EVIDENCE/FINDINGS: Workflow launched OK (background). MAX breadth A/B still running on VM 51.79.90.35 (PID 2630736, ~56min, in generation, report ~1h out).
+- STATUS: Workflow in flight; awaiting completion notification. No faithfulness gate touched. Two background tasks healthy (VM A/B + local fix workflow).
+- NEXT_STEP: On workflow completion — review per-agent ledger + test results, then hand combined diff to Codex (single gate), then commit; consolidated drb_72 A/B (breadth>=40, 0 off-topic, marquee present, D8 finishes, no fail-open) runs AFTER the current MAX A/B finishes (no two paid sweeps at once).
+
+[2026-06-12 — 18-blocker remediation: tests green, Codex gate launched]
+- ACTION: Workflow wicqm3l2a completed (9 agents). Fixed 2 test bugs in test_g3_evselector (dropped_count miscount 1->2; test_h naive substring grep -> tokenize code-only check). Ran offline regression.
+- RATIONALE: §-1.1 line-by-line — both G3 failures were test-side, not code: (a) test_d forgot _base_rows already has 1 below-floor row, so flag-OFF drops 2 not 1; (b) test_h tripped on a COMMENT mentioning strict_verify (verified all banned tokens appear only in comments, zero code refs). Fixed tests, not code.
+- EVIDENCE/FINDINGS: 119/119 blocker tests + 206/206 existing-module tests = 325 green, 0 regression. Default-OFF/kill-switch verified. Staged diff 3819 insertions / 21 files (11 src + 10 test). Codex gate launched (bu4vg822m) with brief + src diff inline; brief flags honestly which fixes are FULL (14) vs PARTIAL/deferred (#1231 Zyte-upstream, #1237 caller-raise, #1240 prompt-source) vs honest-defer (#1230 lives in query_decomposer/planner) vs config-only (#1233 target/#1234/#1243).
+- SYNC: N/A. AFFECTED_FILES: 11 src + tests/polaris_graph/blockers/*; .codex/I-bench-veracity-003-forensic/{blocker_remediation_brief.md,_src_diff.patch,_diff.patch,codex_input.md}; logs/session_log.md.
+- STATUS: Awaiting Codex verdict. Faithfulness gates untouched (asserted + Codex-verifying). MAX breadth A/B still running on VM.
+- NEXT_STEP: On Codex APPROVE -> commit; then measure VM A/B distinct cited sources; then consolidated proof A/B with validated env slate. On REQUEST_CHANGES -> address P0/P1, re-gate (5-cap).
+
+[2026-06-12 — Codex iter-1 REQUEST_CHANGES; iter-2 fix agent launched]
+- ACTION: Codex diff-gate iter-1 returned REQUEST_CHANGES (0 P0, 3 P1, 2 P2) on the 18-blocker diff. Launched single-agent fix workflow wskf5f8j7.
+- RATIONALE: Codex line-by-line caught real honesty bugs in the NEW guardrails (faithfulness gates confirmed untouched = 0 P0): P1 #1233 canary counts ASSIGNED menu breadth (global_used, pre-generation) not final VERIFIED-CITED breadth -> can pass while report cites too few; P1 #1239 PG_BIB_REQUIRE_LOCATOR drops the [num] -> orphans body [N] markers + DOI-only renders blank url; P1 #1242 tier disclosure not single-source (Methods deterministic _tier_mix_disclosure_summary vs Limitations LLM-authored from raw fractions -> 11% vs 13%); P2 #1228 capped-dedup reassignment launders real floor-cut to dropped=0 on [select] line; P2 #1240 module-global token counters not reset per run.
+- Fix approach (diagnosed, exact lines handed to agent): #1233 remove _augment raise + add pure enforce_breadth_canary() called post-bibliography on distinct cited sources; #1239 keep [num]+gap disclosure (no orphan) + DOI->doi.org locator; #1242 canonical tier string threaded as tier_disclosure_override into Limitations telemetry block (gated PG_TIER_DISCLOSURE_SINGLE_SOURCE default on); #1228 capture floor dropped_count pre-reassign + surface; #1240 reset_token_honesty_telemetry() at run_one_query start + manifest snapshot.
+- AFFECTED_FILES: multi_section_generator.py, run_honest_sweep_r3.py, live_deepseek_generator.py, test_g1/test_g2 blockers. Codex verdict: .codex/I-bench-veracity-003-forensic/codex_diff_audit.txt.
+- STATUS: Fix agent in flight. On completion -> full blocker+regression test rerun -> re-gate Codex (iter 2 of 5). MAX breadth A/B still running on VM.
+- NEXT_STEP: await wskf5f8j7; test; re-gate Codex.
+
+[2026-06-12 — iter-2 fixes applied, 303 green, Codex re-gate launched]
+- ACTION: Fix agent wskf5f8j7 completed all 5 Codex iter-1 findings (#1233 canary->cited-breadth helper; #1239 bib keep-num+gap+DOI locator; #1242 tier_disclosure_override single-source threaded; #1228 floor_dropped surfaced; #1240 token-counter reset+snapshot). 303/303 tests pass (blocker suite + regression). Codex iter-2 launched (b071lojm1).
+- RATIONALE: Codex line-by-line caught real honesty bugs; fixes are env-gated/default-OFF or existing default-ON kill-switches; faithfulness gates untouched. WIRING VERIFIED (operator fear): PG_SPAN_PER_SOURCE_CITE_CAP auto-read in dedup_pass (live path, pre-resolve [#ev:] strings); PG_LEGACY_SECTION_BREADTH_TARGET read+fires at multi_section:5382/5385 (proven by the running A/B). Open risk = whether generator+strict_verify convert wider menu into MORE distinct verified cites or just thin — only the measured A/B settles it.
+- AFFECTED_FILES: multi_section_generator.py, run_honest_sweep_r3.py, live_deepseek_generator.py, test_g1/g2; .codex/I-bench-veracity-003-forensic/{blocker_remediation_brief_iter2.md, src_diff_iter2.patch, codex_input_iter2.md, codex_diff_audit_iter2.txt}.
+- STATUS: Codex iter-2 in flight. On APPROVE -> commit -> deploy 11 files to VM -> consolidated drb_72 A/B with breadth levers ON, live FIRE-marker monitoring + breadth/coverage measurement. MAX breadth A/B (keystone-only) still running on VM ~2h.
+- NEXT_STEP: await b071lojm1 verdict.
+
+[2026-06-13 — keystone result logged + operator directive: all-18 ON, target 57+]
+- Keystone drb_72 A/B: 21 -> 32 distinct cited sources (target>=30 MET). Gates healthy: 326 verified / 99 dropped (42 NLI-entailment, 7 numeric), judge_error_rate 0.0 not degraded. Still over-concentrated (top [10]x32) -> span cap #1232 needed. 2 marquee gap stubs (#1231 Zyte deferred). Codex iter-2 APPROVE; committed b57db2ea. GH #1225 commented (4696857490).
+- OPERATOR DIRECTIVE 2026-06-13: all 18 fixes ON + high-quality citations 57 and beyond. Consolidated run plan: deploy 11 files + full lever slate (span cap, high breadth target, augment quality bar, marquee priority, canary=30, anchor-preserve, effort=medium, Zyte key). HONEST EXCEPTION: keep strict tier-purity abort (#1235) OFF — conflicts with credibility-not-journal-only (would shrink breadth). Aim cite ~all ~57 high-auth pool; beyond 57 = widen retrieval next.
+
+[2026-06-13 01:06Z — CONSOLIDATED 18-fix breadth A/B LAUNCHED (Zyte ON, target 57+)]
+- ACTION: Killed keystone PID 2630736 (breadth 32 captured, D8 superseded) to free VM. Deployed 11 fixed files (py_compile OK). Launched consolidated run PID 2711536, out-root outputs/honest_sweep_r3_consolidated_18fix.
+- KEY: keystone launch had `unset ZYTE_API_KEY` (noZyte) -> marquee anchors were paywalled gap stubs. Consolidated KEEPS Zyte ON (key from polaris_run/.env, "ZYTE present: yes") -> should fetch paywalled marquee + more high-auth. Addresses #1231 at fetch level.
+- ENV SLATE: PG_LEGACY_SECTION_BREADTH_TARGET=40, PG_SPAN_PER_SOURCE_CITE_CAP=5, PG_BREADTH_AUGMENT_MIN_OVERLAP=3, PG_BREADTH_AUGMENT_REQUIRE_SECTION_OVERLAP=1, PG_BREADTH_MARQUEE_PRIORITY=1, PG_BREADTH_CANARY_MIN=30, PG_RELEVANCE_PRESERVE_ANCHORS=1, PG_FOUR_ROLE_REASONING_EFFORT=medium, PG_OUTLINE_MAX_EV=360. PG_BENCHMARK_STRICT_GATES OFF (credibility != journal-only). All committed default-on fixes active.
+- STATUS: run started (gate-b 4-role). ETA ~2.5h to report.md (breadth measurable), ~4h to D8 done. Monitor FIRE markers (augmentation FIRED, span-cite cap dropped N, Zyte fetches) + live breadth.
+- NEXT_STEP: monitor run; on report.md -> measure distinct cited (aim 57+) + per-source concentration (capped ~5) + coverage + marquee resolution; capture span text; dual §-1.1 audit.
+
+[2026-06-13 01:34Z — CHOKE AUDIT (operator: "nothing chokes the citation count")]
+- Hunted every citation-count choke in the live path. Result: NO active hidden choke below 57.
+- Confirmed in REAL python process (PID 2711543) /proc/environ: PG_LEGACY_SECTION_BREADTH_TARGET=40, PG_SPAN_PER_SOURCE_CITE_CAP=5, PG_BREADTH_AUGMENT_MIN_OVERLAP=3, REQUIRE_SECTION_OVERLAP=1, MARQUEE_PRIORITY=1, CANARY_MIN=30, PRESERVE_ANCHORS=1, FOUR_ROLE_EFFORT=medium, ZYTE present.
+- run_gate_b full-capability slate (I-cap-005) sets PG_LIVE_MAX_EV_TO_GEN=1500 (was code-default 20 = the old ~40-URL choke) + PG_MAX_EV_PER_SECTION=40, via os.environ setdefault at startup (invisible to /proc/environ; proven active by keystone's 32 > 20). PG_USE_FINDING_DEDUP=1 + PG_CAPPED_FINDING_DEDUP=1 => dedup-then-cap-at-1500 (not 20).
+- Real limiter now = natural pool-distinct ceiling + cross-section citation spread (keystone target=30 -> 32 with heavy section overlap). If consolidated plateaus ~40, next lever = raise PG_MAX_EV_PER_SECTION + strengthen cross-section freshness. NOT a hidden cap.
+- Run alive 28min, fetch phase, Zyte 255+ fetches diverse credible sources.
+
+[2026-06-13 02:04Z — CONSOLIDATED breadth levers FIRED (proof in live log)]
+- [select] relevance_floor=0.3 honest_drop: cut 188 of 591 rows (kept 403) -> #1228 honest-drop WORKING (shows real 188, floor_dropped=188 on [select] line, not dropped=0).
+- [capped-dedup] floored 403 -> capped 403 (max_ev=1500) -> 403 sources to generator, NO truncation, no 20-choke.
+- augmentation FIRED (target=40 distinct/section): Background/Key Findings/Evidence and Analysis/Comparative Assessment/Implications/Limitations = 40 distinct each; 3 contract sections (Foundational_Theory=3, Empirical_Displacement=2, Generative_AI_Evidence=2) marquee-anchored by design. 6 sections x 40 = 240 source-slots (keystone was ~30/section -> 32 report-wide w/ overlap; span cap now forces spread).
+- Lever for "beyond": relevance floor cut 32% (188) -> lowering PG_RELEVANCE_FLOOR 0.30->0.20 keeps more (403 already plenty).
+- STATUS: generation running. ETA report ~1.5-2h. NEXT: watch span-cite cap drops as sections complete; measure report-wide distinct (expect >>32).
+
+[2026-06-13 04:11Z — CONSOLIDATED 18-fix A/B RESULT: 76 distinct cited sources]
+- BREADTH: bibliography=76 distinct cited (21 baseline -> 32 keystone -> 76 consolidated, 3.6x). 76 distinct [N] in body, no orphans. CRUSHES >=30, past "57 and beyond".
+- COVERAGE (no regression — IMPROVED): sentences_verified=566 (keystone 326), dropped=144; verify rate 79.7% vs 76.7%. drops: entailment_failed=11, no_provenance=38, numeric=8. judge_error_rate=0.0 degraded=False (no fail-open).
+- CONCENTRATION (span cap working, per-span): 652 total citations / 76 sources = 8.6 avg (keystone 11.25); top source 26x (keystone 32x). ev_135x49-type single-span padding gone.
+- MARQUEE: 0 gap stubs (keystone 2) — Zyte ON fetched paywalled Acemoglu/Eloundou -> verified prose. #1231 resolved at fetch level.
+- Config: all 18 fixes ON, span cap=5, target=40/section (6x40 menus), Zyte ON, canary=30, 403 sources to generator (740 corpus, 4381 discovered). 4-role D8 running (fabrication audit).
+- REMAINING for full mission PASS: 4-role D8 result (0 fabrication) + independent dual §-1.1 audit (needs span text). NEXT: read D8 verdict + run §-1.1 audit.
+
+[2026-06-13 ~04:20Z — beat-both audit HARNESS BUG caught + re-run]
+- First beat-both §-1.1 audit (wvpnem4vj) returned 152 FABRICATED / 171 unsupported of 572. INVESTIGATED before reporting: FALSE — my bundle truncated direct_quote to [:1500] chars; flagged claims' numbers (17%, 1.3B, $36B, $250B, 1990) ARE present in the FULL span (10247-char Schwab span etc.), just past char 1500 (PDF front-matter/TOC first). Pipeline strict_verify checks FULL span -> correctly passed. NOT a POLARIS fabrication problem; my measuring stick was broken.
+- Rebuilt audit_chunks2/ with FULL untruncated spans (deduped per chunk, 24 chunks x 24 claims, max 72KB). Re-launched beat-both audit wqqsio53m (24 full-span POLARIS auditors + 2 competitor + synthesis).
+- BREADTH WIN stands (independent of the audit bug): 76 distinct cited (21->76), 566 verified sentences, padding down, 0 marquee gap stubs. Committed b57db2ea, Codex APPROVE iter2.
+- 4-role D8 on VM still running (~72/566). LESSON: §-1.1 audit harness MUST feed the COMPLETE cited span or it false-flags fabrication.
+
+[2026-06-13 ~04:35Z — HONEST BEAT-BOTH VERDICT (Q72, full-span audit wqqsio53m)]
+- POLARIS-76 FAITHFULNESS: SPAN-CLEAN. 569/571 verified vs real cited spans, 0 FABRICATED, 0 unsupported, 2 minor PARTIAL. (The earlier "152 fabricated" was 100% my truncation bug; real=0.)
+- beat_gemini = BEAT: POLARIS 0-fab span-locked traceability beats Gemini's document-attributable misattributions (Goldman "$13T" should be ~$7T/McKinsey; "WEF 2024" carrying 2020's 85M/97M figures).
+- beat_gpt = LOSE (honest): ChatGPT obeyed journal-only + stayed on-topic (~36 sources, APA refs, quality table). POLARIS broke journal-only (Wikipedia/Facebook/Scribd/blogs/Schwab book/arXiv-twins) AND leaked OFF-TOPIC papers (dental/vasectomy/blockchain/spinal-cord) into the body/Limitations. 32->76 traded "thin" for "contaminated + constraint-violating."
+- FIX (audit-identified, retrieval/scope-filter only, faithfulness engine already clean): drop off-topic + non-journal sources; add canonical anchors in journal class (Goldsmith&Casey SEJ24, Frey&Osborne TFSC17, Eloundou Science24, Noy&Zhang Science23). POLARIS keeps Autor JEP15 + Brynjolfsson QJE in correct form.
+- BREADTH MISSION status: count target met (76>=30), 0 fabrication, coverage up — but §-1.1 reveals breadth achieved via scope/relevance relaxation = NOT high-quality-clean yet. NEXT: scope-filter fix, then re-run + re-audit.
+- HARNESS LESSON: §-1.1 audit must feed COMPLETE cited span (not [:1500]) or it false-flags fabrication.
+
+[2026-06-13 — I-scope-001 #1244 grounded: floor-raising FAILS, need semantic topic gate]
+- Empirical no-spend test: cited contaminants selection_relevance [0.30,0.30,0.375,0.40,0.40,0.50,0.50,0.583] vs clean median 0.500. Wikipedia 0.583 > clean median; spinal-cord 0.50 = median. Floor-raising can't separate -> would cut half the good sources. The obvious fix fails (why we test not guess).
+- Fix design (grounded): (1) semantic LLM topic gate at selection (default-OFF) — the real lever; (2) domain denylist (facebook/scribd/wikipedia/blogs); (3) arXiv->journal preference. Validate vs labeled 9-reject/67-keep before deploy.
+- Breadth mission CORE = DONE & PROVEN & COMMITTED (76 cited, 0 fab, b57db2ea). Beat Gemini, lose ChatGPT on scope (9/76). #1244 ready to build on operator go.
+
+[2026-06-13 — OPERATOR ARCHITECTURAL RESET. Killed cron + VM run; launched serious forensic.]
+- OPERATOR DIRECTIVE: stop bolting caps/thinners/filters to hit a breadth NUMBER. Intended architecture: fetch-all-full-content -> relevance gate -> CREDIBILITY WEIGHTING (weight not filter; social media stays low-weight) -> CONSOLIDATE same-claim sources (repetition=corroboration) -> distill -> COMPOSE using ALL relevant sources with per-claim weighted multi-attribution -> USER judges. Only hard gate that stays = faithfulness engine (strict_verify/NLI/4-role/provenance). My caps/targets/scope-filters FIGHT this; symptom-patching not design.
+- ACTIONS: (1) killed cron 04a4e1a2 (the every-10-min BREADTH-FIX MISSION fire). (2) killed the consolidated VM run (config being reconsidered; 0-fab already confirmed by independent §-1.1 audit). (3) GH #1245 (I-arch-001) opened. (4) launched Claude forensic Workflow wl35v8ggy (map pipeline + catalog every cap/filter as gate-vs-hack + research SOTA deep-research weighting+consolidation) + independent Codex forensic b75a4tzce. (5) scope-filter code (wdm3vqcil) built but NOT committed — held pending architecture agreement (no new code until target arch agreed).
+- NEXT: cross-review Claude+Codex forensics -> design doc docs/pipeline_architecture_forensic_2026_06_13.md -> migration plan/issues -> operator review.
