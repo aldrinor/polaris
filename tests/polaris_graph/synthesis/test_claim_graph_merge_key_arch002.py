@@ -616,6 +616,12 @@ _POLARITY_CASES = [
     ("in patients not having renal impairment", "without"),
     # regression guard: a verb-negation BEFORE the outer introducer stays 'with'.
     ("does not cause nausea in patients with renal impairment", "with"),
+    # Codex iter-6 P0: POST-cue passive exclusion (the cue precedes the exclusion word).
+    ("causes nausea with patients with renal impairment excluded", "without"),
+    ("patients with renal impairment were excluded", "without"),
+    ("renal impairment patients omitted", "without"),
+    ("in patients with renal impairment not included", POLARITY_AMBIGUOUS),  # post-cue negation -> fail closed
+    ("patients with renal impairment withdrawn from the cohort", POLARITY_AMBIGUOUS),  # restriction verb -> fail closed
     ("causes nausea", ""),                                     # no population cue -> unstratified
 ]
 
