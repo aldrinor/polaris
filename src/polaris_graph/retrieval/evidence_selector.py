@@ -1385,6 +1385,193 @@ def _row_is_marquee_anchor(row: dict[str, Any]) -> bool:
     return False
 
 
+# ── I-scope-001 (#1244): low-cred domain denylist (gate 1, pure, no LLM) ───────
+# Grounded diagnosis (do not re-derive): the drb_72 breadth run cited 76 distinct
+# sources, 0 fabrication, but ~9 were contamination — 3 of them low-credibility
+# domains (facebook.com, scribd.com, en.wikipedia.org) that the tier system
+# mis-tiered and the relevance floor passed on shared generic words. The tier
+# system rates CREDIBILITY but cannot demote a junk-host article that happens to
+# share content words with the topic. This gate drops candidate rows whose source
+# netloc matches an operator-supplied denylist. It is DEFAULT-OFF: the env var
+# `PG_SCOPE_DENYLIST_DOMAINS` is empty by default, so `_scope_denylist_domains()`
+# returns () and `_apply_scope_denylist` is a byte-identical no-op (returns the
+# input list unchanged). Suggested-but-NOT-hardcoded-on default list (operator
+# pastes it into the env when desired):
+#   facebook.com,scribd.com,en.wikipedia.org,blogspot,wordpress,reddit,quora,medium.com
+# Deliberately does NOT denylist .gov / .edu / nber / doi.org (credibility is not
+# journal-only; gov + working-papers + institutes are kept). Marquee /
+# required-entity anchors are EXEMPT (never dropped). Faithfulness-safe: selection
+# can only SUBTRACT a candidate before generation; strict_verify / NLI / 4-role /
+# provenance are unchanged, and subtraction cannot fabricate.
+
+
+def _scope_denylist_domains() -> tuple[str, ...]:
+    """Parse `PG_SCOPE_DENYLIST_DOMAINS` (comma-separated, default empty = OFF).
+    Each entry is lowercased + stripped; blank entries dropped. Empty env =>
+    `()` => the denylist gate is a byte-identical no-op."""
+    raw = os.environ.get("PG_SCOPE_DENYLIST_DOMAINS", "").strip()
+    if not raw:
+        return ()
+    return tuple(
+        entry.strip().lower()
+        for entry in raw.split(",")
+        if entry.strip()
+    )
+
+
+def _row_netloc(row: dict[str, Any]) -> str:
+    """Lowercased hostname for an evidence row's source URL. Reuses the
+    urlparse pattern already used elsewhere in this module (lines ~197/751)."""
+    url = (row.get("source_url") or row.get("url") or "").strip().lower()
+    if not url:
+        return ""
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(
+            url if "://" in url else f"http://{url}"
+        ).hostname or ""
+    except Exception:
+        host = ""
+    return host.lower()
+
+
+def _netloc_matches_denylist(netloc: str, denylist: tuple[str, ...]) -> bool:
+    """True iff a netloc matches a denylist entry.
+
+    Dotted entries (e.g. `facebook.com`, `en.wikipedia.org`) match on EXACT
+    netloc OR a `.`+entry suffix (so `m.facebook.com` matches but
+    `facebook.com.evil.org` does NOT). Bare-token entries (e.g. `blogspot`,
+    `reddit`) match on substring-in-netloc (catches `foo.blogspot.com`)."""
+    if not netloc or not denylist:
+        return False
+    for entry in denylist:
+        if "." in entry:
+            if netloc == entry or netloc.endswith("." + entry):
+                return True
+        else:
+            if entry in netloc:
+                return True
+    return False
+
+
+def _apply_scope_denylist(
+    scored: list[tuple[int, float, str, dict[str, Any]]],
+    primary_trial_anchors: list[str] | None,
+) -> tuple[list[tuple[int, float, str, dict[str, Any]]], int, list[str]]:
+    """Drop scored rows whose netloc matches `PG_SCOPE_DENYLIST_DOMAINS`.
+
+    EXEMPT: marquee / required-entity anchors AND named-trial primary anchors
+    (the same exemption set as the relevance floor). Returns
+    `(kept_scored, n_dropped, dropped_netlocs)`. When the env var is empty the
+    denylist is `()` and the input is returned UNCHANGED (byte-identical no-op).
+    Pure — does not mutate the caller's rows."""
+    denylist = _scope_denylist_domains()
+    if not denylist:
+        return scored, 0, []
+    anchors = list(primary_trial_anchors or [])
+
+    def _is_exempt(row: dict[str, Any]) -> bool:
+        if _row_is_marquee_anchor(row):
+            return True
+        return any(_m42e_detect_primary_for_anchor(row, a) for a in anchors)
+
+    kept: list[tuple[int, float, str, dict[str, Any]]] = []
+    dropped_netlocs: list[str] = []
+    for item in scored:
+        row = item[3]
+        netloc = _row_netloc(row)
+        if _netloc_matches_denylist(netloc, denylist) and not _is_exempt(row):
+            dropped_netlocs.append(netloc)
+            continue
+        kept.append(item)
+    return kept, len(dropped_netlocs), dropped_netlocs
+
+
+# ── I-scope-001 (#1244): arXiv -> journal version preference (gate 3, pure) ────
+# Grounded diagnosis: 2 of the 9 drb_72 contaminants were arXiv/preprint twins of
+# a paper that ALSO appears as a published journal/DOI row — the citation should
+# prefer the published version. This gate, when ON (`PG_SCOPE_PREFER_JOURNAL`,
+# default OFF), groups rows by NORMALIZED title and, for any title that appears as
+# BOTH an arxiv.org row AND a non-arxiv journal/DOI row, drops the arXiv twin(s)
+# and keeps the journal row. An arXiv row with NO journal twin is NEVER dropped
+# (two arXiv versions with no journal twin both survive). Default OFF => no-op.
+# Faithfulness-safe (subtract-only, see gate-1 note).
+
+
+def _prefer_journal_enabled() -> bool:
+    """Kill-switch `PG_SCOPE_PREFER_JOURNAL` (default OFF). When ON, an arXiv
+    twin of a journal/DOI row is dropped in favor of the published version."""
+    raw = os.environ.get("PG_SCOPE_PREFER_JOURNAL", "0").strip().lower()
+    return raw not in ("0", "false", "no", "off", "")
+
+
+def _normalize_title_for_twin(title: str) -> str:
+    """Normalize a title for arXiv<->journal twin matching: lowercase,
+    collapse all non-alphanumeric runs to single spaces, strip. Empty in =>
+    empty out (an untitled row can never twin-match)."""
+    if not title:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+
+
+def _row_is_arxiv(row: dict[str, Any]) -> bool:
+    """True iff the row's source host is arxiv.org (preprint host)."""
+    return "arxiv.org" in _row_netloc(row)
+
+
+def _row_has_journal_doi(row: dict[str, Any]) -> bool:
+    """True iff the row looks like a published journal/DOI version (non-arXiv):
+    a non-arxiv host AND a DOI marker (doi field, or `doi.org`/`/10.` in URL).
+    Conservative — a row that is neither arXiv nor a clear DOI/journal row is
+    treated as NEITHER twin side, so it is never used to evict an arXiv row."""
+    if _row_is_arxiv(row):
+        return False
+    if row.get("doi"):
+        return True
+    url = (row.get("source_url") or row.get("url") or "").lower()
+    return "doi.org" in url or "/10." in url
+
+
+def prefer_journal_over_arxiv(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """Drop arXiv rows that have a journal/DOI twin (same normalized title).
+
+    Returns `(kept_rows, n_dropped, dropped_titles)`. Pure — does not mutate
+    rows; preserves input order of the kept rows. Never drops an arXiv row
+    whose normalized title has no non-arXiv journal/DOI twin in the pool."""
+    # Build the set of normalized titles that have a journal/DOI representative.
+    journal_titles: set[str] = set()
+    for row in rows:
+        if _row_has_journal_doi(row):
+            norm = _normalize_title_for_twin(_row_title_text(row))
+            if norm:
+                journal_titles.add(norm)
+    if not journal_titles:
+        return list(rows), 0, []
+    kept: list[dict[str, Any]] = []
+    dropped_titles: list[str] = []
+    for row in rows:
+        if _row_is_arxiv(row):
+            norm = _normalize_title_for_twin(_row_title_text(row))
+            if norm and norm in journal_titles:
+                dropped_titles.append(_row_title_text(row) or "(no title)")
+                continue
+        kept.append(row)
+    return kept, len(dropped_titles), dropped_titles
+
+
+def _credibility_redesign_enabled() -> bool:
+    """I-arch-002 (#1246): master switch for the WEIGHT-AND-CONSOLIDATE redesign
+    (CLAUDE.md §-1.3). Default OFF — when unset, every redesign branch below stays
+    on the legacy DROP/CAP path, so selection is byte-identical. Read from
+    ``PG_SWEEP_CREDIBILITY_REDESIGN`` (the single master flag that governs the whole
+    migration; the selection boundary previously had ZERO flag influence)."""
+    return os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def _relevance_floor_selection(
     *,
     scored: list[tuple[int, float, str, dict[str, Any]]],
@@ -1402,6 +1589,20 @@ def _relevance_floor_selection(
     ``finding_dedup`` picks representatives on the IDENTICAL score (no recompute
     drift). Pure; returns SHALLOW COPIES (never mutates the caller's rows).
     """
+    # I-scope-001 (#1244) gate 1: low-cred domain denylist. Default-OFF — when
+    # `PG_SCOPE_DENYLIST_DOMAINS` is empty, `_apply_scope_denylist` returns
+    # `scored` UNCHANGED (byte-identical), so the keep/sort below is exactly the
+    # prior behavior. Marquee / required-entity / primary-anchor rows are EXEMPT.
+    scored, _denylist_dropped, _denylist_netlocs = _apply_scope_denylist(
+        scored, primary_trial_anchors
+    )
+    if _denylist_dropped:
+        _LOGGER.info(
+            "[scope] denylist dropped %d low-cred source(s): %s",
+            _denylist_dropped,
+            "; ".join(sorted(set(_denylist_netlocs))),
+        )
+
     anchors = list(primary_trial_anchors or [])
 
     def _is_anchor(row: dict[str, Any]) -> bool:
@@ -1427,10 +1628,22 @@ def _relevance_floor_selection(
             return True
         return False
 
-    kept = [
-        item for item in scored
-        if item[1] >= relevance_floor or _floor_exempt(item[3])
-    ]
+    # I-arch-002 (#1246) P-W1 — WEIGHT, don't FILTER (DNA §-1.3). Under the master
+    # redesign flag the relevance "floor" stops HARD-DROPPING below-floor rows: every
+    # scored row is KEPT carrying its relevance score as the surfaced
+    # `selection_relevance` weight (stamped at the loop below). Confidently-off-topic
+    # removal stays the separate LLM topic gate, not this lexical-overlap cut — the
+    # cut whose long-question denominator buried on-topic T1 papers (the live 236/589
+    # loss). Flag OFF => the exact prior `>= floor OR floor-exempt` keep-filter =>
+    # byte-identical. Ranking + selection_relevance stamp are unchanged either way, so
+    # they become the weight surface (re-wire, not build).
+    if _credibility_redesign_enabled():
+        kept = list(scored)
+    else:
+        kept = [
+            item for item in scored
+            if item[1] >= relevance_floor or _floor_exempt(item[3])
+        ]
     kept.sort(
         key=lambda s: (
             -(s[1] * _authority(s[3])),

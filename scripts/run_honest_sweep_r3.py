@@ -4756,6 +4756,16 @@ async def run_one_query(
             select_evidence_for_generation,
         )
         max_ev = int(os.getenv("PG_LIVE_MAX_EV_TO_GEN", "20"))
+        # I-arch-002 (#1246) P-KEY: hoist the master WEIGHT-AND-CONSOLIDATE flag ONCE
+        # (CLAUDE.md §-1.3) and reuse it at every selection-boundary site below (floor
+        # keep-all, capped re-cap, finding-dedup member-drop, generator caps). Until
+        # now PG_SWEEP_CREDIBILITY_REDESIGN governed ONLY the disclosure pass; the
+        # cap/floor/drop machinery had ZERO flag influence. Default OFF => every gated
+        # branch stays on the legacy DROP/CAP path => byte-identical.
+        _cred_redesign_on = (
+            os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower()
+            in ("1", "true", "yes", "on")
+        )
         # I-meta-005 Phase 5 (#989): finding-dedup + relevance-floor corpus
         # (PG_USE_FINDING_DEDUP, default OFF). ON-mode replaces the max_ev cap with
         # a relevance floor (keep every row >= floor, no cap) and dedups by finding
@@ -4890,7 +4900,16 @@ async def run_one_query(
         # ADDITIVE (identical to OFF-mode: 150-cap base + additive prepends); the post-prepend dedup at
         # ~L3790 still collapses any base<->prepend duplicate + emits the canonical finding_dedup
         # telemetry. Default OFF outside Gate-B (legacy no-cap floor mode unchanged).
-        if _use_finding_dedup and _capped_dedup and _relevance_floor is not None:
+        # I-arch-002 (#1246) P-W4sel: under the redesign flag, SKIP the capped re-cap
+        # — the keep-all floor pool (P-W1) must NOT be re-truncated to max_ev. Sources
+        # flow to composition bounded only by the per-section token budget + the
+        # faithfulness gate (CONSOLIDATE-keep-all, DNA §-1.3). OFF => the cap holds.
+        if (
+            _use_finding_dedup
+            and _capped_dedup
+            and _relevance_floor is not None
+            and not _cred_redesign_on
+        ):
             _precap = len(evidence_for_gen)
             evidence_selection = _capped_finding_dedup_selection(
                 base_rows=evidence_for_gen,
@@ -4905,6 +4924,114 @@ async def run_one_query(
                 f"[capped-dedup] floored {_precap} -> dedup+capped {len(evidence_for_gen)} "
                 f"(max_ev={max_ev}); #1070 cap + floor both hold"
             )
+        # I-scope-001 (#1244): scope gates 2 (LLM topic-relevance) + 3 (arXiv ->
+        # journal version preference). DEFAULT-OFF — when both env flags are unset
+        # this whole block is a byte-identical no-op (neither gate runs, no [scope]
+        # line). Applied HERE — after the capped-dedup reassignment but BEFORE the
+        # `_selection_base_rows` PRE-INJECTION snapshot below — so a dropped row
+        # cannot be silently re-injected by a downstream gap round. The
+        # contract/upload prepends after the snapshot are marquee/anchor rows
+        # (gate-exempt anyway). Faithfulness-safe: both gates only SUBTRACT a
+        # candidate before generation; strict_verify / NLI / 4-role / provenance are
+        # untouched, and subtraction cannot fabricate.
+        from src.polaris_graph.retrieval.topic_relevance_gate import (
+            classify_topic_relevance,
+            topic_gate_enabled,
+        )
+        from src.polaris_graph.retrieval.evidence_selector import (
+            prefer_journal_over_arxiv,
+            _prefer_journal_enabled,
+            _m42e_detect_primary_for_anchor,
+        )
+        # Gate 2: LLM topic-relevance (drop confidently OFF-topic credible-but-
+        # irrelevant sources the tier + lexical floors cannot separate). The pure
+        # gate lives in topic_relevance_gate; the production LLM callable mirrors
+        # `_planner_llm` (thread-driven coroutine + _RUN_COST_CTX write-back) so the
+        # topic-gate spend is NOT lost from the parent run cost. Fail-OPEN: any LLM
+        # error / count mismatch / unparseable verdict keeps the batch.
+        if topic_gate_enabled() and evidence_for_gen:
+            def _topic_llm(prompt: str) -> str:
+                import asyncio as _asyncio
+                import concurrent.futures as _futures
+                import contextvars as _contextvars
+                from src.polaris_graph.llm.openrouter_client import (
+                    OpenRouterClient,
+                    PG_GENERATOR_MODEL,
+                    _RUN_COST_CTX,
+                )
+                # A cheap/fast model classifies title+snippet ON/OFF; falls back
+                # to the generator model when no scope model is configured.
+                _model = os.getenv(
+                    "PG_SCOPE_TOPIC_MODEL", PG_GENERATOR_MODEL
+                )
+                _parent_cost_before = _RUN_COST_CTX.get()
+                _worker_cost_after_holder: list[float] = [_parent_cost_before]
+
+                async def _run() -> str:
+                    _client = OpenRouterClient(model=_model)
+                    try:
+                        _resp = await _client.generate(
+                            prompt=prompt, max_tokens=1200, temperature=0.0,
+                        )
+                        return (_resp.content or "").strip()
+                    finally:
+                        _worker_cost_after_holder[0] = _RUN_COST_CTX.get()
+                        if hasattr(_client, "close"):
+                            try:
+                                await _client.close()
+                            except Exception:
+                                pass
+
+                _parent_ctx = _contextvars.copy_context()
+
+                def _worker() -> str:
+                    def _run_under_ctx() -> str:
+                        return _asyncio.run(_run())
+                    return _parent_ctx.run(_run_under_ctx)
+
+                try:
+                    with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                        return _pool.submit(_worker).result()
+                finally:
+                    _delta = _worker_cost_after_holder[0] - _parent_cost_before
+                    if _delta:
+                        _RUN_COST_CTX.set(_RUN_COST_CTX.get() + _delta)
+
+            def _topic_anchor_predicate(row: dict) -> bool:
+                return any(
+                    _m42e_detect_primary_for_anchor(row, a)
+                    for a in (_primary_anchors or [])
+                )
+
+            _topic_result = classify_topic_relevance(
+                evidence_for_gen,
+                q["question"],
+                _topic_llm,
+                primary_trial_anchors=_primary_anchors,
+                anchor_predicate=_topic_anchor_predicate,
+            )
+            if _topic_result.n_dropped_offtopic:
+                _log(
+                    f"[scope]       topic_gate dropped "
+                    f"{_topic_result.n_dropped_offtopic} off-topic of "
+                    f"{_topic_result.n_in} (kept {_topic_result.n_kept}, "
+                    f"exempt {_topic_result.n_exempt}); titles: "
+                    + "; ".join(t[:80] for t in _topic_result.dropped_titles)
+                )
+            evidence_for_gen = _topic_result.kept_rows
+        # Gate 3: arXiv -> journal version preference. Drop an arxiv.org twin when
+        # the same (normalized-title) paper appears as a journal/DOI row; never
+        # drop a twinless arXiv row. Default-OFF (PG_SCOPE_PREFER_JOURNAL).
+        if _prefer_journal_enabled() and evidence_for_gen:
+            evidence_for_gen, _arxiv_dropped, _arxiv_titles = (
+                prefer_journal_over_arxiv(evidence_for_gen)
+            )
+            if _arxiv_dropped:
+                _log(
+                    f"[scope]       prefer_journal dropped {_arxiv_dropped} "
+                    f"arXiv twin(s) with a journal version; titles: "
+                    + "; ".join(t[:80] for t in _arxiv_titles)
+                )
         # I-meta-005 Phase 4 (#988): snapshot the PRE-INJECTION selection baseline.
         # Every non-selection injection below (V30 contract rows :2811, upload rows
         # :2841) is a PREPEND, so this snapshot stays the contiguous SUFFIX of
