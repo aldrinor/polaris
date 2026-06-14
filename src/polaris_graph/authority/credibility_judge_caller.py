@@ -123,11 +123,18 @@ def make_openrouter_credibility_caller(
             # high-effort reasoning completes AND emits the JSON (measured: finish=stop, valid output).
             "reasoning": {"effort": reasoning_effort},
         }
-        # PROVIDER PINNING (mirror entailment_judge): pin to the preflight-resolved evaluator provider,
+        # PROVIDER PINNING (mirror entailment_judge): pin to the preflight-resolved MIRROR provider,
         # allow_fallbacks=False — never silently fail over to a non-sovereign/untested provider.
+        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator" key.
+        # The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
+        # "evaluator") returned None -> NO provider pin -> this credibility judge FREE-ROUTED to an
+        # unpinned provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:
+        # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
+        # pins to the SAME provider chain as the main mirror role.
         try:
             from src.polaris_graph.benchmark import pathB_capture as _pathb
-            gate_provider = _pathb.get_role_provider("evaluator")
+            gate_provider = _pathb.get_role_provider("mirror")
         except Exception:  # noqa: BLE001 — routing lookup must never break the call
             _pathb = None
             gate_provider = None

@@ -64,6 +64,11 @@ class ChecklistTopic:
     keywords: list[str] = field(default_factory=list)
     applies_if: list[str] = field(default_factory=list)
     expand_queries: list[str] = field(default_factory=list)
+    # I-arch-004 F11 (#1249): clinical-safety-critical topics (contraindications,
+    # boxed warnings). When True AND the topic is applicable+uncovered, the sweep
+    # HOLDS release (non-success) instead of shipping an advisory ok_incomplete_corpus.
+    # Default False so every un-marked topic / checklist is byte-identical.
+    critical: bool = False
 
 
 @dataclass
@@ -145,6 +150,24 @@ class CompletenessReport:
             if tc.applies and not tc.covered
         ]
 
+    def uncovered_critical_topic_ids(self) -> list[str]:
+        """I-arch-004 F11 (#1249): ids of APPLICABLE, UNCOVERED topics marked
+        ``critical: true`` in the checklist YAML (e.g. ``contraindications``).
+
+        A clinical report that ships with zero coverage of a critical-safety topic
+        (contraindications, boxed warnings) is a clinical-safety hole — the
+        completeness gate previously treated ALL uncovered topics as advisory
+        (``ok_incomplete_corpus``). This surfaces the critical subset so the sweep can
+        HOLD release (non-success) for them while non-critical gaps stay advisory.
+
+        Empty unless a topic is explicitly marked critical in the checklist, so
+        every existing (un-marked) checklist yields [] -> byte-identical behaviour."""
+        return [
+            tc.topic.id
+            for tc in self.topics
+            if tc.applies and not tc.covered and getattr(tc.topic, "critical", False)
+        ]
+
 
 def load_checklist(domain: str) -> list[ChecklistTopic]:
     """Load config/completeness_checklists/{domain}.yaml."""
@@ -174,6 +197,9 @@ def load_checklist(domain: str) -> list[ChecklistTopic]:
             keywords=[str(k).lower() for k in (t.get("keywords") or [])],
             applies_if=[str(a).lower() for a in (t.get("applies_if") or [])],
             expand_queries=[str(q) for q in (t.get("expand_queries") or [])],
+            # I-arch-004 F11 (#1249): optional `critical: true` marks a clinical-safety
+            # topic whose uncovered state HOLDS release. Absent/false -> byte-identical.
+            critical=bool(t.get("critical", False)),
         ))
     return topics
 

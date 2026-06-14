@@ -102,6 +102,13 @@ _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
 # so stripping it is a no-op on the redaction path.
 _CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
 _WHITESPACE_RE = re.compile(r"\s+")
+# F10(b) (I-arch-004 A3): interior whitespace-before-punctuation, collapsed in
+# _normalize so the redaction stem matches the SHIPPED form. The resolver runs
+# `re.sub(r"\s+([.!?,;])", r"\1", ...)` on every sentence before it renders, so
+# `word .` in the audit_map sentence ships as `word.`; the redactor must apply
+# the same collapse or the stem misses the collapsed sentence. Same punctuation
+# set as the resolver (provenance_generator).
+_INTERIOR_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.!?,;])")
 
 
 class ReportRedactionError(RuntimeError):
@@ -163,9 +170,21 @@ def _prose_stem(text: str) -> str:
 def _normalize(text: str) -> str:
     """Citation-insensitive, whitespace-insensitive prose for matching across the
     provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
+
+    F10(b) (I-arch-004 A3): ALSO collapse interior whitespace-BEFORE-punctuation
+    (``word .`` -> ``word.``), mirroring the resolver's own normalization
+    (provenance_generator: ``re.sub(r"\\s+([.!?,;])", r"\\1", stripped)``). The
+    audit_map sentence (the pre-resolve ``sv.sentence``) can carry ``word .``
+    interior spacing that the resolver collapses before the sentence SHIPS as
+    ``word.``; without this collapse the redaction stem would not match the
+    shipped form and a present-but-collapsed non-VERIFIED claim was wrongly
+    recorded ``already_absent`` (a silent leak — 07-001 / 06-006 interior-collapse
+    case). This applies the SAME collapse to both stem and rendered side, so the
+    match is consistent and idempotent; it never relaxes a match, only adds one.
     """
     text = _prose_stem(text)
     text = _WHITESPACE_RE.sub(" ", text)
+    text = _INTERIOR_SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
     return text.strip().rstrip(".").strip()
 
 

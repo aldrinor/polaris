@@ -643,6 +643,10 @@ _STATUS_TIERS: dict[str, int] = {
     # prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (tier 2,
     # no trustworthy report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
     "abort_excessive_gap": 2,
+    # F11 (I-arch-004 A3): a clinical run left a `critical: true` checklist topic (contraindications /
+    # boxed warnings) applicable but uncovered — held instead of shipping the advisory partial (tier 2,
+    # no trustworthy report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.
+    "abort_critical_topic_uncovered": 2,
     # I-arch-004 F07 (#1249/#1252): the cross-document NLI conflict judge errored under the strict-
     # gate benchmark slate — FAIL CLOSED, the run HOLDS for human review (tier 2, no trustworthy
     # report). MUST stay mirrored with runner.UNIFIED_STATUS_VALUES.

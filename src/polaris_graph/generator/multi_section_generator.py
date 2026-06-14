@@ -48,6 +48,7 @@ from src.polaris_graph.generator.live_deepseek_generator import (
 )
 from src.polaris_graph.generator.provenance_generator import (
     resolve_provenance_to_citations,
+    resolve_provenance_to_citations_with_count,
     sanitize_evidence_text,
     strict_verify,
     wrap_evidence_for_prompt,
@@ -3050,8 +3051,10 @@ async def _run_section(
             report.kept_sentences, credibility_analysis,
         )
 
-    verified_text, biblio_slice = resolve_provenance_to_citations(
-        report.kept_sentences, evidence_pool,
+    verified_text, biblio_slice, resolved_emitted = (
+        resolve_provenance_to_citations_with_count(
+            report.kept_sentences, evidence_pool,
+        )
     )
     # I-gen-003: cosmetic citation/punctuation normalization on the
     # resolved section text — inserts missing sentence terminators at
@@ -3070,7 +3073,12 @@ async def _run_section(
     # citation for a non-claim — faithful disclosure, not a claim). With the stub always rendered,
     # `dropped_due_to_failure` is now never True from this legacy path (the zero-kept case becomes
     # a rendered gap stub; the non-zero case was never dropped) — every section ships with a trace.
-    is_gap_stub = len(report.kept_sentences) == 0
+    # F10 (I-arch-004 A3): is_gap_stub is POST-resolve. A section whose every kept
+    # sentence was dropped by the resolver (degenerate fragment / F31 bogus-only)
+    # emits ZERO sentences — it must render the gap stub, not silently ship an
+    # empty body as non-stub. `resolved_emitted == 0` extends the gap-stub trigger
+    # from "strict_verify kept nothing" to "nothing actually shipped" (stricter).
+    is_gap_stub = resolved_emitted == 0
     if is_gap_stub:
         verified_text = _GAP_STUB_SENTENCE
     dropped_due_to_failure = False
@@ -3087,8 +3095,17 @@ async def _run_section(
         rewritten_draft=rewritten,
         verified_text=verified_text,
         biblio_slice=biblio_slice,
-        sentences_verified=report.total_kept,
-        sentences_dropped=report.total_dropped + m41c_drop_count,
+        # F10 (I-arch-004 A3): report the POST-resolve emitted count, NOT
+        # report.total_kept (the pre-resolve kept-list length). The resolver
+        # drops degenerate fragments + F31 bogus-only sentences, so total_kept
+        # overstates what actually shipped. The dropped delta is reflected in
+        # sentences_dropped below so verified + dropped stays consistent.
+        sentences_verified=resolved_emitted,
+        sentences_dropped=(
+            report.total_dropped
+            + m41c_drop_count
+            + max(0, report.total_kept - resolved_emitted)
+        ),
         regen_attempted=regen_attempted,
         dropped_due_to_failure=dropped_due_to_failure,
         input_tokens=total_in_tok,
@@ -5849,8 +5866,10 @@ async def generate_multi_section_report(
                     from ..synthesis.credibility_pass import apply_disclosure_to_svs
                     final_svs = apply_disclosure_to_svs(final_svs, credibility_analysis)
                 # Update SectionResult fields with deduped + re-verified content
-                from .provenance_generator import resolve_provenance_to_citations as _resolve
-                new_text, new_biblio = _resolve(final_svs, evidence_pool)
+                from .provenance_generator import (
+                    resolve_provenance_to_citations_with_count as _resolve,
+                )
+                new_text, new_biblio, new_emitted = _resolve(final_svs, evidence_pool)
                 sr.verified_text = new_text
                 sr.biblio_slice = new_biblio
                 # I-gen-005 Step 1.5 iter-2 (Codex P1 #3): count
@@ -5872,8 +5891,16 @@ async def generate_multi_section_report(
                         actually_removed,
                     )
                 sr.kept_sentences_pre_resolve = list(final_svs)
-                sr.sentences_verified = len(final_svs)
-                if not final_svs:
+                # F10 (I-arch-004 A3): report the POST-resolve emitted count, not
+                # len(final_svs). The dedup re-resolve drops degenerate fragments
+                # + F31 bogus-only sentences, so len(final_svs) overstates what
+                # shipped. Roll the resolver-dropped delta into sentences_dropped
+                # so verified + dropped stays consistent.
+                _resolver_dropped = max(0, len(final_svs) - new_emitted)
+                if _resolver_dropped:
+                    sr.sentences_dropped += _resolver_dropped
+                sr.sentences_verified = new_emitted
+                if new_emitted == 0:
                     sr.dropped_due_to_failure = True
             fact_dedup_telemetry["n_rewrites_strict_verify_pass"] = rewrites_re_verified_pass
             fact_dedup_telemetry["n_rewrites_strict_verify_drop"] = rewrites_re_verified_drop

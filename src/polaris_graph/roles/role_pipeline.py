@@ -58,7 +58,12 @@ from src.polaris_graph.roles.role_transport import (
     RoleTransport,
 )
 from src.polaris_graph.roles.sentinel_adapter import run_sentinel
-from src.polaris_graph.roles.sentinel_contract import SentinelResult, SentinelVerdict
+from src.polaris_graph.roles.sentinel_contract import (
+    SentinelResult,
+    SentinelVerdict,
+    atom_coverage_complete,
+    sentinel_atom_coverage_enabled,
+)
 
 # --- canonical verdict tokens (Verdict is a Literal of plain strings, NOT an Enum) -------
 # Mirror release_policy.py's _VERDICT_* string-constant pattern; never write `Verdict.X`.
@@ -330,6 +335,30 @@ def run_claim_pipeline(
         sentinel_result, _sentinel_records = run_sentinel(
             recording, claim, evidence_documents, model_slug=sentinel_slug
         )
+        # F06 (GH I-arch-004): atom-coverage completeness cross-check. The decomposition Sentinel's
+        # GROUNDED verdict only gates on the model's OWN atom bookkeeping (non-empty atoms, zero
+        # unsupported); it never checks that the atoms COVER every assertion in the claim. A half-
+        # decomposed clinical sentence (efficacy clause atomized + supported, contraindication clause
+        # silently dropped) therefore reaches GROUNDED. When the flag is ON and the Sentinel returned
+        # a parsed_ok GROUNDED with an atom list (decomposition mode populates `atoms`; guardian /
+        # noninverted modes leave it None and are SKIPPED), require every substantive clause to be
+        # represented by an atom. An uncovered clause -> DOWNGRADE the Sentinel verdict to UNGROUNDED
+        # (STRICTER, can only tighten). `parsed_ok` stays True — the output parsed cleanly; it is
+        # genuinely ungrounded by coverage, mirroring the contract's own contradiction-veto. The
+        # LOCKED `_compose_final_verdict` body is UNTOUCHED: its step-2 `sentinel_unsafe` branch then
+        # downgrades a Judge VERIFIED/PARTIAL to UNSUPPORTED exactly as for any UNGROUNDED Sentinel.
+        # Default OFF (F05 precedent) -> this whole block is a no-op and behavior is byte-identical.
+        if (
+            sentinel_atom_coverage_enabled()
+            and sentinel_result is not None
+            and sentinel_result.parsed_ok
+            and sentinel_result.verdict == SentinelVerdict.GROUNDED
+            and sentinel_result.atoms is not None
+            and not atom_coverage_complete(claim, sentinel_result.atoms)
+        ):
+            sentinel_result = sentinel_result._replace(
+                verdict=SentinelVerdict.UNGROUNDED
+            )
         evidence_text = "\n\n".join(doc.text for doc in evidence_documents)
         # Judge fails LOUD by design: a non-enum token raises JudgeEnumError, which we do NOT
         # catch — a missing/garbage arbiter verdict must propagate, never coerce to a default.

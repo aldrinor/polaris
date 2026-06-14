@@ -20,6 +20,7 @@ deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
 from __future__ import annotations
 
 import json
+import os
 import re
 from enum import Enum
 from typing import Any, NamedTuple
@@ -342,3 +343,237 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
                     SentinelVerdict.UNGROUNDED, parsed_ok=True, atoms=_atom_list
                 )
     return SentinelResult(verdict, parsed_ok=True, atoms=_atom_list)
+
+
+# === F06 (P1, GH I-arch-004) ATOM-COVERAGE COMPLETENESS CROSS-CHECK ============================
+# WHY this exists: `parse_sentinel_decomposition` (above) gates a GROUNDED ("supported") verdict on
+# the model's OWN atom bookkeeping — a non-empty `atoms` list, `unsupported_atoms == 0`, and no
+# per-atom "unsupported" status. But it NEVER verifies that the atom set actually COVERS every
+# assertion in the cited sentence. A half-decomposed clinical claim — e.g. an efficacy clause that
+# IS atomized + supported, with a SECOND contraindication/safety clause the model silently dropped
+# (never atomized, never checked) — therefore passes as GROUNDED. The dropped clause carries the
+# clinical risk (a missed contraindication is §-1.1 lethal), yet no atom ever examined it.
+#
+# This is an INDEPENDENT cross-check: the clauses are derived FROM THE CITED SENTENCE (not from the
+# model's verdict or its atom list), then each substantive clause is required to be REPRESENTED by
+# at least one atom. If a substantive clause has no covering atom, the decomposition is INCOMPLETE
+# and the claim is treated as UNGROUNDED (STRICTER — it can only DOWNGRADE a GROUNDED to UNGROUNDED,
+# never the reverse). It STRENGTHENS the faithfulness gate; it can never relax it.
+#
+# FLAG (F05 precedent, judge_adapter._sentinel_atoms_enabled): default OFF -> byte-identical (the
+# caller never runs this), enabled by the Gate-B / cert run slate so the strengthened behavior is
+# the cert-slate default without churning the locked offline suite. Read at call time so one process
+# can exercise both states in tests (mirrors the rubric/atoms flags).
+_ATOM_COVERAGE_FLAG = "PG_SENTINEL_ATOM_COVERAGE"
+
+# Coverage tuning (LAW VI / §9.4: named constants, never inline magic numbers):
+#  - _ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES: the incidental-word tolerance for a MULTI-WORD clause.
+#    Coverage checks each clause's DISTINCTIVE content words (its own words minus the claim's common
+#    backbone — see `_distinctive_words`); a MULTI-word clause is covered iff at most this many of its
+#    distinctive words are absent from the union of all atom texts. The tolerance (>0) is REQUIRED so a
+#    faithful atom that drops ONE incidental word ("...in the trial") does not false-drop a legit
+#    multi-word clause. It applies ONLY to multi-word clauses (see `_allowed_misses`): a SINGLE-
+#    distinctive-word clause gets ZERO tolerance, so its lone assertion ("contraindicated") must be
+#    covered — Codex diff-gate iter-2 P1: a flat tolerance of 1 waived any size-1 distinctive clause,
+#    re-opening the dropped one-word-contraindication risk.
+#  - _MIN_CLAUSE_CONTENT_WORDS: a clause must carry at least this many content words to be checkable.
+#    Set to 1 (Codex iter-2 P1): a one-content-word safety predicate ("is contraindicated") is a real
+#    assertion that must be covered, not skipped. Only a 0-content-word fragment (bare numeral, pure
+#    function words) is non-substantive and waived.
+#  - _BACKBONE_MIN_CLAUSE_COUNT: a content word is "backbone" (the shared drug/population subject) iff
+#    it appears in at least this many clauses; backbone words are discounted from a clause's
+#    distinctive set so a repeated subject term cannot launder a dropped predicate.
+_ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES = 1
+_MIN_CLAUSE_CONTENT_WORDS = 1
+_BACKBONE_MIN_CLAUSE_COUNT = 2
+# A single-distinctive-word clause carries its whole assertion in that one word -> ZERO tolerance.
+_SINGLE_DISTINCTIVE_WORD = 1
+
+# Content-word tokenizer for the cross-check. Kept LOCAL (self-contained, no clinical_generator /
+# strict_verify import from the roles package) but the stoplist + ">=3 chars, drop stopwords" rule
+# mirror strict_verify._content_words so coverage counts the SAME substantive vocabulary the rest of
+# the faithfulness engine does. The connective/contrastive words that START a new clause are folded
+# into the stoplist so they never count as the lone "shared" word.
+_COVERAGE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
+_COVERAGE_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at",
+    "to", "for", "with", "as", "by", "from", "into", "through", "during",
+    "before", "after", "above", "below", "between", "is", "are", "was",
+    "were", "be", "been", "being", "have", "has", "had", "having", "do",
+    "does", "did", "doing", "will", "would", "should", "could", "may",
+    "might", "must", "can", "this", "that", "these", "those", "it",
+    "its", "their", "there", "they", "them", "we", "us", "our", "you",
+    "your", "i", "me", "my", "he", "she", "his", "her",
+    # contrastive / subordinating connectives that introduce a SEPARATE clause (split markers below):
+    "however", "although", "though", "whereas", "while", "despite", "except", "yet", "not",
+})
+
+# Intra-sentence CONTRASTIVE/SUBORDINATING clause markers. The decimal-aware SENTENCE boundary
+# (lazy-imported from claim_atom_extractor, the read-only cross-check tool) splits on `. ; ! ?` /
+# newlines without cutting decimals; these connectives additionally split a single sentence into its
+# constituent clauses so a "X works, BUT it is contraindicated in Y" claim yields TWO clauses to
+# cover — the contraindication clause cannot hide inside the efficacy sentence. Matched
+# case-insensitively as whole words.
+_CLAUSE_CONNECTIVE_RE = re.compile(
+    r"\b(?:however|although|though|whereas|while|despite|except|but|yet)\b",
+    re.IGNORECASE,
+)
+
+# Codex diff-gate iter-1 P1.2: coordinating "and"/"or" must split COORDINATED PREDICATES so
+# "Drug reduced HbA1c and is contraindicated in pancreatitis" yields two clauses — otherwise the
+# dropped contraindication conjunct hides in one clause and the efficacy atom covers it. But naive
+# and/or splitting RE-BREAKS numeric lists ("5 mg, 10 mg, and 15 mg") and noun coordinations
+# ("HbA1c and body weight"). CONSTRAINT: split at " and "/" or " ONLY when the following conjunct
+# opens with a finite PREDICATE verb (is/are/was/were/has/have/had/showed/reduced/increased/...). A
+# noun/numeric conjunct ("15 mg in the trial") carries no leading finite verb and is NOT split. This
+# discriminates clausal-and (split) from noun/numeric-and (keep) without a comma split.
+_PREDICATE_AND_OR_RE = re.compile(
+    r"\s+(?:and|or)\s+(?="
+    r"(?:is|are|was|were|has|have|had|"
+    r"shows?|showed|demonstrat\w*|reduc\w*|increas\w*|decreas\w*|lower\w*|rais\w*|"
+    r"caus\w*|le[ad]\w*|result\w*|associat\w*|improv\w*|worsen\w*|"
+    r"remain\w*|appear\w*|prevent\w*|induc\w*|inhibit\w*|"
+    r"is\s+contraindicat\w*|contraindicat\w*|"
+    r"may|can|should|must|might|will|would)"
+    r"\b)",
+    re.IGNORECASE,
+)
+
+
+def sentinel_atom_coverage_enabled() -> bool:
+    """True iff the F06 atom-coverage completeness cross-check is enabled (read at call time).
+
+    Default OFF: the locked decomposition behavior stays byte-identical until the cert run slate
+    turns it on (F05 precedent). Read here (not at import) so a single process can exercise both
+    flag states in tests.
+    """
+    return os.getenv(_ATOM_COVERAGE_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _coverage_content_words(text: str) -> set[str]:
+    """Lowercase content words (>=3 chars, not stopwords/connectives) from `text` (F06).
+
+    Mirrors strict_verify._content_words so the cross-check counts the SAME substantive vocabulary
+    the faithfulness engine uses. Non-string / empty -> empty set (the caller treats a clause with
+    too few content words as non-substantive and skips it)."""
+    if not isinstance(text, str):
+        return set()
+    return {
+        m.group(0).lower()
+        for m in _COVERAGE_WORD_RE.finditer(text)
+        if len(m.group(0)) >= 3 and m.group(0).lower() not in _COVERAGE_STOPWORDS
+    }
+
+
+def _split_claim_clauses(claim: str) -> list[str]:
+    """Split a claim sentence into its constituent clauses (F06, independent of the model).
+
+    Three-stage split, decimal-safe: (1) the decimal-aware SENTENCE boundary regex lazy-imported from
+    `claim_atom_extractor` (the spec's read-only cross-check tool) cuts on `. ; ! ?` / newlines
+    WITHOUT splitting decimals like `8.21`; (2) each sentence is further split on the contrastive /
+    subordinating CONNECTIVES (`_CLAUSE_CONNECTIVE_RE`) so intra-sentence clauses (the "...BUT
+    contraindicated in..." tail) become their own clause; (3) each piece is split on COORDINATING
+    "and"/"or" that introduce a PREDICATE conjunct (`_PREDICATE_AND_OR_RE`) so "X reduced Y and is
+    contraindicated in Z" yields two clauses — but a noun/numeric "and" ("5 mg, 10 mg, and 15 mg")
+    is left intact. Returns the non-empty trimmed clause strings; an empty/non-string claim yields []."""
+    if not isinstance(claim, str) or not claim.strip():
+        return []
+    # Lazy import (anti-coupling, evidence_distiller.py:511-514 precedent): the roles package does not
+    # import the generator package at module load. The regex is READ-ONLY (used only to .split()).
+    from src.polaris_graph.generator.claim_atom_extractor import _SENTENCE_BOUNDARY_RE
+
+    clauses: list[str] = []
+    for sentence in _SENTENCE_BOUNDARY_RE.split(claim):
+        if not sentence or not sentence.strip():
+            continue
+        for connective_piece in _CLAUSE_CONNECTIVE_RE.split(sentence):
+            if not connective_piece or not connective_piece.strip():
+                continue
+            # Split coordinating predicate-bearing and/or (Codex iter-1 P1.2); numeric/noun and/or
+            # (no leading finite verb) is NOT matched and stays one clause.
+            for clause in _PREDICATE_AND_OR_RE.split(connective_piece):
+                if clause and clause.strip():
+                    clauses.append(clause.strip())
+    return clauses
+
+
+def _distinctive_words(clause_words: set[str], all_clause_word_sets: list[set[str]]) -> set[str]:
+    """The clause's DISTINCTIVE content words: its own words minus the claim's BACKBONE (Codex iter-1
+    P1.1). A word is backbone iff it appears in >= `_BACKBONE_MIN_CLAUSE_COUNT` clauses — that is the
+    shared drug/population SUBJECT ("tirzepatide", "patients") every clause repeats. Discounting the
+    backbone means a dropped clause that merely echoes the subject cannot be laundered as covered by
+    another clause's atom; only the clause's OWN predicate content ("contraindicated", "pancreatitis")
+    can satisfy coverage. If a clause is ALL backbone (empty distinctive set), it carries no unique
+    assertion and is treated as covered by the caller."""
+    backbone = {
+        word
+        for word in clause_words
+        if sum(1 for other in all_clause_word_sets if word in other)
+        >= _BACKBONE_MIN_CLAUSE_COUNT
+    }
+    return clause_words - backbone
+
+
+def atom_coverage_complete(claim: str, atoms: list[dict[str, Any]] | None) -> bool:
+    """Does the Sentinel `atoms` set COVER every substantive assertion in `claim`? (F06 cross-check.)
+
+    INDEPENDENT of the model's verdict: clauses are derived from the CITED SENTENCE (sentence +
+    contrastive + predicate-and/or split), then each substantive clause's DISTINCTIVE content words
+    (its own words minus the shared drug/population backbone) must appear in the UNION of all atom
+    texts. A MULTI-word distinctive clause allows at most `_ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES`
+    incidental misses; a SINGLE-distinctive-word clause ("...is contraindicated") allows ZERO — its
+    lone assertion must be covered (Codex iter-2 P1). Returns:
+      - True  -> every substantive clause is covered (decomposition is complete; do NOT downgrade).
+      - False -> at least one substantive clause's distinctive assertion is NOT represented by any
+                 atom (a dropped/un-atomized clause; the caller treats this as UNGROUNDED — STRICTER).
+
+    Distinctive-word coverage (Codex iter-1 P1.1) discounts the shared subject so a dropped clause
+    cannot pass merely by repeating the drug/population terms of a covered clause. The miss tolerance
+    keeps a faithful atom that drops one incidental word ("...in the trial") from false-dropping.
+
+    FAIL-CLOSED on a missing/empty atom set: `atoms` None or carrying no usable atom text, against a
+    claim that DOES have a substantive distinctive clause, returns False (no atom did the per-clause
+    work). A claim with no substantive distinctive assertion at all (a bare numeral, or all-backbone)
+    returns True (nothing unique to cover -> the coverage check adds no constraint; the model's own
+    per-atom gate above still applies)."""
+    clauses = _split_claim_clauses(claim)
+    # Per-clause content-word sets; keep only clauses that carry a checkable assertion.
+    clause_word_sets: list[set[str]] = [
+        words
+        for clause in clauses
+        if len(words := _coverage_content_words(clause)) >= _MIN_CLAUSE_CONTENT_WORDS
+    ]
+    if not clause_word_sets:
+        # No checkable assertion in the claim text -> coverage imposes no extra constraint.
+        return True
+
+    # Union of all atom texts' content words (join each atom's own contract fields). A model atom that
+    # speaks to a clause should contribute that clause's distinctive vocabulary into this union.
+    atom_word_union: set[str] = set()
+    for atom in atoms or []:
+        if not isinstance(atom, dict):
+            continue
+        atom_text = " ".join(
+            str(atom.get(field, "") or "") for field in ("atom", "why", "type")
+        )
+        atom_word_union |= _coverage_content_words(atom_text)
+
+    for clause_words in clause_word_sets:
+        distinctive = _distinctive_words(clause_words, clause_word_sets)
+        if not distinctive:
+            # All-backbone clause: no unique assertion to cover (redundant subject restatement).
+            continue
+        # A SINGLE-distinctive-word clause ("...is contraindicated") gets ZERO tolerance: its whole
+        # assertion is that one word and must be covered. The incidental-word tolerance applies ONLY
+        # to multi-word clauses, where it forgives one dropped incidental word ("...in the trial").
+        # Codex diff-gate iter-2 P1: a flat tolerance waived size-1 distinctive clauses.
+        allowed_misses = (
+            0
+            if len(distinctive) == _SINGLE_DISTINCTIVE_WORD
+            else _ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES
+        )
+        misses = len(distinctive - atom_word_union)
+        if misses > allowed_misses:
+            # The clause's distinctive assertion is NOT represented -> incomplete decomposition.
+            return False
+    return True

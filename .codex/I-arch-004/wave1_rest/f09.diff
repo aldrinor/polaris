@@ -1,0 +1,272 @@
+diff --git a/src/polaris_graph/authority/credibility_judge_caller.py b/src/polaris_graph/authority/credibility_judge_caller.py
+index f7414fd6..31d8b4b2 100644
+--- a/src/polaris_graph/authority/credibility_judge_caller.py
++++ b/src/polaris_graph/authority/credibility_judge_caller.py
+@@ -123,11 +123,18 @@ def make_openrouter_credibility_caller(
+             # high-effort reasoning completes AND emits the JSON (measured: finish=stop, valid output).
+             "reasoning": {"effort": reasoning_effort},
+         }
+-        # PROVIDER PINNING (mirror entailment_judge): pin to the preflight-resolved evaluator provider,
++        # PROVIDER PINNING (mirror entailment_judge): pin to the preflight-resolved MIRROR provider,
+         # allow_fallbacks=False — never silently fail over to a non-sovereign/untested provider.
++        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator" key.
++        # The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
++        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
++        # "evaluator") returned None -> NO provider pin -> this credibility judge FREE-ROUTED to an
++        # unpinned provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:
++        # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
++        # pins to the SAME provider chain as the main mirror role.
+         try:
+             from src.polaris_graph.benchmark import pathB_capture as _pathb
+-            gate_provider = _pathb.get_role_provider("evaluator")
++            gate_provider = _pathb.get_role_provider("mirror")
+         except Exception:  # noqa: BLE001 — routing lookup must never break the call
+             _pathb = None
+             gate_provider = None
+diff --git a/src/polaris_graph/llm/entailment_judge.py b/src/polaris_graph/llm/entailment_judge.py
+index b8c24b9d..d1894826 100644
+--- a/src/polaris_graph/llm/entailment_judge.py
++++ b/src/polaris_graph/llm/entailment_judge.py
+@@ -221,13 +221,20 @@ class _EntailmentJudge:
+         # the request body to match the resolved-at-preflight per-role provider. Without this,
+         # this direct httpx path bypasses the gate's routing intent (the OpenRouterClient path
+         # also got the override via openrouter_client.py:1400-1410). Codex iter-2 P1#2.
+-        # Codex iter-1 diff P1#2: this lookup MUST use explicit role="evaluator", NOT the
+-        # ambient _ROLE contextvar. The entailment judge fires during section generation
+-        # (where _ROLE=="generator"), but it posts the evaluator-family model — using the
+-        # ambient role would route Gemma to the generator's provider (Fireworks, no Gemma).
++        # Codex iter-1 diff P1#2: this lookup MUST use an explicit role string, NOT the ambient
++        # _ROLE contextvar. The entailment judge fires during section generation (where
++        # _ROLE=="generator"), but it posts the evaluator-family model — using the ambient role
++        # would route the judge model to the generator's provider.
++        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
++        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
++        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
++        # "evaluator") returned None -> NO provider pin -> this side-judge FREE-ROUTED to an unpinned
++        # provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:legacy_compat
++        # the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge pins to the
++        # SAME provider chain as the main mirror role (allow_fallbacks=False, require_parameters=True).
+         try:
+             from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+-            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
++            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
+         except Exception:
+             _gate_provider = None
+         # Operator 2026-06-13: reasoning stays MAX; any sub-max/off effort is coerced UP to high so the
+diff --git a/src/polaris_graph/retrieval/semantic_conflict_detector.py b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+index 91143770..5eb0382d 100644
+--- a/src/polaris_graph/retrieval/semantic_conflict_detector.py
++++ b/src/polaris_graph/retrieval/semantic_conflict_detector.py
+@@ -418,9 +418,17 @@ class _SemanticContradictionJudge:
+             "reasoning": {"effort": _sc_effort},
+             "response_format": {"type": "json_object"},
+         }
++        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
++        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
++        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
++        # "evaluator") returned None -> NO provider pin -> this NLI conflict judge FREE-ROUTED to an
++        # unpinned provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:
++        # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
++        # pins to the SAME provider chain as the main mirror role (allow_fallbacks=False,
++        # require_parameters=True).
+         try:
+             from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
+-            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
++            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
+         except Exception:
+             _gate_provider = None
+         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when
+diff --git a/tests/polaris_graph/authority/test_credibility_judge_caller_012a.py b/tests/polaris_graph/authority/test_credibility_judge_caller_012a.py
+index 493e1442..40fa1ce2 100644
+--- a/tests/polaris_graph/authority/test_credibility_judge_caller_012a.py
++++ b/tests/polaris_graph/authority/test_credibility_judge_caller_012a.py
+@@ -64,15 +64,45 @@ def test_strict_cost_delta_and_endpoint(monkeypatch):
+     assert abs(_orc.current_run_cost() - before - 0.002) < 1e-9  # STRICT delta == the call's recorded cost
+ 
+ 
+-def test_provider_pinned_no_fallback_when_gate_active(monkeypatch):
++def test_provider_pinned_to_mirror_chain_no_fallback_when_gate_active(monkeypatch):
++    # I-arch-004 F09: the credibility side-judge must pin to the MIRROR role's resolved provider
++    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. The preflight role_provider_map
++    # only carries generator/mirror/sentinel/judge; "evaluator" is absent. Assert the caller looks
++    # up "mirror" and pins it singleton-no-fallback (allow_fallbacks=False, require_parameters=True).
+     captured = {}
+     monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
+     from src.polaris_graph.benchmark import pathB_capture as _pathb
+-    monkeypatch.setattr(_pathb, "get_role_provider",
+-                        lambda role: "fireworks" if role == "evaluator" else None)
++    looked_up = []
++
++    def _fake_get_role_provider(role):
++        looked_up.append(role)
++        return "novita" if role == "mirror" else None
++
++    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
+     make_openrouter_credibility_caller()("hi")
++    # The resolved provider order is the MIRROR chain, pinned with no fallback.
+     assert captured["body"]["provider"] == {
+-        "order": ["fireworks"], "allow_fallbacks": False, "require_parameters": True}
++        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
++    # Discriminating: the caller routed via "mirror", NOT the retired "evaluator" key.
++    assert "mirror" in looked_up
++    assert "evaluator" not in looked_up
++
++
++def test_retired_evaluator_key_does_not_pin_provider(monkeypatch):
++    # I-arch-004 F09 regression guard: BEFORE the fix the caller looked up "evaluator", which the
++    # locked 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic
++    # that map shape (only "mirror" populated) and prove the caller now PINS (does not free-route).
++    captured = {}
++    monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
++    from src.polaris_graph.benchmark import pathB_capture as _pathb
++    role_map = {"generator": "fireworks", "mirror": "novita",
++                "sentinel": "deepinfra", "judge": "together"}
++    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
++    make_openrouter_credibility_caller()("hi")
++    # Resolved == the mirror chain (not None, not the generator's, not unpinned/free-route).
++    assert captured["body"]["provider"]["order"] == ["novita"]
++    assert captured["body"]["provider"]["allow_fallbacks"] is False
++    assert captured["body"]["provider"]["require_parameters"] is True
+ 
+ 
+ def test_budget_breach_propagates_through_caller_and_judge(monkeypatch):
+diff --git a/tests/polaris_graph/llm/test_entailment_judge_cost.py b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+index b014e75f..6e0b9e67 100644
+--- a/tests/polaris_graph/llm/test_entailment_judge_cost.py
++++ b/tests/polaris_graph/llm/test_entailment_judge_cost.py
+@@ -277,3 +277,60 @@ def test_judge_raises_budget_exceeded_when_cap_breached(monkeypatch, tmp_path):
+ 
+     with pytest.raises(openrouter_client.BudgetExceededError):
+         judge.judge("sentence", "span")
++
++
++# ───────────────────── I-arch-004 F09: entailment judge pins the MIRROR chain ─────────────────────
++
++
++def _posted_body(judge):
++    """Extract the json body posted by the mocked httpx client."""
++    call_args = judge._client.post.call_args
++    return call_args.kwargs.get("json") if call_args else None
++
++
++def test_entailment_judge_pins_mirror_chain_when_gate_active(monkeypatch):
++    # I-arch-004 F09: the entailment side-judge must pin to the MIRROR role's resolved provider
++    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. The preflight role_provider_map
++    # only carries generator/mirror/sentinel/judge; "evaluator" is absent -> get_role_provider(
++    # "evaluator") == None -> NO pin -> free-route. Assert the judge looks up "mirror" and pins it
++    # singleton-no-fallback (allow_fallbacks=False, require_parameters=True).
++    payload = {
++        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
++        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++    from src.polaris_graph.benchmark import pathB_capture as _pathb
++    looked_up = []
++
++    def _fake_get_role_provider(role):
++        looked_up.append(role)
++        return "novita" if role == "mirror" else None
++
++    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
++    judge.judge("sentence", "span")
++    body = _posted_body(judge)
++    assert body["provider"] == {
++        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
++    assert "mirror" in looked_up
++    assert "evaluator" not in looked_up
++
++
++def test_entailment_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
++    # I-arch-004 F09 regression guard: BEFORE the fix the judge looked up "evaluator", which the
++    # locked 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic
++    # the real map shape (only the 4 locked roles populated) and prove the judge now PINS the mirror
++    # chain (not None, not the generator's provider, not unpinned/free-route).
++    payload = {
++        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
++        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
++    }
++    judge = _make_judge_with_mock_response(monkeypatch, payload)
++    from src.polaris_graph.benchmark import pathB_capture as _pathb
++    role_map = {"generator": "fireworks", "mirror": "novita",
++                "sentinel": "deepinfra", "judge": "together"}
++    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
++    judge.judge("sentence", "span")
++    body = _posted_body(judge)
++    assert body["provider"]["order"] == ["novita"]
++    assert body["provider"]["allow_fallbacks"] is False
++    assert body["provider"]["require_parameters"] is True
+diff --git a/tests/polaris_graph/test_semantic_conflict_detector_iready012.py b/tests/polaris_graph/test_semantic_conflict_detector_iready012.py
+index fe36a0b3..4a4c4218 100644
+--- a/tests/polaris_graph/test_semantic_conflict_detector_iready012.py
++++ b/tests/polaris_graph/test_semantic_conflict_detector_iready012.py
+@@ -221,3 +221,70 @@ def test_semantic_record_is_audit_ir_loader_compatible():
+         assert c.evidence_id
+         assert c.predicate
+         assert c.value == pytest.approx(0.0)  # finite sentinel (prose has no numeric value)
++
++
++# ───────────────────── F09: NLI conflict judge pins the MIRROR provider chain ─────────────────────
++
++
++class _CaptureClient:
++    """Mock httpx.Client capturing the posted request body; returns a valid CONTRADICT verdict."""
++
++    def __init__(self):
++        self.body = None
++
++    def post(self, url, headers=None, json=None):
++        self.body = json
++
++        class _Resp:
++            def raise_for_status(self_inner):
++                return None
++
++            def json(self_inner):
++                return {
++                    "choices": [{"message": {"content": '{"verdict": "NEUTRAL", "confidence": 0.0}'}}],
++                    "usage": {"prompt_tokens": 5, "completion_tokens": 3, "cost": 0.001},
++                }
++
++        return _Resp()
++
++
++def test_conflict_judge_pins_mirror_chain_when_gate_active(monkeypatch):
++    # I-arch-004 F09: the NLI conflict side-judge must pin to the MIRROR role's resolved provider
++    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. role_provider_map only carries
++    # generator/mirror/sentinel/judge; "evaluator" is absent -> get_role_provider("evaluator") == None
++    # -> NO pin -> free-route. Assert the judge looks up "mirror" and pins it singleton-no-fallback.
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")  # glm != deepseek => family ok
++    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
++    judge._client = _CaptureClient()
++    from src.polaris_graph.benchmark import pathB_capture as _pathb
++    looked_up = []
++
++    def _fake_get_role_provider(role):
++        looked_up.append(role)
++        return "novita" if role == "mirror" else None
++
++    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
++    judge.judge("claim a", "claim b")
++    assert judge._client.body["provider"] == {
++        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
++    assert "mirror" in looked_up
++    assert "evaluator" not in looked_up
++
++
++def test_conflict_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
++    # I-arch-004 F09 regression guard: BEFORE the fix the judge looked up "evaluator", which the locked
++    # 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic the real
++    # map shape (only the 4 locked roles populated) and prove the judge now PINS the mirror chain.
++    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
++    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
++    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
++    judge._client = _CaptureClient()
++    from src.polaris_graph.benchmark import pathB_capture as _pathb
++    role_map = {"generator": "fireworks", "mirror": "novita",
++                "sentinel": "deepinfra", "judge": "together"}
++    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
++    judge.judge("claim a", "claim b")
++    assert judge._client.body["provider"]["order"] == ["novita"]
++    assert judge._client.body["provider"]["allow_fallbacks"] is False
++    assert judge._client.body["provider"]["require_parameters"] is True

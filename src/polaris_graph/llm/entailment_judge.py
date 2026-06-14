@@ -221,13 +221,20 @@ class _EntailmentJudge:
         # the request body to match the resolved-at-preflight per-role provider. Without this,
         # this direct httpx path bypasses the gate's routing intent (the OpenRouterClient path
         # also got the override via openrouter_client.py:1400-1410). Codex iter-2 P1#2.
-        # Codex iter-1 diff P1#2: this lookup MUST use explicit role="evaluator", NOT the
-        # ambient _ROLE contextvar. The entailment judge fires during section generation
-        # (where _ROLE=="generator"), but it posts the evaluator-family model — using the
-        # ambient role would route Gemma to the generator's provider (Fireworks, no Gemma).
+        # Codex iter-1 diff P1#2: this lookup MUST use an explicit role string, NOT the ambient
+        # _ROLE contextvar. The entailment judge fires during section generation (where
+        # _ROLE=="generator"), but it posts the evaluator-family model — using the ambient role
+        # would route the judge model to the generator's provider.
+        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
+        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
+        # "evaluator") returned None -> NO provider pin -> this side-judge FREE-ROUTED to an unpinned
+        # provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:legacy_compat
+        # the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge pins to the
+        # SAME provider chain as the main mirror role (allow_fallbacks=False, require_parameters=True).
         try:
             from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
-            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
+            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
         except Exception:
             _gate_provider = None
         # Operator 2026-06-13: reasoning stays MAX; any sub-max/off effort is coerced UP to high so the

@@ -1,0 +1,102 @@
+{
+  "summary": "A3 Wave-1 rest + early Wave-2: F06 sentinel atom-completeness, F08+F11 conflict/completeness binding, F09 side-judge routing, F10+F31 provenance count/token, F32 narrative wrapper — surgical, tested, Codex-inline-gated cap 3, faithfulness STRENGTHENED never relaxed",
+  "agentCount": 5,
+  "logs": [
+    "wave1-rest: 5 lanes: F06=APPROVE, F10+F31=APPROVE, F09=APPROVE, F08+F11=APPROVE, F32=APPROVE"
+  ],
+  "result": {
+    "fixes": [
+      {
+        "fix_id": "F06",
+        "verdict": "APPROVE",
+        "codex_iters": 3,
+        "files_changed": [
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-1\\src\\polaris_graph\\roles\\sentinel_contract.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-1\\src\\polaris_graph\\roles\\role_pipeline.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-1\\tests\\roles\\test_sentinel_atom_coverage_f06.py"
+        ],
+        "tests_summary": "225 passed, 0 failed across the roles suites (test_sentinel_atom_coverage_f06.py [36 new], test_sentinel_contract.py, test_role_pipeline.py, test_judge_sentinel_atoms.py, test_sentinel_adapter.py, test_sweep_integration.py, test_four_role_budget_cap.py, test_seam_parallel.py). Command: PYTHONPATH=src python -m pytest <files> -q -p no:cacheprovider -o cache_dir=/tmp/ptcache_*. The ACCEPT criterion test (test_accept_half_decomposed_resolves_ungrounded_flag_on) proves a 2-assertion sentence with 1 unsupported/un-atomized clause and a single returned atom resolves final_verdict=UNSUPPORTED (not VERIFIED). No-false-drop test proves both-clauses-covered stays VERIFIED. Flag-off test proves byte-identical pre-F06 behavior. Codex iter-1/iter-2 P1 cases are pinned with their exact-wording tests.",
+        "diff_path": "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-1\\f06_final.diff",
+        "faithfulness_note": "STRENGTHENS the 4-role D8 faithfulness gate; never relaxes it. The atom-coverage cross-check can ONLY downgrade a Sentinel GROUNDED to UNGROUNDED (sentinel_result._replace(verdict=UNGROUNDED)); it never upgrades. The LOCKED _compose_final_verdict body is untouched. The flag PG_SENTINEL_ATOM_COVERAGE defaults OFF (byte-identical, mirroring F05's PG_JUDGE_SENTINEL_ATOMS), strengthened behavior is the cert-slate default. Scope-guarded to atoms is not None so guardian/noninverted modes are unaffected. No domain-vocabulary allowlist was added (deliberately avoided per §-1.3) — the completeness floor is a general structural rule (distinctive-word coverage with size-dependent tolerance: single-distinctive-word clauses get zero tolerance). Codex iter-3 APPROVE: zero novel P0, zero P1.",
+        "residual": [
+          "P2 (Codex-disclosed, strict-side, NOT a relaxation): the coverage check is lexical, not full semantic extraction. A MULTI-distinctive-word clause where the atom covers all-but-one distinctive word (miss 1 <= the multi-word tolerance) can pass; and a model atom that verbatim-quotes the whole sentence spuriously passes coverage. Both err on the stricter/UNGROUNDED-leaning side and match the existing 'the model did the per-atom work' trust boundary. Closing them fully requires a general semantic assertion extractor = a rewrite, out of scope for this flag-gated surgical P1 (verified: claim_atom_extractor extracts ONLY numeric OUTCOME atoms, so it cannot serve as the independent extractor for a non-numeric contraindication clause).",
+          "Cert-slate enablement of PG_SENTINEL_ATOM_COVERAGE=1 is a separate run-config wiring step (the Gate-B/cert run slate), not part of this diff — same pattern as F05's PG_JUDGE_SENTINEL_ATOMS."
+        ]
+      },
+      {
+        "fix_id": "F10+F31",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "src/polaris_graph/generator/provenance_generator.py",
+          "src/polaris_graph/generator/multi_section_generator.py",
+          "src/polaris_graph/generator/contract_section_runner.py",
+          "src/polaris_graph/roles/report_redactor.py",
+          "tests/polaris_graph/test_f10_f31_resolve_count_bogus_marker.py",
+          "tests/polaris_graph/test_m63_contract_section_runner.py"
+        ],
+        "tests_summary": "All targeted suites green. New module tests/polaris_graph/test_f10_f31_resolve_count_bogus_marker.py (9 tests) reproduces each bug and asserts the strengthened behavior: F10(a) emitted count excludes resolver-dropped fragments + emits 0 for the all-dropped gap-stub case + public 2-tuple byte-identical to counted variant; F31 bogus [ev_<slug>] marker stripped when a valid #ev grounds the sentence, bogus-only sentence dropped, real-id bare marker + numbered [N] preserved, slug words cannot inflate the content-word floor; F10(b) _normalize interior-collapse + 06-006 interior-collapse claim redacted (not already_absent) with VERIFIED neighbor [N] preserved. 89 passed across new + touched suites (test_m63_contract_section_runner 18/18 incl. the updated stale assertion, test_m8_pass9_degenerate_sentence_guard, test_limitations_gap3, test_bibliography_basket_iarch002, test_disclosure_resolve_sites_icred008b, report_redactor redact001 + iready017). Broad generator + audit_ir consumer suites: 207 passed. 6 pre-existing HEAD failures (3 in test_disclosure_failloud_wiring_icred008b source-string greps; 3 in tests/roles mirror-routing/dr-benchmark greps) confirmed identical on clean HEAD — unrelated to this diff. Byte-identity of verified_text PROVEN for the contract E2E (SHA256 5045e331..., len 2340): only the count changed (HEAD kept=8 overstated; fix reports honest 0 since all 8 terse N=1879 sentences floor-drop to gap-disclosure stubs).",
+        "diff_path": "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-2\\f10_f31.diff",
+        "faithfulness_note": "Both fixes STRENGTHEN gates and relax nothing. F10 makes the resolver/callers report the honest POST-resolve verified count (sentences ACTUALLY emitted) instead of the pre-resolve kept-list length, and triggers is_gap_stub on emitted==0 — strictly more honest reporting; the resolver-dropped delta is rolled into sentences_dropped so verified+dropped stays consistent; the rendered verified_text + biblio are byte-identical (SHA256-proven), only the count changed. This closes a downstream leak: key_findings.py:152 skips a section when sentences_verified==0, so a section shipping only gap-disclosure stubs is no longer mis-counted as 8 verified sentences. F31 adds a STRICTER span-grounding drop: a bogus bracketed [ev_...] marker resolving to no real ev-id is stripped from shipped prose and from the floor-count, and a sentence is dropped when its ONLY grounding was such a bogus marker (no valid [#ev:...] in the pool). The F31 drop is SURGICAL — it fires only when a bogus marker is present AND no valid grounding survives, so legitimate no-bracket pass-through sentences (Limitations telemetry) and validly-cited sentences are untouched (verified empirically: test_limitations_gap3 regression caught and fixed). No faithfulness gate (strict_verify / NLI / 4-role / provenance / span-grounding) was loosened; flag-OFF paths are byte-identical (the legacy 2-tuple resolver API is unchanged).",
+        "residual": [
+          "Codex iter-1 advisory P2 (contract_section_runner inline 3/15 floor hard-code drift) was ADDRESSED, not deferred — the inline regroup now imports and uses the shared named constants _RESOLVE_MIN_CONTENT_WORDS / _RESOLVE_MIN_PROSE_CHARS (behavior identical, removes drift risk, satisfies §9.4).",
+          "Out-of-scope follow-up flagged (do NOT fix here, not caused by F10/F31): terse deterministic contract field values like 'N: N=1879' (~9 chars / 2 content words) get floor-dropped by the narrative-oriented prose floor and ship only as M-68 gap-disclosure stubs. F10 surfaced this honestly (count now 0) but did not cause it; worth a separate issue on whether terse verbatim field facts deserve a lower floor.",
+          "6 pre-existing test failures on clean HEAD are untouched by this diff (3 source-string-grep tests in test_disclosure_failloud_wiring_icred008b reading inspect.getsource of generate_multi_section_report; 3 in tests/roles mirror-routing + dr_benchmark greps). Confirmed identical failures on clean HEAD — orthogonal to this lane.",
+          "Copied a gitignored fixture artifact dir (outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm) from C:/POLARIS into the worktree so tests/polaris_graph/conftest.py registry check passes during local test runs; it is gitignored and not part of the diff."
+        ]
+      },
+      {
+        "fix_id": "F09",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "src/polaris_graph/llm/entailment_judge.py",
+          "src/polaris_graph/retrieval/semantic_conflict_detector.py",
+          "src/polaris_graph/authority/credibility_judge_caller.py",
+          "tests/polaris_graph/llm/test_entailment_judge_cost.py",
+          "tests/polaris_graph/test_semantic_conflict_detector_iready012.py",
+          "tests/polaris_graph/authority/test_credibility_judge_caller_012a.py"
+        ],
+        "tests_summary": "38/38 pass across the three target test files (PYTHONPATH=src python -m pytest, no:cacheprovider). Includes 6 routing tests: 4 new (entailment x2, semantic_conflict x2) + 2 in credibility (1 updated from the old 'evaluator' assertion to 'mirror', 1 new regression guard). Negative check confirmed: reverting the source line back to get_role_provider('evaluator') makes both new entailment tests FAIL with KeyError: 'provider' (free-route, no pin) — proves the tests reproduce the bug, not tautologies. Regression: F07 + pathB_run_gate suites 71/71 pass. Required copying the gitignored allowlisted artifact dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS into the worktree for the conftest registry fixture.",
+        "diff_path": "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-3\\f09.diff",
+        "faithfulness_note": "STRENGTHENS, never relaxes. Root cause: the three side-judges (entailment/semantic_conflict/credibility) routed via the RETIRED 'evaluator' role key; the preflight role_provider_map only carries the 4 LOCKED roles (generator/mirror/sentinel/judge per pathB_runner._LOCKED_ROLES), so get_role_provider('evaluator') returned None -> NO provider pin -> free-route to an unpinned provider instead of the locked mirror chain. Fix is key-only: get_role_provider('evaluator') -> get_role_provider('mirror') in all three (3 source lines), per polaris_runtime_lock.yaml:legacy_compat (retired evaluator maps_to_role: mirror = GLM-5.1) and CLAUDE.md §9.1.8. The pin block ({order:[provider], allow_fallbacks:False, require_parameters:True}) was already correct and is unchanged. Gate-OFF: role_provider_map is None, so BOTH old 'evaluator' and new 'mirror' lookups return None -> request body byte-identical (only the gate-ON path changes). Gate-ON: strictly ADDS a pin where one was missing (None/unpinned -> the mirror provider chain). Never loosens. The Path-B CAPTURE tag role='evaluator' is INTENTIONALLY left unchanged (it is the observability identity the two-family/pathB gate expects) — only the provider-routing key was wrong. Codex diff-gate APPROVE iter 1: novel_p0 [], p1 [], p2 [], remaining_blockers [].",
+        "residual": [
+          "PG_ROLE_ALLOW_FALLBACKS still skips the provider pin entirely (free-route) in all three side-judges when set — pre-existing operator-directed behavior (#1250), orthogonal to F09, left untouched.",
+          "The Path-B capture role tag remains 'evaluator' (observability identity) by design; only provider routing was remapped to 'mirror'.",
+          "Copied gitignored fixture dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm into the worktree for the conftest registry allowlist; it is untracked and not part of the committed diff."
+        ]
+      },
+      {
+        "fix_id": "F08+F11",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\scripts\\run_honest_sweep_r3.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\src\\polaris_graph\\nodes\\completeness_checker.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\src\\polaris_graph\\audit_ir\\regression_lab.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\config\\completeness_checklists\\clinical.yaml",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\tests\\polaris_graph\\test_manifest_contract.py",
+          "C:\\POLARIS\\.claude\\worktrees\\wf_6275f5ef-751-4\\tests\\polaris_graph\\test_f08_f11_qual_pt08_critical_completeness_iarch004.py"
+        ],
+        "tests_summary": "New file tests/polaris_graph/test_f08_f11_qual_pt08_critical_completeness_iarch004.py: 23/23 pass (F08 helper eligibility + PT08 fail-on-undisclosed/pass-on-disclosed/non-clinical-no-gate; F11 critical-field YAML load + uncovered_critical_topic_ids + hold-gate predicate across clinical/non-clinical/kill-switch + taxonomy membership/tier). Adjacent existing suites all green: manifest_contract + md9_regression_lab + saturation_phase4 + external_evaluator + completeness_r6_gap3 + fx10_completeness_state + g8_completeness_blockers + lane_c_presentation + qualitative_conflict_detector = 168 passed, 1 pre-existing skip. Sibling fix tests f07_f04 + f03 (31) green; gate_b_seam + m205_evaluator_gate (20) green; v6 released_status (3) green. Worktree was reset to target HEAD 0cf44c3a (was at a disconnected 'Initial commit'); copied required gitignored fixture dir outputs/full_scale_v30_phase2_run14/clinical/clinical_tirzepatide_t2dm from C:/POLARIS to satisfy the audit-registry conftest fixture.",
+        "diff_path": "C:\\POLARIS\\.codex\\I-arch-004\\F08_F11_diff.patch",
+        "faithfulness_note": "Both fixes only ADD release-blocks; no faithfulness gate (strict_verify / NLI / 4-role D8 / provenance / span-grounding) was relaxed. F08: qualitative present-vs-absent conflicts now reach the PT08 evaluator gate, but ONLY the exact subset render_qualitative_disclosure renders inline (hard high/medium always; review only when PG_SWEEP_QUAL_REVIEW_INLINE on; empty/non-clinical -> []), so a real undisclosed conflict holds release while a legitimately-collapsed record never false-fails PT08. F11: an applicable+uncovered topic marked critical:true (contraindications) on a CLINICAL run now yields the non-success abort_critical_topic_uncovered instead of the advisory ok_incomplete_corpus; gated on clinical domain + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON) so non-clinical and flag-OFF runs are byte-identical (un-marked checklists yield no critical topics). Codex diff-gate APPROVE iter 1: zero novel P0, zero P1.",
+        "residual": []
+      },
+      {
+        "fix_id": "F32",
+        "verdict": "APPROVE",
+        "codex_iters": 1,
+        "files_changed": [
+          "C:/POLARIS/.claude/worktrees/wf_6275f5ef-751-5/src/polaris_graph/generator/multi_section_generator.py",
+          "C:/POLARIS/.claude/worktrees/wf_6275f5ef-751-5/src/polaris_graph/generator/contract_section_runner.py",
+          "C:/POLARIS/.claude/worktrees/wf_6275f5ef-751-5/tests/polaris_graph/generator/test_f32_narrative_prose_adapter.py"
+        ],
+        "tests_summary": "5 new F32 tests pass (test_f32_narrative_prose_adapter.py). Reproduce-then-pass verified: the 4 discriminating tests FAIL on pre-fix HEAD (run_contract_section had no narrative_llm_call param; PG_NARRATIVE_PROSE_SYSTEM_MESSAGE / _m63_narrative_llm_call did not exist). Full run with existing suite: 23/23 pass (5 F32 + 18 test_m63_contract_section_runner). The 3 failures in test_disclosure_failloud_wiring_icred008b are PRE-EXISTING on pristine HEAD (single-line inspect.getsource string-match idiom) and unrelated to F32 — confirmed by stashing my changes. Command: PYTHONPATH=src python -m pytest tests/polaris_graph/generator/test_f32_narrative_prose_adapter.py tests/polaris_graph/test_m63_contract_section_runner.py -q.",
+        "diff_path": "C:/POLARIS/.claude/worktrees/wf_6275f5ef-751-5/F32_my.diff",
+        "faithfulness_note": "No faithfulness gate touched. The fix only changes what the model is ASKED to produce for the narrative paragraph (prose system message + explicit non-JSON response mode) instead of the JSON-only extraction system message. The narrative output path downstream of the call is byte-unchanged: narr_text still lands in the rescue-INELIGIBLE slot_narrative_prose stream (I-faith-001 Fix B) and every narrative sentence is still re-verified by verify_sentence_provenance — a sentence not entailed by its cited span still drops and cannot be rescued. The JSON slot-fill and regulatory-synthesis extraction calls are untouched (still routed through the JSON-only _m63_llm_call). Token/reasoning/stall budgets on the new prose adapter are byte-identical to _m63_llm_call (no content starvation; operator-lock §9.1.8 respected). The new system message is a NAMED env-overridable constant (LAW VI). Legacy callers that do not thread narrative_llm_call stay byte-identical via the None->llm_call fallback.",
+        "residual": []
+      }
+    ]
+  }
+}

@@ -470,6 +470,36 @@ _CALC_TOKEN_RE = re.compile(
 # is a named constant here.
 _MODELED_ASSUMPTION_LABEL = "(modeled assumption)"
 
+# F10/F31 (I-arch-004 A3) — the resolution-survival floor a sentence must clear
+# to ship as verified prose, named here per §9.4 (no magic numbers). A real
+# research sentence has at least this many content words AND this many chars of
+# prose after stripping citation artifacts; below it, the "sentence" is a
+# degenerate fragment (bare punctuation + citation residue) and is dropped at
+# resolution time. These are the SAME bounds the resolver loop has always used
+# (formerly the literal 3/15 at provenance_generator:2694) — extracted so the
+# post-resolve verified count and the contract runner's slot regroup read ONE
+# definition, never a drifting copy.
+_RESOLVE_MIN_CONTENT_WORDS = 3
+_RESOLVE_MIN_PROSE_CHARS = 15
+
+# F31 (I-arch-004 A3) — a BOGUS bracketed evidence marker that resolves to NO
+# real evidence-id. The generator sometimes leaks a raw `[ev_<slug>]` (e.g.
+# `[ev_brynjolfsson_genai_at_work]`) ALONGSIDE a valid `[#ev:...]` token. It is
+# NOT the canonical provenance token (`[#ev:...]`, which has `#` after `[`), NOT
+# the recognizable-but-canonicalizable `[ev:<id>:<s>-<e>]` colon form (upstream
+# strict_verify already converts those), and NOT a rendered `[N]` marker (digits
+# only). `_VERIFIER_STRIP_BARE_EV_RE` only catches `[ev_<DIGITS>]`, so a
+# letter-slug marker like the above survived BOTH the verifier word-count AND the
+# rendered prose — leaking literal `[ev_<slug>]` text into the shipped report and
+# inflating the content-word floor with the slug's words. This recognizer matches
+# `[ev:<...>]` and `[ev_<...>]` (colon OR underscore after `ev`, any non-`]`
+# body); the literal `ev` second char means it can never match `[#ev:...]`
+# (which has `#`) or a numbered `[N]` marker. The resolver strips every such
+# marker whose evidence-id is NOT in the pool, then drops the sentence if no
+# valid `[#ev:...]` grounding survives (stricter span-grounding: a marker that
+# resolves to no real ev-id can no longer keep a sentence in the report).
+_BOGUS_EV_MARKER_RE = re.compile(r"\[ev[:_][^\]]*\]")
+
 # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
 # tokens emitted by V4 Pro per the Step 3a atom-citation contract
 # (additive to [ev_XXX]) must be invisible to every internal check
@@ -508,6 +538,43 @@ def _verifier_cleaned_text(sentence: str) -> str:
     s = _VERIFIER_STRIP_ATOM_RE.sub(" ", s)
     s = _VERIFIER_STRIP_BARE_EV_RE.sub(" ", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+def _bogus_marker_evidence_id(marker_body: str) -> str:
+    """Best-effort evidence-id from a bare `[ev_<slug>]` / `[ev:<id>...]` marker
+    body (the text between the brackets). For `ev_brynjolfsson_genai_at_work` the
+    whole body IS the candidate id; for `ev:some_id:0-3` the id is the part after
+    the first colon up to the next colon. Returned verbatim for an exact pool
+    lookup (we never strip a marker whose id genuinely resolves)."""
+    body = marker_body.strip()
+    if body.startswith("ev:"):
+        # `ev:<id>` or `ev:<id>:<span>` — the id is between the first and (optional) second colon.
+        rest = body[len("ev:"):]
+        return rest.split(":", 1)[0].strip()
+    # `ev_<slug>` underscore form — the whole body is the candidate id.
+    return body
+
+
+def _strip_bogus_ev_markers(
+    text: str, evidence_pool: dict[str, dict[str, Any]]
+) -> str:
+    """F31 (I-arch-004 A3): remove every BOGUS bracketed evidence marker
+    (`[ev:<...>]` / `[ev_<slug>]`) whose evidence-id is NOT a real ``evidence_pool``
+    row from ``text``. A marker whose id IS in the pool is left intact (defensive;
+    the canonical `[#ev:...]` token is handled by ``_PROVENANCE_TOKEN_RE`` and is
+    never matched here because of the literal `ev` after `[`). Numbered `[N]`
+    markers and `[#ev:...]` are untouched. Whitespace around a removed marker is
+    collapsed so no double space is left behind."""
+
+    def _repl(m: "re.Match[str]") -> str:
+        body = m.group(0)[1:-1]  # drop the surrounding brackets
+        cand = _bogus_marker_evidence_id(body)
+        if cand and cand in evidence_pool:
+            return m.group(0)  # resolves to a real source — keep it
+        return " "  # bogus — drop, leave a space the final collapse removes
+
+    out = _BOGUS_EV_MARKER_RE.sub(_repl, text)
+    return re.sub(r"\s+([.!?,;])", r"\1", re.sub(r"\s{2,}", " ", out))
 
 
 @dataclass
@@ -2602,6 +2669,42 @@ def resolve_provenance_to_citations(
     Returns (rendered_text, bibliography_list). Bibliography is a list
     of dicts: {num, evidence_id, url, tier, statement}.
 
+    Thin wrapper over :func:`resolve_provenance_to_citations_with_count` that
+    discards the third element (the count of sentences ACTUALLY emitted into the
+    rendered text). The public 2-tuple contract is byte-identical for every
+    existing caller; a caller that needs the honest post-resolve verified count
+    (F10, I-arch-004 A3) calls the ``_with_count`` variant directly.
+    """
+    text, biblio, _emitted = resolve_provenance_to_citations_with_count(
+        kept_sentences,
+        evidence_pool,
+        baskets=baskets,
+        cluster_id_by_evidence=cluster_id_by_evidence,
+    )
+    return text, biblio
+
+
+def resolve_provenance_to_citations_with_count(
+    kept_sentences: list[SentenceVerification],
+    evidence_pool: dict[str, dict[str, Any]],
+    *,
+    baskets: list | None = None,
+    cluster_id_by_evidence: dict[str, list[str]] | None = None,
+) -> tuple[str, list[dict[str, Any]], int]:
+    """Strip [#ev:...] tokens, replace with numbered citations, AND return the
+    count of sentences ACTUALLY emitted into the rendered text.
+
+    Returns (rendered_text, bibliography_list, emitted_count). ``emitted_count``
+    is the number of ``kept_sentences`` that survived RESOLUTION — i.e. cleared
+    the degenerate-fragment floor (F10) and the F31 bogus-marker span-grounding
+    drop — and were rendered. It is the honest "how many verified sentences
+    actually ship" number, which can be LOWER than ``len(kept_sentences)`` /
+    ``StrictVerificationReport.total_kept`` because the resolver itself drops
+    sentences. Callers that report ``sentences_verified`` / derive ``is_gap_stub``
+    MUST use this count, not the pre-resolve kept-list length, or the telemetry
+    overstates what shipped (F10 — strengthens reporting honesty; relaxes
+    nothing).
+
     I-arch-002 [11] P5.2 — basket-carrying bibliography (design §6). When
     ``baskets`` (the ``credibility_pass.ClaimBasket`` list) AND
     ``cluster_id_by_evidence`` (the evidence_id -> claim_cluster_id[] binding,
@@ -2664,6 +2767,26 @@ def resolve_provenance_to_citations(
     findings_lines: list[str] = []
     limitations_lines: list[str] = []
     for sv in kept_sentences:
+        # F31 (I-arch-004 A3): does this sentence carry a VALID grounding token —
+        # a parsed `[#ev:...]` whose evidence-id is a real pool row? strict_verify
+        # populates sv.tokens ONLY from canonical `[#ev:...]` tokens, so a sentence
+        # whose only bracketed "citation" is a leaked bogus `[ev_<slug>]` has NO
+        # valid token here. We compute this BEFORE stripping so the drop decision
+        # is over the real grounding, not the rendered residue.
+        _has_valid_grounding = any(
+            tok.evidence_id in evidence_pool for tok in sv.tokens
+        )
+        # F31 (I-arch-004 A3): does the sentence carry a BOGUS bracketed evidence
+        # marker — `[ev:<...>]` / `[ev_<slug>]` whose id is NOT a real pool row?
+        # This is what makes the drop SURGICAL: a legitimate pass-through sentence
+        # with NO bracketed citation at all (e.g. a Limitations telemetry sentence,
+        # which strict_verify keeps with empty tokens) carries NO bogus marker, so
+        # it is NEVER dropped by F31. Only a sentence that LOOKED cited via a marker
+        # pointing at nothing is dropped.
+        _has_bogus_marker = any(
+            _bogus_marker_evidence_id(m.group(0)[1:-1]) not in evidence_pool
+            for m in _BOGUS_EV_MARKER_RE.finditer(sv.sentence)
+        )
         # Strip provenance tokens first so degenerate fragments can be
         # detected before we assign citation numbers (otherwise the
         # bibliography keeps an entry whose only citing sentence we
@@ -2674,8 +2797,26 @@ def resolve_provenance_to_citations(
         # Phase 7 (#991): strip calc tokens too so a verified computed-number
         # sentence carries its source-input [N] citations but no token leak.
         stripped = _CALC_TOKEN_RE.sub("", stripped).strip()
+        # F31 (I-arch-004 A3): strip every BOGUS bracketed evidence marker
+        # (`[ev:<...>]` / `[ev_<slug>]`) whose evidence-id is NOT a real pool row,
+        # so it never leaks into shipped prose. A marker whose id IS in the pool is
+        # left intact (defensive — the canonical `[#ev:...]` was already stripped
+        # above; this only fires on the malformed bare-bracket leak shape). The
+        # span-grounding consequence (drop the sentence when only a bogus marker
+        # backed it) is enforced below.
+        stripped = _strip_bogus_ev_markers(stripped, evidence_pool).strip()
         # Clean trailing spaces before punctuation
         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
+        # F31 (I-arch-004 A3): a sentence whose ONLY bracketed grounding was a
+        # bogus marker resolving to no real evidence-id FAILS span-grounding — it
+        # must not ship as asserted prose on the back of a citation that points at
+        # nothing. STRICTER: previously such a sentence shipped with a leaked
+        # literal `[ev_<slug>]`. SURGICAL: fires only when a bogus marker was
+        # present AND no valid `[#ev:...]` grounding survives — a normal cited
+        # sentence (valid grounding) and a no-bracket pass-through sentence (no
+        # bogus marker) are both untouched.
+        if _has_bogus_marker and not _has_valid_grounding:
+            continue
         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
         # that survive strict_verify as bare punctuation + citation
         # (observed in the Novo sweep as ".[4]", "Morgan analysts.[12]",
@@ -2689,9 +2830,17 @@ def resolve_provenance_to_citations(
         # (so "atom" in "atom_003" does not inflate the count) — but
         # DO NOT modify the rendered `stripped` itself; the downstream
         # validator must see atom_NNN tokens in verified_text.
-        _for_count = _verifier_cleaned_text(sv.sentence)
+        # F31: also strip the bogus `[ev_<slug>]` marker from the count text so
+        # the slug's words ("brynjolfsson", "genai", ...) cannot inflate the
+        # content-word floor and let a degenerate fragment survive.
+        _for_count = _strip_bogus_ev_markers(
+            _verifier_cleaned_text(sv.sentence), evidence_pool
+        )
         _content_w = re.findall(r"[A-Za-z]+", _for_count)
-        if len(_content_w) < 3 or len(_for_count) < 15:
+        if (
+            len(_content_w) < _RESOLVE_MIN_CONTENT_WORDS
+            or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
+        ):
             continue
         # Assign citation numbers only for surviving sentences
         used_nums: list[int] = []
@@ -2710,8 +2859,14 @@ def resolve_provenance_to_citations(
         else:
             findings_lines.append(sentence_out)
 
+    # F10 (I-arch-004 A3): the count of sentences ACTUALLY emitted into the
+    # rendered text — the honest post-resolve verified count the caller must
+    # report (NOT len(kept_sentences), which overstates because this loop drops
+    # degenerate fragments + F31 bogus-only sentences).
+    emitted_count = len(findings_lines) + len(limitations_lines)
+
     findings_para = " ".join(findings_lines)
     if limitations_lines:
         limitations_para = " ".join(limitations_lines)
-        return (findings_para + "\n\n" + limitations_para, biblio)
-    return findings_para, biblio
+        return (findings_para + "\n\n" + limitations_para, biblio, emitted_count)
+    return findings_para, biblio, emitted_count

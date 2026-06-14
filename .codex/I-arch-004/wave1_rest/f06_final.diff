@@ -1,0 +1,706 @@
+diff --git a/src/polaris_graph/roles/role_pipeline.py b/src/polaris_graph/roles/role_pipeline.py
+index 2b4742b0..fbddad4e 100644
+--- a/src/polaris_graph/roles/role_pipeline.py
++++ b/src/polaris_graph/roles/role_pipeline.py
+@@ -58,7 +58,12 @@ from src.polaris_graph.roles.role_transport import (
+     RoleTransport,
+ )
+ from src.polaris_graph.roles.sentinel_adapter import run_sentinel
+-from src.polaris_graph.roles.sentinel_contract import SentinelResult, SentinelVerdict
++from src.polaris_graph.roles.sentinel_contract import (
++    SentinelResult,
++    SentinelVerdict,
++    atom_coverage_complete,
++    sentinel_atom_coverage_enabled,
++)
+ 
+ # --- canonical verdict tokens (Verdict is a Literal of plain strings, NOT an Enum) -------
+ # Mirror release_policy.py's _VERDICT_* string-constant pattern; never write `Verdict.X`.
+@@ -330,6 +335,30 @@ def run_claim_pipeline(
+         sentinel_result, _sentinel_records = run_sentinel(
+             recording, claim, evidence_documents, model_slug=sentinel_slug
+         )
++        # F06 (GH I-arch-004): atom-coverage completeness cross-check. The decomposition Sentinel's
++        # GROUNDED verdict only gates on the model's OWN atom bookkeeping (non-empty atoms, zero
++        # unsupported); it never checks that the atoms COVER every assertion in the claim. A half-
++        # decomposed clinical sentence (efficacy clause atomized + supported, contraindication clause
++        # silently dropped) therefore reaches GROUNDED. When the flag is ON and the Sentinel returned
++        # a parsed_ok GROUNDED with an atom list (decomposition mode populates `atoms`; guardian /
++        # noninverted modes leave it None and are SKIPPED), require every substantive clause to be
++        # represented by an atom. An uncovered clause -> DOWNGRADE the Sentinel verdict to UNGROUNDED
++        # (STRICTER, can only tighten). `parsed_ok` stays True — the output parsed cleanly; it is
++        # genuinely ungrounded by coverage, mirroring the contract's own contradiction-veto. The
++        # LOCKED `_compose_final_verdict` body is UNTOUCHED: its step-2 `sentinel_unsafe` branch then
++        # downgrades a Judge VERIFIED/PARTIAL to UNSUPPORTED exactly as for any UNGROUNDED Sentinel.
++        # Default OFF (F05 precedent) -> this whole block is a no-op and behavior is byte-identical.
++        if (
++            sentinel_atom_coverage_enabled()
++            and sentinel_result is not None
++            and sentinel_result.parsed_ok
++            and sentinel_result.verdict == SentinelVerdict.GROUNDED
++            and sentinel_result.atoms is not None
++            and not atom_coverage_complete(claim, sentinel_result.atoms)
++        ):
++            sentinel_result = sentinel_result._replace(
++                verdict=SentinelVerdict.UNGROUNDED
++            )
+         evidence_text = "\n\n".join(doc.text for doc in evidence_documents)
+         # Judge fails LOUD by design: a non-enum token raises JudgeEnumError, which we do NOT
+         # catch — a missing/garbage arbiter verdict must propagate, never coerce to a default.
+diff --git a/src/polaris_graph/roles/sentinel_contract.py b/src/polaris_graph/roles/sentinel_contract.py
+index 0f4d4817..ced3c363 100644
+--- a/src/polaris_graph/roles/sentinel_contract.py
++++ b/src/polaris_graph/roles/sentinel_contract.py
+@@ -20,6 +20,7 @@ deliberately fails CLOSED, so it is a SEPARATE contract, not a reuse.
+ from __future__ import annotations
+ 
+ import json
++import os
+ import re
+ from enum import Enum
+ from typing import Any, NamedTuple
+@@ -342,3 +343,237 @@ def parse_sentinel_decomposition(raw: str) -> SentinelResult:
+                     SentinelVerdict.UNGROUNDED, parsed_ok=True, atoms=_atom_list
+                 )
+     return SentinelResult(verdict, parsed_ok=True, atoms=_atom_list)
++
++
++# === F06 (P1, GH I-arch-004) ATOM-COVERAGE COMPLETENESS CROSS-CHECK ============================
++# WHY this exists: `parse_sentinel_decomposition` (above) gates a GROUNDED ("supported") verdict on
++# the model's OWN atom bookkeeping — a non-empty `atoms` list, `unsupported_atoms == 0`, and no
++# per-atom "unsupported" status. But it NEVER verifies that the atom set actually COVERS every
++# assertion in the cited sentence. A half-decomposed clinical claim — e.g. an efficacy clause that
++# IS atomized + supported, with a SECOND contraindication/safety clause the model silently dropped
++# (never atomized, never checked) — therefore passes as GROUNDED. The dropped clause carries the
++# clinical risk (a missed contraindication is §-1.1 lethal), yet no atom ever examined it.
++#
++# This is an INDEPENDENT cross-check: the clauses are derived FROM THE CITED SENTENCE (not from the
++# model's verdict or its atom list), then each substantive clause is required to be REPRESENTED by
++# at least one atom. If a substantive clause has no covering atom, the decomposition is INCOMPLETE
++# and the claim is treated as UNGROUNDED (STRICTER — it can only DOWNGRADE a GROUNDED to UNGROUNDED,
++# never the reverse). It STRENGTHENS the faithfulness gate; it can never relax it.
++#
++# FLAG (F05 precedent, judge_adapter._sentinel_atoms_enabled): default OFF -> byte-identical (the
++# caller never runs this), enabled by the Gate-B / cert run slate so the strengthened behavior is
++# the cert-slate default without churning the locked offline suite. Read at call time so one process
++# can exercise both states in tests (mirrors the rubric/atoms flags).
++_ATOM_COVERAGE_FLAG = "PG_SENTINEL_ATOM_COVERAGE"
++
++# Coverage tuning (LAW VI / §9.4: named constants, never inline magic numbers):
++#  - _ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES: the incidental-word tolerance for a MULTI-WORD clause.
++#    Coverage checks each clause's DISTINCTIVE content words (its own words minus the claim's common
++#    backbone — see `_distinctive_words`); a MULTI-word clause is covered iff at most this many of its
++#    distinctive words are absent from the union of all atom texts. The tolerance (>0) is REQUIRED so a
++#    faithful atom that drops ONE incidental word ("...in the trial") does not false-drop a legit
++#    multi-word clause. It applies ONLY to multi-word clauses (see `_allowed_misses`): a SINGLE-
++#    distinctive-word clause gets ZERO tolerance, so its lone assertion ("contraindicated") must be
++#    covered — Codex diff-gate iter-2 P1: a flat tolerance of 1 waived any size-1 distinctive clause,
++#    re-opening the dropped one-word-contraindication risk.
++#  - _MIN_CLAUSE_CONTENT_WORDS: a clause must carry at least this many content words to be checkable.
++#    Set to 1 (Codex iter-2 P1): a one-content-word safety predicate ("is contraindicated") is a real
++#    assertion that must be covered, not skipped. Only a 0-content-word fragment (bare numeral, pure
++#    function words) is non-substantive and waived.
++#  - _BACKBONE_MIN_CLAUSE_COUNT: a content word is "backbone" (the shared drug/population subject) iff
++#    it appears in at least this many clauses; backbone words are discounted from a clause's
++#    distinctive set so a repeated subject term cannot launder a dropped predicate.
++_ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES = 1
++_MIN_CLAUSE_CONTENT_WORDS = 1
++_BACKBONE_MIN_CLAUSE_COUNT = 2
++# A single-distinctive-word clause carries its whole assertion in that one word -> ZERO tolerance.
++_SINGLE_DISTINCTIVE_WORD = 1
++
++# Content-word tokenizer for the cross-check. Kept LOCAL (self-contained, no clinical_generator /
++# strict_verify import from the roles package) but the stoplist + ">=3 chars, drop stopwords" rule
++# mirror strict_verify._content_words so coverage counts the SAME substantive vocabulary the rest of
++# the faithfulness engine does. The connective/contrastive words that START a new clause are folded
++# into the stoplist so they never count as the lone "shared" word.
++_COVERAGE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]+")
++_COVERAGE_STOPWORDS: frozenset[str] = frozenset({
++    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at",
++    "to", "for", "with", "as", "by", "from", "into", "through", "during",
++    "before", "after", "above", "below", "between", "is", "are", "was",
++    "were", "be", "been", "being", "have", "has", "had", "having", "do",
++    "does", "did", "doing", "will", "would", "should", "could", "may",
++    "might", "must", "can", "this", "that", "these", "those", "it",
++    "its", "their", "there", "they", "them", "we", "us", "our", "you",
++    "your", "i", "me", "my", "he", "she", "his", "her",
++    # contrastive / subordinating connectives that introduce a SEPARATE clause (split markers below):
++    "however", "although", "though", "whereas", "while", "despite", "except", "yet", "not",
++})
++
++# Intra-sentence CONTRASTIVE/SUBORDINATING clause markers. The decimal-aware SENTENCE boundary
++# (lazy-imported from claim_atom_extractor, the read-only cross-check tool) splits on `. ; ! ?` /
++# newlines without cutting decimals; these connectives additionally split a single sentence into its
++# constituent clauses so a "X works, BUT it is contraindicated in Y" claim yields TWO clauses to
++# cover — the contraindication clause cannot hide inside the efficacy sentence. Matched
++# case-insensitively as whole words.
++_CLAUSE_CONNECTIVE_RE = re.compile(
++    r"\b(?:however|although|though|whereas|while|despite|except|but|yet)\b",
++    re.IGNORECASE,
++)
++
++# Codex diff-gate iter-1 P1.2: coordinating "and"/"or" must split COORDINATED PREDICATES so
++# "Drug reduced HbA1c and is contraindicated in pancreatitis" yields two clauses — otherwise the
++# dropped contraindication conjunct hides in one clause and the efficacy atom covers it. But naive
++# and/or splitting RE-BREAKS numeric lists ("5 mg, 10 mg, and 15 mg") and noun coordinations
++# ("HbA1c and body weight"). CONSTRAINT: split at " and "/" or " ONLY when the following conjunct
++# opens with a finite PREDICATE verb (is/are/was/were/has/have/had/showed/reduced/increased/...). A
++# noun/numeric conjunct ("15 mg in the trial") carries no leading finite verb and is NOT split. This
++# discriminates clausal-and (split) from noun/numeric-and (keep) without a comma split.
++_PREDICATE_AND_OR_RE = re.compile(
++    r"\s+(?:and|or)\s+(?="
++    r"(?:is|are|was|were|has|have|had|"
++    r"shows?|showed|demonstrat\w*|reduc\w*|increas\w*|decreas\w*|lower\w*|rais\w*|"
++    r"caus\w*|le[ad]\w*|result\w*|associat\w*|improv\w*|worsen\w*|"
++    r"remain\w*|appear\w*|prevent\w*|induc\w*|inhibit\w*|"
++    r"is\s+contraindicat\w*|contraindicat\w*|"
++    r"may|can|should|must|might|will|would)"
++    r"\b)",
++    re.IGNORECASE,
++)
++
++
++def sentinel_atom_coverage_enabled() -> bool:
++    """True iff the F06 atom-coverage completeness cross-check is enabled (read at call time).
++
++    Default OFF: the locked decomposition behavior stays byte-identical until the cert run slate
++    turns it on (F05 precedent). Read here (not at import) so a single process can exercise both
++    flag states in tests.
++    """
++    return os.getenv(_ATOM_COVERAGE_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
++
++
++def _coverage_content_words(text: str) -> set[str]:
++    """Lowercase content words (>=3 chars, not stopwords/connectives) from `text` (F06).
++
++    Mirrors strict_verify._content_words so the cross-check counts the SAME substantive vocabulary
++    the faithfulness engine uses. Non-string / empty -> empty set (the caller treats a clause with
++    too few content words as non-substantive and skips it)."""
++    if not isinstance(text, str):
++        return set()
++    return {
++        m.group(0).lower()
++        for m in _COVERAGE_WORD_RE.finditer(text)
++        if len(m.group(0)) >= 3 and m.group(0).lower() not in _COVERAGE_STOPWORDS
++    }
++
++
++def _split_claim_clauses(claim: str) -> list[str]:
++    """Split a claim sentence into its constituent clauses (F06, independent of the model).
++
++    Three-stage split, decimal-safe: (1) the decimal-aware SENTENCE boundary regex lazy-imported from
++    `claim_atom_extractor` (the spec's read-only cross-check tool) cuts on `. ; ! ?` / newlines
++    WITHOUT splitting decimals like `8.21`; (2) each sentence is further split on the contrastive /
++    subordinating CONNECTIVES (`_CLAUSE_CONNECTIVE_RE`) so intra-sentence clauses (the "...BUT
++    contraindicated in..." tail) become their own clause; (3) each piece is split on COORDINATING
++    "and"/"or" that introduce a PREDICATE conjunct (`_PREDICATE_AND_OR_RE`) so "X reduced Y and is
++    contraindicated in Z" yields two clauses — but a noun/numeric "and" ("5 mg, 10 mg, and 15 mg")
++    is left intact. Returns the non-empty trimmed clause strings; an empty/non-string claim yields []."""
++    if not isinstance(claim, str) or not claim.strip():
++        return []
++    # Lazy import (anti-coupling, evidence_distiller.py:511-514 precedent): the roles package does not
++    # import the generator package at module load. The regex is READ-ONLY (used only to .split()).
++    from src.polaris_graph.generator.claim_atom_extractor import _SENTENCE_BOUNDARY_RE
++
++    clauses: list[str] = []
++    for sentence in _SENTENCE_BOUNDARY_RE.split(claim):
++        if not sentence or not sentence.strip():
++            continue
++        for connective_piece in _CLAUSE_CONNECTIVE_RE.split(sentence):
++            if not connective_piece or not connective_piece.strip():
++                continue
++            # Split coordinating predicate-bearing and/or (Codex iter-1 P1.2); numeric/noun and/or
++            # (no leading finite verb) is NOT matched and stays one clause.
++            for clause in _PREDICATE_AND_OR_RE.split(connective_piece):
++                if clause and clause.strip():
++                    clauses.append(clause.strip())
++    return clauses
++
++
++def _distinctive_words(clause_words: set[str], all_clause_word_sets: list[set[str]]) -> set[str]:
++    """The clause's DISTINCTIVE content words: its own words minus the claim's BACKBONE (Codex iter-1
++    P1.1). A word is backbone iff it appears in >= `_BACKBONE_MIN_CLAUSE_COUNT` clauses — that is the
++    shared drug/population SUBJECT ("tirzepatide", "patients") every clause repeats. Discounting the
++    backbone means a dropped clause that merely echoes the subject cannot be laundered as covered by
++    another clause's atom; only the clause's OWN predicate content ("contraindicated", "pancreatitis")
++    can satisfy coverage. If a clause is ALL backbone (empty distinctive set), it carries no unique
++    assertion and is treated as covered by the caller."""
++    backbone = {
++        word
++        for word in clause_words
++        if sum(1 for other in all_clause_word_sets if word in other)
++        >= _BACKBONE_MIN_CLAUSE_COUNT
++    }
++    return clause_words - backbone
++
++
++def atom_coverage_complete(claim: str, atoms: list[dict[str, Any]] | None) -> bool:
++    """Does the Sentinel `atoms` set COVER every substantive assertion in `claim`? (F06 cross-check.)
++
++    INDEPENDENT of the model's verdict: clauses are derived from the CITED SENTENCE (sentence +
++    contrastive + predicate-and/or split), then each substantive clause's DISTINCTIVE content words
++    (its own words minus the shared drug/population backbone) must appear in the UNION of all atom
++    texts. A MULTI-word distinctive clause allows at most `_ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES`
++    incidental misses; a SINGLE-distinctive-word clause ("...is contraindicated") allows ZERO — its
++    lone assertion must be covered (Codex iter-2 P1). Returns:
++      - True  -> every substantive clause is covered (decomposition is complete; do NOT downgrade).
++      - False -> at least one substantive clause's distinctive assertion is NOT represented by any
++                 atom (a dropped/un-atomized clause; the caller treats this as UNGROUNDED — STRICTER).
++
++    Distinctive-word coverage (Codex iter-1 P1.1) discounts the shared subject so a dropped clause
++    cannot pass merely by repeating the drug/population terms of a covered clause. The miss tolerance
++    keeps a faithful atom that drops one incidental word ("...in the trial") from false-dropping.
++
++    FAIL-CLOSED on a missing/empty atom set: `atoms` None or carrying no usable atom text, against a
++    claim that DOES have a substantive distinctive clause, returns False (no atom did the per-clause
++    work). A claim with no substantive distinctive assertion at all (a bare numeral, or all-backbone)
++    returns True (nothing unique to cover -> the coverage check adds no constraint; the model's own
++    per-atom gate above still applies)."""
++    clauses = _split_claim_clauses(claim)
++    # Per-clause content-word sets; keep only clauses that carry a checkable assertion.
++    clause_word_sets: list[set[str]] = [
++        words
++        for clause in clauses
++        if len(words := _coverage_content_words(clause)) >= _MIN_CLAUSE_CONTENT_WORDS
++    ]
++    if not clause_word_sets:
++        # No checkable assertion in the claim text -> coverage imposes no extra constraint.
++        return True
++
++    # Union of all atom texts' content words (join each atom's own contract fields). A model atom that
++    # speaks to a clause should contribute that clause's distinctive vocabulary into this union.
++    atom_word_union: set[str] = set()
++    for atom in atoms or []:
++        if not isinstance(atom, dict):
++            continue
++        atom_text = " ".join(
++            str(atom.get(field, "") or "") for field in ("atom", "why", "type")
++        )
++        atom_word_union |= _coverage_content_words(atom_text)
++
++    for clause_words in clause_word_sets:
++        distinctive = _distinctive_words(clause_words, clause_word_sets)
++        if not distinctive:
++            # All-backbone clause: no unique assertion to cover (redundant subject restatement).
++            continue
++        # A SINGLE-distinctive-word clause ("...is contraindicated") gets ZERO tolerance: its whole
++        # assertion is that one word and must be covered. The incidental-word tolerance applies ONLY
++        # to multi-word clauses, where it forgives one dropped incidental word ("...in the trial").
++        # Codex diff-gate iter-2 P1: a flat tolerance waived size-1 distinctive clauses.
++        allowed_misses = (
++            0
++            if len(distinctive) == _SINGLE_DISTINCTIVE_WORD
++            else _ATOM_COVERAGE_MAX_DISTINCTIVE_MISSES
++        )
++        misses = len(distinctive - atom_word_union)
++        if misses > allowed_misses:
++            # The clause's distinctive assertion is NOT represented -> incomplete decomposition.
++            return False
++    return True
+diff --git a/tests/roles/test_sentinel_atom_coverage_f06.py b/tests/roles/test_sentinel_atom_coverage_f06.py
+new file mode 100644
+index 00000000..6086e55c
+--- /dev/null
++++ b/tests/roles/test_sentinel_atom_coverage_f06.py
+@@ -0,0 +1,401 @@
++"""F06 (P1, GH I-arch-004) — Sentinel atom-decomposition completeness floor.
++
++THE BUG: `parse_sentinel_decomposition` gates a GROUNDED ("supported") verdict on the model's OWN
++atom bookkeeping (non-empty atoms + unsupported_atoms==0 + no per-atom "unsupported" status) but
++NEVER checks that the atoms COVER every assertion in the cited sentence. A half-decomposed clinical
++claim — efficacy clause atomized + supported, contraindication clause silently dropped (never
++atomized, never checked) — therefore passes as GROUNDED. The dropped clause carries the clinical
++risk (§-1.1 lethal: a missed contraindication).
++
++THE FIX (F06): an INDEPENDENT atom-coverage cross-check derives clauses FROM THE CLAIM SENTENCE
++(not the model's verdict/atoms) and requires every substantive clause to be represented by an atom.
++An uncovered clause -> the Sentinel verdict is DOWNGRADED to UNGROUNDED (STRICTER), and the LOCKED
++fail-closed composition then downgrades a Judge VERIFIED/PARTIAL to UNSUPPORTED.
++
++Gated behind `PG_SENTINEL_ATOM_COVERAGE` (default OFF -> byte-identical; the cert run slate turns it
++ON). Pure logic, no model, no network.
++"""
++
++from __future__ import annotations
++
++import json
++
++import pytest
++
++from src.polaris_graph.roles.mirror_contract import CitationSpan
++from src.polaris_graph.roles.role_pipeline import run_claim_pipeline
++from src.polaris_graph.roles.role_transport import (
++    EvidenceDocument,
++    RoleRequest,
++    RoleResponse,
++)
++from src.polaris_graph.roles.sentinel_contract import (
++    SentinelResult,
++    SentinelVerdict,
++    atom_coverage_complete,
++    parse_sentinel_decomposition,
++    sentinel_atom_coverage_enabled,
++)
++
++_COVERAGE_FLAG = "PG_SENTINEL_ATOM_COVERAGE"
++
++# A 2-assertion clinical claim: an efficacy clause AND a contraindication clause. This is the exact
++# shape the bug hides in — the model atomizes only the efficacy clause and drops the contraindication.
++_TWO_CLAUSE_CLAIM = (
++    "Tirzepatide reduced HbA1c by 2.3 percentage points, "
++    "but it is contraindicated in patients with pancreatitis."
++)
++
++# Decomposition output that ONLY atomized the EFFICACY clause (the contraindication clause is
++# silently dropped — never atomized, never checked). The model's own bookkeeping is clean:
++# unsupported_atoms == 0, the one atom is "supported". The OLD parser passes this as GROUNDED.
++_HALF_DECOMPOSED_RAW = json.dumps(
++    {
++        "verdict": "supported",
++        "unsupported_atoms": 0,
++        "atoms": [
++            {
++                "atom": "Tirzepatide reduced HbA1c by 2.3 percentage points",
++                "type": "mechanism",
++                "status": "supported",
++                "why": "span states the HbA1c reduction",
++            }
++        ],
++    }
++)
++
++# The COMPLETE decomposition: BOTH the efficacy clause AND the contraindication clause are atomized
++# and supported. The no-false-drop control.
++_FULLY_DECOMPOSED_RAW = json.dumps(
++    {
++        "verdict": "supported",
++        "unsupported_atoms": 0,
++        "atoms": [
++            {
++                "atom": "Tirzepatide reduced HbA1c by 2.3 percentage points",
++                "type": "mechanism",
++                "status": "supported",
++                "why": "span states the HbA1c reduction",
++            },
++            {
++                "atom": "Tirzepatide is contraindicated in patients with pancreatitis",
++                "type": "mechanism",
++                "status": "supported",
++                "why": "span states the pancreatitis contraindication",
++            },
++        ],
++    }
++)
++
++
++# ===========================================================================================
++# Part 1 — the PURE coverage helper (`atom_coverage_complete`): the heart of the cross-check.
++# ===========================================================================================
++def test_helper_uncovered_clause_is_incomplete() -> None:
++    """THE BUG, isolated: a 2-clause claim whose atoms cover ONLY clause 1 is INCOMPLETE."""
++    atoms = json.loads(_HALF_DECOMPOSED_RAW)["atoms"]
++    assert atom_coverage_complete(_TWO_CLAUSE_CLAIM, atoms) is False
++
++
++def test_helper_all_clauses_covered_is_complete() -> None:
++    """THE NO-FALSE-DROP control: both clauses atomized -> coverage is complete."""
++    atoms = json.loads(_FULLY_DECOMPOSED_RAW)["atoms"]
++    assert atom_coverage_complete(_TWO_CLAUSE_CLAIM, atoms) is True
++
++
++def test_helper_single_clause_claim_fully_covered() -> None:
++    """A single-clause claim whose one atom covers it is complete (no false-drop on simple claims)."""
++    claim = "Tirzepatide reduced HbA1c by 2.3 percentage points."
++    atoms = [{"atom": "Tirzepatide reduced HbA1c by 2.3 percentage points", "status": "supported"}]
++    assert atom_coverage_complete(claim, atoms) is True
++
++
++def test_helper_none_atoms_against_substantive_claim_is_incomplete() -> None:
++    """FAIL-CLOSED: no atom set at all, against a claim with a real assertion -> incomplete."""
++    assert atom_coverage_complete(_TWO_CLAUSE_CLAIM, None) is False
++    assert atom_coverage_complete(_TWO_CLAUSE_CLAIM, []) is False
++
++
++def test_helper_non_substantive_claim_imposes_no_constraint() -> None:
++    """A claim with no checkable assertion (bare numeral / function words) -> coverage adds nothing."""
++    assert atom_coverage_complete("5.0", None) is True
++    assert atom_coverage_complete("It is.", []) is True
++    assert atom_coverage_complete("", None) is True
++
++
++def test_helper_numeric_list_not_oversplit_no_false_drop() -> None:
++    """Comma is NOT a clause split marker: a dose list stays ONE clause and is covered by one atom
++    (guards against the over-split false-drop the advisor flagged)."""
++    claim = "Tirzepatide was dosed at 5 mg, 10 mg, and 15 mg in the trial."
++    atoms = [{"atom": "Tirzepatide was dosed at 5 mg, 10 mg, and 15 mg", "status": "supported"}]
++    assert atom_coverage_complete(claim, atoms) is True
++
++
++def test_helper_subordinating_connective_splits_clause() -> None:
++    """An 'although' subordinating clause is split out and must be covered independently."""
++    claim = (
++        "The drug lowered blood pressure significantly, "
++        "although it increased the risk of hyperkalemia."
++    )
++    # Atoms cover only the blood-pressure clause -> the hyperkalemia clause is uncovered.
++    half = [{"atom": "The drug lowered blood pressure significantly", "status": "supported"}]
++    assert atom_coverage_complete(claim, half) is False
++    # Both clauses atomized -> complete.
++    full = half + [{"atom": "the drug increased the risk of hyperkalemia", "status": "supported"}]
++    assert atom_coverage_complete(claim, full) is True
++
++
++def test_helper_malformed_atom_entries_ignored_safely() -> None:
++    """Non-dict atom entries contribute nothing and never crash; an uncovered clause still fails."""
++    atoms = ["not a dict", {"atom": "Tirzepatide reduced HbA1c by 2.3 percentage points"}, None]
++    assert atom_coverage_complete(_TWO_CLAUSE_CLAIM, atoms) is False  # contraindication uncovered
++
++
++# --- Codex diff-gate iter-1 P1.1: shared-backbone clauses cannot launder a dropped clause ----------
++def test_helper_codex_p1_1_shared_backbone_dropped_clause_is_incomplete() -> None:
++    """Codex iter-1 P1.1 (exact wording): 'an omitted contraindication clause that repeats the same
++    drug/population terms as the supported efficacy atom can still be treated as covered.' The two
++    clauses SHARE the drug+population backbone (tirzepatide / patients); the efficacy-only atom must
++    NOT cover the contraindication clause, because distinctive-word coverage discounts the backbone and
++    the contraindication's OWN risk terms (contraindicated/pancreatitis) are absent from the atom."""
++    claim = (
++        "Tirzepatide reduced HbA1c in patients with diabetes, "
++        "but tirzepatide is contraindicated in patients with pancreatitis."
++    )
++    efficacy_only = [
++        {"atom": "Tirzepatide reduced HbA1c in patients with diabetes", "status": "supported"}
++    ]
++    assert atom_coverage_complete(claim, efficacy_only) is False
++    # Control: atomize the contraindication clause too -> covered.
++    full = efficacy_only + [
++        {"atom": "tirzepatide is contraindicated in patients with pancreatitis", "status": "supported"}
++    ]
++    assert atom_coverage_complete(claim, full) is True
++
++
++# --- Codex diff-gate iter-1 P1.2: coordinating 'and' must split coordinated predicates -------------
++def test_helper_codex_p1_2_coordinating_and_splits_predicate() -> None:
++    """Codex iter-1 P1.2 (exact wording): 'Drug reduced HbA1c and is contraindicated in pancreatitis
++    remains one clause and can pass coverage with only the efficacy atom.' The predicate-bearing 'and'
++    now splits the conjunct, so the efficacy-only atom leaves the contraindication conjunct uncovered."""
++    claim = "The drug reduced HbA1c and is contraindicated in pancreatitis."
++    efficacy_only = [{"atom": "The drug reduced HbA1c", "status": "supported"}]
++    assert atom_coverage_complete(claim, efficacy_only) is False
++    # Control: both conjuncts atomized -> covered.
++    full = efficacy_only + [
++        {"atom": "the drug is contraindicated in pancreatitis", "status": "supported"}
++    ]
++    assert atom_coverage_complete(claim, full) is True
++
++
++def test_helper_noun_coordination_and_not_oversplit() -> None:
++    """A NOUN coordination 'HbA1c and body weight' (no leading finite verb after 'and') is NOT split,
++    so one atom covering the whole assertion keeps it GROUNDED — guards the predicate-and constraint
++    against re-breaking noun/numeric 'and' (the false-drop the P1.2 fix must avoid)."""
++    claim = "The drug reduced HbA1c and body weight significantly."
++    atom = [{"atom": "The drug reduced HbA1c and body weight significantly", "status": "supported"}]
++    assert atom_coverage_complete(claim, atom) is True
++
++
++def test_helper_incidental_word_tolerance_no_false_drop() -> None:
++    """Case-5 canary: a faithful atom may drop ONE incidental distinctive word ('trial') and the
++    clause still counts covered (the miss tolerance). This is the constant that must stay green while
++    the dropped-contraindication cases (2 missing risk words) fail."""
++    claim = "Tirzepatide was dosed at 5 mg, 10 mg, and 15 mg in the trial."
++    # Atom omits "trial" (1 incidental distinctive miss) but covers dose/drug.
++    atom = [{"atom": "Tirzepatide was dosed at 5 mg, 10 mg, and 15 mg", "status": "supported"}]
++    assert atom_coverage_complete(claim, atom) is True
++
++
++# --- Codex diff-gate iter-2 P1: a single-distinctive-word safety predicate cannot be waived --------
++def test_helper_codex_p1_iter2_one_word_contraindication_not_waived() -> None:
++    """Codex iter-2 P1 (exact case): 'The drug reduced HbA1c and is contraindicated.' The
++    contraindication conjunct's only distinctive word is 'contraindicated'. It must NOT be (a) skipped
++    by the min-content threshold nor (b) waived by the incidental-miss tolerance. A SINGLE-distinctive-
++    word clause gets ZERO tolerance, so an efficacy-only atom leaves it uncovered -> incomplete."""
++    claim = "The drug reduced HbA1c and is contraindicated."
++    efficacy_only = [{"atom": "The drug reduced HbA1c", "status": "supported"}]
++    assert atom_coverage_complete(claim, efficacy_only) is False
++    # Control: atomize the contraindication conjunct too -> covered.
++    full = efficacy_only + [{"atom": "the drug is contraindicated", "status": "supported"}]
++    assert atom_coverage_complete(claim, full) is True
++
++
++def test_helper_codex_p1_iter2_one_word_shared_condition_variant() -> None:
++    """Codex iter-2 P1 'shared-condition variant where only contraindicated is distinctive': both
++    clauses share the drug+condition backbone, leaving 'contraindicated' as the contraindication
++    clause's sole distinctive word. ZERO tolerance on the size-1 distinctive set -> efficacy-only atom
++    -> incomplete."""
++    claim = (
++        "Metformin is recommended in patients with diabetes "
++        "but metformin is contraindicated in patients with diabetes and renal failure."
++    )
++    # Atom covers only the recommended clause; "contraindicated" (+ "renal", "failure") are the
++    # contraindication clause's distinctive words and are absent.
++    efficacy_only = [
++        {"atom": "Metformin is recommended in patients with diabetes", "status": "supported"}
++    ]
++    assert atom_coverage_complete(claim, efficacy_only) is False
++
++
++# ===========================================================================================
++# Part 2 — flag helper.
++# ===========================================================================================
++def test_flag_default_off(monkeypatch) -> None:
++    monkeypatch.delenv(_COVERAGE_FLAG, raising=False)
++    assert sentinel_atom_coverage_enabled() is False
++
++
++@pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes", "on", "On"])
++def test_flag_truthy_values_enable(monkeypatch, val) -> None:
++    monkeypatch.setenv(_COVERAGE_FLAG, val)
++    assert sentinel_atom_coverage_enabled() is True
++
++
++@pytest.mark.parametrize("val", ["0", "false", "no", "off", ""])
++def test_flag_falsy_values_disabled(monkeypatch, val) -> None:
++    monkeypatch.setenv(_COVERAGE_FLAG, val)
++    assert sentinel_atom_coverage_enabled() is False
++
++
++# ===========================================================================================
++# Part 3 — the parser is UNCHANGED: the half-decomposed claim STILL parses GROUNDED at the
++# contract level (proving F06 is an INDEPENDENT cross-check layered above, not a parser edit).
++# ===========================================================================================
++def test_parser_still_passes_half_decomposed_as_grounded() -> None:
++    """The decomposition CONTRACT (model bookkeeping) cannot see the dropped clause — it still
++    returns GROUNDED. THAT is precisely why the F06 coverage cross-check is needed downstream."""
++    result = parse_sentinel_decomposition(_HALF_DECOMPOSED_RAW)
++    assert result.verdict is SentinelVerdict.GROUNDED
++    assert result.parsed_ok is True
++    assert result.atoms is not None and len(result.atoms) == 1
++
++
++# ===========================================================================================
++# Part 4 — END-TO-END through run_claim_pipeline: the ACCEPT criterion.
++# A MockTransport that emits the half-decomposed Sentinel output + a Judge VERIFIED. With the flag
++# ON the claim must resolve UNGROUNDED (final_verdict NOT VERIFIED); with the flag OFF it stays
++# VERIFIED (byte-identical).
++# ===========================================================================================
++_MODEL_SLUGS = {
++    "mirror": "cohere/command-a-plus",
++    "sentinel": "minimax/minimax-m2",
++    "judge": "qwen/qwen3.6-35b-a3b",
++}
++_EVIDENCE = [
++    EvidenceDocument(
++        doc_id="doc1",
++        text=(
++            "Tirzepatide reduced HbA1c by 2.3 percentage points. "
++            "It is contraindicated in patients with pancreatitis."
++        ),
++    )
++]
++_TIMESTAMP = "2026-06-14T00:00:00Z"
++
++
++class _CoverageMockTransport:
++    """Mock RoleTransport: Mirror grounds on doc1; Sentinel emits a configurable decomposition JSON;
++    Judge returns VERIFIED. Forces decomposition mode via the minimax sentinel slug default."""
++
++    def __init__(self, *, sentinel_raw: str) -> None:
++        self._sentinel_raw = sentinel_raw
++        self.seen_roles: list[str] = []
++
++    def complete(self, request: RoleRequest) -> RoleResponse:
++        self.seen_roles.append(request.role)
++        if request.role == "mirror":
++            if "pass2_input" in request.params:
++                content_hash = request.params["pass2_input"]["content_hash"]
++                payload = {"content_hash": content_hash, "classification": "supported"}
++                return RoleResponse(raw_text=json.dumps(payload), served_model=request.model_slug)
++            return RoleResponse(
++                raw_text="grounded answer",
++                served_model=request.model_slug,
++                citations=[CitationSpan(span_start=0, span_end=8, doc_ids=("doc1",))],
++            )
++        if request.role == "sentinel":
++            return RoleResponse(raw_text=self._sentinel_raw, served_model=request.model_slug)
++        if request.role == "judge":
++            return RoleResponse(raw_text="VERIFIED", served_model=request.model_slug)
++        raise AssertionError(f"unexpected role {request.role!r}")
++
++
++def _run(transport):
++    return run_claim_pipeline(
++        transport,
++        claim_id="claim-f06",
++        claim=_TWO_CLAUSE_CLAIM,
++        evidence_documents=_EVIDENCE,
++        severity="S0",
++        s0_categories=[],
++        model_slugs=_MODEL_SLUGS,
++        timestamp=_TIMESTAMP,
++    )
++
++
++@pytest.fixture
++def _decomposition_env(monkeypatch):
++    """Pin the decomposition Sentinel mode (the minimax lock default) so `atoms` is populated."""
++    monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "decomposition")
++    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)
++
++
++def test_accept_half_decomposed_resolves_ungrounded_flag_on(monkeypatch, _decomposition_env) -> None:
++    """THE ACCEPT CRITERION: a 2-assertion sentence where the contraindication clause is unsupported/
++    un-atomized and the Sentinel returned only the efficacy atom -> resolves UNGROUNDED (NOT
++    GROUNDED): final_verdict is downgraded away from VERIFIED."""
++    monkeypatch.setenv(_COVERAGE_FLAG, "1")
++    transport = _CoverageMockTransport(sentinel_raw=_HALF_DECOMPOSED_RAW)
++    result = _run(transport)
++    # The Sentinel parsed GROUNDED but the coverage cross-check downgraded it to UNGROUNDED.
++    assert result.sentinel_result is not None
++    assert result.sentinel_result.verdict is SentinelVerdict.UNGROUNDED
++    assert result.sentinel_result.parsed_ok is True  # it parsed cleanly; it is ungrounded by coverage
++    # The Judge said VERIFIED, but the UNGROUNDED Sentinel downgrades it to UNSUPPORTED.
++    assert result.raw_judge_verdict == "VERIFIED"
++    assert result.final_verdict == "UNSUPPORTED"
++    assert result.final_verdict != "VERIFIED"
++    assert result.d8_row.verdict == "UNSUPPORTED"
++
++
++def test_no_false_drop_fully_decomposed_stays_grounded_flag_on(monkeypatch, _decomposition_env) -> None:
++    """NO FALSE DROP: the SAME 2-clause claim, with BOTH clauses atomized + supported, stays
++    GROUNDED and composes to VERIFIED even with the flag ON."""
++    monkeypatch.setenv(_COVERAGE_FLAG, "1")
++    transport = _CoverageMockTransport(sentinel_raw=_FULLY_DECOMPOSED_RAW)
++    result = _run(transport)
++    assert result.sentinel_result is not None
++    assert result.sentinel_result.verdict is SentinelVerdict.GROUNDED
++    assert result.final_verdict == "VERIFIED"
++    assert result.d8_row.verdict == "VERIFIED"
++
++
++def test_flag_off_half_decomposed_stays_verified_byte_identical(monkeypatch, _decomposition_env) -> None:
++    """FLAG OFF: the half-decomposed claim is NOT downgraded — behavior is byte-identical to pre-F06
++    (the Sentinel GROUNDED verdict stands, Judge VERIFIED composes to VERIFIED). This proves the fix
++    is fully gated."""
++    monkeypatch.delenv(_COVERAGE_FLAG, raising=False)
++    transport = _CoverageMockTransport(sentinel_raw=_HALF_DECOMPOSED_RAW)
++    result = _run(transport)
++    assert result.sentinel_result is not None
++    assert result.sentinel_result.verdict is SentinelVerdict.GROUNDED  # NOT downgraded (flag off)
++    assert result.final_verdict == "VERIFIED"
++    assert result.d8_row.verdict == "VERIFIED"
++
++
++def test_non_decomposition_mode_unaffected_flag_on(monkeypatch) -> None:
++    """SCOPE GUARD: guardian/noninverted modes return atoms=None. With the flag ON, a GROUNDED
++    non-decomposition Sentinel must NOT be downgraded (the coverage check is skipped on atoms=None) —
++    otherwise every non-decomposition GROUNDED claim would wrongly flip to UNSUPPORTED."""
++    monkeypatch.setenv(_COVERAGE_FLAG, "1")
++    monkeypatch.setenv("PG_SENTINEL_GROUNDEDNESS_MODE", "noninverted")
++    monkeypatch.delenv("PG_FOUR_ROLE_TRANSPORT", raising=False)
++    # Non-inverted Sentinel emits the one-word GROUNDED token -> parsed GROUNDED, atoms=None.
++    transport = _CoverageMockTransport(sentinel_raw="GROUNDED")
++    result = _run(transport)
++    assert result.sentinel_result is not None
++    assert result.sentinel_result.atoms is None
++    assert result.sentinel_result.verdict is SentinelVerdict.GROUNDED  # untouched (atoms=None skip)
++    assert result.final_verdict == "VERIFIED"
++    assert result.d8_row.verdict == "VERIFIED"

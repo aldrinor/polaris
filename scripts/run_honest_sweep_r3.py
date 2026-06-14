@@ -231,6 +231,7 @@ UNIFIED_STATUS_VALUES: frozenset[str] = frozenset({
     "abort_corpus_approval_denied",
     "abort_no_verified_sections",
     "abort_excessive_gap",           # F03 (A3): below PG_MIN_VERIFIED_SECTION_FRACTION of sections produced verified prose — a mostly-gap-stubbed report is a NON-success abort, not a shippable partial (clinical-safety: a report whose body is mostly gap disclosures must not ship green)
+    "abort_critical_topic_uncovered",  # F11 (A3): a clinical run left a checklist topic marked `critical: true` (contraindications / boxed warnings) APPLICABLE but UNCOVERED — previously an advisory ok_incomplete_corpus shipped GREEN; now HELD (clinical-safety). Clinical-domain-only + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD (default ON).
     "abort_evaluator_critical",      # BUG-M-205: PT08/PT11/PT12 integrity failure
     "abort_budget_exceeded",         # I-meta-008 (#1015): PG_MAX_COST_PER_RUN breached mid-run (generator OR 4-role verifier)
     "abort_verifier_degraded",       # I-ready-002 (#1071): judge_error_rate > PG_MAX_JUDGE_ERROR_RATE — binding verifier too degraded to trust
@@ -271,6 +272,8 @@ _SUMMARY_TO_UNIFIED: dict[str, str] = {
     # F03 (A3): the verified-section-fraction floor abort is already an `abort_` unified name — map
     # it to itself so to_unified_status passes it through (NOT error_unexpected).
     "abort_excessive_gap": "abort_excessive_gap",
+    # F11 (A3): uncovered critical clinical topic hold — already a unified `abort_` name; identity map.
+    "abort_critical_topic_uncovered": "abort_critical_topic_uncovered",
     "abort_evaluator_critical": "abort_evaluator_critical",
     # I-meta-005 Phase 4 (#988): pruned partial report (some sections under-covered).
     "partial_saturation": "partial_saturation",
@@ -656,6 +659,23 @@ def _benchmark_strict_gates_on() -> bool:
     return _env_flag(_BENCHMARK_STRICT_GATES_ENV, default=False)
 
 
+# --- I-arch-004 F11 (#1249): critical-completeness HOLD -------------------------------
+# A clinical report that ships with ZERO coverage of a checklist topic marked
+# `critical: true` (contraindications / boxed warnings) is a clinical-safety hole.
+# The completeness gate previously treated EVERY uncovered topic as advisory
+# (ok_incomplete_corpus -> ships green). This kill-switch (DEFAULT ON) makes an
+# applicable+uncovered CRITICAL topic on a CLINICAL run a NON-success hold
+# (abort_critical_topic_uncovered). Non-clinical runs never reach the gate (they
+# have no critical-marked checklist), so they are byte-identical. Operators can set
+# PG_SWEEP_CRITICAL_COMPLETENESS_HOLD=0 to revert to the advisory behavior.
+_CRITICAL_COMPLETENESS_HOLD_ENV = "PG_SWEEP_CRITICAL_COMPLETENESS_HOLD"
+
+
+def _critical_completeness_hold_on() -> bool:
+    """Return True iff the F11 critical-completeness HOLD is enabled (default ON)."""
+    return _env_flag(_CRITICAL_COMPLETENESS_HOLD_ENV, default=True)
+
+
 # --- I-arch-004 F07 (#1249/#1252): fail-CLOSED faithfulness-slate preflight ----------
 # The benchmark certification run must run with EVERY faithfulness gate BINDING, not
 # advisory. Forensic dual-audit (#1249/#1252) found the gates could silently fall to
@@ -962,6 +982,65 @@ def render_qualitative_disclosure(
                 f"sidecar (filter `type=\"qualitative\"`, `severity=\"review\"`).\n"
             )
     return out
+
+
+def qualitative_records_disclosed_for_pt08(
+    qualitative_records: list,
+    *,
+    is_clinical: bool,
+    review_inline: bool | None = None,
+) -> list:
+    """I-arch-004 F08 (#1249): the EXACT subset of qualitative records whose
+    subject+predicate ``render_qualitative_disclosure`` writes into the report.
+
+    PT08 (run_external_evaluation) holds release iff every contradiction record it
+    receives has its ``subject`` AND ``predicate`` substring present in report_text.
+    A high present-vs-absent qualitative conflict (e.g. a contraindication asserted
+    by one source, denied by another) was DETECTED but never reached PT08, so it
+    could never block release — a clinical-safety hole. This returns the SAME records
+    the renderer renders inline (so PT08 gates a real undisclosed conflict, never
+    false-fails on a record that was intentionally collapsed):
+
+    * empty / non-clinical -> [] (the renderer returns "" -> nothing in the report,
+      so PT08 must not demand a disclosure that does not exist);
+    * hard CONFLICT rows (severity high/medium) are ALWAYS rendered -> always eligible;
+    * REVIEW flags are rendered inline only when ``PG_SWEEP_QUAL_REVIEW_INLINE`` is on
+      (otherwise collapsed to a count) -> eligible only in that case.
+
+    This STRENGTHENS the faithfulness gate (adds a release-block for a previously
+    ungated conflict class). It never relaxes any check: a record that is NOT rendered
+    is excluded, so PT08 never fails for a disclosure the report legitimately omits.
+    Mirrors the dedup + gating in ``render_qualitative_disclosure`` exactly."""
+    if not qualitative_records or not is_clinical:
+        return []
+    if review_inline is None:
+        review_inline = _env_flag(_QUAL_REVIEW_INLINE_ENV, default=False)
+
+    hard = [r for r in qualitative_records if getattr(r, "severity", "") in ("high", "medium")]
+    review = [r for r in qualitative_records if getattr(r, "severity", "") == "review"]
+
+    def _status_signature(record) -> tuple:
+        statuses = tuple(
+            cl.get("assertion_status", "?")
+            for cl in getattr(record, "claims", []) or []
+        )
+        return (getattr(record, "subject", ""), getattr(record, "predicate", ""), statuses)
+
+    def _dedup(records: list) -> list:
+        seen: set = set()
+        out: list = []
+        for record in records:
+            sig = _status_signature(record)
+            if sig in seen:
+                continue
+            seen.add(sig)
+            out.append(record)
+        return out
+
+    eligible = _dedup(hard)
+    if review_inline:
+        eligible += _dedup(review)
+    return eligible
 
 
 def render_semantic_disclosure(
@@ -7205,8 +7284,11 @@ async def run_one_query(
         # STATUS (present/absent/indeterminate/statistical_null) — NOT the loader-required numeric
         # value — and separates hard conflicts from review flags (Codex brief-gate iter-1 P1.5).
         # BB5-P01 (#1179): collapse + dedup + clinical-gate via render_qualitative_disclosure. The
-        # raw per-pair dump was 82% of drb_75's file and mis-fired on non-clinical Qs. Qualitative
-        # records are NOT passed to the PT08 evaluator gate, so this trim is faithfulness-safe.
+        # raw per-pair dump was 82% of drb_75's file and mis-fired on non-clinical Qs.
+        # I-arch-004 F08 (#1249): the SAME records this renders inline are now passed to the PT08
+        # evaluator gate (via qualitative_records_disclosed_for_pt08, identical gating) so a high
+        # present-vs-absent conflict holds release; this collapse/dedup is still faithfulness-safe
+        # because the PT08 helper mirrors it exactly (it only gates what is actually disclosed).
         methods += render_qualitative_disclosure(
             qualitative_records, is_clinical=_clinical_verified_only_surface,
         )
@@ -7553,8 +7635,23 @@ async def run_one_query(
                 # (abort_evaluator_critical), exactly like a numeric one. asdict carries subject +
                 # predicate; PT08 reads only those (substring presence), so the extra semantic fields
                 # are ignored. Numeric records are unchanged.
+                # I-arch-004 F08 (#1249): ALSO gate the qualitative present-vs-absent conflicts. A high
+                # present-vs-absent conflict (one source asserts a contraindication, another denies it)
+                # was DETECTED but never reached PT08, so it could never block release — a clinical-
+                # safety hole. Pass the EXACT subset render_qualitative_disclosure renders inline (hard
+                # CONFLICT rows always; REVIEW flags only when PG_SWEEP_QUAL_REVIEW_INLINE is on), so
+                # PT08 holds release on a real undisclosed qualitative conflict yet never false-fails on
+                # a record the report legitimately collapsed. Empty/non-clinical -> [] -> no-op (byte-
+                # identical PT08 payload). STRENGTHENS the gate; relaxes nothing.
                 contradictions=[serialize_contradiction_record(c) for c in contradictions]
-                + [asdict(sr) for sr in semantic_records],
+                + [asdict(sr) for sr in semantic_records]
+                + [
+                    asdict(qr)
+                    for qr in qualitative_records_disclosed_for_pt08(
+                        qualitative_records,
+                        is_clinical=_clinical_verified_only_surface,
+                    )
+                ],
                 evidence_pool=ev_pool,
                 enable_llm_judge=False,
             )
@@ -7663,6 +7760,29 @@ async def run_one_query(
             # release-withholding gate_class, so the manifest status and release_allowed flag can
             # never contradict (a False release_allowed reading as a shippable "ok").
             summary_status = "abort_evaluator_critical"
+        elif (
+            _clinical_verified_only_surface
+            and _critical_completeness_hold_on()
+            and completeness.uncovered_critical_topic_ids()
+        ):
+            # I-arch-004 F11 (#1249): a CLINICAL run left a checklist topic marked
+            # `critical: true` (contraindications / boxed warnings) APPLICABLE but
+            # UNCOVERED. The completeness gate below would have shipped this as the
+            # advisory ok_incomplete_corpus (GREEN) — a clinical-safety hole. HOLD the
+            # run instead (non-success). Clinical-domain-only (non-clinical checklists
+            # carry no critical-marked topic, so this branch is unreachable for them ->
+            # byte-identical) + kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD.
+            _uncovered_crit = completeness.uncovered_critical_topic_ids()
+            summary_status = "abort_critical_topic_uncovered"
+            summary["error"] = (
+                "critical clinical completeness topic(s) applicable but uncovered: "
+                f"{_uncovered_crit}"
+            )
+            _log(
+                f"[ABORT]       clinical-safety HOLD — uncovered critical topic(s) "
+                f"{_uncovered_crit}; refusing to ship as success "
+                f"(PG_SWEEP_CRITICAL_COMPLETENESS_HOLD)."
+            )
         elif getattr(multi, "outline_fallback_used", False):
             # BUG-M-203: planner failed/retry-failed; fallback used.
             summary_status = "ok_outline_fallback"

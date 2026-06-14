@@ -64,15 +64,45 @@ def test_strict_cost_delta_and_endpoint(monkeypatch):
     assert abs(_orc.current_run_cost() - before - 0.002) < 1e-9  # STRICT delta == the call's recorded cost
 
 
-def test_provider_pinned_no_fallback_when_gate_active(monkeypatch):
+def test_provider_pinned_to_mirror_chain_no_fallback_when_gate_active(monkeypatch):
+    # I-arch-004 F09: the credibility side-judge must pin to the MIRROR role's resolved provider
+    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. The preflight role_provider_map
+    # only carries generator/mirror/sentinel/judge; "evaluator" is absent. Assert the caller looks
+    # up "mirror" and pins it singleton-no-fallback (allow_fallbacks=False, require_parameters=True).
     captured = {}
     monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
     from src.polaris_graph.benchmark import pathB_capture as _pathb
-    monkeypatch.setattr(_pathb, "get_role_provider",
-                        lambda role: "fireworks" if role == "evaluator" else None)
+    looked_up = []
+
+    def _fake_get_role_provider(role):
+        looked_up.append(role)
+        return "novita" if role == "mirror" else None
+
+    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
     make_openrouter_credibility_caller()("hi")
+    # The resolved provider order is the MIRROR chain, pinned with no fallback.
     assert captured["body"]["provider"] == {
-        "order": ["fireworks"], "allow_fallbacks": False, "require_parameters": True}
+        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
+    # Discriminating: the caller routed via "mirror", NOT the retired "evaluator" key.
+    assert "mirror" in looked_up
+    assert "evaluator" not in looked_up
+
+
+def test_retired_evaluator_key_does_not_pin_provider(monkeypatch):
+    # I-arch-004 F09 regression guard: BEFORE the fix the caller looked up "evaluator", which the
+    # locked 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic
+    # that map shape (only "mirror" populated) and prove the caller now PINS (does not free-route).
+    captured = {}
+    monkeypatch.setattr(httpx, "Client", _fake_client(captured, "{}", {"cost": 0.001}))
+    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    role_map = {"generator": "fireworks", "mirror": "novita",
+                "sentinel": "deepinfra", "judge": "together"}
+    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
+    make_openrouter_credibility_caller()("hi")
+    # Resolved == the mirror chain (not None, not the generator's, not unpinned/free-route).
+    assert captured["body"]["provider"]["order"] == ["novita"]
+    assert captured["body"]["provider"]["allow_fallbacks"] is False
+    assert captured["body"]["provider"]["require_parameters"] is True
 
 
 def test_budget_breach_propagates_through_caller_and_judge(monkeypatch):

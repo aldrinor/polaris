@@ -277,3 +277,60 @@ def test_judge_raises_budget_exceeded_when_cap_breached(monkeypatch, tmp_path):
 
     with pytest.raises(openrouter_client.BudgetExceededError):
         judge.judge("sentence", "span")
+
+
+# ───────────────────── I-arch-004 F09: entailment judge pins the MIRROR chain ─────────────────────
+
+
+def _posted_body(judge):
+    """Extract the json body posted by the mocked httpx client."""
+    call_args = judge._client.post.call_args
+    return call_args.kwargs.get("json") if call_args else None
+
+
+def test_entailment_judge_pins_mirror_chain_when_gate_active(monkeypatch):
+    # I-arch-004 F09: the entailment side-judge must pin to the MIRROR role's resolved provider
+    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. The preflight role_provider_map
+    # only carries generator/mirror/sentinel/judge; "evaluator" is absent -> get_role_provider(
+    # "evaluator") == None -> NO pin -> free-route. Assert the judge looks up "mirror" and pins it
+    # singleton-no-fallback (allow_fallbacks=False, require_parameters=True).
+    payload = {
+        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+    }
+    judge = _make_judge_with_mock_response(monkeypatch, payload)
+    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    looked_up = []
+
+    def _fake_get_role_provider(role):
+        looked_up.append(role)
+        return "novita" if role == "mirror" else None
+
+    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
+    judge.judge("sentence", "span")
+    body = _posted_body(judge)
+    assert body["provider"] == {
+        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
+    assert "mirror" in looked_up
+    assert "evaluator" not in looked_up
+
+
+def test_entailment_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
+    # I-arch-004 F09 regression guard: BEFORE the fix the judge looked up "evaluator", which the
+    # locked 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic
+    # the real map shape (only the 4 locked roles populated) and prove the judge now PINS the mirror
+    # chain (not None, not the generator's provider, not unpinned/free-route).
+    payload = {
+        "choices": [{"message": {"content": json.dumps({"verdict": "ENTAILED", "reason": "ok"})}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001},
+    }
+    judge = _make_judge_with_mock_response(monkeypatch, payload)
+    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    role_map = {"generator": "fireworks", "mirror": "novita",
+                "sentinel": "deepinfra", "judge": "together"}
+    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
+    judge.judge("sentence", "span")
+    body = _posted_body(judge)
+    assert body["provider"]["order"] == ["novita"]
+    assert body["provider"]["allow_fallbacks"] is False
+    assert body["provider"]["require_parameters"] is True

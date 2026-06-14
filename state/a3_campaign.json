@@ -1,61 +1,454 @@
 {
-  "campaign": "A3 — complete Tier A-E, production-grade, no more half-ass runs",
+  "campaign": "A3 \u00e2\u20ac\u201d complete Tier A-E, production-grade, no more half-ass runs",
   "mandate_date_utc": "2026-06-14",
-  "operator_directive": "Fix ALL 32 chokepoints (Claude 74 + 9 Codex + 27 run-data + 7 completeness + validation gate), each Codex-gated, faithfulness gates strengthened never relaxed (§-1.3). Then a full-scale Q1 --all run. Checkpoints (F04) MUST be in place so any mid-run break is resumable.",
+  "operator_directive": "Fix ALL 32 chokepoints (Claude 74 + 9 Codex + 27 run-data + 7 completeness + validation gate), each Codex-gated, faithfulness gates strengthened never relaxed (\u00c2\u00a7-1.3). Then a full-scale Q1 --all run. Checkpoints (F04) MUST be in place so any mid-run break is resumable.",
   "master_list": ".codex/I-arch-004/A3_master_fix_list.md (v2, Codex-validation-gated GAPS_OR_ERRORS_REMAIN folded)",
   "umbrella_issue": 1256,
   "codex_iter_cap": 3,
-  "_codex_iter_cap_note": "Operator 2026-06-14 lowered the per-document Codex cap from 5 to 3 FOR THIS CAMPAIGN. Brief cap directive uses 'HARD ITERATION CAP: 3 per document.' Does NOT change CLAUDE.md §8.3.1 globally.",
+  "_codex_iter_cap_note": "Operator 2026-06-14 lowered the per-document Codex cap from 5 to 3 FOR THIS CAMPAIGN. Brief cap directive uses 'HARD ITERATION CAP: 3 per document.' Does NOT change CLAUDE.md \u00c2\u00a78.3.1 globally.",
   "spend_authorized": true,
   "max_parallel": "fan out across file-INDEPENDENT fixes; serialize same-hot-file fixes per the serialize_set",
   "checkpoint_gate": "F04 must be APPROVE+committed BEFORE the full Q1 --all run",
-  "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) §-1.1-audited end-to-end",
+  "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) \u00c2\u00a7-1.1-audited end-to-end",
   "status": "executing",
   "wave0_recovery_note_2026_06_14": "Overnight Wave-0 Workflow (wf_7ed8eebf-4e3) STALLED ~7h on hung codex (no-timeout). Both lane builds were complete as uncommitted changes in the locked worktrees; salvaged to main (same HEAD 3af0168e), 77/77 tests green, durable patches at .codex/I-arch-004/wave0/{lane1,lane2}.patch. Codex diff-gates relaunched via file-read (large piped stdin kills codex exec rc=127). Lane1=F01+F25+F03, Lane2=F02.",
-  "done": ["A1 (#1248, 8415d496)", "A2 (#1248, 11db8204)", "I-arch-003 model/token lock (#1253)"],
+  "done": [
+    "A1 (#1248, 8415d496)",
+    "A2 (#1248, 11db8204)",
+    "I-arch-003 model/token lock (#1253)"
+  ],
   "serialize_set": {
-    "multi_section_generator.py": ["F02-contract", "F06-adj", "F10", "F21", "F26", "F29", "F32"],
-    "run_honest_sweep_r3.py": ["F03", "F08", "F11", "F24", "F27", "F04"],
-    "run_gate_b.py": ["F01", "F03", "F25", "slate"],
-    "openrouter_client.py": ["F02", "F07"],
-    "src/providers/llm_provider.py": ["F01+F16-MERGED"],
-    "entailment_judge.py": ["F07-before-F17-F19"],
-    "semantic_conflict_detector.py": ["F07", "F18-C4", "F19"],
-    "credibility_judge_caller.py": ["F09", "F19"],
-    "roles/role_pipeline.py": ["F05-before-F06"],
-    "roles/native_gate_b_inputs.py / judge_adapter.py": ["F05-input", "F10"]
+    "multi_section_generator.py": [
+      "F02-contract",
+      "F06-adj",
+      "F10",
+      "F21",
+      "F26",
+      "F29",
+      "F32"
+    ],
+    "run_honest_sweep_r3.py": [
+      "F03",
+      "F08",
+      "F11",
+      "F24",
+      "F27",
+      "F04"
+    ],
+    "run_gate_b.py": [
+      "F01",
+      "F03",
+      "F25",
+      "slate"
+    ],
+    "openrouter_client.py": [
+      "F02",
+      "F07"
+    ],
+    "src/providers/llm_provider.py": [
+      "F01+F16-MERGED"
+    ],
+    "entailment_judge.py": [
+      "F07-before-F17-F19"
+    ],
+    "semantic_conflict_detector.py": [
+      "F07",
+      "F18-C4",
+      "F19"
+    ],
+    "credibility_judge_caller.py": [
+      "F09",
+      "F19"
+    ],
+    "roles/role_pipeline.py": [
+      "F05-before-F06"
+    ],
+    "roles/native_gate_b_inputs.py / judge_adapter.py": [
+      "F05-input",
+      "F10"
+    ]
   },
-  "ordering_locks": ["F01 before F16(merged)", "F05 before F06", "F10 with/before F05", "F07 before F17/F19", "F02 shared-blank-stream before F07"],
+  "ordering_locks": [
+    "F01 before F16(merged)",
+    "F05 before F06",
+    "F10 with/before F05",
+    "F07 before F17/F19",
+    "F02 shared-blank-stream before F07"
+  ],
   "fixes": [
-    {"id": "F01", "wave": 0, "sev": "P0", "title": "cross-query semaphore poisoning (--all crashes Q2); MERGE F16 cap-split", "files": ["src/providers/llm_provider.py", "run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow 3-iter APPROVE + reconcile-delta APPROVE; F16 split deferred (P2)"},
-    {"id": "F25", "wave": 0, "sev": "P0", "title": "Gate-B --all no per-query exception isolation", "files": ["run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow 3-iter APPROVE"},
-    {"id": "F02", "wave": 0, "sev": "P0", "title": "generator empty-completion runaway + silent skip; provider-rotate retry", "files": ["openrouter_client.py", "contract_section_runner.py", "multi_section_generator.py"], "status": "done_codex_approved", "issue": 1255, "lane": 2, "gate": "workflow 3-iter APPROVE + order[0] fallback added (reconcile-delta APPROVE)"},
-    {"id": "F03", "wave": 0, "sev": "P0", "title": "A1 partial-success coverage floor (non-partial status + Gate-B exit-code)", "files": ["run_honest_sweep_r3.py", "run_gate_b.py"], "status": "done_codex_approved", "issue": null, "lane": 1, "gate": "workflow APPROVE had fail-open 0.0; corrected to STRICT 0.5 default (reconcile-delta APPROVE)"},
-    {"id": "F05", "wave": 1, "sev": "P0", "title": "D8 Judge rubber-stamp (strengthen GROUNDED path at judge_adapter; KEEP unconditional UNGROUNDED downgrade)", "files": ["roles/judge_adapter.py", "roles/role_pipeline.py", "roles/sentinel_contract.py"], "status": "done_codex_approved", "issue": 1254, "gate": "Codex APPROVE iter1; KEPT unconditional override (regression-lock test proves NO escape clause); per-atom why threaded behind PG_JUDGE_SENTINEL_ATOMS (default OFF byte-identical) — slate must enable it for the cert run"},
-    {"id": "F12", "wave": 1, "sev": "P0", "title": "doi.org->T4 demotion false-aborts clinical (GLOBAL bug)", "files": ["retrieval/tier_classifier.py", "retrieval/live_retriever.py"], "status": "done_codex_approved", "issue": null, "gate": "Codex APPROVE iter2; doi.org+OpenAlex journal venue -> resolved tier not T4; adequacy thresholds unchanged"},
-    {"id": "F06", "wave": 1, "sev": "P1", "title": "Sentinel atom-completeness floor", "files": ["roles/sentinel_contract.py", "roles/role_pipeline.py"], "status": "todo", "issue": null},
-    {"id": "F07", "wave": 1, "sev": "P1", "title": "fail-open gates (strict-gates/NLI/conflict/entailment-model/blank-stream)", "files": ["run_honest_sweep_r3.py", "semantic_conflict_detector.py", "run_gate_b.py"], "status": "done_codex_approved", "issue": 1249, "gate": "Codex APPROVE iter1 (Lane C with F04); strict fail-closed conflict (ConflictJudgeUnavailableError holds, never neutral 0.0) + binding NLI + entailment pinned z-ai/glm-5.1 + preflight fail-closed"},
-    {"id": "F08", "wave": 1, "sev": "P1", "title": "qualitative conflicts -> PT08 gate", "files": ["run_honest_sweep_r3.py"], "status": "todo", "issue": null},
-    {"id": "F09", "wave": 1, "sev": "P1", "title": "side-judge evaluator-key free-routing -> mirror pin", "files": ["entailment_judge.py", "semantic_conflict_detector.py", "credibility_judge_caller.py"], "status": "todo", "issue": null},
-    {"id": "F10", "wave": 1, "sev": "P1", "title": "verified-count post-resolve + redactor interior-normalize", "files": ["provenance_generator.py", "roles/report_redactor.py"], "status": "todo", "issue": null},
-    {"id": "F31", "wave": 1, "sev": "P2", "title": "malformed provenance token survives shipped prose", "files": ["provenance_generator.py"], "status": "todo", "issue": null},
-    {"id": "F32", "wave": 1, "sev": "P2", "title": "V30 narrative reuses JSON-only wrapper", "files": ["multi_section_generator.py"], "status": "todo", "issue": null},
-    {"id": "F11", "wave": 2, "sev": "P1", "title": "completeness gate advisory -> binding for clinical critical topics", "files": ["run_honest_sweep_r3.py"], "status": "todo", "issue": null},
-    {"id": "F27", "wave": 2, "sev": "P2", "title": "required-entity ledger fail-soft", "files": ["run_honest_sweep_r3.py"], "status": "todo", "issue": null},
-    {"id": "F26", "wave": 2, "sev": "P2", "title": "atom-refusal strict-mode fail-open", "files": ["multi_section_generator.py"], "status": "todo", "issue": null},
-    {"id": "F13", "wave": 2, "sev": "P2", "title": "scope-gate hardcoded drug regex", "files": ["nodes/scope_gate.py"], "status": "todo", "issue": null},
-    {"id": "F14", "wave": 3, "sev": "P0", "title": "paywall stubs + status=ok masking -> Zyte-first + min-body fail-loud", "files": ["retrieval/live_retriever.py", "tools/access_bypass.py"], "status": "todo", "issue": 1245},
-    {"id": "F15", "wave": 3, "sev": "P1", "title": "§-1.3 hard-drops down-weight + per-URL cap/negative-cache", "files": ["retrieval/live_retriever.py", "retrieval/evidence_selector.py"], "status": "todo", "issue": 1245},
-    {"id": "F30", "wave": 3, "sev": "P3", "title": "landing/abstract-page grounding flag", "files": ["retrieval/live_retriever.py"], "status": "todo", "issue": null},
-    {"id": "F17", "wave": 4, "sev": "P1", "title": "sync httpx + sleep in async -> async", "files": ["entailment_judge.py", "roles/openrouter_role_transport.py"], "status": "todo", "issue": null},
-    {"id": "F18", "wave": 4, "sev": "P1", "title": "serial verify/discovery/enrich pools + C5 truncation-policy + C7 microbatch", "files": ["provenance_generator.py", "retrieval/live_retriever.py", "generator/evidence_distiller.py"], "status": "todo", "issue": null},
-    {"id": "F19", "wave": 4, "sev": "P1", "title": "judge token caps -> model-max", "files": ["entailment_judge.py", "semantic_conflict_detector.py", "credibility_judge_caller.py"], "status": "todo", "issue": null},
-    {"id": "F20", "wave": 4, "sev": "P1", "title": "reason/structured + STORM/deepener + 4-role-seam timeouts sized off budget", "files": ["openrouter_client.py", "agents/storm_interviews.py", "agents/evidence_deepener.py", "run_honest_sweep_r3.py"], "status": "todo", "issue": null},
-    {"id": "F21", "wave": 4, "sev": "P2", "title": "distill MAP/REDUCE + legacy _call_section get research_question", "files": ["generator/evidence_distiller.py", "multi_section_generator.py"], "status": "todo", "issue": null},
-    {"id": "F22", "wave": 4, "sev": "P2", "title": "cost-cap hard under parallel 4-role (atomic reservation)", "files": ["roles/sweep_integration.py"], "status": "todo", "issue": null},
-    {"id": "F24", "wave": 4, "sev": "P1", "title": "PG_LIVE_MAX_EV_TO_GEN=20 default raise/fail-loud", "files": ["run_honest_sweep_r3.py"], "status": "todo", "issue": null},
-    {"id": "F29", "wave": 4, "sev": "P3", "title": "M-44 injection max_ev_per_section reads env", "files": ["multi_section_generator.py"], "status": "todo", "issue": null},
-    {"id": "F04", "wave": 5, "sev": "P1-CHECKPOINT-GATE", "title": "checkpoints (corpus_snapshot DATA + per-section + --resume) + stop 'w'-mode log clobber", "files": ["run_honest_sweep_r3.py", "generator/corpus_snapshot.py"], "status": "done_codex_approved", "issue": 539, "note": "CHECKPOINT GATE SATISFIED — the Q1 --all run is now resumable", "gate": "Codex APPROVE iter1 (Lane C with F07); corpus_snapshot carries DATA-not-VERDICTS (asserted no verdict-shaped key), --resume reloads + RE-RUNS all gates (strict_verify/NLI/4-role/D8), fail-loud loads, atomic write, integration test re-runs gates on resume"},
-    {"id": "F23", "wave": 5, "sev": "P2/P3", "title": "hygiene/.env-ification grab-bag", "files": ["multiple"], "status": "todo", "issue": null}
+    {
+      "id": "F01",
+      "wave": 0,
+      "sev": "P0",
+      "title": "cross-query semaphore poisoning (--all crashes Q2); MERGE F16 cap-split",
+      "files": [
+        "src/providers/llm_provider.py",
+        "run_gate_b.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "lane": 1,
+      "gate": "workflow 3-iter APPROVE + reconcile-delta APPROVE; F16 split deferred (P2)"
+    },
+    {
+      "id": "F25",
+      "wave": 0,
+      "sev": "P0",
+      "title": "Gate-B --all no per-query exception isolation",
+      "files": [
+        "run_gate_b.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "lane": 1,
+      "gate": "workflow 3-iter APPROVE"
+    },
+    {
+      "id": "F02",
+      "wave": 0,
+      "sev": "P0",
+      "title": "generator empty-completion runaway + silent skip; provider-rotate retry",
+      "files": [
+        "openrouter_client.py",
+        "contract_section_runner.py",
+        "multi_section_generator.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": 1255,
+      "lane": 2,
+      "gate": "workflow 3-iter APPROVE + order[0] fallback added (reconcile-delta APPROVE)"
+    },
+    {
+      "id": "F03",
+      "wave": 0,
+      "sev": "P0",
+      "title": "A1 partial-success coverage floor (non-partial status + Gate-B exit-code)",
+      "files": [
+        "run_honest_sweep_r3.py",
+        "run_gate_b.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "lane": 1,
+      "gate": "workflow APPROVE had fail-open 0.0; corrected to STRICT 0.5 default (reconcile-delta APPROVE)"
+    },
+    {
+      "id": "F05",
+      "wave": 1,
+      "sev": "P0",
+      "title": "D8 Judge rubber-stamp (strengthen GROUNDED path at judge_adapter; KEEP unconditional UNGROUNDED downgrade)",
+      "files": [
+        "roles/judge_adapter.py",
+        "roles/role_pipeline.py",
+        "roles/sentinel_contract.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": 1254,
+      "gate": "Codex APPROVE iter1; KEPT unconditional override (regression-lock test proves NO escape clause); per-atom why threaded behind PG_JUDGE_SENTINEL_ATOMS (default OFF byte-identical) \u00e2\u20ac\u201d slate must enable it for the cert run"
+    },
+    {
+      "id": "F12",
+      "wave": 1,
+      "sev": "P0",
+      "title": "doi.org->T4 demotion false-aborts clinical (GLOBAL bug)",
+      "files": [
+        "retrieval/tier_classifier.py",
+        "retrieval/live_retriever.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter2; doi.org+OpenAlex journal venue -> resolved tier not T4; adequacy thresholds unchanged"
+    },
+    {
+      "id": "F06",
+      "wave": 1,
+      "sev": "P1",
+      "title": "Sentinel atom-completeness floor",
+      "files": [
+        "roles/sentinel_contract.py",
+        "roles/role_pipeline.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter3; atom-coverage cross-check ONLY downgrades GROUNDED->UNGROUNDED, flag PG_SENTINEL_ATOM_COVERAGE default OFF; no domain allowlist (\u00a7-1.3)"
+    },
+    {
+      "id": "F07",
+      "wave": 1,
+      "sev": "P1",
+      "title": "fail-open gates (strict-gates/NLI/conflict/entailment-model/blank-stream)",
+      "files": [
+        "run_honest_sweep_r3.py",
+        "semantic_conflict_detector.py",
+        "run_gate_b.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": 1249,
+      "gate": "Codex APPROVE iter1 (Lane C with F04); strict fail-closed conflict (ConflictJudgeUnavailableError holds, never neutral 0.0) + binding NLI + entailment pinned z-ai/glm-5.1 + preflight fail-closed"
+    },
+    {
+      "id": "F08",
+      "wave": 1,
+      "sev": "P1",
+      "title": "qualitative conflicts -> PT08 gate",
+      "files": [
+        "run_honest_sweep_r3.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1 (Lane w/F11); qualitative_records now in PT08 payload -> qualitative conflict gates release"
+    },
+    {
+      "id": "F09",
+      "wave": 1,
+      "sev": "P1",
+      "title": "side-judge evaluator-key free-routing -> mirror pin",
+      "files": [
+        "entailment_judge.py",
+        "semantic_conflict_detector.py",
+        "credibility_judge_caller.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; entailment/conflict/credibility side-judges pinned to mirror chain (allow_fallbacks:false)"
+    },
+    {
+      "id": "F10",
+      "wave": 1,
+      "sev": "P1",
+      "title": "verified-count post-resolve + redactor interior-normalize",
+      "files": [
+        "provenance_generator.py",
+        "roles/report_redactor.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; honest POST-resolve verified count + is_gap_stub, redactor interior-collapse normalize; verified_text byte-identical (SHA256-proven)"
+    },
+    {
+      "id": "F31",
+      "wave": 1,
+      "sev": "P2",
+      "title": "malformed provenance token survives shipped prose",
+      "files": [
+        "provenance_generator.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1 (Lane w/F10); bogus [ev_*] marker stripped + sentence dropped if only grounding was bogus (stricter span-grounding)"
+    },
+    {
+      "id": "F32",
+      "wave": 1,
+      "sev": "P2",
+      "title": "V30 narrative reuses JSON-only wrapper",
+      "files": [
+        "multi_section_generator.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F11",
+      "wave": 2,
+      "sev": "P1",
+      "title": "completeness gate advisory -> binding for clinical critical topics",
+      "files": [
+        "run_honest_sweep_r3.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1 (Lane w/F08); critical clinical topics (clinical.yaml) uncovered -> hold (non-success), kill-switch revertible"
+    },
+    {
+      "id": "F27",
+      "wave": 2,
+      "sev": "P2",
+      "title": "required-entity ledger fail-soft",
+      "files": [
+        "run_honest_sweep_r3.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F26",
+      "wave": 2,
+      "sev": "P2",
+      "title": "atom-refusal strict-mode fail-open",
+      "files": [
+        "multi_section_generator.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F13",
+      "wave": 2,
+      "sev": "P2",
+      "title": "scope-gate hardcoded drug regex",
+      "files": [
+        "nodes/scope_gate.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F14",
+      "wave": 3,
+      "sev": "P0",
+      "title": "paywall stubs + status=ok masking -> Zyte-first + min-body fail-loud",
+      "files": [
+        "retrieval/live_retriever.py",
+        "tools/access_bypass.py"
+      ],
+      "status": "todo",
+      "issue": 1245
+    },
+    {
+      "id": "F15",
+      "wave": 3,
+      "sev": "P1",
+      "title": "\u00c2\u00a7-1.3 hard-drops down-weight + per-URL cap/negative-cache",
+      "files": [
+        "retrieval/live_retriever.py",
+        "retrieval/evidence_selector.py"
+      ],
+      "status": "todo",
+      "issue": 1245
+    },
+    {
+      "id": "F30",
+      "wave": 3,
+      "sev": "P3",
+      "title": "landing/abstract-page grounding flag",
+      "files": [
+        "retrieval/live_retriever.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F17",
+      "wave": 4,
+      "sev": "P1",
+      "title": "sync httpx + sleep in async -> async",
+      "files": [
+        "entailment_judge.py",
+        "roles/openrouter_role_transport.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F18",
+      "wave": 4,
+      "sev": "P1",
+      "title": "serial verify/discovery/enrich pools + C5 truncation-policy + C7 microbatch",
+      "files": [
+        "provenance_generator.py",
+        "retrieval/live_retriever.py",
+        "generator/evidence_distiller.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F19",
+      "wave": 4,
+      "sev": "P1",
+      "title": "judge token caps -> model-max",
+      "files": [
+        "entailment_judge.py",
+        "semantic_conflict_detector.py",
+        "credibility_judge_caller.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F20",
+      "wave": 4,
+      "sev": "P1",
+      "title": "reason/structured + STORM/deepener + 4-role-seam timeouts sized off budget",
+      "files": [
+        "openrouter_client.py",
+        "agents/storm_interviews.py",
+        "agents/evidence_deepener.py",
+        "run_honest_sweep_r3.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F21",
+      "wave": 4,
+      "sev": "P2",
+      "title": "distill MAP/REDUCE + legacy _call_section get research_question",
+      "files": [
+        "generator/evidence_distiller.py",
+        "multi_section_generator.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F22",
+      "wave": 4,
+      "sev": "P2",
+      "title": "cost-cap hard under parallel 4-role (atomic reservation)",
+      "files": [
+        "roles/sweep_integration.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F24",
+      "wave": 4,
+      "sev": "P1",
+      "title": "PG_LIVE_MAX_EV_TO_GEN=20 default raise/fail-loud",
+      "files": [
+        "run_honest_sweep_r3.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F29",
+      "wave": 4,
+      "sev": "P3",
+      "title": "M-44 injection max_ev_per_section reads env",
+      "files": [
+        "multi_section_generator.py"
+      ],
+      "status": "todo",
+      "issue": null
+    },
+    {
+      "id": "F04",
+      "wave": 5,
+      "sev": "P1-CHECKPOINT-GATE",
+      "title": "checkpoints (corpus_snapshot DATA + per-section + --resume) + stop 'w'-mode log clobber",
+      "files": [
+        "run_honest_sweep_r3.py",
+        "generator/corpus_snapshot.py"
+      ],
+      "status": "done_codex_approved",
+      "issue": 539,
+      "note": "CHECKPOINT GATE SATISFIED \u00e2\u20ac\u201d the Q1 --all run is now resumable",
+      "gate": "Codex APPROVE iter1 (Lane C with F07); corpus_snapshot carries DATA-not-VERDICTS (asserted no verdict-shaped key), --resume reloads + RE-RUNS all gates (strict_verify/NLI/4-role/D8), fail-loud loads, atomic write, integration test re-runs gates on resume"
+    },
+    {
+      "id": "F23",
+      "wave": 5,
+      "sev": "P2/P3",
+      "title": "hygiene/.env-ification grab-bag",
+      "files": [
+        "multiple"
+      ],
+      "status": "todo",
+      "issue": null
+    }
   ]
 }

@@ -1,0 +1,719 @@
+diff --git a/src/polaris_graph/generator/contract_section_runner.py b/src/polaris_graph/generator/contract_section_runner.py
+index d08d2a5f..17b56edb 100644
+--- a/src/polaris_graph/generator/contract_section_runner.py
++++ b/src/polaris_graph/generator/contract_section_runner.py
+@@ -508,7 +508,14 @@ async def run_contract_section(
+       strict_verify never sees heading prose (it would fail the
+       content-word overlap check).
+     """
+-    from .provenance_generator import resolve_provenance_to_citations
++    from .provenance_generator import (
++        resolve_provenance_to_citations,
++        _strip_bogus_ev_markers,
++        _bogus_marker_evidence_id,
++        _BOGUS_EV_MARKER_RE,
++        _RESOLVE_MIN_CONTENT_WORDS,
++        _RESOLVE_MIN_PROSE_CHARS,
++    )
+ 
+     payloads: list[SlotFillPayload] = []
+     total_in_tok = 0
+@@ -892,19 +899,47 @@ async def run_contract_section(
+     # Re-do the per-sentence resolution inline — cheap and keeps
+     # us in lockstep with `resolve_provenance_to_citations`'s
+     # acceptance rules (≥3 content words, ≥15 chars).
++    # F10 (I-arch-004 A3): the contract path's authoritative `verified_text` is
++    # this inline slot regroup (NOT the flat `resolved_body`), so the honest
++    # post-resolve verified count is the number of sentences actually emitted into
++    # the slot prose here — `_emitted_into_slots`. The pre-resolve `kept` overstated
++    # it (degenerate fragments + F31 bogus-only drop here).
+     sentences_by_slot: dict[str, list[str]] = {sid: [] for sid in slot_order}
++    _emitted_into_slots = 0
+     ev_to_num = {b["evidence_id"]: b["num"] for b in biblio_slice}
+     import re as _re
+     _prov_re = _re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
+     for sv in kept_sentences:
+         raw = getattr(sv, "sentence", "") or ""
++        tokens = getattr(sv, "tokens", None) or []
++        # F31 (I-arch-004 A3): SURGICAL span-grounding drop — fires ONLY when the
++        # sentence carried a BOGUS bracketed marker (`[ev_<slug>]` / `[ev:...]`
++        # whose id is not a real pool row) AND has NO valid `[#ev:...]` grounding.
++        # A normal cited sentence (valid grounding) and a no-bracket pass-through
++        # sentence (no bogus marker) are both untouched — mirrors the resolver.
++        _has_valid_grounding = any(
++            getattr(t, "evidence_id", "") in evidence_pool for t in tokens
++        )
++        _has_bogus_marker = any(
++            _bogus_marker_evidence_id(m.group(0)[1:-1]) not in evidence_pool
++            for m in _BOGUS_EV_MARKER_RE.finditer(raw)
++        )
++        if _has_bogus_marker and not _has_valid_grounding:
++            continue
+         stripped = _prov_re.sub("", raw).strip()
++        # F31: strip any leaked bogus `[ev_<slug>]` marker so it neither ships in
++        # the slot prose nor inflates the content-word floor (same as the resolver).
++        stripped = _strip_bogus_ev_markers(stripped, evidence_pool).strip()
+         stripped = _re.sub(r"\s+([.!?,;])", r"\1", stripped)
+         content_w = _re.findall(r"[A-Za-z]+", stripped)
+-        if len(content_w) < 3 or len(stripped) < 15:
++        # F10 (I-arch-004 A3): the SAME named resolution floor the resolver uses
++        # (§9.4 no-magic-numbers; removes the 3/15 hard-code drift Codex flagged).
++        if (
++            len(content_w) < _RESOLVE_MIN_CONTENT_WORDS
++            or len(stripped) < _RESOLVE_MIN_PROSE_CHARS
++        ):
+             continue
+         # Determine the slot via the first token's ev_id.
+-        tokens = getattr(sv, "tokens", None) or []
+         if not tokens:
+             continue
+         primary_ev = tokens[0].evidence_id
+@@ -920,6 +955,7 @@ async def run_contract_section(
+                 used_nums.append(n)
+         markers = "".join(f"[{n}]" for n in used_nums)
+         sentences_by_slot.setdefault(slot_id, []).append(stripped + markers)
++        _emitted_into_slots += 1
+ 
+     # Emit final verified_text with re-injected headings.
+     # V30 Phase-2 M-68 Fix #1 (Codex run-7 audit directive):
+@@ -1135,14 +1171,21 @@ async def run_contract_section(
+         rewritten_draft=rewritten_draft,
+         verified_text=verified_text,
+         biblio_slice=biblio_slice,
+-        sentences_verified=kept,
+-        sentences_dropped=dropped,
++        # F10 (I-arch-004 A3): report the POST-resolve emitted count
++        # (`_emitted_into_slots` — sentences actually rendered into the slot prose
++        # that becomes verified_text), NOT `kept` (the pre-resolve kept-list
++        # length). The inline regroup drops degenerate fragments + F31 bogus-only
++        # sentences, so `kept` overstated what shipped as verified prose. The
++        # resolver-dropped delta is rolled into sentences_dropped so verified +
++        # dropped stays consistent, and `error` keys on the honest emitted count.
++        sentences_verified=_emitted_into_slots,
++        sentences_dropped=dropped + max(0, kept - _emitted_into_slots),
+         regen_attempted=False,  # M-63 doesn't regenerate — M-58
+                                 # fabrication check is per-field
+         dropped_due_to_failure=dropped_due_to_failure,
+         input_tokens=total_in_tok,
+         output_tokens=total_out_tok,
+-        error="" if kept > 0 else "no_sentences_verified",
++        error="" if _emitted_into_slots > 0 else "no_sentences_verified",
+         # I-gen-005 Step 1.5 iter-2 (Codex P1 contract_runner:683):
+         # final kept + dropped SVs after rescue path. Rescued SVs are
+         # in kept_sentences_pre_resolve; non-rescued drops are in
+diff --git a/src/polaris_graph/generator/multi_section_generator.py b/src/polaris_graph/generator/multi_section_generator.py
+index d9317b8d..d1e4a737 100644
+--- a/src/polaris_graph/generator/multi_section_generator.py
++++ b/src/polaris_graph/generator/multi_section_generator.py
+@@ -48,6 +48,7 @@ from src.polaris_graph.generator.live_deepseek_generator import (
+ )
+ from src.polaris_graph.generator.provenance_generator import (
+     resolve_provenance_to_citations,
++    resolve_provenance_to_citations_with_count,
+     sanitize_evidence_text,
+     strict_verify,
+     wrap_evidence_for_prompt,
+@@ -3050,8 +3051,10 @@ async def _run_section(
+             report.kept_sentences, credibility_analysis,
+         )
+ 
+-    verified_text, biblio_slice = resolve_provenance_to_citations(
+-        report.kept_sentences, evidence_pool,
++    verified_text, biblio_slice, resolved_emitted = (
++        resolve_provenance_to_citations_with_count(
++            report.kept_sentences, evidence_pool,
++        )
+     )
+     # I-gen-003: cosmetic citation/punctuation normalization on the
+     # resolved section text — inserts missing sentence terminators at
+@@ -3070,7 +3073,12 @@ async def _run_section(
+     # citation for a non-claim — faithful disclosure, not a claim). With the stub always rendered,
+     # `dropped_due_to_failure` is now never True from this legacy path (the zero-kept case becomes
+     # a rendered gap stub; the non-zero case was never dropped) — every section ships with a trace.
+-    is_gap_stub = len(report.kept_sentences) == 0
++    # F10 (I-arch-004 A3): is_gap_stub is POST-resolve. A section whose every kept
++    # sentence was dropped by the resolver (degenerate fragment / F31 bogus-only)
++    # emits ZERO sentences — it must render the gap stub, not silently ship an
++    # empty body as non-stub. `resolved_emitted == 0` extends the gap-stub trigger
++    # from "strict_verify kept nothing" to "nothing actually shipped" (stricter).
++    is_gap_stub = resolved_emitted == 0
+     if is_gap_stub:
+         verified_text = _GAP_STUB_SENTENCE
+     dropped_due_to_failure = False
+@@ -3087,8 +3095,17 @@ async def _run_section(
+         rewritten_draft=rewritten,
+         verified_text=verified_text,
+         biblio_slice=biblio_slice,
+-        sentences_verified=report.total_kept,
+-        sentences_dropped=report.total_dropped + m41c_drop_count,
++        # F10 (I-arch-004 A3): report the POST-resolve emitted count, NOT
++        # report.total_kept (the pre-resolve kept-list length). The resolver
++        # drops degenerate fragments + F31 bogus-only sentences, so total_kept
++        # overstates what actually shipped. The dropped delta is reflected in
++        # sentences_dropped below so verified + dropped stays consistent.
++        sentences_verified=resolved_emitted,
++        sentences_dropped=(
++            report.total_dropped
++            + m41c_drop_count
++            + max(0, report.total_kept - resolved_emitted)
++        ),
+         regen_attempted=regen_attempted,
+         dropped_due_to_failure=dropped_due_to_failure,
+         input_tokens=total_in_tok,
+@@ -5849,8 +5866,10 @@ async def generate_multi_section_report(
+                     from ..synthesis.credibility_pass import apply_disclosure_to_svs
+                     final_svs = apply_disclosure_to_svs(final_svs, credibility_analysis)
+                 # Update SectionResult fields with deduped + re-verified content
+-                from .provenance_generator import resolve_provenance_to_citations as _resolve
+-                new_text, new_biblio = _resolve(final_svs, evidence_pool)
++                from .provenance_generator import (
++                    resolve_provenance_to_citations_with_count as _resolve,
++                )
++                new_text, new_biblio, new_emitted = _resolve(final_svs, evidence_pool)
+                 sr.verified_text = new_text
+                 sr.biblio_slice = new_biblio
+                 # I-gen-005 Step 1.5 iter-2 (Codex P1 #3): count
+@@ -5872,8 +5891,16 @@ async def generate_multi_section_report(
+                         actually_removed,
+                     )
+                 sr.kept_sentences_pre_resolve = list(final_svs)
+-                sr.sentences_verified = len(final_svs)
+-                if not final_svs:
++                # F10 (I-arch-004 A3): report the POST-resolve emitted count, not
++                # len(final_svs). The dedup re-resolve drops degenerate fragments
++                # + F31 bogus-only sentences, so len(final_svs) overstates what
++                # shipped. Roll the resolver-dropped delta into sentences_dropped
++                # so verified + dropped stays consistent.
++                _resolver_dropped = max(0, len(final_svs) - new_emitted)
++                if _resolver_dropped:
++                    sr.sentences_dropped += _resolver_dropped
++                sr.sentences_verified = new_emitted
++                if new_emitted == 0:
+                     sr.dropped_due_to_failure = True
+             fact_dedup_telemetry["n_rewrites_strict_verify_pass"] = rewrites_re_verified_pass
+             fact_dedup_telemetry["n_rewrites_strict_verify_drop"] = rewrites_re_verified_drop
+diff --git a/src/polaris_graph/generator/provenance_generator.py b/src/polaris_graph/generator/provenance_generator.py
+index cd99e41d..734e7d27 100644
+--- a/src/polaris_graph/generator/provenance_generator.py
++++ b/src/polaris_graph/generator/provenance_generator.py
+@@ -470,6 +470,36 @@ _CALC_TOKEN_RE = re.compile(
+ # is a named constant here.
+ _MODELED_ASSUMPTION_LABEL = "(modeled assumption)"
+ 
++# F10/F31 (I-arch-004 A3) — the resolution-survival floor a sentence must clear
++# to ship as verified prose, named here per §9.4 (no magic numbers). A real
++# research sentence has at least this many content words AND this many chars of
++# prose after stripping citation artifacts; below it, the "sentence" is a
++# degenerate fragment (bare punctuation + citation residue) and is dropped at
++# resolution time. These are the SAME bounds the resolver loop has always used
++# (formerly the literal 3/15 at provenance_generator:2694) — extracted so the
++# post-resolve verified count and the contract runner's slot regroup read ONE
++# definition, never a drifting copy.
++_RESOLVE_MIN_CONTENT_WORDS = 3
++_RESOLVE_MIN_PROSE_CHARS = 15
++
++# F31 (I-arch-004 A3) — a BOGUS bracketed evidence marker that resolves to NO
++# real evidence-id. The generator sometimes leaks a raw `[ev_<slug>]` (e.g.
++# `[ev_brynjolfsson_genai_at_work]`) ALONGSIDE a valid `[#ev:...]` token. It is
++# NOT the canonical provenance token (`[#ev:...]`, which has `#` after `[`), NOT
++# the recognizable-but-canonicalizable `[ev:<id>:<s>-<e>]` colon form (upstream
++# strict_verify already converts those), and NOT a rendered `[N]` marker (digits
++# only). `_VERIFIER_STRIP_BARE_EV_RE` only catches `[ev_<DIGITS>]`, so a
++# letter-slug marker like the above survived BOTH the verifier word-count AND the
++# rendered prose — leaking literal `[ev_<slug>]` text into the shipped report and
++# inflating the content-word floor with the slug's words. This recognizer matches
++# `[ev:<...>]` and `[ev_<...>]` (colon OR underscore after `ev`, any non-`]`
++# body); the literal `ev` second char means it can never match `[#ev:...]`
++# (which has `#`) or a numbered `[N]` marker. The resolver strips every such
++# marker whose evidence-id is NOT in the pool, then drops the sentence if no
++# valid `[#ev:...]` grounding survives (stricter span-grounding: a marker that
++# resolves to no real ev-id can no longer keep a sentence in the report).
++_BOGUS_EV_MARKER_RE = re.compile(r"\[ev[:_][^\]]*\]")
++
+ # I-gen-005 Step 3b commit 1 (Codex APPROVE_DESIGN iter-3): atom_NNN
+ # tokens emitted by V4 Pro per the Step 3a atom-citation contract
+ # (additive to [ev_XXX]) must be invisible to every internal check
+@@ -510,6 +540,43 @@ def _verifier_cleaned_text(sentence: str) -> str:
+     return re.sub(r"\s+", " ", s).strip()
+ 
+ 
++def _bogus_marker_evidence_id(marker_body: str) -> str:
++    """Best-effort evidence-id from a bare `[ev_<slug>]` / `[ev:<id>...]` marker
++    body (the text between the brackets). For `ev_brynjolfsson_genai_at_work` the
++    whole body IS the candidate id; for `ev:some_id:0-3` the id is the part after
++    the first colon up to the next colon. Returned verbatim for an exact pool
++    lookup (we never strip a marker whose id genuinely resolves)."""
++    body = marker_body.strip()
++    if body.startswith("ev:"):
++        # `ev:<id>` or `ev:<id>:<span>` — the id is between the first and (optional) second colon.
++        rest = body[len("ev:"):]
++        return rest.split(":", 1)[0].strip()
++    # `ev_<slug>` underscore form — the whole body is the candidate id.
++    return body
++
++
++def _strip_bogus_ev_markers(
++    text: str, evidence_pool: dict[str, dict[str, Any]]
++) -> str:
++    """F31 (I-arch-004 A3): remove every BOGUS bracketed evidence marker
++    (`[ev:<...>]` / `[ev_<slug>]`) whose evidence-id is NOT a real ``evidence_pool``
++    row from ``text``. A marker whose id IS in the pool is left intact (defensive;
++    the canonical `[#ev:...]` token is handled by ``_PROVENANCE_TOKEN_RE`` and is
++    never matched here because of the literal `ev` after `[`). Numbered `[N]`
++    markers and `[#ev:...]` are untouched. Whitespace around a removed marker is
++    collapsed so no double space is left behind."""
++
++    def _repl(m: "re.Match[str]") -> str:
++        body = m.group(0)[1:-1]  # drop the surrounding brackets
++        cand = _bogus_marker_evidence_id(body)
++        if cand and cand in evidence_pool:
++            return m.group(0)  # resolves to a real source — keep it
++        return " "  # bogus — drop, leave a space the final collapse removes
++
++    out = _BOGUS_EV_MARKER_RE.sub(_repl, text)
++    return re.sub(r"\s+([.!?,;])", r"\1", re.sub(r"\s{2,}", " ", out))
++
++
+ @dataclass
+ class ProvenanceToken:
+     evidence_id: str
+@@ -2602,6 +2669,42 @@ def resolve_provenance_to_citations(
+     Returns (rendered_text, bibliography_list). Bibliography is a list
+     of dicts: {num, evidence_id, url, tier, statement}.
+ 
++    Thin wrapper over :func:`resolve_provenance_to_citations_with_count` that
++    discards the third element (the count of sentences ACTUALLY emitted into the
++    rendered text). The public 2-tuple contract is byte-identical for every
++    existing caller; a caller that needs the honest post-resolve verified count
++    (F10, I-arch-004 A3) calls the ``_with_count`` variant directly.
++    """
++    text, biblio, _emitted = resolve_provenance_to_citations_with_count(
++        kept_sentences,
++        evidence_pool,
++        baskets=baskets,
++        cluster_id_by_evidence=cluster_id_by_evidence,
++    )
++    return text, biblio
++
++
++def resolve_provenance_to_citations_with_count(
++    kept_sentences: list[SentenceVerification],
++    evidence_pool: dict[str, dict[str, Any]],
++    *,
++    baskets: list | None = None,
++    cluster_id_by_evidence: dict[str, list[str]] | None = None,
++) -> tuple[str, list[dict[str, Any]], int]:
++    """Strip [#ev:...] tokens, replace with numbered citations, AND return the
++    count of sentences ACTUALLY emitted into the rendered text.
++
++    Returns (rendered_text, bibliography_list, emitted_count). ``emitted_count``
++    is the number of ``kept_sentences`` that survived RESOLUTION — i.e. cleared
++    the degenerate-fragment floor (F10) and the F31 bogus-marker span-grounding
++    drop — and were rendered. It is the honest "how many verified sentences
++    actually ship" number, which can be LOWER than ``len(kept_sentences)`` /
++    ``StrictVerificationReport.total_kept`` because the resolver itself drops
++    sentences. Callers that report ``sentences_verified`` / derive ``is_gap_stub``
++    MUST use this count, not the pre-resolve kept-list length, or the telemetry
++    overstates what shipped (F10 — strengthens reporting honesty; relaxes
++    nothing).
++
+     I-arch-002 [11] P5.2 — basket-carrying bibliography (design §6). When
+     ``baskets`` (the ``credibility_pass.ClaimBasket`` list) AND
+     ``cluster_id_by_evidence`` (the evidence_id -> claim_cluster_id[] binding,
+@@ -2664,6 +2767,26 @@ def resolve_provenance_to_citations(
+     findings_lines: list[str] = []
+     limitations_lines: list[str] = []
+     for sv in kept_sentences:
++        # F31 (I-arch-004 A3): does this sentence carry a VALID grounding token —
++        # a parsed `[#ev:...]` whose evidence-id is a real pool row? strict_verify
++        # populates sv.tokens ONLY from canonical `[#ev:...]` tokens, so a sentence
++        # whose only bracketed "citation" is a leaked bogus `[ev_<slug>]` has NO
++        # valid token here. We compute this BEFORE stripping so the drop decision
++        # is over the real grounding, not the rendered residue.
++        _has_valid_grounding = any(
++            tok.evidence_id in evidence_pool for tok in sv.tokens
++        )
++        # F31 (I-arch-004 A3): does the sentence carry a BOGUS bracketed evidence
++        # marker — `[ev:<...>]` / `[ev_<slug>]` whose id is NOT a real pool row?
++        # This is what makes the drop SURGICAL: a legitimate pass-through sentence
++        # with NO bracketed citation at all (e.g. a Limitations telemetry sentence,
++        # which strict_verify keeps with empty tokens) carries NO bogus marker, so
++        # it is NEVER dropped by F31. Only a sentence that LOOKED cited via a marker
++        # pointing at nothing is dropped.
++        _has_bogus_marker = any(
++            _bogus_marker_evidence_id(m.group(0)[1:-1]) not in evidence_pool
++            for m in _BOGUS_EV_MARKER_RE.finditer(sv.sentence)
++        )
+         # Strip provenance tokens first so degenerate fragments can be
+         # detected before we assign citation numbers (otherwise the
+         # bibliography keeps an entry whose only citing sentence we
+@@ -2674,8 +2797,26 @@ def resolve_provenance_to_citations(
+         # Phase 7 (#991): strip calc tokens too so a verified computed-number
+         # sentence carries its source-input [N] citations but no token leak.
+         stripped = _CALC_TOKEN_RE.sub("", stripped).strip()
++        # F31 (I-arch-004 A3): strip every BOGUS bracketed evidence marker
++        # (`[ev:<...>]` / `[ev_<slug>]`) whose evidence-id is NOT a real pool row,
++        # so it never leaks into shipped prose. A marker whose id IS in the pool is
++        # left intact (defensive — the canonical `[#ev:...]` was already stripped
++        # above; this only fires on the malformed bare-bracket leak shape). The
++        # span-grounding consequence (drop the sentence when only a bogus marker
++        # backed it) is enforced below.
++        stripped = _strip_bogus_ev_markers(stripped, evidence_pool).strip()
+         # Clean trailing spaces before punctuation
+         stripped = re.sub(r"\s+([.!?,;])", r"\1", stripped)
++        # F31 (I-arch-004 A3): a sentence whose ONLY bracketed grounding was a
++        # bogus marker resolving to no real evidence-id FAILS span-grounding — it
++        # must not ship as asserted prose on the back of a citation that points at
++        # nothing. STRICTER: previously such a sentence shipped with a leaked
++        # literal `[ev_<slug>]`. SURGICAL: fires only when a bogus marker was
++        # present AND no valid `[#ev:...]` grounding survives — a normal cited
++        # sentence (valid grounding) and a no-bracket pass-through sentence (no
++        # bogus marker) are both untouched.
++        if _has_bogus_marker and not _has_valid_grounding:
++            continue
+         # BUG-M-8 (Codex pass 9): drop degenerate sentence fragments
+         # that survive strict_verify as bare punctuation + citation
+         # (observed in the Novo sweep as ".[4]", "Morgan analysts.[12]",
+@@ -2689,9 +2830,17 @@ def resolve_provenance_to_citations(
+         # (so "atom" in "atom_003" does not inflate the count) — but
+         # DO NOT modify the rendered `stripped` itself; the downstream
+         # validator must see atom_NNN tokens in verified_text.
+-        _for_count = _verifier_cleaned_text(sv.sentence)
++        # F31: also strip the bogus `[ev_<slug>]` marker from the count text so
++        # the slug's words ("brynjolfsson", "genai", ...) cannot inflate the
++        # content-word floor and let a degenerate fragment survive.
++        _for_count = _strip_bogus_ev_markers(
++            _verifier_cleaned_text(sv.sentence), evidence_pool
++        )
+         _content_w = re.findall(r"[A-Za-z]+", _for_count)
+-        if len(_content_w) < 3 or len(_for_count) < 15:
++        if (
++            len(_content_w) < _RESOLVE_MIN_CONTENT_WORDS
++            or len(_for_count.strip()) < _RESOLVE_MIN_PROSE_CHARS
++        ):
+             continue
+         # Assign citation numbers only for surviving sentences
+         used_nums: list[int] = []
+@@ -2710,8 +2859,14 @@ def resolve_provenance_to_citations(
+         else:
+             findings_lines.append(sentence_out)
+ 
++    # F10 (I-arch-004 A3): the count of sentences ACTUALLY emitted into the
++    # rendered text — the honest post-resolve verified count the caller must
++    # report (NOT len(kept_sentences), which overstates because this loop drops
++    # degenerate fragments + F31 bogus-only sentences).
++    emitted_count = len(findings_lines) + len(limitations_lines)
++
+     findings_para = " ".join(findings_lines)
+     if limitations_lines:
+         limitations_para = " ".join(limitations_lines)
+-        return (findings_para + "\n\n" + limitations_para, biblio)
+-    return findings_para, biblio
++        return (findings_para + "\n\n" + limitations_para, biblio, emitted_count)
++    return findings_para, biblio, emitted_count
+diff --git a/src/polaris_graph/roles/report_redactor.py b/src/polaris_graph/roles/report_redactor.py
+index 8fd6eb92..8686e978 100644
+--- a/src/polaris_graph/roles/report_redactor.py
++++ b/src/polaris_graph/roles/report_redactor.py
+@@ -102,6 +102,13 @@ _NUMBERED_MARKER_RE = re.compile(r"\[\d+\]")
+ # so stripping it is a no-op on the redaction path.
+ _CONFIDENCE_MARKER_RE = re.compile(r"\s*\[confidence:[^\]]*\]")
+ _WHITESPACE_RE = re.compile(r"\s+")
++# F10(b) (I-arch-004 A3): interior whitespace-before-punctuation, collapsed in
++# _normalize so the redaction stem matches the SHIPPED form. The resolver runs
++# `re.sub(r"\s+([.!?,;])", r"\1", ...)` on every sentence before it renders, so
++# `word .` in the audit_map sentence ships as `word.`; the redactor must apply
++# the same collapse or the stem misses the collapsed sentence. Same punctuation
++# set as the resolver (provenance_generator).
++_INTERIOR_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.!?,;])")
+ 
+ 
+ class ReportRedactionError(RuntimeError):
+@@ -163,9 +170,21 @@ def _prose_stem(text: str) -> str:
+ def _normalize(text: str) -> str:
+     """Citation-insensitive, whitespace-insensitive prose for matching across the
+     provenance-token -> numbered-marker render shift. Trailing punctuation stripped.
++
++    F10(b) (I-arch-004 A3): ALSO collapse interior whitespace-BEFORE-punctuation
++    (``word .`` -> ``word.``), mirroring the resolver's own normalization
++    (provenance_generator: ``re.sub(r"\\s+([.!?,;])", r"\\1", stripped)``). The
++    audit_map sentence (the pre-resolve ``sv.sentence``) can carry ``word .``
++    interior spacing that the resolver collapses before the sentence SHIPS as
++    ``word.``; without this collapse the redaction stem would not match the
++    shipped form and a present-but-collapsed non-VERIFIED claim was wrongly
++    recorded ``already_absent`` (a silent leak — 07-001 / 06-006 interior-collapse
++    case). This applies the SAME collapse to both stem and rendered side, so the
++    match is consistent and idempotent; it never relaxes a match, only adds one.
+     """
+     text = _prose_stem(text)
+     text = _WHITESPACE_RE.sub(" ", text)
++    text = _INTERIOR_SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
+     return text.strip().rstrip(".").strip()
+ 
+ 
+diff --git a/tests/polaris_graph/test_f10_f31_resolve_count_bogus_marker.py b/tests/polaris_graph/test_f10_f31_resolve_count_bogus_marker.py
+new file mode 100644
+index 00000000..d725039f
+--- /dev/null
++++ b/tests/polaris_graph/test_f10_f31_resolve_count_bogus_marker.py
+@@ -0,0 +1,230 @@
++"""F10 + F31 (I-arch-004 A3) — honest post-resolve verified count, gap-stub on
++all-dropped, interior-collapse redaction, and bogus-marker span-grounding drop.
++
++Both fixes strengthen reporting honesty / span-grounding and relax nothing.
++
++F10(a) — verified-count overstatement
++-------------------------------------
++``resolve_provenance_to_citations`` drops degenerate fragments (and, with F31,
++bogus-marker-only sentences) at RESOLUTION time. The callers historically reported
++``sentences_verified`` from the PRE-resolve kept-list length (``report.total_kept`` /
++``len(final_svs)`` / contract ``kept``), so the count OVERSTATED what actually shipped.
++The counted resolver variant ``resolve_provenance_to_citations_with_count`` returns the
++number of sentences ACTUALLY emitted; the callers now report that. ``is_gap_stub`` is
++likewise POST-resolve: a section whose every kept sentence is dropped by the resolver
++emits zero sentences and must render the gap stub.
++
++F10(b) — redactor stale pre-resolve sentence (interior collapse)
++----------------------------------------------------------------
++The resolver collapses interior whitespace-before-punctuation (``word .`` -> ``word.``)
++before a sentence ships, but the redactor's ``_normalize`` only stripped a TRAILING
++period. So a non-VERIFIED claim whose audit_map sentence carried interior ``word ,`` /
++``word .`` spacing was wrongly recorded ``already_absent`` while its collapsed form
++SHIPPED — a silent leak. ``_normalize`` now applies the same interior collapse.
++
++F31 — malformed provenance token survives in shipped prose
++----------------------------------------------------------
++A leaked bare ``[ev_<slug>]`` marker (e.g. ``[ev_brynjolfsson_genai_at_work]``) that
++resolves to no real evidence-id was tolerated: it shipped as literal text AND its slug
++words inflated the content-word floor. The resolver now strips every bogus bracketed
++``[ev:...]`` / ``[ev_<slug>]`` marker whose id is not a real pool row, and DROPS the
++sentence when no valid ``[#ev:...]`` grounding survives (stricter span-grounding).
++"""
++
++from __future__ import annotations
++
++from src.polaris_graph.generator.provenance_generator import (
++    ProvenanceToken,
++    SentenceVerification,
++    resolve_provenance_to_citations,
++    resolve_provenance_to_citations_with_count,
++    _strip_bogus_ev_markers,
++)
++from src.polaris_graph.roles.report_redactor import (
++    reconcile_report_against_verdicts,
++    _normalize,
++)
++
++
++def _pool() -> dict[str, dict[str, str]]:
++    return {
++        "ev_a": {"source_url": "https://example.com/a", "tier": "T1", "statement": "sa"},
++        "ev_b": {"source_url": "https://example.com/b", "tier": "T4", "statement": "sb"},
++    }
++
++
++def _sv(sentence: str, ev_ids: list[str], *, warnings=None) -> SentenceVerification:
++    """A kept SV. ``tokens`` is built ONLY from the given ev_ids (the canonical
++    `[#ev:...]` grounding strict_verify would have parsed) — a bogus `[ev_<slug>]`
++    in the prose is NOT a token here (exactly the F31 leak shape)."""
++    toks = [
++        ProvenanceToken(evidence_id=e, start=0, end=40, raw=f"[#ev:{e}:0-40]")
++        for e in ev_ids
++    ]
++    return SentenceVerification(
++        sentence=sentence,
++        tokens=toks,
++        is_verified=True,
++        failure_reasons=[],
++        soft_warnings=warnings or [],
++    )
++
++
++# ───────────────────────── F10(a): post-resolve verified count ─────────────────────────
++
++
++def test_f10a_emitted_count_excludes_resolver_dropped_fragment():
++    """A mixed section: one real verified sentence + one degenerate fragment that
++    survived strict_verify. The emitted count is 1 (what ships), NOT 2 (the
++    pre-resolve kept-list length). The count matches the number of sentences in
++    the rendered text."""
++    pool = _pool()
++    kept = [
++        _sv(
++            "The treatment reduced mortality substantially in the trial [#ev:ev_a:0-40].",
++            ["ev_a"],
++        ),
++        # Degenerate fragment: bare punctuation + citation, no content words.
++        _sv(".[#ev:ev_b:0-40]", ["ev_b"]),
++    ]
++    text, biblio, emitted = resolve_provenance_to_citations_with_count(kept, pool)
++
++    assert emitted == 1, "only the real sentence ships; the fragment is dropped"
++    assert len(kept) == 2 and emitted < len(kept), (
++        "the emitted count must be LOWER than the pre-resolve kept-list length — "
++        "that is the overstatement F10(a) fixes"
++    )
++    # The rendered text carries exactly one sentence; the fragment's source never
++    # earns an orphan bibliography row.
++    assert "mortality" in text
++    assert all(b["evidence_id"] != "ev_b" for b in biblio), (
++        "a dropped fragment must not leave an orphan bibliography entry"
++    )
++
++
++def test_f10a_all_dropped_emits_zero_for_gap_stub():
++    """When every kept sentence is a degenerate fragment, the resolver emits zero
++    sentences — the signal a caller uses to set is_gap_stub=True (stricter: an
++    all-dropped section can no longer ship a non-stub empty body)."""
++    pool = _pool()
++    kept = [_sv(".[#ev:ev_a:0-40]", ["ev_a"]), _sv("[#ev:ev_b:0-40]", ["ev_b"])]
++    text, _biblio, emitted = resolve_provenance_to_citations_with_count(kept, pool)
++    assert emitted == 0
++    assert text.strip() == ""
++
++
++def test_f10a_public_wrapper_is_byte_identical_two_tuple():
++    """The legacy public 2-tuple API is unchanged for existing callers; the text +
++    biblio it returns are identical to the counted variant's first two elements."""
++    pool = _pool()
++    kept = [
++        _sv("Cohort survival improved by twelve percent overall [#ev:ev_a:0-40].", ["ev_a"]),
++    ]
++    text2, biblio2 = resolve_provenance_to_citations(kept, pool)
++    text3, biblio3, _e = resolve_provenance_to_citations_with_count(kept, pool)
++    assert (text2, biblio2) == (text3, biblio3)
++
++
++# ───────────────────────── F31: bogus marker span-grounding ─────────────────────────
++
++
++def test_f31_bogus_marker_stripped_when_valid_ev_grounds_sentence():
++    """The 05-004 shape: a sentence riding a VALID [#ev:...] token PLUS a leaked
++    bogus [ev_<slug>] marker. The sentence SHIPS (it has valid grounding) but the
++    bogus marker is stripped from the prose — never leaks as literal text."""
++    pool = _pool()
++    kept = [
++        _sv(
++            "GenAI raised worker productivity by fourteen percent across the firm "
++            "[#ev:ev_a:0-40][ev_brynjolfsson_genai_at_work].",
++            ["ev_a"],
++        ),
++    ]
++    text, biblio, emitted = resolve_provenance_to_citations_with_count(kept, pool)
++    assert emitted == 1, "the sentence has a valid [#ev:] grounding -> it ships"
++    assert "ev_brynjolfsson" not in text, "the bogus marker must not leak into prose"
++    assert "productivity" in text
++    assert text.rstrip().endswith("[1]"), "the VALID source's numbered marker rides"
++    assert [b["evidence_id"] for b in biblio] == ["ev_a"]
++
++
++def test_f31_bogus_only_sentence_is_dropped():
++    """A sentence whose ONLY bracketed grounding is a bogus [ev_<slug>] marker — no
++    valid [#ev:...] token — FAILS span-grounding and does NOT ship (stricter)."""
++    pool = _pool()
++    kept = [
++        # No valid tokens (the leaked marker is not a parsed token); strict_verify
++        # would normally not pass this, but the resolver is the belt-and-suspenders.
++        _sv(
++            "Productivity rose dramatically across every department last year "
++            "[ev_brynjolfsson_genai_at_work].",
++            [],
++        ),
++    ]
++    text, biblio, emitted = resolve_provenance_to_citations_with_count(kept, pool)
++    assert emitted == 0, "a bogus-only sentence must not ship"
++    assert text.strip() == ""
++    assert biblio == [], "no bibliography row for a dropped bogus-only sentence"
++
++
++def test_f31_strip_keeps_real_id_bare_marker_and_numbered_markers():
++    """The strip helper removes a marker whose id is NOT a real pool row, but leaves
++    a bare marker whose id IS a real row, and never touches a numbered [N] marker."""
++    pool = _pool()
++    s = "Alpha beta gamma [ev_not_real] and delta epsilon [ev_a] zeta [3]."
++    out = _strip_bogus_ev_markers(s, pool)
++    assert "ev_not_real" not in out, "bogus id -> stripped"
++    assert "[ev_a]" in out, "real id bare marker -> kept (defensive, not stripped)"
++    assert "[3]" in out, "numbered markers are never touched"
++
++
++def test_f31_bogus_slug_words_do_not_inflate_content_floor():
++    """A degenerate fragment whose only 'content' comes from a bogus marker's slug
++    must still be dropped — the slug words cannot prop a fragment over the floor."""
++    pool = _pool()
++    # After stripping [#ev:] and the bogus marker, the prose is just "." — a fragment.
++    kept = [_sv(". [#ev:ev_a:0-40][ev_brynjolfsson_genai_at_work_productivity].", ["ev_a"])]
++    _text, _biblio, emitted = resolve_provenance_to_citations_with_count(kept, pool)
++    assert emitted == 0, "slug words must not let a punctuation-only fragment survive"
++
++
++# ───────────────────────── F10(b): interior-collapse redaction ─────────────────────────
++
++
++def test_f10b_normalize_collapses_interior_space_before_punct():
++    """_normalize now collapses interior whitespace-before-punctuation so the stem
++    matches the resolver's collapsed shipped form (was: only trailing period)."""
++    # space-before-comma is the case the OLD rstrip('.') normalize could not fix.
++    assert _normalize("twelve thousand dollars , per the rule") == _normalize(
++        "twelve thousand dollars, per the rule"
++    )
++    assert _normalize("the rule applied here . Next") == _normalize(
++        "the rule applied here. Next"
++    )
++
++
++def test_f10b_interior_collapse_claim_is_redacted_not_already_absent():
++    """The 06-006 interior-collapse case: the audit_map sentence carries interior
++    'word ,' spacing (pre-resolve); the shipped report has the collapsed 'word,'
++    form. Before the fix the stem missed the shipped form and the claim was wrongly
++    recorded already_absent (a silent leak). It must now be LOCATED and REDACTED,
++    leaving the VERIFIED neighbor's [N] marker byte-for-byte."""
++    audit_sentence = (
++        "The penalty was 27874 dollars , per violation under the federal rule."
++    )
++    report = (
++        "Findings: The penalty was 27874 dollars, per violation under the federal "
++        "rule.[3] Other verified prose ships here cleanly and stays intact.[4]"
++    )
++    verdicts = {"06-006": "UNSUPPORTED"}
++    audit_map = {"06-006": {"sentence": audit_sentence, "severity": "S1"}}
++
++    result = reconcile_report_against_verdicts(report, verdicts, audit_map)
++
++    assert result.redacted_count == 1, "the interior-collapse claim must be redacted"
++    assert "06-006" not in result.already_absent, (
++        "the present-but-collapsed claim must NOT be recorded already_absent (leak)"
++    )
++    assert "27874" not in result.report_text, "the unsupported penalty figure is gone"
++    assert "[4]" in result.report_text, "the VERIFIED neighbor keeps its [N] marker"
++    assert "Other verified prose ships here cleanly" in result.report_text
+diff --git a/tests/polaris_graph/test_m63_contract_section_runner.py b/tests/polaris_graph/test_m63_contract_section_runner.py
+index 7fc55d76..a892d4b8 100644
+--- a/tests/polaris_graph/test_m63_contract_section_runner.py
++++ b/tests/polaris_graph/test_m63_contract_section_runner.py
+@@ -326,12 +326,20 @@ class TestRunContractSection:
+         # Every payload cites its bound_ev_id
+         for p in payloads:
+             assert p.bound_ev_id == p.entity_id
+-        # Some sentences MUST pass strict_verify (at least the
+-        # extracted-field sentences for SURPASS-2)
+-        assert result.sentences_verified > 0
++        # F10 (I-arch-004 A3): sentences_verified is the POST-resolve emitted
++        # count (sentences ACTUALLY rendered into the slot prose), not the
++        # pre-resolve kept-list length. Here the fake LLM extracts only the terse
++        # `N=1879` field (~9 chars, 2 content words) which FLOOR-DROPS at resolution
++        # (< 3 content words / < 15 chars), so EVERY slot renders as an M-68
++        # gap-disclosure stub and ZERO substantive sentences ship. The honest count
++        # is therefore 0 — previously this overstated it as kept=8 (the bug F10
++        # fixes; the rendered verified_text + biblio are byte-identical, only the
++        # count changed). The happy path (a real ≥15-char sentence shipping with
++        # sentences_verified>0) is covered by the M-69 rescue E2E below.
++        assert result.sentences_verified == 0
+         # Post-Codex-REJECT-Blocker-3 shape: verified_text has
+-        # numbered `[N]` citations (not raw span tokens), and
+-        # biblio_slice is populated.
++        # numbered `[N]` citations (the gap-disclosure stubs carry M-68 Fix #1b
++        # citation markers), no raw span tokens, and biblio_slice is populated.
+         import re as _re
+         assert _re.search(r"\[\d+\]", result.verified_text), (
+             "expected numbered [N] citations in verified_text; "

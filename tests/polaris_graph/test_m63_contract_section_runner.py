@@ -326,12 +326,20 @@ class TestRunContractSection:
         # Every payload cites its bound_ev_id
         for p in payloads:
             assert p.bound_ev_id == p.entity_id
-        # Some sentences MUST pass strict_verify (at least the
-        # extracted-field sentences for SURPASS-2)
-        assert result.sentences_verified > 0
+        # F10 (I-arch-004 A3): sentences_verified is the POST-resolve emitted
+        # count (sentences ACTUALLY rendered into the slot prose), not the
+        # pre-resolve kept-list length. Here the fake LLM extracts only the terse
+        # `N=1879` field (~9 chars, 2 content words) which FLOOR-DROPS at resolution
+        # (< 3 content words / < 15 chars), so EVERY slot renders as an M-68
+        # gap-disclosure stub and ZERO substantive sentences ship. The honest count
+        # is therefore 0 — previously this overstated it as kept=8 (the bug F10
+        # fixes; the rendered verified_text + biblio are byte-identical, only the
+        # count changed). The happy path (a real ≥15-char sentence shipping with
+        # sentences_verified>0) is covered by the M-69 rescue E2E below.
+        assert result.sentences_verified == 0
         # Post-Codex-REJECT-Blocker-3 shape: verified_text has
-        # numbered `[N]` citations (not raw span tokens), and
-        # biblio_slice is populated.
+        # numbered `[N]` citations (the gap-disclosure stubs carry M-68 Fix #1b
+        # citation markers), no raw span tokens, and biblio_slice is populated.
         import re as _re
         assert _re.search(r"\[\d+\]", result.verified_text), (
             "expected numbered [N] citations in verified_text; "

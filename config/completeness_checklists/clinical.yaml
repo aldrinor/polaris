@@ -50,6 +50,12 @@ topics:
 
   - id: contraindications
     label: Contraindications / warnings
+    # I-arch-004 F11 (#1249): clinical-safety-critical. A clinical report that ships
+    # with ZERO contraindication/boxed-warning coverage is a clinical-safety hole; an
+    # uncovered critical topic HOLDS release (abort_critical_topic_uncovered) instead
+    # of shipping the advisory ok_incomplete_corpus. Only the clinical sweep enforces
+    # this (env kill-switch PG_SWEEP_CRITICAL_COMPLETENESS_HOLD, default ON).
+    critical: true
     keywords:
       - "contraindicated"
       - "contraindication"

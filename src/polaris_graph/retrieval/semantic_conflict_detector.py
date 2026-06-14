@@ -418,9 +418,17 @@ class _SemanticContradictionJudge:
             "reasoning": {"effort": _sc_effort},
             "response_format": {"type": "json_object"},
         }
+        # I-arch-004 F09: route via "mirror" (the LOCKED 4-role key), NOT the RETIRED "evaluator"
+        # key. The preflight-resolved role_provider_map only carries generator/mirror/sentinel/judge
+        # (pathB_runner._LOCKED_ROLES); the legacy "evaluator" key is absent, so get_role_provider(
+        # "evaluator") returned None -> NO provider pin -> this NLI conflict judge FREE-ROUTED to an
+        # unpinned provider instead of the locked mirror chain. Per polaris_runtime_lock.yaml:
+        # legacy_compat the retired evaluator role maps_to_role: mirror (GLM-5.1), so the side-judge
+        # pins to the SAME provider chain as the main mirror role (allow_fallbacks=False,
+        # require_parameters=True).
         try:
             from src.polaris_graph.benchmark import pathB_capture as _pathb_for_routing
-            _gate_provider = _pathb_for_routing.get_role_provider("evaluator")
+            _gate_provider = _pathb_for_routing.get_role_provider("mirror")
         except Exception:
             _gate_provider = None
         # I-arch-002 (#1250): operator-directed — skip the single-provider pin when

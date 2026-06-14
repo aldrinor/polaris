@@ -221,3 +221,70 @@ def test_semantic_record_is_audit_ir_loader_compatible():
         assert c.evidence_id
         assert c.predicate
         assert c.value == pytest.approx(0.0)  # finite sentinel (prose has no numeric value)
+
+
+# ───────────────────── F09: NLI conflict judge pins the MIRROR provider chain ─────────────────────
+
+
+class _CaptureClient:
+    """Mock httpx.Client capturing the posted request body; returns a valid CONTRADICT verdict."""
+
+    def __init__(self):
+        self.body = None
+
+    def post(self, url, headers=None, json=None):
+        self.body = json
+
+        class _Resp:
+            def raise_for_status(self_inner):
+                return None
+
+            def json(self_inner):
+                return {
+                    "choices": [{"message": {"content": '{"verdict": "NEUTRAL", "confidence": 0.0}'}}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 3, "cost": 0.001},
+                }
+
+        return _Resp()
+
+
+def test_conflict_judge_pins_mirror_chain_when_gate_active(monkeypatch):
+    # I-arch-004 F09: the NLI conflict side-judge must pin to the MIRROR role's resolved provider
+    # (the locked GLM-5.1 chain), NOT the RETIRED "evaluator" role. role_provider_map only carries
+    # generator/mirror/sentinel/judge; "evaluator" is absent -> get_role_provider("evaluator") == None
+    # -> NO pin -> free-route. Assert the judge looks up "mirror" and pins it singleton-no-fallback.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")  # glm != deepseek => family ok
+    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
+    judge._client = _CaptureClient()
+    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    looked_up = []
+
+    def _fake_get_role_provider(role):
+        looked_up.append(role)
+        return "novita" if role == "mirror" else None
+
+    monkeypatch.setattr(_pathb, "get_role_provider", _fake_get_role_provider)
+    judge.judge("claim a", "claim b")
+    assert judge._client.body["provider"] == {
+        "order": ["novita"], "allow_fallbacks": False, "require_parameters": True}
+    assert "mirror" in looked_up
+    assert "evaluator" not in looked_up
+
+
+def test_conflict_judge_retired_evaluator_key_does_not_free_route(monkeypatch):
+    # I-arch-004 F09 regression guard: BEFORE the fix the judge looked up "evaluator", which the locked
+    # 4-role role_provider_map never carries -> None -> NO provider pin -> free-route. Mimic the real
+    # map shape (only the 4 locked roles populated) and prove the judge now PINS the mirror chain.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("PG_GENERATOR_MODEL", "deepseek/deepseek-v4-pro")
+    judge = scd._SemanticContradictionJudge(strict_fail_closed=False)
+    judge._client = _CaptureClient()
+    from src.polaris_graph.benchmark import pathB_capture as _pathb
+    role_map = {"generator": "fireworks", "mirror": "novita",
+                "sentinel": "deepinfra", "judge": "together"}
+    monkeypatch.setattr(_pathb, "get_role_provider", lambda role: role_map.get(role))
+    judge.judge("claim a", "claim b")
+    assert judge._client.body["provider"]["order"] == ["novita"]
+    assert judge._client.body["provider"]["allow_fallbacks"] is False
+    assert judge._client.body["provider"]["require_parameters"] is True

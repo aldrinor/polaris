@@ -508,7 +508,14 @@ async def run_contract_section(
       strict_verify never sees heading prose (it would fail the
       content-word overlap check).
     """
-    from .provenance_generator import resolve_provenance_to_citations
+    from .provenance_generator import (
+        resolve_provenance_to_citations,
+        _strip_bogus_ev_markers,
+        _bogus_marker_evidence_id,
+        _BOGUS_EV_MARKER_RE,
+        _RESOLVE_MIN_CONTENT_WORDS,
+        _RESOLVE_MIN_PROSE_CHARS,
+    )
 
     payloads: list[SlotFillPayload] = []
     total_in_tok = 0
@@ -892,19 +899,47 @@ async def run_contract_section(
     # Re-do the per-sentence resolution inline — cheap and keeps
     # us in lockstep with `resolve_provenance_to_citations`'s
     # acceptance rules (≥3 content words, ≥15 chars).
+    # F10 (I-arch-004 A3): the contract path's authoritative `verified_text` is
+    # this inline slot regroup (NOT the flat `resolved_body`), so the honest
+    # post-resolve verified count is the number of sentences actually emitted into
+    # the slot prose here — `_emitted_into_slots`. The pre-resolve `kept` overstated
+    # it (degenerate fragments + F31 bogus-only drop here).
     sentences_by_slot: dict[str, list[str]] = {sid: [] for sid in slot_order}
+    _emitted_into_slots = 0
     ev_to_num = {b["evidence_id"]: b["num"] for b in biblio_slice}
     import re as _re
     _prov_re = _re.compile(r"\[#ev:([^:\]]+):(\d+)-(\d+)\]")
     for sv in kept_sentences:
         raw = getattr(sv, "sentence", "") or ""
+        tokens = getattr(sv, "tokens", None) or []
+        # F31 (I-arch-004 A3): SURGICAL span-grounding drop — fires ONLY when the
+        # sentence carried a BOGUS bracketed marker (`[ev_<slug>]` / `[ev:...]`
+        # whose id is not a real pool row) AND has NO valid `[#ev:...]` grounding.
+        # A normal cited sentence (valid grounding) and a no-bracket pass-through
+        # sentence (no bogus marker) are both untouched — mirrors the resolver.
+        _has_valid_grounding = any(
+            getattr(t, "evidence_id", "") in evidence_pool for t in tokens
+        )
+        _has_bogus_marker = any(
+            _bogus_marker_evidence_id(m.group(0)[1:-1]) not in evidence_pool
+            for m in _BOGUS_EV_MARKER_RE.finditer(raw)
+        )
+        if _has_bogus_marker and not _has_valid_grounding:
+            continue
         stripped = _prov_re.sub("", raw).strip()
+        # F31: strip any leaked bogus `[ev_<slug>]` marker so it neither ships in
+        # the slot prose nor inflates the content-word floor (same as the resolver).
+        stripped = _strip_bogus_ev_markers(stripped, evidence_pool).strip()
         stripped = _re.sub(r"\s+([.!?,;])", r"\1", stripped)
         content_w = _re.findall(r"[A-Za-z]+", stripped)
-        if len(content_w) < 3 or len(stripped) < 15:
+        # F10 (I-arch-004 A3): the SAME named resolution floor the resolver uses
+        # (§9.4 no-magic-numbers; removes the 3/15 hard-code drift Codex flagged).
+        if (
+            len(content_w) < _RESOLVE_MIN_CONTENT_WORDS
+            or len(stripped) < _RESOLVE_MIN_PROSE_CHARS
+        ):
             continue
         # Determine the slot via the first token's ev_id.
-        tokens = getattr(sv, "tokens", None) or []
         if not tokens:
             continue
         primary_ev = tokens[0].evidence_id
@@ -920,6 +955,7 @@ async def run_contract_section(
                 used_nums.append(n)
         markers = "".join(f"[{n}]" for n in used_nums)
         sentences_by_slot.setdefault(slot_id, []).append(stripped + markers)
+        _emitted_into_slots += 1
 
     # Emit final verified_text with re-injected headings.
     # V30 Phase-2 M-68 Fix #1 (Codex run-7 audit directive):
@@ -1135,14 +1171,21 @@ async def run_contract_section(
         rewritten_draft=rewritten_draft,
         verified_text=verified_text,
         biblio_slice=biblio_slice,
-        sentences_verified=kept,
-        sentences_dropped=dropped,
+        # F10 (I-arch-004 A3): report the POST-resolve emitted count
+        # (`_emitted_into_slots` — sentences actually rendered into the slot prose
+        # that becomes verified_text), NOT `kept` (the pre-resolve kept-list
+        # length). The inline regroup drops degenerate fragments + F31 bogus-only
+        # sentences, so `kept` overstated what shipped as verified prose. The
+        # resolver-dropped delta is rolled into sentences_dropped so verified +
+        # dropped stays consistent, and `error` keys on the honest emitted count.
+        sentences_verified=_emitted_into_slots,
+        sentences_dropped=dropped + max(0, kept - _emitted_into_slots),
         regen_attempted=False,  # M-63 doesn't regenerate — M-58
                                 # fabrication check is per-field
         dropped_due_to_failure=dropped_due_to_failure,
         input_tokens=total_in_tok,
         output_tokens=total_out_tok,
-        error="" if kept > 0 else "no_sentences_verified",
+        error="" if _emitted_into_slots > 0 else "no_sentences_verified",
         # I-gen-005 Step 1.5 iter-2 (Codex P1 contract_runner:683):
         # final kept + dropped SVs after rescue path. Rescued SVs are
         # in kept_sentences_pre_resolve; non-rescued drops are in
