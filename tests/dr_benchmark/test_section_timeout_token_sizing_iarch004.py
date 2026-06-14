@@ -15,11 +15,25 @@ import os
 import pytest
 
 from scripts.dr_benchmark import run_gate_b as g
+from src.polaris_graph.llm import openrouter_client as _oc
 
 _KEYS = ("PG_SECTION_MAX_TOKENS", "PG_GENERATOR_LLM_TIMEOUT_SECONDS", "PG_SECTION_WALLCLOCK_SECONDS")
 _REQ_FLAGS = ("PG_DEPTH_ANNOTATION_IN_BENCHMARK", "PG_AGENTIC_SEARCH_IN_BENCHMARK",
               "PG_NLI_IN_BENCHMARK", "PG_USE_SAFETY_REFUSAL", "PG_SWEEP_NLI_CONFLICT",
               "PG_SWEEP_TABLE_CELL_VERIFY")
+
+
+@pytest.fixture(autouse=True)
+def _restore_live_generator_timeout():
+    """I-arch-005 B24 (#1257): every test here either calls the Gate-B slate (which syncs the
+    LIVE generator-timeout module-global UP to 6500s via set_generator_timeout_seconds) or mutates
+    it directly. With the B24 module default now 600s, leaving the global at 6500 leaks a stale-high
+    value into ordering-sensitive siblings (e.g. test_lane_section_arch005_section_wallclock_default_on
+    asserts wall(1800) > live-generator-timeout). Save + restore the live constant around EVERY test
+    so this file is order-independent regardless of the module default."""
+    _orig = _oc.get_generator_timeout_seconds()
+    yield
+    _oc.set_generator_timeout_seconds(_orig)
 
 
 def _clear():
@@ -94,7 +108,7 @@ def test_slate_syncs_live_generator_timeout_constant(monkeypatch):
     oc.set_generator_timeout_seconds(600)  # simulate the frozen import-time constant
     g.apply_full_capability_benchmark_slate()
     assert oc.get_generator_timeout_seconds() >= 6500  # the LIVE constant was synced, not just env
-    oc.set_generator_timeout_seconds(6500)  # restore for other tests
+    # (the autouse _restore_live_generator_timeout fixture restores the original live value)
     _clear()
 
 
@@ -111,5 +125,5 @@ def test_preflight_catches_stale_live_generator_timeout(monkeypatch):
     oc.set_generator_timeout_seconds(600)  # frozen-stale constant despite env=6500
     with pytest.raises(RuntimeError):
         g.preflight_full_capability()
-    oc.set_generator_timeout_seconds(6500)  # restore
+    # (the autouse _restore_live_generator_timeout fixture restores the original live value)
     _clear()

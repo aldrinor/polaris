@@ -117,15 +117,21 @@ def _pool(n: int) -> list[dict]:
 
 
 def test_arch002_per_section_cap_off_holds_at_30(monkeypatch) -> None:
-    """Flag OFF (default): the per-section ROW cap holds at PG_MAX_EV_PER_SECTION=30.
-    With 120 rows round-robin across 3 sections (40 each), each section is clamped to
-    exactly 30 — the legacy FILTER-AND-CAP behavior, byte-identical."""
+    """Legacy escape hatch (PG_GEN_ROW_CAPS=1): the per-section ROW cap holds at
+    PG_MAX_EV_PER_SECTION=30. With 120 rows round-robin across 3 sections (40 each), each
+    section is clamped to exactly 30 — the legacy FILTER-AND-CAP behavior, byte-identical.
+
+    I-arch-005 B2/B3 (#1257): the char-budget path is now the DEFAULT for every caller, so
+    the legacy row cap only fires under the explicit escape hatch (the cert preflight FAILS
+    on it). This test opts into that legacy path to keep its byte-identical regression
+    coverage; the new default (budget) is asserted by test_arch005_per_section_budget_*."""
     monkeypatch.delenv("PG_SWEEP_CREDIBILITY_REDESIGN", raising=False)
     monkeypatch.delenv("PG_MAX_EV_PER_SECTION", raising=False)
+    monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")  # restore the legacy row cap
     plans = _build_deterministic_fallback_outline(_pool(120), domain="clinical")
     assert plans, "fallback outline should build 3 sections from 120 rows"
     assert all(len(p.ev_ids) == 30 for p in plans), (
-        f"OFF: every section must be clamped to 30 rows; got "
+        f"escape-hatch: every section must be clamped to 30 rows; got "
         f"{[len(p.ev_ids) for p in plans]}"
     )
 

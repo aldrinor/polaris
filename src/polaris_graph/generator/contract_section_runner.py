@@ -523,6 +523,12 @@ async def run_contract_section(
         _BOGUS_EV_MARKER_RE,
         _RESOLVE_MIN_CONTENT_WORDS,
         _RESOLVE_MIN_PROSE_CHARS,
+        # I-arch-005 B6/B8 (#1257): the keystone INLINE multi-citation basket render —
+        # the SAME module-level helpers the legacy resolver uses, so the V30 contract
+        # slot-regroup expands corroborators with IDENTICAL faithfulness logic.
+        _basket_for_biblio,
+        build_basket_supports_by_cluster,
+        verified_corroborators_for_tokens,
     )
 
     # I-arch-004 F32 (#1255): resolve the narrative-paragraph adapter. None => use
@@ -904,14 +910,52 @@ async def run_contract_section(
     kept = len(kept_sentences)
     dropped = total_in - kept
 
+    # I-arch-005 B6/B8 (#1257) — THE KEYSTONE on the V30 contract path.
+    # The benchmark (Gate-B) forces PG_V30_PHASE2_ENABLED=1, so EVERY section
+    # ships through this contract runner — NOT the legacy _run_section. Threading
+    # the per-claim baskets + the evidence->cluster binding into the resolve call
+    # below is what makes a multi-source claim render ALL its independently
+    # span-verified (SUPPORTS) corroborating citations in the REAL benchmark
+    # report (the legacy-path wiring alone never reached it). None / empty (master
+    # flag OFF) => the resolver's _carry_baskets gate is False => byte-identical
+    # legacy inline render. We read the SAME attrs _run_section reads.
+    _baskets = getattr(credibility_analysis, "baskets", None)
+    _cluster_id_by_evidence = getattr(
+        credibility_analysis, "cluster_id_by_evidence", None
+    )
     # ── resolve provenance → [N] citations + biblio_slice ──────
     # `resolve_provenance_to_citations` flattens into a single
     # string. We need per-slot grouping AND legacy-shape output,
     # so we call it first to get the resolved body + biblio, then
     # re-thread the resolution through the slot boundaries.
+    # Threading baskets here makes the resolver ALSO enrich biblio_slice with the
+    # corroborator members' numbered rows via its _num_for, so the slot-regroup
+    # below can look those corroborators up in ev_to_num.
     resolved_body, biblio_slice = resolve_provenance_to_citations(
         kept_sentences, evidence_pool,
+        baskets=_baskets,
+        cluster_id_by_evidence=_cluster_id_by_evidence,
     )
+
+    # I-arch-005 B6/B8 (#1257): build the per-cluster SUPPORTS index ONCE for the
+    # slot-regroup's inline corroborator expansion below — via the SAME module-level
+    # helpers the legacy resolver uses (single source of truth for the keystone's
+    # faithfulness rules: SUPPORTS-only, anti-cross-claim single-cluster, never the
+    # advisory clustered count). Empty index when basket data is absent => OFF path
+    # is byte-identical (the regroup loop simply adds no corroborators).
+    _carry_baskets = (
+        _baskets is not None and _cluster_id_by_evidence is not None
+    )
+    _basket_supports_by_cluster: dict[str, list[str]] = {}
+    if _carry_baskets:
+        _basket_by_cluster: dict[str, dict[str, Any]] = {}
+        for _basket in (_baskets or []):
+            _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
+            if _ccid:
+                _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
+        _basket_supports_by_cluster = build_basket_supports_by_cluster(
+            _basket_by_cluster
+        )
 
     # Build a per-sentence resolved list (parallel to
     # kept_sentences) so we can group by originating slot.
@@ -970,6 +1014,26 @@ async def run_contract_section(
         used_nums: list[int] = []
         for tok in tokens:
             n = ev_to_num.get(tok.evidence_id)
+            if n is not None and n not in used_nums:
+                used_nums.append(n)
+        # I-arch-005 B6/B8 (#1257): INLINE multi-citation basket render on the V30
+        # contract path (the keystone reaching the benchmark report). Append the
+        # citation markers for every OTHER independently span-verified (SUPPORTS)
+        # member of the basket(s) this sentence's OWN cited sources back — via the
+        # SAME module-level helper the legacy resolver uses (SUPPORTS-only, never the
+        # advisory clustered count; a MULTI-cluster token is NOT expanded — anti
+        # cross-claim, §-1.1 lethal). Each corroborator was already numbered into
+        # biblio_slice by the resolver above (baskets were threaded into it), so
+        # ev_to_num resolves it; dedup'd against used_nums so the sentence's own
+        # citation is never doubled. Empty index (OFF path) => no corroborators added
+        # => byte-identical legacy single-citation regroup.
+        for _corro_eid in verified_corroborators_for_tokens(
+            [tok.evidence_id for tok in tokens],
+            basket_supports_by_cluster=_basket_supports_by_cluster,
+            cluster_id_by_evidence=_cluster_id_by_evidence,
+            evidence_pool=evidence_pool,
+        ):
+            n = ev_to_num.get(_corro_eid)
             if n is not None and n not in used_nums:
                 used_nums.append(n)
         markers = "".join(f"[{n}]" for n in used_nums)

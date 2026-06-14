@@ -2745,6 +2745,83 @@ def _basket_for_biblio(basket: Any) -> dict[str, Any]:
     }
 
 
+def build_basket_supports_by_cluster(
+    basket_by_cluster: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Index claim_cluster_id -> the list of evidence_ids whose OWN isolated
+    ``span_verdict == "SUPPORTS"`` (I-arch-005 B6/B8 #1257, the keystone).
+
+    Input is the per-cluster PROJECTED basket dict map (``_basket_for_biblio``
+    output keyed by ``claim_cluster_id``). Output keeps ONLY the
+    independently span-verified (SUPPORTS) members — the same members counted in
+    ``verified_support_origin_count``, NEVER the advisory
+    ``total_clustered_origin_count``. A member with no verified span is skipped
+    (it is shown only in the bibliography as context, never rendered as inline
+    support). Module-level so BOTH the legacy resolver AND the V30 contract
+    slot-regroup (contract_section_runner.py) compute corroborators from the
+    SAME faithfulness-critical logic — no second copy to drift.
+    """
+    out: dict[str, list[str]] = {}
+    for _ccid, _bdict in basket_by_cluster.items():
+        _supports = [
+            str(m.get("evidence_id") or "")
+            for m in (_bdict.get("supporting_members") or [])
+            if str(m.get("span_verdict") or "").upper() == "SUPPORTS"
+            and str(m.get("evidence_id") or "")
+        ]
+        if _supports:
+            out[_ccid] = _supports
+    return out
+
+
+def verified_corroborators_for_tokens(
+    token_ev_ids: list[str],
+    *,
+    basket_supports_by_cluster: dict[str, list[str]],
+    cluster_id_by_evidence: dict[str, list[str]] | None,
+    evidence_pool: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Union of independently SPAN-VERIFIED (SUPPORTS) basket members backing the
+    claim the sentence's OWN cited tokens map to (I-arch-005 B6/B8 #1257). Joins
+    via the sentence's own evidence_id -> ``cluster_id_by_evidence`` -> basket
+    SUPPORTS members (NOT a fuzzy claim match). Only members resolvable in
+    ``evidence_pool`` are returned. Order is deterministic (token order, then
+    member order). Returns [] when basket data is absent => the OFF path is
+    byte-identical.
+
+    FAITHFULNESS — anti-cross-claim attribution (constraint 1, §-1.1 "citation
+    appropriate for the claim"): ``cluster_id_by_evidence`` is 1-to-MANY (one
+    source can back several DISTINCT claims, e.g. ev_a backs "reduces weight 14%"
+    AND "causes nausea 10%"). A cited token does NOT tell us WHICH of the source's
+    claims the SENTENCE asserts, so expanding a MULTI-cluster token would risk
+    rendering cluster-2's verified member as support for a cluster-1 sentence — a
+    wrong-claim citation (lethal in clinical context). We therefore expand ONLY a
+    token whose evidence_id maps to EXACTLY ONE cluster (the sentence's claim is
+    then unambiguous); a multi-cluster token keeps its own single citation, never
+    an inferred cross-claim corroborator. Conservative on purpose: faithfulness
+    over completeness.
+
+    Module-level (extracted from the resolver's former nested closure) so the V30
+    contract slot-regroup uses the IDENTICAL logic — single source of truth for the
+    keystone's faithfulness rules.
+    """
+    if not basket_supports_by_cluster:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for _eid in token_ev_ids:
+        _ccids = (cluster_id_by_evidence or {}).get(_eid, []) or []
+        # Anti-cross-claim: only an UNAMBIGUOUS single-cluster token may corroborate
+        # (a multi-cluster token can't be attributed to ONE claim -> skip its expansion).
+        if len(_ccids) != 1:
+            continue
+        for _support_eid in basket_supports_by_cluster.get(_ccids[0], []):
+            if _support_eid not in seen and _support_eid in evidence_pool:
+                seen.add(_support_eid)
+                out.append(_support_eid)
+    return out
+
+
 def resolve_provenance_to_citations(
     kept_sentences: list[SentenceVerification],
     evidence_pool: dict[str, dict[str, Any]],
@@ -2826,6 +2903,43 @@ def resolve_provenance_to_citations_with_count(
             _ccid = str(getattr(_basket, "claim_cluster_id", "") or "")
             if _ccid:
                 _basket_by_cluster[_ccid] = _basket_for_biblio(_basket)
+
+    # I-arch-005 B6/B8 (#1257) — INLINE multi-citation basket render (the keystone).
+    #
+    # The bibliography enrichment above attaches each basket to its sources' biblio
+    # rows. B6/B8 additionally renders the WHOLE basket INLINE at the per-sentence
+    # citation: when a sentence cites a source that backs a claim basket, append the
+    # citation markers for ALL OTHER independently span-verified supporting members of
+    # that basket, so a multi-source claim shows ALL its corroborating citations, not
+    # just the one source the generator happened to cite.
+    #
+    # FAITHFULNESS (constraint 1, byte-equivalent strictness): we add ONLY members whose
+    # OWN isolated ``span_verdict == "SUPPORTS"`` (the same members counted in
+    # ``verified_support_origin_count`` — NEVER the advisory ``total_clustered_origin_count``).
+    # A member with no verified span is skipped (shown only in the bibliography as context),
+    # never rendered as inline support. We never widen a span, never resurrect a dropped
+    # sentence (the basket is assembled AFTER strict_verify; a dropped sentence never reaches
+    # this resolver), and never make a failing claim pass — we only surface citations to
+    # sources that ALREADY independently verified the SAME claim. ``baskets is None`` (the
+    # OFF / no-basket path) skips this block entirely => byte-identical legacy render.
+    # Single source of truth: build the SUPPORTS-by-cluster index via the
+    # module-level helper (the SAME function the V30 contract slot-regroup calls),
+    # so the keystone's faithfulness-critical logic exists in exactly one place.
+    _basket_supports_by_cluster: dict[str, list[str]] = (
+        build_basket_supports_by_cluster(_basket_by_cluster) if _carry_baskets else {}
+    )
+
+    def _verified_corroborators_for_tokens(token_ev_ids: list[str]) -> list[str]:
+        """Thin wrapper binding the module-level ``verified_corroborators_for_tokens``
+        to this resolve call's basket index + binding + pool (so the legacy inline
+        render and the V30 contract slot-regroup share the IDENTICAL anti-cross-claim
+        logic). Returns [] on the OFF path => byte-identical legacy render."""
+        return verified_corroborators_for_tokens(
+            token_ev_ids,
+            basket_supports_by_cluster=_basket_supports_by_cluster,
+            cluster_id_by_evidence=cluster_id_by_evidence,
+            evidence_pool=evidence_pool,
+        )
 
     def _num_for(ev_id: str) -> int:
         if ev_id not in ev_to_num:
@@ -2934,6 +3048,21 @@ def resolve_provenance_to_citations_with_count(
         used_nums: list[int] = []
         for tok in sv.tokens:
             n = _num_for(tok.evidence_id)
+            if n not in used_nums:
+                used_nums.append(n)
+        # I-arch-005 B6/B8 (#1257): INLINE multi-citation basket render. Append the
+        # citation markers for every OTHER independently span-verified (SUPPORTS) member
+        # of the basket(s) this sentence's OWN cited sources back, so a multi-source claim
+        # shows ALL its corroborating citations. The member's evidence_id is resolved into
+        # the SAME numbered bibliography via _num_for (which auto-enriches the new biblio
+        # row with the basket(s) the corroborator backs), and dedup'd against used_nums so
+        # the sentence's own citation is never doubled. Faithfulness: SUPPORTS-only (the
+        # verified_support_origin_count members), never the advisory clustered count;
+        # _verified_corroborators_for_tokens returns [] on the OFF path => byte-identical.
+        for _corro_eid in _verified_corroborators_for_tokens(
+            [tok.evidence_id for tok in sv.tokens]
+        ):
+            n = _num_for(_corro_eid)
             if n not in used_nums:
                 used_nums.append(n)
         # Append citation markers

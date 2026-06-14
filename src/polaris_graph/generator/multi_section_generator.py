@@ -31,6 +31,7 @@ Cost estimate: ~$0.01-$0.02 per report (vs $0.0022 for single-call).
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -57,20 +58,134 @@ from src.polaris_graph.generator.provenance_generator import (
 logger = logging.getLogger("polaris_graph.multi_section")
 
 
-# I-arch-002 (#1248): per-section wall-clock guard. DEFAULT-OFF
-# (PG_SECTION_WALLCLOCK_SECONDS unset / <= 0) => byte-identical (no wait_for wrap).
-# When set, each section's bounded runner is wrapped in asyncio.wait_for so a WEDGED
-# section (a 0-socket provider stall — observed on the drb_72 smoke: the section
-# asyncio.gather hung 19 min with NO open sockets / ~0 CPU, immune to the httpx read
-# timeout because no socket was open to time out) gets a hard wall-clock bound: it
-# RETRIES once (a fresh call likely hits a healthy provider), then FAILS LOUD instead
-# of hanging the whole report forever. Faithfulness-neutral: only affects WHETHER a
-# section generates; strict_verify / NLI / 4-role / provenance are untouched.
+# I-arch-005 B2/B3 (#1257): run-scoped tail-drop telemetry sink for the per-section
+# character-budget trim. A ContextVar (NOT a module-global list) so concurrent runs do not
+# cross-contaminate and so it auto-resets per run. ``generate_multi_section_report`` binds a
+# fresh list at entry; ``_budget_trim_ev_ids`` appends one record per binding tail-drop;
+# tests read it via ``_budget_tail_drop_sink()``. Each record names the cap site, the
+# budget, the kept/in/dropped row counts and the dropped chars — so the char-budget is
+# OBSERVABLE (the B2_B3 verdict flagged the tail-drop as silent).
+_BUDGET_TAIL_DROP_TELEMETRY_CTX: contextvars.ContextVar[
+    "list[dict[str, Any]] | None"
+] = contextvars.ContextVar("pg_budget_tail_drop_telemetry", default=None)
+
+
+def _budget_tail_drop_sink() -> "list[dict[str, Any]] | None":
+    """The current run's tail-drop telemetry list (or None when unbound). The four
+    per-section cap sites pass this into ``_budget_trim_ev_ids(telemetry_sink=...)``."""
+    return _BUDGET_TAIL_DROP_TELEMETRY_CTX.get()
+
+
+def _build_reliability_header(credibility_analysis: Any) -> dict[str, Any] | None:
+    """I-arch-005 B6/B8 (#1257): a report-level reliability header from the per-claim
+    baskets. Counts claims by corroboration STRENGTH using ONLY the
+    ``verified_support_origin_count`` (the independently span-verified origins — NEVER the
+    advisory ``total_clustered_origin_count``): corroborated (>= 2 verified origins),
+    single-origin (exactly 1), and contested (>= 1 refuter cluster). Returns None when no
+    basket data is present (master flag OFF) => byte-identical. This is a disclosure SIGNAL,
+    not a gate — it never keeps/drops a sentence."""
+    baskets = getattr(credibility_analysis, "baskets", None)
+    if not baskets:
+        return None
+    corroborated = 0
+    single_origin = 0
+    contested = 0
+    total_with_verified = 0
+    for _b in baskets:
+        _vcount = int(getattr(_b, "verified_support_origin_count", 0) or 0)
+        _refuters = getattr(_b, "refuter_cluster_ids", ()) or ()
+        if _refuters:
+            contested += 1
+        if _vcount >= 2:
+            corroborated += 1
+            total_with_verified += 1
+        elif _vcount == 1:
+            single_origin += 1
+            total_with_verified += 1
+    return {
+        "claims_total": len(baskets),
+        "claims_with_verified_support": total_with_verified,
+        "claims_multi_source_corroborated": corroborated,
+        "claims_single_origin": single_origin,
+        "claims_contested": contested,
+        # The reliability of a claim is carried by its basket's INDEPENDENTLY span-verified
+        # supporting origins (a corroboration signal), never by the raw clustered count.
+        "corroboration_basis": "verified_support_origin_count",
+    }
+
+
+# B12-COMPLETION (#1257): the disclosed-gap label string used when the credibility pass
+# cannot run because the production judge / gov_suffixes were not threaded. NAMED constant
+# (no inline magic string) so the inline guard and the unit test reference the SAME text.
+_CREDIBILITY_NO_JUDGE_DISCLOSED_GAP: str = (
+    "credibility_pass_unavailable: the activated credibility analysis could not run "
+    "(no production credibility judge / gov_suffixes were threaded into generation); "
+    "sources ship UNSCORED at neutral credibility weight and this gap is disclosed. The "
+    "binding faithfulness gates (strict_verify, 4-role D8, span-grounding) are unaffected — "
+    "only the advisory credibility disclosure is degraded."
+)
+
+
+def _credibility_guard_decision(
+    *, judge: Any, gov_suffixes: Any, always_release: bool,
+) -> str:
+    """I-arch-005 B12-COMPLETION (#1257): the PURE decision for the credibility-pass
+    pre-run guard, extracted so it is directly unit-testable (the inline guard runs deep in
+    ``generate_multi_section_report`` after the LLM outline/section calls).
+
+    Returns:
+      * ``"run"`` — judge + gov_suffixes ARE threaded; run the pass normally.
+      * ``"degrade"`` — judge missing / gov_suffixes missing AND always-release ON; degrade
+        to the credibility-OFF path (credibility_analysis stays None) + a disclosed gap +
+        CONTINUE. The caller MUST NOT run the pass body with a None judge.
+      * ``"raise"`` — judge missing / gov_suffixes missing AND always-release OFF (legacy);
+        the caller raises CredibilityPassError fail-closed (byte-identical to pre-fix).
+
+    This is the keystone of B12-COMPLETION: pre-fix the raise fired BEFORE the B5/B7
+    always-release try, so judge=None HELD the whole report even under always-release. Now
+    the decision is gated on always_release so "label not hold" is live in production."""
+    if judge is None or not gov_suffixes:
+        return "degrade" if always_release else "raise"
+    return "run"
+
+
+# I-arch-002 (#1248) / I-arch-005 B21 (#1257): per-section wall-clock guard.
+# Each section's bounded runner is wrapped in asyncio.wait_for so a WEDGED section (a
+# 0-socket provider stall — observed on the drb_72 smoke: the section asyncio.gather hung
+# 19 min with NO open sockets / ~0 CPU, immune to the httpx read timeout because no socket
+# was open to time out) gets a hard wall-clock bound: it RETRIES once (a fresh call likely
+# hits a healthy provider), then raises a TimeoutError. That TimeoutError is in
+# ``_TRANSIENT_SECTION_FAILURES``, so ``_gather_sections_isolated`` catches it and emits a
+# VISIBLE gap-stub for THAT section (``_section_failure_to_gap_stub``) — a section hang is a
+# disclosed gap, never a hung run. Faithfulness-neutral: only affects WHETHER a section
+# generates; strict_verify / NLI / 4-role / provenance are untouched.
+#
+# B21 (#1257) flips this to DEFAULT-ON. Pre-fix the default was 0 (OFF) — a hung section
+# could hang the whole report forever on any caller that did NOT set the env (only the
+# Gate-B cert slate set it). The default MUST exceed the inner generator LLM per-call timeout
+# (GENERATOR_TIMEOUT_SECONDS default 600s, openrouter_client.py) + verify/rewrite headroom, or
+# it would fire on a slow-but-legitimate section and burn the retry.
+#
+# B24 (#1257) RIGHT-SIZES this default from 9000s to 1800s (30 min). 9000s was the cert-slate
+# value (sized for the old 6500s inner timeout) frozen into the MODULE default; that made every
+# non-slate caller (dev / smoke / ad-hoc) wait up to 2.5h on a true hang before the gap stub
+# fired. 1800s = the 30-min section backstop: comfortably above a slow-but-legit section yet a
+# sane dev default. The Gate-B cert slate INDEPENDENTLY floors this UP to >= 9000s for the real
+# certification run (run_gate_b.py apply_full_capability_benchmark_slate + a fail-loud preflight),
+# so cert-run completeness is UNCHANGED — only the non-slate default comes down. Env-overridable
+# (PG_SECTION_WALLCLOCK_SECONDS); set <= 0 to restore the legacy no-wrap path (the byte-identical
+# escape hatch). Faithfulness-neutral: only affects WHETHER a section generates; strict_verify /
+# NLI / 4-role / provenance are untouched.
+PG_SECTION_WALLCLOCK_SECONDS_DEFAULT: str = "1800"
+
+
 def _section_wallclock_seconds() -> int:
     try:
-        return int(os.getenv("PG_SECTION_WALLCLOCK_SECONDS", "0"))
+        return int(os.getenv(
+            "PG_SECTION_WALLCLOCK_SECONDS", PG_SECTION_WALLCLOCK_SECONDS_DEFAULT
+        ))
     except ValueError:
-        return 0
+        return int(PG_SECTION_WALLCLOCK_SECONDS_DEFAULT)
 
 
 async def _run_section_with_wallclock(runner, plan):
@@ -118,6 +233,37 @@ def _credibility_redesign_enabled() -> bool:
     return (
         os.getenv("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower()
         in ("1", "true", "yes", "on")
+    )
+
+
+# I-arch-005 B2/B3 (#1257): the per-section CHARACTER-BUDGET path is now the DEFAULT for
+# EVERY caller — not just the cert slate (which set PG_SWEEP_CREDIBILITY_REDESIGN). Pre-fix
+# the budget dissolution rode the redesign master flag, so the canonical Gate-B path (and
+# any non-cert caller) got the LIVE 150/40 ROW caps — the WEIGHT-AND-CONSOLIDATE DNA
+# violation §-1.3 names. This is a SEPARATE, default-ON budget predicate (NOT a flip of
+# ``_credibility_redesign_enabled()``, whose two out-of-lane mirrors — evidence_selector +
+# run_honest_sweep_r3 — must stay coherent). It governs ONLY the four per-section +
+# outline cap sites in THIS file.
+#
+# WEIGHT-AND-CONSOLIDATE (DNA): the budget is a CHARACTER budget over the 1M-context
+# generator, never a row count; every assigned row whose serialized statement+direct_quote
+# fits flows to composition. The faithfulness engine (strict_verify / NLI / 4-role) is
+# downstream and untouched. ESCAPE HATCH: PG_GEN_ROW_CAPS in {1,true,yes,on} restores the
+# legacy ROW caps (byte-identical regression path). The preflight (run_gate_b.py) FAILS
+# LOUD if this escape hatch is set on a production cert run, so a row cap can never
+# silently re-bind.
+def _section_budgets_enabled() -> bool:
+    """True (DEFAULT) iff the character-budget path governs the per-section + outline cap
+    sites — i.e. the legacy ROW caps are DISSOLVED into character budgets for every caller.
+    Returns False ONLY when PG_GEN_ROW_CAPS explicitly restores the legacy row caps (the
+    byte-identical escape hatch). The redesign master flag ALSO forces budgets ON (so an
+    explicit PG_SWEEP_CREDIBILITY_REDESIGN=1 + PG_GEN_ROW_CAPS=1 still gets budgets, the
+    cert behaviour). Read at CALL time for monkeypatch-testability."""
+    if _credibility_redesign_enabled():
+        return True
+    return (
+        os.getenv("PG_GEN_ROW_CAPS", "").strip().lower()
+        not in ("1", "true", "yes", "on")
     )
 
 
@@ -171,11 +317,20 @@ def _budget_trim_ev_ids(
     budget: int,
     *,
     reserved_floor: int = 0,
+    telemetry_sink: list[dict[str, Any]] | None = None,
+    site: str = "",
 ) -> list[str]:
     """Keep ev_ids in order until the cumulative serialized char budget is reached;
     ALWAYS keep at least ``reserved_floor`` leading rows (the SACRED reserved set is
     never truncated by the budget). Replaces the row-count clamp on the redesign path:
-    bounded by characters, never by a row count."""
+    bounded by characters, never by a row count.
+
+    I-arch-005 B2/B3 (#1257): when a TAIL is dropped past the character budget, record it
+    (count + dropped serialized chars + the kept/in counts + the budget + site) so the
+    char-budget is OBSERVABLE, not a silent drop. The verdict doc (B2_B3) flagged that this
+    tail-drop was silent. ``telemetry_sink`` (an append-only list of dicts) receives one
+    record per binding trim; ``site`` names the cap site. When no sink is provided, the
+    drop is still logged at WARNING."""
     if not ev_ids:
         return ev_ids
     kept: list[str] = []
@@ -192,6 +347,27 @@ def _budget_trim_ev_ids(
             break
         kept.append(eid)
         used += size
+    n_dropped = len(ev_ids) - len(kept)
+    if n_dropped > 0:
+        dropped_ids = ev_ids[len(kept):]
+        dropped_chars = sum(char_len_by_id.get(_e, 0) for _e in dropped_ids)
+        record = {
+            "site": site or "unknown",
+            "reason": "char_budget_exceeded",
+            "budget": int(budget),
+            "rows_in": len(ev_ids),
+            "rows_kept": len(kept),
+            "rows_dropped": n_dropped,
+            "chars_used": used,
+            "chars_dropped": dropped_chars,
+        }
+        if telemetry_sink is not None:
+            telemetry_sink.append(record)
+        logger.warning(
+            "[gen-budget] tail-drop at %s: kept %d/%d rows (budget=%d chars, "
+            "used=%d, dropped=%d rows / %d chars) — char-budget bound, not a row cap",
+            record["site"], len(kept), len(ev_ids), budget, used, n_dropped, dropped_chars,
+        )
     return kept
 
 
@@ -830,6 +1006,17 @@ class MultiSectionResult:
     outline_retry_attempted: bool = False
     outline_fallback_used: bool = False
     outline_reason_codes: list[str] = field(default_factory=list)
+    # I-arch-005 B2/B3 (#1257): per-section char-budget tail-drop telemetry — one record
+    # per binding trim ({site, reason, budget, rows_in, rows_kept, rows_dropped,
+    # chars_used, chars_dropped}). Empty when no budget bound (every assigned row fit).
+    # Makes the char budget OBSERVABLE (the B2_B3 verdict flagged the tail-drop as silent).
+    budget_tail_drops: list[dict[str, Any]] = field(default_factory=list)
+    # I-arch-005 B6/B8 (#1257): report-level reliability header computed from the per-claim
+    # baskets (claims with >=2 independently span-verified supporting origins = corroborated;
+    # single-origin claims; contested claims). None when basket data is absent (master flag
+    # OFF) => byte-identical. The SWEEP lane prepends this disclosed header to the assembled
+    # body; the data is computed + surfaced here (in-lane) regardless.
+    reliability_header: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1133,11 +1320,13 @@ def _build_deterministic_fallback_outline(
     # PG_LIVE_MAX_EV_TO_GEN cap — held total generation evidence below corpus size. Env-tunable now
     # (PG_MAX_EV_PER_SECTION, default 30 = byte-identical when unset); the full-cap slate raises it in
     # lockstep. Still bounded to keep per-section bodies under the >100K-token OpenRouter 400 limit.
-    # I-arch-002 (#1246) P-W4gen site 1/5: under the redesign flag the ROW cap
-    # dissolves into a per-section serialized CHARACTER budget (keep rows until the
-    # generous char budget is reached, never a row count). OFF => the exact
-    # min(.., PG_MAX_EV_PER_SECTION=30) clamp, byte-identical.
-    _redesign = _credibility_redesign_enabled()
+    # I-arch-002 (#1246) P-W4gen site 1/5: the ROW cap dissolves into a per-section
+    # serialized CHARACTER budget (keep rows until the generous char budget is reached,
+    # never a row count). I-arch-005 B2/B3 (#1257): budgets are now the DEFAULT for every
+    # caller (`_section_budgets_enabled()`), not just the cert slate; the escape hatch
+    # PG_GEN_ROW_CAPS restores the exact min(.., PG_MAX_EV_PER_SECTION=30) clamp,
+    # byte-identical.
+    _redesign = _section_budgets_enabled()
     _MAX_EV_PER_FALLBACK_SECTION = int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
     _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
     _char_budget = _section_ev_char_budget() if _redesign else 0
@@ -1145,7 +1334,8 @@ def _build_deterministic_fallback_outline(
     for i, title in enumerate(allowed_titles):
         if _redesign:
             section_ev = _budget_trim_ev_ids(
-                ev_ids[i::3], _char_len_by_id, _char_budget
+                ev_ids[i::3], _char_len_by_id, _char_budget,
+                telemetry_sink=_budget_tail_drop_sink(), site="fallback_round_robin",
             )
         else:
             section_ev = ev_ids[i::3][:_MAX_EV_PER_FALLBACK_SECTION]
@@ -1309,12 +1499,14 @@ def _assign_evidence_to_planned_outline(
     n_sections = len(planned_outline)
     plans: list[SectionPlan] = []
 
-    # I-arch-002 (#1246) P-W4gen sites 3+4/5: under the redesign flag the per-section
-    # ROW clamp (min(cap, max_ev_per_section)) dissolves into a serialized CHARACTER
-    # budget applied to the FILLER while the SACRED reserved set (per-facet credited
-    # rows) is never truncated. Read at CALL time so the gate is monkeypatch-testable;
-    # OFF => the literal min(.., max_ev_per_section) clamp, byte-identical.
-    _redesign = _credibility_redesign_enabled()
+    # I-arch-002 (#1246) P-W4gen sites 3+4/5: the per-section ROW clamp (min(cap,
+    # max_ev_per_section)) dissolves into a serialized CHARACTER budget applied to the
+    # FILLER while the SACRED reserved set (per-facet credited rows) is never truncated.
+    # Read at CALL time so the gate is monkeypatch-testable. I-arch-005 B2/B3 (#1257):
+    # budgets are now the DEFAULT for every caller (`_section_budgets_enabled()`); the
+    # escape hatch PG_GEN_ROW_CAPS restores the literal min(.., max_ev_per_section) clamp,
+    # byte-identical.
+    _redesign = _section_budgets_enabled()
     _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
     _char_budget = _section_ev_char_budget() if _redesign else 0
 
@@ -1436,6 +1628,7 @@ def _assign_evidence_to_planned_outline(
                 section_ev_ids = _budget_trim_ev_ids(
                     ordered_ev, _char_len_by_id, _char_budget,
                     reserved_floor=len(reserved),
+                    telemetry_sink=_budget_tail_drop_sink(), site="on_mode_clamp",
                 )
             else:
                 section_ev_ids = ordered_ev[:cap]
@@ -1459,12 +1652,14 @@ def _assign_evidence_to_planned_outline(
         section_ev = ev_ids[i::n_sections] if n_sections else []
         cap = target if target > 0 else max_ev_per_section
         cap = min(cap, max_ev_per_section)
-        # I-arch-002 (#1246) P-W4gen site 4/5 (legacy round-robin clamp): under the
-        # redesign flag the ROW cap dissolves into a serialized CHARACTER budget;
-        # OFF => the exact section_ev[:cap] row clamp, byte-identical.
+        # I-arch-002 (#1246) P-W4gen site 4/5 (legacy round-robin clamp): the ROW cap
+        # dissolves into a serialized CHARACTER budget (DEFAULT per B2/B3); the escape
+        # hatch PG_GEN_ROW_CAPS restores the exact section_ev[:cap] row clamp,
+        # byte-identical.
         if _redesign:
             section_ev = _budget_trim_ev_ids(
-                section_ev, _char_len_by_id, _char_budget
+                section_ev, _char_len_by_id, _char_budget,
+                telemetry_sink=_budget_tail_drop_sink(), site="legacy_round_robin",
             )
         else:
             section_ev = section_ev[:cap]
@@ -1496,7 +1691,7 @@ def _build_archetype_fallback_outline(
     # sites the checklist named — a hardcoded 30 here would otherwise be a residual
     # cap, so it is gated for exhaustiveness per the "missed site = residual cap"
     # directive.)
-    _redesign = _credibility_redesign_enabled()
+    _redesign = _section_budgets_enabled()
     _char_len_by_id = _ev_char_len_by_id(evidence) if _redesign else {}
     _char_budget = _section_ev_char_budget() if _redesign else 0
     plans: list[SectionPlan] = []
@@ -1504,7 +1699,8 @@ def _build_archetype_fallback_outline(
     for i, (archetype, title) in enumerate(_ARCHETYPE_FALLBACK):
         if _redesign:
             section_ev = _budget_trim_ev_ids(
-                ev_ids[i::n], _char_len_by_id, _char_budget
+                ev_ids[i::n], _char_len_by_id, _char_budget,
+                telemetry_sink=_budget_tail_drop_sink(), site="archetype_fallback",
             )
         else:
             section_ev = ev_ids[i::n][:30]
@@ -1571,7 +1767,10 @@ async def _call_outline(
     # paid live run (which carries its own canary). The documented lever is the Novita
     # 32K route (PG_REASONING_FIRST_HARD_CAP=32000 + OPENROUTER_PROVIDER_ORDER=novita),
     # NOT re-adding a menu row cap (a cap would fight the WEIGHT-AND-CONSOLIDATE DNA).
-    _outline_redesign = _credibility_redesign_enabled()
+    # I-arch-005 B2/B3 (#1257): the terse-full-pool outline (no [:N] row cut) is now the
+    # DEFAULT for every caller (`_section_budgets_enabled()`); the escape hatch
+    # PG_GEN_ROW_CAPS restores the exact PG_OUTLINE_MAX_EV small/large-pool split.
+    _outline_redesign = _section_budgets_enabled()
 
     if not _outline_redesign and len(evidence) <= _outline_max_ev:
         # SMALL-POOL PATH — BYTE-IDENTICAL to the pre-cap build. The pool was small enough
@@ -3118,9 +3317,20 @@ async def _run_section(
             report.kept_sentences, credibility_analysis,
         )
 
+    # I-arch-005 B6/B8 (#1257): thread the per-claim baskets + the evidence->cluster
+    # binding into the INLINE render so a multi-source claim renders ALL its independently
+    # span-verified corroborating citations (the keystone). None (master flag OFF) =>
+    # baskets/cluster_id_by_evidence stay None => the resolver's _carry_baskets gate is
+    # False => byte-identical legacy inline render.
+    _baskets = getattr(credibility_analysis, "baskets", None)
+    _cluster_id_by_evidence = getattr(
+        credibility_analysis, "cluster_id_by_evidence", None
+    )
     verified_text, biblio_slice, resolved_emitted = (
         resolve_provenance_to_citations_with_count(
             report.kept_sentences, evidence_pool,
+            baskets=_baskets,
+            cluster_id_by_evidence=_cluster_id_by_evidence,
         )
     )
     # I-gen-003: cosmetic citation/punctuation normalization on the
@@ -4773,15 +4983,34 @@ def _m44_inject_primaries_into_outline(
                 continue
             # Not present — inject at front so the LLM sees it in
             # prompt order (higher salience).
-            if len(new_ev_ids) >= max_ev_per_section:
-                # Swap: drop the last (lowest-priority) non-primary
-                # ev_id and prepend the primary.
+            # I-arch-005 LANE-SECTION B-M44 (#1257): the legacy SWAP popped the
+            # last (lowest-priority) row to make room whenever the section already
+            # held >= max_ev_per_section rows. Gate-B raises PG_MAX_EV_PER_SECTION
+            # to 40, so on the DEFAULT path this was a SILENT COUNT-BASED DROP of a
+            # corroborating row — the §-1.3 BANNED filter-and-cap pattern (weight,
+            # don't filter; consolidate, don't drop). The per-section CHARACTER
+            # budget (the redesign no-row-cap path) already governs whether a row
+            # fits; M-44 must NOT count-evict on top of it. So the count-pop is now
+            # gated behind the SAME legacy escape hatch as the other B2/B3 row caps:
+            # only PG_GEN_ROW_CAPS restores the byte-identical swap. On the DEFAULT
+            # path the primary is simply prepended (the list grows past the count;
+            # the downstream char budget, not a row count, decides admission), and
+            # any cap-path tail-drop is recorded in structured telemetry, never
+            # silent. Faithfulness UNCHANGED: more candidate rows reaching the
+            # prompt does not touch strict_verify / NLI / 4-role / provenance —
+            # every emitted sentence is re-verified regardless of pool size.
+            if not _section_budgets_enabled() and len(new_ev_ids) >= max_ev_per_section:
+                # ESCAPE HATCH (PG_GEN_ROW_CAPS): restore the legacy row-cap swap.
+                # Drop the last (lowest-priority) non-primary ev_id and prepend the
+                # primary; record the count-evicted row in structured telemetry.
                 dropped = new_ev_ids.pop()
                 log.append({
                     "section": plan.title,
                     "anchor": anchor,
                     "ev_id": primary_ev,
                     "action": f"swap_in_for_{dropped}",
+                    "dropped_ev_id": dropped,
+                    "drop_reason": "row_cap_swap",
                 })
             else:
                 log.append({
@@ -5542,6 +5771,14 @@ async def generate_multi_section_report(
     from src.polaris_graph.llm.openrouter_client import PG_GENERATOR_MODEL
     gen_model = model or PG_GENERATOR_MODEL
 
+    # I-arch-005 B2/B3 (#1257): bind a FRESH run-scoped tail-drop telemetry list so every
+    # per-section char-budget trim in this report's outline + section selection records its
+    # (count + chars + site) here instead of dropping the tail silently. Surfaced on
+    # MultiSectionResult.budget_tail_drops below. A fresh list per call (the ContextVar is
+    # per-task) prevents cross-run contamination.
+    _budget_tail_drop_telemetry: list[dict[str, Any]] = []
+    _BUDGET_TAIL_DROP_TELEMETRY_CTX.set(_budget_tail_drop_telemetry)
+
     # B9 domain-generalization (SG3 — clinical few-shot leakage): a NON-clinical
     # run must NOT receive the clinical few-shot exemplars baked into the legacy
     # `SECTION_SYSTEM_PROMPT_TEMPLATE` (the AUC-550% / mortality-117% leak). The
@@ -5784,63 +6021,86 @@ async def generate_multi_section_report(
     _credibility_disclosed_gap: str | None = None
     if os.environ.get("PG_SWEEP_CREDIBILITY_REDESIGN", "").strip().lower() not in ("", "0", "false", "off", "no"):
         from ..synthesis import credibility_pass as _credibility_pass  # gated import: inert when flag OFF
-        if credibility_pass_judge is None or not credibility_pass_gov_suffixes:
+        from ..roles.release_policy import always_release_enabled as _always_release_enabled
+        # I-arch-005 B12-COMPLETION (#1257): this judge-None / gov-suffixes-missing guard previously raised
+        # CredibilityPassError BEFORE the always-release try/except below, so it propagated OUTSIDE the
+        # B5/B7 handler -> the WHOLE report still HELD on judge=None even though always-release is ON (the
+        # JUDGES-lane "label not hold" fix was dead code in production). FIX (surgical): gate the raise on
+        # always-release. Under always-release ON, the credibility pass is ADVISORY — degrade to the
+        # byte-identical credibility-OFF path (credibility_analysis stays None; the apply_disclosure_to_svs
+        # sites are all `is not None`-guarded, so sources ship UNSCORED at neutral weight) + surface a LOUD
+        # disclosed gap + CONTINUE. The hard fail-closed raise is kept ONLY when always-release is OFF
+        # (legacy byte-identical). We do NOT run the pass with a None judge (it would make hundreds of calls
+        # then fail) — we skip the pass body entirely on this degraded path.
+        _cred_guard = _credibility_guard_decision(
+            judge=credibility_pass_judge,
+            gov_suffixes=credibility_pass_gov_suffixes,
+            always_release=_always_release_enabled(),
+        )
+        if _cred_guard == "raise":
             raise _credibility_pass.CredibilityPassError(
                 "abort_credibility_pass_error: PG_SWEEP_CREDIBILITY_REDESIGN is on but the production "
                 "credibility judge / gov_suffixes were not threaded into generation (fail-closed)"
             )
-        # I-arch-002 (#1251): run the credibility pass OFF the event-loop thread. It makes hundreds of
-        # SYNC LLM judge calls (now CONCURRENT inside score_source_credibility); running it inline FROZE the
-        # loop (py-spy: ssl.recv on MainThread, 0 CPU/0 sockets). asyncio.to_thread copies THIS task's
-        # context (run_id + Path-B sink + current cost) into the worker; the pool's per-source spend lands
-        # in the process-global cost ledger but NOT this task's _RUN_COST_CTX (a copy), so reconcile the
-        # delta back after so the run-budget gate stays inclusive for the rest of generation.
-        from ..llm import openrouter_client as _orc_cred
-        from ..roles.release_policy import always_release_enabled as _always_release_enabled
-        _cred_sid = _orc_cred.current_run_id() or ""
-        _cred_cost_before = _orc_cred.ledger_cumulative(_cred_sid)
-        try:
-            credibility_analysis = await asyncio.to_thread(
-                _credibility_pass.run_credibility_analysis,
-                research_question, list(evidence_pool.values()),
-                # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
-                # (in scope as generate_multi_section_report's `domain` param) so the
-                # claim graph's fail-closed dispatch can consolidate equal clinical atoms
-                # instead of singleton-ing every claim (domain=None made consolidation
-                # INERT). ``domain or None`` normalizes the '' default back to today's
-                # None when unset.
-                gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
-                judge=credibility_pass_judge,
-            )
-        except _credibility_pass.CredibilityPassError as _cred_exc:
-            # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
-            # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /
-            # independence gap — the drb_72 killer) must NOT abort the question. Under always-release
-            # DEGRADE to the byte-identical flag-OFF path (credibility_analysis stays None -> the four
-            # apply_disclosure_to_svs sites are all `is not None`-guarded, so sources ship UNSCORED at
-            # neutral weight = "weight don't filter") and surface the failure as a LOUD disclosed gap.
-            # OFF (legacy) re-raises -> the existing fail-loud abort, byte-identical.
-            if not _always_release_enabled():
-                raise
+        if _cred_guard == "degrade":
             logger.warning(
-                "[credibility] activated pass FAILED under always-release -> degrade to "
-                "unscored + LABEL (no abort): %s", _cred_exc,
+                "[credibility] activated pass has no production judge / gov_suffixes threaded; "
+                "always-release ON -> degrade to unscored + LABEL (no abort)",
             )
-            credibility_analysis = None
-            _credibility_disclosed_gap = (
-                "credibility_pass_unavailable: the activated credibility analysis could not "
-                f"complete ({_cred_exc}); sources ship UNSCORED at neutral credibility weight and "
-                "this gap is disclosed. The binding faithfulness gates (strict_verify, 4-role D8, "
-                "span-grounding) are unaffected — only the advisory credibility disclosure is degraded."
-            )
-        finally:
-            # Reconcile the offloaded credibility spend into THIS task's run-cost EVEN on abort (Codex P2):
-            # the process-global ledger captured every per-source call; without this an aborting run's
-            # manifest (which reads current_run_cost()) would under-report the credibility spend.
-            _cred_cost_delta = _orc_cred.ledger_cumulative(_cred_sid) - _cred_cost_before
-            if _cred_cost_delta > 0:
-                _orc_cred._add_run_cost(_cred_cost_delta)  # reflect offloaded credibility spend in the budget
-        _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
+            _credibility_disclosed_gap = _CREDIBILITY_NO_JUDGE_DISCLOSED_GAP
+            # credibility_analysis stays None (the byte-identical OFF path). Skip the pass body.
+        else:  # "run"
+            # I-arch-002 (#1251): run the credibility pass OFF the event-loop thread. It makes hundreds of
+            # SYNC LLM judge calls (now CONCURRENT inside score_source_credibility); running it inline FROZE the
+            # loop (py-spy: ssl.recv on MainThread, 0 CPU/0 sockets). asyncio.to_thread copies THIS task's
+            # context (run_id + Path-B sink + current cost) into the worker; the pool's per-source spend lands
+            # in the process-global cost ledger but NOT this task's _RUN_COST_CTX (a copy), so reconcile the
+            # delta back after so the run-budget gate stays inclusive for the rest of generation.
+            from ..llm import openrouter_client as _orc_cred
+            _cred_sid = _orc_cred.current_run_id() or ""
+            _cred_cost_before = _orc_cred.ledger_cumulative(_cred_sid)
+            try:
+                credibility_analysis = await asyncio.to_thread(
+                    _credibility_pass.run_credibility_analysis,
+                    research_question, list(evidence_pool.values()),
+                    # I-arch-002 [7] / Wave-3 design §7 FIX-5: thread the REAL query domain
+                    # (in scope as generate_multi_section_report's `domain` param) so the
+                    # claim graph's fail-closed dispatch can consolidate equal clinical atoms
+                    # instead of singleton-ing every claim (domain=None made consolidation
+                    # INERT). ``domain or None`` normalizes the '' default back to today's
+                    # None when unset.
+                    gov_suffixes=tuple(credibility_pass_gov_suffixes), domain=(domain or None),
+                    judge=credibility_pass_judge,
+                )
+            except _credibility_pass.CredibilityPassError as _cred_exc:
+                # B5/B7: "nothing shall hold the report". The credibility pass is ADVISORY (strict_verify
+                # + 4-role D8 stay the ONLY binding gates). A side-judge failure (judge_error /
+                # independence gap — the drb_72 killer) must NOT abort the question. Under always-release
+                # DEGRADE to the byte-identical flag-OFF path (credibility_analysis stays None -> the four
+                # apply_disclosure_to_svs sites are all `is not None`-guarded, so sources ship UNSCORED at
+                # neutral weight = "weight don't filter") and surface the failure as a LOUD disclosed gap.
+                # OFF (legacy) re-raises -> the existing fail-loud abort, byte-identical.
+                if not _always_release_enabled():
+                    raise
+                logger.warning(
+                    "[credibility] activated pass FAILED under always-release -> degrade to "
+                    "unscored + LABEL (no abort): %s", _cred_exc,
+                )
+                credibility_analysis = None
+                _credibility_disclosed_gap = (
+                    "credibility_pass_unavailable: the activated credibility analysis could not "
+                    f"complete ({_cred_exc}); sources ship UNSCORED at neutral credibility weight and "
+                    "this gap is disclosed. The binding faithfulness gates (strict_verify, 4-role D8, "
+                    "span-grounding) are unaffected — only the advisory credibility disclosure is degraded."
+                )
+            finally:
+                # Reconcile the offloaded credibility spend into THIS task's run-cost EVEN on abort (Codex P2):
+                # the process-global ledger captured every per-source call; without this an aborting run's
+                # manifest (which reads current_run_cost()) would under-report the credibility spend.
+                _cred_cost_delta = _orc_cred.ledger_cumulative(_cred_sid) - _cred_cost_before
+                if _cred_cost_delta > 0:
+                    _orc_cred._add_run_cost(_cred_cost_delta)  # reflect offloaded credibility spend in the budget
+            _orc_cred.check_run_budget(0)  # success path: re-check the cap with the reconciled cumulative cost
 
     # Stage 2: per-section generation (bounded parallelism)
     sem = asyncio.Semaphore(max_parallel_sections)
@@ -6212,7 +6472,17 @@ async def generate_multi_section_report(
                 from .provenance_generator import (
                     resolve_provenance_to_citations_with_count as _resolve,
                 )
-                new_text, new_biblio, new_emitted = _resolve(final_svs, evidence_pool)
+                # I-arch-005 B6/B8 (#1257): same basket-render wiring as the per-section
+                # SITE 1 resolve above — a multi-source claim that survived the dedup
+                # re-resolve renders ALL its span-verified corroborating citations. None
+                # (master flag OFF) => byte-identical legacy render.
+                new_text, new_biblio, new_emitted = _resolve(
+                    final_svs, evidence_pool,
+                    baskets=getattr(credibility_analysis, "baskets", None),
+                    cluster_id_by_evidence=getattr(
+                        credibility_analysis, "cluster_id_by_evidence", None
+                    ),
+                )
                 sr.verified_text = new_text
                 sr.biblio_slice = new_biblio
                 # I-gen-005 Step 1.5 iter-2 (Codex P1 #3): count
@@ -6244,7 +6514,19 @@ async def generate_multi_section_report(
                     sr.sentences_dropped += _resolver_dropped
                 sr.sentences_verified = new_emitted
                 if new_emitted == 0:
-                    sr.dropped_due_to_failure = True
+                    # I-arch-005 B22 (#1257): a section that the cross-section fact-dedup
+                    # re-resolve emptied (every surviving sentence was a same-claim
+                    # redundant of another section's, or the re-resolve dropped them all)
+                    # must NOT silently vanish. Pre-fix `dropped_due_to_failure=True` made
+                    # the section invisible at assembly (the `if not sr.dropped_due_to_failure`
+                    # filter), the same silent-vanish class as BB5-C07. Render the explicit
+                    # gap-disclosure stub and SHIP the section (dropped_due_to_failure stays
+                    # False so assembly keeps it; is_gap_stub=True so no consumer treats the
+                    # marker-less stub as verified prose). Faithfulness-neutral: zero verified
+                    # sentences ship; the stub asserts no claim.
+                    sr.verified_text = _GAP_STUB_SENTENCE
+                    sr.is_gap_stub = True
+                    sr.dropped_due_to_failure = False
             fact_dedup_telemetry["n_rewrites_strict_verify_pass"] = rewrites_re_verified_pass
             fact_dedup_telemetry["n_rewrites_strict_verify_drop"] = rewrites_re_verified_drop
             logger.info(
@@ -7060,4 +7342,9 @@ async def generate_multi_section_report(
         outline_retry_attempted=retry_attempted,
         outline_fallback_used=outline_fallback_used,
         outline_reason_codes=outline_reason_codes,
+        # I-arch-005 B2/B3 (#1257): per-section char-budget tail-drop telemetry (empty when
+        # no budget bound). I-arch-005 B6/B8 (#1257): report-level reliability header from
+        # the per-claim baskets (None when basket data is absent => byte-identical).
+        budget_tail_drops=list(_budget_tail_drop_telemetry),
+        reliability_header=_build_reliability_header(credibility_analysis),
     )

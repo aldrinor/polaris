@@ -823,16 +823,24 @@ OUTPUT_COST_PER_M = float(os.getenv("OPENROUTER_OUTPUT_COST_PER_M", "1.56"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_TIMEOUT_SECONDS", "90"))
 LONG_TIMEOUT_SECONDS = int(os.getenv("PG_LLM_LONG_TIMEOUT_SECONDS", "180"))
 # I-meta-008 FULL-POWER: the DeepSeek V4 Pro reasoning-first GENERATOR needs minutes per section
-# (observed up to 412s for ONE successful section; the 16384-token reasoning-first ceiling divided by
-# the ~11 tok/s slow band is ~24 min worst case). Give the WRITER its own generous, ceiling-justified
-# per-attempt timeout so it never inherits the cheap 90s shared default (which also governs verifier /
-# retrieval / embedding calls). The $ hard cap (PG_MAX_COST_PER_RUN), NOT this timeout, is the spend
-# backstop (operator directive 2026-06-02: full power; wasted time >> token cost).
-# I-arch-004 A2 (#1248): the stale 1800s default was sized for the OLD ~16384-token ceiling. With the
-# real 64000-token section budget at the slow-band rate observed in the drb_72 run data (~15 tok/s for
-# big reasoning-first sections), a legit large section needs 64000/15 ~= 4267s; 1.5x margin -> 6500s.
-# 1800s would truncate it. Gate-B floors this via the slate + a fail-loud preflight (import-time const).
-GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "6500"))
+# (observed up to 412s for ONE successful section). Give the WRITER its own generous per-attempt
+# timeout so it never inherits the cheap 90s shared default (which also governs verifier / retrieval /
+# embedding calls). The $ hard cap (PG_MAX_COST_PER_RUN), NOT this timeout, is the spend backstop
+# (operator directive 2026-06-02: full power; wasted time >> token cost).
+#
+# B24 (#1257) RIGHT-SIZES the MODULE default from 6500s to 600s (10 min): a sane per-call generator
+# timeout for non-slate callers (dev / smoke / ad-hoc). 6500s was the cert-slate value (data-grounded
+# at 64000/15 ~= 4267s + 1.5x margin for a real 64000-token large section) frozen into the MODULE
+# default; that made a dev/smoke run wait nearly 2h on a hung call. The Gate-B cert slate INDEPENDENTLY
+# floors this UP via apply_full_capability_benchmark_slate() -> set_generator_timeout_seconds() (with a
+# >= 6500s fail-loud import-time-constant + preflight floor in run_gate_b.py), so the certification run
+# keeps the full 6500s and cert-run completeness is UNCHANGED — only the non-slate default comes down.
+# NOTE (§9.1.8 "never starve"): 600s is well below the 4267s large-section estimate, so a non-slate
+# caller running a genuinely large reasoning-first section MUST raise PG_GENERATOR_LLM_TIMEOUT_SECONDS
+# (or run under the Gate-B slate). The contract-slot call passes its OWN explicit timeout
+# (PG_CONTRACT_SLOT_STALL_TIMEOUT_S, multi_section_generator.py) and is therefore unaffected by this
+# default (see _call_impl: actual_timeout = timeout or default — an explicit timeout always wins).
+GENERATOR_TIMEOUT_SECONDS = int(os.getenv("PG_GENERATOR_LLM_TIMEOUT_SECONDS", "600"))
 
 
 def get_generator_timeout_seconds() -> int:

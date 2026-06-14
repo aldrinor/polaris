@@ -496,11 +496,14 @@ _FULL_CAPABILITY_BENCHMARK_SLATE: dict[str, str] = {
     # pick. This does NOT enlarge any single LLM prompt (no lost-in-the-middle risk); it only lets each
     # section choose its best rows from the full universe. FLOOR semantics (max(existing, 1500)).
     #
-    # PG_MAX_EV_PER_SECTION stays 40 (the per-prompt knob). Raising IT is the one with a real lost-in-the-
-    # middle risk (all those rows land in ONE prompt the generator reasons over at once), so its OPTIMAL
-    # value is left to the empirical bake-off (I-ready-001b) rather than a guess — 40 is the conservative
-    # hold, not a proven optimum. Historical origin: the M-24 OpenRouter >100K-token-body 400 guard
-    # (multi_section_generator.py), which is STALE for the 200K-1M-context current stack.
+    # I-arch-005 B2/B3 (#1257): the per-section ROW cap is now DISSOLVED into a character
+    # budget by DEFAULT (multi_section_generator `_section_budgets_enabled()`), so
+    # PG_MAX_EV_PER_SECTION is INERT on the default path — each section keeps every assigned
+    # row whose serialized text fits the generous PG_SECTION_EV_CHAR_BUDGET (~120K chars),
+    # never a row count. The 40 is left here only as a no-op floor for the escape-hatch
+    # PG_GEN_ROW_CAPS path (which the preflight FAILS on for a cert run). Historical origin:
+    # the M-24 OpenRouter >100K-token-body 400 guard (multi_section_generator.py), STALE for
+    # the 200K-1M-context current stack — exactly why the row cap is now a char budget.
     "PG_LIVE_MAX_EV_TO_GEN": "1500",
     "PG_MAX_EV_PER_SECTION": "40",
     # R-6 completeness-expansion breadth (the secondary throttle that was hardcoded 5/5/15/cap-4).
@@ -1138,6 +1141,22 @@ def preflight_full_capability() -> None:
                 f"BINDING faithfulness verifier is degraded (entailment not binding or judge_error fails "
                 f"OPEN). Set {mode_env}=enforce before the run."
             )
+    # I-arch-005 B2/B3 (#1257): the per-section + outline ROW caps are now DISSOLVED into
+    # character budgets by DEFAULT for every caller (multi_section_generator
+    # `_section_budgets_enabled()`). The escape hatch PG_GEN_ROW_CAPS restores the legacy
+    # 150/40 ROW caps — which would re-impose the WEIGHT-AND-CONSOLIDATE-violating row-count
+    # truncation on the paid cert run (the §-1.3 day-waster). FAIL CLOSED if it is set on a
+    # production run so a row cap can NEVER silently re-bind (the "built-it-then-left-it-off"
+    # lesson, inverted: don't let an .env escape hatch silently turn the budget back OFF).
+    if os.getenv("PG_GEN_ROW_CAPS", "").strip().lower() in ("1", "true", "yes", "on"):
+        raise RuntimeError(
+            "benchmark preflight FAILED: PG_GEN_ROW_CAPS is set — the legacy per-section / "
+            "outline ROW caps (PG_MAX_EV_PER_SECTION / PG_OUTLINE_MAX_EV) would re-bind and "
+            "silently truncate the evidence pool by row COUNT (the WEIGHT-AND-CONSOLIDATE DNA "
+            "violation §-1.3 names). The character-budget path is the DEFAULT; unset "
+            "PG_GEN_ROW_CAPS before the run."
+        )
+
     # Codex diff-gate I-cap-005 P1-2: validate the EFFECTIVE (live) per-run budget cap — reads the
     # module global the guard actually enforces (synced by the slate via set_max_cost_per_run), NOT just
     # the env. Catches a stale-$10 cap that would silently abort a full-depth paid run mid-way.

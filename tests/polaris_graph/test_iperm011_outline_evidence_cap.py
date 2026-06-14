@@ -98,6 +98,12 @@ def _patch_client(monkeypatch):
     monkeypatch.setattr(
         orc_module, "set_reasoning_call_context", lambda *a, **k: None, raising=False
     )
+    # I-arch-005 B2/B3 (#1257): the PG_OUTLINE_MAX_EV ROW cap is now DEFAULT-OFF
+    # (dissolved into the terse-full-pool budget path for every caller). This file pins
+    # the LEGACY row-cap behavior, so it opts into it via the escape hatch PG_GEN_ROW_CAPS=1
+    # (which the cert preflight FAILS on for a paid run, but is the byte-identical legacy
+    # regression path). The new default-budget behavior is covered by the LANE-SECTION test.
+    monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")
     yield
 
 

@@ -23,7 +23,11 @@ def _normalize(src: str) -> str:
 def test_fact_dedup_except_reraises_credibility_pass_error():
     src = _normalize(inspect.getsource(m.generate_multi_section_report))
     # The fact-dedup safe-degrade handler must re-raise CredibilityPassError before logging "without dedup".
-    assert "if isinstance(exc, CredibilityPassError): raise" in src, (
+    # I-arch-004 A1 (#1248) Codex iter-2 widened the SAME fail-loud guard to ALSO re-raise the
+    # BudgetExceededError hard gate, so the isinstance check now carries the (CredibilityPassError,
+    # BudgetExceededError) TUPLE. The fail-loud contract for CredibilityPassError is unchanged (and the
+    # tuple form is checked literally below) — this assertion is updated to the tuple form, not relaxed.
+    assert "if isinstance(exc, (CredibilityPassError, BudgetExceededError)): raise" in src, (
         "fact-dedup except must re-raise CredibilityPassError (fail-loud), not swallow it"
     )
 
@@ -31,7 +35,12 @@ def test_fact_dedup_except_reraises_credibility_pass_error():
 def test_m44_regen_reraises_credibility_pass_error():
     src = _normalize(inspect.getsource(m.generate_multi_section_report))
     # M-44 regen uses gather(return_exceptions=True); a captured CredibilityPassError must be re-raised.
-    assert "if isinstance(regen_result, CredibilityPassError): raise regen_result" in src, (
+    # I-arch-004 A1 (#1248): the captured-value re-raise now carries the (CredibilityPassError,
+    # BudgetExceededError) tuple + `raise regen_result`. CredibilityPassError fail-loud is preserved.
+    assert (
+        "if isinstance(regen_result, (CredibilityPassError, BudgetExceededError)): raise regen_result"
+        in src
+    ), (
         "M-44 regen must re-raise a captured CredibilityPassError (return_exceptions=True swallows otherwise)"
     )
 
@@ -39,8 +48,10 @@ def test_m44_regen_reraises_credibility_pass_error():
 def test_m47_regen_reraises_credibility_pass_error():
     src = _normalize(inspect.getsource(m.generate_multi_section_report))
     # M-47 regen's except Exception wraps _bounded_run; must re-raise CredibilityPassError.
-    # (two distinct re-raise sites carry isinstance(exc, CredibilityPassError): one fact-dedup, one M-47.)
-    assert src.count("if isinstance(exc, CredibilityPassError): raise") >= 2, (
+    # I-arch-004 A1 (#1248): both the fact-dedup AND the M-47 except now use the (CredibilityPassError,
+    # BudgetExceededError) tuple guard — two distinct re-raise sites still carry the CredibilityPassError
+    # fail-loud contract (the widening to BudgetExceededError strengthens, never relaxes, the guard).
+    assert src.count("if isinstance(exc, (CredibilityPassError, BudgetExceededError)): raise") >= 2, (
         "M-47 regen except must also re-raise CredibilityPassError (fact-dedup + M-47 = 2 sites)"
     )
 

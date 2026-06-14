@@ -520,7 +520,15 @@ def test_f18b_loop_wires_all_three_branches():
 def test_f29_m44_call_site_reads_env_call_time(monkeypatch):
     """The M-44 injection cap must be read from PG_MAX_EV_PER_SECTION at CALL time.
     Drive the helper with the EXACT call-site expression and prove env wins per
-    call (not a frozen import-time literal)."""
+    call (not a frozen import-time literal).
+
+    I-arch-005 B-M44 (#1257): the at-cap COUNT-SWAP (drop the lowest-priority row to
+    make room for the primary) is now gated behind the PG_GEN_ROW_CAPS legacy escape
+    hatch — on the DEFAULT path it is a §-1.3 BANNED count-based drop and no longer
+    fires. So this test now asserts the env-read cap reaches the helper at call time
+    BUT under the two regimes: DEFAULT path = no count-drop (grow past the cap);
+    PG_GEN_ROW_CAPS path = legacy swap restored. The env-read-at-call-time invariant
+    (the original F29 fix) is preserved in both regimes."""
     from src.polaris_graph.generator.multi_section_generator import (
         SectionPlan, _m44_inject_primaries_into_outline,
     )
@@ -528,21 +536,36 @@ def test_f29_m44_call_site_reads_env_call_time(monkeypatch):
     def _call_site_cap() -> int:
         return int(os.getenv("PG_MAX_EV_PER_SECTION", "30"))
 
-    # Section holding 5 rows; primary should SWAP in only when cap<=5.
+    # Section holding 5 rows; "Efficacy" is M-44 primary-eligible + _general affinity.
     plans = [SectionPlan(title="Efficacy", focus="f",
                          ev_ids=[f"ev_{i}" for i in range(5)])]
     primary = {"SURPASS-2": ["ev_primary"]}
 
-    # env=5 -> cap 5 -> at-cap -> SWAP (drops ev_4).
+    # DEFAULT path: env=5 -> cap 5 -> at the count -> but the count-drop is BANNED on the
+    # default path (B-M44). The primary is INJECTED and the list GROWS to 6; nothing evicted.
+    monkeypatch.delenv("PG_GEN_ROW_CAPS", raising=False)
     monkeypatch.setenv("PG_MAX_EV_PER_SECTION", "5")
     updated, log = _m44_inject_primaries_into_outline(
         plans, primary, max_ev_per_section=_call_site_cap(),
     )
-    assert len(updated[0].ev_ids) == 5
+    assert len(updated[0].ev_ids) == 6  # grew past the count (no §-1.3 count drop)
     assert updated[0].ev_ids[0] == "ev_primary"
-    assert any(e["action"].startswith("swap_in_for_") for e in log)
+    assert "ev_4" in updated[0].ev_ids  # the lowest-priority row was NOT count-evicted
+    assert any(e["action"] == "injected" for e in log)
+    assert not any(e.get("drop_reason") for e in log)  # no count-drop telemetry
 
-    # env=30 (or unset) -> cap 30 -> NOT at cap -> INJECT (grows to 6, no drop).
+    # ESCAPE HATCH: PG_GEN_ROW_CAPS=1 restores the legacy at-cap SWAP (drops ev_4).
+    monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")
+    updated_hatch, log_hatch = _m44_inject_primaries_into_outline(
+        plans, primary, max_ev_per_section=_call_site_cap(),
+    )
+    assert len(updated_hatch[0].ev_ids) == 5  # held at the count cap
+    assert updated_hatch[0].ev_ids[0] == "ev_primary"
+    assert "ev_4" not in updated_hatch[0].ev_ids  # the legacy swap evicted the last row
+    assert any(e["action"].startswith("swap_in_for_") for e in log_hatch)
+
+    # env=30 (or unset) -> cap 30 -> NOT at cap -> INJECT (grows to 6, no drop) under EITHER regime.
+    monkeypatch.delenv("PG_GEN_ROW_CAPS", raising=False)
     monkeypatch.setenv("PG_MAX_EV_PER_SECTION", "30")
     updated2, log2 = _m44_inject_primaries_into_outline(
         plans, primary, max_ev_per_section=_call_site_cap(),

@@ -456,12 +456,17 @@ def test_p3_15_provenance_assignment_matches_gate_coverage():
     assert plans_off[1].ev_ids == ev_ids[1::2][:1]
 
 
-def test_p3_15c_credited_above_floor_rows_billed_first():
+def test_p3_15c_credited_above_floor_rows_billed_first(monkeypatch):
     """On-mode assignment is AUTHORITY-FLOOR aware: a section the gate certified
-    SUFFICIENT (≥target above-floor rows) must RECEIVE those credited rows, even
+    SUFFICIENT (≥target above-floor rows) must RECEIVE those credited rows FIRST, even
     when below-floor relevant rows sort FIRST (e.g. prepended contract/upload
-    rows). Below-floor rows only fill remaining cap slots, never displace
-    credited ones (brief §2.2b: ev_ids == the section's credited rows)."""
+    rows). Credited rows are SACRED (reserved) — never displaced by below-floor fillers.
+
+    I-arch-005 B2/B3 (#1257): the per-section ROW cap is now DISSOLVED into a char budget by
+    DEFAULT, so the filler tail is no longer dropped to hit a row count — the credited rows
+    still come FIRST (the invariant this test pins), and the below-floor fillers follow. The
+    legacy exact-cap behavior (ev_ids == the 2 credited rows only) is asserted under the
+    PG_GEN_ROW_CAPS escape hatch."""
     from src.polaris_graph.generator.multi_section_generator import (
         _assign_evidence_to_planned_outline,
     )
@@ -475,10 +480,22 @@ def test_p3_15c_credited_above_floor_rows_billed_first():
         _row("hi_0", "facet zero terms", 0.9),
         _row("hi_1", "facet zero terms", 0.9),
     ]
+    # DEFAULT (budget) path: credited rows are billed FIRST (reserved/sacred), below-floor
+    # fillers follow (never dropped to a row count, never displacing the credited rows).
     plans = _assign_evidence_to_planned_outline(
         outline, evidence, sub_queries=sub,
     )
-    assert plans[0].ev_ids == ["hi_0", "hi_1"]
+    assert plans[0].ev_ids[:2] == ["hi_0", "hi_1"], (
+        f"credited above-floor rows must be billed FIRST; got {plans[0].ev_ids}"
+    )
+    assert set(plans[0].ev_ids) >= {"hi_0", "hi_1"}, "both credited rows present"
+
+    # ESCAPE HATCH (legacy row cap): the section is clamped to exactly the 2 credited rows.
+    monkeypatch.setenv("PG_GEN_ROW_CAPS", "1")
+    plans_capped = _assign_evidence_to_planned_outline(
+        outline, evidence, sub_queries=sub,
+    )
+    assert plans_capped[0].ev_ids == ["hi_0", "hi_1"]
 
 
 def test_p3_15e_per_facet_reservation_survives_cap_truncation():

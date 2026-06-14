@@ -362,12 +362,21 @@ def test_contract_slot_reasoning_cap_is_lowered_and_content_not_starved():
     assert msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS > 0
     # ... while the CONTENT budget floor stays ample (serves §9.1.8 "never starve content").
     assert msg.PG_CONTRACT_SLOT_MIN_MAX_TOKENS >= msg.PG_CONTRACT_SLOT_REASONING_MAX_TOKENS
-    # ... and the per-call stall timeout is WELL UNDER the section wall (generator timeout) BUT
+    # ... and the per-call stall timeout is WELL UNDER the section WALL-CLOCK backstop BUT
     # comfortably ABOVE the observed legitimate contract-slot duration (the drb_72 slot ran ~473s; a
     # 25K-char FDA-label regulatory echo runs 400-545s on the slow band). A too-tight stall timeout
     # would false-time-out a legitimate clinical regulatory slot → not_extractable → missing
     # FDA-label content (a §-1.1 completeness regression). 600s floor guards against re-tightening it.
-    assert 600 <= msg.PG_CONTRACT_SLOT_STALL_TIMEOUT_S < openrouter_client.GENERATOR_TIMEOUT_SECONDS
+    #
+    # I-arch-005 B24 (#1257): the upper bound is the section WALL-CLOCK (_section_wallclock_seconds,
+    # default 1800s), NOT the main GENERATOR_TIMEOUT_SECONDS. The contract-slot call passes its OWN
+    # explicit timeout (PG_CONTRACT_SLOT_STALL_TIMEOUT_S) to client.generate(); openrouter_client
+    # _call_impl resolves `actual_timeout = timeout or default`, so an explicit timeout always wins and
+    # GENERATOR_TIMEOUT_SECONDS (the *unset-caller* default, now right-sized to 600s for non-slate
+    # callers) NEVER bounds this call. The runtime invariant that actually matters is therefore
+    # slot_stall < section_wall: both inner per-call timeouts sit under the outer section backstop.
+    from src.polaris_graph.generator.multi_section_generator import _section_wallclock_seconds
+    assert 600 <= msg.PG_CONTRACT_SLOT_STALL_TIMEOUT_S < _section_wallclock_seconds()
 
 
 def test_contract_slot_reasoning_cap_reaches_the_request_body(monkeypatch):
