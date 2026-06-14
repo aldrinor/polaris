@@ -6044,10 +6044,14 @@ async def generate_multi_section_report(
                     set_reasoning_call_context(
                         section="_fact_dedup", call_type="fact_dedup",
                     )
+                    # F23 (I-arch-004 A3): env-overridable side-call cap; default
+                    # keeps the historical literal 2048 so an unset env is
+                    # byte-identical. max_tokens is a CAP not a target (§9.1.8,
+                    # usage-billed) — the slate may raise it; never lower the default.
                     return await client.generate(
                         prompt=prompt,
                         system=system,
-                        max_tokens=2048,
+                        max_tokens=int(os.getenv("PG_FACT_DEDUP_MAX_TOKENS", "2048")),
                         temperature=0.2,
                     )
                 finally:

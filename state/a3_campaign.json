@@ -10,7 +10,7 @@
   "max_parallel": "fan out across file-INDEPENDENT fixes; serialize same-hot-file fixes per the serialize_set",
   "checkpoint_gate": "F04 must be APPROVE+committed BEFORE the full Q1 --all run",
   "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) §-1.1-audited end-to-end",
-  "status": "executing",
+  "status": "ALL_32_DONE",
   "wave0_recovery_note_2026_06_14": "Overnight Wave-0 Workflow (wf_7ed8eebf-4e3) STALLED ~7h on hung codex (no-timeout). Both lane builds were complete as uncommitted changes in the locked worktrees; salvaged to main (same HEAD 3af0168e), 77/77 tests green, durable patches at .codex/I-arch-004/wave0/{lane1,lane2}.patch. Codex diff-gates relaunched via file-read (large piped stdin kills codex exec rc=127). Lane1=F01+F25+F03, Lane2=F02.",
   "done": [
     "A1 (#1248, 8415d496)",
@@ -462,8 +462,9 @@
       "files": [
         "multiple"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE iter1; .env-ified planner subqueries (PG_PLANNER_MAX/MIN_SUBQUERIES), fact-dedup/audit-critique/outline token caps, section_temperature (old literals as byte-identical defaults); skipped already-env + dead-code + the gemma side-judge MODEL defaults (out of scope = I-arch-003 lock, handled by the launch slate PG_ENTAILMENT_MODEL=glm)"
     }
   ]
 }

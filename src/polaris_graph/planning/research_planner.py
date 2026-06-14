@@ -41,6 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -194,10 +195,16 @@ def validate_jurisdiction_shapes(values: list[str]) -> list[str]:
 # UPPER bound on emitted sub-queries (brief §2.1). >40 is merged/truncated
 # deterministically. The fetch cap (`PG_SWEEP_FETCH_CAP`) bounds FETCHED URLs
 # downstream; this bounds the per-question query fan-out.
-DEFAULT_MAX_SUBQUERIES = 40
+# F23 (I-arch-004 A3): env-overridable for slate tuning; default keeps the
+# historical literal 40 so an unset env is byte-identical. This is an UPPER
+# merge/truncate bound, NOT a §-1.3 breadth-target hard-filter — raising it
+# only loosens the fan-out ceiling; it never drops a source to hit a number.
+DEFAULT_MAX_SUBQUERIES = int(os.getenv("PG_PLANNER_MAX_SUBQUERIES", "40"))
 # LOWER bound that triggers ONE fail-loud retry (brief §2.1). A genuinely
 # narrow question may legitimately accept fewer after the retry; we never pad.
-MIN_SUBQUERIES = 12
+# F23: env-overridable; default keeps the historical literal 12 (byte-identical
+# when unset). This is a fail-loud retry trigger, never deterministic padding.
+MIN_SUBQUERIES = int(os.getenv("PG_PLANNER_MIN_SUBQUERIES", "12"))
 
 
 class PlannerError(RuntimeError):

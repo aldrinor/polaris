@@ -5928,7 +5928,9 @@ class ReactAnalysisAgent:
                     # I-arch-003 (#1253): reasoning effort to MAX (was medium). max_tokens routes through
                     # openrouter_client so the reasoning-first floor (>=4096/16384) applies.
                     effort=os.environ.get("PG_CRITIQUE_REASONING_EFFORT", "high") or "high",
-                    max_tokens=2048,
+                    # F23 (I-arch-004 A3): env-overridable audit-critique cap; default keeps the
+                    # historical literal 2048 (byte-identical when unset). CAP not target (§9.1.8).
+                    max_tokens=int(os.environ.get("PG_AUDIT_CRITIQUE_MAX_TOKENS", "2048")),
                     timeout=_CRITIQUE_TIMEOUT,
                 ),
                 timeout=_CRITIQUE_TIMEOUT + 15,

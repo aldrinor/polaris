@@ -6643,7 +6643,11 @@ async def run_one_query(
                 prior_verified_context=_prior_verified_context,
                 credibility_pass_judge=_cred_judge,
                 credibility_pass_gov_suffixes=_cred_gov,
-                section_temperature=0.3,
+            # F23 (I-arch-004 A3): env-overridable section temperature; default
+            # keeps the historical literal 0.3 so an unset env is byte-identical.
+            section_temperature=float(os.environ.get(
+                "PG_SECTION_TEMPERATURE", "0.3",
+            )),
             # M-31 (2026-04-21): raise outline_max_tokens 800→2500 to
             # match the upstream default. V19 had 3 / V20 had 2
             # "Expecting ',' delimiter" JSON decode failures — all
@@ -6651,7 +6655,13 @@ async def run_one_query(
             # outline contains 5 sections × 12-20 ev_ids each.
             # Fallback to 3-section deterministic outline costs
             # ~60% of word count and drops all regulatory sources.
-            outline_max_tokens=2500,
+            # F23 (I-arch-004 A3): env-overridable; default keeps the literal
+            # 2500 (byte-identical when unset). Distinct name from synthesizer's
+            # PG_OUTLINE_MAX_TOKENS to avoid a cross-module knob collision.
+            # CAP not target (§9.1.8) — slate may raise it; never lower default.
+            outline_max_tokens=int(os.environ.get(
+                "PG_MS_OUTLINE_MAX_TOKENS", "2500",
+            )),
             # M-33 (2026-04-21): raise section_max_tokens 1200→2400 to
             # match the upstream default. V22 diagnostic: one of six
             # sections hit exactly 1200 tokens (capped mid-generation),
