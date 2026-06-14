@@ -20,17 +20,21 @@ roles:
     model: z-ai/glm-5.1
     # I-ready-018 FIX-GLM (#1100): Parasail DEMOTED out of the Mirror chain. In the drb_72 paid run
     # GLM-5.1 returned blank verdicts on 23/126 Parasail calls (~18%) but 0/39 on Io Net and 1/17 on
-    # Friendli — a flaky-PROVIDER empty-200 defect, NOT the model. Io Net (0 blanks) leads; Parasail
-    # is removed from `order` and added to `ignore` so allow_fallbacks:false never routes the binding
-    # Mirror through it. Model unchanged (operator + Codex confirmed: keep GLM, swap provider only).
-    # 2026-06-12 SILICONFLOW-DEMOTE: SAME defect on SiliconFlow — GLM-5.1 at effort=xhigh returns
-    # empty-content 200s on SiliconFlow (reproduced directly), stalling the binding 4-role gate. The
-    # 16384 token budget is ample (GLM uses ~860 reasoning tok), and DeepInfra serves xhigh CLEAN
-    # (measured: 860 reasoning + 856-char verdict). So SiliconFlow is removed from `order` + added to
-    # `ignore`, and DeepInfra is pinned FIRST. Keeps MAX reasoning (xhigh); swaps the flaky provider only.
-    order: [deepinfra, io-net, friendli, fireworks, baidu]
-    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow]
-    notes: "parasail demoted (I-ready-018 FIX-GLM ~18% blank); siliconflow demoted 2026-06-12 (xhigh empty-200); deepinfra pinned first (xhigh-clean)"
+    # Friendli — a flaky-PROVIDER empty-200 defect, NOT the model. Model unchanged (operator + Codex
+    # confirmed: keep GLM, swap provider only).
+    # I-arch-003 (#1253, operator 2026-06-14 "fp8 better quality + max max tokens"): RE-PINNED to the
+    # fp8 HIGH-CAP chain. The prior pin DeepInfra was fp4 (q=fp4) with max_completion_tokens=32768 —
+    # violating BOTH the fp8-quality and the max-output directives (the transport now sends
+    # max_tokens=131072, which would 400 on DeepInfra's 32768 cap). Live OpenRouter endpoints read
+    # 2026-06-14 + a 3x/provider bake-off (scripts/diagnostics/mirror_glm_provider_bakeoff.py) at the
+    # real Mirror shape (reasoning.max_tokens=100000 numeric cap + max_tokens=131072) returned 3/3
+    # CLEAN (0 blank, finish=stop) on atlas-cloud/z-ai/baidu/novita/gmicloud — the NUMERIC reasoning
+    # cap (not effort=xhigh) is what makes them clean; the xhigh empty-200 defect does not occur.
+    # AtlasCloud leads (fp8, max_out=202752, fastest ~6-8s); Z.AI (first-party) + Baidu + Novita +
+    # GMICloud back it (all fp8, max_out>=131072, all clean). DeepInfra (fp4/32768) removed.
+    order: [atlas-cloud, z-ai, baidu, novita, gmicloud]
+    ignore: [chutes, phala, baseten, together, ambient, parasail, siliconflow, deepinfra, fireworks]
+    notes: "I-arch-003 2026-06-14: fp8 high-cap re-pin (atlas-cloud lead, max_out=202752); deepinfra(fp4/32768)+fireworks removed; parasail/siliconflow stay blank-demoted; numeric reasoning cap (not xhigh) verified blank-clean 3/3 on all 5 fp8 providers"
   sentinel:
     model: minimax/minimax-m2
     order: [google-vertex, novita, atlas-cloud, minimax]
@@ -38,8 +42,13 @@ roles:
     notes: "some providers have NULL uptime (ranked last)"
   judge:
     model: qwen/qwen3.6-35b-a3b
-    order: [wandb, io-net, atlas-cloud]
-    ignore: [ambient, parasail, akashml, siliconflow]
+    # I-arch-003 (#1253, operator 2026-06-14 "max max"): atlas-cloud DROPPED from the chain. Live
+    # OpenRouter read 2026-06-14: wandb=262144, io-net=262140, atlas-cloud=65536. The transport now
+    # sends max_tokens=262140 (min of the kept chain), which would 400 on atlas-cloud's 65536 cap, so
+    # atlas-cloud is removed to keep the chain self-consistent. WandB (4/4 reliable in I-arch-003
+    # tests) leads; Io Net (262140) backs it. Both fp8.
+    order: [wandb, io-net]
+    ignore: [ambient, parasail, akashml, siliconflow, atlas-cloud]
 provider_aliases:
   "AkashML": akashml
   "Alibaba": alibaba

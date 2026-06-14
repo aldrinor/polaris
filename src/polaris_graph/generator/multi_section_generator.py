@@ -204,16 +204,20 @@ def _budget_trim_ev_ids(
 # has room to FINISH planning AND write the cited paragraph.
 #
 # IMPORTANT (scope honesty): openrouter_client clamps every reasoning-first
-# request to PG_REASONING_FIRST_HARD_CAP (default 16384, DeepInfra's verified
-# deepseek-v4-pro provider cap — 16385 → 404). So on the DEFAULT provider this
-# constant above 16384 is forward-compat HEADROOM, not active room: any value
-# >16384 is clamped down to 16384, and any value <16384 is floored UP to 16384.
-# Raising this constant only takes effect once an operator points the writer at a
-# higher-tier endpoint AND raises PG_REASONING_FIRST_HARD_CAP above the model's
-# reasoning burn. The truncation GUARD (FX-01 promotion path in openrouter_client)
-# is untouched here — we only widen the requested content budget, never disable
-# the refusal-to-ship-scratchpad guard.
-PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "24000"))
+# request to clamp(request, PG_REASONING_FIRST_MIN_MAX_TOKENS, PG_REASONING_FIRST_HARD_CAP).
+# I-arch-003 (#1253, operator 2026-06-14 "generation tokens go max max"): the hard cap is now
+# 384000 (the generator chain is pinned to fp8 FULL-CAP providers >= 384,000; DeepInfra fp4/16384
+# is EXCLUDED), and the floor is 32768. So this constant is now ACTIVE room (not the old
+# forward-compat headroom): a value between 32768 and 384000 is honored verbatim. Raised
+# 24000 -> 64000 so long clinical sections get ~46k content room on top of V4 Pro's ~18k
+# reasoning burn — directly serving the completeness lever (POLARIS loses to ChatGPT on
+# completeness, not faithfulness). Bounded WELL below 384000 on purpose: max_tokens is a
+# usage-billed CEILING (no cost when unused), but a per-section ceiling of 384k risks a runaway
+# multi-minute section that hurts the wall-clock the operator also prioritizes; 64000 is the
+# zero-starvation / no-runaway balance. The truncation GUARD (FX-01 promotion path in
+# openrouter_client) is untouched — we widen the content budget, never disable the
+# refusal-to-ship-scratchpad guard.
+PG_SECTION_MAX_TOKENS: int = int(os.getenv("PG_SECTION_MAX_TOKENS", "64000"))
 
 # V30 Phase-2 contract-slot extraction floor (M-66 run-5): contract slots echo
 # long regulatory prose spans as JSON; they need at least this much budget even

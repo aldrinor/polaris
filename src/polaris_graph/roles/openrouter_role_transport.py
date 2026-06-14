@@ -657,7 +657,16 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
         # override can never re-introduce the run-12 truncation that collapses every claim to a
         # fail-closed UNGROUNDED). Other reasoning verifiers keep PG_VERIFIER_REASONING_MAX_TOKENS.
         if request.role == "sentinel":
-            decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "16384"))
+            # I-arch-003 (#1253, operator "max max"): MAX output without hard-erroring. Under
+            # allow_fallbacks:False the binding cap is the MIN max_completion_tokens across the
+            # Sentinel provider chain (live OpenRouter read 2026-06-14): google-vertex=196608,
+            # novita=131072, atlas-cloud=196608, minimax=131072 -> min=131072. 196608 would 400 on
+            # the novita/minimax fallbacks, so 131072 is the safe max-of-chain (still ~8x the old
+            # 16384 and ~40x the I-run11-004 certified 3000 floor; the multi-atom decomposition JSON
+            # never approaches it). max_tokens is a usage-billed cap, so the generous budget never
+            # starves output. Hard-floored at the certified minimum so an env override can't
+            # re-introduce the run-12 truncation.
+            decomp_budget = int(os.getenv("PG_SENTINEL_DECOMPOSITION_MAX_TOKENS", "131072"))
             body["max_tokens"] = max(decomp_budget, _SENTINEL_DECOMPOSITION_MIN_MAX_TOKENS)
         elif request.role == "mirror":
             # I-run11-008 (#1053): BOUND GLM's reasoning. `effort` is a NO-OP on GLM (its OpenRouter
@@ -666,17 +675,39 @@ def _build_openrouter_body(request: RoleRequest, model_slug: str, normalized_mes
             # reasoning.max_tokens) and give the verdict a generous total budget STRICTLY above the cap
             # (OpenRouter rule). Reasoning STAYS ON (bake-off: reasoning-off doubled false_bind), just
             # capped so it cannot starve the answer.
-            reasoning_cap = int(os.getenv("PG_MIRROR_REASONING_MAX_TOKENS", "4000"))
+            #
+            # I-arch-003 (#1253, operator "max max"): the 47-blank trap is specifically
+            # reasoning_cap ~= max_tokens (reasoning eats the WHOLE budget -> empty content). The fix
+            # is NOT a small cap per se; it is the STRUCTURAL invariant reasoning_cap << max_tokens so
+            # the verdict always has room. Raised reasoning 4000 -> 100000 and total 24000 -> 131072
+            # (min max_completion_tokens across the re-pinned fp8 Mirror chain: atlas-cloud=202752,
+            # z-ai/baidu/novita=131072 -> safe-on-all = 131072). The invariant holds: 100000 reasoning
+            # leaves 31072 for a ~50-token JSON verdict. EMPIRICALLY VALIDATED 2026-06-14 by
+            # scripts/diagnostics/mirror_glm_provider_bakeoff.py: GLM-5.1 at reasoning_cap=100000 /
+            # max_tokens=131072 returned 3/3 clean (0 blank, finish=stop, ~6-9s) on ALL of
+            # atlas-cloud/z-ai/baidu/novita/gmicloud — the cap is a CEILING GLM does not exhaust, so it
+            # never re-blanks. Do NOT collapse the gap (reasoning_cap toward max_tokens) — that re-breaks it.
+            reasoning_cap = int(os.getenv("PG_MIRROR_REASONING_MAX_TOKENS", "100000"))
             body["reasoning"] = {"max_tokens": reasoning_cap}
             body["max_tokens"] = max(
-                int(os.getenv("PG_MIRROR_MAX_TOKENS", "24000")), reasoning_cap + 4000
+                int(os.getenv("PG_MIRROR_MAX_TOKENS", "131072")), reasoning_cap + 4000
             )
         else:
-            body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "16384"))
+            # I-arch-003 (#1253, operator "max max"): the reasoning Judge (Qwen3.6-35B-A3B) verdict
+            # is a short enum/JSON, so a generous output cap can only HELP (more reasoning room, never
+            # starves — max_tokens is billed by usage, not pre-allocated). Raised 16384 -> 262140, the
+            # MIN max_completion_tokens across the Judge chain (live OpenRouter read 2026-06-14:
+            # wandb=262144, io-net=262140; atlas-cloud=65536 DROPPED from the chain in the routing yaml
+            # because its 65536 cap is incompatible with the max-output directive and would 400 here).
+            # Qwen lists `effort` so it is reasoning-bounded by the model, not by an explicit numeric
+            # cap; the total budget simply guarantees the verdict never truncates.
+            body["max_tokens"] = int(os.getenv("PG_VERIFIER_REASONING_MAX_TOKENS", "262140"))
     else:
         # Sentinel (reasoning-disabled classifier): give it explicit output room rather than relying
-        # on an unknown provider default (no pop-and-hope). Small budget is plenty for a label verdict.
-        body["max_tokens"] = int(os.getenv("PG_SENTINEL_MAX_TOKENS", "256"))
+        # on an unknown provider default (no pop-and-hope). I-arch-003 (#1253, operator "max max"):
+        # raised 256 -> 4096 so a slightly verbose label can never truncate (still tiny, well within
+        # every Sentinel provider's cap; usage-billed so the headroom costs nothing when unused).
+        body["max_tokens"] = int(os.getenv("PG_SENTINEL_MAX_TOKENS", "4096"))
         # I-run11-007 (#1051): pin the non-reasoning role to its ranked HEALTHY provider chain too
         # (NO require_parameters — its slug does not advertise reasoning, so require_parameters would
         # refuse to route). Only set the block when routing is configured for the role.
