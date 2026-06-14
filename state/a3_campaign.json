@@ -1,15 +1,15 @@
 {
-  "campaign": "A3 \u00e2\u20ac\u201d complete Tier A-E, production-grade, no more half-ass runs",
+  "campaign": "A3 — complete Tier A-E, production-grade, no more half-ass runs",
   "mandate_date_utc": "2026-06-14",
-  "operator_directive": "Fix ALL 32 chokepoints (Claude 74 + 9 Codex + 27 run-data + 7 completeness + validation gate), each Codex-gated, faithfulness gates strengthened never relaxed (\u00c2\u00a7-1.3). Then a full-scale Q1 --all run. Checkpoints (F04) MUST be in place so any mid-run break is resumable.",
+  "operator_directive": "Fix ALL 32 chokepoints (Claude 74 + 9 Codex + 27 run-data + 7 completeness + validation gate), each Codex-gated, faithfulness gates strengthened never relaxed (§-1.3). Then a full-scale Q1 --all run. Checkpoints (F04) MUST be in place so any mid-run break is resumable.",
   "master_list": ".codex/I-arch-004/A3_master_fix_list.md (v2, Codex-validation-gated GAPS_OR_ERRORS_REMAIN folded)",
   "umbrella_issue": 1256,
   "codex_iter_cap": 3,
-  "_codex_iter_cap_note": "Operator 2026-06-14 lowered the per-document Codex cap from 5 to 3 FOR THIS CAMPAIGN. Brief cap directive uses 'HARD ITERATION CAP: 3 per document.' Does NOT change CLAUDE.md \u00c2\u00a78.3.1 globally.",
+  "_codex_iter_cap_note": "Operator 2026-06-14 lowered the per-document Codex cap from 5 to 3 FOR THIS CAMPAIGN. Brief cap directive uses 'HARD ITERATION CAP: 3 per document.' Does NOT change CLAUDE.md §8.3.1 globally.",
   "spend_authorized": true,
   "max_parallel": "fan out across file-INDEPENDENT fixes; serialize same-hot-file fixes per the serialize_set",
   "checkpoint_gate": "F04 must be APPROVE+committed BEFORE the full Q1 --all run",
-  "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) \u00c2\u00a7-1.1-audited end-to-end",
+  "certification": "a COMPLETED run_gate_b --all 5-Q run (incl >=1 clinical) §-1.1-audited end-to-end",
   "status": "executing",
   "wave0_recovery_note_2026_06_14": "Overnight Wave-0 Workflow (wf_7ed8eebf-4e3) STALLED ~7h on hung codex (no-timeout). Both lane builds were complete as uncommitted changes in the locked worktrees; salvaged to main (same HEAD 3af0168e), 77/77 tests green, durable patches at .codex/I-arch-004/wave0/{lane1,lane2}.patch. Codex diff-gates relaunched via file-read (large piped stdin kills codex exec rc=127). Lane1=F01+F25+F03, Lane2=F02.",
   "done": [
@@ -144,7 +144,7 @@
       ],
       "status": "done_codex_approved",
       "issue": 1254,
-      "gate": "Codex APPROVE iter1; KEPT unconditional override (regression-lock test proves NO escape clause); per-atom why threaded behind PG_JUDGE_SENTINEL_ATOMS (default OFF byte-identical) \u00e2\u20ac\u201d slate must enable it for the cert run"
+      "gate": "Codex APPROVE iter1; KEPT unconditional override (regression-lock test proves NO escape clause); per-atom why threaded behind PG_JUDGE_SENTINEL_ATOMS (default OFF byte-identical) — slate must enable it for the cert run"
     },
     {
       "id": "F12",
@@ -170,7 +170,7 @@
       ],
       "status": "done_codex_approved",
       "issue": null,
-      "gate": "Codex APPROVE iter3; atom-coverage cross-check ONLY downgrades GROUNDED->UNGROUNDED, flag PG_SENTINEL_ATOM_COVERAGE default OFF; no domain allowlist (\u00a7-1.3)"
+      "gate": "Codex APPROVE iter3; atom-coverage cross-check ONLY downgrades GROUNDED->UNGROUNDED, flag PG_SENTINEL_ATOM_COVERAGE default OFF; no domain allowlist (�-1.3)"
     },
     {
       "id": "F07",
@@ -245,8 +245,9 @@
       "files": [
         "multi_section_generator.py"
       ],
-      "status": "todo",
-      "issue": null
+      "status": "done_codex_approved",
+      "issue": null,
+      "gate": "Codex APPROVE in wf_6275f5ef-751 (its worktree, vs 0cf44c3a); applied byte-clean onto the committed F10+F31 base (git apply --3way, no merge resolution); 32 composed tests pass"
     },
     {
       "id": "F11",
@@ -309,7 +310,7 @@
       "id": "F15",
       "wave": 3,
       "sev": "P1",
-      "title": "\u00c2\u00a7-1.3 hard-drops down-weight + per-URL cap/negative-cache",
+      "title": "§-1.3 hard-drops down-weight + per-URL cap/negative-cache",
       "files": [
         "retrieval/live_retriever.py",
         "retrieval/evidence_selector.py"
@@ -436,7 +437,7 @@
       ],
       "status": "done_codex_approved",
       "issue": 539,
-      "note": "CHECKPOINT GATE SATISFIED \u00e2\u20ac\u201d the Q1 --all run is now resumable",
+      "note": "CHECKPOINT GATE SATISFIED — the Q1 --all run is now resumable",
       "gate": "Codex APPROVE iter1 (Lane C with F07); corpus_snapshot carries DATA-not-VERDICTS (asserted no verdict-shaped key), --resume reloads + RE-RUNS all gates (strict_verify/NLI/4-role/D8), fail-loud loads, atomic write, integration test re-runs gates on resume"
     },
     {

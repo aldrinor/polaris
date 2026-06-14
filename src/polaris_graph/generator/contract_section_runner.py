@@ -490,6 +490,14 @@ async def run_contract_section(
     strict_verify_fn: Any,     # strict_verify callable (injected)
     rewrite_fn: Any,           # _rewrite_draft_with_spans (injected)
     credibility_analysis: Any = None,  # I-cred-008b (#1162): advisory per-claim disclosure; None => byte-identical
+    # I-arch-004 F32 (#1255): adapter for the per-entity NARRATIVE paragraph call.
+    # The narrative is PROSE; `llm_call` is the JSON-only contract-slot adapter
+    # (system: "JSON only, no prose") used for slot-fill + regulatory synthesis,
+    # whose responses are parsed as JSON. Passing prose through the JSON-only
+    # system message gave the model conflicting instructions. When None, fall back
+    # to `llm_call` so existing callers stay byte-identical. The faithfulness gate
+    # (per-sentence verify in the rescue-INELIGIBLE narrative stream) is unchanged.
+    narrative_llm_call: Any = None,
 ) -> tuple[Any, list[SlotFillPayload]]:
     """Run one contract SECTION. Returns (SectionResult,
     list[SlotFillPayload]). The payloads are threaded back to
@@ -516,6 +524,12 @@ async def run_contract_section(
         _RESOLVE_MIN_CONTENT_WORDS,
         _RESOLVE_MIN_PROSE_CHARS,
     )
+
+    # I-arch-004 F32 (#1255): resolve the narrative-paragraph adapter. None => use
+    # the JSON-only `llm_call` (byte-identical to the pre-fix behaviour for callers
+    # that do not pass a prose adapter). The production caller threads the prose
+    # adapter so the narrative is generated under a prose system message.
+    _narrative_call = narrative_llm_call if narrative_llm_call is not None else llm_call
 
     payloads: list[SlotFillPayload] = []
     total_in_tok = 0
@@ -714,7 +728,12 @@ async def run_contract_section(
                 )
                 if narr_prompt:
                     try:
-                        narr_text, narr_in, narr_out = await llm_call(
+                        # I-arch-004 F32 (#1255): the narrative paragraph is PROSE
+                        # — route it through the prose adapter (`_narrative_call`),
+                        # NOT the JSON-only `llm_call` used for slot-fill / regulatory
+                        # synthesis. Falls back to `llm_call` when no prose adapter
+                        # was threaded (byte-identical for legacy callers).
+                        narr_text, narr_in, narr_out = await _narrative_call(
                             narr_prompt,
                         )
                         total_in_tok += narr_in

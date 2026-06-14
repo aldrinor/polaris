@@ -269,6 +269,36 @@ PG_CONTRACT_SLOT_STALL_TIMEOUT_S: float = float(
     os.getenv("PG_CONTRACT_SLOT_STALL_TIMEOUT_S", "1200")
 )
 
+# I-arch-004 F32 (#1255): the V30 per-entity NARRATIVE paragraph call must NOT
+# reuse the JSON-only contract-slot system message.
+#
+# WHY: `_m63_llm_call` (the contract-slot extraction adapter) wraps every call with
+# a "You are a JSON-only extraction assistant … Do not include prose, preamble … or
+# any text outside the JSON object." system message. That is correct for the slot-fill
+# and regulatory-synthesis calls (their responses are parsed as JSON by
+# `parse_slot_fill_response` / `parse_regulatory_synthesis_response`). But the narrative
+# paragraph call (`build_slot_narrative_prompt` -> contract_section_runner.py) asks the
+# model for ONE flowing prose paragraph ("OUTPUT: plain prose, ONE paragraph"). Routing
+# that prose request through the JSON-only system message gives the model directly
+# CONFLICTING instructions (system: emit ONLY JSON, no prose; user: emit a prose
+# paragraph), degrading the narrative output. The narrative call gets its OWN prose
+# system message + explicit non-JSON response mode (`response_format=None`) below.
+#
+# Faithfulness: UNCHANGED. The narrative stream stays rescue-INELIGIBLE (I-faith-001
+# Fix B) and every narrative sentence is still re-verified by `verify_sentence_provenance`
+# against its cited span; a sentence not entailed by the span is dropped and CANNOT be
+# rescued. This fix only changes what the model is ASKED to produce (prose, as the user
+# prompt already demands) — it does not touch any verification gate.
+PG_NARRATIVE_PROSE_SYSTEM_MESSAGE: str = os.getenv(
+    "PG_NARRATIVE_PROSE_SYSTEM_MESSAGE",
+    "You are a clinical Deep Research writer. Write ONE flowing narrative "
+    "prose paragraph that restates ONLY the verbatim-extracted field values "
+    "the user prompt provides, weaving them into connected sentences. Do NOT "
+    "emit JSON, bullet lists, headings, code fences, or any preamble — output "
+    "the prose paragraph only. Introduce no number, metric, concept, or claim "
+    "that is not present verbatim in the provided fields.",
+)
+
 # I-perm-011 (#1182): OUTLINE-prompt evidence-menu cap (OFF-mode `_call_outline`).
 #
 # WHY: drb_76 ran OFF-mode (PG_USE_RESEARCH_PLANNER unset) -> generate_multi_section_report
@@ -5647,6 +5677,61 @@ async def generate_multi_section_report(
             response.output_tokens,
         )
 
+    async def _m63_narrative_llm_call(prompt: str) -> tuple[str, int, int]:
+        """Adapter: the V30 per-entity NARRATIVE paragraph call (I-arch-004 F32).
+
+        IDENTICAL to `_m63_llm_call` (same model, token / reasoning / stall
+        budgets — F02 / operator-lock §9.1.8 territory, left byte-for-byte
+        unchanged) EXCEPT it uses a PROSE system message
+        (`PG_NARRATIVE_PROSE_SYSTEM_MESSAGE`) and an EXPLICIT non-JSON response
+        mode (`response_format=None`). The narrative prompt
+        (`build_slot_narrative_prompt`) asks for "plain prose, ONE paragraph";
+        routing it through the JSON-only `_m63_llm_call` system message gave the
+        model conflicting instructions (system: JSON only, no prose; user: prose
+        paragraph). This adapter removes that conflict. The JSON slot-fill and
+        regulatory-synthesis calls KEEP `_m63_llm_call` (their responses are
+        parsed as JSON) — only the narrative call is rerouted here.
+
+        Faithfulness UNCHANGED: every narrative sentence is still re-verified by
+        `verify_sentence_provenance` in the rescue-INELIGIBLE narrative stream.
+        """
+        from ..llm.openrouter_client import (
+            OpenRouterClient,
+            set_reasoning_call_context,
+        )
+        client = OpenRouterClient(model=gen_model)
+        try:
+            # I-gen-004 (#496): tag the V30 contract-slot NARRATIVE call. Reuse the
+            # frozen ``contract_slot`` call_type (reasoning_trace.CALL_TYPES allowlist)
+            # — the narrative shares the contract-slot section + budgets; only the
+            # system message / response mode differ, which call_type does not encode.
+            set_reasoning_call_context(
+                section="_contract_slot", call_type="contract_slot",
+            )
+            response = await client.generate(
+                prompt=prompt,
+                system=PG_NARRATIVE_PROSE_SYSTEM_MESSAGE,
+                max_tokens=max(section_max_tokens, PG_CONTRACT_SLOT_MIN_MAX_TOKENS),
+                temperature=section_temperature,
+                # F02 budgets identical to _m63_llm_call (terse <=3-sentence call):
+                reasoning_max_tokens=PG_CONTRACT_SLOT_REASONING_MAX_TOKENS,
+                timeout=PG_CONTRACT_SLOT_STALL_TIMEOUT_S,
+                # I-arch-004 F32 (#1255): EXPLICIT non-JSON response mode. The
+                # narrative is prose, not a JSON object; never request json_object.
+                response_format=None,
+            )
+        finally:
+            if hasattr(client, "close"):
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+        return (
+            (response.content or "").strip(),
+            response.input_tokens,
+            response.output_tokens,
+        )
+
     # V33 (M-72) cross-trial synthesis: contract sections must
     # render BEFORE legacy sections so the synthesis block has
     # access to extracted slot payloads. Pre-V33 ordering ran
@@ -5660,6 +5745,10 @@ async def generate_multi_section_report(
             result, payloads = await run_contract_section(
                 plan, evidence_pool,
                 llm_call=_m63_llm_call,
+                # I-arch-004 F32 (#1255): route ONLY the narrative-paragraph call
+                # through the prose adapter; slot-fill + regulatory synthesis keep
+                # the JSON-only _m63_llm_call (their responses are parsed as JSON).
+                narrative_llm_call=_m63_narrative_llm_call,
                 section_result_cls=SectionResult,
                 strict_verify_fn=strict_verify,
                 rewrite_fn=_rewrite_draft_with_spans,
